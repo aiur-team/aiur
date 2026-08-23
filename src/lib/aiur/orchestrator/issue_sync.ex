@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
   alias Aiur.PollCadence
@@ -63,6 +64,17 @@ defmodule Aiur.Orchestrator.IssueSync do
             {healed_issue, state_acc} = heal_contradictory_state(issue, winner_for(state_labels), state_acc, update_state_fun)
             {[healed_issue | acc], state_acc}
 
+          # `state_labels == []` is the GitHub normalizer's zero-label signal
+          # (state is nil alongside it); `state_labels == nil` with no state is
+          # the not-normalized equivalent. An issue that carries a real state
+          # without a populated labels list (e.g. non-GitHub tracker fixtures)
+          # is not a stranded zero-label ticket and is left untouched, and a
+          # closed issue needs no state label at all (#2420).
+          %Issue{state_labels: state_labels, state: state} = issue
+          when (state_labels == [] or (state_labels == nil and is_nil(state))) and state != "Closed" ->
+            {healed_issue, state_acc} = heal_missing_state_label(issue, state_acc, update_state_fun)
+            {[healed_issue | acc], state_acc}
+
           _issue ->
             {[issue | acc], state_acc}
         end
@@ -74,6 +86,58 @@ defmodule Aiur.Orchestrator.IssueSync do
   def reconcile_contradictory_state_labels(%State{} = state, _issues, _update_state_fun), do: {state, []}
 
   defp winner_for(state_labels), do: DispatchPolicy.resolve_state_labels(state_labels)
+
+  # A ticket observed with zero `agent:*` state labels is invisible to dispatch
+  # (#2420): every reconciler consumes either the filtered candidate list or
+  # `state.running`, and a zero-label ticket is in neither, so nothing would
+  # ever repair it. Restore its last known state from `state.running` (the
+  # state its agent was last working under), falling back to `agent:todo`, and
+  # alert so the strand is surfaced rather than silently healed.
+  defp heal_missing_state_label(%Issue{} = issue, state, update_state_fun) do
+    restored = restore_state_for(issue, state)
+    healed_issue = %{issue | state: restored, state_labels: [restored]}
+
+    case update_state_fun.(issue.identifier, restored) do
+      :ok ->
+        alert_missing_state_label_repaired(issue, restored)
+
+        Logger.warning("Healing missing state label for #{State.issue_context(issue)} -> #{restored}")
+
+        {healed_issue, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, healed_issue)}}
+
+      {:error, reason} ->
+        Logger.warning("Missing state label heal failed for #{State.issue_context(issue)}: #{inspect(reason)}; dispatching on restored state")
+
+        {healed_issue, state}
+    end
+  end
+
+  # The last known state comes from the running entry's issue (the state its
+  # agent was last dispatched under). Only a non-terminal state is a safe
+  # restore target; anything else (or no running entry) falls back to
+  # `agent:todo` so the ticket is dispatchable again.
+  defp restore_state_for(%Issue{} = issue, %State{} = state) do
+    case Map.get(state.running, issue.id) do
+      %{issue: %Issue{state: state_name}} when is_binary(state_name) ->
+        if StatePolicy.terminal_state_name?(state_name), do: "todo", else: state_name
+
+      _missing ->
+        "todo"
+    end
+  end
+
+  defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",
+      issue: issue.identifier,
+      message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
+      reason:
+        "Ticket #{issue.identifier} carried zero agent:* state labels (a broken remove-then-add swap left it stranded); " <>
+          "restored #{restored} so dispatch can see it again.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
+  end
 
   defp heal_contradictory_state(%Issue{} = issue, winner, state, update_state_fun) do
     healed_issue = %{issue | state: winner, state_labels: [winner]}

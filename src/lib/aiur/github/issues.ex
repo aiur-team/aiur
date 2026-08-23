@@ -399,7 +399,7 @@ defmodule Aiur.GitHub.Issues do
       case fetch_label_issue_pages_conditional(ctx, url, cache) do
         {:ok, issues, updated_cache} ->
           candidates =
-            filter_and_authorize_candidates(
+            filter_and_authorize_candidates_with_degenerate(
               issues,
               active_states,
               ctx.request_fun,
@@ -418,14 +418,36 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix) do
-    candidates =
+    dispatchable =
       Enum.filter(issues, fn issue ->
         is_binary(issue.state) and
           MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
       end)
 
-    authorize_dispatches(candidates, request_fun, token, owner, repo, prefix)
+    authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
   end
+
+  # The orchestrator's conditional open-issue poll (`?state=open&per_page=100`
+  # is unfiltered, so this sees every open issue) partitions rather than
+  # discards: zero- and multi-`agent:*`-label tickets are returned alongside
+  # the authorized dispatch candidates so the orchestrator's repair pass can
+  # heal them. Every other non-dispatchable open ticket (terminal/error
+  # labels) is dropped exactly as before (#2420).
+  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix) do
+    {dispatchable, rest} =
+      Enum.split_with(issues, fn issue ->
+        is_binary(issue.state) and
+          MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
+      end)
+
+    authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
+    healable = Enum.filter(rest, &degenerate_state_labels?/1)
+    authorized ++ healable
+  end
+
+  defp degenerate_state_labels?(%Issue{state_labels: []}), do: true
+  defp degenerate_state_labels?(%Issue{state_labels: [_, _ | _]}), do: true
+  defp degenerate_state_labels?(_issue), do: false
 
   @spec fetch_issues_for_each_label(
           [String.t()],
@@ -902,7 +924,7 @@ defmodule Aiur.GitHub.Issues do
       title: gh_issue["title"],
       description: gh_issue["body"],
       priority: extract_priority(label_names),
-      state: extract_state(gh_issue, state_labels),
+      state: collapse_degenerate_state(extract_state(gh_issue, state_labels)),
       state_labels: state_labels,
       branch_name: nil,
       url: gh_issue["html_url"],
@@ -1005,12 +1027,27 @@ defmodule Aiur.GitHub.Issues do
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
   def extract_state(gh_issue, label_names, prefix) do
-    extract_state(gh_issue, extract_state_labels(label_names, prefix))
+    gh_issue
+    |> extract_state(extract_state_labels(label_names, prefix))
+    |> collapse_degenerate_state()
   end
 
+  # Zero-label (`[]`) and contradictory-label (`[_, _ | _]`) tickets used to
+  # collapse to the same `nil` here, so the candidate filter could not tell
+  # them apart and both were silently dropped before any repair pass ran —
+  # a zero-label ticket stayed invisible to dispatch forever (#2420). The
+  # clauses below now keep the two cases distinct; the public wrapper maps
+  # both back to `nil` so the `String | nil` contract holds for blocker state
+  # and expected-state checks, while the candidate filter partitions on the
+  # distinct markers.
   defp extract_state(%{"state" => "closed"}, _state_labels), do: "Closed"
   defp extract_state(_gh_issue, [state]), do: state
-  defp extract_state(_gh_issue, _state_labels), do: nil
+  defp extract_state(_gh_issue, []), do: :zero_state_labels
+  defp extract_state(_gh_issue, [_, _ | _]), do: :contradictory_state_labels
+
+  defp collapse_degenerate_state(:zero_state_labels), do: nil
+  defp collapse_degenerate_state(:contradictory_state_labels), do: nil
+  defp collapse_degenerate_state(state), do: state
 
   @spec extract_state_labels([String.t()], String.t()) :: [String.t()]
   def extract_state_labels(label_names, prefix) do

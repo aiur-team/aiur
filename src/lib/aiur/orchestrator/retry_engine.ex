@@ -780,7 +780,21 @@ defmodule Aiur.Orchestrator.RetryEngine do
       {:error, reason} ->
         Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
 
-        :ok
+        # The terminal `error` write did not happen, so report it honestly
+        # instead of a false `:ok`, and alert rather than only logging (#2420):
+        # a swallowed write here would leave the ticket with its active-state
+        # label and no signal to the Executor that exhaustion never parked it.
+        Alerts.emit_custom(
+          "ticket.#{identifier}.agent.attention.error-state-write-failed",
+          "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
+          issue: identifier,
+          reason: "Exhausted retry budget, but the terminal error-state write failed (#{inspect(reason)}); the ticket was not parked in error.",
+          needs_attention: true,
+          severity: "warning",
+          central: true
+        )
+
+        {:error, {:no_state_label_written, identifier}}
     end
   end
 

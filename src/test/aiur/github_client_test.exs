@@ -1570,18 +1570,19 @@ defmodule Aiur.GitHub.ClientTest do
              %{
                status: 200,
                body: %{
+                 "state" => "open",
                  "labels" => [%{"name" => "sym:todo"}, %{"name" => "other"}]
                }
              }}
 
-          # DELETE old label
-          {:delete, 1} ->
-            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
+          # POST new label (terminal target, so no active-label re-check GET)
+          {:post, 1} ->
+            assert req.body == %{"labels" => ["sym:done"]}
             {:ok, %{status: 200}}
 
-          # POST new label
-          {:post, 2} ->
-            assert req.body == %{"labels" => ["sym:done"]}
+          # DELETE old label (new label excluded)
+          {:delete, 2} ->
+            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
 
           # PATCH close
@@ -1622,22 +1623,26 @@ defmodule Aiur.GitHub.ClientTest do
                }
              }}
 
-          {:delete, 1} ->
-            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
-            {:ok, %{status: 200}}
-
-          {:get, 2} ->
+          {:get, 1} ->
             {:ok,
              %{
                status: 200,
                body: %{
                  "state" => "open",
-                 "labels" => [%{"name" => "sym:paused"}, %{"name" => "sym:watch"}]
+                 "labels" => [
+                   %{"name" => "sym:paused"},
+                   %{"name" => "sym:todo"},
+                   %{"name" => "sym:watch"}
+                 ]
                }
              }}
 
-          {:post, 3} ->
+          {:post, 2} ->
             assert req.body == %{"labels" => ["sym:rework"]}
+            {:ok, %{status: 200}}
+
+          {:delete, 3} ->
+            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
         end
       end
@@ -1645,9 +1650,9 @@ defmodule Aiur.GitHub.ClientTest do
       assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :delete, url: deleted_url}}
       assert_receive {:github_request, %{method: :get}}
       assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}
+      assert_receive {:github_request, %{method: :delete, url: deleted_url}}
       refute deleted_url =~ "sym:paused"
       refute deleted_url =~ "sym:watch"
       refute_receive {:github_request, %{method: :delete}}, 100
@@ -1833,11 +1838,9 @@ defmodule Aiur.GitHub.ClientTest do
             assert req.url == "https://api.github.com/graphql"
             review_threads_page_response([])
 
-          {:delete, 3} ->
-            assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
-            {:ok, %{status: 200}}
-
-          {:get, 4} ->
+          # The swap adds first: the active-label add re-checks the issue, then
+          # POSTs the new label, then removes the old one (#2420).
+          {:get, 3} ->
             assert req.url =~ "/issues/42"
 
             {:ok,
@@ -1845,12 +1848,16 @@ defmodule Aiur.GitHub.ClientTest do
                status: 200,
                body: %{
                  "state" => "open",
-                 "labels" => []
+                 "labels" => [%{"name" => "sym:in-progress"}]
                }
              }}
 
-          {:post, 5} ->
+          {:post, 4} ->
             assert req.body == %{"labels" => ["sym:human-review"]}
+            {:ok, %{status: 200}}
+
+          {:delete, 5} ->
+            assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
             {:ok, %{status: 200}}
         end
       end
@@ -1862,7 +1869,7 @@ defmodule Aiur.GitHub.ClientTest do
                )
     end
 
-    test "closed issues remove stale active labels without adding a new active label" do
+    test "closed issues remove stale active labels and report no state label written" do
       test_pid = self()
 
       request_fun = fn req ->
@@ -1889,7 +1896,11 @@ defmodule Aiur.GitHub.ClientTest do
         end
       end
 
-      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
+      # Active target on a closed issue: the stale active labels are stripped,
+      # but no active state label was written, so the transition reports that
+      # honestly instead of a false `:ok` (#2420).
+      assert {:error, {:no_state_label_written, _issue}} =
+               Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}
       assert_receive {:github_request, %{method: :delete, url: human_review_url}}
@@ -1924,10 +1935,7 @@ defmodule Aiur.GitHub.ClientTest do
                }
              }}
 
-          {:delete, 1} ->
-            {:ok, %{status: 200}}
-
-          {:get, 2} ->
+          {:get, 1} ->
             {:ok,
              %{
                status: 200,
@@ -1937,7 +1945,7 @@ defmodule Aiur.GitHub.ClientTest do
                }
              }}
 
-          {:delete, 3} ->
+          {:delete, 2} ->
             {:ok, %{status: 200}}
 
           _ ->
@@ -1945,18 +1953,19 @@ defmodule Aiur.GitHub.ClientTest do
         end
       end
 
-      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
+      # The add is the swap's first step; its closed-state re-check finds the
+      # issue closed, strips the stale active label, and reports that no state
+      # label was written (#2420).
+      assert {:error, {:no_state_label_written, _issue}} =
+               Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :delete, url: human_review_url}}
       assert_receive {:github_request, %{method: :get}}
       assert_receive {:github_request, %{method: :delete, url: rework_url}}
-      refute human_review_url =~ "sym:done"
       refute rework_url =~ "sym:done"
       refute_receive {:github_request, %{method: :post}}, 100
       refute_receive {:github_request, %{method: :patch}}, 100
 
-      assert human_review_url =~ "sym:human-review" or human_review_url =~ "sym%3Ahuman-review"
       assert rework_url =~ "sym:rework" or rework_url =~ "sym%3Arework"
     end
 

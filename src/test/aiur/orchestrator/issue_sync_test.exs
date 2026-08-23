@@ -2026,18 +2026,83 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert healed_state.last_polled_issues[dual.id].state == "todo"
     end
 
-    test "passes through issues with a single or no state label" do
+    test "repairs an issue with no state label and passes through single-labelled issues" do
       single = %{issue("single", "rework") | state_labels: ["rework"]}
-      none = issue("none", "todo")
+      none = %{issue("none", "todo") | state_labels: []}
+      parent = self()
 
       {healed_state, healed_issues} =
         IssueSync.reconcile_contradictory_state_labels(
           %State{},
           [single, none],
-          fn _id, _target -> flunk("must not rewrite single-labelled issues") end
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
         )
 
+      # A zero-label ticket is invisible to dispatch and nothing else repairs
+      # it, so it must be healed: restored to its last known state (none in
+      # `state.running`, so `agent:todo`) and written through the tracker
+      # (#2420). A single-labelled ticket passes through untouched.
+      assert_receive {:heal, "its-everdred/aiur#none", "todo"}
+      refute_receive {:heal, "its-everdred/aiur#single", _}, 0
+
       assert Enum.map(healed_issues, & &1.id) == ["single", "none"]
+      assert Enum.find(healed_issues, &(&1.id == "none")).state == "todo"
+      assert Enum.find(healed_issues, &(&1.id == "none")).state_labels == ["todo"]
+      assert healed_state.last_polled_issues[none.id].state == "todo"
+      assert healed_state.last_polled_issues[none.id].state_labels == ["todo"]
+    end
+
+    test "restores a zero-label ticket to its last known running state and alerts" do
+      topic = "ticket.its-everdred/aiur#sweep.agent.attention.state-label-missing"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      stranded = %{issue("sweep", nil) | state_labels: []}
+
+      running_entry = %{
+        pid: self(),
+        identifier: "its-everdred/aiur#sweep",
+        issue: issue("sweep", "in-progress")
+      }
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{running: %{"sweep" => running_entry}},
+          [stranded],
+          fn _id, _target -> :ok end
+        )
+
+      assert [healed] = healed_issues
+      assert healed.state == "in-progress"
+      assert healed.state_labels == ["in-progress"]
+      assert healed_state.last_polled_issues["sweep"].state_labels == ["in-progress"]
+
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "restored in-progress"
+    end
+
+    test "keeps a zero-label issue dispatchable even when the heal write fails" do
+      none = %{issue("none", "todo") | state_labels: []}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [none],
+          fn _id, _target -> {:error, :github_down} end
+        )
+
+      assert [healed] = healed_issues
+      assert healed.state == "todo"
+      assert healed.state_labels == ["todo"]
       assert healed_state.last_polled_issues == %{}
     end
 

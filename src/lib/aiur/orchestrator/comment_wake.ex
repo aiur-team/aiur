@@ -96,6 +96,11 @@ defmodule Aiur.Orchestrator.CommentWake do
         {:error, reason} ->
           Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
+          # A merged PR whose ticket could not be transitioned to `done` is a
+          # stranded ticket; alert rather than only log so the Executor sees it
+          # (#2420). Mirrors `MergedTicketReconciler.emit_failed_alert/5`.
+          emit_merge_terminal_write_failed_alert(identifier, reason)
+
           state
       end
 
@@ -112,6 +117,21 @@ defmodule Aiur.Orchestrator.CommentWake do
   defp emit_merge_alert(name, opts) do
     {message, alert_opts} = Keyword.pop!(opts, :message)
     Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
+  end
+
+  # A merged PR that names a ticket but fails to transition it to `done` leaves
+  # the ticket stranded on an active-state label; surface it to the Executor
+  # rather than only logging it (#2420).
+  defp emit_merge_terminal_write_failed_alert(identifier, reason) do
+    Alerts.emit_custom(
+      "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
+      "Merged PR could not transition ticket #{identifier} to done (#{inspect(reason)}); the ticket was not closed.",
+      issue: identifier,
+      reason: "The merge-to-done terminal write failed (#{inspect(reason)}) and the ticket keeps its active-state label; it is not stranded invisibly but needs attention.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
   end
 
   defp audit_merge_attribution(

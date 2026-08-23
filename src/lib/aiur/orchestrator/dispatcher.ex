@@ -2241,6 +2241,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
         {:error, reason} ->
           Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
 
+          # The terminal `error` write that would park the ticket never landed,
+          # so it keeps its active-state label; alert (once) rather than only
+          # logging so the Executor sees a stranded ticket (#2420).
+          if entry[:latch_alert_emitted] do
+            state
+          else
+            Alerts.emit_custom(
+              "ticket.#{issue.identifier}.agent.attention.lifetime_latch_write_failed",
+              "Lifetime dispatch latch could not be persisted as error (#{inspect(reason)}); the ticket keeps its active-state label.",
+              issue: issue.identifier,
+              reason: "The lifetime-latch error-state write failed (#{inspect(reason)}); the ticket was not parked in error and may be re-dispatched.",
+              needs_attention: true,
+              severity: "warning",
+              central: true
+            )
+
+            put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, Map.put(entry, :latch_alert_emitted, true)))
+          end
+
           state
       end
     else
