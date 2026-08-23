@@ -3,6 +3,7 @@ defmodule Aiur.EnvTest do
 
   alias Aiur.Env
   alias Aiur.Env.Schema
+  alias Aiur.GitHub.Config
 
   # Token- and secret-shaped values seeded into the process environment to
   # prove they never reach the generated example, logs, or error output.
@@ -199,6 +200,40 @@ defmodule Aiur.EnvTest do
             end
 
           assert error.message =~ "no GitHub credential is configured"
+        end
+      )
+    end
+
+    test "a gh that never returns does not hang boot; the gate fails naming the keyring within the timeout" do
+      # The stall scenario from #2393: a gh whose keyring lookup blocks forever
+      # (locked keyring prompt, unreachable host, missing GUI credential agent)
+      # must not wedge the boot gate. The real `Config.keyring_token/1`
+      # shell-out runs against a fake gh that loops forever, with a short
+      # injectable timeout, and the gate must come back with the standard
+      # missing-credential message that names the keyring and `gh auth login`.
+      with_fake_gh_on_path(
+        """
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          while true; do sleep 1; done
+        fi
+        """,
+        fn ->
+          started = System.monotonic_time(:millisecond)
+
+          error =
+            assert_raise ArgumentError, fn ->
+              Env.validate_startup!(%{},
+                require_github_credential: true,
+                keyring_fun: fn -> Config.keyring_token(timeout_ms: 200) end
+              )
+            end
+
+          elapsed = System.monotonic_time(:millisecond) - started
+
+          # Completed promptly instead of hanging on the never-returning gh.
+          assert elapsed < 5_000
+          assert error.message =~ "keyring"
+          assert error.message =~ "gh auth login"
         end
       )
     end

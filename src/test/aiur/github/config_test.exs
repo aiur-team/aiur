@@ -137,6 +137,81 @@ defmodule Aiur.GitHub.ConfigTest do
     refute Config.human_merger_allowed?("its-everdred", [])
   end
 
+  describe "keyring_token/1 — the gh auth token shell-out" do
+    test "returns the stored token when gh answers promptly" do
+      with_fake_gh_on_path(
+        """
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          printf 'ghs_keyring_only_token\\n'
+          exit 0
+        fi
+        """,
+        fn ->
+          assert Config.keyring_token() == "ghs_keyring_only_token"
+        end
+      )
+    end
+
+    test "returns nil within the timeout when gh never returns, instead of hanging" do
+      with_fake_gh_on_path(
+        """
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          while true; do sleep 1; done
+        fi
+        """,
+        fn ->
+          started = System.monotonic_time(:millisecond)
+          assert Config.keyring_token(timeout_ms: 200) == nil
+          elapsed = System.monotonic_time(:millisecond) - started
+
+          # Completed promptly and treated the stall as "no keyring credential".
+          assert elapsed < 5_000
+        end
+      )
+    end
+
+    test "logs before the shell-out so a hang is attributable" do
+      log =
+        ExUnit.CaptureLog.capture_log([level: :debug], fn ->
+          with_fake_gh_on_path(
+            """
+            if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+              printf 'ghs_keyring_only_token\\n'
+              exit 0
+            fi
+            """,
+            fn ->
+              assert Config.keyring_token(timeout_ms: 1_000) == "ghs_keyring_only_token"
+            end
+          )
+        end)
+
+      assert log =~ "github_keyring_lookup"
+      assert log =~ "state=starting"
+      assert log =~ "timeout_ms=1000"
+    end
+
+    test "logs a warning and returns nil when the shell-out times out" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          with_fake_gh_on_path(
+            """
+            if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+              while true; do sleep 1; done
+            fi
+            """,
+            fn ->
+              assert Config.keyring_token(timeout_ms: 200) == nil
+            end
+          )
+        end)
+
+      assert log =~ "github_keyring_lookup"
+      assert log =~ "state=timed_out"
+      assert log =~ "gh auth login"
+    end
+  end
+
   describe "GitHub App installation-token integration" do
     alias Aiur.GitHub.AppTokenRefresher
 
@@ -229,6 +304,43 @@ defmodule Aiur.GitHub.ConfigTest do
       assert message =~ "GITHUB_APP_ID"
       assert message =~ "installation"
       refute message =~ "GITHUB_TOKEN"
+    end
+  end
+
+  # Puts a fake `gh` on PATH for the duration of `fun` so the real
+  # `System.cmd("gh", ...)` keyring shell-out resolves to a deterministic stub.
+  # `token_script` must define the `gh auth token` behaviour and then fall
+  # through: the helper appends a pass-through to the real `gh` (located before
+  # PATH changed) for every other invocation, so a concurrent test that shells
+  # out to `gh` still reaches the real binary instead of a stub.
+  defp with_fake_gh_on_path(token_script, fun) do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "aiur-config-fake-gh-#{unique}")
+    bin_dir = Path.join(root, "bin")
+    File.mkdir_p!(bin_dir)
+    fake_gh = Path.join(bin_dir, "gh")
+
+    pass_through =
+      case System.find_executable("gh") do
+        nil -> "exit 99\n"
+        path -> "exec #{path} \"$@\"\n"
+      end
+
+    File.write!(fake_gh, "#!/bin/sh\n" <> token_script <> "\n" <> pass_through)
+    File.chmod!(fake_gh, 0o755)
+
+    original_path = System.get_env("PATH")
+    System.put_env("PATH", bin_dir <> ":" <> (original_path || ""))
+
+    try do
+      fun.()
+    after
+      case original_path do
+        nil -> System.delete_env("PATH")
+        value -> System.put_env("PATH", value)
+      end
+
+      File.rm_rf!(root)
     end
   end
 

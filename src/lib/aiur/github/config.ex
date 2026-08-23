@@ -382,29 +382,81 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  # Bound on the `gh auth token` keyring shell-out (#2393). A gh that prompts on
+  # a locked keyring, blocks on a slow/unreachable host, or waits on a missing
+  # GUI credential agent would otherwise hang boot before any log line on the
+  # keyring-only path a new developer takes. 5s matches the webhook admission
+  # deadline idiom and is far longer than a healthy local keyring lookup.
+  @keyring_command_timeout_ms 5_000
+
   @doc """
   Query the gh keyring with the env tokens CLEARED so gh returns the stored
   login rather than echoing the (possibly stale) env var.
 
   Returns the stored PAT as a trimmed string, or `nil` when gh is absent, not
-  logged in via keyring (headless/CI), or the lookup fails.
+  logged in via keyring (headless/CI), the lookup fails, or the shell-out does
+  not answer within `:timeout_ms` (default #{@keyring_command_timeout_ms}ms).
+  A timeout is treated exactly like an absent gh — "no keyring credential" —
+  never a fatal error, and it is logged at warning level so a stalled keyring
+  is attributable instead of a silent boot hang.
+
+  Logs at debug level immediately before the shell-out, so even a boot that
+  hangs (within the timeout) leaves a line to read rather than stopping with no
+  output.
 
   This is the single source of truth for "does a gh keyring credential exist":
   `resolve_pat_token/1` uses it as its runtime fallback, and the boot gate in
   `Aiur.Env` consults the same function so a keyring-only `gh auth login`
   satisfies the GitHub credential requirement before any env token is set.
   """
-  @spec keyring_token() :: String.t() | nil
-  def keyring_token do
-    case System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
-           env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
-           stderr_to_stdout: true
-         ) do
+  @spec keyring_token(keyword()) :: String.t() | nil
+  def keyring_token(opts \\ []) do
+    timeout_ms = Keyword.get(opts, :timeout_ms, @keyring_command_timeout_ms)
+
+    Logger.debug(
+      "aiur_boot phase=github_keyring_lookup state=starting " <>
+        "command=\"gh auth token --hostname github.com\" timeout_ms=#{timeout_ms}"
+    )
+
+    case run_gh_auth_token(timeout_ms) do
       {out, 0} -> normalize_secret(out)
       _ -> nil
     end
   rescue
     _ -> nil
+  end
+
+  # Runs the shell-out in a linked task so the caller can bound it: a gh that
+  # never returns is killed via Task.shutdown(:brutal_kill), which closes the
+  # port and terminates the gh process. This is the same yield-then-kill idiom
+  # the webhook admission path uses, and it keeps the boot gate from hanging on
+  # a stalled keyring while still treating the result as "no keyring
+  # credential" rather than an error.
+  defp run_gh_auth_token(timeout_ms) do
+    task =
+      Task.async(fn ->
+        System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
+          env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
+          stderr_to_stdout: true
+        )
+      end)
+
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} ->
+        result
+
+      {:exit, _reason} ->
+        nil
+
+      nil ->
+        Logger.warning(
+          "aiur_boot phase=github_keyring_lookup state=timed_out " <>
+            "timeout_ms=#{timeout_ms} treating_as=no_keyring_credential " <>
+            "run `gh auth login` to use the gh keyring"
+        )
+
+        nil
+    end
   end
 
   # Cheap validity probe: GET /rate_limit returns 200 for a syntactically usable
