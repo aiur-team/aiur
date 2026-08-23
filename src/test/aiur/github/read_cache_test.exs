@@ -330,6 +330,66 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
     end
 
+    # Regression for #2372: the read cache reported 0.0% hits with a full,
+    # freshly-deposited table because invalidation was repository-wide. A write
+    # or a CI delivery that changed *one* numbered resource marked `{:repo, ...}`,
+    # which every read of the repository carries, so on a repo the daemon writes
+    # to continuously nothing ever survived to be served. These pin the
+    # precision: a change to one number must not retire a read of a different
+    # number, and a deposit followed by an identical cacheable read within the
+    # TTL must produce a hit.
+    test "a write to one issue does not retire a cached read of a different issue" do
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2070/comments", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a write to issue 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a check_run delivery retires only the pull requests it names, not the whole repository" do
+      # A check_run delivery names the pull requests it belongs to, but
+      # `Deposit.invalidate_read_cache` used to fall through to
+      # `invalidate_repo`, retiring *every* read of the repository. CI
+      # check-run deliveries are effectively continuous on an active repo, so
+      # that wiped the cache faster than anything could be served from it.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("check_run", check_run_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a check_run for PR 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a check_suite delivery retires only the pull requests it names, not the whole repository" do
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("check_suite", check_suite_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a check_suite for PR 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a deposited read survives unrelated writes and deliveries, so the hit rate stays above zero" do
+      # The hit-rate guard for #2372: the cache used to serve 0.0% of cacheable
+      # reads on this repository because both the daemon's own writes and CI
+      # deliveries retired the whole repository. A deposit followed by unrelated
+      # activity followed by an identical read within the TTL must still hit.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _one} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2070/comments", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+      Deposit.deposit("check_run", check_run_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("hit") end)
+      assert ReadCache.snapshot().hit_rate > 0
+    end
+
     test "an invalidation written during a slow fetch retires the entry that fetch deposits" do
       # The write-after-invalidate race, and the delay is the whole test.
       #
@@ -774,6 +834,38 @@ defmodule Aiur.GitHub.ReadCacheTest do
         "created_at" => "2026-06-24T12:00:00Z",
         "updated_at" => "2026-06-24T12:00:00Z",
         "user" => %{"login" => "its-everdred"}
+      }
+    }
+  end
+
+  # A `check_run` delivery carrying the pull request it belongs to. GitHub's
+  # real payload puts the PR `number` on each entry of `check_run.pull_requests`;
+  # that is what lets a delivery retire exactly the PR it changed rather than
+  # the whole repository.
+  defp check_run_delivery(number) do
+    %{
+      "check_run" => %{
+        "id" => 55_01,
+        "name" => "test",
+        "status" => "completed",
+        "conclusion" => "success",
+        "head_sha" => "deadbeef",
+        "started_at" => "2026-06-24T12:00:00Z",
+        "completed_at" => "2026-06-24T12:01:00Z",
+        "output" => %{},
+        "pull_requests" => [%{"number" => number, "head" => %{"ref" => "aiur/42-a-ticket"}}]
+      }
+    }
+  end
+
+  defp check_suite_delivery(number) do
+    %{
+      "check_suite" => %{
+        "id" => 55_02,
+        "status" => "completed",
+        "conclusion" => "success",
+        "head_sha" => "deadbeef",
+        "pull_requests" => [%{"number" => number, "head" => %{"ref" => "aiur/42-a-ticket"}}]
       }
     }
   end
