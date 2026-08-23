@@ -168,20 +168,67 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
   # `branch_pull_request/2` reads `[node | _rest]` of the branch connection and
   # discards the rest, and GitHub permits one open pull request per head/base
   # pair — so four of the five slots were nodes nothing could read. The review
-  # thread pages stay at their full size: a smaller one would send every busy
-  # pull request onto the paginated fallback each cycle, and this document bills
-  # 10-11 points per call, not the ~660 a node count suggests.
-  test "asks for only the branch pull requests it reads, and keeps the full thread pages" do
+  # *thread* page stays at its full `first: 100`: a smaller one would send every
+  # busy pull request onto the paginated fallback each cycle. The *comment*
+  # page nested under it is reduced to `last: 1` because the only consumer of
+  # these threads reads the last comment of unresolved threads and nothing
+  # else (#2355).
+  test "asks for only the branch pull requests it reads, keeps the thread page, trims the comment page" do
     request_fun = fn %{method: :post, body: body} ->
       assert body["query"] =~ "direction: DESC}, first: 2)"
       refute body["query"] =~ "direction: DESC}, first: 5)"
       assert body["query"] =~ "reviewThreads(first: 100)"
-      assert body["query"] =~ "comments(last: 20)"
+      assert body["query"] =~ "comments(last: 1)"
+      refute body["query"] =~ "comments(last: 20)"
 
       {:ok, %{status: 200, body: %{"data" => %{"repository" => %{}}}}}
     end
 
     assert {:ok, _batch} = CommentPollBatch.fetch(["42"], request_fun: request_fun)
+  end
+
+  # #2355 — the load-bearing measurement. Every batch call logs its document,
+  # variables, estimated shape cost and GitHub's own `rateLimit { cost }` at
+  # debug level, so the before/after of a connection-size change is observable
+  # without reading the quota ledger. The transport injects `rateLimit { cost }`
+  # on real traffic; the stub includes it here so the measured half is asserted
+  # too.
+  test "reports the document, variables, and measured points per call at debug level" do
+    log =
+      capture_log([level: :debug], fn ->
+        request_fun = fn %{method: :post} ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "repository" => %{
+                   "target_0" => issue(),
+                   "branch_0_0" => %{
+                     "pageInfo" => %{"hasNextPage" => false},
+                     "nodes" => [pull_request(77, "aiur/42-comment-batch")]
+                   }
+                 },
+                 "rateLimit" => %{"cost" => 14}
+               }
+             }
+           }}
+        end
+
+        assert {:ok, %{"42" => _batch}} =
+                 CommentPollBatch.fetch(["42"],
+                   request_fun: request_fun,
+                   branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+                 )
+      end)
+
+    assert log =~ "comment_poll_batch cost report"
+    assert log =~ "estimated_points="
+    assert log =~ "estimated_nodes="
+    assert log =~ "measured_points=14"
+    assert log =~ "variables=%{\"owner\" => \"owner\", \"repo\" => \"repo\"}"
+    # The document is the built batch query, so its operation name is in the log.
+    assert log =~ "AiurCommentPollBatch"
   end
 
   # The other half of the cost claim. A branch alias asks for candidate pull

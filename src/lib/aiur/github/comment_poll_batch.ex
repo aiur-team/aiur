@@ -31,11 +31,26 @@ defmodule Aiur.GitHub.CommentPollBatch do
       whose threads were actually part of the query; a target discovered
       through a branch alias omits the key entirely so the poller falls back to
       a per-pull-request read rather than mistaking "not asked for" for "none".
+
+  Every batch call reports its document, variables, estimated shape cost and
+  measured `rateLimit { cost }` at debug level, so a connection-size change is
+  observable per call (see `report_batch_cost/3`). The measured price was
+  ~14 points per call against a 1-point floor before the `comments(last: 1)`
+  reduction (#2355).
+
+  On "does it run against every target every tick": yes, and it must. A target
+  whose thread state no free source holds — no delivery-fresh webhook snapshot,
+  no direct PR identity — has to be asked, because omitting the question reads
+  as "no unresolved threads" to the poller. What already gates it is the
+  `cached_threads` skip (a delivery-fresh snapshot drops the thread-bearing
+  aliases for that target, leaving identity only) and the identity-only branch
+  aliases; the thread-bearing aliases are exactly the gap no free source
+  covers, and per-call cost is the lever this module can move.
   """
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, PollSnapshots, ReviewThreads, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, GraphQLCost, PollSnapshots, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -58,12 +73,18 @@ defmodule Aiur.GitHub.CommentPollBatch do
   #
   # That case is rare enough here to accept, but do not read this as free.
   #
-  # `reviewThreads(first: 100) { comments(last: 20) }` is deliberately NOT
-  # reduced. Measured against GitHub's own reported `rateLimit { cost }` this
-  # document costs **10-11 points per call**, not the ~660 a naive nodes/100
-  # estimate predicts, and a smaller thread page would push every busy pull
-  # request onto the paginated fallback each cycle. There is no budget worth
-  # buying with review-comment risk.
+  # The thread page stays at `first: 100`. A smaller thread page would push every
+  # busy pull request onto the paginated fallback each cycle, and the batch's
+  # measured spend is dominated by the comment connection nested under it. The
+  # comment page is reduced to `comments(last: 1)` because the only consumer of
+  # these threads — `ReviewThreads.unaddressed_thread_comments` — reads the last
+  # comment of unresolved threads and nothing else; the other nineteen asked-for
+  # comments per thread were discarded before they arrived. Measured against
+  # GitHub's own reported `rateLimit { cost }` this document cost **~14 points
+  # per call** before the reduction (#2355), against a 1-point floor, and the
+  # `last: 20` -> `last: 1` comment cut is where the headroom is: at one node
+  # per thread instead of twenty, the nested connection stops dominating the
+  # price on the pull requests that actually carry threads.
   #
   # A target whose pull request a **webhook delivery already identified**
   # (`Aiur.GitHub.DeliveredPullRequest`) skips the speculation entirely: it
@@ -193,6 +214,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
     case Transport.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
       {:ok, body} ->
+        report_batch_cost(query, variables, body)
+
         case get_in(body, ["data", "repository"]) do
           %{} = repository -> {:ok, build_target_batch(indexed, repository, opts)}
           _other -> {:error, :comment_poll_batch_missing}
@@ -201,6 +224,25 @@ defmodule Aiur.GitHub.CommentPollBatch do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # One debug line per call, so the before/after of any connection-size change
+  # is observable without reading the quota ledger. The estimate is the shape
+  # cost computed before sending (`GraphQLCost.estimate/1`); the measured cost
+  # is GitHub's own `rateLimit { cost }` from the response, which the transport
+  # injects on every document. A batch call is one document over up to 33
+  # targets, so this fires at most once per poll cycle per chunk — not per
+  # target, and not per comment.
+  defp report_batch_cost(query, variables, body) do
+    estimate = GraphQLCost.estimate(query)
+    measured = GraphQLCost.reported(%{body: body})
+
+    Logger.debug(fn ->
+      "comment_poll_batch cost report " <>
+        "estimated_points=#{estimate.points} estimated_nodes=#{estimate.nodes} " <>
+        "measured_points=#{inspect(measured && measured[:cost])} " <>
+        "variables=#{inspect(variables)} document=#{query}"
+    end)
   end
 
   defp query(indexed) do
@@ -272,7 +314,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     #{pull_request_identity_fields()}
     reviewThreads(first: 100) {
       pageInfo { hasNextPage endCursor }
-      nodes { id isResolved path line comments(last: 20) { nodes { #{thread_comment_fields()} } } }
+      nodes { id isResolved path line comments(last: 1) { nodes { #{thread_comment_fields()} } } }
     }
     """
   end
