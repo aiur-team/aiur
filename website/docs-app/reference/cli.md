@@ -19,7 +19,7 @@ Run the command from the repository that owns the run. An instance is keyed to t
 
 | Job | Commands | Notes |
 | --- | --- | --- |
-| Start a run | `aiur`, `aiur run` | Foreground gives the TUI board and chat panes; background is headless. |
+| Start or attach | `aiur`, `aiur run` | Bare `aiur` attaches to this repository's live session when one exists; otherwise foreground gives the TUI board and chat panes. Background is headless unless launched with `--interactive`. |
 | Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage`, `github-cost`, `github-usage` | Read-only reports from the running daemon. |
 | Operate the fleet | `set max-agents`, `pause`, `resume`, `message`, `reset-budget`, `stop`, `restart` | Steers a live run. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `analytics` | Read-only terminal forms of the dashboard pages. |
@@ -32,13 +32,13 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
-| `aiur` | Starts a foreground interactive run. The launcher supplies a lower-precedence Tailscale-or-loopback host default, interactive UI, and required guardrail acknowledgement when absent. | `aiur` |
+| `aiur` | Attaches to this repository's live tmux session when one exists; otherwise starts a foreground interactive run. Attachment does not create a second run or take teardown ownership, so detaching leaves the daemon healthy. | `aiur` |
 | `aiur run` | Explicit foreground launch form. `--bg` makes it headless; `--interactive` restores terminal panes in a background session. | `aiur run --bg` |
 | `aiur init` | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. It also asks whether to enable Stream Deck voice input with ElevenLabs speech-to-text; answering yes writes the `elevenlabs` section, defaulting the key to the `$ELEVENLABS_API_KEY` environment reference. A resumed `aiur init` offers the same question when the saved config predates the section. | `aiur init` |
 | `aiur init --force` | Recreates generated configuration. Re-running without it preserves existing scaffold files. | `aiur init --force` |
 | `aiur --todo 142 143` | Requires a running daemon and one or more numeric IDs, with commas also accepted. A stopped daemon exits nonzero. | `aiur --todo 142,143` |
 | `aiur --todo 142 --only` | Queues the named IDs and asks GitHub to remove `agent:todo` from other pending tickets. It is GitHub-only, is bounded to 50 cleanup targets, and stops after three consecutive rate-limit failures. Cleanup is skipped if a requested ID fails, so the operation does not silently dequeue work after a bad request. | `aiur --todo 142 --only` |
-| `aiur --bg` | Starts detached headless execution. It has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
+| `aiur --bg` | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
 | `aiur --debug` | Enables debug logs and durable chat-pane recording for this run. | `aiur --debug` |
 | `aiur --pause` | Cold-starts with the global provisioning switch paused. | `aiur --pause` |
 | `aiur --max-agents 6` | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. | `aiur --max-agents 6` |
@@ -54,7 +54,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 
 | Launch choice | Behavior |
 | --- | --- |
-| Foreground | Shows the terminal board and chat panes. |
+| Foreground | Shows the terminal board and chat panes. A later bare `aiur` from the same repository reattaches to that session. |
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
 | Host precedence | `--host` wins over `server.host`, which wins over the loopback or safe Tailscale default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
@@ -66,13 +66,13 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
 | `aiur help` | Prints the current launcher usage. | `aiur help` |
-| `aiur status` | Shows daemon and capacity status, including `AGENTS occupied/max (binding: ...)`. A CPU-corroborated load or run-queue hold includes both the pressure and reclaimable-CPU thresholds; a high local load sample alone says the daemon still corroborates CPU contention. A GitHub quota hold includes its resource, measured remaining/limit, and observation time, and becomes `github_quota stale` after two missed probes. Other bindings include `config max_concurrent_agents`, `AIMD envelope`, `paused reservations`, `ticket supply`, `session max_concurrent_agents`, or `none`; `ticket supply` means no queued ticket is available. When a build-gate lease is held or queued, `status` also prints `BUILD GATE HOLDER slot=… pid=… command="…" held=…` (and `BUILD GATE QUEUED … waiting=…`) so a pinned lease is attributable without reading process trees. | `aiur status` |
+| `aiur status` | Shows daemon and capacity status, including `AGENTS occupied/max (binding: ...)`. A CPU-corroborated load or run-queue hold includes both the pressure and reclaimable-CPU thresholds; a high local load sample alone says the daemon still corroborates CPU contention. A GitHub quota hold includes its resource, measured remaining/limit, and observation time, and becomes `github_quota stale` after two missed probes. Other bindings include `config max_concurrent_agents`, `AIMD envelope`, `paused reservations`, `ticket supply`, `session max_concurrent_agents`, or `none`; `ticket supply` means a recent poll found no queued ticket, while `has not polled yet` (with the POLL backoff countdown) is shown when the fleet is idle-backed-off or the last tracker fetch failed. When slots are free, the binding also names the effective ceiling's source (`ticket supply; ceiling: config max_concurrent_agents` vs `has not polled yet (...; ceiling: session max_concurrent_agents)`) so a restart that dropped a live `set max-agents` reads as config-sourced rather than as the operator's last command. When a build-gate lease is held or queued, `status` also prints `BUILD GATE HOLDER slot=… pid=… command="…" held=…` (and `BUILD GATE QUEUED … waiting=…`) so a pinned lease is attributable without reading process trees. | `aiur status` |
 | `aiur usage` | Prints the current provider-meter observations and their known headroom. | `aiur usage` |
-| `aiur github-cost` | Ranks GitHub API spend by the call site that caused it, in points and points per hour, and prints the reconciliation against the credential's own window beside it. Reads the meter the daemon already keeps and issues no GitHub request of its own. Defaults to the `graphql` budget. | `aiur github-cost` |
+| `aiur github-cost` | Ranks GitHub API spend by the call site that caused it, in points and points per hour, and prints the reconciliation against the credential's own window beside it. Prints the admission ledger's retention window (one rolling hour) on the same screen, so the ledger is never reconciled against a longer `/rate_limit` span. Reads the meter the daemon already keeps and issues no GitHub request of its own. Defaults to the `graphql` budget. | `aiur github-cost` |
 | `aiur github-cost --budget core` | Selects one budget: `graphql`, `core`, or `all`. The two budgets are never summed into one number because GitHub bills them separately, on separate windows. | `aiur github-cost --budget core` |
 | `aiur github-cost --format records` | Chooses `auto`, `table`, or line-oriented `records` output. | `aiur github-cost --format records` |
 | `aiur github-cost --json` | Emits the ranking as one versioned envelope. | `aiur github-cost --json` |
-| `aiur github-usage` | Prints per-actor (daemon vs each agent workspace) GitHub usage: Core and GraphQL `used`/`limit` with reset times, read from the shared admission broker's `admissions`. Limits are request-count ceilings (the broker sees requests, not GraphQL points); `0` in the config means no ceiling. Issues no GitHub request of its own. | `aiur github-usage` |
+| `aiur github-usage` | Prints per-actor (daemon vs each agent workspace) GitHub usage: Core, GraphQL and `search` `used`/`limit` with reset times, read from the shared admission broker's `admissions`. Limits are request-count ceilings (the broker sees requests, not GraphQL points); `0` in the config means no ceiling. Issues no GitHub request of its own. | `aiur github-usage` |
 | `aiur github-usage --json` | Emits the per-actor usage as one versioned envelope. | `aiur github-usage --json` |
 | `aiur agents` | Prints each active agent's state and current activity. | `aiur agents` |
 | `aiur units` | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished`, choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
@@ -85,16 +85,16 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | `aiur watch --interval 5` | Re-renders until interrupted. The interval must be a positive number of seconds. | `aiur watch --interval 5` |
 | `aiur alerts` | Shows the structured alert feed. | `aiur alerts` |
 | `aiur alerts --needs-attention` | Filters to unresolved alerts requiring Executor action. | `aiur alerts --needs-attention` |
-| `aiur set max-agents 6` | Changes the live session cap without editing config. The new cap applies to live state at once (`status` reflects it), and dispatch reconciles to it on the next poll cadence; it does not rewrite the next launch's config. | `aiur set max-agents 6` |
+| `aiur set max-agents 6` | Changes the live session cap without editing config. The new cap applies to live state at once (`status` reflects it), and dispatch reconciles to it on the next poll cadence. It does not rewrite the next launch's config; a restart drops it, and `aiur status` then shows the ceiling as `config max_concurrent_agents` rather than as the operator's last command. | `aiur set max-agents 6` |
 | `aiur pause` | Turns on the global pause switch. It stops new provisioning and cooperatively holds the fleet. The switch is persisted with its source and survives restart; a failed persisted-state read starts paused. | `aiur pause` |
-| `aiur resume` | Turns off that global switch. | `aiur resume` |
+| `aiur resume` | Turns off that global switch. Lifting the pause schedules a prompt poll, so a ramp resumes dispatch within one base interval rather than waiting out the idle poll backoff. | `aiur resume` |
 | `aiur pause 142 143` | Requests a safe-boundary pause for named tickets. | `aiur pause 142,143` |
 | `aiur pause --all` | Requests a pause for every active ticket. | `aiur pause --all` |
 | `aiur resume 142` | Resumes a paused ticket, or starts an idle eligible ticket. | `aiur resume 142` |
 | `aiur resume --all` | Resumes every individually paused ticket. | `aiur resume --all` |
 | `aiur reset-budget 142` | Clears a named ticket's dispatch-budget latch. It does not accept `--all`; `resume` cannot clear this latch. | `aiur reset-budget 142` |
 | `aiur message 142 "Check review"` | Enqueues Executor text on the native agent queue. Aiur may interrupt at a safe point, queue it for the next turn, auto-resume a paused entry, or reactivate a deactivated entry. Text must be nonblank and at most 8,000 characters. The command reports what it observed: `delivered message to #142` once the agent has claimed it, otherwise `queued message for #142 (request N); delivery is unconfirmed`. Both are successful enqueues and exit 0 — a queued message is normally claimed at the agent's next checkpoint. | `aiur message 142 "Check the latest review"` |
-| `aiur stop` | Stops the BEAM and its tmux lifetime session. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
+| `aiur stop` | Gracefully stops the BEAM and its tmux lifetime session, reaping agent process trees and workspace-rooted descendants before a final launcher backstop removes stragglers. A stopped daemon makes `stop` and `--todo` exit nonzero. | `aiur stop` |
 | `aiur restart` | Stops the running session, refreshes the release, and starts it again detached. See [Restart semantics](#restart-semantics). | `aiur restart` |
 | `aiur restart --no-build` | Bounces the daemon on whatever release is already on disk. Use it for a fast restart, or to bounce without taking uncommitted source edits live. It has no effect on the installed `aiur`, which never builds. It cannot rescue a failed development rebuild: that removes the incomplete release, so there is nothing left to start, and `restart` says so instead of suggesting it. | `aiur restart --no-build` |
 | `aiur upgrade` | Installs the newer `aiur-cli` on your channel (`latest`, `next`, or `nightly`) and reports the version before and after, with the restart step to actually pick it up. Refuses under the `aiurdev` development launcher, for Homebrew installs (releases are npm-only right now), and while a daemon is running — pass `--force` to upgrade a live install anyway. It never downgrades: a `nightly` or `next` user is measured against their own channel, never against a lower `latest`. | `aiur upgrade` |
@@ -113,6 +113,7 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | Daemon still answers after stop | Aborts rather than rebuilding underneath it. |
 
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted.
+Restart uses the same graceful agent-tree and workspace-descendant reap as `stop` before refreshing or starting the release.
 
 Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
 
@@ -140,6 +141,8 @@ Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from
 ### Output contract
 
 Every `--json` result is one versioned envelope with `schema_version`, `page`, `snapshot.captured_at`, `request`, `sources`, `data`, and `auxiliary`. `snapshot.captured_at` is when the command ran; it is not a claim that every source was observed then.
+
+`aiur build-orders --json` uses schema version 2. Its completion objects report `progress_resolution: "empty"` with `progress: null` when a Build Order has no members, distinguishing an observed empty plan from 0% progress.
 
 Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 
@@ -274,7 +277,7 @@ Dismissing a Command closes it and moves it to history. If the Command's agent i
 
 | Fact | Response |
 | --- | --- |
-| **Dispatch needs `agent:todo`.** | `AGENTS 0/32 (binding: ticket supply)` means no ticket is queued. Use `aiur --todo <id>` or add the label. |
+| **Dispatch needs `agent:todo`.** | `AGENTS 0/32 (binding: ticket supply)` means a recent poll found no queued ticket. If it instead reads `has not polled yet (POLL backed off...)`, the daemon has not looked recently — run `aiur --todo <id>`, add the label, or trigger a refresh so the work is seen. |
 | **Global pause is durable.** | Use `aiur status` and `aiur resume` before treating a silent restarted fleet as broken. |
 | **CI readiness uses an operator-only token.** | Put `AIUR_CI_READINESS_TOKEN` with GitHub `workflow` scope in the daemon environment, restart, and never expose it to agent workspaces. |
 | **A base refresh affects approval ownership.** | With `require_last_push_approval`, route a base refresh through the ticket agent so the Executor does not become the ineligible last pusher. |

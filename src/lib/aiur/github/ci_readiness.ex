@@ -439,7 +439,12 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_default_branch(request_fun, token, base_url) do
-    case request_fun.(%{method: :get, url: base_url, token: token}) do
+    # #2298 item 5: repo-configuration reads carry `caller: "ci_readiness"` so
+    # they are attributed. The bare `/repos/{owner}/{repo}` URL stays
+    # unclassified in ReadCache (it is the auth-preflight probe), while the
+    # config sub-paths (`/branches/…`, `/contents/.github/workflows`,
+    # `/actions/workflows`, `/rulesets`) are classified as `:repo_config`.
+    case request_fun.(%{method: :get, url: base_url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"default_branch" => branch}}} when is_binary(branch) -> {:ok, branch}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
@@ -504,7 +509,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp branch_exists?(request_fun, token, url) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
       {:ok, %{status: 404}} -> {:error, :base_branch_missing}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
@@ -513,7 +518,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_list(request_fun, token, url) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: body}} when is_list(body) -> {:ok, body}
       {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
@@ -542,7 +547,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_workflow_state_page(request_fun, token, base_url, url, pages_left, seen, states) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"workflows" => workflows}} = response} when is_list(workflows) ->
         states =
           Map.merge(
@@ -611,7 +616,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp workflow_entries?(entries), do: Enum.any?(entries, &(Map.get(&1, "type") == "file" and workflow_path?(Map.get(&1, "path", ""))))
 
   defp fetch_workflow(request_fun, token, entry, base_branch) do
-    case request_fun.(%{method: :get, url: workflow_url(entry, base_branch), token: token}) do
+    case request_fun.(%{method: :get, url: workflow_url(entry, base_branch), token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"content" => content}}} when is_binary(content) ->
         decode_workflow(entry, content)
 
@@ -649,7 +654,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_protection_checks(request_fun, token, protection_url) do
-    case request_fun.(%{method: :get, url: protection_url, token: token}) do
+    case request_fun.(%{method: :get, url: protection_url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: protection}} -> {:ok, required_checks_from(protection)}
       {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
@@ -684,7 +689,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_ruleset_page(request_fun, token, base_url, url, pages_left, seen, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: rulesets} = response} when is_list(rulesets) ->
         continue_ruleset_page(
           Transport.parse_next_page_url(Map.get(response, :headers, %{})),
@@ -732,7 +737,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_ruleset_detail(request_fun, token, base_url, %{"id" => id}) when is_integer(id) or is_binary(id) do
-    case request_fun.(%{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token}) do
+    case request_fun.(%{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: detail}} when is_map(detail) -> {:ok, detail}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}

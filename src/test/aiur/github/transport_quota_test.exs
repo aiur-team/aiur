@@ -53,7 +53,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     assert [%{consumer: "ticket:1670", reads: 1, writes: 0, total: 1, cost: 1, costs: %{"core" => 1}}] = snapshot.attribution
   end
 
-  test "returns a local rate-limit response without sending another exhausted request", %{quota: quota} do
+  test "returns a typed local hold without impersonating a GitHub response", %{quota: quota} do
     reset_at = DateTime.add(DateTime.utc_now(), 3600, :second)
 
     Quota.observe(
@@ -80,15 +80,16 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       Req.Test.json(conn, [])
     end)
 
-    assert {:ok, response} =
+    assert {:error, {:aiur, :locally_held, hold}} =
              Transport.default_request_fun(%{
                method: :get,
                url: "https://api.github.com/repos/owner/repo/issues",
                token: "token"
              })
 
-    assert response.status == 429
-    assert Transport.header(response.headers, "x-ratelimit-remaining") == "0"
+    assert hold.resource == "core"
+    assert hold.remaining == 0
+    assert hold.limit == 5000
     refute_receive :request_sent
   end
 
@@ -145,7 +146,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       Req.Test.json(conn, %{})
     end)
 
-    assert {:ok, %{status: 429} = response} =
+    assert {:error, {:aiur, :locally_held, hold}} =
              Transport.default_request_fun(%{
                method: :post,
                url: Transport.graphql_url(),
@@ -153,8 +154,11 @@ defmodule Aiur.GitHub.TransportQuotaTest do
                body: %{"query" => "query { viewer { login } }"}
              })
 
-    assert Transport.header(response.headers, "x-ratelimit-resource") == "graphql"
+    assert hold.resource == "graphql"
     refute_receive :graphql_request_sent
+
+    assert {:error, {:aiur, :locally_held, %{resource: "graphql"}}} =
+             Transport.github_graphql(&Transport.default_request_fun/1, "token", "query { viewer { login } }", %{})
   end
 
   test "holds a second daemon-shaped request behind the shared host lease", %{budget_dir: budget_dir} do

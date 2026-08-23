@@ -1,7 +1,7 @@
 import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { describe, expect, it } from "vitest";
 
-import { ageLabel, drawSegmentContent, PROVIDER_SCROLL_BAND_TOP, resetLabel } from "../../src/art/segments.js";
+import { ageLabel, COMMANDS_ERROR, drawSegmentContent, OPEN_AMBER, PROVIDER_SCROLL_BAND_TOP, resetLabel } from "../../src/art/segments.js";
 import type { TranscriptRow } from "../../src/channel.js";
 import type { SegmentContent } from "../../src/touchStrip/stripLayout.js";
 import type { ProviderSegmentModel } from "../../src/touchStrip/providerSegment.js";
@@ -1016,5 +1016,104 @@ describe("settings panel", () => {
 
   it("carries the BACK hint, because dial A is what performs it", () => {
     expect(render(settings(), 800).ink.some((entry) => entry.text.includes("BACK"))).toBe(true);
+  });
+});
+
+describe("commands panel", () => {
+  const commands = (over: Partial<Extract<SegmentContent, { kind: "commands" }>> = {}): Extract<SegmentContent, { kind: "commands" }> => ({
+    kind: "commands",
+    model: {
+      view: "detail",
+      ticketId: "AIUR-1",
+      activeCount: 1,
+      total: 3,
+      page: "1/1",
+      title: "Ship the change?",
+      description: "Merge and deploy now.",
+      status: "OPEN",
+      answerable: true,
+      approving: false,
+      recorded: null,
+    },
+    ...over,
+  });
+
+  it("history view names the open count and the reading hint", () => {
+    const model = {
+      view: "history" as const,
+      ticketId: "AIUR-1",
+      activeCount: 2,
+      total: 3,
+      page: "1/2",
+      title: "Commands",
+      description: "2 awaiting your answer",
+      status: "OPEN",
+      answerable: false,
+      approving: false,
+      recorded: null,
+    };
+    const { ink } = render({ kind: "commands", model }, 800);
+    expect(drew(ink, "COMMANDS")).toBeDefined();
+    expect(drew(ink, "2 awaiting your answer")).toBeDefined();
+    expect(drew(ink, "PRESS A KEY TO READ IT")).toBeDefined();
+    expect(ink.some((entry) => entry.text.includes("BACK"))).toBe(true);
+  });
+
+  it("history view says so when there are no open Commands", () => {
+    const model = {
+      view: "history" as const,
+      ticketId: "AIUR-1",
+      activeCount: 0,
+      total: 3,
+      page: "",
+      title: "Commands",
+      description: "No open Commands",
+      status: "CLEAR",
+      answerable: false,
+      approving: false,
+      recorded: null,
+    };
+    const { ink } = render({ kind: "commands", model }, 800);
+    expect(drew(ink, "No open Commands")).toBeDefined();
+  });
+
+  it("detail view paints the question, description and status", () => {
+    const { ink } = render(commands(), 800);
+    expect(drew(ink, "Ship the change?")).toBeDefined();
+    expect(drew(ink, "Merge and deploy now.")).toBeDefined();
+    expect(drew(ink, "OPEN")?.fill).toBe(OPEN_AMBER);
+  });
+
+  it("paints the green APPROVE affordance only when an answer is armed", () => {
+    expect(drew(render(commands({ model: { ...commands().model, approving: true } }), 800).ink, "DIAL D · APPROVE")?.fill).toBe(ACCENT_LIVE);
+    expect(drew(render(commands(), 800).ink, "READ AN OPTION OR HOLD MIC")).toBeDefined();
+  });
+
+  it("read-only detail paints what was decided with no approval affordance", () => {
+    const model = {
+      view: "detail" as const,
+      ticketId: "AIUR-1",
+      activeCount: 0,
+      total: 3,
+      page: "",
+      title: "Ship the change?",
+      description: "Merge and deploy now.",
+      status: "ANSWERED",
+      answerable: false,
+      approving: false,
+      recorded: "Chose: Ship it",
+    };
+    const { ink } = render({ kind: "commands", model }, 800);
+    expect(drew(ink, "Chose: Ship it")?.fill).toBe(ACCENT_LIVE);
+    expect(drew(ink, "DIAL D · APPROVE")).toBeUndefined();
+    expect(ink.some((entry) => entry.text.includes("BACK"))).toBe(true);
+  });
+
+  it("shows a channel error instead of the reading so a refused answer is never silent", () => {
+    const { ink } = render({ kind: "commands", model: { ...commands().model, error: "command_not_focused" } }, 800);
+    expect(drew(ink, "ERROR")?.fill).toBe(COMMANDS_ERROR);
+    expect(drew(ink, "command_not_focused")).toBeDefined();
+    expect(drew(ink, "Ship the change?")).toBeUndefined();
+    expect(ink.some((entry) => entry.text.includes("BACK"))).toBe(true);
   });
 });

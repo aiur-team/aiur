@@ -7,6 +7,10 @@ defmodule Aiur.GitHub.QuotaTest do
   @now ~U[2026-08-09 21:00:00Z]
   @reset ~U[2026-08-09 22:00:00Z]
 
+  test "strict snapshots surface an unavailable meter" do
+    assert catch_exit(Quota.snapshot!(:aiur_github_quota_not_running))
+  end
+
   test "projects rate-limit headers into exact core and GraphQL windows" do
     quota = start_quota()
 
@@ -259,6 +263,70 @@ defmodule Aiur.GitHub.QuotaTest do
     assert Quota.snapshot(quota).coverage.estimated?
   end
 
+  test "transport errors still attribute estimated GraphQL spend" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query TimedOut { repository { id } }", %{"number" => 1670}), {:error, :fetch_deadline_exceeded})
+    Quota.observe(quota, graphql_request("query Exited { repository { id } }", %{"number" => 1671}), {:error, {:github_request_task_exit, :timeout}})
+
+    assert [
+             %{consumer: "ticket:1670", total: 1, cost: 1, estimated?: true},
+             %{consumer: "ticket:1671", total: 1, cost: 1, estimated?: true}
+           ] = Quota.snapshot(quota).attribution
+  end
+
+  test "a Core transport error retains the API's fixed one-request charge" do
+    quota = start_quota()
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), {:error, :fetch_deadline_exceeded})
+
+    assert [%{consumer: "ticket:1670", total: 1, cost: 1, estimated?: false}] = Quota.snapshot(quota).attribution
+  end
+
+  test "a 502 without a reported GraphQL cost is visibly estimated" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      graphql_request("query FailedGateway { repository { id } }", %{"number" => 1670}),
+      {:ok, %{status: 502, headers: [], body: %{"message" => "Bad Gateway"}}}
+    )
+
+    assert [%{consumer: "ticket:1670", cost: 1, estimated?: true}] = Quota.snapshot(quota).attribution
+  end
+
+  test "a 200 GraphQL errors body without rateLimit is visibly estimated" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      graphql_request("query Rejected { repository { id } }", %{"number" => 1670}),
+      {:ok, %{status: 200, headers: [], body: %{"data" => nil, "errors" => [%{"message" => "rejected"}]}}}
+    )
+
+    assert [%{consumer: "ticket:1670", cost: 1, estimated?: true}] = Quota.snapshot(quota).attribution
+  end
+
+  test "preserves process-scoped view attribution in the caller summary" do
+    quota = start_quota()
+    {:label, previous_label} = Process.info(self(), :label)
+    Process.set_label({Phoenix.LiveView, AiurWeb.DashboardLive, "lv:test"})
+
+    try do
+      Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 4999))
+      Quota.observe(quota, request(:patch, "/repos/owner/repo/issues/1670"), response("core", 5000, 4997))
+    after
+      Process.set_label(previous_label)
+    end
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 4998))
+
+    callers = Quota.snapshot(quota).callers
+
+    assert %{calls: 2, view_calls: 1} = Enum.find(callers, &(&1.caller == "rest:GET /repos/owner/repo/issues/:n"))
+    assert %{calls: 1, view_calls: 1} = Enum.find(callers, &(&1.caller == "rest:PATCH /repos/owner/repo/issues/:n"))
+  end
+
   # A conditional request answered `304` is served from GitHub's cache and is
   # never billed, so attributing a point to it invents spend that never
   # happened and inflates the coverage figure operators rely on.
@@ -374,6 +442,7 @@ defmodule Aiur.GitHub.QuotaTest do
     assert Map.keys(snapshot.windows) |> Enum.sort() == ["core", "graphql"]
     assert snapshot.windows["core"].remaining == 4200
     assert snapshot.windows["graphql"].remaining == 3900
+    assert snapshot.attribution == []
   end
 
   test "includes recent agent-shell attribution and ignores stale or malformed rows" do
@@ -396,6 +465,26 @@ defmodule Aiur.GitHub.QuotaTest do
              # Rows written before the resource column are still counted, against core.
              %{consumer: "ticket:1672", reads: 1, writes: 0, total: 1, cost: 1, costs: %{"core" => 1}, estimated?: false}
            ] = Quota.snapshot(quota).attribution
+  end
+
+  # The wrapper now appends a credential fingerprint and its own pid to each
+  # agent request row (#2255), so the daemon can attribute a call to the ticket
+  # AND the credential pool AND the exact subprocess. Rows written before the
+  # columns carried them must keep parsing (the existing test above), and rows
+  # carrying them must flow through.
+  test "reads the credential fingerprint and wrapper pid from agent request rows" do
+    now_unix = DateTime.to_unix(@now)
+
+    assert %{consumer: "ticket:1670", resource: "core", token_key: "abc123", pid: 4242} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\tabc123\t4242")
+
+    assert %{consumer: "ticket:1671", resource: "graphql", token_key: nil, pid: nil} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1671\twrite\tgraphql")
+
+    assert %{consumer: "ticket:1670", token_key: nil, pid: nil} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\t\tbad-pid")
+
+    assert Quota.parse_shell_observation("malformed") == nil
   end
 
   # Agent-shell attribution never reached the panel: the log lives under each
@@ -440,35 +529,41 @@ defmodule Aiur.GitHub.QuotaTest do
   # remaining. The primary window is healthy, so nothing held the caller back
   # and every rejected call was retried straight away.
   test "a secondary limit holds the resource even though the primary window reads healthy" do
-    parent = self()
     {:ok, clock} = Agent.start_link(fn -> @now end)
 
     quota =
-      start_quota(
-        clock: fn -> Agent.get(clock, & &1) end,
-        recovery_fun: fn -> send(parent, :github_quota_recovered) end
-      )
+      start_quota(clock: fn -> Agent.get(clock, & &1) end)
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4077))
     assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
 
-    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 4077, 45))
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), generic_rate_limit_response("core", 4077))
 
     assert {:hold, hold} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
     assert hold.resource == "core"
-    assert hold.reset_at == DateTime.add(@now, 45, :second)
+    assert hold.reset_at == DateTime.add(@now, 60, :second)
     # The backoff is resource-scoped; GraphQL was never refused.
     assert :ok = Quota.preflight(quota, graphql_request("query { viewer { login } }", %{}))
 
-    token = :sys.get_state(quota).recovery_timer_token
-    Agent.update(clock, fn _ -> DateTime.add(@now, 46, :second) end)
-    send(quota, {:dispatch_recovery, token})
+    Agent.update(clock, fn _ -> DateTime.add(@now, 61, :second) end)
 
-    assert_receive :github_quota_recovered
     assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
   end
 
-  test "a secondary limit alerts, sheds dispatch, publishes a shell hold, and resolves on expiry" do
+  test "a secondary limit with zero remaining does not become a primary dispatch hold" do
+    quota = start_quota()
+
+    Quota.observe(quota, graphql_request("query { viewer { login } }", %{}), secondary_response("graphql", 0, 45))
+
+    snapshot = Quota.snapshot(quota)
+    refute Map.has_key?(snapshot.windows, "graphql")
+    assert [%{resource: "graphql", seconds_remaining: 45}] = snapshot.backoffs
+    assert {:hold, %{resource: "graphql", reset_at: reset_at}} = Quota.preflight(quota, graphql_request("query { viewer { login } }", %{}))
+    assert reset_at == DateTime.add(@now, 45, :second)
+    assert Quota.dispatch_status(quota) == :available
+  end
+
+  test "a secondary limit alerts, keeps dispatch available, publishes a shell hold, and resolves on expiry" do
     parent = self()
     hold_dir = Path.join(System.tmp_dir!(), "aiur-gh-secondary-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf(hold_dir) end)
@@ -491,8 +586,9 @@ defmodule Aiur.GitHub.QuotaTest do
     assert opts[:reason] =~ "secondary rate limit"
     assert opts[:reason] =~ DateTime.to_iso8601(DateTime.add(@now, 45, :second))
 
-    # A backoff must shed new dispatch, not merely block in-flight callers.
-    assert {:hold, %{resource: "core"}} = Quota.dispatch_status(quota)
+    # The resource preflight is backed off, but a short secondary limit must
+    # not turn into a fleet-wide dispatch hold.
+    assert Quota.dispatch_status(quota) == :available
     assert File.read!(Path.join(hold_dir, "core-secondary-hold")) == "#{DateTime.to_unix(DateTime.add(@now, 45, :second))}\n"
 
     assert [%{resource: "core", seconds_remaining: 45}] = Quota.snapshot(quota).backoffs
@@ -516,13 +612,17 @@ defmodule Aiur.GitHub.QuotaTest do
     assert {:hold, %{reset_at: ^reset_at}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
   end
 
-  test "an exhausted-window rejection is left to the window hold rather than double-counted as secondary" do
+  test "a secondary-limit signal wins even when the response reports zero remaining" do
     quota = start_quota()
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 0, 45))
 
-    assert Quota.snapshot(quota).backoffs == []
-    assert {:hold, %{reset_at: @reset}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+    snapshot = Quota.snapshot(quota)
+    refute Map.has_key?(snapshot.windows, "core")
+    assert [%{resource: "core", seconds_remaining: 45}] = snapshot.backoffs
+    assert {:hold, %{reset_at: reset_at}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+    assert reset_at == DateTime.add(@now, 45, :second)
+    assert Quota.dispatch_status(quota) == :available
   end
 
   # A false positive here would stall every agent for a minute on an ordinary
@@ -667,7 +767,10 @@ defmodule Aiur.GitHub.QuotaTest do
   end
 
   defp start_quota(opts \\ []) do
-    start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil], opts)})
+    # Request logging is disabled here unless a test opts in; otherwise the
+    # resolved default path would point at this checkout's repo state and every
+    # observe would write a stray file.
+    start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil, request_log_path: nil], opts)})
   end
 
   defp eventually(fun, attempts \\ 50)
@@ -712,6 +815,20 @@ defmodule Aiur.GitHub.QuotaTest do
        status: 403,
        headers: headers,
        body: %{"message" => "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}
+     }}
+  end
+
+  defp generic_rate_limit_response(resource, remaining) do
+    {:ok,
+     %{
+       status: 403,
+       headers: [
+         {"x-ratelimit-resource", resource},
+         {"x-ratelimit-limit", "5000"},
+         {"x-ratelimit-remaining", Integer.to_string(remaining)},
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
+       ],
+       body: %{"message" => "API rate limit exceeded"}
      }}
   end
 

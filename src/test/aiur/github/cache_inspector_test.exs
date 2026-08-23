@@ -391,30 +391,27 @@ defmodule Aiur.GitHub.CacheInspectorTest do
   end
 
   describe "view_fetches/1" do
-    test "counts only call sites that declared themselves view paths" do
+    test "counts only requests attributed to a LiveView process" do
       snapshot = %{
         callers: [
-          %{caller: "comment_poll_batch", calls: 40},
-          %{caller: "view:some_future_page", calls: 3}
+          %{caller: "comment_poll_batch", calls: 40, view_calls: 0},
+          %{caller: "issue_relationships", calls: 3, view_calls: 3}
         ]
       }
 
       assert CacheInspector.view_fetches(snapshot) == 3
     end
 
-    test "catches a caller named the way a LiveView in this tree would name itself" do
-      # The regression this tile exists to catch is a dashboard page that starts
-      # fetching. Such a page would declare a caller in this codebase's own
-      # style — a bare snake_case atom naming the module — not a `view:` prefix
-      # invented for this filter. An earlier version matched the prefix only,
-      # so it would have read zero at the exact moment it was wrong.
-      for caller <- [:github_cache_live, :dashboard_live, "AiurWeb.AnalyticsLive", :units_page] do
-        assert CacheInspector.view_fetches(%{callers: [%{caller: caller, calls: 7}]}) == 7,
-               "a fetch declared by #{inspect(caller)} would not have been noticed"
-      end
+    test "does not infer request origin from caller-name substrings" do
+      snapshot = %{
+        callers: [
+          %{caller: :review_threads_unaddressed, calls: 20, view_calls: 0},
+          %{caller: :paginated_issue_poll, calls: 100, view_calls: 0},
+          %{caller: :dashboard_live, calls: 7, view_calls: 0}
+        ]
+      }
 
-      # And the poller, which is not a view, still does not count against it.
-      assert CacheInspector.view_fetches(%{callers: [%{caller: :comment_poll_batch, calls: 40}]}) == 0
+      assert CacheInspector.view_fetches(snapshot) == 0
     end
 
     test "reads zero when nothing views and fetches, which is the steady state" do

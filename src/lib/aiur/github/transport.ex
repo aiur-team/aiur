@@ -174,7 +174,7 @@ defmodule Aiur.GitHub.Transport do
         budget_request(quota, request, request_fun, deadline_ms)
 
       {:hold, hold} ->
-        {:ok, held_response(hold)}
+        {:error, {:aiur, :locally_held, hold}}
     end
   end
 
@@ -190,7 +190,7 @@ defmodule Aiur.GitHub.Transport do
           result = off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
 
           :ok =
-            Budget.observe(request, result,
+            Budget.observe(request, lease, result,
               timeout_ms: max(remaining_deadline_ms(deadline_at_ms), 1),
               deadline_at: deadline_at_ms
             )
@@ -202,7 +202,7 @@ defmodule Aiur.GitHub.Transport do
         end
 
       {:hold, hold} ->
-        {:ok, held_response(hold)}
+        {:error, {:aiur, :locally_held, hold}}
 
       {:error, _reason} = error ->
         error
@@ -494,23 +494,6 @@ defmodule Aiur.GitHub.Transport do
     observed
   end
 
-  defp held_response(hold) do
-    reset_unix = DateTime.to_unix(hold.reset_at)
-    remaining = Map.get(hold, :remaining, 0)
-    limit = Map.get(hold, :limit, 1)
-
-    %{
-      status: 429,
-      headers: [
-        {"x-ratelimit-resource", hold.resource},
-        {"x-ratelimit-limit", Integer.to_string(limit)},
-        {"x-ratelimit-remaining", Integer.to_string(remaining)},
-        {"x-ratelimit-reset", Integer.to_string(reset_unix)}
-      ],
-      body: %{"message" => "GitHub #{hold.resource} quota is exhausted locally; retry after #{DateTime.to_iso8601(hold.reset_at)}"}
-    }
-  end
-
   defp request_options(headers, req) do
     options = Application.get_env(:aiur, :github_transport_test_options, [])
     options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
@@ -651,13 +634,7 @@ defmodule Aiur.GitHub.Transport do
     {:error, {:graphql_cost_ceiling, details}, nil}
   end
 
-  defp maybe_put_caller(request, opts) do
-    case Keyword.get(opts, :caller) do
-      caller when is_atom(caller) and not is_nil(caller) -> Map.put(request, :caller, Atom.to_string(caller))
-      caller when is_binary(caller) and caller != "" -> Map.put(request, :caller, caller)
-      _undeclared -> request
-    end
-  end
+  defp maybe_put_caller(request, opts), do: put_caller(request, opts)
 
   defp maybe_put_max_response_bytes(request, opts) do
     case Keyword.get(opts, :max_response_bytes) do
@@ -667,6 +644,7 @@ defmodule Aiur.GitHub.Transport do
   end
 
   defp validate_graphql_response({:ok, response}), do: validate_graphql_http_response(response)
+  defp validate_graphql_response({:error, {:aiur, :locally_held, _hold} = reason}), do: {:error, reason, nil}
   defp validate_graphql_response({:error, reason}), do: {:error, Errors.classify_error({:error, reason}), nil}
   defp validate_graphql_response(_response), do: {:error, :invalid_graphql_response, nil}
 
@@ -695,9 +673,12 @@ defmodule Aiur.GitHub.Transport do
   defp valid_graphql_errors?(errors) when is_list(errors) and errors != [], do: Enum.all?(errors, &is_map/1)
   defp valid_graphql_errors?(_errors), do: false
 
-  @spec fetch_json_list(function(), String.t(), String.t()) :: {:ok, [term()]} | {:error, term()}
-  def fetch_json_list(request_fun, token, url) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+  @spec fetch_json_list(function(), String.t(), String.t(), keyword()) ::
+          {:ok, [term()]} | {:error, term()}
+  def fetch_json_list(request_fun, token, url, opts \\ []) do
+    request = put_caller(%{method: :get, url: url, token: token}, opts)
+
+    case request_fun.(request) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         {:ok, body}
 
@@ -714,17 +695,25 @@ defmodule Aiur.GitHub.Transport do
 
   A `304 Not Modified` is a successful, budget-free response. Callers keep
   their last materialized value and use the returned ETag on the next request.
+
+  This helper answers exactly one request, so it can only vouch for the page
+  GitHub returned. A response that points at a `rel="next"` page is refused
+  with `{:error, :pagination_unexpected}` rather than handed to a caller that
+  would trust a partial list: a page-1 validator cannot answer a multi-page
+  question, so a caller that needs more than one page must use a per-page
+  reader or read unconditionally (website/docs-app/apis/github.md, #2330).
   """
-  @spec fetch_json_list_conditional(function(), String.t(), String.t(), String.t() | nil) ::
+  @spec fetch_json_list_conditional(function(), String.t(), String.t(), String.t() | nil, keyword()) ::
           {:ok, [term()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
-  def fetch_json_list_conditional(request_fun, token, url, etag \\ nil) do
+  def fetch_json_list_conditional(request_fun, token, url, etag \\ nil, opts \\ []) do
     request = %{method: :get, url: url, token: token}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+    request = put_caller(request, opts)
 
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         log_rate_budget_pressure(response)
-        {:ok, body, header(Map.get(response, :headers, []), "etag") || etag}
+        single_page_list(body, response, etag)
 
       {:ok, %{status: 304} = response} ->
         log_rate_budget_pressure(response)
@@ -738,9 +727,23 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
-  @spec fetch_json_map(function(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def fetch_json_map(request_fun, token, url) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+  # A 200 that points at a `rel="next"` page is refused rather than handed to a
+  # caller that would trust a partial list: a page-1 validator cannot answer a
+  # multi-page question, so a caller that needs more than one page must use a
+  # per-page reader or read unconditionally (website/docs-app/apis/github.md).
+  defp single_page_list(body, response, etag) do
+    if parse_next_page_url(Map.get(response, :headers, [])) do
+      {:error, :pagination_unexpected}
+    else
+      {:ok, body, header(Map.get(response, :headers, []), "etag") || etag}
+    end
+  end
+
+  @spec fetch_json_map(function(), String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def fetch_json_map(request_fun, token, url, opts \\ []) do
+    request = put_caller(%{method: :get, url: url, token: token}, opts)
+
+    case request_fun.(request) do
       {:ok, %{status: 200, body: body}} when is_map(body) ->
         {:ok, body}
 
@@ -749,6 +752,26 @@ defmodule Aiur.GitHub.Transport do
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  @doc """
+  Stamps the declared call site onto a REST request map, so the cost of the
+  read is attributed to its caller rather than to the endpoint it happens to
+  hit.
+
+  GraphQL requests get this from `send_graphql/5`. REST requests are built in
+  many places — several of them build the request map by hand and hand it
+  straight to the `request_fun` — so the same declaration is available here for
+  those builders. A request already carrying a `:caller` is left untouched, and
+  a request with none is unchanged, so this is safe to call on any request map.
+  """
+  @spec put_caller(map(), keyword()) :: map()
+  def put_caller(request, opts) when is_map(request) and is_list(opts) do
+    case Keyword.get(opts, :caller) do
+      caller when is_atom(caller) and not is_nil(caller) -> Map.put(request, :caller, Atom.to_string(caller))
+      caller when is_binary(caller) and caller != "" -> Map.put(request, :caller, caller)
+      _undeclared -> request
     end
   end
 

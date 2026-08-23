@@ -109,6 +109,14 @@ defmodule Aiur.Config.Schema do
     CodexSandboxPolicy.add_runtime_writable_roots(policy, roots)
   end
 
+  @doc false
+  @spec validate_turn_sandbox_policy(%__MODULE__{}) :: :ok | {:error, term()}
+  def validate_turn_sandbox_policy(settings) do
+    settings.agent.codex
+    |> effective_turn_sandbox_policy()
+    |> CodexSandboxPolicy.validate_configured_writable_roots()
+  end
+
   defp effective_turn_sandbox_policy(%Codex{turn_sandbox_policy: nil, thread_sandbox: thread_sandbox})
        when is_binary(thread_sandbox) do
     case String.trim(thread_sandbox) do

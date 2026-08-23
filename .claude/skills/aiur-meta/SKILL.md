@@ -8,6 +8,24 @@ description: Run one Aiur Executor meta-check — observe every operator-facing 
 One pass over every surface an operator can see, ending in a named bottleneck and
 a durable log. Run hourly during a run, on the timer `aiur-run` sets up.
 
+## This check is a backstop, not the discovery path
+
+**The meta-check is the quiet-state safety floor.** Work is discovered on the
+event stream — the Executor listener's 24 bindings, drained by `executor-wait` or
+a persistent wake monitor, which `aiur-run` requires as a launch step. This check
+catches what the stream missed; it is not how you find out that a PR is ready.
+
+Getting this backwards is expensive. On the 2026-08 run an Executor used the
+hourly check as its primary loop while the durable wake inbox accumulated **2,832
+unconsumed records — 402 of them `ticket.branch.push`** — cursor stuck at
+`wake_id: 1`, oldest record five days old. The result was 17 PRs
+reworked-but-unreviewed, 16 of them with zero failing checks, the oldest waiting
+nearly a day.
+
+So: **if this check is where you first learn of a rework, PR-ready, or CI event,
+the event path is broken and that is itself the finding.** Check the wake inbox
+depth and the consumer cursor, and report both.
+
 **A meta-check is not a status poll.** Reading one metric and reporting it green
 is the failure this exists to prevent. Every defect found in the first run of
 this check was invisible to `aiur status` and `aiur alerts`, and three of four
@@ -26,6 +44,45 @@ Real examples from this repo: a provider meter reported `freshness: :fresh` on a
 (#1564); a Build Order page rendered every ticket at 0% because completion
 resolution failed silently (#1491); a blocker card described a PR as unmerged for
 five days after it merged (#1565).
+
+**The same rule applies to your own carried-forward claims.** A "standing item"
+repeated from the last log is an unverified assertion, not a finding. On
+2026-08-22 an Executor reported "webhook ingress was never enabled" in five
+consecutive hourly logs, built a plan on it, and asked the operator to enable a
+tunnel. Webhooks had been delivering `202 OK` the entire time. The claim was
+inherited from a handoff and never re-tested.
+
+**Re-verify every standing item you repeat, from the system that owns the
+answer.** If you cannot cheaply re-verify one, say "unverified since <time>"
+rather than restating it as fact. Carrying a stale claim forward is how a whole
+run's plan ends up resting on something nobody checked.
+
+### Verify capability from the system of record, not from local config
+
+The failure above had a second half. The Executor *did* check — it ran
+`tailscale funnel status`, saw Funnel disabled, and treated that as
+confirmation. But Funnel was one hypothetical transport; the live one was a
+Cloudflare tunnel the operator had already built.
+
+**Checking a mechanism you assume is in use does not answer whether the
+capability works.** Ask the system that owns the answer, not the local file that
+would describe one possible implementation of it: delivery history over a
+tunnel's status, `gh pr checks` over a local test run, the running daemon's
+behaviour over a merge commit, a credential resolved against the API over a
+variable that is merely set.
+
+An empty local config proves nothing about a capability that may be provided
+elsewhere. Prefer the source that would still be right if every local assumption
+were wrong.
+
+**Before auditing a GitHub-facing surface, read
+[`website/docs-app/apis/github.md`](../../../website/docs-app/apis/github.md).**
+It is the source of truth for how Aiur talks to GitHub — poll cadence, API
+budgets, credential pooling, the read cache, webhook delivery states, and the
+Cloudflare tunnel boundary. In the incident above it already documented the
+tunnel and the delivery-state table that would have prevented the whole
+detour. Do not restate its contents in a skill or a ticket; link to it, so there
+is one copy to keep true.
 
 ## 1. Observe — do not infer
 
@@ -141,7 +198,56 @@ Distinguish three things that present identically as "the fleet is idle":
 Resolve a bottleneck when it can be done without adding much complexity. Do not
 invent work.
 
-## 3. File what is broken
+**When the bottleneck is review, the remedy is parallel review, not fewer
+agents.** A queue that is growing with nothing approved is the Executor's own
+throughput ceiling, and it is the most common steady-state bottleneck once the
+fleet is healthy — on 2026-08-22 it reached 32 non-draft PRs with zero approved
+against twelve agents. Measure it as two numbers, because they mean different
+things: how many PRs have **never been reviewed** (a coverage problem) and how
+many are reviewed but **not approved** (a throughput problem). Fan background
+agents across the open PRs one per PR to clear it; `aiur-run`'s "Review the queue
+in parallel" section owns the how, including the prompt contents that make a
+review agent useful rather than a summarizer. Raising `max-agents` while the
+queue grows makes it worse.
+
+## 3. Ask what can move — within your mandate
+
+**First establish the mandate, then act only inside it.** This skill is also
+invoked via `/aiur-monitor`, where the agent is *watching* a run it does not own
+and moving tickets is out of scope — observing, naming the bottleneck, and
+reporting are the whole job. Before touching anything, check the handoff, the
+operator's stated goal, and whether this agent launched with `--executor`. An
+agent in monitor mode that starts merging PRs is a worse failure than one that
+only reports, because it acts outside the boundary the operator set.
+
+**The definition of "progress" belongs to the run's stated goal, not to this
+skill.** If the operator scoped the run to one Build Order, to a ticket class, or
+to observation only, that scope governs. The question is always "can anything
+move *within my mandate*" — never "what can I touch".
+
+Where the mandate allows it, ask whether any ticket or PR can be advanced right
+now, and advance it. States that repeatedly sit unnoticed here:
+
+- a PR **reworked after its blocking review**, green and mergeable, waiting only
+  for a second look. Compare the PR's own contribution diff, not the commit
+  timestamp — a merge of `main` moves the timestamp without changing anything
+- a ticket in `agent:error` whose cause was **transport, not the agent** —
+  recovered by re-labelling to the state its PR actually warrants, not by
+  investigation
+- **contradictory state labels** (`agent:ci-wait` + `agent:rework`,
+  `agent:human-review` + `agent:in-progress`), which make `dispatch_authorization`
+  deny the ticket permanently
+- a ticket left in `agent:human-review` when its PR actually needs **author**
+  rework — it reads as waiting on the Executor and is invisible to rework dispatch
+- an **unlabelled** open ticket, which is invisible to dispatch entirely
+- an approved PR blocked only by a **known flake** or by a failure inherited from
+  a red `main`
+
+**Check whether a ticket already has an open PR before re-dispatching it.** Nine
+of ten tickets recovered this way already had one; a blanket re-dispatch would
+have duplicated all nine.
+
+## 4. File what is broken
 
 Every finding becomes a ticket, linked to the run's meta epic. Not a note, not a
 chat message — both die with the session. Of 71 findings in this repo's
@@ -160,7 +266,7 @@ investigation: the command, its output, file:line, the screenshot.
 Do not fix findings inline inside an unrelated PR. That is how a finding becomes
 invisible to everyone who was not in the room.
 
-## 4. Log durably
+## 5. Log durably
 
 Write to `~/.aiur/repo/<owner>/<repo>/meta/<UTC timestamp>-<slug>.md`:
 

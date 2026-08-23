@@ -2,6 +2,8 @@ defmodule Aiur.WorkflowStoreTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.Exchange
+  alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.WorkflowStore.Cache
 
   # Regression for #1214: a transient reload error must not advance the change
   # stamp. When it did, the store believed the failed content was already
@@ -77,6 +79,19 @@ defmodule Aiur.WorkflowStoreTest do
     assert %Aiur.Config.Schema{} = Config.settings!()
   end
 
+  test "a missing ETS publication falls back to the live store state" do
+    ensure_workflow_store_running()
+    path = Workflow.workflow_file_path()
+
+    write_workflow_file!(path, prompt: "Live store prompt")
+    assert {:ok, %{prompt: "Live store prompt"}} = WorkflowStore.current()
+
+    File.write!(path, "invalid: [")
+    :ets.delete(Cache.table(), :current)
+
+    assert {:ok, %{prompt: "Live store prompt"}, :unknown, :unknown} = WorkflowStore.current_with_cache_identity()
+  end
+
   # Regression for #2133: the singleton's cache can be re-pointed at a *different*
   # config by a reload that lands between a case's `write_workflow_file!/2`
   # (write + awaited `force_reload`) and its read. Reads are fenced to their own
@@ -110,13 +125,50 @@ defmodule Aiur.WorkflowStoreTest do
       :ok = WorkflowStore.force_reload()
     end)
 
-    Application.put_env(:aiur, :workflow_file_path, path)
+    # Move the path back via the managed setter so this process's per-process
+    # view stays in sync with the app env it restores. A raw
+    # `Application.put_env` would only touch the app env and leave the
+    # process-dictionary override — pinned at `other` by the
+    # `set_workflow_file_path(other)` call above — still in force. `reload:
+    # false` keeps the cache pointing at `other` so the fence below is
+    # exercised deterministically.
+    Workflow.set_workflow_file_path(path, reload: false)
 
     # The cache still holds `other`; a reader at `path` must not observe it.
     assert {:ok, %{prompt: "Fenced prompt"}} = WorkflowStore.current()
     assert {:ok, %{prompt: "Fenced prompt"}, :unknown} = WorkflowStore.current_with_generation()
     assert %Aiur.Config.Schema{} = Config.settings!()
     assert Config.workflow_prompt() == "Fenced prompt"
+  end
+
+  # A reader can finish parsing after a reload has deleted the derived-value
+  # entries. If generations are ever reused, that late reader must not be able
+  # to publish settings for old content under the current content's cache key.
+  test "a late settings write cannot survive different config content under a reused generation" do
+    ensure_workflow_store_running()
+    path = Workflow.workflow_file_path()
+
+    write_workflow_file!(path,
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
+    assert {:ok, valid_workflow, generation} = WorkflowStore.current_with_generation()
+    assert {:ok, {"owner", "repo"}} = GitHubConfig.configured_repo()
+    assert [{:settings, stale_key, stale_settings}] = :ets.lookup(Cache.table(), :settings)
+    assert {{^generation, publication}, _env_epoch} = stale_key
+    assert is_reference(publication)
+
+    store = Process.whereis(WorkflowStore)
+    :sys.suspend(store)
+    on_exit(fn -> if Process.alive?(store), do: :sys.resume(store) end)
+
+    invalid_workflow = put_in(valid_workflow, [:config, "tracker", "github", "repo"], "owner/repo/extra")
+
+    :ok = Cache.put(invalid_workflow, generation, path)
+    :ok = Cache.put_settings(stale_key, stale_settings)
+
+    assert {:error, :invalid_configured_repository} = GitHubConfig.configured_repo()
   end
 
   # The store is a supervised singleton, so it can die between `force_reload/1`

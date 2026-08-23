@@ -74,6 +74,88 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   describe "CI lifecycle coordination" do
+    test "a delivered (displaced) result is inert: no transition, no cache projection" do
+      identifier = unique_identifier("ci-delivered-inert")
+      issue = issue(identifier, "ci-wait")
+      state = %State{}
+
+      next = poll_ci(state, issue, %{delivered: true, head_sha: "head-77", pr_number: 77})
+
+      # A target the batch displaced because a webhook delivery answered it
+      # must not move state and must not cache a projection: the real verdict
+      # comes from the next non-displaced read (R10 — a CI verdict is never
+      # answered from a held body at any age).
+      assert next.ci_lifecycle.poll_cache == %{}
+      assert next.claimed == MapSet.new()
+    end
+
+    test "a locally held GraphQL batch skips the REST fallback cycle" do
+      issue = issue(unique_identifier("locally-held-ci-batch"), "ci-wait")
+      state = %State{}
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_batch_fetcher: fn [_target], _opts ->
+            {:error, {:aiur, :locally_held, %{resource: "graphql", reset_at: DateTime.add(DateTime.utc_now(), 45, :second)}}}
+          end,
+          request_fun: fn _request -> flunk("local GraphQL hold must not fan out to REST") end,
+          token: "test-gh-token",
+          parked_ready_alert_loader: fn -> MapSet.new() end,
+          draft_stall_alert_loader: fn -> MapSet.new() end
+        )
+
+      assert next.ci_lifecycle.poll_cache == %{}
+    end
+
+    test "a genuine GraphQL batch failure retains the REST fallback cycle" do
+      identifier = unique_identifier("failed-ci-batch")
+      issue = issue(identifier, "ci-wait")
+      parent = self()
+
+      request_fun = fn %{url: url} ->
+        send(parent, {:rest_request, url})
+
+        cond do
+          String.contains?(url, "/pulls?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "number" => 71,
+                   "head" => %{"ref" => "aiur/#{identifier}", "sha" => "current-sha"},
+                   "base" => %{"ref" => "main"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/check-runs?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"check_runs" => [%{"name" => "lint", "status" => "completed", "conclusion" => "success"}]}
+             }}
+
+          String.ends_with?(url, "/status") ->
+            {:ok, %{status: 200, body: %{"state" => "pending", "total_count" => 0, "statuses" => []}}}
+        end
+      end
+
+      next =
+        CiLifecycle.poll_github_ci(%State{},
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_batch_fetcher: fn [_target], _opts -> {:error, {:github, :rate_limited, %{status: 429}}} end,
+          request_fun: request_fun,
+          token: "test-gh-token",
+          parked_ready_alert_loader: fn -> MapSet.new() end,
+          draft_stall_alert_loader: fn -> MapSet.new() end
+        )
+
+      assert_received {:rest_request, _url}
+      assert Map.has_key?(next.ci_lifecycle.poll_cache, identifier)
+    end
+
     test "CI pruning preserves tracker list caches shared with other poll phases" do
       state = %State{
         ci_lifecycle: %{
@@ -200,7 +282,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running == state.running
 
       assert next.ci_lifecycle.poll_cache == %{
-               identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head", draft?: false, review_decision: nil}
+               identifier => %{
+                 decision: :failed,
+                 pr_number: 941,
+                 head_sha: "failed-head",
+                 draft?: false,
+                 review_decision: nil
+               }
              }
 
       assert next.ci_lifecycle.draft_stall_alerts == MapSet.new()
@@ -542,7 +630,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running == armed.running
 
       assert next.ci_lifecycle.poll_cache == %{
-               identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head", draft?: false, review_decision: nil}
+               identifier => %{
+                 decision: :pending,
+                 pr_number: nil,
+                 head_sha: "same-head",
+                 draft?: false,
+                 review_decision: nil
+               }
              }
 
       assert Map.drop(next.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts]) ==

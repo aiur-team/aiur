@@ -3,6 +3,7 @@ defmodule Aiur.GitHubCostCLITest do
 
   import ExUnit.CaptureIO
 
+  alias Aiur.GitHub.Quota
   alias Aiur.GitHubCostCLI
 
   @now ~U[2026-08-17 12:00:00Z]
@@ -149,9 +150,12 @@ defmodule Aiur.GitHubCostCLITest do
     output = capture_io(fn -> assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> empty end) end)
 
     # Nothing observed and nothing spent are different facts, and reporting the
-    # first as a zero would claim a measurement that was never taken.
+    # first as a zero would claim a measurement that was never taken. The
+    # ledger-window scope note is not a reconciliation figure, so it is still
+    # printed; only the `reconciliation:` section header is suppressed.
     assert output =~ "No GitHub API calls have been attributed"
-    refute output =~ "reconcil"
+    assert output =~ "admission ledger window"
+    refute output =~ ~r/reconciliation/
   end
 
   test "filters to one budget and never sums two budgets into one number" do
@@ -162,6 +166,12 @@ defmodule Aiur.GitHubCostCLITest do
     assert length(all["data"]["callers"]) == 4
   end
 
+  # #2298 acceptance 3: REST call sites stamp `caller:` (asserted on the request
+  # map in `Aiur.GitHub.ClientTest`), and the core section of `aiur github-cost`
+  # names the call site rather than folding every REST request into one endpoint
+  # shape or `unattributed`. Rendering a declared REST caller is unchanged
+  # behaviour of the CLI — covered by the existing caller-rendering tests below —
+  # so this file asserts the CLI surface, not the stamping.
   test "rejects an unknown budget rather than silently showing everything" do
     assert {:error, message} = GitHubCostCLI.build(snapshot_fun: fn -> snapshot() end, budget: "points")
     assert message =~ "--budget accepts graphql, core or all"
@@ -174,10 +184,75 @@ defmodule Aiur.GitHubCostCLITest do
     assert stderr =~ "aiur: github-cost --budget accepts"
   end
 
-  test "survives a meter that is not running" do
-    assert {:error, message} = GitHubCostCLI.build(snapshot_fun: fn -> exit(:noproc) end)
+  test "fails when the production meter cannot be reached" do
+    meter = Process.whereis(Quota)
+    assert is_pid(meter)
+    assert Process.unregister(Quota)
 
+    result =
+      try do
+        GitHubCostCLI.build()
+      after
+        assert Process.register(meter, Quota)
+      end
+
+    assert {:error, message} = result
     assert message =~ "not running"
+  end
+
+  test "reads reported GraphQL attribution from the production meter" do
+    request = %{
+      method: :post,
+      url: "https://api.github.com/graphql",
+      token: "secret",
+      caller: :github_cost_live_test,
+      body: %{"query" => "query CostTest { viewer { login } }", "variables" => %{}}
+    }
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [],
+         body: %{
+           "data" => %{
+             "rateLimit" => %{
+               "cost" => 37,
+               "limit" => 5000,
+               "remaining" => 4963,
+               "resetAt" => DateTime.utc_now() |> DateTime.add(3600, :second) |> DateTime.to_iso8601()
+             }
+           }
+         }
+       }}
+
+    Quota.observe(request, response)
+
+    assert {:ok, envelope} = GitHubCostCLI.build()
+    assert caller = Enum.find(envelope["data"]["callers"], &(&1["caller"] == "github_cost_live_test"))
+    assert caller["resource"] == "graphql"
+    assert caller["points"] == 37
+    assert caller["calls"] == 1
+    assert caller["estimated?"] == false
+  end
+
+  test "surfaces a transport error as estimated GraphQL spend from the production meter" do
+    request = %{
+      method: :post,
+      url: "https://api.github.com/graphql",
+      token: "secret",
+      caller: :github_cost_error_test,
+      body: %{"query" => "query CostErrorTest { viewer { login } }", "variables" => %{}}
+    }
+
+    Quota.observe(request, {:error, :fetch_deadline_exceeded})
+
+    assert {:ok, envelope} = GitHubCostCLI.build()
+    assert caller = Enum.find(envelope["data"]["callers"], &(&1["caller"] == "github_cost_error_test"))
+    assert caller["resource"] == "graphql"
+    assert caller["points"] == 1
+    assert caller["calls"] == 1
+    assert caller["estimated?"] == true
   end
 
   test "emits a machine-readable envelope under --json" do
@@ -188,6 +263,20 @@ defmodule Aiur.GitHubCostCLITest do
     assert decoded["schema_version"] == 2
     assert decoded["page"] == "github-cost"
     assert decoded["data"]["reconciliation"]["graphql"]["reconciled?"] == true
+  end
+
+  test "states the broker ledger's rolling-hour window beside the totals" do
+    assert {:ok, envelope} = GitHubCostCLI.build(snapshot_fun: fn -> snapshot() end, now: @now)
+
+    assert %{"window_seconds" => 3600} = envelope["data"]["ledger"]
+    assert GitHubCostCLI.ledger_window_seconds() == 3600
+
+    output = capture_io(fn -> assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, format: :records) end)
+
+    # The statement sits on the same screen as the reconciliation totals, so
+    # nobody reconciles a longer interval against a one-hour ledger.
+    assert output =~ "admission ledger window: 1 hour"
+    assert output =~ "match it against at most that span of /rate_limit"
   end
 
   defp snapshot do

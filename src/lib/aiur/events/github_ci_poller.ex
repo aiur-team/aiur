@@ -103,6 +103,22 @@ defmodule Aiur.Events.GithubCIPoller do
     end
   end
 
+  defp poll_batched_target(target, %{delivered: true} = delivered, _opts) do
+    # A target the CI poll batch displaced because a webhook check-run delivery
+    # answered it since the last read (#2310). The delivery skipped the read the
+    # batch would have paid for; this result carries no verdict and the
+    # lifecycle treats it as inert (`delivered: true`), because a CI verdict is
+    # never answered from a held body at any age (R10). The real verdict comes
+    # from the next non-displaced read, which `PollSnapshots`'s delivery-fresh
+    # window bounds — once the snapshot ages out, the poll fetches again.
+    %{
+      target: target,
+      delivered: true,
+      head_sha: Map.get(delivered, :head_sha),
+      pr_number: Map.get(delivered, :pr_number)
+    }
+  end
+
   defp poll_batched_target(target, %{pull_request: nil}, _opts) do
     %{target: target, decision: :pending, pending_reason: :open_pr_not_yet_visible}
   end

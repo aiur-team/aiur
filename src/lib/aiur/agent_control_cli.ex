@@ -30,7 +30,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.{DispatchPolicy, StatusReason, WaitingReason}
+  alias Aiur.Orchestrator.{CapacityBinding, DispatchPolicy, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
   # One age shape wherever a stale surface appears — reuse #1814's renderer
@@ -207,7 +207,7 @@ defmodule Aiur.AgentControlCLI do
       IO.puts("RELEASED CLAIMS #{released_claims} (#{recovery})")
     end
 
-    print_capacity_status(Map.get(snapshot, :capacity))
+    print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
     print_polling_status(Map.get(snapshot, :polling))
 
     supervision_exit_code = print_supervision_health()
@@ -347,7 +347,7 @@ defmodule Aiur.AgentControlCLI do
 
   @spec github_cost(keyword()) :: :ok
   def github_cost(opts \\ []) do
-    guarded("github-cost", fn -> GitHubCostCLI.run(opts) |> exit_marker() end)
+    guarded("github-cost", fn -> opts |> Keyword.put(:error_fun, &control_error/1) |> GitHubCostCLI.run() |> exit_marker() end)
   end
 
   @spec github_usage(keyword()) :: :ok
@@ -1205,7 +1205,10 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp global_pause_status_for_control do
-    Application.get_env(:aiur, :agent_control_cli_global_pause_status_fun, &Orchestrator.global_pause_status/0).()
+    case Application.get_env(:aiur, :agent_control_cli_global_pause_status_fun) do
+      nil -> fleet_global_pause_status(@status_timeout_ms)
+      fun -> fun.()
+    end
   end
 
   defp control_selected([], action, targets) do
@@ -1325,15 +1328,65 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  # Control commands (`pause`/`resume`/`message`) select their targets from
+  # fleet state the daemon already knows, so they must not queue behind the
+  # Orchestrator mailbox the way `status`/`agents`/`watch` once did (#1837). A
+  # blocked GitHub read on a held socket made `aiurdev resume <id>` time out
+  # with "timed out while reading agent status" while `aiurdev status` answered
+  # from the SnapshotStore read model in ~300ms (#2329). These reads serve from
+  # that same read model, so a resume never depends on a busy or dead agent
+  # process answering a status read.
   defp control_status_snapshot do
-    Application.get_env(:aiur, :agent_control_cli_status_fun, &Orchestrator.status/0).()
+    case Application.get_env(:aiur, :agent_control_cli_status_fun) do
+      nil -> fleet_status_snapshot(@status_timeout_ms)
+      fun -> fun.()
+    end
   end
 
   defp confirmation_status_snapshot(timeout_ms) do
-    Application.get_env(:aiur, :agent_control_cli_confirmation_status_fun, &Orchestrator.status/2).(
-      Orchestrator,
-      timeout_ms
-    )
+    case Application.get_env(:aiur, :agent_control_cli_confirmation_status_fun) do
+      nil -> fleet_status_snapshot(timeout_ms)
+      fun -> fun.(Orchestrator, timeout_ms)
+    end
+  end
+
+  defp fleet_status_snapshot(timeout_ms) do
+    case control_fleet_view(timeout_ms, fleet_rows?: true) do
+      {:ok, snapshot} ->
+        case Map.get(snapshot, :statuses) do
+          statuses when is_list(statuses) -> statuses
+          _missing -> :unavailable
+        end
+
+      {:error, error} ->
+        error
+    end
+  end
+
+  defp fleet_global_pause_status(timeout_ms) do
+    case control_fleet_view(timeout_ms, fleet_rows?: false) do
+      {:ok, snapshot} ->
+        case Map.get(snapshot, :global_pause) do
+          %{globally_paused: paused} when is_boolean(paused) ->
+            {:ok, %{globally_paused: paused}}
+
+          _missing ->
+            {:error, :orchestrator_unavailable}
+        end
+
+      {:error, :timeout} ->
+        {:error, :timeout}
+
+      {:error, :unavailable} ->
+        {:error, :orchestrator_unavailable}
+    end
+  end
+
+  defp control_fleet_view(timeout_ms, opts) do
+    case Orchestrator.fleet_view(Orchestrator, timeout_ms, opts) do
+      {:ok, snapshot, _freshness} -> {:ok, snapshot}
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp resume_outcome(status, nil) do
@@ -1635,13 +1688,24 @@ defmodule Aiur.AgentControlCLI do
   # CLI may not run on the daemon's host, and it reads its own config file
   # rather than the daemon's live config, so a locally re-derived gate can name
   # a fleet-level cause the daemon never decided (#1610).
-  defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
+  #
+  # `polling` is threaded in for one honest reason: the "ticket supply" binding
+  # is only claimable when the daemon recently polled and found nothing. While
+  # idle backoff is active (the last successful poll is a full backed-off
+  # interval old) or the candidate snapshot is not fresh (the last fetch
+  # failed), the fleet has not looked recently enough to see work that appeared
+  # — so the line says that instead of blaming ticket supply (#2138).
+  defp print_capacity_status(
+         %{occupied: occupied, max: max, effective: effective, configured: configured} = capacity,
+         polling
+       )
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and
               is_integer(configured) do
-    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity))})")
+    binding = capacity_binding(capacity, polling)
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})")
   end
 
-  defp print_capacity_status(_capacity), do: :ok
+  defp print_capacity_status(_capacity, _polling), do: :ok
 
   defp local_load_sample do
     threshold = Config.max_load_average()
@@ -1658,6 +1722,10 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
+
+  defp capacity_binding_label({:ticket_supply, %{ceiling: ceiling}}),
+    do: "ticket supply; ceiling: #{ceiling}"
+
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
@@ -1704,7 +1772,24 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
+  defp capacity_binding_label({:none, %{ceiling: ceiling}}), do: "none; ceiling: #{ceiling}"
   defp capacity_binding_label({:none, _detail}), do: "none"
+
+  # The status line may only blame "ticket supply" when the daemon recently
+  # polled and found no work. Idle backoff active or a failed candidate fetch
+  # both mean the fleet has not looked recently enough to see work that
+  # appeared — and blaming ticket supply there is the false explanation #2138
+  # is about. Say what is actually true instead, and keep the ceiling source
+  # visible so a restart that dropped a live `set max-agents` reads as
+  # config-sourced rather than as the operator's last command (#2138).
+  defp capacity_binding_label({:has_not_polled, %{next_poll_in_ms: next_ms, ceiling: ceiling}})
+       when is_integer(next_ms),
+       do: "has not polled yet (POLL backed off, next poll in #{poll_seconds(next_ms)}s; ceiling: #{ceiling})"
+
+  defp capacity_binding_label({:has_not_polled, %{ceiling: ceiling}}),
+    do: "has not polled yet (ceiling: #{ceiling})"
+
+  defp capacity_binding_label({:has_not_polled, _detail}), do: "has not polled yet"
 
   defp github_quota_measurement(%{resource: resource, remaining: remaining, limit: limit, observed_at: observed_at}) do
     if stale_github_quota_measurement?(observed_at) do
@@ -1734,19 +1819,11 @@ defmodule Aiur.AgentControlCLI do
   defp format_observed_at(observed_at) when is_binary(observed_at), do: observed_at
   defp format_observed_at(_observed_at), do: "unknown"
 
-  # `capacity_hold` is the daemon's own persisted admission decision — the only
-  # source allowed to name an admission signal as the fleet's binding
-  # constraint. Nothing here re-derives a gate locally.
-  defp capacity_binding(%{capacity_hold: %{} = hold}),
-    do: {:admission, hold}
-
-  defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
-    if capacity_binding_ticket_supply?(capacity) do
-      {:ticket_supply, 0}
-    else
-      capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
-    end
-  end
+  # The classification lives in `Aiur.Orchestrator.CapacityBinding` so the CLI
+  # and the dashboards name the same constraint from the same rules. Only the
+  # label text below is CLI-specific — it carries the full admission
+  # measurement, which does not fit a KPI tile.
+  defp capacity_binding(capacity, polling), do: CapacityBinding.binding(capacity, polling)
 
   # A LOCAL host-pressure reading, taken before the control RPC so the
   # saturation signal survives an RPC timeout (the timeout is most likely
@@ -1774,42 +1851,6 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_load_status(_capacity), do: :ok
-
-  defp capacity_binding_with_capacity(capacity, max, effective, configured, occupied) do
-    cond do
-      paused_reservation_binding?(capacity) ->
-        {:paused_reservations, capacity.reserved_paused}
-
-      effective < max and occupied >= effective ->
-        {:envelope, effective}
-
-      occupied >= max and max == configured and not Map.get(capacity, :session_override?, false) ->
-        {:config_cap, configured}
-
-      occupied >= max ->
-        {:session_cap, max}
-
-      true ->
-        {:none, nil}
-    end
-  end
-
-  defp capacity_binding_ticket_supply?(%{available: available, queued_demand?: false})
-       when is_integer(available) and available > 0,
-       do: true
-
-  defp capacity_binding_ticket_supply?(_capacity), do: false
-
-  defp paused_reservation_binding?(%{
-         active: active,
-         effective: effective,
-         available: 0,
-         reserved_paused: reserved_paused
-       })
-       when reserved_paused > 0 and effective > active,
-       do: true
-
-  defp paused_reservation_binding?(_capacity), do: false
 
   @doc """
   Print registry provider headroom from the daemon-owned meter projection.
@@ -2062,11 +2103,36 @@ defmodule Aiur.AgentControlCLI do
         )
 
         print_build_gate_holders(Map.get(status, :holders, []))
+        print_build_gate_timeouts(Map.get(status, :timeouts, []))
 
       %{enabled?: true, capacity: capacity, active: active, queued: queued} = status
       when active > 0 or queued > 0 ->
-        IO.puts("BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})")
-        print_build_gate_holders(Map.get(status, :holders, []))
+        holders = Map.get(status, :holders, [])
+        retain_seconds = Map.get(status, :retain_seconds)
+
+        # A slot whose command process group is gone is not doing work: render
+        # it apart from genuinely-busy slots so `BUILD GATE n/n active` never
+        # reads as a confident wrong number (#2349).
+        leaked = Enum.count(holders, &(&1.kind == :slot and &1.command_alive? == false))
+
+        retain_suffix =
+          if is_integer(retain_seconds) do
+            ", retain_seconds=#{retain_seconds}"
+          else
+            ""
+          end
+
+        line =
+          if leaked > 0 do
+            "BUILD GATE #{active - leaked}/#{capacity} active, #{leaked} held without a command, " <>
+              "#{queued} queued (max_concurrent_builds=#{capacity}#{retain_suffix})"
+          else
+            "BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity}#{retain_suffix})"
+          end
+
+        IO.puts(line)
+        print_build_gate_holders(holders)
+        print_build_gate_timeouts(Map.get(status, :timeouts, []))
 
       _ ->
         :ok
@@ -2083,7 +2149,8 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_build_gate_holder(%{kind: :slot} = holder) do
     identifiers = ["slot=#{Map.get(holder, :slot)}", "pid=#{Map.get(holder, :pid)}"]
-    print_build_gate_line("HOLDER", identifiers, holder, "held")
+    annotation = if Map.get(holder, :command_alive?) == false, do: " (command gone)", else: ""
+    print_build_gate_line("HOLDER", identifiers, holder, "held", annotation)
   end
 
   defp print_build_gate_holder(%{kind: :queue} = holder) do
@@ -2092,12 +2159,28 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_build_gate_holder(_holder), do: :ok
 
+  # A `slot-N.hold-timeout` marker means the detached holder released the lease
+  # at the absolute max-hold cap (#2349). Surface it so `aiur status` shows a
+  # slot that timed out as well as one that is merely still held.
+  defp print_build_gate_timeouts(timeouts) do
+    Enum.each(timeouts, fn timeout ->
+      IO.puts(
+        "BUILD GATE TIMEOUT slot=#{timeout.slot} command=#{inspect(timeout.command)} " <>
+          "held=#{format_gate_hold(timeout.held_for_seconds)} reason=#{timeout.reason}"
+      )
+    end)
+  end
+
   defp print_build_gate_line(kind, identifiers, holder, duration_label) do
+    print_build_gate_line(kind, identifiers, holder, duration_label, "")
+  end
+
+  defp print_build_gate_line(kind, identifiers, holder, duration_label, annotation) do
     with pid when is_integer(pid) <- Map.get(holder, :pid),
          command when is_binary(command) <- Map.get(holder, :command) do
       IO.puts(
         "BUILD GATE #{kind} #{Enum.join(identifiers, " ")} command=#{inspect(command)} " <>
-          "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}"
+          "#{duration_label}=#{format_gate_hold(Map.get(holder, :held_for_seconds))}#{annotation}"
       )
     else
       _ -> :ok
@@ -2191,6 +2274,16 @@ defmodule Aiur.AgentControlCLI do
   # from the terminal filter: a claim released on a ticket that has since been
   # closed cannot be recovered, and showing it forever is a wrong count (#1475).
   defp visible_status_row?(%{state: :idle, reason: {:claim_released, _cause, _retry_in_ms}} = status, tracker_states) do
+    not in_tracker_state_set?(Map.get(status, :tracker_state), tracker_states.terminal)
+  end
+
+  # An orphaned claim is the exact tracker/runtime contradiction status exists
+  # to diagnose. Keep it visible even when a tracker's configured active-state
+  # spelling differs from the normalized claim state in the retained row. A
+  # post-reconciliation stale claim is the same contradiction and gets the same
+  # treatment.
+  defp visible_status_row?(%{state: :idle, reason: reason} = status, tracker_states)
+       when reason in [:orphaned_claim, :stale_claim] do
     not in_tracker_state_set?(Map.get(status, :tracker_state), tracker_states.terminal)
   end
 

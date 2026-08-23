@@ -25,6 +25,7 @@ defmodule Aiur.GitHubCostCLI do
   contain. Consumers should branch on whether `data.credentials` is present.
   """
 
+  alias Aiur.GitHub.BudgetLedger
   alias Aiur.GitHub.CredentialUsage
   alias Aiur.GitHub.Quota
   alias Aiur.GitHub.ReadCache
@@ -33,9 +34,26 @@ defmodule Aiur.GitHubCostCLI do
   @table_min_width 96
   @headers ["CALLER", "BUDGET", "POINTS", "POINTS/HR", "CALLS", "SHARE", "SOURCE"]
 
+  @doc """
+  The broker's admission ledger retention, in seconds.
+
+  The ledger keeps one rolling hour of admissions — the same window GitHub's
+  `/rate_limit` buckets are measured over — so it can only ever be reconciled
+  against that span. `aiur github-cost` prints this beside its totals (#2353):
+  the ledger is a spend *record*, not a meter, and nothing outside the window
+  can be checked against `/rate_limit` after the fact.
+  """
+  @spec ledger_window_seconds() :: pos_integer()
+  def ledger_window_seconds, do: div(BudgetLedger.window_ms(), 1_000)
+
+  @spec ledger_window() :: %{window_seconds: pos_integer(), window_label: String.t()}
+  defp ledger_window, do: %{window_seconds: ledger_window_seconds(), window_label: "1 hour"}
+
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
-    case build(opts) do
+    error_fun = Keyword.get(opts, :error_fun, &default_error/1)
+
+    case build(Keyword.delete(opts, :error_fun)) do
       {:ok, envelope} ->
         if Keyword.get(opts, :json, false),
           do: IO.puts(Jason.encode!(envelope)),
@@ -44,21 +62,24 @@ defmodule Aiur.GitHubCostCLI do
         0
 
       {:error, reason} ->
-        IO.puts(:stderr, "aiur: github-cost #{reason}")
+        error_fun.("aiur: github-cost #{reason}")
         1
     end
   end
 
+  defp default_error(message), do: IO.puts(:stderr, message)
+
   @doc """
   The ranking envelope, with no output of its own.
 
-  `snapshot_fun` is the seam: the default reads the live `Aiur.GitHub.Quota`,
-  and tests hand in a fixed snapshot so the rendering can be asserted without a
-  daemon.
+  `snapshot_fun` is the seam: the default strictly reads the live
+  `Aiur.GitHub.Quota`, and tests hand in a fixed snapshot so the rendering can
+  be asserted without a daemon. Unlike dashboard projections, this diagnostic
+  must fail when its meter cannot be reached.
   """
   @spec build(keyword()) :: {:ok, map()} | {:error, String.t()}
   def build(opts \\ []) do
-    snapshot_fun = Keyword.get(opts, :snapshot_fun, &Quota.snapshot/0)
+    snapshot_fun = Keyword.get(opts, :snapshot_fun, &Quota.snapshot!/0)
     budget = Keyword.get(opts, :budget, "graphql")
 
     with {:ok, snapshot} <- fetch(snapshot_fun),
@@ -101,7 +122,8 @@ defmodule Aiur.GitHubCostCLI do
         callers: Enum.map(callers, &present_caller(&1, callers)),
         windows: Map.new(windows, fn {resource, window} -> {resource, present_window(window)} end),
         reconciliation: snapshot |> Map.get(:reconciliation, %{}) |> for_budget(budget),
-        cache: cache_snapshot(opts)
+        cache: cache_snapshot(opts),
+        ledger: ledger_window()
       }
     })
     |> put_credential_view(rows, budget, callers, pool)
@@ -240,6 +262,7 @@ defmodule Aiur.GitHubCostCLI do
 
     print_windows(data["windows"])
     print_reconciliation(data["reconciliation"])
+    print_ledger(data["ledger"])
     # Reading order, not merge order. The ranking says where the budget went,
     # the window says how much is left, the reconciliation says whether the
     # ranking adds up, and the cache says how much never had to be spent — that
@@ -254,6 +277,23 @@ defmodule Aiur.GitHubCostCLI do
     print_credentials(data["credentials"])
     print_pool_reconciliation(data["pool_reconciliation"])
   end
+
+  # The ledger window is a scope warning, not a number to reconcile against.
+  # The broker's `admissions` are pruned at one rolling hour, so any attempt to
+  # reconcile a longer interval against `/rate_limit` is guaranteed to fail;
+  # stating the window beside the totals is what keeps the two from being read
+  # as covering the same span (#2353).
+  defp print_ledger(%{"window_seconds" => seconds} = ledger) when is_integer(seconds) do
+    label = Map.get(ledger, "window_label") || "#{seconds}s"
+    IO.puts("")
+    # Deliberately avoids the word "reconcile": an unobserved meter's report
+    # must never mention reconciliation (credential_usage_test's pre-existing
+    # guarantee), so the window is stated as the span any comparison is bound
+    # to instead (#2353).
+    IO.puts("admission ledger window: #{label} — the ledger holds one rolling hour, so match it against at most that span of /rate_limit")
+  end
+
+  defp print_ledger(_ledger), do: :ok
 
   defp print_credentials(credentials) when is_list(credentials) and credentials != [] do
     IO.puts("")

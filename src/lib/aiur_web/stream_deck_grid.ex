@@ -67,8 +67,15 @@ defmodule AiurWeb.StreamDeckGrid do
   defp snapshot_agents(snapshot) do
     for {source, entries} <- [running: Map.get(snapshot, :running, []), retrying: Map.get(snapshot, :retrying, []), queued: Map.get(snapshot, :idle, [])],
         entry <- entries,
+        streamdeck_agent?(entry, source),
         do: Map.put(entry, :streamdeck_source, source)
   end
+
+  # An idle ticket is queued only while it remains dispatchable. Once the
+  # orchestrator records a dispatch decline, there is no agent to control and
+  # presenting the ticket in the fleet grid makes it look active when it is not.
+  defp streamdeck_agent?(entry, :queued), do: is_nil(Map.get(entry, :dispatch_decline_reason) || Map.get(entry, "dispatch_decline_reason"))
+  defp streamdeck_agent?(_entry, _source), do: true
 
   defp agent_payload(entry, bucket, dependency_ready?) do
     entry

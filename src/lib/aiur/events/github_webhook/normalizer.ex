@@ -212,6 +212,34 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   end
 
   # ---------------------------------------------------------------------------
+  # pull_request_review_thread resolved -> reconciliation only
+  # ---------------------------------------------------------------------------
+
+  defp normalize_event("pull_request_review_thread", payload, _repo) when is_map(payload) do
+    action = Map.get(payload, "action")
+    thread = Map.get(payload, "thread")
+
+    cond do
+      action != "resolved" ->
+        {:drop, {:uninteresting_action, "pull_request_review_thread", action}}
+
+      not is_map(thread) ->
+        {:error, {:malformed_payload, "pull_request_review_thread"}}
+
+      true ->
+        with {:ok, target, pr_number} <- pull_request_identity(payload) do
+          {:reconcile,
+           %{
+             kind: :review_threads,
+             ticket: target,
+             pull_request: pr_number,
+             source: "pull_request_review_thread"
+           }}
+        end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # pull_request -> ticket.<id>.pr.opened / .pr.merged, or a CI reconcile
   #
   # Mirrors GithubFirehose.translate/2 for the PullRequestEvent case. A

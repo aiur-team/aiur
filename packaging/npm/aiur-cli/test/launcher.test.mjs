@@ -308,6 +308,12 @@ function setupBackgroundLauncher() {
   );
   chmodSync(binAiur, 0o755);
 
+  const fakeErtsBin = path.join(releaseDir, "erts-test", "bin");
+  mkdirSync(fakeErtsBin, { recursive: true });
+  const fakeEpmd = path.join(fakeErtsBin, "epmd");
+  writeFileSync(fakeEpmd, "#!/usr/bin/env bash\necho 'epmd: up and running on port 4369 with data:'\n");
+  chmodSync(fakeEpmd, 0o755);
+
   const fakeBin = mkdtempSync(path.join(root, "fakebin-"));
   const fakePgrep = path.join(fakeBin, "pgrep");
   writeFileSync(
@@ -466,6 +472,7 @@ test("background start is idempotent when the existing tmux session has a live c
 
   expect(result.status).toBe(0);
   expect(result.stderr).toContain("already running in the background");
+  expect(result.stderr).toContain("Attach with: aiur");
   expect(result.stderr).toContain("aiur status");
   expect(result.stderr).toContain("aiur stop");
 
@@ -673,6 +680,28 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   );
   // A down node gets the clean hint, not the cryptic transport error.
   expect(result.stderr).not.toContain(":noconnection");
+});
+
+test("github-cost fails clearly instead of reading an empty local meter when the daemon is down", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "noconnection",
+      AIUR_FAKE_EPMD_REGISTERED: "0",
+    },
+    ["github-cost"],
+  );
+
+  expect(result.status).not.toBe(0);
+  expect(result.stdout).toBe("");
+  expect(result.stderr.trim()).toBe(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
+  expect(readFileSync(captureFile, "utf8")).toContain(
+    'RPC_EXPR:Aiur.AgentControlCLI.github_cost([budget: "graphql"])',
+  );
 });
 
 test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {

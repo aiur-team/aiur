@@ -41,7 +41,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     <section class="section-card decision-inbox" aria-labelledby="decision-inbox-title">
       <h2 id="decision-inbox-title" class="sr-only">Commands inbox</h2>
 
-      <div class="filter-row" aria-label="Command filters">
+      <div class="filter-row" aria-label="Command filters" data-count-scope="commands">
         <.filter_button
           :for={{filter, label} <- @filter_specs}
           filter={Atom.to_string(filter)}
@@ -92,6 +92,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
       class={["filter-chip", @active && "is-active", @blocking && "blocking"]}
       phx-click="filter-decisions"
       phx-value-filter={@filter}
+      data-count-label={@label}
       aria-pressed={to_string(@active)}
     >
       {@label} <span class="count num">{count_label(@count)}</span>
@@ -99,14 +100,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     """
   end
 
-  # Every chip counts exactly what its list contains. `awaiting` (not `open`) is
-  # the number the inbox lists, because a deferred Command is counted as open —
-  # the unit is still blocked — but it is no longer on the operator's queue.
+  # Open and Blocking use the store's canonical outstanding counts, including
+  # Commands deferred to the Executor. All spans those cards plus the history
+  # table rendered directly below them, so it uses the retained total.
   defp filter_counts(retained_counts, history_total) do
     %{
-      all: Map.get(retained_counts, :awaiting),
-      open: Map.get(retained_counts, :awaiting),
-      blocking: Map.get(retained_counts, :awaiting_blocking),
+      all: Map.get(retained_counts, :total),
+      open: Map.get(retained_counts, :open),
+      blocking: Map.get(retained_counts, :blocking),
       resolved: history_total
     }
   end
@@ -140,7 +141,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     if is_nil(selected), do: filtered, else: [selected | filtered]
   end
 
-  defp open?(decision), do: decision.decision_status == :open
+  defp open?(decision), do: decision.decision_status in [:open, :deferred]
   defp blocking?(decision), do: decision.blocking and open?(decision)
 
   defp undelivered?(decision) do
