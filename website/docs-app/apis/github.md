@@ -528,7 +528,7 @@ Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
 
 | Boundary | Operator requirement |
 | --- | --- |
-| Origin | Route the tunnel to the Aiur daemon at `127.0.0.1:4000`. |
+| Origin | Route the tunnel to the Aiur daemon's Tailscale IPv4 (a `100.x.y.z` address) at port `4000` — not `127.0.0.1`, which returns `502` because the tunnel origin must reach the daemon over the tailnet. |
 | Public host | Serve the webhook at `hooks.aiur.dev`. |
 | Reachable path | Route only `/api/v1/github/webhook`; finish the ingress list with a catch-all `404`. |
 | Network | No inbound firewall rule is needed or wanted because `cloudflared` dials out. |
@@ -537,7 +537,7 @@ The path scope and webhook signature are independent locks:
 
 | Lock | Protects against |
 | --- | --- |
-| Path-only tunnel routing | Public access to the dashboard and every other route on `127.0.0.1:4000`. |
+| Path-only tunnel routing | Public access to the dashboard and every other route served on the daemon's tailnet address. |
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.

@@ -119,8 +119,10 @@ Full walkthrough: [Quick start](https://aiur.team/docs/guide/quick-start).
 | **Stream Deck** | Physical keys and dictation for the fleet | Separate sidecar, Linux x64, experimental | [Stream Deck](https://aiur.team/docs/guide/stream-deck) |
 
 The TUI and dashboard are both optional: `aiur --bg` runs headless with the dashboard, and
-`--no-dashboard` drops the web listener. The dashboard is writable by default and needs
-`AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` even on loopback.
+`--no-dashboard` drops the web listener. Every usable dashboard requires
+`AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` — without them the loopback
+listener binds but refuses every request until both are set. The dashboard is writable
+by default, and writable mode requires those same two credentials even on loopback.
 
 ## Additional capabilities
 
