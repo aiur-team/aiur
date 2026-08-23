@@ -195,6 +195,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
           |> IssueSync.sync_fleet_capacity_starved_alert(issues)
+          # After dispatch has had its chance to claim every eligible ticket,
+          # re-queue open non-terminal tickets that still have no live owner and
+          # no scheduled claim (a released claim with no recovery, or a
+          # degenerate zero-label ticket) so a strand never sits unowned and
+          # invisible to the label checks (#2361, #2420).
+          |> IssueSync.sync_stranded_ticket_reconciliation(issues)
 
         %{state | initial_dispatch_cycle: false}
 
@@ -2236,59 +2242,62 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if entry[:tripped] == :lifetime and entry[:durable_latch_applied] != true and
          is_binary(issue.identifier) do
       case update_state_fun.(issue.identifier, "error") do
-        :ok ->
-          lifetime = Map.get(entry, :lifetime, 0)
-          maximum = Config.agent_max_dispatches_per_ticket()
-
-          Alerts.emit_custom(
-            "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
-            "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
-            issue: issue.identifier,
-            reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
-            needs_attention: true,
-            severity: "warning",
-            # IssueSync reconstructs the persisted error cause after a restart
-            # from the central feed only, so this attention must land there or
-            # it can never be resolved or rearmed.
-            central: true
-          )
-
-          updated_entry = Map.put(entry, :durable_latch_applied, true)
-          state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
-
-          %{
-            state
-            | claimed: MapSet.delete(state.claimed, issue.id),
-              observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id),
-              observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue.id, :lifetime_latch)
-          }
-
-        {:error, reason} ->
-          Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
-
-          # The terminal `error` write that would park the ticket never landed,
-          # so it keeps its active-state label; alert (once) rather than only
-          # logging so the Executor sees a stranded ticket (#2420).
-          if entry[:latch_alert_emitted] do
-            state
-          else
-            Alerts.emit_custom(
-              "ticket.#{issue.identifier}.agent.attention.lifetime_latch_write_failed",
-              "Lifetime dispatch latch could not be persisted as error (#{inspect(reason)}); the ticket keeps its active-state label.",
-              issue: issue.identifier,
-              reason: "The lifetime-latch error-state write failed (#{inspect(reason)}); the ticket was not parked in error and may be re-dispatched.",
-              needs_attention: true,
-              severity: "warning",
-              central: true
-            )
-
-            put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, Map.put(entry, :latch_alert_emitted, true)))
-          end
-
-          state
+        :ok -> apply_lifetime_latch_error_write(state, issue, entry)
+        {:error, reason} -> handle_lifetime_latch_write_failure(state, issue, entry, reason)
       end
     else
       state
+    end
+  end
+
+  defp apply_lifetime_latch_error_write(%State{} = state, %Issue{} = issue, entry) do
+    lifetime = Map.get(entry, :lifetime, 0)
+    maximum = Config.agent_max_dispatches_per_ticket()
+
+    Alerts.emit_custom(
+      "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
+      "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+      issue: issue.identifier,
+      reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+      needs_attention: true,
+      severity: "warning",
+      # IssueSync reconstructs the persisted error cause after a restart
+      # from the central feed only, so this attention must land there or
+      # it can never be resolved or rearmed.
+      central: true
+    )
+
+    updated_entry = Map.put(entry, :durable_latch_applied, true)
+    state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
+
+    %{
+      state
+      | claimed: MapSet.delete(state.claimed, issue.id),
+        observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue.id, :lifetime_latch)
+    }
+  end
+
+  defp handle_lifetime_latch_write_failure(%State{} = state, %Issue{} = issue, entry, reason) do
+    Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+
+    # The terminal `error` write that would park the ticket never landed,
+    # so it keeps its active-state label; alert (once) rather than only
+    # logging so the Executor sees a stranded ticket (#2420).
+    if entry[:latch_alert_emitted] do
+      state
+    else
+      Alerts.emit_custom(
+        "ticket.#{issue.identifier}.agent.attention.lifetime_latch_write_failed",
+        "Lifetime dispatch latch could not be persisted as error (#{inspect(reason)}); the ticket keeps its active-state label.",
+        issue: issue.identifier,
+        reason: "The lifetime-latch error-state write failed (#{inspect(reason)}); the ticket was not parked in error and may be re-dispatched.",
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
+
+      put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, Map.put(entry, :latch_alert_emitted, true)))
     end
   end
 

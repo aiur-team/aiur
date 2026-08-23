@@ -2126,6 +2126,126 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     end
   end
 
+  describe "sync_stranded_ticket_reconciliation (#2361)" do
+    test "re-queues a released-claim ticket with no recovery and alerts" do
+      topic = "ticket.its-everdred/aiur#released.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      stranded = issue("released", "rework")
+      parent = self()
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{released_claims: %{"released" => %{cause: :tracker_retry_exhausted}}},
+          [stranded],
+          fn identifier, target ->
+            send(parent, {:requeue, identifier, target})
+            :ok
+          end
+        )
+
+      # A valid `agent:rework` label with a released claim and no recovery is
+      # invisible to label checks but has no owner and nothing scheduled to give
+      # it one; it must be re-queued to a dispatchable state and surfaced.
+      assert_receive {:requeue, "its-everdred/aiur#released", "todo"}
+      assert next_state.released_claims == %{}
+
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "restored todo"
+    end
+
+    test "leaves a released-claim ticket with a scheduled transient resume alone" do
+      recovered = issue("recovered", "rework")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{
+            released_claims: %{"recovered" => %{cause: :tracker_retry_exhausted}},
+            auto_resume: %{"recovered" => %{attempt: 1, cause: :transient_tracker}}
+          },
+          [recovered],
+          fn _id, _target -> flunk("must not re-queue a ticket with recovery scheduled") end
+        )
+
+      assert next_state.released_claims != %{}
+    end
+
+    test "leaves a running ticket alone" do
+      running = issue("running", "rework")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{running: %{"running" => %{pid: self(), issue: running}}},
+          [running],
+          fn _id, _target -> flunk("must not re-queue a ticket with a live owner") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a todo ticket waiting for capacity alone" do
+      queued = issue("queued", "todo")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [queued],
+          fn _id, _target -> flunk("must not re-queue a todo ticket queued for dispatch") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a ci-wait ticket with no owner alone" do
+      waiting = issue("waiting", "ci-wait")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [waiting],
+          fn _id, _target -> flunk("must not re-queue a ticket waiting on external CI") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "re-queues a zero-label non-dispatchable ticket to its last known state and alerts" do
+      topic = "ticket.its-everdred/aiur#nolabel.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      stranded = issue("nolabel", nil)
+      parent = self()
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [stranded],
+          fn identifier, target ->
+            send(parent, {:requeue, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:requeue, "its-everdred/aiur#nolabel", "todo"}
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert next_state.released_claims == %{}
+    end
+  end
+
   defp issue(id, state) do
     %Issue{
       id: id,

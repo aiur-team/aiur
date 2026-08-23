@@ -113,6 +113,25 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       assert AutoResume.classify({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) == :local_budget_hold
     end
 
+    # #2361: a preflight that dies on a transport fault surfaces as
+    # `{:github_auth_preflight_failed, diagnostic}` with the taxonomy embedded
+    # in `detail` (or a raw 408/429/5xx `status`). The claim-release path feeds
+    # this reason to `classify/1`, and it must auto-resume on it rather than
+    # treat the ticket as a genuine agent failure parked with no scheduled
+    # re-claim.
+    test "classifies an auth-preflight transport failure as transient" do
+      assert AutoResume.classify({:github_auth_preflight_failed, %{detail: {:github, :timeout, %{reason: :closed}}}}) ==
+               :transient_tracker
+
+      assert AutoResume.classify({:github_auth_preflight_failed, %{detail: {:github, :transport, %{reason: :econnrefused}}}}) ==
+               :transient_tracker
+
+      assert AutoResume.classify({:github_auth_preflight_failed, %{reason: :http_status, status: 502}}) == :transient_tracker
+      assert AutoResume.classify({:github_auth_preflight_failed, %{reason: :http_status, status: 500}}) == :transient_tracker
+
+      assert AutoResume.classify({:github_auth_preflight_failed, %{reason: :invalid_or_expired_token, status: 401}}) == nil
+    end
+
     test "returns nil for terminal and operator causes" do
       assert AutoResume.classify({:github, :auth, %{status: 401}}) == nil
       assert AutoResume.classify({:github, :permission, %{status: 403}}) == nil

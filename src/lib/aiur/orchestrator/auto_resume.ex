@@ -50,8 +50,12 @@ defmodule Aiur.Orchestrator.AutoResume do
   automatic re-dispatch. Returns `nil` for terminal/operator causes.
 
   Tracker errors follow `Aiur.GitHub.Errors`'s taxonomy (including the
-  secondary-rate-limit 403 whose body names a rate limit); provider timeouts
-  are recognized as bare or wrapped `:timeout` / transport terms.
+  secondary-rate-limit 403 whose body names a rate limit and the
+  auth-preflight transport shape the claim-release path surfaces — both go
+  through `Aiur.GitHub.Errors.transient_github_error?/1`, the same shared
+  classifier `Aiur.Orchestrator.HumanReview` uses to defer rather than
+  terminate); provider timeouts are recognized as bare or wrapped `:timeout` /
+  transport terms.
   """
   @spec classify(term()) :: cause() | nil
   def classify(reason) do
@@ -77,9 +81,11 @@ defmodule Aiur.Orchestrator.AutoResume do
   defp local_budget_hold?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}), do: true
   defp local_budget_hold?(_reason), do: false
 
-  defp tracker_transient?(reason) do
-    Errors.retryable_github_error?(reason)
-  end
+  # The shared transient classifier (taxonomy + 408/429/5xx + the auth-preflight
+  # transport diagnostic) so the claim-release path and retry exhaustion treat
+  # a TransportError as a transient fault that schedules a re-claim rather than
+  # parking the ticket with no recovery (#2361, #2420).
+  defp tracker_transient?(reason), do: Errors.transient_github_error?(reason)
 
   defp provider_timeout?(:timeout), do: true
   defp provider_timeout?({:error, :timeout}), do: true

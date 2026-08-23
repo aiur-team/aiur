@@ -114,21 +114,28 @@ defmodule Aiur.GitHub.IssueState do
         # and returning `:ok` reported a successful transition for a write that
         # did not happen — a stale cached body would strand an open ticket
         # while recording success (#2420). Report it honestly instead.
-        case remove_active_state_labels(
-               context.request_fun,
-               context.token,
-               context.owner,
-               context.repo,
-               context.issue_number,
-               current_issue_body,
-               context.prefix
-             ) do
-          :ok -> {:error, {:no_state_label_written, current_issue_body}}
-          {:error, _reason} = error -> error
-        end
+        handle_closed_active_target(context, current_issue_body)
       else
         swap_and_maybe_close_issue(context, current_issue_body, state_name, new_label)
       end
+    end
+  end
+
+  # A closed issue cannot carry an active state label; the honest result of
+  # stripping the stale active labels is an error naming the unfulfilled write,
+  # not a false `:ok` (#2420).
+  defp handle_closed_active_target(context, current_issue_body) do
+    case remove_active_state_labels(
+           context.request_fun,
+           context.token,
+           context.owner,
+           context.repo,
+           context.issue_number,
+           current_issue_body,
+           context.prefix
+         ) do
+      :ok -> {:error, {:no_state_label_written, current_issue_body}}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -249,18 +256,7 @@ defmodule Aiur.GitHub.IssueState do
           # cannot be written to a closed issue, so report the unfulfilled
           # write instead of a false `:ok` after stripping stale active labels
           # (#2420).
-          case remove_active_state_labels(
-                 context.request_fun,
-                 context.token,
-                 context.owner,
-                 context.repo,
-                 context.issue_number,
-                 issue_body,
-                 context.prefix
-               ) do
-            :ok -> {:error, {:no_state_label_written, issue_body}}
-            {:error, _reason} = error -> error
-          end
+          handle_closed_active_target(context, issue_body)
         else
           add_issue_label(
             context.request_fun,
@@ -302,8 +298,9 @@ defmodule Aiur.GitHub.IssueState do
     |> Map.get("labels", [])
     |> Enum.map(&Map.get(&1, "name", ""))
     |> Enum.filter(&String.starts_with?(&1, "#{prefix}:"))
-    |> Enum.reject(&preserved_prefixed_label?(&1, prefix))
-    |> Enum.reject(&(normalize_label_name(&1) in excluded))
+    |> Enum.reject(fn label ->
+      preserved_prefixed_label?(label, prefix) or normalize_label_name(label) in excluded
+    end)
     |> Enum.reduce_while(:ok, fn label, :ok ->
       case delete_issue_label(request_fun, token, owner, repo, issue_number, label) do
         :ok -> {:cont, :ok}

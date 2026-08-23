@@ -95,15 +95,14 @@ end
 
 — `src/lib/aiur/github/dispatch_authorization.ex:31-33`
 
-The consequence: a stale or hand-edited label set that carries **two state
-labels at once** denies dispatch. A repair pass at poll time
-(`IssueSync.reconcile_contradictory_state_labels`) heals the pair to the
-resolved winner (`agent:todo` wins) and rewrites the tracker, so the ticket
-stays dispatchable. A ticket with **zero** state labels is invisible to every
-dispatch/reconciler path, so the same pass restores it to its last known
-running state — falling back to `agent:todo` — and alerts. Markers sit *beside*
-the single state label, which is why they are kept out of `@state_suffixes` in
-the first place.
+The consequence: a stale or hand-edited label set carrying **two state labels
+at once** denies dispatch. A poll-time repair heals the pair to its winner
+(`agent:todo` wins); a **zero**-label ticket, invisible to dispatch, is
+restored to its last known state or `agent:todo`; an open ticket with no live
+agent and no scheduled claim is re-queued and alerted.
+
+Markers sit *beside* the single state label, which is why they are kept out of
+`@state_suffixes` in the first place.
 
 ## The state diagram
 

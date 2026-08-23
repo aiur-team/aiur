@@ -141,4 +141,42 @@ defmodule Aiur.GitHub.Errors do
   def retryable_github_error?({:github, :http, %{status: status}}) when status in 500..599, do: true
 
   def retryable_github_error?(_reason), do: false
+
+  @doc """
+  Classifies a GitHub failure reason as a transient infrastructure fault worth
+  deferring or auto-resuming rather than treating as terminal.
+
+  This is the shared classifier behind `Aiur.Orchestrator.HumanReview`'s
+  human-review transition deferral and the claim-release/retry auto-resume
+  path (#2420). It covers the structured `{:github, kind, _}` taxonomy
+  (`retryable_github_error?/1`), a bare `{:github_api_status, status}` for
+  408/429/5xx, and the auth-preflight diagnostic shape
+  (`{:github_auth_preflight_failed, diagnostic}`) that the claim-release path
+  surfaces when a preflight dies on a transport fault — the shape whose
+  embedded transport classification used to be treated as a genuine agent
+  failure, parking the ticket with no scheduled re-claim (#2361).
+  """
+  @spec transient_github_error?(term()) :: boolean()
+  def transient_github_error?(reason) do
+    retryable_github_error?(reason) or
+      github_status_transient?(reason) or
+      preflight_transient?(reason)
+  end
+
+  defp github_status_transient?({:github_api_status, status})
+       when status in [408, 429] or status in 500..599,
+       do: true
+
+  defp github_status_transient?(_reason), do: false
+
+  # A preflight diagnostic embeds the same taxonomy (`detail` is the
+  # `{:github, kind, _}` tuple) or a raw 408/429/5xx status; both are transient.
+  defp preflight_transient?({:github_auth_preflight_failed, %{detail: detail}}),
+    do: retryable_github_error?(detail)
+
+  defp preflight_transient?({:github_auth_preflight_failed, %{status: status}})
+       when status in [408, 429] or status in 500..599,
+       do: true
+
+  defp preflight_transient?(_reason), do: false
 end
