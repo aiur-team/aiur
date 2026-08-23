@@ -70,41 +70,18 @@ case "$budget_requested" in
 esac
 unset budget_requested
 
-# ---------------------------------------------------------------------------
-# CREDENTIAL SOURCE (#2356)
-#
-# Agents do not inherit GITHUB_TOKEN/GH_TOKEN: Aiur.AgentEnvironment scrubs
-# them from every agent environment, so a raw `curl`, a dependency build
-# script, or anything else that speaks HTTP directly is unauthenticated. The
-# daemon writes the bot PAT to a file and exports its path as
-# AIUR_GITHUB_CREDENTIAL_FILE; this wrapper reads the credential from that file so
-# it can (a) derive the broker's budget key and (b) inject the token into the
-# real `gh` ONLY for the duration of this governed call — never into the agent
-# environment and never into the wrapper's own siblings (the python broker and
-# cache tools are spawned without it). The env fallback keeps the host /
-# Executor wrapper and the test harness working unchanged.
-# ---------------------------------------------------------------------------
-guard_token_file=${AIUR_GITHUB_CREDENTIAL_FILE:-}
+# #2356: agents carry no GITHUB_TOKEN/GH_TOKEN (Aiur.AgentEnvironment scrubs
+# them). The credential comes from the file the daemon wrote and is injected
+# only into the real `gh` child of THIS governed call, never the agent env or
+# this wrapper's other children. The env fallback keeps host/Executor working.
 guard_token=
-if [ -n "$guard_token_file" ] && [ -f "$guard_token_file" ]; then
-  guard_token=$(sed -n '1p' "$guard_token_file" 2>/dev/null || true)
+if [ -n "${AIUR_GITHUB_CREDENTIAL_FILE:-}" ] && [ -f "$AIUR_GITHUB_CREDENTIAL_FILE" ]; then
+  guard_token=$(sed -n '1p' "$AIUR_GITHUB_CREDENTIAL_FILE" 2>/dev/null || true)
 fi
-if [ -z "$guard_token" ]; then
-  guard_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
-fi
-
-# The only process that ever receives the credential is the real `gh` child of
-# a governed call, and it receives it on ITS environment, for the duration of
-# this one invocation. `run_gh` never exports the token, so nothing this
-# wrapper spawns — the budget broker, the pagination renderer, the cache
-# tools — inherits it, and nothing leaks back to the agent shell that invoked
-# the wrapper.
+[ -n "$guard_token" ] || guard_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
 run_gh() {
-  if [ -n "${guard_token:-}" ]; then
-    GH_TOKEN="$guard_token" GITHUB_TOKEN= "$real_gh" "$@"
-  else
-    GITHUB_TOKEN= GH_TOKEN= "$real_gh" "$@"
-  fi
+  if [ -n "${guard_token:-}" ]; then GH_TOKEN="$guard_token" GITHUB_TOKEN= "$real_gh" "$@"
+  else GITHUB_TOKEN= GH_TOKEN= "$real_gh" "$@"; fi
 }
 
 fingerprint_value() {
@@ -137,13 +114,11 @@ if [ "$budget_required" -eq 1 ]; then
     budget_unavailable_reason='state directory is unavailable'
   else
     if [ -z "$budget_key" ]; then
-      # `guard_token` is the file credential (agents), the inherited env token
-      # (host/Executor), or — via the keyring read below — the stored login.
+      # `guard_token` is the file credential (agents) or the inherited env
+      # token (host/Executor); the keyring read below feeds both too.
       budget_token=$guard_token
       if [ -z "$budget_token" ]; then
         budget_token=$(GITHUB_TOKEN= GH_TOKEN= "$real_gh" auth token --hostname github.com 2>/dev/null || true)
-        # The keyring fallback feeds the governed call too, so the host wrapper
-        # does not depend on `gh` re-resolving the same stored login by itself.
         [ -n "$budget_token" ] && guard_token=$budget_token
       fi
 

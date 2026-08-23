@@ -466,21 +466,25 @@ That gap is the exposure, and it is why a verdict is never kept at all.
 Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon
 scrubs them from every agent environment and instead writes the bot PAT to a
 credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
-reads. The wrapper injects the credential only into the real `gh` process it
-spawns for a governed call, for the duration of that call — never into the
-agent's environment and never into the sibling processes the wrapper launches.
+reads.
+
+The wrapper injects the credential only into the real `gh` process it spawns
+for a governed call, for the duration of that call — never into the agent's
+environment and never into the sibling processes the wrapper launches.
+
 So `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent shell returns
 nothing, and a bare `curl` to `api.github.com` from an agent workspace is
 unauthenticated.
 
 This is a **policy boundary, not a capability boundary.** Agents run as the
 same OS user as the daemon, so an agent that deliberately goes looking can read
-the credential file, the shared budget database, or the operator keyring. What
-the file removes is the raw token from the *environment* of every agent
+the credential file, the shared budget database, or the operator keyring.
+
+What the file removes is the raw token from the *environment* of every agent
 process, where anything — a dependency's build script, a `curl` one-liner, a
-Python or Node fetch — would inherit it without even trying. Do not read the
-broker ledger as a complete account of every request a determined agent could
-make; it is a complete account of the governed calls.
+Python or Node fetch — would inherit it without trying. The broker ledger is
+a complete account of the governed calls, not of every request a determined
+agent could make.
 
 | Path | Governed by the guard |
 | --- | --- |

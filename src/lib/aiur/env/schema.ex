@@ -136,6 +136,11 @@ defmodule Aiur.Env.Schema do
      group: :required,
      purpose: "Fallback GitHub credential; ignored when the GitHub App vars below are set.",
      fetch: "github.com/settings/tokens -> Generate -> repo scope"},
+    {"GH_TOKEN",
+     type: :secret,
+     group: :required,
+     purpose: "Alternative GitHub credential name the guard reads when GITHUB_TOKEN is unset; never required.",
+     fetch: "same token as GITHUB_TOKEN, exported under gh's preferred name"},
 
     # --- GitHub App auth ---
     {"GITHUB_APP_ID", type: :string, group: :github_app, purpose: "GitHub App numeric id; preferred auth, short-lived installation tokens.", fetch: "App settings page, top of page"},

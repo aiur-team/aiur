@@ -84,9 +84,8 @@ defmodule Aiur.AgentGitHubGuard do
 
     case token do
       token when is_binary(token) and token != "" ->
-        with :ok <- ensure_token_parent(path, opts),
-             :ok <- write_agent_token_file(path, token) do
-          :ok
+        with :ok <- ensure_token_parent(path, opts) do
+          write_agent_token_file(path, token)
         end
 
       _no_credential ->
