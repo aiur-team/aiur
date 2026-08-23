@@ -401,5 +401,18 @@ defmodule Aiur.GitHub.TransportTest do
       assert {:error, _reason} =
                Transport.fetch_json_list_conditional(request_fun, "token", "https://api.github.com/x", "etag-old")
     end
+
+    # #2330: this helper answers one page, so a response pointing at a next page
+    # must be refused — a page-1 validator cannot answer a multi-page question,
+    # and a caller handed this list would trust a partial answer.
+    test "refuses a 200 that points at a next page" do
+      request_fun = fn _request ->
+        next = ~s(<https://api.github.com/x?per_page=100&page=2>; rel="next")
+        {:ok, %{status: 200, headers: [{"etag", "etag-new"}, {"link", next}], body: [%{"id" => 1}]}}
+      end
+
+      assert {:error, :pagination_unexpected} =
+               Transport.fetch_json_list_conditional(request_fun, "token", "https://api.github.com/x", "etag-old")
+    end
   end
 end
