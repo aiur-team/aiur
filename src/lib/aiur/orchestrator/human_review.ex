@@ -71,6 +71,19 @@ defmodule Aiur.Orchestrator.HumanReview do
 
   defp verify_human_review_ready(_issue), do: :ok
 
+  # A local GitHub budget hold is a transient infrastructure fault: the guard
+  # is throttling a resource for a bounded window, not reporting a provenance
+  # problem. The transport layer returns it in the raw `{:aiur, :locally_held,
+  # hold}` shape (`Transport.uncached_quota_request`), and `Errors.classify_error`
+  # additionally wraps it as `{:github, :transport, %{reason: ...}}`; both must
+  # defer the human-review transition (the ticket stays in `human-review` and the
+  # next poll re-verifies) rather than reverting it to `rework`, which strands a
+  # healthy PR in a state whose rework turn has nothing to fix (#2409).
+  defp transient_human_review_verification_error?({:aiur, :locally_held, _hold}), do: true
+
+  defp transient_human_review_verification_error?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}),
+    do: true
+
   defp transient_human_review_verification_error?({:github, kind, _detail})
        when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
        do: true

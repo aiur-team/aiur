@@ -91,57 +91,14 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def fetch_issue_raw(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- raw_repository(opts),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
-
-      case request_fun.(%{
-             method: :get,
-             url: url,
-             token: token,
-             max_response_bytes: @max_issue_response_bytes,
-             caller: "issue_raw"
-           }) do
-        {:ok, %{private: %{aiur_response_too_large: true}, status: status} = response}
-        when status != 200 ->
-          {:error, Errors.github_status_error(response)}
-
-        {:ok, %{private: %{aiur_response_too_large: true}}} ->
-          {:error, :github_issue_response_too_large}
-
-        {:ok, %{status: 200, body: body}} when is_map(body) ->
-          {:ok, body}
-
-        {:ok, %{status: 200}} ->
-          {:error, :invalid_github_issue_response}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
   @doc """
   Fetches one issue through `Aiur.GitHub.ResourceStore`.
 
-  Same endpoint and same body as `fetch_issue_raw/2` — `GET
+  Same endpoint and same body as an unconditional `GET
   /repos/{owner}/{repo}/issues/{number}` — but addressed by the issue's identity
-  rather than by the caller, so readers of that issue meet in one entry. That is
-  the point: the orchestrator's per-issue reconciliation poll, the Build Order
-  ticket-detail pane and the dashboard's ticket panel were each reading this exact
-  URL on their own schedule into their own cache.
-
-  One caller of the same URL is deliberately still outside this:
-  `Aiur.GitHub.IssueDependencies` reaches `fetch_issue_raw/2` through
-  `Aiur.GitHub.Client`, unconditionally, and neither reads nor populates the store.
-  It is named in `docs/measurements/2026-08-17-build-order-read-cost.md` rather
-  than quietly left out of the claim.
+  rather than by the caller, so readers of that issue meet in one entry. The
+  unconditional form was retired (#2326) so no new call site can pick it by coin
+  flip; this conditional form is the only reader of the endpoint.
 
   The answer says which of three costs was paid, because "we had it" and "we
   revalidated it for free" are different claims and only one of them can be
@@ -181,8 +138,8 @@ defmodule Aiur.GitHub.Issues do
   the store's own bound evicted it — so a `304` can arrive with nothing to serve.
   That is not an error and must not surface as one: the read retries once without
   the validator, which is exactly the unconditional request the caller would have
-  made anyway. Every other store fault degrades the same way, to
-  `fetch_issue_raw/2`'s behaviour.
+  made anyway. Every other store fault degrades the same way, to a plain
+  conditional request.
   """
   @spec fetch_issue_raw_conditional(integer() | String.t(), keyword()) ::
           {:ok, map(), :fresh | :not_modified | :fetched} | {:error, term()}
@@ -952,7 +909,14 @@ defmodule Aiur.GitHub.Issues do
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
       creator_login: get_in(gh_issue, ["user", "login"]),
       dispatch_revision: dispatch_revision,
+      # `dispatch_authorized?: false` means "not verified to dispatch", and the
+      # tri-state `dispatch_authorization` starts `:deferred` ("not yet checked")
+      # until `authorize_dispatches` resolves it to `:authorized` or `:denied`
+      # from a fetched timeline. `:deferred` must never be read as revoked, so a
+      # poll that re-normalizes a running issue without (yet) re-verifying it
+      # cannot terminate its agent (#2409).
       dispatch_authorized?: false,
+      dispatch_authorization: :deferred,
       paused: paused_label?(label_names, prefix),
       parked: parked_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
@@ -981,7 +945,14 @@ defmodule Aiur.GitHub.Issues do
   is blocked" defect this gate exists to prevent.
   """
   @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
-  def hydrate_blocked_by(%Issue{} = issue), do: hydrate_blocked_by(issue, [])
+  def hydrate_blocked_by(%Issue{} = issue) do
+    # The dispatch gate must never be served a blocked-by list the store holds
+    # that has silently gone stale — a blocker added on GitHub's side without
+    # Aiur's own write or a webhook delivery must still hold dispatch. So this
+    # entry point always revalidates with the stored ETag (a free 304 when
+    # unchanged) instead of serving the held body blind (#2326).
+    hydrate_blocked_by(issue, revalidate: true)
+  end
 
   @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
   def hydrate_blocked_by(%Issue{blocked_by: blockers} = issue, _opts) when blockers != [] do

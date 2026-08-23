@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPhysicalController, type ControllerVoice } from "../src/controller.js";
-import type { StreamDeckGrid } from "../src/channel.js";
+import { commandIdempotencyKey } from "../src/commands.js";
+import type { StreamDeckCommand, StreamDeckCommandsPage, StreamDeckGrid } from "../src/channel.js";
 import type { AudioDevice } from "../src/audio/index.js";
 import { dialButton, dialButtons, dialTurn, keyReport, keysReport } from "./support/deckReports.js";
 import { CHAT_WINDOW_ROWS } from "../src/touchStrip/chatLog.js";
@@ -1147,5 +1148,143 @@ describe("voice keys", () => {
     controller.handleReport(keyReport(7, true));
     controller.refreshVoice();
     expect(controller.state()).toMatchObject({ mode: "settings", micOffset: 0, selectedMicId: null });
+  });
+});
+
+describe("Commands answer path", () => {
+  // The command's version is deliberately ≠ 1: the fixture default everywhere
+  // else is 1, so a hardcoded `1` in `approveCommand` could never be told apart
+  // from the real value. The controller must pass the exact version it read.
+  const command = (overrides: Partial<StreamDeckCommand> = {}): StreamDeckCommand => ({
+    decision_id: "dec-answer",
+    version: 7,
+    ticket: { identifier: "agent-6" },
+    question: "Ship the change?",
+    context: { short: "The checks are green." },
+    options: [
+      { id: "ship", label: "Ship it", description: "Merge and deploy now." },
+      { id: "wait", label: "Wait", description: "Hold until tomorrow." },
+    ],
+    status: "open",
+    answer: null,
+    created_at: "2026-08-18T00:00:00Z",
+    ...overrides,
+  });
+
+  /** Focuses the agent, opens Commands, and lands on the Command's detail view. */
+  const answerHarness = (commandOverrides: Partial<StreamDeckCommand> = {}, voiceOver: Partial<ControllerVoice> = {}) => {
+    const answerCommand = vi.fn();
+    let text = "";
+    const voice: ControllerVoice & { say(value: string): void } = {
+      hold: vi.fn(),
+      release: vi.fn(),
+      message: () => text,
+      hasMessage: () => text !== "",
+      clear: vi.fn(() => { text = ""; }),
+      dispose: vi.fn(),
+      microphones: () => [],
+      refresh: vi.fn(),
+      selectedDeviceId: () => null,
+      select: vi.fn(),
+      say: (value: string) => { text = value; },
+      ...voiceOver,
+    };
+    const controller = createPhysicalController({
+      grid,
+      channel: () => ({ focus: vi.fn(), control: vi.fn(), say: vi.fn(), commandsPage: vi.fn(), answerCommand }),
+      voice: () => voice,
+      stateChanged: vi.fn(),
+    });
+    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(3, false));
+    controller.handleReport(keyReport(4, true));
+    controller.handleReport(keyReport(4, false));
+    const page: StreamDeckCommandsPage = { items: [command(commandOverrides)], has_next: false, next_cursor: null, total: 1 };
+    controller.setCommands(page);
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    expect(controller.state()).toMatchObject({ mode: "commands", commandsView: "detail", selectedCommand: { decision_id: "dec-answer" } });
+    return { controller, voice, answerCommand };
+  };
+
+  // `approveCommand` is fire-and-forget and awaits the SHA-256 idempotency-key
+  // digest before it calls the channel, so a negative assertion must wait out
+  // that async hop before it can trust "not called". Without this wait, a
+  // guard mutant that sends the answer *late* would land after the assertion
+  // and pass green.
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+  it("approves a selected option with the exact decision, version, idempotency key and payload", async () => {
+    const { controller, answerCommand } = answerHarness();
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    expect(controller.state().selectedOption).toBe(0);
+
+    controller.handleReport(dialButton(3));
+    const expected = { option_id: "ship" };
+    await vi.waitFor(() => {
+      expect(answerCommand).toHaveBeenCalledWith("dec-answer", 7, expect.stringMatching(/^sd_[0-9a-f]{32}$/), expected);
+    });
+    // The idempotency key is the SHA-256-derived key for this decision and
+    // answer, not a placeholder — the client's own derivation is what ships.
+    expect(answerCommand.mock.calls[0][2]).toBe(await commandIdempotencyKey("dec-answer", expected));
+
+    // The selection is consumed by the answer: a second dial D press must not
+    // re-send (a stale selection must never become a second decision).
+    expect(controller.state().selectedOption).toBeNull();
+    controller.handleReport(dialButton(3));
+    await settle();
+    expect(answerCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("approves a spoken custom response with the exact decision, version, idempotency key and payload", async () => {
+    const { controller, voice, answerCommand } = answerHarness();
+    controller.handleReport(keyReport(4, true));
+    controller.handleReport(keyReport(4, false));
+    voice.say("Hold everything — verify first.");
+    controller.refreshVoice();
+    expect(controller.state().commandDictation).toBe(true);
+
+    controller.handleReport(keyReport(5, true));
+    controller.handleReport(keyReport(5, false));
+    const expected = { custom_response: "Hold everything — verify first." };
+    await vi.waitFor(() => {
+      expect(answerCommand).toHaveBeenCalledWith("dec-answer", 7, expect.stringMatching(/^sd_[0-9a-f]{32}$/), expected);
+    });
+    expect(answerCommand.mock.calls[0][2]).toBe(await commandIdempotencyKey("dec-answer", expected));
+  });
+
+  it("sends nothing when no option or dictation is armed", async () => {
+    const { controller, answerCommand } = answerHarness();
+    controller.handleReport(dialButton(3));
+    await settle();
+    expect(answerCommand).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing when the selected option's id is empty", async () => {
+    // An option with an empty id is not an answer: `{ option_id: "" }` must
+    // never reach the channel, or a broken projection would read as "ship".
+    const { controller, answerCommand } = answerHarness({
+      options: [{ id: "", label: "Empty", description: "No id." }],
+    });
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    expect(controller.state().selectedOption).toBe(0);
+    controller.handleReport(dialButton(3));
+    await settle();
+    expect(answerCommand).not.toHaveBeenCalled();
+  });
+
+  it("refuses an empty dictation buffer as a custom response", async () => {
+    // A voice port that reports a message but returns empty text must not turn
+    // into `{ custom_response: "" }`: the `response !== ""` guard decides the
+    // answer is unarmed, so nothing reaches the channel.
+    const { controller, answerCommand } = answerHarness({}, { hasMessage: () => true, message: () => "" });
+    controller.refreshVoice();
+    expect(controller.state().commandDictation).toBe(true);
+    controller.handleReport(keyReport(5, true));
+    controller.handleReport(keyReport(5, false));
+    await settle();
+    expect(answerCommand).not.toHaveBeenCalled();
   });
 });

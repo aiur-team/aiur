@@ -28,7 +28,9 @@ The CI poll drops from its batch a target a `check_run` delivery already answere
 
 ## GitHub App authentication
 
-The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise. Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
+The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise.
+
+When no App credentials are set, a `GITHUB_TOKEN` env var is preferred, then the `gh` keyring (`gh auth login`). Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
 
 ### Set up the App
 
@@ -54,7 +56,9 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 | `GITHUB_APP_PRIVATE_KEY_PATH` | Path to the private-key PEM file; preferred. |
 | `GITHUB_APP_PRIVATE_KEY` | Inline PEM alternative; use one or the other. |
 
-`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`; the token remains the fallback when no App credentials are present.
+`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
+
+The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
 
 ### Token lifecycle
 
@@ -123,13 +127,17 @@ Dashboard and Build Order state is not on this cadence.
 
 | View state | Behaviour |
 | --- | --- |
-| Opening, focusing, or holding a page open | Zero API calls. |
-| Ticket backlog, Ad Hoc overlay, pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Opening the Tickets panel or a Build Order page | Renders held state first, then one view-originated refresh while you look. |
+| Ticket backlog, Ad Hoc overlay, with no page open | Zero API calls — the sweep skips a source nobody is watching. |
+| Ticket backlog, Ad Hoc overlay, while a page is open | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Pack status (`status.json`) | Always reconciled by the sweep, whether or not a page is open — the projection is authoritative on disk. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
-A change made outside Aiur reaches those three panels within one sweep rather
-than at once, which is the trade for them costing nothing while nobody is
-looking.
+A change made outside Aiur reaches the backlog and Ad Hoc overlay within one
+sweep while their page is open — with nobody looking they cost nothing — and
+pack status is reconciled every sweep regardless of viewers because it writes
+the daemon-owned `status.json` projection the planning contract names
+authoritative.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
