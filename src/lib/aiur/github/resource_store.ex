@@ -211,12 +211,15 @@ defmodule Aiur.GitHub.ResourceStore do
   `Aiur.GitHub.ResourceFetch` deposits what it fetches, mutation write-through
   merges its own responses, and `Aiur.Events.Publisher` marks individual comment
   resources processed. `Aiur.GitHub.CommentPollBatch` deposits the comment→thread
-  mapping it parses (`:pr_review_comment_thread`), and `Aiur.GitHub.DependenciesApi`
+  mapping it parses (`:pr_review_comment_thread`), `Aiur.GitHub.DependenciesApi`
   both reads and writes the blocked-by list (`:issue_blocked_by`), whose edges
-  the webhook deposit and the dependency mutation also merge in (#2326). Readers:
-  the poller and the command scan both serve their own `304` from the held list,
-  `Aiur.GitHub.Issues` and the dashboard read bodies, the thread resolver reads
-  the comment→thread map, and the dependencies reader serves the blocked-by list.
+  the webhook deposit and the dependency mutation also merge in, and
+  `Aiur.GitHub.PollSnapshots` converges complete review-thread and CI-context
+  selections (#2326). Readers: the poller and the command scan both serve their
+  own `304` from the held list, `Aiur.GitHub.Issues` and the dashboard read
+  bodies, the thread resolver reads the comment→thread map, the dependencies
+  reader serves the blocked-by list, and the three GraphQL poll paths consult
+  delivery-fresh selection snapshots before spending.
 
   ## Two versions, deliberately kept apart
 
@@ -283,6 +286,10 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
+    # Complete selection families shared by the GraphQL pollers and webhook
+    # deltas. They deliberately exclude strict review/merge verdict fields.
+    :pr_review_threads,
+    :ci_contexts,
     # Endpoint reads — the identity a conditional request validator belongs to.
     :issue_comments,
     :pr_issue_comments,
@@ -314,7 +321,14 @@ defmodule Aiur.GitHub.ResourceStore do
     # `pull_request_review_comment` webhook delivery consults it before paying for
     # a GraphQL node lookup (#2326). A comment's thread is immutable, so the
     # mapping never goes stale.
-    :pr_review_comment_thread
+    :pr_review_comment_thread,
+    # The conditional validator for that lookup's open-pull-request listing
+    # (`GET /pulls?state=open`), held separately from `:branch_pull_request`.
+    # The three writers of the PR-body key — webhook deposit, human-review gate,
+    # and the per-cycle Client lookup — each write a different kind of validator,
+    # so sharing one key would clobber the listing's page-1 ETag with a
+    # PR-body-derived hash it can never match (#2126, #2298).
+    :branch_pull_request_listing
   ]
 
   # The identities where a body's *order* decides correctness: a whole mutable

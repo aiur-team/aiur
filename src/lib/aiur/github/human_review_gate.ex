@@ -116,6 +116,13 @@ defmodule Aiur.GitHub.HumanReviewGate do
     # under the ticket number, so a *conditional* reader of this key could
     # revalidate with `If-None-Match` for free, and a strict read that returns
     # the identical body keeps the held validator rather than knocking it out.
+    #
+    # The per-cycle `Client.fetch_open_pull_request_for_branch` lookup runs the
+    # same search conditionally under its own `:branch_pull_request_listing` key
+    # (#2298): a page-1 validator for `GET /pulls?state=open` must not share this
+    # key, because a webhook or gate deposit here would overwrite it with a
+    # PR-body-derived validator the listing can never match. #2126 stands for
+    # this key; the listing's validator lives on the query it belongs to.
     fetcher = fn _opts ->
       case PullRequests.fetch_open_pull_request_for_branch(context.issue_number,
              request_fun: context.request_fun,

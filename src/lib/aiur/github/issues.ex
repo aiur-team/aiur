@@ -30,6 +30,11 @@ defmodule Aiur.GitHub.Issues do
   def max_issue_response_bytes, do: @max_issue_response_bytes
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
+  # #2298 item 3: the open-issue candidate/list reads are deliberately NOT
+  # `ResourceStore`-backed — a repo collection has no single resource identity
+  # for the store to key, and the per-cycle paths already revalidate every page
+  # with their own ETag cache (`_conditional` variants). They carry `caller:` so
+  # the spend is attributed rather than folded into an endpoint shape.
   def fetch_candidate_issues(opts \\ []) do
     if Config.active_states() == [], do: {:ok, []}, else: do_fetch_candidate_issues(opts)
   end
@@ -181,7 +186,7 @@ defmodule Aiur.GitHub.Issues do
     url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
     etag = if retried_without_validator?, do: nil, else: ResourceStore.etag(key)
 
-    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes}
+    request = %{method: :get, url: url, token: token, max_response_bytes: @max_issue_response_bytes, caller: "issue_raw_conditional"}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     context = %{
@@ -384,7 +389,8 @@ defmodule Aiur.GitHub.Issues do
         token: token,
         owner: owner,
         repo: repo,
-        prefix: GitHub.Config.label_prefix()
+        prefix: GitHub.Config.label_prefix(),
+        caller: "open_issue_list_conditional"
       }
 
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?state=open&per_page=100"
@@ -486,7 +492,8 @@ defmodule Aiur.GitHub.Issues do
         token: token,
         owner: owner,
         repo: repo,
-        prefix: GitHub.Config.label_prefix()
+        prefix: GitHub.Config.label_prefix(),
+        caller: "open_issue_list_conditional"
       }
 
       state_names
@@ -604,7 +611,8 @@ defmodule Aiur.GitHub.Issues do
         token: token,
         owner: owner,
         repo: repo,
-        prefix: GitHub.Config.label_prefix()
+        prefix: GitHub.Config.label_prefix(),
+        caller: "issue_by_id_conditional"
       }
 
       stable_ids = Enum.map(issue_ids, &to_string/1)
@@ -651,7 +659,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp fetch_label_issue_page(request_fun, url, token, owner, repo, prefix) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "open_issue_list"}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         revision = response_header(Map.get(response, :headers, []), "etag")
 
@@ -698,7 +706,7 @@ defmodule Aiur.GitHub.Issues do
           [Issue.t()]
         ) :: {:cont, {:ok, [Issue.t()]}} | {:halt, {:error, term()}}
   def reduce_fetch_issue(request_fun, url, token, owner, repo, prefix, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "issue_by_id"}) do
       {:ok, %{status: 200, body: body} = response} when is_map(body) ->
         revision = response_header(Map.get(response, :headers, []), "etag")
         {:cont, {:ok, [normalize_issue(body, owner, repo, prefix, revision) | acc]}}
@@ -845,7 +853,7 @@ defmodule Aiur.GitHub.Issues do
   # to accept, and the detail path would then be served — from the shared entry —
   # a body it would have rejected had it fetched the same URL itself.
   defp conditional_get(ctx, url, etag, max_response_bytes \\ @max_issue_response_bytes) do
-    request = %{method: :get, url: url, token: ctx.token, max_response_bytes: max_response_bytes}
+    request = %{method: :get, url: url, token: ctx.token, max_response_bytes: max_response_bytes, caller: Map.get(ctx, :caller, "open_issue_list_conditional")}
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     case ctx.request_fun.(request) do
