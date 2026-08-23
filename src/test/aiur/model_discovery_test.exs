@@ -379,6 +379,7 @@ defmodule Aiur.ModelDiscoveryTest do
       currency: "USD",
       context_tier: :not_applicable,
       cache_write_duration: :not_applicable,
+      window: :flat,
       price: "0.00",
       token_unit: 1_000_000,
       effective_date: ~D[2026-08-01],
