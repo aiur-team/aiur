@@ -174,12 +174,10 @@ defmodule Aiur.EnvTest do
       # actual shell-out, not an assertion against an injected stub.
       with_fake_gh_on_path(
         """
-        #!/bin/sh
         if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
           printf 'ghs_keyring_only_token\\n'
           exit 0
         fi
-        exit 1
         """,
         fn ->
           assert :ok = Env.validate_startup!(%{}, require_github_credential: true)
@@ -190,8 +188,9 @@ defmodule Aiur.EnvTest do
     test "the gate still fails when the gh shell-out yields nothing" do
       with_fake_gh_on_path(
         """
-        #!/bin/sh
-        exit 1
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          exit 1
+        fi
         """,
         fn ->
           error =
@@ -411,13 +410,24 @@ defmodule Aiur.EnvTest do
 
   # Puts a fake `gh` on PATH for the duration of `fun` so the real
   # `System.cmd("gh", ...)` keyring shell-out resolves to a deterministic stub.
-  defp with_fake_gh_on_path(script, fun) do
+  # `token_script` must define the `gh auth token` behaviour and then fall
+  # through: the helper appends a pass-through to the real `gh` (located before
+  # PATH changed) for every other invocation, so a concurrent test that shells
+  # out to `gh` still reaches the real binary instead of a stub.
+  defp with_fake_gh_on_path(token_script, fun) do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "aiur-env-fake-gh-#{unique}")
     bin_dir = Path.join(root, "bin")
     File.mkdir_p!(bin_dir)
     fake_gh = Path.join(bin_dir, "gh")
-    File.write!(fake_gh, script)
+
+    pass_through =
+      case System.find_executable("gh") do
+        nil -> "exit 99\n"
+        path -> "exec #{path} \"$@\"\n"
+      end
+
+    File.write!(fake_gh, "#!/bin/sh\n" <> token_script <> "\n" <> pass_through)
     File.chmod!(fake_gh, 0o755)
 
     original_path = System.get_env("PATH")
