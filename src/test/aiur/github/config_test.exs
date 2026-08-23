@@ -210,6 +210,29 @@ defmodule Aiur.GitHub.ConfigTest do
       assert log =~ "state=timed_out"
       assert log =~ "gh auth login"
     end
+
+    test "returns nil when gh is absent from PATH instead of crashing the caller" do
+      # Review regression: Task.async links the shell-out task to the caller, so
+      # an absent gh (ErlangError :enoent) inside the task used to exit the task
+      # abnormally and kill the caller across the link before Task.yield ever
+      # returned. The rescue now lives inside the task, so a gh-less box — the
+      # brand-new-developer path this ticket protects — degrades to nil exactly
+      # like an absent gh did pre-PR.
+      with_empty_path(fn ->
+        assert Config.keyring_token(timeout_ms: 1_000) == nil
+      end)
+    end
+
+    test "the shipped default timeout is bounded so a boot stall cannot ship unnoticed" do
+      # Pins @keyring_command_timeout_ms in the safe direction: every other test
+      # injects its own timeout_ms, so a mutation to a ten-minute stall would
+      # otherwise leave the whole suite green while boot hangs. Boot must fail
+      # fast on a locked keyring.
+      timeout = Config.keyring_command_timeout_ms()
+      assert is_integer(timeout)
+      assert timeout >= 1
+      assert timeout <= 10_000
+    end
   end
 
   describe "GitHub App installation-token integration" do
@@ -351,5 +374,28 @@ defmodule Aiur.GitHub.ConfigTest do
       {"Authorization", "Bearer " <> token} -> token
       _ -> nil
     end)
+  end
+
+  # Sets PATH to a directory with no executables, so `gh` is genuinely absent
+  # and `System.cmd("gh", ...)` raises :enoent — the box with no gh installed
+  # at all.
+  defp with_empty_path(fun) do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "aiur-config-empty-path-#{unique}")
+    File.mkdir_p!(root)
+
+    original_path = System.get_env("PATH")
+    System.put_env("PATH", root)
+
+    try do
+      fun.()
+    after
+      case original_path do
+        nil -> System.delete_env("PATH")
+        value -> System.put_env("PATH", value)
+      end
+
+      File.rm_rf!(root)
+    end
   end
 end

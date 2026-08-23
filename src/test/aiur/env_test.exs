@@ -204,6 +204,25 @@ defmodule Aiur.EnvTest do
       )
     end
 
+    test "a box with no gh installed fails the gate with the standard message, not a crash" do
+      # Review regression: on a gh-less box the keyring shell-out's task used to
+      # die with ErlangError :enoent and, because Task.async links the task to
+      # the caller, kill the boot process before the gate could raise its normal
+      # ArgumentError. The absent-gh case must degrade to the same friendly
+      # missing-credential message as every other no-credential path — the
+      # brand-new-developer scenario this ticket names.
+      with_empty_path(fn ->
+        error =
+          assert_raise ArgumentError, fn ->
+            Env.validate_startup!(%{}, require_github_credential: true)
+          end
+
+        assert error.message =~ "no GitHub credential is configured"
+        assert error.message =~ "keyring"
+        assert error.message =~ "gh auth login"
+      end)
+    end
+
     test "a gh that never returns does not hang boot; the gate fails naming the keyring within the timeout" do
       # The stall scenario from #2393: a gh whose keyring lookup blocks forever
       # (locked keyring prompt, unreachable host, missing GUI credential agent)
@@ -467,6 +486,29 @@ defmodule Aiur.EnvTest do
 
     original_path = System.get_env("PATH")
     System.put_env("PATH", bin_dir <> ":" <> (original_path || ""))
+
+    try do
+      fun.()
+    after
+      case original_path do
+        nil -> System.delete_env("PATH")
+        value -> System.put_env("PATH", value)
+      end
+
+      File.rm_rf!(root)
+    end
+  end
+
+  # Sets PATH to a directory with no executables, so `gh` is genuinely absent
+  # and `System.cmd("gh", ...)` raises :enoent — the box with no gh installed
+  # at all.
+  defp with_empty_path(fun) do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "aiur-env-empty-path-#{unique}")
+    File.mkdir_p!(root)
+
+    original_path = System.get_env("PATH")
+    System.put_env("PATH", root)
 
     try do
       fun.()

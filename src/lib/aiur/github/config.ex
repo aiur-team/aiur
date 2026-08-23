@@ -390,6 +390,17 @@ defmodule Aiur.GitHub.Config do
   @keyring_command_timeout_ms 5_000
 
   @doc """
+  The default timeout (milliseconds) for the `gh auth token` keyring shell-out.
+
+  Exposed so the boot-safety bound is testable: a boot stall from a locked
+  keyring must stay well under the ten-minute mark, and a mutation of the
+  private `@keyring_command_timeout_ms` would otherwise ship silently because
+  every test injects its own `timeout_ms`.
+  """
+  @spec keyring_command_timeout_ms() :: pos_integer()
+  def keyring_command_timeout_ms, do: @keyring_command_timeout_ms
+
+  @doc """
   Query the gh keyring with the env tokens CLEARED so gh returns the stored
   login rather than echoing the (possibly stale) env var.
 
@@ -432,13 +443,24 @@ defmodule Aiur.GitHub.Config do
   # the webhook admission path uses, and it keeps the boot gate from hanging on
   # a stalled keyring while still treating the result as "no keyring
   # credential" rather than an error.
+  #
+  # The rescue must live INSIDE the task: Task.async links the task to the
+  # caller, so an uncaught exception here (e.g. ErlangError :enoent when gh is
+  # not on PATH) would exit the task abnormally and the link would kill the
+  # caller before Task.yield ever returned — crashing boot on the exact gh-less
+  # new-developer box this protects, instead of degrading to "no keyring
+  # credential".
   defp run_gh_auth_token(timeout_ms) do
     task =
       Task.async(fn ->
-        System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
-          env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
-          stderr_to_stdout: true
-        )
+        try do
+          System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
+            env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
+            stderr_to_stdout: true
+          )
+        rescue
+          _ -> nil
+        end
       end)
 
     case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
@@ -446,6 +468,9 @@ defmodule Aiur.GitHub.Config do
         result
 
       {:exit, _reason} ->
+        # With the in-task rescue the task never exits abnormally; kept as a
+        # defensive fallback so an unexpected exit still degrades to "no
+        # keyring credential" rather than a crash.
         nil
 
       nil ->
