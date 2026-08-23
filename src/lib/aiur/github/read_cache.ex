@@ -327,12 +327,30 @@ defmodule Aiur.GitHub.ReadCache do
   # resolutions. Every REST write carries `/repos/{owner}/{repo}/` in its URL
   # and so never arrives here. If that ever stops being true, the metric to
   # watch is `invalidations.events` against the hit rate.
+  #
+  # A write that *can* name its subject retires exactly that subject, never the
+  # whole repository. `Identity.extract/1` always includes `{:repo, owner, repo}`
+  # — which every read of that repository also carries — so retiring it on every
+  # numbered write emptied the repository's cache per mutation: on a repo the
+  # daemon writes to continuously, no entry survived to be served, and the cache
+  # reported 0% hits with a full, freshly-deposited table (#2372). A numbered
+  # write retires the number plus the repository's collections instead — the
+  # same pair `invalidate_number/2` writes for a delivery — and only a write
+  # that names a repository but no number (a git ref, a repo-config write)
+  # retires the repository itself.
   defp write_identities(request) do
-    case request |> Identity.extract() |> Enum.reject(&(&1 == :root)) do
-      [] -> [:root]
-      identities -> identities
+    identities = Identity.extract(request)
+    repo = Enum.find(identities, &match?({:repo, _owner, _repo}, &1))
+    numbers = Enum.filter(identities, &match?({:number, _owner, _repo, _number}, &1))
+
+    cond do
+      repo == nil -> [:root]
+      numbers == [] -> [repo]
+      true -> [collections_identity(repo) | numbers]
     end
   end
+
+  defp collections_identity({:repo, owner, repo}), do: {:collections, owner, repo}
 
   defp refuse(fetch, reason, caller) do
     Metrics.refused(reason, caller)
