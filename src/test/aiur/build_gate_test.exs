@@ -1112,6 +1112,68 @@ defmodule Aiur.BuildGateTest do
   end
 
   @tag @linux_only
+  test "pause containment spares an adopted session daemon while reaping the build", context do
+    # #2387: pausing an agent must never take out the session keyring. The
+    # pause/cancel path (`PauseContainment` -> the holder's exception path)
+    # used to sweep every child of the subreaper and `killpg` its process
+    # group, which is how an adopted `dbus-daemon` / `gnome-keyring-daemon`
+    # died. This mirrors the assertion #2381 added for the timeout path: the
+    # build's own process is gone but the adopted daemon is still alive.
+    daemon_pid_path = Path.join(context.gate_dir, "pause-adopted-daemon.pid")
+
+    gated_context =
+      Map.merge(context, %{
+        sleep_seconds: 30,
+        started_path: context.started_path,
+        adopted_daemon_pid_path: daemon_pid_path
+      })
+
+    task = Task.async(fn -> run_bash("mix test", gated_context) end)
+
+    wait_for_file!(context.started_path)
+    wait_for_file!(context.mix_pid_path)
+    wait_for_file!(daemon_pid_path)
+
+    mix_pid = context.mix_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+    daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    # Clean up both processes even if a later assertion fails mid-test; the
+    # daemon would otherwise outlive the run.
+    on_exit(fn ->
+      System.cmd("kill", ["-KILL", Integer.to_string(mix_pid)], stderr_to_stdout: true)
+      System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true)
+    end)
+
+    # Wait until the daemon's `setsid` parent has exited and it has reparented
+    # onto the holder's subreaper, so the pause lands on a genuinely adopted
+    # stranger rather than a process still owned by the build.
+    wait_for_adopted_daemon!(daemon_pid, mix_pid)
+
+    # The holder is the subreaper that Popen'd the build; signal it directly so
+    # its containment exception path (the one that used to sweep the adopted
+    # daemon) runs. In production `PauseContainment` reaches it via the
+    # agent's process group.
+    holder_pid = wait_for_holder_pid!(context.gate_dir)
+    System.cmd("kill", ["-TERM", Integer.to_string(holder_pid)], stderr_to_stdout: true)
+
+    assert {_output, status} = Task.await(task, 10_000)
+    assert status in [125, 0]
+
+    # The build's own process is contained...
+    assert_process_gone!(mix_pid)
+
+    # ...while the adopted daemon (the gnome-keyring-daemon analogue) survives.
+    assert {_state, 0} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(daemon_pid)])
+
+    # The slot is released promptly for the next build.
+    assert {_output2, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{started_path: "", timeout_seconds: 2})
+             )
+  end
+
+  @tag @linux_only
   test "a post-Popen holder failure reaps Mix before releasing the slot", context do
     assert {output, 125} =
              run_bash(
@@ -2287,6 +2349,65 @@ defmodule Aiur.BuildGateTest do
     end
   end
 
+  # A `setsid`-detached daemon keeps its own session once its `setsid` parent
+  # exits and reparents onto the holder's subreaper. Wait until that happened
+  # (PPID no longer the wrapped command) so a pause test provably targets an
+  # adopted stranger and not a process still owned by the build (#2387).
+  defp wait_for_adopted_daemon!(daemon_pid, mix_pid, attempts \\ 300)
+
+  defp wait_for_adopted_daemon!(_daemon_pid, _mix_pid, 0),
+    do: flunk("timed out waiting for the daemon to reparent onto the holder")
+
+  defp wait_for_adopted_daemon!(daemon_pid, mix_pid, attempts) do
+    case System.cmd("ps", ["-o", "ppid=", "-p", Integer.to_string(daemon_pid)], stderr_to_stdout: true) do
+      {output, 0} ->
+        if output |> String.trim() |> String.to_integer() != mix_pid do
+          :ok
+        else
+          Process.sleep(10)
+          wait_for_adopted_daemon!(daemon_pid, mix_pid, attempts - 1)
+        end
+
+      _ ->
+        Process.sleep(10)
+        wait_for_adopted_daemon!(daemon_pid, mix_pid, attempts - 1)
+    end
+  end
+
+  # The holder records itself in the slot owner record once it starts; wait
+  # for that so a pause test can signal the holder's exception path directly.
+  defp wait_for_holder_pid!(gate_dir, attempts \\ 200)
+
+  defp wait_for_holder_pid!(_gate_dir, 0), do: flunk("timed out waiting for a gate holder pid")
+
+  defp wait_for_holder_pid!(gate_dir, attempts) do
+    case holder_pid_from_owner(gate_dir) do
+      nil ->
+        Process.sleep(10)
+        wait_for_holder_pid!(gate_dir, attempts - 1)
+
+      pid ->
+        pid
+    end
+  end
+
+  defp holder_pid_from_owner(gate_dir) do
+    gate_dir
+    |> Path.join("slot-*.owner")
+    |> Path.wildcard()
+    |> Enum.find_value(&holder_pid_from_owner_file/1)
+  end
+
+  defp holder_pid_from_owner_file(path) do
+    with {:ok, contents} <- File.read(path),
+         [_, pid] <- Regex.run(~r/holder_pid=(\d+)/, contents),
+         pid when pid > 0 <- String.to_integer(pid) do
+      pid
+    else
+      _ -> nil
+    end
+  end
+
   defp write_meminfo!(context, available_mb) do
     path = Map.get(context, :meminfo_path, Path.join(context.gate_dir, "meminfo"))
     File.write!(path, "MemAvailable: #{available_mb * 1_024} kB\n")
@@ -2347,12 +2468,17 @@ defmodule Aiur.BuildGateTest do
     if [[ -n ${FAKE_MIX_ADOPTED_DAEMON_PID:-} ]]; then
       # A daemon from an unrelated session, the way dbus-daemon and
       # gnome-keyring-daemon appear under a build. It leaves this command's
-      # session, ignores TERM, outlives mix, and reparents onto the holder.
-      setsid bash -c '
-        trap "" TERM
-        printf "%s\\n" "$$" > "$1"
-        exec sleep 600
-      ' fake-adopted-daemon "$FAKE_MIX_ADOPTED_DAEMON_PID" </dev/null >/dev/null 2>&1 &
+      # session, ignores TERM, and outlives mix. The intermediate `( ... )`
+      # subshell exits immediately so the daemon reparents onto the holder's
+      # subreaper even while the command is still running -- the #2387
+      # incident shape.
+      (
+        setsid bash -c '
+          trap "" TERM
+          printf "%s\\n" "$$" > "$1"
+          exec sleep 600
+        ' fake-adopted-daemon "$FAKE_MIX_ADOPTED_DAEMON_PID" </dev/null >/dev/null 2>&1 &
+      ) </dev/null >/dev/null 2>&1
     fi
 
     if [[ -n ${FAKE_MIX_DESCENDANT_RELEASE:-} ]] || ((FAKE_MIX_DESCENDANT_SLEEP > 0)); then
