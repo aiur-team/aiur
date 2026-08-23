@@ -878,6 +878,33 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
+  test "status names an in-progress claim with no live agent as orphaned", %{orchestrator: pid} do
+    orphan = %Issue{id: "issue-orphan", identifier: "repo#2076", state: "in-progress", title: "Orphaned claim"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | last_polled_issues: %{orphan.id => orphan}, running: %{}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#2076  idle    Orphaned claim (orphaned claim: no live agent) [waiting=orphaned_claim]"
+    refute output =~ "Orphaned claim (awaiting-dispatch)"
+  end
+
+  test "status names a post-reconciliation in-progress claim as stale, not awaiting-dispatch", %{orchestrator: pid} do
+    stale = %Issue{id: "issue-stale", identifier: "repo#2076b", state: "in-progress", title: "Stale claim"}
+
+    :sys.replace_state(pid, fn state ->
+      %{state | startup_claim_reconciliation_complete?: true, last_polled_issues: %{stale.id => stale}, running: %{}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "Stale claim (stale in-progress claim: no live agent) [waiting=stale_claim]"
+    refute output =~ "Stale claim (awaiting-dispatch)"
+    refute output =~ "Stale claim (orphaned claim"
+  end
+
   test "status counts released claims awaiting automatic re-claim", %{orchestrator: pid} do
     released = %Issue{id: "issue-released", identifier: "repo#1475", state: "todo", title: "Reclaim me"}
 
