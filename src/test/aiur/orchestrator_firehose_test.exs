@@ -161,6 +161,108 @@ defmodule Aiur.OrchestratorFirehoseTest do
     assert TrackerHealth.github_next_poll_delay_ms(recovered) == 60_000
   end
 
+  # #2354 metric: every successful firehose tick reports how many pages were
+  # fetched and whether the previous watermark was reachable, so a window that
+  # is silently truncating is observable rather than invisible.
+  test "firehose reports pages fetched and cap status per tick" do
+    parent = self()
+
+    telemetry_fun = fn kind, attrs ->
+      send(parent, {:firehose_metric, kind, attrs})
+      :ok
+    end
+
+    stub = fn req ->
+      page = request_page(req)
+      body = if page == "1", do: Enum.take(ignored_events("m", 30), 5), else: []
+      {:ok, %{status: 200, headers: [{"ETag", ~s("metric-etag")}], body: body}}
+    end
+
+    state =
+      CommentPolling.poll_github_firehose(%Orchestrator.State{},
+        request_fun: stub,
+        firehose_poll_telemetry_fun: telemetry_fun
+      )
+
+    assert_receive {:firehose_metric, :firehose_poll, %{pages_fetched: 1, partial_window?: false, published: 0}}
+
+    assert state.firehose_partial_streak == 0
+    assert state.firehose_truncation_alert_active == false
+  end
+
+  # #2354 attention: a window that truncates once can be a boot reconciliation
+  # or a burst, but a truncating window that keeps truncating is the steady
+  # state the old 5-page cap hit on every tick — and that must raise attention
+  # rather than pass silently. The attention fires once at the threshold, stays
+  # armed on further truncation, and resolves the first tick the window is
+  # complete again.
+  test "firehose truncation attention fires on a sustained partial window and resolves on a complete one" do
+    parent = self()
+    counter = :counters.new(1, [:atomics])
+
+    # Every page is saturated with fresh ids so the previous tick's watermark
+    # is never reachable — the truncation that used to happen every tick.
+    truncated = fn _req ->
+      id = :counters.get(counter, 1) + 1
+      :counters.add(counter, 1, 1)
+      body = Enum.map(1..30, fn n -> ignored_event("gen-#{id}-#{n}") end)
+      {:ok, %{status: 200, headers: [{"ETag", ~s("partial-etag")}], body: body}}
+    end
+
+    alert_fun = fn topic, opts ->
+      send(parent, {:firehose_alert, topic, opts[:needs_attention]})
+      :ok
+    end
+
+    state =
+      Enum.reduce(1..2, %Orchestrator.State{}, fn _i, acc ->
+        CommentPolling.poll_github_firehose(acc,
+          request_fun: truncated,
+          firehose_truncation_alert_fun: alert_fun
+        )
+      end)
+
+    assert state.firehose_partial_streak == 2
+    assert state.firehose_truncation_alert_active
+    assert_receive {:firehose_alert, "system.firehose.event_truncation", true}
+    refute_receive {:firehose_alert, "system.firehose.event_truncation.resolved", _}, 100
+
+    # One complete window resets the streak and clears the attention.
+    complete = fn req ->
+      page = request_page(req)
+      body = if page == "1", do: [ignored_event("fresh")], else: []
+      {:ok, %{status: 200, headers: [{"ETag", ~s("complete-etag")}], body: body}}
+    end
+
+    resolved =
+      CommentPolling.poll_github_firehose(state,
+        request_fun: complete,
+        firehose_truncation_alert_fun: alert_fun
+      )
+
+    assert resolved.firehose_partial_streak == 0
+    assert resolved.firehose_truncation_alert_active == false
+    assert_receive {:firehose_alert, "system.firehose.event_truncation.resolved", false}
+  end
+
+  # A single truncated tick (for example the boot reconciliation, or a burst
+  # that outpaces the window) is disclosed by the metric but does not itself
+  # raise the attention; it takes the sustained threshold.
+  test "a single truncated firehose window does not raise the attention" do
+    truncated = fn _req ->
+      {:ok, %{status: 200, headers: [{"ETag", ~s("partial-etag")}], body: ignored_events("one-shot", 30)}}
+    end
+
+    state =
+      CommentPolling.poll_github_firehose(%Orchestrator.State{},
+        request_fun: truncated,
+        firehose_truncation_alert_fun: fn _topic, _opts -> :ok end
+      )
+
+    assert state.firehose_partial_streak == 1
+    assert state.firehose_truncation_alert_active == false
+  end
+
   defp request_page(%{url: url}) do
     url
     |> URI.parse()
