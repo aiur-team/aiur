@@ -286,13 +286,16 @@ defmodule Aiur.Events.GithubWebhook do
   # "in-progress", the same shape `Issues.extract_state_labels/2` derives from
   # a label like `agent:in-progress`. Fails toward an empty set so an
   # unreadable config means "not actionable" (no wake), never a wake storm.
+  @spec active_state_labels() :: MapSet.t()
   defp active_state_labels do
-    with {:ok, settings} <- Config.settings() do
-      settings.tracker.active_states
-      |> Enum.map(&StatePolicy.normalize_state/1)
-      |> MapSet.new()
-    else
-      _error -> MapSet.new()
+    case Config.settings() do
+      {:ok, settings} ->
+        settings.tracker.active_states
+        |> Enum.map(&StatePolicy.normalize_state/1)
+        |> MapSet.new()
+
+      _error ->
+        MapSet.new()
     end
   end
 
