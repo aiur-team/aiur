@@ -491,6 +491,21 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert %{unsafe_kind: 1} = snapshot.refused
     end
 
+    test "a REST read with no declared caller is named by route shape, not unattributed" do
+      # `Quota` bills the same request `rest:GET /repos/...` via
+      # `GraphQLCost.derive/1`; the cache used to fall back to a single
+      # `unattributed` bucket that hid every REST call site. The two must use
+      # the same derivation, so the cache metric names the shape the way the
+      # spend ranking does (#2357).
+      request = rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/comments?per_page=100")
+
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{miss: 1, deposit: 1} = snapshot.callers["rest:GET /repos/aiur-team/aiur/issues/:n/comments"]
+      refute Map.has_key?(snapshot.callers, "unattributed")
+    end
+
     test "reports nothing observed as nothing observed, never as zero" do
       assert Metrics.hit_rate(%{hit: 0, miss: 0}) == nil
       assert Metrics.hit_rate(%{hit: 1, miss: 1}) == 0.5

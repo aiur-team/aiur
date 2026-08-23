@@ -37,6 +37,7 @@ defmodule Aiur.GitHub.Quota do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.GraphQLErrors
+  alias Aiur.GitHub.RequestLog
   alias Aiur.GitHub.RequestOrigin
   alias Aiur.GitHub.Transport
   alias Aiur.RepoBase
@@ -137,9 +138,27 @@ defmodule Aiur.GitHub.Quota do
     :exit, _reason -> :available
   end
 
+  @doc """
+  Flushes the durable request log's `:delayed_write` buffer to disk.
+
+  Exposed for the request-log mutation test, which observes through the public
+  path and then reads its own write deterministically.
+  """
+  @spec flush_request_log(GenServer.server()) :: :ok
+  def flush_request_log(server \\ __MODULE__) do
+    GenServer.call(server, :flush_request_log)
+  catch
+    :exit, _reason -> :ok
+  end
+
   @impl true
   def init(opts) do
     refresh? = Keyword.get(opts, :refresh?, Application.get_env(:aiur, :github_quota_refresh?, true))
+
+    # Resolved once at boot: every observe appends to the same durable file
+    # through a `:delayed_write` io_device, so the message loop that gates the
+    # fleet's GitHub access never pays an open/close/stat per request.
+    request_log_path = Keyword.get_lazy(opts, :request_log_path, &RequestLog.default_path/0)
 
     state = %{
       windows: %{},
@@ -168,7 +187,11 @@ defmodule Aiur.GitHub.Quota do
       recovery_timer_ref: nil,
       recovery_timer_token: nil,
       refresh_interval_ms: Keyword.get(opts, :refresh_interval_ms, @refresh_interval_ms),
-      refresh_ref: nil
+      refresh_ref: nil,
+      # The durable request log's io_device, opened once here in `:delayed_write`
+      # so an observe never pays an open/close/stat on the fleet-gating loop.
+      # `nil` disables the log (test env, or a boot that could not open it).
+      request_log_io: RequestLog.open_writer(request_log_path)
     }
 
     if refresh?, do: Process.send_after(self(), :refresh, 0)
@@ -186,6 +209,7 @@ defmodule Aiur.GitHub.Quota do
       |> observe_response(request, result, now)
       |> observe_rejection(request, result, now)
       |> attribute_request(request, result, now)
+      |> log_request(request, result, now)
       |> maybe_alert()
 
     status = dispatch_status(state, now)
@@ -242,6 +266,17 @@ defmodule Aiur.GitHub.Quota do
     now = state.clock.()
     state = prune_backoffs(state, now)
     {:reply, dispatch_status(state, now), state}
+  end
+
+  def handle_call(:flush_request_log, _from, state) do
+    RequestLog.sync(state.request_log_io)
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    RequestLog.close(state.request_log_io)
+    :ok
   end
 
   @impl true
@@ -567,6 +602,29 @@ defmodule Aiur.GitHub.Quota do
 
   defp attribution_response({:ok, response}) when is_map(response), do: {Map.get(response, :status), response}
   defp attribution_response(_result), do: {nil, %{}}
+
+  # Durable per-request record. Best-effort and fail-open: a write failure must
+  # never refuse or distort a GitHub request, so the io_device is closed and the
+  # log disabled rather than retried on every request. `/rate_limit` probes are
+  # exempt (they cost no quota), matching `attribute_request/4`.
+  defp log_request(%{request_log_io: nil} = state, _request, _result, _now), do: state
+
+  defp log_request(state, request, result, now) do
+    if rate_limit_endpoint?(request) do
+      state
+    else
+      case RequestLog.append_io(state.request_log_io, request, result, now) do
+        :ok ->
+          state
+
+        {:error, _reason} ->
+          RequestLog.close(state.request_log_io)
+          %{state | request_log_io: nil}
+      end
+    end
+  rescue
+    _unavailable -> %{state | request_log_io: nil}
+  end
 
   # What the call actually cost the budget it was billed to.
   #
