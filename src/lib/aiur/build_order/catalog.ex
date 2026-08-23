@@ -10,6 +10,14 @@ defmodule Aiur.BuildOrder.Catalog do
 
   @max_entries 100
 
+  # Each class names a cause we can actually stand behind. There is deliberately
+  # no catch-all: an unrecognised failure stays `nil` and renders as a plain
+  # "Unresolved", because claiming no reason beats claiming a wrong one (#2250).
+  @count_resolution_failures [:budget, :rate_limited, :timeout, :unreachable, :permission, :schema, :incomplete]
+
+  @type count_resolution_failure ::
+          :budget | :rate_limited | :timeout | :unreachable | :permission | :schema | :incomplete | nil
+
   @type selection ::
           {:ok, RootSummary.t()}
           | {:structurally_invalid, RootSummary.t()}
@@ -20,10 +28,17 @@ defmodule Aiur.BuildOrder.Catalog do
           entries: [RootSummary.t()],
           provider: ProviderHealth.t(),
           diagnostics: [Diagnostic.t()],
-          search_paths: [Path.t()]
+          search_paths: [Path.t()],
+          count_resolution_failure: count_resolution_failure(),
+          count_resolution_reset_at: DateTime.t() | nil
         }
 
-  defstruct entries: [], provider: %ProviderHealth{}, diagnostics: [], search_paths: []
+  defstruct entries: [],
+            provider: %ProviderHealth{},
+            diagnostics: [],
+            search_paths: [],
+            count_resolution_failure: nil,
+            count_resolution_reset_at: nil
 
   @spec new(term(), term(), keyword()) :: t()
   def new(entries, provider, opts \\ [])
@@ -49,6 +64,33 @@ defmodule Aiur.BuildOrder.Catalog do
       diagnostics: [Diagnostic.new(:catalog_overflow)],
       search_paths: search_paths(opts)
     }
+
+  @doc """
+  Attaches the bounded reason epic and wave counts could not be resolved.
+
+  `:reset_at` is the horizon a `:budget` or `:rate_limited` hold clears at, so
+  the page can say *when* rather than only *that* — it is ignored for any other
+  class, and for `nil`, where there is nothing to wait for.
+  """
+  @spec put_count_resolution_failure(t(), count_resolution_failure(), keyword()) :: t()
+  def put_count_resolution_failure(catalog, failure, opts \\ [])
+
+  def put_count_resolution_failure(%__MODULE__{} = catalog, failure, opts)
+      when failure in @count_resolution_failures do
+    %{catalog | count_resolution_failure: failure, count_resolution_reset_at: reset_at(failure, opts)}
+  end
+
+  def put_count_resolution_failure(%__MODULE__{} = catalog, nil, _opts),
+    do: %{catalog | count_resolution_failure: nil, count_resolution_reset_at: nil}
+
+  defp reset_at(failure, opts) when failure in [:budget, :rate_limited] do
+    case Keyword.get(opts, :reset_at) do
+      %DateTime{} = reset_at -> reset_at
+      _other -> nil
+    end
+  end
+
+  defp reset_at(_failure, _opts), do: nil
 
   # Most catalog polls deliberately skip the per-member `labels` connection
   # (#1766), so they cannot resolve `epic_count`/`phase_count` and report nil.
