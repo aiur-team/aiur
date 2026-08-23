@@ -262,6 +262,47 @@ Do not commit:
 - per-machine paths, Tailscale IPs, or hostnames in this file
 - credentials embedded in YAML or log output
 
+## Tests must fail without the production change they guard
+
+**A test that passes with your production change reverted is not coverage.**
+It asserts behavior that was already true, so it passes against the trivially
+wrong implementation and reports nothing. Before opening a PR, for each test
+you added: undo the production hunk it is meant to guard, run that test, and
+confirm it **fails**; restore the hunk and re-run — it must pass. If it still
+passes with the change reverted, the test is asserting something the code
+already did — fix it to assert the specific behavior the change adds, or
+delete it. If you cannot revert cleanly, say so in the PR body rather than
+skipping the check.
+
+Name the result in the PR body: one line per new test ("`sweep_once` test
+fails with the production hunk reverted") or an explicit statement of why the
+check could not be run.
+
+Recurring shapes to avoid — each has shipped and cost a review round:
+
+- `assert %{} = …` and other patterns that match anything. `%{}` matches any
+  map, `_` matches anything, `is_binary(x)` proves nothing about a value whose
+  *content* is the point, and `f(x) == f(x)` self-comparisons can never fail.
+- Asserting a constant the change introduced (`assert {:cache, :issue_graph,
+  3_600_000} = ...`) instead of the behavior that produces it — a cache hit,
+  a reordered ranking, a persisted effect.
+- Asserting a rendered string without asserting the value behind it.
+- Fixtures built to avoid the failure mode. If the fixture cannot reach the
+  bug, the test cannot either — a broker double that delegates every command
+  but the one under test exercises a configuration that cannot exist.
+- Reading real state. Any test that touches `~/.aiur`, the live ledger, or a
+  shared global path must point at a temp path explicitly. Green in CI and red
+  on a live host is worse than red everywhere.
+
+Keeping a test that already passes on `main` is fine when it is deliberately a
+guard against a *future* regression — but say so in the test name or a
+comment, and do not count it toward covering this change.
+
+The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
+discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
+author-side rule so the check happens before review, not for the first time in
+review.
+
 ## Manual testing — the only definition
 
 When the user (or any doc) says "manually test", "run aiur and try it",
