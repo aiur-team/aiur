@@ -630,6 +630,24 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     )
   end
 
+  def maybe_emit_agent_control_alert(
+        :working,
+        :paused,
+        %{paused_reason: :github_budget_hold} = running_entry,
+        _previous_pause_reason
+      )
+      when is_map(running_entry) do
+    Alerts.emit_system("ticket.#{Map.get(running_entry, :identifier)}.github-budget.wait",
+      issue: Map.get(running_entry, :identifier),
+      workspace: Map.get(running_entry, :workspace_path),
+      worker_host: Map.get(running_entry, :worker_host),
+      message: "Agent waiting for GitHub budget",
+      reason: "GitHub budget hold paused the agent; automatic retry is scheduled when the hold clears.",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
   def maybe_emit_agent_control_alert(:working, :paused, running_entry, _previous_pause_reason)
       when is_map(running_entry) do
     pause_reason = Map.get(running_entry, :paused_reason)
@@ -687,7 +705,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp pause_clearance(reason) when reason in [:operator_pause, :label_override, :agent_pause_request, :input_required, :blocker_dependency],
     do: "after Executor or agent action"
 
-  defp pause_clearance(reason) when reason in [:global_pause, :usage_limit_exhausted], do: "when the condition is lifted"
+  defp pause_clearance(reason) when reason in [:global_pause, :usage_limit_exhausted, :github_budget_hold], do: "when the condition is lifted"
   defp pause_clearance(:before_run_failure), do: "after preflight succeeds"
   defp pause_clearance(_reason), do: "after the next control reconciliation"
 

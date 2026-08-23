@@ -13,7 +13,16 @@ import time
 
 POLL_SECONDS = 0.01
 TERM_GRACE_SECONDS = 1.0
+# Absolute wall-clock backstop for a leased slot (#2349). A slot is a shared
+# fleet resource; nothing may hold one indefinitely because of a bookkeeping
+# bug — an externally-reaped command, a process-group kill, or a daemon
+# reparented onto this subreaper that keeps `reap_remaining_children` from ever
+# seeing ECHILD. When `AIUR_BUILD_GATE_MAX_HOLD_SECONDS` expires the holder
+# releases the lease and leaves a durable `slot-N.hold-timeout` marker the
+# daemon turns into a needs-attention alert naming the command (#2311).
+HOLD_TIMEOUT_STATUS = 124
 _cancel_signal = None
+_hold_timeout_reason = None
 
 
 def main() -> int:
@@ -37,6 +46,7 @@ def main() -> int:
     parent_pid_int = int(parent_pid)
     agent_pgid_int = int(agent_pgid)
     handshake_deadline = time.monotonic() + max(1, int(handshake_seconds))
+    hold_deadline = max_hold_deadline()
     process = None
 
     try:
@@ -65,7 +75,7 @@ def main() -> int:
 
         detach_standard_streams(int(lease_fd))
 
-        result = wait_for_command(process, parent_pid_int)
+        result = wait_for_command(process, parent_pid_int, hold_deadline)
         if result < 0:
             result = 128 - result
 
@@ -73,7 +83,19 @@ def main() -> int:
         write_reserved_regular(status_path, f"{result} {int(retained)}\n")
         ack_deadline = time.monotonic() + max(1, int(ack_seconds))
         wait_for_status_ack(status_ack_path, token, parent_pid_int, ack_deadline)
-        reap_remaining_children(agent_pgid_int)
+
+        # The absolute hold cap can fire inside `reap_remaining_children` (the
+        # wrapped command already exited but adopted descendants kept the wait
+        # alive) or inside `wait_for_command` (the command itself ran past the
+        # cap). Both paths record the timeout; write the durable marker either
+        # way so the daemon can raise a needs-attention alert naming the
+        # command.
+        if _hold_timeout_reason is None:
+            reap_remaining_children(agent_pgid_int, hold_deadline, process.pid)
+
+        if _hold_timeout_reason is not None:
+            write_hold_timeout_marker(owner_path, command, max_hold_seconds(), _hold_timeout_reason)
+
         remove_owned_metadata(owner_path, token)
         cleanup_paths(
             ready_path,
@@ -219,7 +241,7 @@ def wait_until_ready(path: str, expected: str, parent_pid: int, deadline: float)
         time.sleep(POLL_SECONDS)
 
 
-def wait_for_command(process: subprocess.Popen, parent_pid: int) -> int:
+def wait_for_command(process: subprocess.Popen, parent_pid: int, hold_deadline: float | None) -> int:
     while True:
         result = process.poll()
         if result is not None:
@@ -229,6 +251,15 @@ def wait_for_command(process: subprocess.Popen, parent_pid: int) -> int:
             terminate_process_tree(process.pid)
             result = process.poll()
             return 125 if result is None else result
+
+        if hold_deadline is not None and time.monotonic() >= hold_deadline:
+            # The wrapped command has run past the absolute slot cap (#2349).
+            # The command is still alive, so terminate it rather than let a
+            # single serialised run (`--trace`, #2311) starve the fleet, then
+            # report the timeout to the wrapper.
+            record_hold_timeout("running")
+            terminate_process_tree(process.pid)
+            return HOLD_TIMEOUT_STATUS
 
         time.sleep(POLL_SECONDS)
 
@@ -370,12 +401,26 @@ def reap_exited_children() -> bool:
             return True
 
 
-def reap_remaining_children(agent_pgid: int) -> None:
+def reap_remaining_children(
+    agent_pgid: int, hold_deadline: float | None, command_pid: int
+) -> None:
     while True:
         raise_if_cancelled()
 
         if not process_group_alive(agent_pgid):
             raise InterruptedError("agent process group exited while descendants retained the lease")
+
+        # Backstop (#2349): after the wrapped command exits, the holder keeps
+        # the lease only to protect genuine Mix descendants. A daemon
+        # reparented onto this subreaper (dbus, keyring, ...) can keep
+        # `waitpid(-1)` returning non-ECHILD forever while the agent group
+        # lives — the observed >1h leak. When the cap expires, terminate the
+        # adopted descendants so the release is clean and log a marker the
+        # daemon surfaces as a needs-attention alert.
+        if hold_deadline is not None and time.monotonic() >= hold_deadline:
+            record_hold_timeout("retained")
+            terminate_process_tree(command_pid)
+            return
 
         try:
             child_pid, _child_status = os.waitpid(-1, os.WNOHANG)
@@ -384,6 +429,76 @@ def reap_remaining_children(agent_pgid: int) -> None:
 
         if child_pid == 0:
             time.sleep(POLL_SECONDS)
+
+
+def max_hold_seconds() -> int:
+    value = os.environ.get("AIUR_BUILD_GATE_MAX_HOLD_SECONDS", "0")
+
+    try:
+        hold = max(0, int(value))
+    except ValueError:
+        hold = 0
+
+    return hold
+
+
+def max_hold_deadline() -> float | None:
+    hold = max_hold_seconds()
+    return time.monotonic() + hold if hold > 0 else None
+
+
+def record_hold_timeout(reason: str) -> None:
+    global _hold_timeout_reason
+    _hold_timeout_reason = reason
+    print(
+        f"aiur_build_gate hold_timeout reason={reason}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def hold_timeout_marker_path(owner_path: str) -> str:
+    if owner_path.endswith(".owner"):
+        return owner_path[: -len(".owner")] + ".hold-timeout"
+    return owner_path + ".hold-timeout"
+
+
+def write_hold_timeout_marker(
+    owner_path: str, command: list[str], held_for_seconds: int, reason: str
+) -> None:
+    """Leave the durable record the daemon's BuildGateHoldMonitor consumes.
+
+    Best effort only: a marker that cannot be written must not prevent the
+    slot release — the holder's own log line is the fallback signal. The
+    marker path is new (unlike the bash-mktemp'd handshake files), so it is
+    created explicitly and published atomically via a temp + rename so a
+    polling reader never sees a partial record.
+    """
+    try:
+        marker_path = hold_timeout_marker_path(owner_path)
+        temp_path = marker_path + ".tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
+        descriptor = os.open(temp_path, flags, 0o644)
+        try:
+            encoded = (
+                "version=2\n"
+                f"command={' '.join(command)}\n"
+                f"held_for_seconds={int(held_for_seconds)}\n"
+                f"reason={reason}\n"
+            ).encode("utf-8")
+            while encoded:
+                written = os.write(descriptor, encoded)
+                encoded = encoded[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+        os.rename(temp_path, marker_path)
+    except OSError:
+        pass
 
 
 def remove_owned_metadata(path: str, token: str) -> None:

@@ -510,8 +510,13 @@ workspaces receive the wrapper automatically.
 
 The machine Decision API under `/api/v1/decisions` uses a dedicated bearer
 credential, not dashboard Basic Auth. Set `AIUR_SUPERVISOR_TOKEN` to at least 32
-random bearer-safe bytes. Keep the dashboard on loopback/private tunneling or
-terminate HTTPS before using the credential remotely.
+random bearer-safe bytes. Generate one with `openssl rand -base64 32`, then put
+`AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the
+repository `.env` (project-local); an already-exported value wins, followed by
+the global file and then the repository file. A present non-empty short,
+whitespace-surrounded, or non-bearer-safe value aborts startup, while an absent
+or empty value leaves the API disabled. Keep the dashboard on loopback/private
+tunneling or terminate HTTPS before using the credential remotely.
 
 Supervisor answers and revisions are disabled until their Decision kinds are
 explicitly delegated:

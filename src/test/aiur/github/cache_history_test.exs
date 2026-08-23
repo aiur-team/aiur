@@ -15,6 +15,11 @@ defmodule Aiur.GitHub.CacheHistoryTest do
 
   @now ~U[2026-08-18 12:00:00Z]
 
+  setup do
+    on_exit(&Source.uninstall/0)
+    :ok
+  end
+
   defmodule UnavailableSource do
     @behaviour Aiur.GitHub.CacheInspector.Source
     @impl true
