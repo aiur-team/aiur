@@ -128,8 +128,16 @@ defmodule Aiur.AgentGitHubGuardTest do
       if [ -n "${FAKE_GH_PAGINATION_BODY+x}" ]; then printf '%s\n' "$FAKE_GH_PAGINATION_BODY"; exit 0; fi
       if [ "${FAKE_GH_PAGINATION_JSON:-0}" = 1 ]; then printf '%s\n' '[]'; exit 0; fi
       sleep "${FAKE_GH_SLEEP:-0}"
+      # Real `gh` exits 1 and prints `gh: HTTP 304` on stderr for a 304; the
+      # guard must detect the 304 from the response status line, answer from
+      # the cache, and suppress that stderr. Opt-in so the pre-conditional
+      # tests keep the old mock's exit-0 304 shape (#2307 conditional reads).
+      if [ "${FAKE_GH_304_ERROR:-0}" = 1 ] && printf '%s' "${FAKE_GH_HEADERS:-}" | grep -Eq '^HTTP/[^[:space:]]+[[:space:]]+304'; then
+        printf '%s\n' 'gh: HTTP 304' >&2
+        exit 1
+      fi
       if [ "${FAKE_GH_FAIL:-0}" = 1 ] || [ "${fake_page_failure:-0}" = 1 ]; then printf '%s\n' "${FAKE_GH_ERROR:-failed}" >&2; exit 1; fi
-      printf 'ok\n'
+      if [ -n "${FAKE_GH_BODY:-}" ]; then printf '%b' "$FAKE_GH_BODY"; else printf 'ok\n'; fi
       """
     )
 
@@ -3350,6 +3358,128 @@ defmodule Aiur.AgentGitHubGuardTest do
 
       assert output =~ "no dispatch disposition"
       refute File.exists?(context.calls)
+    end
+
+    # #2307 agent conditional reads. A stored ETag turns an expired re-fetch
+    # into an If-None-Match request, so an unchanged answer comes back 304 and
+    # is reconciled free instead of billed again. The validator is only sent
+    # while a body is held (a 304 with no body would spend a request and learn
+    # nothing), and a 304 answers from the cache rather than the empty body.
+    test "a 200 gh api read stores the response ETag for a later conditional re-read", context do
+      env = [
+        AIUR_GITHUB_STATE_CACHE_TTL_MS: "1000",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_HEADERS: "HTTP/2 200\netag: \"v1\"\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n",
+        FAKE_GH_BODY: "cached-v1\n"
+      ]
+
+      assert {"cached-v1\n", 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"], env)
+
+      [{_key, body}] = cached_shapes(context)
+      meta = String.replace_suffix(body, ".body", ".meta")
+      assert File.read!(meta) =~ "\n\"v1\""
+    end
+
+    test "a conditional re-fetch sends If-None-Match and a 304 answers from the cache, free", context do
+      budget_root = Path.join(context.state_path, "host-budget")
+      broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+      key = "a" <> String.duplicate("0", 63)
+      args = ["api", "repos/owner/repo/issues/1670"]
+      args_file = Path.join(context.workspace, "args")
+      headers200 = "HTTP/2 200\netag: \"v1\"\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+      headers304 = "HTTP/2 304\netag: \"v1\"\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+
+      base_env = [
+        AIUR_GITHUB_STATE_CACHE_TTL_MS: "1000",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_ARGS: args_file,
+        AIUR_GITHUB_BUDGET_ROOT: budget_root,
+        AIUR_GITHUB_BUDGET_KEY: key,
+        AIUR_GITHUB_BUDGET_BROKER: broker,
+        AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "10"
+      ]
+
+      # Run 1: 200 with an ETag; the exact bytes are cached.
+      assert {"cached-v1\n", 0} = run_guard(context, args, base_env ++ [FAKE_GH_HEADERS: headers200, FAKE_GH_BODY: "cached-v1\n"])
+
+      # Nothing stored yet, so no validator was sent.
+      refute File.read!(args_file) =~ "If-None-Match"
+
+      # Past the freshness window, the stored ETag makes the re-fetch
+      # conditional. The mock now mimics real gh: exit 1 + `gh: HTTP 304` on
+      # stderr, which the guard must turn into a served 304 (exit 0, cached
+      # body, suppressed stderr, reconciled free).
+      Process.sleep(2_100)
+      File.rm(args_file)
+
+      assert {"cached-v1\n", 0} =
+               run_guard(context, args, base_env ++ [FAKE_GH_HEADERS: headers304, FAKE_GH_BODY: "stale-304\n", FAKE_GH_304_ERROR: "1"])
+
+      assert File.read!(args_file) =~ "If-None-Match: \"v1\""
+
+      # The 304 admission was reconciled free; the 200 before it was billable.
+      assert {snapshot, 0} =
+               System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+      assert snapshot
+             |> Jason.decode!()
+             |> Map.fetch!("admissions")
+             |> Enum.map(& &1["billable"])
+             |> Enum.sort() == [false, true]
+    end
+
+    test "a re-fetch with no stored ETag sends no validator", context do
+      budget_root = Path.join(context.state_path, "host-budget")
+      broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+      key = "a" <> String.duplicate("0", 63)
+      args = ["api", "repos/owner/repo/issues/1670"]
+      args_file = Path.join(context.workspace, "args")
+
+      env = [
+        AIUR_GITHUB_STATE_CACHE_TTL_MS: "1000",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_ARGS: args_file,
+        # No etag header: the server did not issue a validator.
+        FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n",
+        AIUR_GITHUB_BUDGET_ROOT: budget_root,
+        AIUR_GITHUB_BUDGET_KEY: key,
+        AIUR_GITHUB_BUDGET_BROKER: broker,
+        AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "10"
+      ]
+
+      assert {"ok\n", 0} = run_guard(context, args, env)
+      Process.sleep(2_100)
+      File.rm(args_file)
+      assert {"ok\n", 0} = run_guard(context, args, env)
+
+      # Without a held ETag there is nothing to validate against, so the read
+      # stays unconditional (and billed).
+      refute File.read!(args_file) =~ "If-None-Match"
+    end
+
+    test "a 200 refresh replaces both the cached body and the stored ETag", context do
+      args_file = Path.join(context.workspace, "args")
+
+      env = [
+        AIUR_GITHUB_STATE_CACHE_TTL_MS: "1000",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_ARGS: args_file
+      ]
+
+      assert {"cached-v1\n", 0} =
+               run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"], env ++ [FAKE_GH_HEADERS: "HTTP/2 200\netag: \"v1\"\n\n", FAKE_GH_BODY: "cached-v1\n"])
+
+      Process.sleep(2_100)
+      File.rm(args_file)
+
+      assert {"cached-v2\n", 0} =
+               run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"], env ++ [FAKE_GH_HEADERS: "HTTP/2 200\netag: \"v2\"\n\n", FAKE_GH_BODY: "cached-v2\n"])
+
+      # The re-fetch validated against the OLD etag, and the 200 replaced it.
+      assert File.read!(args_file) =~ "If-None-Match: \"v1\""
+      [{_key, body}] = cached_shapes(context)
+      meta = String.replace_suffix(body, ".body", ".meta")
+      assert File.read!(meta) =~ "\n\"v2\""
     end
   end
 
