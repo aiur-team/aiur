@@ -402,6 +402,16 @@ defmodule Aiur.Events.GithubWebhookTest do
                |> Map.delete("thread")
                |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
 
+      # A payload whose pull request names no head repository at all is
+      # malformed, not an untracked fork: there is no repo to compare, so the
+      # drop reason would be a misleading `{:untracked_head_repository, nil}`
+      # that reads like a tracking decision when the payload is simply missing
+      # the field.
+      assert {:error, {:malformed_payload, "pull_request_review_thread"}} =
+               delivery
+               |> put_in(["pull_request", "head"], %{"ref" => "aiur/42-slug"})
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+
       assert {:drop, {:unresolved_ticket, "pull_request_review_thread", "unresolved"}} =
                delivery
                |> put_in(["pull_request", "head", "ref"], "feature/no-ticket")

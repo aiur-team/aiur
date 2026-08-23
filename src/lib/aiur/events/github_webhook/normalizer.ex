@@ -670,6 +670,15 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
       not is_binary(thread_id) or thread_id == "" ->
         {:error, {:malformed_payload, "pull_request_review_thread"}}
 
+      # A delivery whose pull request carries no head repository cannot be
+      # routed to a ticket: there is nothing to compare the tracked repo
+      # against. That is a malformed payload, not an untracked repository — the
+      # drop reason would otherwise read `{:untracked_head_repository, nil}`,
+      # which hides a gap in the payload behind the language of a tracking
+      # decision.
+      not named_head_repo?(pull_request) ->
+        {:error, {:malformed_payload, "pull_request_review_thread"}}
+
       not tracked_head_repo?(pull_request, repo) ->
         {:drop, {:untracked_head_repository, get_in(pull_request, ["head", "repo", "full_name"])}}
 
@@ -687,6 +696,15 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
         {:drop, {:unresolved_ticket, "pull_request_review_thread", action}}
     end
   end
+
+  defp named_head_repo?(pull_request) when is_map(pull_request) do
+    case get_in(pull_request, ["head", "repo", "full_name"]) do
+      delivered when is_binary(delivered) and delivered != "" -> true
+      _other -> false
+    end
+  end
+
+  defp named_head_repo?(_pull_request), do: false
 
   defp tracked_head_repo?(pull_request, repo) when is_map(pull_request) and is_binary(repo) do
     case get_in(pull_request, ["head", "repo", "full_name"]) do
