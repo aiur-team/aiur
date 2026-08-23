@@ -65,6 +65,7 @@ defmodule Aiur.UpgradeTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
+  require Logger
 
   alias Aiur.Upgrade
   alias Aiur.Upgrade.Notice
@@ -248,9 +249,16 @@ defmodule Aiur.UpgradeTest do
       # The engine's surface path wrote the marker after displaying once.
       State.write_notified("0.0.4", notified_file())
 
-      log = capture_log(fn -> assert :ok = run_check(transport: CountingTransport) end)
+      log =
+        capture_log(fn ->
+          assert :ok = run_check(transport: CountingTransport)
+
+          Task.async(fn -> Logger.warning("unrelated async test log") end)
+          |> Task.await()
+        end)
 
       assert CountingTransport.count() == 0
+      assert log =~ "unrelated async test log"
       refute log =~ "aiur_upgrade"
     end
   end

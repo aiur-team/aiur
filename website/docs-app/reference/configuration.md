@@ -83,10 +83,12 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.max_inflight_per_endpoint` | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
 | `tracker.github.requests_per_minute` | integer | 120 | Tracker request budget per minute (1-10000). Lower it when the tracker rate-limits Aiur. |
 | `tracker.github.stagger_ms` | integer | 75 | Delay inserted between tracker requests, in milliseconds (0-5000), so a poll cycle does not burst. |
-| `tracker.github.daemon_core_limit_per_hour` | integer | 3000 | Hourly Core (REST) request ceiling for the daemon actor. When the daemon hits it, only the daemon's requests hold until the rolling hour rolls back under it. `0` disables the ceiling. Request-count, not points: the broker sees requests, never the GraphQL point price. |
-| `tracker.github.daemon_graphql_limit_per_hour` | integer | 2000 | Hourly GraphQL request ceiling for the daemon actor. `0` disables. |
-| `tracker.github.agent_core_limit_per_hour` | integer | 1000 | Hourly Core (REST) request ceiling for each agent workspace. When one agent hits it, only that agent's requests hold — the daemon and other agents are unaffected. `0` disables. |
-| `tracker.github.agent_graphql_limit_per_hour` | integer | 500 | Hourly GraphQL request ceiling for each agent workspace. `0` disables. |
+| `tracker.github.daemon_core_limit_per_hour` | integer | 1000 | Hourly billable Core (REST) response ceiling for the daemon actor. A `304` is reconciled as free. When the daemon hits the ceiling, only its requests hold until the rolling hour rolls back under it. `0` disables. Re-derived down against the corrected Core volume after GraphQL commands stopped booking to Core (#2297). |
+| `tracker.github.daemon_graphql_limit_per_hour` | integer | 3000 | Hourly billable GraphQL response ceiling for the daemon actor. `0` disables. Raised from 2000 because `gh pr view`/`gh issue view`/`gh search` are GraphQL on the wire and now book to the GraphQL window (#2297). |
+| `tracker.github.daemon_search_limit_per_hour` | integer | 1000 | Hourly billable `search` response ceiling for the daemon actor. GitHub meters `/search/*` against a third pool (~30 req/min), so `gh search repos|code|commits|users` books there and gets its own pacing rather than folding into core (#2297). `0` disables. |
+| `tracker.github.agent_core_limit_per_hour` | integer | 250 | Hourly billable Core (REST) response ceiling for each agent workspace. When one agent hits it, only that agent holds. `0` disables. Core volume is a small fraction of the measured ledger, so per-agent Core stays small. |
+| `tracker.github.agent_graphql_limit_per_hour` | integer | 750 | Hourly billable GraphQL response ceiling for each agent workspace. `0` disables. Raised from 375: a single agent's normal loop (`pr view`/`issue view`/`pr checks`) crossed the old ceiling in a rolling hour and stalled it, because high-level GraphQL commands now book to the GraphQL window (#2297). |
+| `tracker.github.agent_search_limit_per_hour` | integer | 250 | Hourly billable `search` response ceiling for each agent workspace. GitHub meters `/search/*` against a third pool (~30 req/min), so `gh search repos|code|commits|users` books there and gets its own pacing rather than folding into core (#2297). `0` disables. |
 | `tracker.github.credentials` | array | `[]` | Additional GitHub credentials the daemon spreads read traffic across, so one exhausted budget does not stop the fleet. Empty — the default — means one credential resolved exactly as before. See [Credential pooling](/apis/github#credential-pooling). |
 | `tracker.github.credentials.id` | string | required | Lowercase identifier naming this credential in `aiur github-usage` and `aiur github-cost`. Must be unique. |
 | `tracker.github.credentials.kind` | string | `machine_user` | One of `app_installation`, `machine_user` or `human`. Set it to `human` for a real person's token so Aiur keeps writes off that identity. |
@@ -126,6 +128,8 @@ Freshness thresholds follow this cadence. You do not set them separately.
   staleness against that effective interval.
 - Build Order's own refresh cadences are derived from it too, so an idle fleet
   widens the Build Order catalog sweep exactly as it widens the tracker poll.
+  Since #2312 that sweep runs only while a Build Order page is open; the cadence
+  still follows the effective interval for the pages that are open.
 - So a change to `interval_seconds` needs no matching threshold edit.
 - `aiur status` prints the effective value, for example
   `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
@@ -346,7 +350,7 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 | `agent.codex.command` | string | `codex app-server` | Command launching the Codex app server. |
 | `agent.codex.approval_policy` | string or map | `untrusted` | Runtime policy: `untrusted`, `on-failure`, `on-request`, `granular`, or `never`. |
 | `agent.codex.thread_sandbox` | string | `workspace-write` | Thread sandbox mode. |
-| `agent.codex.turn_sandbox_policy` | map or nil | nil | Explicit per-turn sandbox policy. |
+| `agent.codex.turn_sandbox_policy` | map or nil | nil | Explicit per-turn sandbox policy. For local `workspaceWrite`, `writableRoots` contains optional daemon-host extras; every entry must already exist and be writable. Aiur derives the current issue workspace and enabled shared GitHub budget root. Configured extras are not forwarded to SSH workers. |
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
@@ -560,7 +564,7 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Minimum age after which ticket history is stale. It is a floor, not the final window: the effective window is always at least two poll intervals wide, so a value below the poll cadence does not mark correct data stale. |
-| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence. |
+| `build_order.graph_catalog_refresh_ms` | integer | derived (1× effective poll interval) | Catalog refresh cadence while a Build Order page is open. Since #2312 the catalog is demand-gated: no page open, no refresh. |
 | `build_order.graph_catalog_labels_refresh_ms` | integer | derived (5× effective poll interval, min 600000) | Cadence for the costlier catalog read that resolves epic and wave counts. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
 | `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
@@ -582,8 +586,16 @@ identity, member count and update time, plus a digest of its members' states —
 a watched root whose marker moved is re-read once, as is a watched root that has
 never been read.
 
-Opening the Build Order page, selecting a root, and holding it open consume zero
-GitHub reads.
+Selecting a root and holding it open consume zero GitHub reads.
+
+The **catalog** itself is different: it is the most expensive single query in the
+system, and since #2312 it is demand-gated on an open Build Order page. Opening
+`/build-orders` renders the stored snapshot immediately (with its age), then buys
+one refresh on mount.
+
+While any Build Order page stays open the catalog reconciles on the cadence
+below; closing the last page stops it entirely, so a headless run — the normal
+case — buys none of it.
 
 `Aiur.BuildOrder.GraphProjection.refresh/2` is the explicit "read this now" path.
 It exists so that removing the viewer cadence does not also remove an operator's
@@ -615,8 +627,9 @@ actually scheduled.
 - It is the value `aiur status` reports as `interval=`.
 - So an idle fleet widens the Build Order catalog exactly as it widens the
   tracker, and a fleet that picks up work narrows both back together.
-- Deriving from the base interval instead made the catalog poll five times more
-  often than the tracker it projects, with nobody watching.
+- The widening matters only while a page is open: since #2312 the catalog does
+  not poll at all when no Build Order page is open, so "with nobody watching"
+  it costs nothing rather than merely running slowly.
 
 `ticket_detail_freshness_ms` follows the **base** interval instead. It is a
 staleness window for the ticket-detail drawer, read once when the daemon starts

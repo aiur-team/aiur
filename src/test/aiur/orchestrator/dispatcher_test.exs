@@ -202,7 +202,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     next =
       Dispatcher.maybe_dispatch(%State{
         initial_dispatch_cycle: true,
-        globally_paused: true
+        max_concurrent_agents: 1
       })
 
     assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}
@@ -705,6 +705,51 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     # ...which an idle fleet then widens by `polling.idle_widen_factor` (5.0).
     # Snapshot freshness is bounded by the effective interval, not the raw one.
     assert TrackerHealth.next_poll_delay_ms(state, repo: nil) == 25_000
+  end
+
+  test "a global pause stops candidate authorization while monitoring continues" do
+    parent = self()
+    state = %State{globally_paused: true, candidate_snapshot_fresh?: true}
+
+    fetch_fun = fn _cache ->
+      send(parent, :dispatch_authorization_requested)
+      {:ok, [], %{}}
+    end
+
+    monitor = fn current_state ->
+      Dispatcher.monitor_without_candidates(current_state,
+        refresh_running_fun: fn monitored_state ->
+          send(parent, :running_states_refreshed)
+          monitored_state
+        end,
+        scan_commands_fun: fn monitored_state ->
+          send(parent, :commands_scanned)
+          monitored_state
+        end,
+        stop_closed_pr_agents_fun: fn monitored_state ->
+          send(parent, :closed_pr_agents_stopped)
+          monitored_state
+        end,
+        notify_dashboard_fun: fn _monitored_state ->
+          send(parent, :dashboard_notified)
+          :ok
+        end
+      )
+    end
+
+    assert ^state =
+             Dispatcher.dispatch_candidate_poll(state,
+               fetch_candidate_issues_fun: fn current_state ->
+                 Dispatcher.fetch_candidate_issues(current_state, fetch_fun: fetch_fun)
+               end,
+               monitor_without_candidates_fun: monitor
+             )
+
+    refute_received :dispatch_authorization_requested
+    assert_received :running_states_refreshed
+    assert_received :commands_scanned
+    assert_received :closed_pr_agents_stopped
+    assert_received :dashboard_notified
   end
 
   test "a failed GitHub candidate refresh hides stale idle labels but preserves recovery data" do

@@ -274,12 +274,16 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     # the pass completes instead of reaping forever.
     final_log =
       capture_log(fn ->
-        send(parent, {:final_result, StartupClaimReconciler.reconcile(repeated_state, [issue],
-          update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
-            {:error, :tracker_unavailable}
-          end,
-          emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
-        )})
+        send(
+          parent,
+          {:final_result,
+           StartupClaimReconciler.reconcile(repeated_state, [issue],
+             update_issue_state_fun: fn _identifier, _state_name, _expected_state ->
+               {:error, :tracker_unavailable}
+             end,
+             emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+           )}
+        )
       end)
 
     assert_receive {:final_result, {final_state, [^issue]}}
