@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
     previous_store = Application.get_env(:aiur, :dispatch_budget_store_path)
     previous_state_dir = Application.get_env(:aiur, :decision_state_dir)
     previous_log_file = Application.get_env(:aiur, :log_file)
-    dir = Path.join(System.tmp_dir!(), "aiur-auto-resume-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-auto-resume")
     File.mkdir_p!(dir)
     path = Path.join(dir, "config.yaml")
     File.write!(path, config)

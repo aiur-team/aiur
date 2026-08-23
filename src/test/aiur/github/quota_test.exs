@@ -446,7 +446,7 @@ defmodule Aiur.GitHub.QuotaTest do
   end
 
   test "includes recent agent-shell attribution and ignores stale or malformed rows" do
-    path = Path.join(System.tmp_dir!(), "aiur-gh-quota-#{System.unique_integer([:positive])}.tsv")
+    path = Aiur.TestSupport.tmp_root!("aiur-gh-quota") <> ".tsv"
     now_unix = DateTime.to_unix(@now)
 
     File.write!(
@@ -490,7 +490,7 @@ defmodule Aiur.GitHub.QuotaTest do
   end
 
   test "publishes and clears resource-specific shell holds" do
-    hold_dir = Path.join(System.tmp_dir!(), "aiur-gh-holds-#{System.unique_integer([:positive])}")
+    hold_dir = Aiur.TestSupport.tmp_root!("aiur-gh-holds")
     on_exit(fn -> File.rm_rf(hold_dir) end)
     quota = start_quota(hold_dir: hold_dir)
 
@@ -545,7 +545,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
   test "a secondary limit alerts, keeps dispatch available, publishes a shell hold, and resolves on expiry" do
     parent = self()
-    hold_dir = Path.join(System.tmp_dir!(), "aiur-gh-secondary-#{System.unique_integer([:positive])}")
+    hold_dir = Aiur.TestSupport.tmp_root!("aiur-gh-secondary")
     on_exit(fn -> File.rm_rf(hold_dir) end)
     {:ok, clock} = Agent.start_link(fn -> @now end)
 

@@ -4,7 +4,7 @@ defmodule Aiur.TestResetTest do
   alias Aiur.TestReset
 
   setup do
-    tmp_dir = Path.join(System.tmp_dir!(), "aiur_test_reset_#{System.unique_integer([:positive])}")
+    tmp_dir = Aiur.TestSupport.tmp_root!("aiur_test_reset")
     File.mkdir_p!(tmp_dir)
 
     previous_agent_workspace = System.get_env("AIUR_AGENT_WORKSPACE")
@@ -92,7 +92,7 @@ defmodule Aiur.TestResetTest do
 
     test "ABORT: dirty working tree without --force" do
       # Use a temp git repo with uncommitted changes
-      tmp = Path.join(System.tmp_dir!(), "aiur_test_repo_#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur_test_repo")
       File.mkdir_p!(tmp)
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
@@ -156,7 +156,7 @@ defmodule Aiur.TestResetTest do
           System.tmp_dir!(),
           "aiur-workspaces",
           "repo",
-          "direct-reset-#{System.unique_integer([:positive])}"
+          Aiur.TestSupport.tmp_root!("direct-reset")
         ])
 
       File.mkdir_p!(tmp)
@@ -183,7 +183,7 @@ defmodule Aiur.TestResetTest do
     test "dry-run with valid tickets returns :ok, no side effects" do
       # Synthesize a fully-baked repo: git-init, commit sandbox baselines,
       # write tickets file, then run dry-run.
-      tmp = Path.join(System.tmp_dir!(), "aiur_dry_#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur_dry")
       File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)
@@ -220,7 +220,7 @@ defmodule Aiur.TestResetTest do
     end
 
     test "single dry-run returns :ok and resets only the first ticket, no side effects" do
-      tmp = Path.join(System.tmp_dir!(), "aiur_single_#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur_single")
       File.mkdir_p!(Path.join(tmp, "src/lib/aiur/sandbox"))
 
       {_, 0} = System.cmd("git", ["init"], cd: tmp, stderr_to_stdout: true)

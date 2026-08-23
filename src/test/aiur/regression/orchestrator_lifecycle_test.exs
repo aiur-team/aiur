@@ -150,7 +150,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 
   defp isolated_subscription_store(identifier) do
-    tmp_dir = Path.join(System.tmp_dir!(), "aiur_reg_orc_life_#{System.unique_integer([:positive])}")
+    tmp_dir = Aiur.TestSupport.tmp_root!("aiur_reg_orc_life")
     original = Application.get_env(:aiur, :log_file)
     File.mkdir_p!(tmp_dir)
     Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))

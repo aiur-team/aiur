@@ -6,7 +6,7 @@ defmodule Aiur.Webhooks.DeliveryLogTest do
   @hour_ms 60 * 60 * 1000
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-webhook-deliveries-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-webhook-deliveries")
     clock = :counters.new(1, [])
     :counters.put(clock, 1, 1_700_000_000_000)
     on_exit(fn -> File.rm_rf!(dir) end)
@@ -171,7 +171,7 @@ defmodule Aiur.Webhooks.DeliveryLogTest do
   end
 
   test "an unresolvable state directory fails open rather than dropping deliveries", context do
-    file = Path.join(System.tmp_dir!(), "aiur-webhook-not-a-dir-#{System.unique_integer([:positive])}")
+    file = Aiur.TestSupport.tmp_root!("aiur-webhook-not-a-dir")
     File.write!(file, "")
     on_exit(fn -> File.rm_rf!(file) end)
 

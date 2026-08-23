@@ -57,8 +57,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   """
 
   setup do
-    path = Path.join(System.tmp_dir!(), "planning-source-test-#{System.unique_integer([:positive])}.json")
-    workspace_directory = Path.join(System.tmp_dir!(), "planning-source-workspace-#{System.unique_integer([:positive])}")
+    path = Aiur.TestSupport.tmp_root!("planning-source-test") <> ".json"
+    workspace_directory = Aiur.TestSupport.tmp_root!("planning-source-workspace")
     previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
     File.write!(path, @pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
@@ -136,7 +136,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "excludes configured packs for another repository and reports searched directories" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-scope-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-scope")
     matching = Path.join(directory, "matching.json")
     foreign = Path.join(directory, "foreign.json")
     repository = Config.repo()
@@ -161,7 +161,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "loads a materialized canonical pack from the repository discovery directory" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-published-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-published")
     path = Path.join(directory, "published.json")
     repository = Config.repo()
 
@@ -204,7 +204,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "hydrates canonical ticket fields from membership without tracker reads" do
-    path = Path.join(System.tmp_dir!(), "planning-source-canonical-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("planning-source-canonical") <> ".json"
     File.write!(path, @canonical_pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
@@ -254,7 +254,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "does not count cancelled members as completed progress" do
-    path = Path.join(System.tmp_dir!(), "planning-source-cancelled-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("planning-source-cancelled") <> ".json"
     File.write!(path, @canonical_pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
@@ -287,7 +287,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "uses status.json for canonical members when no live membership exists" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-status-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-status")
     path = Path.join(directory, "build-order.json")
 
     File.mkdir_p!(directory)
@@ -308,7 +308,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "tracker completion outranks active current-run membership" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-status-completed-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-status-completed")
     path = Path.join(directory, "build-order.json")
 
     File.mkdir_p!(directory)
@@ -336,7 +336,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "tracker reopen outranks terminal current-run membership" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-status-open-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-status-open")
     path = Path.join(directory, "build-order.json")
 
     File.mkdir_p!(directory)
@@ -363,7 +363,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "marks a retained status projection stale when PackStatus is unavailable" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-status-stale-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-status-stale")
     path = Path.join(directory, "build-order.json")
 
     File.mkdir_p!(directory)
@@ -384,7 +384,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "marks missing status unavailable when PackStatus has no projection" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-status-unavailable-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-status-unavailable")
     path = Path.join(directory, "build-order.json")
 
     File.mkdir_p!(directory)
@@ -422,7 +422,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "downgrades healthy PackStatus when a promoted member lacks a projection" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-status-incomplete-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-status-incomplete")
     path = Path.join(directory, "build-order.json")
 
     File.mkdir_p!(directory)
@@ -460,7 +460,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "preserves PackStatus budget exhaustion through an incomplete projection" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-status-budget-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-status-budget")
     path = Path.join(directory, "build-order.json")
 
     File.mkdir_p!(directory)
@@ -481,7 +481,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "ignores a malformed status members shape" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-status-malformed-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-status-malformed")
     path = Path.join(directory, "build-order.json")
 
     File.mkdir_p!(directory)
@@ -497,7 +497,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "membership recovery does not regress the PackStatus-backed generation" do
-    path = Path.join(System.tmp_dir!(), "planning-source-generation-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("planning-source-generation") <> ".json"
     File.write!(path, @mixed_pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
@@ -524,7 +524,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "renders created members live and uncreated members as planned from one canonical pack" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-mixed-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-mixed")
     path = Path.join(directory, "build-order.json")
     document = Path.join([directory, "tickets", "AS-102.md"])
 
@@ -587,7 +587,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "rejects a draft document outside its pack ticket directory" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-document-boundary-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-document-boundary")
     path = Path.join(directory, "build-order.json")
     outside_document = directory <> ".md"
 
@@ -605,7 +605,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "uses live labels for created tickets and pack labels for drafts" do
-    path = Path.join(System.tmp_dir!(), "planning-source-live-labels-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("planning-source-live-labels") <> ".json"
     File.write!(path, @mixed_pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
 
@@ -637,7 +637,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "rejects members without canonical ticket or document fields" do
-    path = Path.join(System.tmp_dir!(), "planning-source-invalid-schema-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("planning-source-invalid-schema") <> ".json"
 
     on_exit(fn -> File.rm(path) end)
 
@@ -665,7 +665,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "discovers canonical packs from the runtime build-order directory" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-discovery-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-discovery")
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
     repository = Config.repo()
@@ -812,8 +812,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "does not reconcile discovery packs without explicit build order IDs" do
-    first = Path.join(System.tmp_dir!(), "planning-source-missing-id-first-#{System.unique_integer([:positive])}.json")
-    second = Path.join(System.tmp_dir!(), "planning-source-missing-id-second-#{System.unique_integer([:positive])}.json")
+    first = Aiur.TestSupport.tmp_root!("planning-source-missing-id-first") <> ".json"
+    second = Aiur.TestSupport.tmp_root!("planning-source-missing-id-second") <> ".json"
     repository = Config.repo()
 
     first_pack =
@@ -849,8 +849,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "assigns distinct deterministic catalog icons when packs omit one" do
-    first = Path.join(System.tmp_dir!(), "planning-source-first-#{System.unique_integer([:positive])}.json")
-    second = Path.join(System.tmp_dir!(), "planning-source-second-#{System.unique_integer([:positive])}.json")
+    first = Aiur.TestSupport.tmp_root!("planning-source-first") <> ".json"
+    second = Aiur.TestSupport.tmp_root!("planning-source-second") <> ".json"
 
     repository = Config.repo()
     File.write!(first, String.replace(@pack, "acme/widgets", repository))
@@ -882,7 +882,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "pins active build orders before completed entries sorted by completion date" do
-    directory = Path.join(System.tmp_dir!(), "planning-source-catalog-sort-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("planning-source-catalog-sort")
     active = Path.join([directory, "active", "build-order.json"])
     recent = Path.join([directory, "recent", "build-order.json"])
     older = Path.join([directory, "older", "build-order.json"])

@@ -114,7 +114,7 @@ defmodule Mix.Tasks.Aiur.AffectedTests.DeletedReferencesTest do
   alias Mix.Tasks.Aiur.AffectedTests
 
   test "discovers root-level tests retaining deleted structural references" do
-    repo = Path.join(System.tmp_dir!(), "affected-task-references-#{System.unique_integer([:positive])}")
+    repo = Aiur.TestSupport.tmp_root!("affected-task-references")
     source = Path.join(repo, "src/lib/aiur/github/reply.ex")
     root_test = Path.join(repo, "src/test/aiur/github_client_test.exs")
     File.mkdir_p!(Path.dirname(source))

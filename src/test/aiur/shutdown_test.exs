@@ -18,11 +18,11 @@ defmodule Aiur.ShutdownTest do
   end
 
   test "record_workspace_root/0 writes the configured root when requested" do
-    workspace_root = Path.join(System.tmp_dir!(), "shutdown-root-#{System.unique_integer([:positive])}")
+    workspace_root = Aiur.TestSupport.tmp_root!("shutdown-root")
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
     WorkflowStore.force_reload()
 
-    path = Path.join(System.tmp_dir!(), "aiur-workspace-root-#{System.unique_integer([:positive])}")
+    path = Aiur.TestSupport.tmp_root!("aiur-workspace-root")
     previous = System.get_env("AIUR_WORKSPACE_ROOT_FILE")
     System.put_env("AIUR_WORKSPACE_ROOT_FILE", path)
 
@@ -60,7 +60,7 @@ defmodule Aiur.ShutdownTest do
   end
 
   test "record_alert_ledger_path/0 writes the canonical ledger when requested" do
-    path = Path.join(System.tmp_dir!(), "aiur-alert-ledger-#{System.unique_integer([:positive])}")
+    path = Aiur.TestSupport.tmp_root!("aiur-alert-ledger")
     previous = System.get_env("AIUR_ALERT_LEDGER_PATH_FILE")
     System.put_env("AIUR_ALERT_LEDGER_PATH_FILE", path)
 

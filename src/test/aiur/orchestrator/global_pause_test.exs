@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
 
   describe "GlobalPauseStore recovery" do
     test "distinguishes a missing store from an unreadable store" do
-      path = Path.join(System.tmp_dir!(), "global-pause-missing-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("global-pause-missing") <> ".json"
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, path)
 
@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     end
 
     test "rejects a decoded store without a boolean pause flag" do
-      path = Path.join(System.tmp_dir!(), "global-pause-invalid-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("global-pause-invalid") <> ".json"
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, path)
 
@@ -51,9 +51,9 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     end
 
     test "keeps the store stable when the run log root changes" do
-      state_dir = Path.join(System.tmp_dir!(), "global-pause-state-#{System.unique_integer([:positive])}")
-      run_one_root = Path.join(System.tmp_dir!(), "global-pause-run-one-#{System.unique_integer([:positive])}")
-      run_two_root = Path.join(System.tmp_dir!(), "global-pause-run-two-#{System.unique_integer([:positive])}")
+      state_dir = Aiur.TestSupport.tmp_root!("global-pause-state")
+      run_one_root = Aiur.TestSupport.tmp_root!("global-pause-run-one")
+      run_two_root = Aiur.TestSupport.tmp_root!("global-pause-run-two")
       run_one_log = Path.join(run_one_root, "log/aiur.log")
       run_two_log = Path.join(run_two_root, "log/aiur.log")
       previous_store = Application.get_env(:aiur, :global_pause_store_path)
@@ -250,7 +250,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     end
 
     test "persists the global pause and provenance across orchestrator restart" do
-      path = Path.join(System.tmp_dir!(), "global-pause-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("global-pause") <> ".json"
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, path)
 
@@ -288,7 +288,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     end
 
     test "holds the fleet when persisted pause recovery is corrupt" do
-      path = Path.join(System.tmp_dir!(), "global-pause-corrupt-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("global-pause-corrupt") <> ".json"
       File.write!(path, "corrupt")
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, path)

@@ -6,7 +6,7 @@ defmodule Aiur.RepoBaseTest do
   alias Aiur.{Asks, Findings, RepoBase}
 
   setup do
-    tmp = Path.join(System.tmp_dir!(), "aiur_rb_#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("aiur_rb")
     origin = Path.join(tmp, "origin")
     node = Path.join(tmp, "repo/owner/project")
     base = Path.join(node, "latest")
@@ -1096,7 +1096,7 @@ defmodule Aiur.RepoBaseTest do
     # Pins the workflow config per test (same pattern as the "server state
     # machine" setup below) so resolution never depends on ambient config.
     setup do
-      tmp = Path.join(System.tmp_dir!(), "rb_bb_#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("rb_bb")
       File.mkdir_p!(tmp)
       cfg = Path.join(tmp, "config")
       prev_path = Application.get_env(:aiur, :workflow_file_path)
@@ -1147,7 +1147,7 @@ defmodule Aiur.RepoBaseTest do
       # reload it, so `resolve/0` is deterministically `:disabled` and the instance
       # never schedules a poll. Otherwise a sibling test that left a prewarm-enabled
       # config cached makes the auto-poll start a real build mid-test (flaky).
-      tmp = Path.join(System.tmp_dir!(), "rb_cfg_#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("rb_cfg")
       File.mkdir_p!(tmp)
       cfg = Path.join(tmp, "config")
       File.write!(cfg, "tracker:\n  kind: memory\n")

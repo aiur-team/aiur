@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Aiur.CostReportTest do
   alias Mix.Tasks.Aiur.CostReport
 
   setup do
-    state_dir = Path.join(System.tmp_dir!(), "aiur-cost-report-#{System.unique_integer([:positive])}")
+    state_dir = Aiur.TestSupport.tmp_root!("aiur-cost-report")
     File.mkdir_p!(state_dir)
     on_exit(fn -> File.rm_rf(state_dir) end)
     %{state_dir: state_dir}

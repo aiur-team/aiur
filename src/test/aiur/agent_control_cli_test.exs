@@ -1222,7 +1222,7 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "status reports active build-gate contention", %{orchestrator: pid} do
-    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-status-#{System.unique_integer([:positive])}")
+    gate_dir = Aiur.TestSupport.tmp_root!("aiur-build-gate-status")
     lock_dir = BuildGate.lock_dir(gate_dir)
     previous = Application.get_env(:aiur, :build_gate_dir_override)
     release_path = Path.join(gate_dir, "holder.release")
@@ -1300,7 +1300,7 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "status reports actionable legacy build-gate degradation" do
-    gate_dir = Path.join(System.tmp_dir!(), "aiur-build-gate-legacy-#{System.unique_integer([:positive])}")
+    gate_dir = Aiur.TestSupport.tmp_root!("aiur-build-gate-legacy")
     lock_dir = BuildGate.lock_dir(gate_dir)
     previous = Application.get_env(:aiur, :build_gate_dir_override)
     legacy_path = Path.join(gate_dir, "slot-1")
@@ -1331,7 +1331,7 @@ defmodule Aiur.AgentControlCLITest do
     # memory tracker keep RepoBase's own resolve/poll inert (no clone/build can
     # start) while `Config.prewarm_enabled?/0` reads true.
     defp with_prewarm_enabled do
-      tmp = Path.join(System.tmp_dir!(), "cli_prewarm_#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("cli_prewarm")
       File.mkdir_p!(tmp)
       cfg = Path.join(tmp, "config")
       File.write!(cfg, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  poll_seconds: 0\n")
@@ -2783,7 +2783,7 @@ defmodule Aiur.AgentControlCLITest do
 
   describe "alerts/1" do
     test "alerts and watch use the default project ledger" do
-      log_root = Path.join(System.tmp_dir!(), "aiur-default-alert-ledger-#{System.unique_integer([:positive])}")
+      log_root = Aiur.TestSupport.tmp_root!("aiur-default-alert-ledger")
       previous_log_file = Application.get_env(:aiur, :log_file)
       Application.put_env(:aiur, :log_file, Path.join(log_root, "daemon.log"))
 
@@ -2808,7 +2808,7 @@ defmodule Aiur.AgentControlCLITest do
 
     test "prints persisted alerts as JSON lines with optional attention filtering" do
       workspace_root =
-        Path.join(System.tmp_dir!(), "aiur-control-alerts-#{System.unique_integer([:positive])}")
+        Aiur.TestSupport.tmp_root!("aiur-control-alerts")
 
       on_exit(fn -> File.rm_rf!(workspace_root) end)
       restore_workflow_file_after_test()
@@ -2932,7 +2932,7 @@ defmodule Aiur.AgentControlCLITest do
     setup do
       :persistent_term.erase({Aiur.AgentControlCLI, :watch_baseline})
 
-      root = Path.join(System.tmp_dir!(), "aiur-watch-#{System.unique_integer([:positive])}")
+      root = Aiur.TestSupport.tmp_root!("aiur-watch")
       File.mkdir_p!(root)
       on_exit(fn -> File.rm_rf!(root) end)
 
@@ -2989,7 +2989,7 @@ defmodule Aiur.AgentControlCLITest do
     end
 
     test "status and watch surface persisted open blocking operator asks", %{watch_root: root} do
-      asks_root = Path.join(System.tmp_dir!(), "aiur-status-asks-#{System.unique_integer([:positive])}")
+      asks_root = Aiur.TestSupport.tmp_root!("aiur-status-asks")
       previous_root = Application.get_env(:aiur, :repo_base_root)
       Application.put_env(:aiur, :repo_base_root, asks_root)
 
@@ -3024,7 +3024,7 @@ defmodule Aiur.AgentControlCLITest do
     end
 
     test "status and watch make an unreadable operator ask store actionable", %{watch_root: root} do
-      asks_root = Path.join(System.tmp_dir!(), "aiur-status-asks-#{System.unique_integer([:positive])}")
+      asks_root = Aiur.TestSupport.tmp_root!("aiur-status-asks")
       previous_root = Application.get_env(:aiur, :repo_base_root)
       Application.put_env(:aiur, :repo_base_root, asks_root)
 

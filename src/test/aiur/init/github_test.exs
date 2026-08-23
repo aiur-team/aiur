@@ -67,7 +67,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "persists a ready operator assessment for the daemon and reports it" do
-      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      root = Aiur.TestSupport.tmp_root!("aiur-init-readiness")
       config_path = Path.join([root, "aiur", "config.yml"])
       parent = self()
       io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> false end}
@@ -105,7 +105,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "offers to scaffold a CI workflow when the repository has none" do
-      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      root = Aiur.TestSupport.tmp_root!("aiur-init-readiness")
       config_path = Path.join([root, "aiur", "config.yml"])
       parent = self()
       io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}
@@ -151,7 +151,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "skips the CI scaffold when a workflow already exists" do
-      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      root = Aiur.TestSupport.tmp_root!("aiur-init-readiness")
       config_path = Path.join([root, "aiur", "config.yml"])
       parent = self()
       io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}
@@ -190,7 +190,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "reports a CI scaffold write failure" do
-      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      root = Aiur.TestSupport.tmp_root!("aiur-init-readiness")
       config_path = Path.join([root, "aiur", "config.yml"])
       parent = self()
       io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}
@@ -317,7 +317,7 @@ defmodule Aiur.Init.GitHubTest do
 
   describe "detect_repo/0" do
     test "returns owner/name from git remote" do
-      dir = System.tmp_dir!() |> Path.join("detect-repo-#{System.unique_integer([:positive])}")
+      dir = Aiur.TestSupport.tmp_root!("detect-repo")
       File.mkdir_p!(dir)
       on_exit(fn -> File.rm_rf!(dir) end)
 
@@ -329,7 +329,7 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "returns nil when no origin remote" do
-      dir = System.tmp_dir!() |> Path.join("detect-repo-noremote-#{System.unique_integer([:positive])}")
+      dir = Aiur.TestSupport.tmp_root!("detect-repo-noremote")
       File.mkdir_p!(dir)
       on_exit(fn -> File.rm_rf!(dir) end)
 

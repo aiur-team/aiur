@@ -31,7 +31,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   """
 
   setup do
-    directory = Path.join(System.tmp_dir!(), "pack-status-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("pack-status")
     pack_path = Path.join([directory, "analytics-streamdeck", "build-order.json"])
     workspace_directory = Path.join(directory, "workspace-build-orders")
     previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
