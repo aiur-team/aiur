@@ -207,7 +207,7 @@ defmodule Aiur.AgentControlCLI do
       IO.puts("RELEASED CLAIMS #{released_claims} (#{recovery})")
     end
 
-    print_capacity_status(Map.get(snapshot, :capacity))
+    print_capacity_status(Map.get(snapshot, :capacity), Map.get(snapshot, :polling))
     print_polling_status(Map.get(snapshot, :polling))
 
     supervision_exit_code = print_supervision_health()
@@ -1635,13 +1635,24 @@ defmodule Aiur.AgentControlCLI do
   # CLI may not run on the daemon's host, and it reads its own config file
   # rather than the daemon's live config, so a locally re-derived gate can name
   # a fleet-level cause the daemon never decided (#1610).
-  defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
+  #
+  # `polling` is threaded in for one honest reason: the "ticket supply" binding
+  # is only claimable when the daemon recently polled and found nothing. While
+  # idle backoff is active (the last successful poll is a full backed-off
+  # interval old) or the candidate snapshot is not fresh (the last fetch
+  # failed), the fleet has not looked recently enough to see work that appeared
+  # — so the line says that instead of blaming ticket supply (#2138).
+  defp print_capacity_status(
+         %{occupied: occupied, max: max, effective: effective, configured: configured} = capacity,
+         polling
+       )
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and
               is_integer(configured) do
-    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity))})")
+    binding = capacity_binding(capacity, polling)
+    IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(binding)})")
   end
 
-  defp print_capacity_status(_capacity), do: :ok
+  defp print_capacity_status(_capacity, _polling), do: :ok
 
   defp local_load_sample do
     threshold = Config.max_load_average()
@@ -1658,6 +1669,10 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
+
+  defp capacity_binding_label({:ticket_supply, %{ceiling: ceiling}}),
+    do: "ticket supply; ceiling: #{ceiling}"
+
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
@@ -1704,7 +1719,24 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
+  defp capacity_binding_label({:none, %{ceiling: ceiling}}), do: "none; ceiling: #{ceiling}"
   defp capacity_binding_label({:none, _detail}), do: "none"
+
+  # The status line may only blame "ticket supply" when the daemon recently
+  # polled and found no work. Idle backoff active or a failed candidate fetch
+  # both mean the fleet has not looked recently enough to see work that
+  # appeared — and blaming ticket supply there is the false explanation #2138
+  # is about. Say what is actually true instead, and keep the ceiling source
+  # visible so a restart that dropped a live `set max-agents` reads as
+  # config-sourced rather than as the operator's last command (#2138).
+  defp capacity_binding_label({:has_not_polled, %{next_poll_in_ms: next_ms, ceiling: ceiling}})
+       when is_integer(next_ms),
+       do: "has not polled yet (POLL backed off, next poll in #{poll_seconds(next_ms)}s; ceiling: #{ceiling})"
+
+  defp capacity_binding_label({:has_not_polled, %{ceiling: ceiling}}),
+    do: "has not polled yet (ceiling: #{ceiling})"
+
+  defp capacity_binding_label({:has_not_polled, _detail}), do: "has not polled yet"
 
   defp github_quota_measurement(%{resource: resource, remaining: remaining, limit: limit, observed_at: observed_at}) do
     if stale_github_quota_measurement?(observed_at) do
@@ -1737,14 +1769,14 @@ defmodule Aiur.AgentControlCLI do
   # `capacity_hold` is the daemon's own persisted admission decision — the only
   # source allowed to name an admission signal as the fleet's binding
   # constraint. Nothing here re-derives a gate locally.
-  defp capacity_binding(%{capacity_hold: %{} = hold}),
+  defp capacity_binding(%{capacity_hold: %{} = hold}, _polling),
     do: {:admission, hold}
 
-  defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
-    if capacity_binding_ticket_supply?(capacity) do
-      {:ticket_supply, 0}
-    else
-      capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
+  defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity, polling) do
+    case capacity_binding_ticket_supply(capacity, polling) do
+      {:ticket_supply, detail} -> {:ticket_supply, detail}
+      {:has_not_polled, detail} -> {:has_not_polled, detail}
+      :not_ticket_supply -> capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
     end
   end
 
@@ -1790,15 +1822,58 @@ defmodule Aiur.AgentControlCLI do
         {:session_cap, max}
 
       true ->
-        {:none, nil}
+        # Slots are available and nothing is binding: name where the effective
+        # ceiling came from so an operator whose `set max-agents` was silently
+        # dropped by a restart can see it (a session cap does not persist;
+        # `--max-agents N` and `agent.max_concurrent_agents` are the durable
+        # forms, #2138).
+        {:none, %{ceiling: capacity_ceiling_label(capacity)}}
     end
   end
 
-  defp capacity_binding_ticket_supply?(%{available: available, queued_demand?: false})
-       when is_integer(available) and available > 0,
-       do: true
+  # A slot-free, unconstrained fleet's effective ceiling provenance. The AGENTS
+  # line shows `session max_concurrent_agents` while `set max-agents` (or
+  # `--max-agents` at launch) is live, and `config max_concurrent_agents` once
+  # the session override is gone — so a restart that dropped the operator's
+  # live cap reads as config-sourced rather than as the operator's last command.
+  defp capacity_ceiling_label(%{session_override?: true}), do: "session max_concurrent_agents"
+  defp capacity_ceiling_label(_capacity), do: "config max_concurrent_agents"
 
-  defp capacity_binding_ticket_supply?(_capacity), do: false
+  defp capacity_binding_ticket_supply(
+         %{available: available, queued_demand?: false} = capacity,
+         polling
+       )
+       when is_integer(available) and available > 0 do
+    case poll_observation(polling) do
+      :fresh ->
+        # The daemon polled recently and found nothing dispatchable, so "ticket
+        # supply" is the honest binding. The ceiling provenance rides along so
+        # an operator whose `set max-agents` was silently dropped by a restart
+        # can see the effective ceiling came from config, not their last
+        # command (#2138).
+        {:ticket_supply, %{ceiling: capacity_ceiling_label(capacity)}}
+
+      {:backed_off, next_poll_in_ms} ->
+        {:has_not_polled, %{next_poll_in_ms: next_poll_in_ms, ceiling: capacity_ceiling_label(capacity)}}
+
+      :fetch_failed ->
+        {:has_not_polled, %{ceiling: capacity_ceiling_label(capacity)}}
+    end
+  end
+
+  defp capacity_binding_ticket_supply(_capacity, _polling), do: :not_ticket_supply
+
+  # Classify how fresh the daemon's most recent tracker observation is. `:fresh`
+  # means a recent successful poll found no work — the only state in which
+  # "ticket supply" is an honest binding. Idle backoff active means the last
+  # successful poll is a full backed-off interval old; a `tracker_snapshot_fresh?
+  # == false` means the last fetch failed. Both are "has not polled recently
+  # enough to know".
+  defp poll_observation(%{idle_backoff: %{active?: true}} = polling),
+    do: {:backed_off, Map.get(polling, :next_poll_in_ms)}
+
+  defp poll_observation(%{tracker_snapshot_fresh?: false}), do: :fetch_failed
+  defp poll_observation(_polling), do: :fresh
 
   defp paused_reservation_binding?(%{
          active: active,
