@@ -774,19 +774,40 @@ re-review is far cheaper than the first pass: scope it to *"were these named
 blockers fixed?"*, passing the original findings with their file:line, and ask
 for FIXED / NOT FIXED / PARTIAL per blocker rather than a fresh read.
 
-**Name a unique worktree path in the prompt.** Concurrent review agents share a
-scratchpad root, and left to choose for themselves they pick the same obvious
-name — `wt`, `worktree`, `pr`, `build`. When two collide, the second repoints the
-checkout at a different branch *mid-run*, and the first agent's mutation test
-then runs against a tree that never contained the change it just reverted. That
-returns "the test still passed with the production change reverted" — which reads
-as missing coverage and is actually a wrong-checkout artifact. It is the
-confident-wrong-number failure applied to the evidence that gates a merge.
+**Give every review subagent its own scratchpad and require worktree isolation
+for mutation testing.** Concurrent review agents on one box share a session
+scratchpad root, and a shared default write path is the failure: two agents
+pick the same obvious worktree name (`wt`, `worktree`, `pr`, `build`), the
+second repoints the first's checkout at a different branch *mid-run*, and the
+first agent's mutation test then runs against a tree that never contained the
+change it just reverted — a confident wrong verdict on a PR. The contamination
+is bidirectional: another agent writing into your correctly-identified worktree
+is indistinguishable from your own tree, so only isolating the write paths
+fixes it. Naming discipline alone never will — each instruction to be unique
+creates a new shared name one level up. Tracked as #2362.
 
-One agent caught this and redid its run; the cost of not catching it is a false
-verdict on a PR. Give each agent a path carrying both the PR number and a
-per-agent unique component, since two agents may legitimately review the same PR.
-Tracked as #2362.
+- **Give each subagent a per-agent scratchpad.** Key the scratchpad on the
+  subagent's id, mirroring `tasks/<agentId>.output`, so no two subagents share
+  a default write root. If a shared area is genuinely needed, put it in an
+  explicit `shared/` subdirectory so sharing is a choice, not the default.
+- **Never persist the worktree path in a file.** Shell state does not survive
+  between a subagent's calls, and telling it to remember a unique path in
+  `scratchpad/wt.txt` moves the collision one level up — five agents
+  independently invented the same filename and clobbered each other. Require
+  the agent to recompute the path inline per command (e.g.
+  `scripts/agent-worktree path <n> --unique <agent-component>`) instead of
+  reading a stored value.
+- **Assert the worktree HEAD before every mutation batch.** `git -C <wt>
+  rev-parse HEAD` must equal the intended SHA (`gh pr view <n> --json
+  headRefOid`), and the batch aborts loudly on drift.
+  `scripts/agent-worktree head-check <wt> <sha>` makes this one command and
+  exits non-zero on mismatch. The tree must be clean too: the #2362
+  contamination overwrote a file in place without committing, so HEAD alone
+  proves nothing. Pass `--allow-dirty` only for the batch's own reverts,
+  asserted before the first mutation.
+- **Forbid mutation testing in the live checkout.** A worktree is required,
+  not optional: never `git checkout <sha> -- <files>` inside the Executor's
+  own checkout.
 
 What a review agent needs in its prompt, every time:
 

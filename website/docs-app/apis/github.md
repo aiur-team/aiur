@@ -127,13 +127,17 @@ Dashboard and Build Order state is not on this cadence.
 
 | View state | Behaviour |
 | --- | --- |
-| Opening, focusing, or holding a page open | Zero API calls. |
-| Ticket backlog, Ad Hoc overlay, pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Opening the Tickets panel or a Build Order page | Renders held state first, then one view-originated refresh while you look. |
+| Ticket backlog, Ad Hoc overlay, with no page open | Zero API calls — the sweep skips a source nobody is watching. |
+| Ticket backlog, Ad Hoc overlay, while a page is open | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Pack status (`status.json`) | Always reconciled by the sweep, whether or not a page is open — the projection is authoritative on disk. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
-A change made outside Aiur reaches those three panels within one sweep rather
-than at once, which is the trade for them costing nothing while nobody is
-looking.
+A change made outside Aiur reaches the backlog and Ad Hoc overlay within one
+sweep while their page is open — with nobody looking they cost nothing — and
+pack status is reconciled every sweep regardless of viewers because it writes
+the daemon-owned `status.json` projection the planning contract names
+authoritative.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
