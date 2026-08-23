@@ -729,13 +729,6 @@ def parser():
     acquire_parser.add_argument("--core-limit", type=lambda value: clamp(value, 0, 100000), default=0)
     acquire_parser.add_argument("--graphql-limit", type=lambda value: clamp(value, 0, 100000), default=0)
     acquire_parser.add_argument("--search-limit", type=lambda value: clamp(value, 0, 100000), default=0)
-    # A request the caller knows GitHub bills at zero — `rate_limit` probes, the
-    # #2328 family — is still paced (it takes an RPM slot, an in-flight lease,
-    # and a stagger) but is written to the ledger with `billable = 0` so it
-    # never counts toward a per-actor hourly ceiling or the family total the
-    # ceilings are re-derived from. This is the same `billable` column the 304
-    # reconcile flips (#2284); the caller just knows the answer up front here.
-    acquire_parser.add_argument("--billable", type=lambda value: clamp(value, 0, 1), default=1)
     # Display-only actor label (the raw consumer identity, e.g.
     # `daemon:node@host` or `workspace:/path/to/2181`). The consumer_key remains
     # the fingerprint; this is what `usage` prints so the report is readable.

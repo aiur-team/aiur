@@ -1836,7 +1836,6 @@ budget_acquire() {
   budget_billable_flag=
   [ "$endpoint_family" = rate_limit ] && budget_billable_flag="--billable 0"
 
-
   while :; do
     # Whatever this loop last waited for — a hold, a full lease table, another
     # agent's identical fetch — the answer may have arrived meanwhile. Looking
@@ -1856,7 +1855,6 @@ budget_acquire() {
     fi
     if ! budget_result=$(budget_command acquire --resource "$admission_resource" --consumer-key "$budget_consumer_key" --consumer-label "$budget_consumer_label" --endpoint-family "$endpoint_family" \
       $budget_ignore_flag $budget_cache_flags $budget_billable_flag \
-
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
