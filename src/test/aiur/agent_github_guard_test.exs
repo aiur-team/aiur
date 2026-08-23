@@ -1853,6 +1853,11 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(context.calls)
   end
 
+  # GitHub bills `rate_limit` at zero (#2328), so an explicit probe is still
+  # admitted through the shared core budget (it takes an RPM slot, an in-flight
+  # lease, and a stagger) but must be written to the ledger non-billable — it
+  # never counts toward a per-actor hourly core ceiling or the core family
+  # total the ceilings are re-derived from.
   test "api rate_limit is admitted non-billable in either spelling", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -1883,6 +1888,93 @@ defmodule Aiur.AgentGitHubGuardTest do
       decoded = Jason.decode!(snapshot)
       assert Enum.any?(decoded["admissions"], &(&1["endpoint_family"] == "rate_limit" and &1["resource"] == "none" and &1["billable"] == false))
     end
+  end
+
+  # The second-order half of #2328: the recovery path probes rate limit exactly
+  # when the fleet is under pressure, so the probe must not spend local budget.
+  # On a rate-limit failure the wrapper admits the original call (billable) and
+  # the probe (non-billable), and the core family total the ceilings are
+  # derived from counts only the original call.
+  test "a rate-limit probe on failure is admitted non-billable and leaves the core total honest", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    reset = System.os_time(:second) + 3_600
+
+    assert {_output, 1} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_REPO_STATE_PATH: "",
+               AIUR_AGENT_QUOTA_STATE_PATH: "",
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_BUDGET_CONSUMER: "workspace:/agent-2328",
+               FAKE_GH_FAIL: "1",
+               FAKE_GH_ERROR: "HTTP 403: API rate limit exceeded",
+               FAKE_RATE_LIMIT: "4077 #{reset} 4405 #{reset}"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => admissions} = Jason.decode!(snapshot)
+    assert Enum.map(admissions, &{&1["endpoint_family"], &1["billable"]}) == [{"issues", true}, {"rate_limit", false}]
+
+    actor =
+      Budget.usage(state_dir: budget_root, enabled?: true)
+      |> Map.fetch!(:actors)
+      |> Enum.find(&(&1.consumer_label == "workspace:/agent-2328"))
+
+    # The billable core figure — what the ceilings are re-derived from — holds
+    # only the original call; the probe no longer pads it.
+    assert actor.core.used == 1
+  end
+
+  # `rate_limit` stays non-billable for the *hourly ceiling* but still counts
+  # for pacing: the broker's requests-per-minute slot is consumed by a free
+  # probe exactly as it would be by a billed call (#2284's "no quota can still
+  # cost a slot"). One rate_limit admission is therefore enough to hold the
+  # next request in the same minute.
+  test "a non-billable rate_limit probe still consumes a rate-per-minute pacing slot", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"5000 0 5000 0", 0} =
+             run_guard(context, ["api", "rate_limit"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_REQUESTS_PER_MINUTE: "1",
+               AIUR_GITHUB_STAGGER_MS: "0"
+             )
+
+    # GitHub bills the probe at zero, so its ledger admission must be recorded
+    # non-billable — the "non-billable" in this test's name is asserted here,
+    # not just implied by the pacing behaviour (#2328 review).
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
+
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    assert {_output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
+                     {"AIUR_GITHUB_REQUESTS_PER_MINUTE", "1"},
+                     {"AIUR_GITHUB_STAGGER_MS", "0"}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    refute File.exists?(context.calls)
   end
 
   test "a guarded 304 response is reconciled as unbilled", context do
