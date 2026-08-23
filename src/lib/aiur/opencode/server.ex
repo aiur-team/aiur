@@ -79,6 +79,15 @@ defmodule Aiur.Opencode.Server do
   # BEAM's stderr. A child (or a child still winding down during teardown)
   # that inherits the suite's stderr keeps the pipe open after the BEAM exits,
   # so a piped `mix test | cat`/CI capture never sees EOF past the summary.
+  #
+  # Redirection is not avoidance: `mix test > log 2>&1` returns because the
+  # child holds a file fd, not a pipe; `mix test | tail` still hangs until the
+  # child dies. Reaping the child (terminate/2 below) is therefore necessary
+  # but not sufficient — this stdio isolation is the half that makes the hang
+  # impossible even for a slow-to-exit orphan (#2340). This is backend-scoped,
+  # not suite-scoped: ANY run that starts `opencode serve` (the full suite, a
+  # targeted nine-file run, `server_test.exs`) goes through this module.
+  #
   # Every other long-lived `Port.open` launch in the app (the codex app-server,
   # model discovery, the GitHub budget probe) already isolates stdio this way;
   # the opencode serve was the backend that missed it (#2340).
