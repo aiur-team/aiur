@@ -1560,36 +1560,40 @@ defmodule Aiur.GitHub.ResourceStore do
     overflow = (:ets.info(table, :size) || 0) - @max_entries
 
     if overflow > 0 do
-      # Drop the body — never the whole entry — from the oldest entries that
-      # still hold one. Entries an earlier sweep already shed are skipped, so
-      # a steady-state overflow warns once about the bodies it actually
-      # dropped rather than re-announcing a condition it already handled.
-      evicted =
-        table
-        |> :ets.tab2list()
-        |> Enum.sort_by(fn {_key, entry} -> Map.get(entry, :recorded_at_ms, 0) end)
-        |> Enum.take(overflow)
-        |> Enum.filter(fn {_key, entry} -> Map.has_key?(entry, :data) end)
-
-      if evicted != [] do
-        Logger.warning("GitHub.ResourceStore exceeded #{@max_entries} entries; dropping bodies from #{length(evicted)} oldest")
-
-        # Pinned to the exact object that was sorted, so a concurrent write
-        # between the snapshot and the eviction spares the entry rather than
-        # losing it — a refreshed entry no longer matches the snapshot and
-        # keeps its new body.
-        Enum.each(evicted, fn {key, entry} ->
-          replacement = Map.drop(entry, [:data, :data_version])
-
-          :ets.select_replace(
-            table,
-            [{{key, :"$1"}, [{:==, :"$1", {:const, entry}}], [{:const, {key, replacement}}]}]
-          )
-        end)
-      end
+      shed_bodies(table, overflow)
     end
 
     :ok
+  end
+
+  # Drop the body — never the whole entry — from the oldest entries that still
+  # hold one. Entries an earlier sweep already shed are skipped, so a
+  # steady-state overflow warns once about the bodies it actually dropped rather
+  # than re-announcing a condition it already handled.
+  defp shed_bodies(table, overflow) do
+    evicted =
+      table
+      |> :ets.tab2list()
+      |> Enum.sort_by(fn {_key, entry} -> Map.get(entry, :recorded_at_ms, 0) end)
+      |> Enum.take(overflow)
+      |> Enum.filter(fn {_key, entry} -> Map.has_key?(entry, :data) end)
+
+    if evicted != [] do
+      Logger.warning("GitHub.ResourceStore exceeded #{@max_entries} entries; dropping bodies from #{length(evicted)} oldest")
+
+      # Pinned to the exact object that was sorted, so a concurrent write
+      # between the snapshot and the eviction spares the entry rather than
+      # losing it — a refreshed entry no longer matches the snapshot and
+      # keeps its new body.
+      Enum.each(evicted, fn {key, entry} ->
+        replacement = Map.drop(entry, [:data, :data_version])
+
+        :ets.select_replace(
+          table,
+          [{{key, :"$1"}, [{:==, :"$1", {:const, entry}}], [{:const, {key, replacement}}]}]
+        )
+      end)
+    end
   end
 
   # Writes land in ETS directly from the poll fan-out rather than through this

@@ -1075,20 +1075,24 @@ defmodule AiurWeb.GithubCacheLive do
   end
 
   defp served_free(%{available?: true, callers: callers}, caller) when is_map(callers) do
-    case Map.fetch(callers, caller) do
-      {:ok, %{hit: 1}} -> "1 read"
-      {:ok, %{hit: hits}} when is_integer(hits) and hits > 1 -> "#{hits} reads"
-      {:ok, %{refused: 1}} -> "1 policy refusal"
-      {:ok, %{refused: refusals}} when is_integer(refusals) and refusals > 1 -> "#{refusals} policy refusals"
-      {:ok, %{not_deposited: 1}} -> "1 read not deposited"
-      {:ok, %{not_deposited: n}} when is_integer(n) and n > 1 -> "#{n} reads not deposited"
-      {:ok, _observed} -> "none this boot"
-      :error -> "not observed by ReadCache"
-    end
+    observation_phrase(Map.fetch(callers, caller))
   end
 
   defp served_free(%{available?: true}, _caller), do: "not observed by ReadCache"
   defp served_free(_snapshot, _caller), do: "cache unavailable"
+
+  # A caller's observation map rendered as prose for the "served free" column.
+  # The clauses mirror the map's shapes in specificity order — a `hit` of 1
+  # reads as a singular, a larger `hit` as a plural, and so on — so the phrases
+  # stay stable as new counters are added.
+  defp observation_phrase({:ok, %{hit: 1}}), do: "1 read"
+  defp observation_phrase({:ok, %{hit: hits}}) when is_integer(hits) and hits > 1, do: "#{hits} reads"
+  defp observation_phrase({:ok, %{refused: 1}}), do: "1 policy refusal"
+  defp observation_phrase({:ok, %{refused: refusals}}) when is_integer(refusals) and refusals > 1, do: "#{refusals} policy refusals"
+  defp observation_phrase({:ok, %{not_deposited: 1}}), do: "1 read not deposited"
+  defp observation_phrase({:ok, %{not_deposited: n}}) when is_integer(n) and n > 1, do: "#{n} reads not deposited"
+  defp observation_phrase({:ok, _observed}), do: "none this boot"
+  defp observation_phrase(:error), do: "not observed by ReadCache"
 
   # An empty ring and an unobserved window are different facts and get different
   # words. Neither draws an axis: an empty chart reads as a measured flat zero,
