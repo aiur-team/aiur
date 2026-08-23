@@ -16,7 +16,7 @@ defmodule Aiur.GitHub.PullRequests do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
 
-      case Transport.fetch_json_list(request_fun, token, url) do
+      case Transport.fetch_json_list(request_fun, token, url, caller: "pull_request_changed_paths") do
         {:ok, files} ->
           {:ok, files |> Enum.map(&Map.get(&1, "filename")) |> Enum.reject(&is_nil/1)}
 
@@ -35,7 +35,7 @@ defmodule Aiur.GitHub.PullRequests do
       query = Comments.comment_query(opts)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/comments?#{query}"
 
-      Transport.fetch_json_list(request_fun, token, url)
+      Transport.fetch_json_list(request_fun, token, url, caller: "pull_request_review_comments")
     end
   end
 
@@ -54,7 +54,7 @@ defmodule Aiur.GitHub.PullRequests do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
 
-      Transport.fetch_json_list(request_fun, token, url)
+      Transport.fetch_json_list(request_fun, token, url, caller: "pull_request_reviews")
     end
   end
 
@@ -76,7 +76,7 @@ defmodule Aiur.GitHub.PullRequests do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
 
-      Transport.fetch_json_list_conditional(request_fun, token, url, Keyword.get(opts, :etag))
+      Transport.fetch_json_list_conditional(request_fun, token, url, Keyword.get(opts, :etag), caller: "pull_request_reviews_conditional")
     end
   end
 
@@ -152,6 +152,106 @@ defmodule Aiur.GitHub.PullRequests do
     end
   end
 
+  @doc """
+  Fetches the open pull request for a ticket's head branch with `If-None-Match`
+  support.
+
+  The list-only `fetch_open_pull_request_for_branch/2` contract is unchanged.
+  This variant exists so the three per-cycle call sites — comment-target
+  selection, the comment poller and the CI poller — can revalidate the
+  open-pull-request listing instead of paying full price for it every cycle.
+
+  The validator belongs to the first page of the open-pull-request collection
+  (`GET /pulls?state=open&per_page=100`); later pages ride along on a `200` and
+  the found pull request is folded into the answer, so a `304` against the
+  first page reuses the whole stored result. This is the same page-one contract
+  `fetch_open_pull_requests_by_label_conditional/2` and the issue-comment
+  conditional reads already trust. A ticket with no open pull request answers
+  `{:ok, nil, etag}`.
+  """
+  @spec fetch_open_pull_request_for_branch_conditional(String.t() | integer(), keyword()) ::
+          {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_open_pull_request_for_branch_conditional(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      etag = Keyword.get(opts, :etag)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
+
+      case request_fun.(branch_pull_request_request(url, token, etag, opts)) do
+        {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+          open_pull_request_list_page(request_fun, token, body, response, issue_number, etag, opts)
+
+        {:ok, %{status: 304} = response} ->
+          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  defp branch_pull_request_request(url, token, etag, opts) do
+    request = %{method: :get, url: url, token: token}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+    Transport.put_caller(request, opts)
+  end
+
+  defp open_pull_request_list_page(request_fun, token, body, response, issue_number, etag, opts) do
+    headers = Map.get(response, :headers, [])
+    first_etag = Transport.header(headers, "etag") || etag
+
+    case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
+      nil ->
+        fetch_open_ticket_pull_request_pages(
+          request_fun,
+          token,
+          Transport.parse_next_page_url(headers),
+          issue_number,
+          first_etag,
+          opts
+        )
+
+      pull_request ->
+        {:ok, pull_request, first_etag}
+    end
+  end
+
+  defp fetch_open_ticket_pull_request_pages(_request_fun, _token, nil, _issue_number, first_etag, _opts),
+    do: {:ok, nil, first_etag}
+
+  defp fetch_open_ticket_pull_request_pages(request_fun, token, url, issue_number, first_etag, opts) do
+    case request_fun.(branch_pull_request_request(url, token, nil, opts)) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        headers = Map.get(response, :headers, [])
+
+        case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
+          nil ->
+            fetch_open_ticket_pull_request_pages(
+              request_fun,
+              token,
+              Transport.parse_next_page_url(headers),
+              issue_number,
+              first_etag,
+              opts
+            )
+
+          pull_request ->
+            {:ok, pull_request, first_etag}
+        end
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
   defp ticket_pull_request?(%{"head" => %{"ref" => branch}}, issue_number) when is_binary(branch),
     do: TicketBranch.ticket_branch?(branch, issue_number)
 
@@ -178,7 +278,7 @@ defmodule Aiur.GitHub.PullRequests do
       with {:ok, check_runs} <-
              fetch_check_runs(request_fun, token, base_url <> "/check-runs?filter=latest&per_page=100"),
            {:ok, commit_status} when is_map(commit_status) <-
-             Transport.fetch_json_map(request_fun, token, base_url <> "/status") do
+             Transport.fetch_json_map(request_fun, token, base_url <> "/status", caller: "commit_ci_status") do
         {:ok, %{check_runs: check_runs, commit_status: commit_status}}
       else
         {:error, _reason} = error -> error
@@ -197,7 +297,7 @@ defmodule Aiur.GitHub.PullRequests do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/commits/#{URI.encode(sha)}"
 
-      case Transport.fetch_json_map(request_fun, token, url) do
+      case Transport.fetch_json_map(request_fun, token, url, caller: "commit_timestamp") do
         {:ok, commit} -> {:ok, commit_timestamp(commit)}
         {:error, _reason} = error -> error
       end
