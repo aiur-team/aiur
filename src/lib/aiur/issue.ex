@@ -26,6 +26,15 @@ defmodule Aiur.Issue do
     # GitHub ingestion resolves this before an issue can reach dispatch. Other
     # tracker backends retain the safe compatibility default.
     dispatch_authorized?: true,
+    # Why dispatch is (not) authorized. `:authorized` and `:denied` are
+    # verdicts reached from an actual timeline — a verified label applier, or a
+    # definitive provenance failure (contradictory labels, missing trigger
+    # label, an untrusted latest applier). `:deferred` means authorization could
+    # not be checked at all (a transient budget hold, rate limit, or transport
+    # failure on the provenance fetch): the ticket is NOT dispatched this cycle
+    # (fail-closed) but is deliberately NOT treated as revoked, so the
+    # orchestrator never kills a running agent over a 30-second throttle (#2409).
+    dispatch_authorization: :authorized,
     # Explicit operator-held marker (`agent:parked`): dispatch ignores the
     # ticket and comment-driven rework is refused, even when an `agent:*` state
     # label is present. `false` for every tracker backend that lacks the marker.
@@ -63,6 +72,7 @@ defmodule Aiur.Issue do
           dispatch_revision: String.t() | nil,
           paused: boolean(),
           dispatch_authorized?: boolean(),
+          dispatch_authorization: :authorized | :denied | :deferred,
           parked: boolean(),
           labels: [String.t()],
           assigned_to_worker: boolean(),
