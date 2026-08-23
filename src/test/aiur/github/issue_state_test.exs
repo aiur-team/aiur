@@ -75,6 +75,60 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
     end
 
+    test "a second state label replaces the first rather than both persisting" do
+      # #2366 acceptance: a state label set is an enum, not a set. A ticket
+      # already carrying two `agent:*` state labels (here the stale ci-wait that
+      # was never cleared plus rework) must end with exactly one label when a
+      # transition applies the next one — both old labels are removed and only
+      # the target is added.
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn req ->
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:ci-wait"}, %{"name" => "sym:rework"}]
+               }
+             }}
+
+          {:delete, 1} ->
+            assert req.url =~ "sym%3Aci-wait" or req.url =~ "sym:ci-wait"
+            {:ok, %{status: 200}}
+
+          {:delete, 2} ->
+            assert req.url =~ "sym%3Arework" or req.url =~ "sym:rework"
+            {:ok, %{status: 200}}
+
+          {:get, 3} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => []
+               }
+             }}
+
+          {:post, 4} ->
+            assert req.body == %{"labels" => ["sym:in-progress"]}
+            {:ok, %{status: 200}}
+
+          _ ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
+    end
+
     test "terminal target state closes the issue" do
       calls = :ets.new(:calls, [:set, :public])
       :ets.insert(calls, {:count, 0})
