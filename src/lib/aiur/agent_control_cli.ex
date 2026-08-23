@@ -2195,18 +2195,26 @@ defmodule Aiur.AgentControlCLI do
       %{enabled?: true, capacity: capacity, active: active, queued: queued} = status
       when active > 0 or queued > 0 ->
         holders = Map.get(status, :holders, [])
+        retain_seconds = Map.get(status, :retain_seconds)
 
         # A slot whose command process group is gone is not doing work: render
         # it apart from genuinely-busy slots so `BUILD GATE n/n active` never
         # reads as a confident wrong number (#2349).
         leaked = Enum.count(holders, &(&1.kind == :slot and &1.command_alive? == false))
 
+        retain_suffix =
+          if is_integer(retain_seconds) do
+            ", retain_seconds=#{retain_seconds}"
+          else
+            ""
+          end
+
         line =
           if leaked > 0 do
             "BUILD GATE #{active - leaked}/#{capacity} active, #{leaked} held without a command, " <>
-              "#{queued} queued (max_concurrent_builds=#{capacity})"
+              "#{queued} queued (max_concurrent_builds=#{capacity}#{retain_suffix})"
           else
-            "BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity})"
+            "BUILD GATE #{active}/#{capacity} active, #{queued} queued (max_concurrent_builds=#{capacity}#{retain_suffix})"
           end
 
         IO.puts(line)

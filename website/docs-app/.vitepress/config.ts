@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: 'Aiur Docs',
   description: 'Run and coordinate fleets of coding agents with Aiur.',
   base: '/docs/',
@@ -99,4 +100,4 @@ export default defineConfig({
     outline: { level: [2, 3], label: 'On this page' },
     search: { provider: 'local' }
   }
-})
+}))

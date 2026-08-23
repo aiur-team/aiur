@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Config do
 
   require Logger
 
-  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, HostCommand, Transport}
 
   @default_label_prefix "agent"
 
@@ -422,14 +422,16 @@ defmodule Aiur.GitHub.Config do
   Returns the stored PAT as a trimmed string, or `nil` when gh is absent, not
   logged in via keyring (headless/CI), or the lookup fails.
 
-  This is the single source of truth for "does a gh keyring credential exist":
-  `resolve_pat_token/1` uses it as its runtime fallback, and the boot gate in
-  `Aiur.Env` consults the same function so a keyring-only `gh auth login`
-  satisfies the GitHub credential requirement before any env token is set.
+  Routed through the host guard so the keyring lookup is admitted and recorded
+  like every other gh call (#2353). This is the single source of truth for
+  "does a gh keyring credential exist": `resolve_pat_token/1` uses it as its
+  runtime fallback, and the boot gate in `Aiur.Env` consults the same function
+  so a keyring-only `gh auth login` satisfies the GitHub credential requirement
+  before any env token is set.
   """
   @spec keyring_token() :: String.t() | nil
   def keyring_token do
-    case System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
+    case HostCommand.run(["auth", "token", "--hostname", "github.com"],
            env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
            stderr_to_stdout: true
          ) do

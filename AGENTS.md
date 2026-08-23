@@ -284,6 +284,15 @@ Name the result in the PR body: one line per new test ("`sweep_once` test
 fails with the production hunk reverted") or an explicit statement of why the
 check could not be run.
 
+When you revert for this check, the tree must be dirty **only** in the
+intended way: `git diff` shows the production hunk you meant to remove and
+nothing else. Run it in a worktree, never the live checkout, and before the
+run assert no *unintended* modifications are present (`git status --porcelain`
+must show exactly the revert you made and no stray files) — a dirty tree from
+another process is the wrong-checkout signature #2362 is about, and HEAD alone
+does not catch it. Report the exact command you ran in the PR body so a
+reviewer can see what actually executed.
+
 Recurring shapes to avoid — each has shipped and cost a review round:
 
 - `assert %{} = …` and other patterns that match anything. `%{}` matches any

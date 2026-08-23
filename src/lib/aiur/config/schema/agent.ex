@@ -121,6 +121,12 @@ defmodule Aiur.Config.Schema.Agent do
     # and the daemon raises a needs-attention alert naming the command. 0
     # disables the backstop.
     field(:build_gate_max_hold_seconds, :integer, default: 3_600)
+    # Maximum post-command courtesy window (seconds) the detached holder keeps
+    # a slot after the wrapped command exits, gated on a descendant still
+    # consuming CPU (#2398). The holder releases the moment the retained tree
+    # goes idle, so this is the *ceiling* for a genuinely-busy descendant, not
+    # a per-build hold. 0 disables the courtesy.
+    field(:build_gate_retain_seconds, :integer, default: 120)
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
@@ -202,6 +208,7 @@ defmodule Aiur.Config.Schema.Agent do
         :build_start_stagger_seconds,
         :min_free_memory_mb,
         :build_gate_max_hold_seconds,
+        :build_gate_retain_seconds,
         :max_turns,
         :max_retry_attempts,
         :max_retry_backoff_ms,
@@ -233,6 +240,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
     |> validate_number(:build_gate_max_hold_seconds, greater_than_or_equal_to: 0)
+    |> validate_number(:build_gate_retain_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:max_turns, greater_than: 0)
     |> validate_number(:max_dispatches_per_ticket, greater_than_or_equal_to: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)
