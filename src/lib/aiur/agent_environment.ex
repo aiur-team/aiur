@@ -49,8 +49,11 @@ defmodule Aiur.AgentEnvironment do
   # `AgentGitHubGuard.ensure_agent_token_file/1`); the environment itself
   # carries no token. GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN are covered
   # so an enterprise deployment cannot leak its credential through the same
-  # inheritance.
-  @github_credential_env_names ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN)
+  # inheritance, and MISE_GITHUB_TOKEN (mise's ambient GitHub token, set by
+  # operators and CI) is covered so the acceptance check
+  # `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` returns nothing even when the
+  # daemon's own environment carries it.
+  @github_credential_env_names ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN)
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
   @neutral_zdotdir "/dev/null"
 
@@ -120,7 +123,9 @@ defmodule Aiur.AgentEnvironment do
       if Keyword.get(opts, :github_credential, true), do: @github_credential_env_names, else: []
 
     github_credential_case =
-      if github_credential_env_names == [], do: "", else: "|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN"
+      if github_credential_env_names == [],
+        do: "",
+        else: "|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|MISE_GITHUB_TOKEN"
 
     ("unset " <>
        Enum.join(
