@@ -35,7 +35,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.BuildOrder.TicketDetail
-  alias Aiur.GitHub.{Issues, ResourceStore}
+  alias Aiur.GitHub.{Issues, ReadCache, ResourceStore}
   alias Aiur.TrackerIdentity
   alias AiurWeb.ControlCenterCache
 
@@ -59,6 +59,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   @repository {"owner", "repo"}
 
   setup do
+    # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
+    # and asserts it reaches the transport. That URL is now cacheable
+    # (`:issue`, #2352), and the read cache is a shared application child, so a
+    # deposit made by an earlier test would make the control's "must always
+    # send" request a cache hit and the zero below unproven. Start clean so the
+    # control really exercises the egress seam.
+    ReadCache.reset()
+
     previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
     cache = start_supervised!({ControlCenterCache, name: nil})
 

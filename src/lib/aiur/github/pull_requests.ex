@@ -461,30 +461,32 @@ defmodule Aiur.GitHub.PullRequests do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      etag = Keyword.get(opts, :etag)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
-      request = %{method: :get, url: url, token: token}
-      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
-      request = Transport.put_caller(request, opts)
 
-      case request_fun.(request) do
-        {:ok, %{status: 200, body: %{"head" => %{"ref" => ref}}} = response} when is_binary(ref) ->
-          {:ok, ref, Transport.header(Map.get(response, :headers, []), "etag") || etag}
-
-        {:ok, %{status: 200}} ->
-          {:error, :head_ref_missing}
-
-        {:ok, %{status: 304} = response} ->
-          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
+      pull_request_conditional_request(url, token, opts)
+      |> request_fun.()
+      |> head_ref_conditional_response(Keyword.get(opts, :etag))
     end
   end
+
+  defp head_ref_conditional_response(
+         {:ok, %{status: 200, body: %{"head" => %{"ref" => ref}}} = response},
+         etag
+       )
+       when is_binary(ref) do
+    {:ok, ref, retained_etag(response, etag)}
+  end
+
+  defp head_ref_conditional_response({:ok, %{status: 200}}, _etag), do: {:error, :head_ref_missing}
+
+  defp head_ref_conditional_response({:ok, %{status: 304} = response}, etag),
+    do: {:not_modified, retained_etag(response, etag)}
+
+  defp head_ref_conditional_response({:ok, %{status: _status} = response}, _etag),
+    do: {:error, Errors.github_status_error(response)}
+
+  defp head_ref_conditional_response({:error, reason}, _etag),
+    do: {:error, Errors.classify_error({:error, reason})}
 
   @doc """
   Fetches the OPEN pull request numbered `pr_number` (`GET /pulls/{pr_number}`),
@@ -544,30 +546,39 @@ defmodule Aiur.GitHub.PullRequests do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token(opts) do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      etag = Keyword.get(opts, :etag)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
-      request = %{method: :get, url: url, token: token}
-      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
-      request = Transport.put_caller(request, opts)
 
-      case request_fun.(request) do
-        {:ok, %{status: 200, body: %{} = pr} = response} ->
-          {:ok, open_pull_request_or_nil(pr), Transport.header(Map.get(response, :headers, []), "etag") || etag}
-
-        {:ok, %{status: 304} = response} ->
-          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
-
-        {:ok, %{status: 404}} ->
-          {:ok, nil, nil}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
+      pull_request_conditional_request(url, token, opts)
+      |> request_fun.()
+      |> open_pull_request_conditional_response(Keyword.get(opts, :etag))
     end
   end
+
+  defp open_pull_request_conditional_response({:ok, %{status: 200, body: %{} = pr} = response}, etag) do
+    {:ok, open_pull_request_or_nil(pr), retained_etag(response, etag)}
+  end
+
+  defp open_pull_request_conditional_response({:ok, %{status: 304} = response}, etag),
+    do: {:not_modified, retained_etag(response, etag)}
+
+  defp open_pull_request_conditional_response({:ok, %{status: 404}}, _etag), do: {:ok, nil, nil}
+
+  defp open_pull_request_conditional_response({:ok, %{status: _status} = response}, _etag),
+    do: {:error, Errors.github_status_error(response)}
+
+  defp open_pull_request_conditional_response({:error, reason}, _etag),
+    do: {:error, Errors.classify_error({:error, reason})}
+
+  # The `/pulls/{n}` GET request shared by the two row-5 conditional variants,
+  # carrying the caller's validator when it has one.
+  defp pull_request_conditional_request(url, token, opts) do
+    etag = Keyword.get(opts, :etag)
+    request = %{method: :get, url: url, token: token}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+    Transport.put_caller(request, opts)
+  end
+
+  defp retained_etag(response, etag), do: Transport.header(Map.get(response, :headers, []), "etag") || etag
 
   @doc """
   Ensures an open pull request targets the configured integration branch.
