@@ -425,12 +425,17 @@ defmodule Aiur.Codeowners do
     end
   end
 
+  # #2298 item 7: this is a second, unpaginated copy of `Teams.fetch_team_members/3`
+  # (memoized only in the process dictionary). It is kept separate because its
+  # error contract differs (`:quota_hold` / `{:github_api_status, _}`), but it
+  # now declares its caller so the read is attributed rather than folded into an
+  # endpoint shape.
   defp fetch_team_members(org, team_slug, opts) do
     request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
     token = Keyword.get_lazy(opts, :token, &GitHub.Config.token/0)
     url = "#{@base_url}/orgs/#{org}/teams/#{team_slug}/members?per_page=100"
 
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "codeowners_team_members"}) do
       {:ok, %{status: 200, body: body}} when is_list(body) ->
         logins =
           body
@@ -465,13 +470,17 @@ defmodule Aiur.Codeowners do
   defp normalize_ownership_error({:github_api_status, status}), do: {:error, {:github_api_status, status}}
   defp normalize_ownership_error(reason), do: {:error, reason}
 
+  # #2298 item 7: a second, unpaginated copy of `PullRequests.fetch_pull_request_changed_paths/2`.
+  # Kept separate because it returns a bare list (the canonical returns `{:ok, _}`)
+  # and reads an explicit `:repo`/`:token` from opts; the caller is declared so the
+  # spend is attributed.
   defp fetch_pr_changed_paths(pr_number, opts) do
     with {:ok, {owner, repo}} <- parse_repo(opts),
          token when is_binary(token) <- Keyword.get_lazy(opts, :token, &GitHub.Config.token/0) do
       request_fun = Keyword.get(opts, :request_fun, &default_request_fun/1)
       url = "#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100"
 
-      case request_fun.(%{method: :get, url: url, token: token}) do
+      case request_fun.(%{method: :get, url: url, token: token, caller: "codeowners_pr_files"}) do
         {:ok, %{status: 200, body: body}} when is_list(body) ->
           body
           |> Enum.map(&Map.get(&1, "filename"))
