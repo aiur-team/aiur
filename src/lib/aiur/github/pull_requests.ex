@@ -40,11 +40,6 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   @doc """
-  @doc """
-  Fetches all review submissions for a pull request, with `If-None-Match`
-  support — the only reader of the reviews endpoint; the unconditional
-  `fetch_pull_request_reviews/2` was retired (#2326) so no new call site could
-  pick the unconditional twin by coin flip.
   Fetches a pull request's review submissions with `If-None-Match` support.
 
   This is the only reader of the review-submissions endpoint; the unconditional

@@ -441,7 +441,13 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         }
       }
 
-      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+      # A thread delivery also deposits the full PR it carries — the half that
+      # feeds `DeliveredPullRequest` (#2326) — alongside the snapshot merge.
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               ResourceStore.key_for_repo(:branch_pull_request, @repo, 42),
+               PollSnapshots.review_threads_key(@repo, 77)
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
       assert {:ok,
@@ -463,7 +469,12 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         "thread" => %{"node_id" => "PRRT_unknown", "updated_at" => "2026-06-24T12:01:00Z"}
       }
 
-      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+      # The unknown thread is not merged into the empty snapshot, but the PR the
+      # delivery carries is still deposited (#2326).
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               PollSnapshots.review_threads_key(@repo, 77)
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
       assert :miss = PollSnapshots.review_threads(@repo, 77)
@@ -481,7 +492,10 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => true, "updated_at" => "2026-06-24T12:01:00Z"}
       }
 
-      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               PollSnapshots.review_threads_key(@repo, 77)
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", resolved, @repo)
 
       assert {:ok, [%{"isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
@@ -495,8 +509,10 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => false, "updated_at" => "2026-06-24T12:02:00Z"}
       }
 
-      # An invalidation writes no body, so it reports no key.
-      assert [] == GithubWebhook.Deposit.deposit("pull_request_review_thread", unresolved, @repo)
+      # An invalidation writes no body, so it reports no thread key — but the
+      # delivery's PR half is still deposited (#2326).
+      assert [ResourceStore.key_for_repo(:pull_request, @repo, 77)] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", unresolved, @repo)
 
       assert :miss = PollSnapshots.review_threads(@repo, 77)
     end
@@ -533,7 +549,15 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         }
       }
 
-      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+      # A thread delivery also deposits the full PR it carries — including its
+      # `:branch_pull_request` sibling when the head branch is a ticket — which
+      # is what keeps `DeliveredPullRequest` from falling into the per-PR
+      # `review_threads_unaddressed` fallback (#2326).
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               ResourceStore.key_for_repo(:branch_pull_request, @repo, 42),
+               PollSnapshots.review_threads_key(@repo, 77)
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
       :ok = ResourceStore.flush()
