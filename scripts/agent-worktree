@@ -1,0 +1,428 @@
+#!/bin/sh
+
+# Collision-proof git worktrees for concurrent Aiur agents (#2362).
+#
+# Why this exists: concurrent review agents on one box share a scratchpad
+# root, and left to choose for themselves they pick the same obvious worktree
+# name - `wt`, `worktree`, `pr`, `build`. When two agents collide, the second
+# silently repoints the checkout at a different PR's branch mid-run, and the
+# first agent's mutation test then runs against a tree that never contained
+# the change it just reverted. That returns "the test still passed with the
+# production change reverted" - a confident wrong verdict that gates a merge.
+#
+# This helper gives every agent-created worktree a collision-proof path and
+# local branch, and makes the pre-mutation HEAD assertion a single command:
+#
+#     .worktrees/pr-<pr>-<unique>
+#
+# The PR number keeps the worktree recognizable; the per-agent unique
+# component (host + pid + random, or an explicit --unique value) keeps two
+# agents that are legitimately reviewing the same PR apart. Creation FAILS
+# LOUDLY when the target path already exists rather than reusing or
+# repointing it - reuse is what converts a collision into a wrong answer
+# instead of an error. The unique component is recomputed per invocation and
+# never stored in a file: a path persisted in a shared scratchpad is itself a
+# collision surface (#2362).
+#
+# Usage:
+#   agent-worktree path <pr> [--root <dir>] [--unique <component>]
+#       Print a collision-proof worktree path for PR <pr> (creates nothing).
+#       Deterministic for a fixed --unique, so callers recompute the path
+#       inline per command instead of persisting it.
+#   agent-worktree create <pr> [--root <dir>] [--unique <component>]
+#       [--base <branch>] [--remote <name>]
+#       Create a worktree for PR <pr> at a unique path and print the path.
+#   agent-worktree head-check <path> <sha> [--allow-dirty]
+#       Assert the worktree at <path> is checked out at commit <sha> AND has a
+#       clean tree. Run before every mutation batch: a HEAD that drifted from
+#       the intended SHA - or a tree another agent overwrote without committing
+#       - means results would be meaningless against the wrong checkout.
+#       --allow-dirty skips the clean-tree requirement for the mutation batch's
+#       own reverts, asserted before the first mutation.
+#   agent-worktree prune [--root <dir>] [--base <branch>] [--dry-run] [--all]
+#       Remove worktrees under <root>/.worktrees/ whose branch is merged into
+#       <base> (default: main). Live or dirty worktrees are left alone. The
+#       default scope is the .worktrees/ root this helper creates, so a clean
+#       human worktree elsewhere is never touched; --all extends the sweep to
+#       every registered worktree.
+#   agent-worktree list [--root <dir>]
+#       List registered worktrees (path + branch) so collisions are visible.
+#
+# Exit codes: 0 ok; 64 refusal (path exists / not a repository / not a
+# worktree); 65 HEAD drift or dirty tree; 1 usage or operational failure.
+
+set -u
+
+command=
+pr=
+head_path=
+head_sha=
+root=
+unique=
+unique_set=0
+base=main
+remote=origin
+dry_run=0
+prune_all=0
+allow_dirty=0
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    path|create|prune|list|head-check)
+      command=$1
+      ;;
+    --root)
+      shift
+      root=$1
+      ;;
+    --unique)
+      shift
+      unique=$1
+      unique_set=1
+      ;;
+    --base)
+      shift
+      base=$1
+      ;;
+    --remote)
+      shift
+      remote=$1
+      ;;
+    --dry-run)
+      dry_run=1
+      ;;
+    --all)
+      prune_all=1
+      ;;
+    --allow-dirty)
+      allow_dirty=1
+      ;;
+    -h|--help)
+      command=help
+      ;;
+    -*)
+      printf 'agent-worktree: unknown option %s\n' "$1" >&2
+      exit 1
+      ;;
+    *)
+      case "$command" in
+        head-check)
+          if [ -z "$head_path" ]; then
+            head_path=$1
+          elif [ -z "$head_sha" ]; then
+            head_sha=$1
+          else
+            printf 'agent-worktree: unexpected argument %s\n' "$1" >&2
+            exit 1
+          fi
+          ;;
+        *)
+          if [ -z "$pr" ]; then
+            pr=$1
+          else
+            printf 'agent-worktree: unexpected argument %s\n' "$1" >&2
+            exit 1
+          fi
+          ;;
+      esac
+      ;;
+  esac
+  shift
+done
+
+if [ "$command" = help ] || [ -z "$command" ]; then
+  sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+fi
+
+case "$command" in
+  path|create)
+    if [ -z "$pr" ]; then
+      printf 'agent-worktree: %s requires a PR number\n' "$command" >&2
+      exit 1
+    fi
+    # A numeric PR number prevents ref injection into the fetch refspec.
+    case "$pr" in
+      *[!0-9]*)
+        printf 'agent-worktree: PR number must be numeric\n' >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  head-check)
+    if [ -z "$head_path" ] || [ -z "$head_sha" ]; then
+      printf 'agent-worktree: head-check requires a worktree path and a commit sha\n' >&2
+      exit 1
+    fi
+    ;;
+esac
+
+# `--unique` (or the auto-generated component) becomes part of both a path and
+# a branch name, so it must stay inside a single path component and a legal
+# branch character set. Rejecting `/` and whitespace also stops an explicit
+# component from escaping `.worktrees/`.
+validate_component() {
+  case "$1" in
+    '' | */* | *[!A-Za-z0-9._-]*)
+      printf 'agent-worktree: invalid unique component (letters, digits, dots, underscores, hyphens only)\n' >&2
+      exit 1
+      ;;
+  esac
+}
+
+resolve_repo_root() {
+  if [ -n "$root" ]; then
+    start=$root
+  else
+    start=$PWD
+  fi
+  top=$(git -C "$start" rev-parse --show-toplevel 2>/dev/null) || {
+    printf 'agent-worktree: %s is not inside a git repository\n' "$start" >&2
+    exit 64
+  }
+  printf '%s\n' "$top"
+}
+
+# A per-invocation unique component: host + pid + a random hex tail. Host and
+# pid keep two agents on one box apart; the random tail disambiguates
+# concurrent creations from the same process, so two agents reviewing the same
+# PR never resolve to the same path or branch.
+unique_component() {
+  host_part=$(hostname 2>/dev/null || printf 'host')
+  pid_part=$$
+  rand_part=$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+  if [ -z "$rand_part" ]; then
+    rand_part=$pid_part-$(date +%s 2>/dev/null)
+  fi
+  printf '%s-%s-%s\n' "$host_part" "$pid_part" "$rand_part"
+}
+
+ensure_gitignored() {
+  repo_root=$1
+  if ! git -C "$repo_root" check-ignore -q .worktrees/ 2>/dev/null; then
+    ignore_file=$repo_root/.gitignore
+    if [ -f "$ignore_file" ]; then
+      if ! grep -q '^\.worktrees$' "$ignore_file" 2>/dev/null; then
+        if [ -n "$(tail -c 1 "$ignore_file")" ]; then
+          printf '\n'
+        fi
+        printf '.worktrees\n' >> "$ignore_file"
+      fi
+    else
+      printf '.worktrees\n' > "$ignore_file"
+    fi
+  fi
+}
+
+build_path() {
+  repo_root=$1
+  pr_number=$2
+  component=$3
+  printf '%s/.worktrees/pr-%s-%s\n' "$repo_root" "$pr_number" "$component"
+}
+
+worktree_path() {
+  repo_root=$1
+  pr_number=$2
+  if [ "$unique_set" -eq 1 ]; then
+    component=$unique
+  else
+    component=$(unique_component)
+  fi
+  validate_component "$component"
+  build_path "$repo_root" "$pr_number" "$component"
+}
+
+create_worktree() {
+  repo_root=$1
+  pr_number=$2
+
+  ensure_gitignored "$repo_root"
+
+  if [ "$unique_set" -eq 1 ]; then
+    component=$unique
+  else
+    component=$(unique_component)
+  fi
+  validate_component "$component"
+  path=$(build_path "$repo_root" "$pr_number" "$component")
+  branch="pr-$pr_number-$component"
+
+  # Fail loudly on an existing path: reuse is what converts a collision into a
+  # wrong answer instead of an error (#2362). A fresh unique component should
+  # never collide, so hitting this means a real collision - refuse rather than
+  # repoint, and let the caller retry with a new path.
+  if [ -d "$path" ] || git -C "$repo_root" worktree list --porcelain 2>/dev/null | grep -q "^worktree $path$"; then
+    printf 'agent-worktree: refusing create: worktree path already exists: %s\n' "$path" >&2
+    printf 'agent-worktree: do not reuse or repoint an existing worktree; retry to get a fresh unique path\n' >&2
+    exit 64
+  fi
+
+  # Fetch the PR head onto a unique local branch so a second agent reviewing
+  # the same PR does not collide on the branch name either.
+  if ! git -C "$repo_root" fetch --quiet "$remote" "pull/$pr_number/head:$branch"; then
+    printf 'agent-worktree: could not fetch pull/%s/head from %s\n' "$pr_number" "$remote" >&2
+    exit 1
+  fi
+
+  if ! git -C "$repo_root" worktree add --quiet "$path" "$branch"; then
+    printf 'agent-worktree: worktree creation failed at %s\n' "$path" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "$path"
+}
+
+prune_worktrees() {
+  repo_root=$1
+  base_ref=$2
+
+  # Let git drop entries whose worktree directory is already gone, so a real
+  # collision is not hidden behind a pile of stale registrations.
+  git -C "$repo_root" worktree prune 2>/dev/null || true
+
+  tmp_list=$(mktemp "${TMPDIR:-/tmp}/agent-worktree-list.XXXXXX") || exit 1
+  trap 'rm -f "$tmp_list"' EXIT HUP INT TERM
+
+  # Collect non-main worktrees (path + branch). The main checkout is always
+  # the first porcelain block; it must never be pruned - the `first` flag drops
+  # it before any branch test, so removing that skip would turn `main` (an
+  # ancestor of itself) into a removal candidate.
+  git -C "$repo_root" worktree list --porcelain 2>/dev/null | awk '
+    BEGIN { first = 1 }
+    /^worktree / {
+      path = $2
+      branch = ""
+      while ((getline line) > 0) {
+        if (line ~ /^branch refs\/heads\//) { branch = line; sub("^branch refs/heads/", "", branch); break }
+        if (line ~ /^detached/) { break }
+        if (line ~ /^ *$/) { break }
+      }
+      if (first) { first = 0; next }
+      if (branch != "") { printf "%s\t%s\n", path, branch }
+    }
+  ' > "$tmp_list"
+
+  removed=0
+  skipped=0
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    wt_path=${line%%	*}
+    wt_branch=${line#*	}
+
+    # Default scope is the .worktrees/ root this helper creates, so a clean
+    # human worktree on a merged branch is never swept away. --all extends the
+    # sweep to every registered worktree.
+    if [ "$prune_all" -ne 1 ]; then
+      case "$wt_path" in
+        "$repo_root/.worktrees/"*) ;;
+        *)
+          continue
+          ;;
+      esac
+    fi
+
+    if git -C "$repo_root" merge-base --is-ancestor "$wt_branch" "$base_ref" 2>/dev/null; then
+      if [ "$dry_run" -eq 1 ]; then
+        printf 'agent-worktree: would remove stale worktree %s (branch %s merged into %s)\n' "$wt_path" "$wt_branch" "$base_ref"
+      elif git -C "$repo_root" worktree remove "$wt_path" 2>/dev/null; then
+        printf 'agent-worktree: removed stale worktree %s (branch %s merged into %s)\n' "$wt_path" "$wt_branch" "$base_ref"
+        removed=$((removed + 1))
+      else
+        printf 'agent-worktree: skipped %s (branch %s): worktree is live or dirty - leaving it\n' "$wt_path" "$wt_branch" >&2
+        skipped=$((skipped + 1))
+      fi
+    fi
+  done < "$tmp_list"
+
+  printf 'agent-worktree: prune complete (%s removed, %s skipped)\n' "$removed" "$skipped"
+}
+
+list_worktrees() {
+  repo_root=$1
+  git -C "$repo_root" worktree list --porcelain 2>/dev/null | awk '
+    /^worktree / {
+      path = $2
+      branch = "detached"
+      while ((getline line) > 0) {
+        if (line ~ /^branch refs\/heads\//) { branch = line; sub("^branch refs/heads/", "", branch); break }
+        if (line ~ /^detached/) { branch = "detached"; break }
+        if (line ~ /^ *$/) { break }
+      }
+      printf "%s\t%s\n", path, branch
+    }
+  '
+}
+
+# Assert the worktree at `path` is checked out at commit `sha` AND has a clean
+# tree before a mutation batch. A HEAD that has drifted from the intended SHA
+# means the batch would run against a tree that never contained the change it
+# is testing - a confident wrong verdict (#2362). The clean-tree requirement
+# covers the other half of the same contamination: the intruding agent copied
+# deps/_build in, ran mix compile, and overwrote a test file without committing,
+# so `rev-parse HEAD` was byte-identical while the tree was already corrupted.
+# Exits 0 on match, 64 when the path is not a git worktree, and 65 on drift or
+# a dirty tree so a caller's `set -e` aborts the run loudly instead of
+# proceeding. `--allow-dirty` (strictly optional) skips the clean-tree
+# requirement for the mutation batch's own reverts, asserted before the first
+# mutation.
+head_check_worktree() {
+  path=$1
+  expected=$2
+
+  case "$expected" in
+    '' | *[!0-9a-fA-F]*)
+      printf 'agent-worktree: head-check requires a 40-hex commit sha\n' >&2
+      exit 1
+      ;;
+  esac
+  if [ "${#expected}" -ne 40 ]; then
+    printf 'agent-worktree: head-check requires a 40-hex commit sha (got %s)\n' "$expected" >&2
+    exit 1
+  fi
+
+  actual=$(git -C "$path" rev-parse HEAD 2>/dev/null) || {
+    printf 'agent-worktree: head-check: %s is not a git worktree\n' "$path" >&2
+    exit 64
+  }
+
+  if [ "$actual" != "$expected" ]; then
+    printf 'agent-worktree: HEAD DRIFT: %s is at %s, expected %s\n' "$path" "$actual" "$expected" >&2
+    printf 'agent-worktree: aborting: mutation results against the wrong checkout would be meaningless\n' >&2
+    exit 65
+  fi
+
+  if [ "$allow_dirty" -ne 1 ]; then
+    dirty=$(git -C "$path" status --porcelain 2>/dev/null)
+    if [ -n "$dirty" ]; then
+      printf 'agent-worktree: DIRTY TREE: %s has uncommitted changes\n' "$path" >&2
+      printf 'agent-worktree: aborting: mutation results against a modified tree would be meaningless; pass --allow-dirty only for the batch'\''s own reverts\n' >&2
+      exit 65
+    fi
+  fi
+
+  printf 'agent-worktree: HEAD ok: %s at %s\n' "$path" "$actual"
+}
+
+if [ "$command" = head-check ]; then
+  head_check_worktree "$head_path" "$head_sha"
+  exit $?
+fi
+
+repo_root=$(resolve_repo_root)
+
+case "$command" in
+  path)
+    worktree_path "$repo_root" "$pr"
+    ;;
+  create)
+    create_worktree "$repo_root" "$pr"
+    ;;
+  prune)
+    prune_worktrees "$repo_root" "$base"
+    ;;
+  list)
+    list_worktrees "$repo_root"
+    ;;
+esac
