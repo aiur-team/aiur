@@ -24,6 +24,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
   alias Aiur.AgentControlCLI
   alias Aiur.GitHub.{Budget, Transport}
+  alias Aiur.Issue
   alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.StatusReport
@@ -223,6 +224,70 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
         Process.sleep(50)
       end
+    end
+  end
+
+  # #2329: `aiurdev resume <id>` timed out with "timed out while reading agent
+  # status" on max_agent_duration pauses while `status` answered from the read
+  # model in ~300ms. The resume command was still reading its target view from
+  # the Orchestrator mailbox (`Orchestrator.status/0`), so it queued behind a
+  # blocked GitHub read. It must read the same SnapshotStore read model the
+  # read-only commands use, so a resume never depends on a busy or dead agent
+  # process answering a status read.
+  describe "resume while the orchestrator holds a GitHub read" do
+    setup %{orchestrator: pid} do
+      # Publish a view that already contains a paused duration-capped agent so
+      # the read model can serve the resume's target row while the Orchestrator
+      # is parked in a GitHub read. The entry must be injected before the block:
+      # `:sys.replace_state` after the block would wait on the parked process.
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-44" => paused_duration_entry("issue-44", "44")}}
+      end)
+
+      :ok = publish_current_view(pid)
+      on_exit(fn -> SnapshotStore.forget(Orchestrator) end)
+
+      # Registered first so it runs last: the shared Orchestrator must be
+      # answering again before any later cleanup tries to talk to it.
+      on_exit(fn -> wait_until(fn -> answers?(pid) end, 400) end)
+
+      url = hanging_endpoint()
+      test_pid = self()
+
+      blocker =
+        spawn(fn ->
+          :sys.replace_state(
+            pid,
+            fn state ->
+              send(test_pid, :fetch_started)
+              hanging_request(url)
+              state
+            end,
+            :infinity
+          )
+        end)
+
+      on_exit(fn -> if Process.alive?(blocker), do: Process.exit(blocker, :kill) end)
+
+      assert_receive :fetch_started, 5_000
+      refute_eventually_answers(pid)
+
+      :ok
+    end
+
+    test "resume reads its target view from the read model, not the mailbox", %{orchestrator: pid} do
+      {_elapsed_us, output} = :timer.tc(fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
+
+      assert_blocked(pid)
+
+      # The status read that produced #2329's error is served from the read
+      # model now, so the resume gets past target selection. With the
+      # Orchestrator fully parked in a GitHub read, the resume RPC itself
+      # cannot be answered — that failure is reported at the RPC, not as a
+      # status-read timeout.
+      refute output =~ "timed out while reading agent status"
+      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to resume #44 (orchestrator timed out)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:124"
     end
   end
 
@@ -854,6 +919,33 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   defp publish_current_view(pid) do
     state = :sys.get_state(pid)
     SnapshotStore.publish(Orchestrator, StatusReport.snapshot_payload(state), state)
+  end
+
+  # A parked duration-capped agent: enough shape for the read model to render a
+  # paused row that `resume` can select by issue id/identifier.
+  defp paused_duration_entry(issue_id, identifier) do
+    %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: identifier,
+      issue: %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: "in-progress",
+        title: "Duration paused #{identifier}"
+      },
+      control: %{
+        status: :paused,
+        generation: 1,
+        version: 1,
+        application_confirmation: :confirmed,
+        can_interrupt: true,
+        safe_checkpoints: []
+      },
+      paused_reason: :max_agent_duration,
+      session_id: "thread-#{identifier}",
+      started_at: DateTime.utc_now()
+    }
   end
 
   # A listener that completes the TCP handshake and then never answers — the
