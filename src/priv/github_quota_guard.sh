@@ -786,28 +786,8 @@ fi
 # agent able to do that can already write the other agent's workspace. Real
 # containment needs a separate UID per agent.
 #
-# WHY THERE IS NO CONDITIONAL REQUEST. The daemon's own REST reads recover a
-# fifth of their traffic with `If-None-Match`/`ETag` (see
-# `Aiur.GitHub.Transport.fetch_json_list_conditional/4`), and one might expect
-# the same validator handling here. The agent cache cannot have it, for two
-# structural reasons (#2299):
-#
-#  1. The reads it serves are predominantly GraphQL — `gh pr view`, `gh pr list`,
-#     `gh issue view`, `gh issue list` all hit GitHub's GraphQL endpoint — and
-#     that endpoint returns no `ETag` and no `Last-Modified`, so there is no
-#     validator to send and no `304` to receive. The daemon's own read cache
-#     documents the same fact for the same endpoint
-#     (`Aiur.GitHub.ReadCache`, "Why a cache and not conditional requests").
-#  2. The REST reads the guard does serve — `gh api` GETs, and the REST `gh
-#     search` subcommands (`repos`, `code`, `commits`, `users`) — run inside the
-#     `gh` binary, which does not expose request-header injection for subcommand
-#     reads. The one subcommand that does accept headers (`gh api -H`) is
-#     replayed through the shared store rather than re-validated, and it is a
-#     small fraction of the traffic this cache serves.
-#
-# So the TTL body cache with invalidation markers is the only mechanism this
-# path has, and the agent-side free share it cannot recover is GraphQL's, which
-# no cache on either side can recover.
+# WHY NO CONDITIONAL REQUEST (#2299): reads here are GraphQL or `gh`-internal
+# REST with no header injection — see apis/github.md.
 # ---------------------------------------------------------------------------
 
 # The store sits beside the budget broker's database because that is already the
@@ -1391,9 +1371,8 @@ cache_record() {
     fi
   fi
 
-  # The sixth column is the miss reason. It is written only where there is one
-  # — every miss — so the 97% miss rate can be classified rather than guessed
-  # (#2299). Hits, stores and coalesced replays are 5-column rows by design.
+  # Sixth column: the miss reason, written on every miss (#2299). Hits, stores
+  # and coalesced replays are 5-column rows by design.
   if [ -n "${2:-}" ]; then
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$cache_started_at" "$consumer" "$1" "${cache_kind:-unknown}" "${cache_id:-unknown}" "$2" \
       >> "$cache_events_file" 2>/dev/null || true
@@ -1603,9 +1582,7 @@ cache_prune() {
 # which is the same answer every other doubt in this file produces.
 cache_serve() {
   if ! cat "$cache_body"; then
-    # The body vanished between the lookup's readability test and this read — a
-    # concurrent writer whose stamp failed removes its own body. The miss the
-    # caller falls through to is named `corrupt`, not the optimistic `absent`.
+    # Body vanished between lookup and read — the miss is `corrupt`, not `absent`.
     cache_miss_reason=corrupt
     return 1
   fi
@@ -2501,73 +2478,36 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
   # The resource column tells the daemon which budget the call was billed to.
   # Without it every agent call was counted against core, and a GraphQL query —
   # billed in points against a separate budget — landed in the wrong window.
-  # `search` is a first-class bucket too, so its rows are not folded into core.
   track_resource=$resource
   case "$track_resource" in
     core|graphql|search) ;;
     *) track_resource=core ;;
   esac
 
-  # The call-site column lets the daemon rank the agent-shell caller by gh
-  # subcommand (`agent-shell:gh pr view`, `agent-shell:gh issue list`) instead
-  # of one undifferentiated `agent-shell:gh` row (#2299).
-  #
-  # It is built from an ALLOWLIST, never from raw argv. The two positionals are
-  # first bounded to the safe character set: a crafted `gh pr $'view\n<forged
-  # tsv row>'` would otherwise write a second spend row into this file
-  # attributed to another ticket, and a flag counted as a positional would land
-  # in the stored record. Each command name below then admits only the
-  # subcommands its classification arm enumerates; a flag or any unknown word
-  # falls back to the bare command name.
+  # Call-site column: allowlisted subcommand, never raw argv (falls back safe).
   case "$command_name" in
     ''|*[!a-zA-Z0-9-_]*) command_name= ;;
   esac
   case "$subcommand_name" in
     ''|*[!a-zA-Z0-9-_]*) subcommand_name= ;;
   esac
-  call_site=$command_name
+  call_site=${command_name:-gh}
   case "$command_name" in
     api)
-      # An `api` endpoint path is not a useful grouping — it would fragment
-      # REST `gh api` reads into one row per URL — so it normalises to the
-      # command plus the budget it billed to.
       case "$resource" in
         graphql) call_site="api graphql" ;;
         *) call_site=api ;;
       esac
       ;;
-    pr)
+    pr|issue|run|search|label)
       case "$subcommand_name" in
-        view|list|status|checks|diff|create|merge|review|close|reopen|edit|ready|delete|comment|update-branch) call_site="pr $subcommand_name" ;;
+        view|list|status|checks|diff|create|merge|review|close|reopen|edit|ready|delete|comment|update-branch) call_site="$command_name $subcommand_name" ;;
+        view|list|status|create|edit|close|reopen|delete|comment|lock|unlock|pin|unpin|transfer) call_site="$command_name $subcommand_name" ;;
+        view|list|watch|rerun|cancel|delete) call_site="$command_name $subcommand_name" ;;
+        issues|prs|repos|code|commits|users) call_site="$command_name $subcommand_name" ;;
+        create|delete|edit) call_site="$command_name $subcommand_name" ;;
       esac
       ;;
-    issue)
-      case "$subcommand_name" in
-        view|list|status|create|edit|close|reopen|delete|comment|lock|unlock|pin|unpin|transfer) call_site="issue $subcommand_name" ;;
-      esac
-      ;;
-    run)
-      case "$subcommand_name" in
-        view|list|watch|rerun|cancel|delete) call_site="run $subcommand_name" ;;
-      esac
-      ;;
-    search)
-      case "$subcommand_name" in
-        issues|prs|repos|code|commits|users) call_site="search $subcommand_name" ;;
-      esac
-      ;;
-    label)
-      case "$subcommand_name" in
-        create|delete|edit) call_site="label $subcommand_name" ;;
-      esac
-      ;;
-  esac
-  # A bare `gh` with no subcommand has an empty command name; keep a caller
-  # row for it rather than writing a blank call-site column. Both positionals
-  # were bounded to the safe set above, so anything that reached here is
-  # already a clean single line.
-  case "$call_site" in
-    ''|' ') call_site=gh ;;
   esac
 
   printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" "$call_site" \
