@@ -59,6 +59,61 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert operator.availability.measured == 0
   end
 
+  test "preserves fleet build pressure and independent source evidence" do
+    path = temporary_stream!()
+
+    metrics = %{
+      "fleet_agents_occupied" => 13,
+      "fleet_agents_configured" => 16,
+      "fleet_agents_max" => 16,
+      "fleet_agents_effective" => 12,
+      "build_gate_capacity" => 2,
+      "build_gate_active" => 2,
+      "build_gate_queued" => 8,
+      "build_queue_oldest_wait_seconds" => 189
+    }
+
+    pressure =
+      resource_record(1, "pressure-boot", ~U[2026-08-21 18:00:00Z], 7.0, "_daemon")
+      |> update_in([:attributes], fn attributes ->
+        Map.merge(attributes, metrics)
+        |> Map.merge(%{
+          fleet_capacity_status: "current",
+          fleet_capacity_age_ms: 41,
+          fleet_capacity_observed_at_ms: 1_787_306_400_001,
+          build_gate_enabled: true,
+          build_gate_status: "measured",
+          build_gate_observed_at_ms: 1_787_306_400_002,
+          partial_fields: ["fd_count"]
+        })
+      end)
+
+    legacy = resource_record(2, "pressure-boot", ~U[2026-08-21 18:00:05Z], 8.0, "_daemon")
+    File.write!(path, Enum.map_join([pressure, legacy], "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+    actor = dataset.actors["_daemon"]
+    [sample, legacy_sample] = actor.samples
+
+    assert Map.take(sample, Map.keys(metrics)) == metrics
+
+    for {metric, value} <- metrics do
+      assert actor.profile[metric].count == 1
+      assert actor.profile[metric].max == value
+      assert legacy_sample[metric] == nil
+    end
+
+    assert sample.fleet_capacity_status == "current"
+    assert sample.fleet_capacity_age_ms == 41
+    assert sample.fleet_capacity_observed_at_ms == 1_787_306_400_001
+    assert sample.build_gate_enabled == true
+    assert sample.build_gate_status == "measured"
+    assert sample.build_gate_observed_at_ms == 1_787_306_400_002
+    assert sample.partial_fields == ["fd_count"]
+    assert legacy_sample.fleet_capacity_status == nil
+    assert legacy_sample.build_gate_status == nil
+  end
+
   test "derives closed, point, and open intervals by attempt and operation" do
     {:ok, dataset} = Dataset.build(@fixtures)
     intervals = dataset.tickets["930"].intervals
