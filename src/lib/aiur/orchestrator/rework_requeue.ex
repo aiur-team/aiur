@@ -132,7 +132,16 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
 
   defp default_open_pr(issue_key), do: Tracker.fetch_open_pull_request_for_branch(issue_key)
 
-  defp default_reviews(pr_number), do: GitHubClient.fetch_pull_request_reviews(pr_number)
+  # `fetch_pull_request_reviews/2` was retired (#2326) in favour of the
+  # conditional reader; adapt its 3-tuple back to the `{:ok, list}` shape the
+  # `reviews_fetcher` contract promises. No etag is held, so a 304 cannot occur.
+  defp default_reviews(pr_number) do
+    case GitHubClient.fetch_pull_request_reviews_conditional(pr_number) do
+      {:ok, reviews, _etag} when is_list(reviews) -> {:ok, reviews}
+      {:not_modified, _etag} -> {:ok, []}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp default_diff({base_sha, head_sha}), do: GitHubClient.fetch_compare_files(base_sha, head_sha)
 

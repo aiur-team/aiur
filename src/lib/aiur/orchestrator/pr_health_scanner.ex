@@ -358,5 +358,16 @@ defmodule Aiur.Orchestrator.PRHealthScanner do
   end
 
   defp default_open_prs, do: GitHubClient.fetch_open_pull_requests()
-  defp default_reviews(pr_number), do: GitHubClient.fetch_pull_request_reviews(pr_number)
+
+  # `fetch_pull_request_reviews/2` was retired (#2326) in favour of the
+  # conditional reader. The scan has no cached etag, so a 304 cannot occur, but
+  # the replacement returns a 3-tuple; adapt it back to the `{:ok, list}` shape
+  # the scanner's `reviews_fetcher` contract promises.
+  defp default_reviews(pr_number) do
+    case GitHubClient.fetch_pull_request_reviews_conditional(pr_number) do
+      {:ok, reviews, _etag} when is_list(reviews) -> {:ok, reviews}
+      {:not_modified, _etag} -> {:ok, []}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end
