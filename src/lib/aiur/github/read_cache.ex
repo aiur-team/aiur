@@ -86,13 +86,19 @@ defmodule Aiur.GitHub.ReadCache do
   # a memory leak.
   @max_entries 20_000
 
-  # A retention bound for the sweep, deliberately far above the 30s TTLs
-  # `Policy` currently hands out. It is not the maximum TTL and must not be
-  # tightened to match one: `:github_read_cache_ttls` lets an operator raise a
-  # TTL at runtime, and a sweep that dropped entries still inside their window
-  # would turn a config change into silent cache misses. Freshness is decided on
-  # read, so sweeping late costs memory and sweeping early costs points.
-  @max_ttl_ms 60 * 60_000
+  # A retention bound for the sweep, deliberately far above the TTLs `Policy`
+  # hands out. It is not the maximum TTL and must not be tightened to match one:
+  # `:github_read_cache_ttls` lets an operator raise a TTL at runtime, and a
+  # sweep that dropped entries still inside their window would turn a config
+  # change into silent cache misses. Freshness is decided on read, so sweeping
+  # late costs memory and sweeping early costs points.
+  #
+  # `Policy` now issues hour-long TTLs to webhook-backed repos (the delivery
+  # retires what it changes, so the TTL is a backstop rather than a freshness
+  # guess), so the bound sits at four hours to stay well above the largest TTL
+  # the cache can issue today and the largest an operator override is likely to
+  # set.
+  @max_ttl_ms 4 * 60 * 60_000
   @sweep_interval_ms 60_000
 
   @type identity :: Identity.t()
@@ -321,12 +327,30 @@ defmodule Aiur.GitHub.ReadCache do
   # resolutions. Every REST write carries `/repos/{owner}/{repo}/` in its URL
   # and so never arrives here. If that ever stops being true, the metric to
   # watch is `invalidations.events` against the hit rate.
+  #
+  # A write that *can* name its subject retires exactly that subject, never the
+  # whole repository. `Identity.extract/1` always includes `{:repo, owner, repo}`
+  # — which every read of that repository also carries — so retiring it on every
+  # numbered write emptied the repository's cache per mutation: on a repo the
+  # daemon writes to continuously, no entry survived to be served, and the cache
+  # reported 0% hits with a full, freshly-deposited table (#2372). A numbered
+  # write retires the number plus the repository's collections instead — the
+  # same pair `invalidate_number/2` writes for a delivery — and only a write
+  # that names a repository but no number (a git ref, a repo-config write)
+  # retires the repository itself.
   defp write_identities(request) do
-    case request |> Identity.extract() |> Enum.reject(&(&1 == :root)) do
-      [] -> [:root]
-      identities -> identities
+    identities = Identity.extract(request)
+    repo = Enum.find(identities, &match?({:repo, _owner, _repo}, &1))
+    numbers = Enum.filter(identities, &match?({:number, _owner, _repo, _number}, &1))
+
+    cond do
+      repo == nil -> [:root]
+      numbers == [] -> [repo]
+      true -> [collections_identity(repo) | numbers]
     end
   end
+
+  defp collections_identity({:repo, owner, repo}), do: {:collections, owner, repo}
 
   defp refuse(fetch, reason, caller) do
     Metrics.refused(reason, caller)

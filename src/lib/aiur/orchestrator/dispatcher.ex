@@ -38,6 +38,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Reconciler,
     RetryEngine,
     Slots,
+    StartupClaimReconciler,
     State,
     StatusReport,
     TrackedSet,
@@ -61,6 +62,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Lifecycle.schedule_tick(schedule.delay_ms)
       |> Map.put(:effective_poll_interval_ms, schedule.delay_ms)
       |> Map.put(:idle_poll_backoff, %{active?: schedule.idle_backoff?, factor: schedule.idle_widen_factor})
+      # Counted AFTER the schedule is computed so the first cycle after a
+      # restart schedules at the base interval: a freshly started daemon has
+      # observed no idleness, so the idle backoff may only apply from the
+      # second scheduling decision onward (#2138).
+      |> Map.update!(:poll_cycles_completed, &(&1 + 1))
 
     # Every freshness threshold is a multiple of the cadence actually in force,
     # so the scheduled delay — idle backoff, webhook widening and GitHub's own
@@ -131,7 +137,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # decision store (#1965).
     state = refresh_blocked_ticket_ids(state)
 
-    case fetch_candidate_issues(state) do
+    dispatch_candidate_poll(state)
+  end
+
+  @doc false
+  @spec dispatch_candidate_poll(State.t(), keyword()) :: State.t()
+  def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
+    fetch_candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &fetch_candidate_issues/1)
+    monitor_without_candidates = Keyword.get(opts, :monitor_without_candidates_fun, &monitor_without_candidates/1)
+
+    case fetch_candidates.(state) do
+      {:paused, state} ->
+        monitor_without_candidates.(state)
+
       {:ok, issues, state} ->
         {state, issues} = reconcile_merged_tickets(state, issues)
 
@@ -146,6 +164,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # so a ticket relabelled since the previous poll is judged on its
         # current labels rather than a stale cached copy (#1682).
         state = Reconciler.refresh_running_issue_states(state, issues)
+        # Tracker claims survive a daemon restart, while the runtime registry
+        # does not. Once both views are fresh, release only claims with no
+        # positive current-generation runtime evidence before normal dispatch.
+        {state, issues} = StartupClaimReconciler.reconcile(state, issues)
         state = CommandScan.scan_pr_commands(state)
         state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
@@ -177,13 +199,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
         %{state | initial_dispatch_cycle: false}
 
       {:error, reason, state} ->
-        state = Reconciler.refresh_running_issue_states(state)
-        state = CommandScan.scan_pr_commands(state)
-        state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
+        state = monitor_without_candidates.(state)
         TrackerHealth.log_tracker_fetch_error(reason)
-        StatusReport.notify_dashboard(state)
         state
     end
+  end
+
+  @doc false
+  @spec monitor_without_candidates(State.t(), keyword()) :: State.t()
+  def monitor_without_candidates(%State{} = state, opts \\ []) when is_list(opts) do
+    refresh_running = Keyword.get(opts, :refresh_running_fun, &Reconciler.refresh_running_issue_states/1)
+    scan_commands = Keyword.get(opts, :scan_commands_fun, &CommandScan.scan_pr_commands/1)
+    stop_closed_pr_agents = Keyword.get(opts, :stop_closed_pr_agents_fun, &PrAnchored.maybe_stop_closed_pr_anchored_agents/1)
+    notify_dashboard = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1)
+
+    state = refresh_running.(state)
+    state = scan_commands.(state)
+    state = stop_closed_pr_agents.(state)
+    _ = notify_dashboard.(state)
+    state
   end
 
   # Runs before anything else consumes the polled candidates: a ticket already
@@ -431,8 +465,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @doc false
   @spec fetch_candidate_issues(State.t(), keyword()) ::
-          {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()}
-  def fetch_candidate_issues(%State{} = state, opts \\ []) when is_list(opts) do
+          {:ok, [Issue.t()], State.t()} | {:error, term(), State.t()} | {:paused, State.t()}
+  def fetch_candidate_issues(state, opts \\ [])
+
+  def fetch_candidate_issues(%State{globally_paused: true} = state, _opts), do: {:paused, state}
+
+  def fetch_candidate_issues(%State{} = state, opts) when is_list(opts) do
     # Dispatch labels are mutable authority. Keep this cache separate from the
     # lifecycle label caches and revalidate its all-open representation on
     # every poll.
@@ -2296,6 +2334,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         RetryEngine.schedule_issue_retry(state, issue.id, next_attempt, %{
           identifier: issue.identifier,
           tracker_identity: Issue.tracker_identity(issue),
+          issue_state: issue.state,
           error: "failed to spawn agent: #{inspect(reason)}",
           prior_work: Keyword.get(opts, :prior_work, false),
           worker_host: worker_host

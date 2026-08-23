@@ -870,6 +870,35 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
   end
 
+  test "reports a zero-agent ready fleet after one poll interval with no identified binding constraint" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = [issue("orphan-released", "todo")]
+
+    state = %State{
+      max_concurrent_agents: 16,
+      effective_concurrent_agents: 16,
+      poll_interval_ms: 30_000,
+      running: %{},
+      dispatch_capacity_sample: %{load: 8.0, target: 1.0, schedulers: 16}
+    }
+
+    waiting = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 1_000)
+    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+
+    _alerted = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 31_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert event["reason"] =~ "Ready tickets=1, live agents=0"
+    assert event["reason"] =~ "binding constraint=no binding constraint identified"
+  end
+
   test "reports a static load envelope as the binding constraint" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")

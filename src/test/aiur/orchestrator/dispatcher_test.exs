@@ -10,6 +10,10 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
+  defmodule CandidateFetchFailureLinearClient do
+    def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
+  end
+
   setup do
     CiReadiness.clear_cached_result()
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
@@ -38,6 +42,16 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end)
 
     :ok
+  end
+
+  # Tests that overwrite the shared workflow config must put it back: `Config`
+  # re-reads the file on every call, so an unrestored write silently becomes the
+  # next test's configuration and raises the odds of the shared WorkflowStore
+  # singleton race a reload lands in (#2076 review).
+  defp restore_workflow_file_after_test do
+    path = Aiur.Workflow.workflow_file_path()
+    original = File.read!(path)
+    on_exit(fn -> File.write!(path, original) end)
   end
 
   test "candidate selection emits one reason when a ticket is declined despite free fleet slots" do
@@ -166,6 +180,61 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert Map.has_key?(recovered.running, candidate.id)
     assert MapSet.member?(recovered.claimed, candidate.id)
     Process.exit(recovered.running[candidate.id].pid, :kill)
+  end
+
+  test "the first successful candidate poll reconciles startup claims before the dispatch tail" do
+    restore_workflow_file_after_test()
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
+
+    candidate = %{issue("startup-orphan") | state: "in-progress"}
+    candidate_identifier = candidate.identifier
+    previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
+    previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+
+    Application.put_env(:aiur, :memory_tracker_issues, [candidate])
+    Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+    on_exit(fn ->
+      restore_app_env(:memory_tracker_issues, previous_issues)
+      restore_app_env(:memory_tracker_recipient, previous_recipient)
+    end)
+
+    next =
+      Dispatcher.maybe_dispatch(%State{
+        initial_dispatch_cycle: true,
+        max_concurrent_agents: 1
+      })
+
+    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}
+    assert next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues[candidate.id].state == "Todo"
+    refute next.initial_dispatch_cycle
+  end
+
+  test "a failed candidate poll does not run startup claim reconciliation" do
+    restore_workflow_file_after_test()
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_active_states: ["Todo", "In Progress", "Rework", "Merging"]
+    )
+
+    previous_client = Application.get_env(:aiur, :linear_client_module)
+    Application.put_env(:aiur, :linear_client_module, CandidateFetchFailureLinearClient)
+    on_exit(fn -> restore_app_env(:linear_client_module, previous_client) end)
+
+    state = %State{
+      initial_dispatch_cycle: true,
+      last_polled_issues: %{
+        "startup-orphan" => %{issue("startup-orphan") | state: "In Progress"}
+      }
+    }
+
+    next = Dispatcher.maybe_dispatch(state)
+
+    refute next.startup_claim_reconciliation_complete?
+    assert next.last_polled_issues == state.last_polled_issues
+    assert next.initial_dispatch_cycle
   end
 
   describe "dispatch_issue blocked_by dependency gate" do
@@ -600,6 +669,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     state = %State{
       poll_interval_ms: 5_000,
       candidate_snapshot_fresh?: false,
+      poll_cycles_completed: 1,
       ci_lifecycle: %{
         approved_heads: %{},
         test_failure_heads: %{},
@@ -636,6 +706,51 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     # ...which an idle fleet then widens by `polling.idle_widen_factor` (5.0).
     # Snapshot freshness is bounded by the effective interval, not the raw one.
     assert TrackerHealth.next_poll_delay_ms(state, repo: nil) == 25_000
+  end
+
+  test "a global pause stops candidate authorization while monitoring continues" do
+    parent = self()
+    state = %State{globally_paused: true, candidate_snapshot_fresh?: true}
+
+    fetch_fun = fn _cache ->
+      send(parent, :dispatch_authorization_requested)
+      {:ok, [], %{}}
+    end
+
+    monitor = fn current_state ->
+      Dispatcher.monitor_without_candidates(current_state,
+        refresh_running_fun: fn monitored_state ->
+          send(parent, :running_states_refreshed)
+          monitored_state
+        end,
+        scan_commands_fun: fn monitored_state ->
+          send(parent, :commands_scanned)
+          monitored_state
+        end,
+        stop_closed_pr_agents_fun: fn monitored_state ->
+          send(parent, :closed_pr_agents_stopped)
+          monitored_state
+        end,
+        notify_dashboard_fun: fn _monitored_state ->
+          send(parent, :dashboard_notified)
+          :ok
+        end
+      )
+    end
+
+    assert ^state =
+             Dispatcher.dispatch_candidate_poll(state,
+               fetch_candidate_issues_fun: fn current_state ->
+                 Dispatcher.fetch_candidate_issues(current_state, fetch_fun: fetch_fun)
+               end,
+               monitor_without_candidates_fun: monitor
+             )
+
+    refute_received :dispatch_authorization_requested
+    assert_received :running_states_refreshed
+    assert_received :commands_scanned
+    assert_received :closed_pr_agents_stopped
+    assert_received :dashboard_notified
   end
 
   test "a failed GitHub candidate refresh hides stale idle labels but preserves recovery data" do

@@ -1,7 +1,9 @@
 defmodule Aiur.GitHub.BudgetTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.Budget
+  import ExUnit.CaptureLog
+
+  alias Aiur.GitHub.{Budget, CredentialHeadroom}
 
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-github-budget-#{System.unique_integer([:positive])}")
@@ -9,13 +11,59 @@ defmodule Aiur.GitHub.BudgetTest do
 
     previous = Application.get_env(:aiur, :github_budget_enabled?)
     Application.put_env(:aiur, :github_budget_enabled?, true)
+    CredentialHeadroom.reset()
 
     on_exit(fn ->
       File.rm_rf(root)
       restore_env(:github_budget_enabled?, previous)
+      CredentialHeadroom.reset()
     end)
 
     {:ok, root: root}
+  end
+
+  test "one credential keeps its admission history across token rotation", %{root: root} do
+    credential_key = Budget.identity_key("machine_user:primary:aiur-bot")
+    opts = [state_dir: root, stagger_ms: 0, credential_key: credential_key]
+
+    assert {:ok, first} = Budget.acquire(request("token-before-rotation", "/repos/owner/repo/issues/2236"), opts)
+    assert :ok = Budget.release(first, opts)
+    assert {:ok, second} = Budget.acquire(request("token-after-rotation", "/repos/owner/repo/issues/2236"), opts)
+    assert :ok = Budget.release(second, opts)
+
+    assert %{admissions: [_, _]} = Budget.snapshot("token-after-rotation", opts)
+
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.token_key == credential_key
+    assert actor.core.used == 2
+  end
+
+  test "the first stable identity adopts an active token-hash ledger", %{root: root} do
+    legacy_opts = [state_dir: root, stagger_ms: 0]
+    token = "pre-upgrade-token"
+
+    assert {:ok, legacy} = Budget.acquire(request(token, "/repos/owner/repo/issues/2236"), legacy_opts)
+    assert :ok = Budget.release(legacy, legacy_opts)
+
+    stable_opts = Keyword.put(legacy_opts, :credential_key, Budget.identity_key("machine_user:primary:aiur-bot"))
+    assert {:ok, current} = Budget.acquire(request(token, "/repos/owner/repo/issues/2236"), stable_opts)
+    assert :ok = Budget.release(current, stable_opts)
+
+    assert %{admissions: [_, _]} = Budget.snapshot(token, stable_opts)
+  end
+
+  test "distinct stable credentials stay isolated even when their tokens overlap", %{root: root} do
+    token = "shared-token"
+    first_opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:first:same-login")]
+    second_opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:second:same-login")]
+
+    assert {:ok, first} = Budget.acquire(request(token, "/repos/owner/repo/issues/2236"), first_opts)
+    assert :ok = Budget.release(first, first_opts)
+    assert {:ok, second} = Budget.acquire(request(token, "/repos/owner/repo/issues/2236"), second_opts)
+    assert :ok = Budget.release(second, second_opts)
+
+    assert %{admissions: [_]} = Budget.snapshot(token, first_opts)
+    assert %{admissions: [_]} = Budget.snapshot(token, second_opts)
   end
 
   test "two independent callers sharing a token cannot exceed the global in-flight ceiling", %{root: root} do
@@ -96,6 +144,35 @@ defmodule Aiur.GitHub.BudgetTest do
 
     assert {:error, :github_budget_broker_unavailable} =
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
+  test "a box without python3 fails open to :bypass so requests stay unmetered (#2376)", %{root: root} do
+    # No explicit `:python` (equivalent to `System.find_executable("python3")`
+    # returning nil on a stock box): the broker cannot run, so `acquire/2` must
+    # fail open to unmetered operation rather than erroring every request.
+    opts = [state_dir: root, enabled?: true, python: nil]
+
+    assert :bypass = Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
+  test "warn_metering_unavailable/0 logs once, clearly, when python3 is absent", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: nil)
+      end)
+
+    assert log =~ "budget metering is disabled"
+    assert log =~ "python3 was not found"
+    assert log =~ "run unmetered"
+  end
+
+  test "warn_metering_unavailable/0 stays silent when the broker can run", %{root: root} do
+    log =
+      capture_log(fn ->
+        assert :ok = Budget.warn_metering_unavailable(state_dir: root, enabled?: true, python: "python3")
+      end)
+
+    assert log == ""
   end
 
   test "lease duration can outlive the broker command timeout" do
@@ -212,6 +289,39 @@ defmodule Aiur.GitHub.BudgetTest do
              )
   end
 
+  test "a typed shared hold preserves resource and absolute reset", %{root: root} do
+    fake_python = Path.join(root, "typed-hold-broker")
+    reset_at_ms = System.system_time(:millisecond) + 60_000
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'hold shared graphql #{reset_at_ms}'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:hold, %{reason: :shared_budget, resource: "graphql", reset_at: reset_at}} =
+             Budget.acquire(
+               request("shared-token", "/graphql"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 1_000
+             )
+
+    assert DateTime.to_unix(reset_at, :millisecond) == reset_at_ms
+  end
+
+  test "malformed typed shared holds are broker failures", %{root: root} do
+    fake_python = Path.join(root, "malformed-typed-hold-broker")
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'hold shared admin never'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:error, :github_budget_broker_unavailable} =
+             Budget.acquire(
+               request("shared-token", "/graphql"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 1_000
+             )
+  end
+
   test "an exhausted successful response shares the resource named by GitHub", %{root: root} do
     opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
     core = request("shared-token", "/repos/owner/repo/issues/1477")
@@ -234,6 +344,69 @@ defmodule Aiur.GitHub.BudgetTest do
     assert {:hold, %{reason: :shared_budget, resource: "graphql"}} =
              Budget.acquire(graphql, Keyword.put(opts, :timeout_ms, 1_000))
 
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
+  # #2409 root cause: GitHub meters `/search/*` against its own ~30 req/min
+  # pool, so a search response must be classified as `search` — never folded
+  # into `core`. Before this fix a search-pool exhaustion (a `search` header
+  # with `remaining: 0`) fell through `response_resource` to the request's
+  # bucket and created a *core* hold, which then denied every core request —
+  # including dispatch-authorization timeline fetches — until the search pool
+  # reset.
+  test "a search-pool exhaustion holds only search, never core", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    search = request("shared-token", "/search/issues?q=repo:owner/repo+label:agent")
+    reset_at = System.system_time(:second) + 60
+
+    assert Budget.request_resource(search) == "search"
+    assert Budget.request_resource(core) == "core"
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "search"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    # The search pool is held...
+    assert {:hold, %{reason: :shared_budget, resource: "search"}} =
+             Budget.acquire(search, Keyword.put(opts, :timeout_ms, 1_000))
+
+    # ...but core is untouched: the timeline fetch that dispatch authorization
+    # relies on still goes through.
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
+  test "a rate-limit pool the guard does not model never becomes a core hold", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    reset_at = System.system_time(:second) + 60
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "integration_manifest"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    # No modeled pool was exhausted, so no resource hold is issued — a core
+    # request must not be held because some other GitHub pool reset.
     assert {:ok, lease} = Budget.acquire(core, opts)
     assert :ok = Budget.release(lease, opts)
   end
@@ -263,6 +436,38 @@ defmodule Aiur.GitHub.BudgetTest do
     refute key =~ "secret"
     assert Budget.endpoint_family(request("token", "/repos/owner/repo/issues/1477/comments")) == "issues"
     assert Budget.endpoint_family(request("token", "/graphql")) == "graphql"
+  end
+
+  test "a daemon /rate_limit poll is recorded non-billable with its own family", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:primary:aiur-daemon[bot]")]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/rate_limit"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # GitHub meters `/rate_limit` at zero quota, so the ledger must not report
+    # it as spend: family `rate_limit` (not `rest`), resource `none` (not a
+    # pool), billable false (#2353).
+    assert %{admissions: [%{endpoint_family: "rate_limit", resource: "none", billable: false}]} =
+             Budget.snapshot("token", opts)
+
+    # And the pool usage the acceptance reconciles against never counts it.
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 0
+    assert actor.graphql.used == 0
+    assert actor.search.used == 0
+  end
+
+  test "a billable core call stays billable in the ledger", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert %{admissions: [%{endpoint_family: "issues", resource: "core", billable: true}]} =
+             Budget.snapshot("token", opts)
+
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 1
   end
 
   test "resolves the broker from the installed application private directory" do
@@ -364,6 +569,61 @@ defmodule Aiur.GitHub.BudgetTest do
     Enum.each(leases, &Budget.release(&1, opts))
   end
 
+  test "a 304 response does not consume the actor hourly ceiling", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/conditional-reader",
+      agent_core_limit_per_hour: 1,
+      agent_graphql_limit_per_hour: 1
+    ]
+
+    request = request("shared-token", "/repos/owner/repo/issues/1477/timeline")
+
+    assert {:ok, first} = Budget.acquire(request, opts)
+    assert :ok = Budget.observe(request, first, {:ok, %{status: 304, headers: [], body: ""}}, opts)
+    assert :ok = Budget.observe(request, first, {:ok, %{status: 304, headers: [], body: ""}}, opts)
+    assert :ok = Budget.release(first, opts)
+
+    assert {:ok, second} = Budget.acquire(request, opts)
+    assert :ok = Budget.observe(request, second, {:ok, %{status: 304, headers: [], body: ""}}, opts)
+    assert :ok = Budget.release(second, opts)
+
+    actor =
+      opts
+      |> Budget.usage()
+      |> Map.fetch!(:actors)
+      |> Enum.find(&(&1.consumer_key == Budget.token_key("workspace:/conditional-reader")))
+
+    assert actor.core.used == 0
+  end
+
+  test "an existing admissions table migrates before response reconciliation", %{root: root} do
+    db = Budget.database_path(state_dir: root)
+    create_legacy_budget_database(db)
+
+    opts = [
+      state_dir: root,
+      max_inflight: 2,
+      max_inflight_per_endpoint: 2,
+      requests_per_minute: 20,
+      stagger_ms: 0,
+      consumer_key: "workspace:/migrated-reader",
+      agent_core_limit_per_hour: 1,
+      agent_graphql_limit_per_hour: 1
+    ]
+
+    request = request("migrated-token", "/repos/owner/repo/issues/1477")
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    assert :ok = Budget.observe(request, lease, {:ok, %{status: 304, headers: [], body: ""}}, opts)
+    assert :ok = Budget.release(lease, opts)
+    assert {:ok, second} = Budget.acquire(request, opts)
+    assert :ok = Budget.release(second, opts)
+  end
+
   test "usage reports each actor's Core/GraphQL used and limit with a reset", %{root: root} do
     opts = [
       state_dir: root,
@@ -398,6 +658,106 @@ defmodule Aiur.GitHub.BudgetTest do
     assert actor.graphql.used == 1
     assert actor.graphql.limit == 5
     assert is_integer(actor.graphql.reset_at_ms)
+  end
+
+  test "a contradictory actor hold raises one alert and rearms after convergence", %{root: root} do
+    test_pid = self()
+
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      timeout_ms: 500,
+      consumer_key: "workspace:/contradictory-reader",
+      agent_core_limit_per_hour: 2,
+      agent_graphql_limit_per_hour: 2,
+      alert_fun: fn name, alert_opts ->
+        send(test_pid, {:budget_alert, name, alert_opts})
+        :ok
+      end
+    ]
+
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+    reset = System.system_time(:second) + 3_600
+    observe_headroom(request, limit: 10, remaining: 10, reset: reset)
+
+    for _ <- 1..2 do
+      assert {:ok, lease} = Budget.acquire(request, opts)
+      assert :ok = Budget.release(lease, opts)
+    end
+
+    hold_opts = Keyword.put(opts, :timeout_ms, 200)
+
+    assert {:hold, %{reason: :actor_budget}} = Budget.acquire(request, hold_opts)
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}
+    assert alert_opts[:needs_attention]
+    assert alert_opts[:reason] =~ "local billed=2/2"
+    assert alert_opts[:reason] =~ "GitHub used=0/10"
+
+    assert {:hold, %{reason: :actor_budget}} = Budget.acquire(request, hold_opts)
+    refute_receive {:budget_alert, _, _}
+
+    observe_headroom(request, limit: 10, remaining: 8, reset: reset)
+    assert {:hold, %{reason: :actor_budget}} = Budget.acquire(request, hold_opts)
+    refute_receive {:budget_alert, _, _}
+
+    observe_headroom(request, limit: 10, remaining: 10, reset: reset)
+    assert {:hold, %{reason: :actor_budget}} = Budget.acquire(request, hold_opts)
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}
+  end
+
+  test "a shared cooldown outliving the credential window raises one alert", %{root: root} do
+    test_pid = self()
+
+    opts = [
+      state_dir: root,
+      max_inflight: 4,
+      max_inflight_per_endpoint: 2,
+      requests_per_minute: 20,
+      stagger_ms: 0,
+      timeout_ms: 300,
+      alert_fun: fn name, alert_opts ->
+        send(test_pid, {:budget_alert, name, alert_opts})
+        :ok
+      end
+    ]
+
+    issues = request("shared-token", "/repos/owner/repo/issues/1477")
+    pulls = request("shared-token", "/repos/owner/repo/pulls/1477")
+    reset = System.system_time(:second) + 3_600
+
+    # The cooldown the broker sets from a rate-limited response, standing while
+    # the credential's own fresh window still reports the whole limit unspent —
+    # the exact contradiction that stalled the fleet in #2278.
+    assert :ok =
+             Budget.observe(
+               issues,
+               {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "5"}], body: %{"message" => "rate limit exceeded"}}},
+               opts
+             )
+
+    observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
+
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}
+    assert alert_opts[:needs_attention]
+    assert alert_opts[:reason] =~ "shared budget hold contradicts"
+    assert alert_opts[:reason] =~ "remaining=100/100"
+
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    refute_receive {:budget_alert, _, _}
+
+    # GitHub agreeing that the credential really is spent clears the signal, so
+    # the next genuine divergence is still able to speak.
+    observe_headroom(pulls, limit: 100, remaining: 0, reset: reset)
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    refute_receive {:budget_alert, _, _}
+
+    observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}
   end
 
   test "usage degrades to an empty actor list when the broker is disabled", %{root: root} do
@@ -454,6 +814,22 @@ defmodule Aiur.GitHub.BudgetTest do
      }}
   end
 
+  defp observe_headroom(request, opts) do
+    CredentialHeadroom.observe(
+      request,
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "core"},
+           {"x-ratelimit-limit", Integer.to_string(opts[:limit])},
+           {"x-ratelimit-remaining", Integer.to_string(opts[:remaining])},
+           {"x-ratelimit-reset", Integer.to_string(opts[:reset])}
+         ]
+       }}
+    )
+  end
+
   defp lock_database(path) do
     python = System.find_executable("python3") || flunk("python3 is required")
 
@@ -488,6 +864,16 @@ defmodule Aiur.GitHub.BudgetTest do
       System.cmd("python3", ["-c", script, db, token_key, Integer.to_string(stale_at)], stderr_to_stdout: true)
 
     :ok
+  end
+
+  defp create_legacy_budget_database(db) do
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute('CREATE TABLE admissions (id INTEGER PRIMARY KEY AUTOINCREMENT, token_key TEXT NOT NULL, " <>
+        "consumer_key TEXT NOT NULL DEFAULT \\\'\\\', endpoint_family TEXT NOT NULL, admitted_at_ms INTEGER NOT NULL)'); " <>
+        "c.commit()"
+
+    assert {_output, 0} = System.cmd("python3", ["-c", script, db], stderr_to_stdout: true)
   end
 
   defp close_port(port) do

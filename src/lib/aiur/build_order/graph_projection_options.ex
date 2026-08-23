@@ -5,6 +5,11 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
   alias Aiur.BuildOrder.GraphProjection.Policy
 
   @defaults [
+    # The catalog's cadence *while a Build Order page is open*: `subscribe_catalog/1`
+    # registers a viewer as a demander, and the cadence is armed only while at
+    # least one demander is present (#2312). With no page open the catalog does
+    # not run at all. The shipped value is a floor; production derives it from
+    # the tracker's effective poll interval (see `Aiur.BuildOrder.Cadence`).
     catalog_refresh_ms: 60_000,
     # The catalog's per-member `labels` connection costs ~26 GraphQL points
     # against the 5,000-points/hour budget versus ~1 without it (#1766), so the

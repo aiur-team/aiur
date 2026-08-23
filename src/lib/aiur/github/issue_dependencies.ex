@@ -106,8 +106,8 @@ defmodule Aiur.GitHub.IssueDependencies do
   end
 
   defp fetch_blocker(blocker_number, client_opts) do
-    case Client.fetch_issue_raw(blocker_number, client_opts) do
-      {:ok, issue} -> {:ok, issue}
+    case Client.fetch_issue_raw_conditional(blocker_number, client_opts) do
+      {:ok, issue, _outcome} -> {:ok, issue}
       {:error, reason} -> fetch_blocker_error(reason)
     end
   end
@@ -154,8 +154,17 @@ defmodule Aiur.GitHub.IssueDependencies do
     end
   end
 
+  # The post-write check must not be answered from the store: the edge just
+  # went away, and a held list that still names it is exactly the stale state a
+  # served answer would report as `:dependency_still_present`. The confirming
+  # read therefore revalidates — sending the held ETag, so an actually-removed
+  # edge costs a changed `200` and an edge that is still really there costs a
+  # free `304` — instead of being served the pre-mutation list. This is what
+  # makes a `404` from the DELETE ("the edge was already gone") land on
+  # `{:ok, :not_present}` rather than on a false `:dependency_still_present`
+  # (review #2332).
   defp verify_unblocked(current_number, blocker_id, result, client_opts) do
-    case Client.fetch_blocked_by(current_number, client_opts) do
+    case Client.fetch_blocked_by(current_number, Keyword.put(client_opts, :revalidate, true)) do
       {:ok, dependencies} ->
         if Enum.any?(dependencies, &(Map.get(&1, "id") == blocker_id)),
           do: {:error, :dependency_still_present},
