@@ -175,6 +175,27 @@ legible as broken immediately. If the listener is later confirmed dead or
 restarted, pair the same statement with that loss, so the operator learns about
 a mid-run interruption too.
 
+**Arm a persistent wake monitor immediately after the LISTENER check.** The
+daemon holds the real event-bus subscription; the Executor does not. Events are
+only projected to the durable wake inbox,
+`~/.aiur/repo/<owner>/<repo>/executor/<repo>.executor.wakes.ndjson`, with the
+read position in `<repo>.executor.wakes.cursor.json`, and nothing pushes — so
+without a monitor the Executor sees events only when it happens to run a
+command. Convert that file into a push signal by whatever mechanism you have,
+for the session lifetime:
+
+```bash
+tail -F -n0 ~/.aiur/repo/<owner>/<repo>/executor/<repo>.executor.wakes.ndjson \
+  | jq -rc --unbuffered 'select(.topic | test("branch.push|ci.failed|agent.attention|retry_exhausted|tokens_exhausted|connectivity_lost"))'
+```
+
+`tail -F`, not `-f`, because the file rotates; `-n0` so arming does not replay
+the backlog; `jq --unbuffered`, or events sit in jq's buffer and never arrive.
+The filter must include the failure signals — `ci.failed`, `agent.attention`,
+`retry_exhausted`, `tokens_exhausted`, `connectivity_lost` — not just
+progress; a success-only monitor is silent through a crashloop. In Claude Code
+that is the `Monitor` tool with `persistent: true`.
+
 Then use a full monitor snapshot to confirm the orchestrator, queue, alerts,
 and first dispatch. Background mode is intentionally headless; observe it
 through the control commands, not TUI panes.
@@ -658,6 +679,24 @@ rendering an em-dash in every cell (#1616). None of those announced themselves.
 load against the configured gate, and the PR backlog. It ends by naming one
 bottleneck and filing what is broken.
 
+**The chat report is the short version; the durable log is the long version.**
+A routine hourly report is three to six lines, not three to six sections: lead
+with what is broken or what changed; "no change" is one line. Length scales
+inversely with how long the operator has been silent — silence is not an
+invitation to write more. Cut per-surface tables, restated context, narration
+of what was checked, and anything already in the durable meta log. Keep the
+named bottleneck, operator decisions, corrections to previous claims, and
+measured numbers that changed. The durable log stays as detailed as it is; this
+governs the chat message only.
+
+**Drain the wake inbox before the meta-check, not after.** Running the hourly
+meta-check as the primary loop while the wake inbox goes undrained is a failure
+mode, not a style choice, and an undrained inbox is itself a finding to report.
+Check inbox depth as part of the hourly audit so a backlog surfaces as a
+number: `aiur executor-roster` reports `pending_count` and whether the cursor
+moved, so a non-zero or growing `pending_count` while the wake monitor is armed
+means the run is losing its wake stream again — name that number in the report.
+
 Alongside that, the meta-analysis of the work itself (proven repeatedly in the
 2026-07 analytics-streamdeck run):
 
@@ -750,8 +789,12 @@ cost of freezing the host the fleet is working on.
 
 **Watch for rework while you review.** Rework lands minutes after a review, and
 `gh pr list` shows `CHANGES_REQUESTED` identically whether the author has
-responded or not. The only way to see it is to compare each PR's last commit
-timestamp against its last review timestamp. Measured on this repo:
+responded or not. The event bus makes this checkable without timestamps:
+`ticket.*.branch.push` is the rework signal — it names the PR and means
+"re-review now", not "check at the next hourly tick". A push that follows a
+blocking review is a request for a second look; act on it when it lands, and
+keep the commit-vs-review timestamp comparison as the backstop when the event
+path is down. Measured on this repo:
 **15 of 20 PRs showing `CHANGES_REQUESTED` had been reworked since the review
 that blocked them, and 12 of those were mergeable with zero failing checks.** The
 queue was not blocked — it was unattended, and three quarters of it was already
