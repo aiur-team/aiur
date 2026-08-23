@@ -2358,6 +2358,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     # latches that depend on a `:ok` return (e.g. `prewarm_blocked_alert_active`)
     # never engage.
     alerts_src = Aiur.TestSupport.default_alerts_source()
+
     if alerts_src && File.regular?(alerts_src) do
       File.cp!(alerts_src, Path.join(tmp, "alerts"))
     end
