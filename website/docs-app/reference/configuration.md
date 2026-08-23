@@ -133,6 +133,10 @@ Freshness thresholds follow this cadence. You do not set them separately.
 - So a change to `interval_seconds` needs no matching threshold edit.
 - `aiur status` prints the effective value, for example
   `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
+- The idle widening only applies once the daemon has observed an idle cycle:
+  a freshly restarted fleet starts at the base interval, and a live fleet with
+  dispatchable tickets keeps the base interval so work is not left waiting
+  behind a backed-off sweep (#2138).
 
 ## webhooks
 
@@ -541,7 +545,9 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 
 `dashboard_writable` is an authorization gate, not an authentication mechanism. Every usable dashboard requires `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`. A read-only loopback listener may bind without them, but its authentication plug fails closed and returns `503` for every dashboard request until both credentials are set.
 
-The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
+The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential. Generate it with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the repository `.env` (project-local).
+
+An exported value wins, followed by the global file and then the repository file. The value must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup; an absent or empty value leaves the API disabled.
 
 ## decisions
 

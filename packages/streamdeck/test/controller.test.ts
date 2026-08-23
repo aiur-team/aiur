@@ -24,7 +24,7 @@ describe("physical controller composition", () => {
     const focus = vi.fn();
     const control = vi.fn();
     const changed = vi.fn();
-    const controller = createPhysicalController({ grid, channel: () => ({ focus, control, say: vi.fn() }), stateChanged: changed });
+    const controller = createPhysicalController({ grid, channel: () => ({ focus, control, say: vi.fn(), commandsPage: vi.fn(), answerCommand: vi.fn() }), stateChanged: changed });
 
     controller.handleReport(keyReport(3, true));
     controller.handleReport(keyReport(3, false));
@@ -37,7 +37,7 @@ describe("physical controller composition", () => {
 
     const resume = vi.fn();
     const pausedGrid = (): StreamDeckGrid => ({ ...grid(), agents: grid().agents.map((agent, index) => index === 6 ? { ...agent, bucket: "paused" } : agent) });
-    const pausedController = createPhysicalController({ grid: pausedGrid, channel: () => ({ focus: vi.fn(), control: resume, say: vi.fn() }), stateChanged: vi.fn() });
+    const pausedController = createPhysicalController({ grid: pausedGrid, channel: () => ({ focus: vi.fn(), control: resume, say: vi.fn(), commandsPage: vi.fn(), answerCommand: vi.fn() }), stateChanged: vi.fn() });
     pausedController.handleReport(keyReport(3, true));
     pausedController.handleReport(keyReport(3, false));
     pausedController.handleReport(keyReport(0, true));
@@ -48,7 +48,7 @@ describe("physical controller composition", () => {
     for (const offset of [0, 4]) {
       for (const key of Array.from({ length: 8 }, (_, index) => index)) {
         const focus = vi.fn();
-        const controller = createPhysicalController({ grid: () => grid(20), channel: () => ({ focus, control: vi.fn(), say: vi.fn() }), stateChanged: vi.fn() });
+        const controller = createPhysicalController({ grid: () => grid(20), channel: () => ({ focus, control: vi.fn(), say: vi.fn(), commandsPage: vi.fn(), answerCommand: vi.fn() }), stateChanged: vi.fn() });
         if (offset !== 0) {
           controller.handleReport(dialButton(3));
           controller.handleReport(dialButton(3, false));
@@ -65,7 +65,7 @@ describe("physical controller composition", () => {
   });
 
   it("keeps the physical mic hold local and clears it on release", () => {
-    const controller = createPhysicalController({ grid, channel: () => ({ focus: vi.fn(), control: vi.fn(), say: vi.fn() }), stateChanged: vi.fn() });
+    const controller = createPhysicalController({ grid, channel: () => ({ focus: vi.fn(), control: vi.fn(), say: vi.fn(), commandsPage: vi.fn(), answerCommand: vi.fn() }), stateChanged: vi.fn() });
     controller.handleReport(keyReport(0, true));
     controller.handleReport(keyReport(0, false));
     controller.handleReport(keyReport(2, true));
@@ -941,7 +941,7 @@ describe("voice keys", () => {
   const focused = (voice: ReturnType<typeof fakeVoice>, say = vi.fn()) => {
     const controller = createPhysicalController({
       grid,
-      channel: () => ({ focus: vi.fn(), control: vi.fn(), say }),
+      channel: () => ({ focus: vi.fn(), control: vi.fn(), say, commandsPage: vi.fn(), answerCommand: vi.fn() }),
       voice: () => voice,
       stateChanged: vi.fn(),
     });
@@ -977,7 +977,7 @@ describe("voice keys", () => {
     const { controller, say } = focused(voice);
     voice.say("run the tests again");
     controller.refreshVoice();
-    controller.handleReport(keyReport(4, true));
+    controller.handleReport(keyReport(5, true));
     expect(say).toHaveBeenCalledWith("agent-0", "run the tests again");
     expect(voice.clear).toHaveBeenCalledOnce();
     expect(controller.state()).toMatchObject({ mode: "cmd", hasTranscript: false });
@@ -988,7 +988,9 @@ describe("voice keys", () => {
   it("sends nothing when the buffer emptied under the press", () => {
     const voice = fakeVoice();
     const { controller, say } = focused(voice);
-    controller.handleReport(keyReport(4, true));
+    // CMD_SEND is key 5; pressing it with an empty buffer must not deliver a
+    // blank turn to the agent.
+    controller.handleReport(keyReport(5, true));
     expect(say).not.toHaveBeenCalled();
   });
 
@@ -997,7 +999,7 @@ describe("voice keys", () => {
     const { controller, say } = focused(voice);
     voice.say("forget this");
     controller.refreshVoice();
-    controller.handleReport(keyReport(5, true));
+    controller.handleReport(keyReport(6, true));
     expect(say).not.toHaveBeenCalled();
     expect(voice.clear).toHaveBeenCalledOnce();
     expect(controller.state()).toMatchObject({ mode: "cmd", hasTranscript: false });
@@ -1137,7 +1139,7 @@ describe("voice keys", () => {
     controller.handleReport(keyReport(2, true));
     expect(controller.state().micHeld).toBe(true);
     controller.handleReport(keyReport(2, false));
-    controller.handleReport(keyReport(4, true));
+    controller.handleReport(keyReport(5, true));
     controller.handleReport(keyReport(3, true));
     controller.handleReport(keyReport(3, false));
     expect(controller.state().mode).toBe("settings");
