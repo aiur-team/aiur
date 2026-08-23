@@ -12,10 +12,9 @@ Everything below this section is optional. A local run needs only:
 | --- | --- |
 | A GitHub credential | `gh auth login` once. The boot gate falls back to the `gh` keyring, so no manual `GITHUB_TOKEN` export is required. |
 | tmux | The launcher runs each daemon in its own detached tmux session. |
-| `python3` | The local budget broker that coordinates GitHub request admission. |
 | A tracker repository | The repo you point `aiur init` at, with issues carrying `agent:todo`. |
 
-Nothing else is load-bearing. Webhooks, the tunnel, the GitHub App, Tailscale, dashboard credentials, Stream Deck hardware, and a pinned model backend can all be omitted; absent, each degrades to a supported "feature off" default rather than a failed boot.
+Nothing else is load-bearing. Webhooks, the tunnel, the GitHub App, Tailscale, dashboard credentials, Stream Deck hardware, a pinned model backend, and even `python3` can all be omitted; absent, each degrades to a supported "feature off" default rather than a failed boot. `python3` powers the local budget broker, which is itself an optimization: without the executable the daemon runs GitHub requests unmetered, with no shared admission budget.
 
 ## GitHub App identity
 
@@ -54,7 +53,7 @@ Poll latency. By default the daemon reconciles GitHub state on a poll cadence, s
 
 ### When you want it
 
-You want events to arrive immediately and to save the poll spend that would buy them. The numbers this repo owns: base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s sweep, composing with the idle widen (5.0) to 1,200s; the daemon read-cache TTL rises from 30s to one hour on a proven repo.
+You want events to arrive immediately and to save the poll spend that would buy them. The numbers this repo owns: base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s sweep, composing with the idle widen (5.0) to 1,200s; the daemon read-cache TTL rises from 30s to one hour on a proven repo for comment and issue reads (repository-configuration reads ride a five-minute TTL instead — the [GitHub API reference](/apis/github#optional-webhook) carries the exception).
 
 ### Configuration
 
@@ -73,7 +72,9 @@ You want events to arrive immediately and to save the poll spend that would buy 
        - owner/repo
    ```
 
-3. Point the tunnel at the daemon's Tailscale IPv4 (a `100.x.y.z` address) on port 4000 — not `127.0.0.1`, which returns `502` because the tunnel origin must reach the daemon over the tailnet. Serve only `/api/v1/github/webhook` and finish the ingress list with a catch-all `404`; the same origin serves the operator dashboard, and a host-wide tunnel would expose it. See [Cloudflare tunnel boundary](/apis/github#cloudflare-tunnel-boundary).
+3. Pin `server.port` to a fixed value, then point the tunnel at whatever address the daemon actually bound — `127.0.0.1` on that port by default, or the `server.host` address if you pinned one. The default `server.port: 0` binds a fresh OS port every boot, so a tunnel aimed at a guessed port finds nothing; and an origin the daemon is not listening on (loopback or otherwise) returns `502`. Serve only `/api/v1/github/webhook` and finish the ingress list with a catch-all `404`; the same origin serves the operator dashboard, and a host-wide tunnel would expose it. See [Cloudflare tunnel boundary](/apis/github#cloudflare-tunnel-boundary).
+
+4. Give the tunnel a public hostname you control and set GitHub's webhook payload URL to `https://<your-host>/api/v1/github/webhook` (`hooks.aiur.dev` is one operator's choice, not a requirement). Without a domain, `cloudflared tunnel --url` (quick tunnels) exposes the daemon on a temporary public URL — fine for a single session, gone when the process exits.
 
 Without public ingress, polling is the default mode and degrades cleanly: a repo that is configured but never delivers keeps polling at the full interval, and a repo that goes silent returns to full polling and raises an attention. Delivery states are in [Optional webhook](/apis/github#optional-webhook).
 
@@ -143,7 +144,7 @@ Cost and concurrency: which model backend handles a ticket, and which provider A
 
 ### When you want it
 
-You want to pin the default backend or route by complexity. The shipped default is an empty `agent.priority` with codex/claude as the code default. Note `priority: [deepseek]` in this repo's `.aiur/config` is one operator's choice — and DeepSeek is dispatch-disabled by default, so a bare `priority: [deepseek]` is ignored without a `deepseek.enabled` block.
+You want to pin the default backend or route by complexity. The shipped default is an empty `agent.priority`, so the effective backend is `agent.kind`, else the registry default (codex). `priority` is live, not advisory: the first priority route becomes the effective backend with no enablement filter, so `priority: [deepseek]` — one operator's choice in this repo's `.aiur/config` — selects DeepSeek even though DeepSeek is not dispatch-enabled by default. That default-off flag gates `agent.kind`, `rate_limit_primary`, `switch_model_on_ratelimit`, and fleet-wide provider gating, not a `priority` entry. The "codex → claude" pairing is the automatic rate-limit reroute, not the default backend.
 
 ### Configuration
 
@@ -155,10 +156,12 @@ Set `agent.priority` in `.aiur/config` and provide the matching provider keys vi
 | --- | --- | --- |
 | GitHub App identity | PAT rate limits; daemon writes attributed to your account | Dispatch, control, all polling |
 | Webhook ingress and tunnel | Up to 120s event latency | Polling is the default fallback |
+| Custom webhook hostname / domain | A quick tunnel, or polling at the full interval | Webhooks with any hostname you control; polling fallback |
+| Budget broker (`python3`) | GitHub requests run unmetered, with no shared admission budget | All dispatch, GitHub requests, polling |
 | Tailscale | Dashboard reachable only on the machine | Local dashboard, CLI, TUI |
 | Dashboard credentials | No usable dashboard (every request refused) | CLI and TUI |
 | Stream Deck | Browser emulator instead of physical keys | Dashboard controls |
-| Model routing and provider keys | codex/claude default backend | Agent dispatch |
+| Model routing and provider keys | codex default (codex → claude rate-limit reroute) | Agent dispatch |
 
 ## A warning about this repo's `.aiur/config`
 

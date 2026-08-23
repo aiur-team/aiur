@@ -14,11 +14,10 @@ npm install -g aiur-cli
 | --- | --- |
 | Node.js | Runs the `aiur-cli` npm package. |
 | `gh` (GitHub CLI) | Authenticates with GitHub. Run `gh auth login` once — the boot gate falls back to the `gh` keyring, so no manual `GITHUB_TOKEN` export is required. |
-| `python3` | Runtime prerequisite for the local budget broker that coordinates GitHub request admission across Aiur instances. |
 | `tmux` | The launcher runs each Aiur daemon in its own detached tmux session. |
 | A tracker repository | The repository `aiur init` is pointed at, with issues carrying `agent:todo`. |
 
-Everything below the baseline is optional — see [Optional Optimizations](/reference/optional-optimizations) for what you can turn on and what it costs.
+`python3` is optional: it powers the local budget broker, and without it the daemon runs GitHub requests unmetered. Everything below the baseline is optional — see [Optional Optimizations](/reference/optional-optimizations) for what you can turn on and what it costs.
 
 ## Initialize
 

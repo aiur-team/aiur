@@ -534,10 +534,12 @@ The webhook shortens reaction time for repository events while polling continues
 
 | Setting | Value |
 | --- | --- |
-| Payload URL | `https://hooks.aiur.dev/api/v1/github/webhook` |
+| Payload URL | `https://<your-host>/api/v1/github/webhook` |
 | Content type | `application/json` |
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
+
+The hostname is yours to choose — `hooks.aiur.dev` is this operator's setup, not a requirement. Without a domain, a quick tunnel (`cloudflared tunnel --url`) exposes the daemon on a temporary public URL, fine for a single session.
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
 
@@ -569,8 +571,8 @@ Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
 
 | Boundary | Operator requirement |
 | --- | --- |
-| Origin | Route the tunnel to the Aiur daemon's Tailscale IPv4 (a `100.x.y.z` address) at port `4000` — not `127.0.0.1`, which returns `502` because the tunnel origin must reach the daemon over the tailnet. |
-| Public host | Serve the webhook at `hooks.aiur.dev`. |
+| Origin | Point the tunnel at whatever address the daemon actually bound: `127.0.0.1` on the pinned `server.port` by default, or the `server.host` address if you pinned one. Pin `server.port` to a fixed value first — the default `0` binds a fresh OS port each boot. A `502` means the tunnel aims somewhere the daemon is not listening. |
+| Public host | Serve the webhook at a hostname you control (`hooks.aiur.dev` here); without one, a quick tunnel (`cloudflared tunnel --url`) works for a single session. |
 | Reachable path | Route only `/api/v1/github/webhook`; finish the ingress list with a catch-all `404`. |
 | Network | No inbound firewall rule is needed or wanted because `cloudflared` dials out. |
 
@@ -578,7 +580,7 @@ The path scope and webhook signature are independent locks:
 
 | Lock | Protects against |
 | --- | --- |
-| Path-only tunnel routing | Public access to the dashboard and every other route served on the daemon's tailnet address. |
+| Path-only tunnel routing | Public access to the dashboard and every other route served on the daemon's bound address. |
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.
