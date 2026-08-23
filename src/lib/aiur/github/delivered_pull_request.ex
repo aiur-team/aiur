@@ -56,11 +56,15 @@ defmodule Aiur.GitHub.DeliveredPullRequest do
 
   alias Aiur.GitHub.ResourceStore
 
-  # Long enough that a ticket under active work is nearly always covered (a
-  # push, a review or a comment all deliver a `pull_request` body), short enough
-  # that an identity nothing has confirmed for most of a working day is bought
-  # again rather than assumed.
-  @max_age_ms 6 * 60 * 60 * 1000
+  # Long enough that a ticket under active work is nearly always covered — a
+  # push, a review or a comment all deliver a `pull_request` body, and since
+  # #2327 the daemon's own read cache retires reads on those same deliveries —
+  # and short enough that an identity nothing has confirmed for a full day is
+  # bought again rather than assumed. A delivered pull request number does not
+  # change while its body stays open, and the body is re-delivered on every
+  # event for the ticket's head branch, so a day's trust is a day of skipped
+  # speculative discovery reads rather than a gamble on a fact that moves.
+  @max_age_ms 24 * 60 * 60 * 1000
 
   @doc """
   The number of the open pull request a delivery recorded for `target`, or
