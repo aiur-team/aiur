@@ -3,9 +3,8 @@
 A ticket moves from being filed, to a labelled queue, to an isolated agent run,
 to a draft PR, through CI and review, and finally to a merge that closes the
 issue. This page is the full end-to-end lifecycle: what the operator does at
-each step, what the agent is given, and where tickets get stuck. The numbered
-steps follow the **0–8 skeleton** below, and the label lifecycle drives
-everything.
+each step, what the agent is given, and where tickets get stuck. The label
+lifecycle drives everything.
 
 ## The label lifecycle
 
@@ -141,18 +140,22 @@ in both the site's dark default and light theme.
 
 The operator drives Aiur as the **Executor**. `/aiur-run` in an agent chat
 assigns the Executor role to your own agent; `/aiur-monitor` watches a run you
-are already Executor for. See [Executor](/concepts/executor) for the role and
-[Skills](/skills) for the `aiur-run` and `aiur-monitor` workflow skills. (There
-is no separate glossary page and no dedicated `/guide/aiur-run` page — the
-executor and skills pages are the canonical references.)
+are already Executor for.
+
+See [Executor](/concepts/executor) for the role and [Skills](/skills) for the
+`aiur-run` and `aiur-monitor` workflow skills. There is no separate glossary
+page or dedicated `/guide/aiur-run` page — the executor and skills pages are the
+canonical references.
 
 ## Step 1 — Ticket is created and labelled `agent:todo`
 
 A ticket needs an **explicit** state label to be dispatchable. An open,
 correctly-labelled, unblocked ticket with no `agent:*` state label is simply
-invisible: `DispatchAuthorization.authorize/5` derives the trigger label from
-the issue's current state and denies `:missing_trigger_label` when there is
-none (`src/lib/aiur/github/dispatch_authorization.ex:74-82`).
+invisible.
+
+`DispatchAuthorization.authorize/5` derives the trigger label from the issue's
+current state and denies `:missing_trigger_label` when there is none
+(`src/lib/aiur/github/dispatch_authorization.ex:74-82`).
 
 **Label provenance** surprises people, so it is worth stating plainly:
 
@@ -313,10 +316,12 @@ Everything else — `human_required`, `irreversible`, `partially_reversible`, an
 any unrecognized or missing value — is refused, so the Executor must escalate.
 The policy is fail-closed by construction: `normalize_policy/1` defaults to
 `%{allowed_kinds: [], allow_non_reversible: false}` on malformed input
-(`decision_authority.ex:110`). The parallel `supervisor` path additionally
-requires the answer's declared `policy_basis` to match the Decision's own
-authority/kind/reversibility, or it fails
-`{:supervisor_basis, :decision_mismatch}` (`decision_store.ex:1263-1281`).
+(`decision_authority.ex:110`).
+
+The parallel `supervisor` path additionally requires the answer's declared
+`policy_basis` to match the Decision's own authority/kind/reversibility, or it
+fails `{:supervisor_basis, :decision_mismatch}`
+(`decision_store.ex:1263-1281`).
 
 **Operator-facing consequence:** if a Command is irreversible or marked
 `human_required`, your Executor cannot answer it — it will escalate, and the
@@ -366,10 +371,11 @@ newer answer. See [CLI](/reference/cli) for the full flags.
 The agent opens a `Closes #<issue>` **draft** PR, then `agent:ci-wait` releases
 the turn and the dispatch slot while Aiur waits for terminal checks. The agent
 **never self-merges**; an approved, green PR that is still a draft stalls the
-merge queue, so the agent marks the PR ready for review before flipping to
-`agent:human-review`. GitHub mechanics — polling, webhooks, rate budgets, and
-CI observation — live in [GitHub](/apis/github); this page does not duplicate
-them.
+merge queue, so the agent marks the PR ready before flipping to
+`agent:human-review`.
+
+GitHub mechanics — polling, webhooks, rate budgets, and CI observation — live
+in [GitHub](/apis/github); this page does not duplicate them.
 
 ## Step 6 — Executor reacts to PR events
 
