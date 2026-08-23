@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{CIApprovalStore, Config, LiveConversation, ProcessReaper}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, ProcessReaper}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
@@ -131,6 +131,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     TrackedSet.reset([])
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics()
+    subscribe_to_prewarm(opts)
     _ = LiveConversation.subscribe_restarts()
 
     state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
@@ -292,6 +293,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
     end
 
     :ok
+  end
+
+  defp subscribe_to_prewarm(opts) do
+    if Keyword.get(opts, :name) == Aiur.Orchestrator, do: AgentPubSub.subscribe_prewarm(), else: :ok
   end
 
   @doc false

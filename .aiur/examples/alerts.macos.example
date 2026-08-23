@@ -55,7 +55,7 @@ alerts:
     sound:
       - "/System/Library/Sounds/Basso.aiff"
   "system.dispatch.prewarm_blocked.resolved":
-    message: Shared prewarm recovered
+    message: Shared prewarm released dispatch
     sound:
       - "/System/Library/Sounds/Pop.aiff"
   "system.dispatch.capacity_starved":
