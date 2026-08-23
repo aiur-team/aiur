@@ -64,6 +64,36 @@ defmodule Aiur.GitHubCostCLITest do
     assert output =~ "read cache refusals: unsafe_kind 60"
   end
 
+  test "reports refusals by REST shape instead of one unclassified total" do
+    # #2352 acceptance: the 5,208 reads/hr resolve into the named rows. The
+    # `refused` map keys are the shapes themselves, and the CLI renders them
+    # beside the ranking so an operator can see which call family is paying.
+    cache = fn ->
+      %{
+        available?: true,
+        entries: 12,
+        hit_rate: 0.75,
+        totals: %{hit: 30, miss: 10, deposit: 10, refused: 2500},
+        refused: %{issue_list: 1200, pull_list: 700, comment_stream: 300, repo_events: 168, unsafe_kind: 103, unclassified: 29},
+        classes: %{},
+        callers: %{},
+        invalidations: %{events: 2, marks: 4}
+      }
+    end
+
+    output =
+      capture_io(fn ->
+        assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, cache_fun: cache, format: :records)
+      end)
+
+    assert output =~ "read cache refusals: "
+    assert output =~ "issue_list 1200"
+    assert output =~ "pull_list 700"
+    assert output =~ "comment_stream 300"
+    assert output =~ "repo_events 168"
+    assert output =~ "unclassified 29"
+  end
+
   test "never prints a hit rate over no observations" do
     cache = fn -> %{available?: true, entries: 0, hit_rate: nil, totals: %{hit: 0, miss: 0, deposit: 0, refused: 0}, refused: %{}} end
 

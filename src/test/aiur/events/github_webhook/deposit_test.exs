@@ -179,7 +179,9 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # `:pull_request` used to be deposited keyed by **pull request number** while
   # the only pull-request consumer read `:branch_pull_request` keyed by **ticket
   # number** — two pipes keyed so they could never meet. `Deposit` now files the
-  # PR under both keys (#2126).
+  # PR under both keys (#2126), and #2352's row-5 conditional read
+  # (`Client.fetch_open_pull_request/2`) addresses the `:pull_request` key by PR
+  # number, so the two halves meet at last.
   #
   # Nothing caught that, because nothing asserted the two halves address the
   # same entry. This table does, in both directions:
@@ -213,10 +215,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         {:signal_only,
          "retires the agent `gh` wrapper's cache through AgentCacheBridge's @invalidating_types; " <>
            "no module builds an :issue_labels key to read one"},
-      pull_request:
-        {:signal_only,
-         "retires the agent cache by PR number through AgentCacheBridge's @invalidating_types, and the " <>
-           "same delivery's :branch_pull_request sibling is what the human-review gate reads (#2126)"},
+      pull_request: {:read_by, "Aiur.GitHub.Client.fetch_open_pull_request/2 (client.ex), the #2352 row-5 conditional read", [ResourceStore.key_for_repo(:pull_request, @repo, 77)]},
       branch_pull_request: {:read_by, "Aiur.GitHub.HumanReviewGate.open_pull_request/1 (human_review_gate.ex:106)", [ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)]}
     }
 

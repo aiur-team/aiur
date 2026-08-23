@@ -62,6 +62,88 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  describe "fetch_pull_request_head_ref_conditional/2" do
+    # #2352 row 5: the `/pulls/{n}` read had no validator at all. This variant
+    # gives the read an ETag path so an unchanged PR is a 304 instead of a
+    # full-price re-read.
+    test "returns the head ref and the response ETag on a 200" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/pulls/10"
+        {:ok, %{status: 200, body: %{"head" => %{"ref" => "aiur/10"}}, headers: [{"etag", ~s("v1")}]}}
+      end
+
+      assert {:ok, "aiur/10", ~s("v1")} =
+               PullRequests.fetch_pull_request_head_ref_conditional(10, request_fun: request_fun)
+    end
+
+    test "sends If-None-Match and returns :not_modified on a 304" do
+      parent = self()
+
+      request_fun = fn request ->
+        send(parent, {:requested, request})
+        {:ok, %{status: 304, headers: [{"etag", ~s("v2")}]}}
+      end
+
+      assert {:not_modified, ~s("v2")} =
+               PullRequests.fetch_pull_request_head_ref_conditional(10,
+                 request_fun: request_fun,
+                 etag: ~s("v1")
+               )
+
+      assert_receive {:requested, request}
+      assert request.etag == ~s("v1")
+    end
+  end
+
+  describe "fetch_open_pull_request_conditional/2" do
+    test "returns the open PR and the response ETag on a 200" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/pulls/77"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{"number" => 77, "state" => "open", "head" => %{"ref" => "feature/login"}},
+           headers: [{"etag", ~s("v1")}]
+         }}
+      end
+
+      assert {:ok, %{"number" => 77, "head" => %{"ref" => "feature/login"}}, ~s("v1")} =
+               PullRequests.fetch_open_pull_request_conditional(77, request_fun: request_fun)
+    end
+
+    test "sends If-None-Match and returns :not_modified on a 304" do
+      parent = self()
+
+      request_fun = fn request ->
+        send(parent, {:requested, request})
+        {:ok, %{status: 304, headers: [{"etag", ~s("v2")}]}}
+      end
+
+      assert {:not_modified, ~s("v2")} =
+               PullRequests.fetch_open_pull_request_conditional(77,
+                 request_fun: request_fun,
+                 etag: ~s("v1")
+               )
+
+      assert_receive {:requested, request}
+      assert request.etag == ~s("v1")
+    end
+
+    test "answers {:ok, nil, nil} on a 404, matching the non-PR fallthrough" do
+      request_fun = fn _ -> {:ok, %{status: 404}} end
+      assert {:ok, nil, nil} = PullRequests.fetch_open_pull_request_conditional(55, request_fun: request_fun)
+    end
+
+    test "answers {:ok, nil, etag} for a closed/merged PR, carrying the validator" do
+      request_fun = fn _ ->
+        {:ok, %{status: 200, body: %{"number" => 9, "state" => "closed", "head" => %{"ref" => "x"}}, headers: [{"etag", ~s("v1")}]}}
+      end
+
+      assert {:ok, nil, ~s("v1")} = PullRequests.fetch_open_pull_request_conditional(9, request_fun: request_fun)
+    end
+  end
+
   describe "ensure_base_branch/3" do
     test "leaves a correctly targeted pull request unchanged" do
       request_fun = fn _request -> flunk("a matching base must not call GitHub") end
