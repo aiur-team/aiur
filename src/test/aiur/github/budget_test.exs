@@ -144,6 +144,15 @@ defmodule Aiur.GitHub.BudgetTest do
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
+  test "missing python3 degrades admission to :bypass instead of failing the request", %{root: root} do
+    # `python: nil` stands in for python3 not being on PATH. A configured broker
+    # that exists but fails keeps erroring (above); a broker that cannot run at
+    # all must not take every daemon GitHub request down with it (#2374).
+    opts = [state_dir: root, enabled?: true, python: nil]
+
+    assert :bypass = Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
   test "lease duration can outlive the broker command timeout" do
     assert %{lease_ttl_ms: 25_000} =
              Budget.guard_settings(timeout_ms: 1_500, lease_timeout_ms: 10_000)

@@ -122,9 +122,19 @@ defmodule Aiur.GitHub.Budget do
   def acquire(request, opts \\ []) do
     with true <- enabled?(opts),
          token when is_binary(token) <- Map.get(request, :token),
-         key when is_binary(key) <- token_key(token),
-         python when is_binary(python) <- python_executable(opts) do
-      do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
+         key when is_binary(key) <- token_key(token) do
+      case python_executable(opts) do
+        python when is_binary(python) ->
+          do_acquire(request, key, python, identity_opts(request, opts), deadline(opts))
+
+        _missing_python ->
+          # No python3 on PATH (and no explicit `:python`): degrade to direct
+          # request admission rather than failing every GitHub request. This is
+          # consistent with `command/3`, which already bypasses on missing
+          # python, so the broker being unavailable never takes the daemon's
+          # GitHub traffic down with it.
+          :bypass
+      end
     else
       false -> :bypass
       _unavailable -> {:error, :github_budget_broker_unavailable}
