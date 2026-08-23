@@ -109,18 +109,51 @@ defmodule Aiur.GitHub.Config do
     keyring = Keyword.get(opts, :keyring_fun, &keyring_token/0)
     env = normalize_secret(System.get_env("GITHUB_TOKEN"))
 
-    resolved =
+    {resolved, source} =
       cond do
-        is_binary(env) and validate.(env) -> env
-        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> kt
-        true -> env
+        is_binary(env) and validate.(env) -> {env, :env}
+        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> {kt, :keyring}
+        true -> {env, if(is_binary(env), do: :env, else: :none)}
       end
 
     # Only cache a real token; caching nil would shadow a later GITHUB_TOKEN
     # (e.g. per-test env), since token/0 treats a cached nil as resolved.
-    if is_binary(resolved), do: :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+    if is_binary(resolved) do
+      :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+      :persistent_term.put({__MODULE__, :resolved_token_source}, source)
+    end
+
     resolved
   end
+
+  @doc """
+  The source the currently-resolved GitHub token was obtained from:
+  `:github_app` (App installation token), `:env` (`GITHUB_TOKEN`), `:keyring`
+  (the `gh` keyring from `gh auth login`), or `:none`.
+
+  The env var is always the source of truth for a token read straight from
+  `GITHUB_TOKEN` before `resolve_token/1` runs; once a token has been resolved
+  this reports where that resolution actually found a usable credential.
+  """
+  @spec token_source() :: :github_app | :env | :keyring | :none
+  def token_source do
+    cond do
+      AppCredentials.configured?() ->
+        :github_app
+
+      (source = :persistent_term.get({__MODULE__, :resolved_token_source}, nil)) in [:env, :keyring] ->
+        source
+
+      nonblank_token?(System.get_env("GITHUB_TOKEN")) ->
+        :env
+
+      true ->
+        :none
+    end
+  end
+
+  defp nonblank_token?(value) when is_binary(value), do: String.trim(value) != ""
+  defp nonblank_token?(_value), do: false
 
   @spec label_prefix() :: String.t()
   def label_prefix do
@@ -382,10 +415,18 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
-  # Query the gh keyring with the env tokens CLEARED so gh returns the stored
-  # login rather than echoing the (possibly stale) env var. nil when gh is
-  # absent or not logged in via keyring (headless/CI).
-  defp keyring_token do
+  @doc """
+  Queries the `gh` keyring for the stored github.com token with the env
+  variables CLEARED, so `gh` returns the keyring login rather than echoing the
+  (possibly stale) `GITHUB_TOKEN`/`GH_TOKEN` env var.
+
+  Returns `nil` when `gh` is absent, not logged in via keyring (headless/CI),
+  or has no stored token for github.com. This is the one probe the startup env
+  gate reuses so a developer who has only run `gh auth login` can boot Aiur
+  without manually exporting `GITHUB_TOKEN`.
+  """
+  @spec keyring_token() :: String.t() | nil
+  def keyring_token do
     case System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
            env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
            stderr_to_stdout: true

@@ -26,14 +26,14 @@ defmodule Aiur.Env.Schema do
   ## Requiredness model
 
   The only configuration that may abort a boot is the GitHub credential
-  (`GITHUB_TOKEN`, or a complete GitHub App credential set — see
-  `github_credential_requirement/0`). Every integration — GitHub App auth,
-  webhooks, Linear, voice, dashboard, Decision API, provider keys — is
-  optional and absent degrades to "feature off", never to a guard being
-  skipped. Credential *groups* (`github_app`, `dashboard`) are all-or-nothing:
-  a partial group is a misconfiguration that fails at startup naming the
-  missing member; a fully absent group is a supported setup. See
-  `credential_groups/0`.
+  (`GITHUB_TOKEN`, a complete GitHub App credential set, or a `gh` keyring
+  token from `gh auth login` — see `github_credential_requirement/0`). Every
+  integration — GitHub App auth, webhooks, Linear, voice, dashboard, Decision
+  API, provider keys — is optional and absent degrades to "feature off", never
+  to a guard being skipped. Credential *groups* (`github_app`, `dashboard`)
+  are all-or-nothing: a partial group is a misconfiguration that fails at
+  startup naming the missing member; a fully absent group is a supported
+  setup. See `credential_groups/0`.
   """
 
   # --- Groups rendered in .env.example -------------------------------------
@@ -102,9 +102,12 @@ defmodule Aiur.Env.Schema do
 
   The daemon must be able to authenticate with GitHub. `GITHUB_TOKEN` alone
   satisfies it; otherwise the complete `github_app` credential group
-  (`github_credential_groups`) must be present. Absence is a startup failure
-  naming what is missing; the tracker configuration requirement is enforced
-  separately by `Aiur.Config.validate!/0`.
+  (`github_credential_groups`) must be present. A `gh` keyring token from
+  `gh auth login` also satisfies it — the startup env gate probes the keyring
+  (via `Aiur.GitHub.Config.keyring_token/0`) before aborting, so a developer
+  who has only run `gh auth login` can boot without setting `GITHUB_TOKEN`.
+  Absence of all three is a startup failure naming what is missing; the tracker
+  configuration requirement is enforced separately by `Aiur.Config.validate!/0`.
   """
   @spec github_credential_requirement() :: %{
           token: String.t(),
@@ -116,9 +119,9 @@ defmodule Aiur.Env.Schema do
       token: "GITHUB_TOKEN",
       alternative_group: :github_app,
       missing_message:
-        "no GitHub credential is configured: set GITHUB_TOKEN, or configure the " <>
-          "complete GitHub App set (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and " <>
-          "one of GITHUB_APP_PRIVATE_KEY_PATH / GITHUB_APP_PRIVATE_KEY)"
+        "no GitHub credential is configured: run `gh auth login` (Aiur falls back to the gh keyring), " <>
+          "set GITHUB_TOKEN, or configure the complete GitHub App set (GITHUB_APP_ID, " <>
+          "GITHUB_APP_INSTALLATION_ID and one of GITHUB_APP_PRIVATE_KEY_PATH / GITHUB_APP_PRIVATE_KEY)"
     }
   end
 
@@ -134,8 +137,8 @@ defmodule Aiur.Env.Schema do
      type: :secret,
      required: true,
      group: :required,
-     purpose: "Fallback GitHub credential; ignored when the GitHub App vars below are set.",
-     fetch: "github.com/settings/tokens -> Generate -> repo scope"},
+     purpose: "Fallback GitHub credential; ignored when the GitHub App vars below are set. `gh auth login` also satisfies the boot gate.",
+     fetch: "gh auth login, or github.com/settings/tokens -> Generate -> repo scope"},
 
     # --- GitHub App auth ---
     {"GITHUB_APP_ID", type: :string, group: :github_app, purpose: "GitHub App numeric id; preferred auth, short-lived installation tokens.", fetch: "App settings page, top of page"},

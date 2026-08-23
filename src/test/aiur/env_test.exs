@@ -137,9 +137,31 @@ defmodule Aiur.EnvTest do
     end
 
     test "aborts when no GitHub credential is configured, naming the requirement" do
-      error = assert_raise ArgumentError, fn -> Env.validate_startup!(%{}, require_github_credential: true) end
+      error =
+        assert_raise ArgumentError, fn ->
+          Env.validate_startup!(%{}, require_github_credential: true, keyring_fun: fn -> nil end)
+        end
+
       assert error.message =~ "GITHUB_TOKEN"
       assert error.message =~ "GITHUB_APP_ID"
+      assert error.message =~ "gh auth login"
+    end
+
+    test "a gh keyring token from `gh auth login` satisfies the requirement" do
+      assert :ok =
+               Env.validate_startup!(%{},
+                 require_github_credential: true,
+                 keyring_fun: fn -> "ghp_keyring_token" end
+               )
+    end
+
+    test "an empty gh keyring probe does not satisfy the requirement" do
+      error =
+        assert_raise ArgumentError, fn ->
+          Env.validate_startup!(%{}, require_github_credential: true, keyring_fun: fn -> nil end)
+        end
+
+      assert error.message =~ "gh auth login"
     end
 
     test "GITHUB_TOKEN alone satisfies the requirement" do
@@ -163,7 +185,10 @@ defmodule Aiur.EnvTest do
     test "a partial GitHub App group still aborts even when GITHUB_TOKEN is absent" do
       error =
         assert_raise ArgumentError, fn ->
-          Env.validate_startup!(%{"GITHUB_APP_ID" => "123"}, require_github_credential: true)
+          Env.validate_startup!(%{"GITHUB_APP_ID" => "123"},
+            require_github_credential: true,
+            keyring_fun: fn -> nil end
+          )
         end
 
       assert error.message =~ "GITHUB_APP_ID"
@@ -229,7 +254,7 @@ defmodule Aiur.EnvTest do
 
       # GITHUB_TOKEN carries a fetch note; its `#` must sit at the aligned column
       # rather than immediately after the value.
-      assert rendered =~ ~r/^GITHUB_TOKEN=\s+# github\.com\/settings\/tokens/m
+      assert rendered =~ ~r/^GITHUB_TOKEN=\s+# gh auth login/m
     end
   end
 

@@ -47,7 +47,7 @@ defmodule Aiur.GitHub.AuthPreflight do
   cycle exactly as it is today.
   """
 
-  alias Aiur.GitHub.{AppCredentials, Errors, Transport}
+  alias Aiur.GitHub.{Config, Errors, Transport}
 
   require Logger
 
@@ -302,8 +302,18 @@ defmodule Aiur.GitHub.AuthPreflight do
     }
   end
 
+  # The token source follows the credential actually in use, resolved by
+  # `Aiur.GitHub.Config.token_source/0` — GITHUB_APP for an App installation
+  # token, GITHUB_TOKEN for an env var, or the `gh` keyring for a token from
+  # `gh auth login`. Reporting "GITHUB_TOKEN" when the credential came from the
+  # keyring sent a developer who never set that variable to refresh or unset it.
   defp token_source do
-    if AppCredentials.configured?(), do: "GITHUB_APP", else: "GITHUB_TOKEN"
+    case Config.token_source() do
+      :github_app -> "GITHUB_APP"
+      :env -> "GITHUB_TOKEN"
+      :keyring -> "gh keyring"
+      :none -> "no credential"
+    end
   end
 
   defp auth_failure_reason(401, _response), do: :invalid_or_expired_token
@@ -355,14 +365,32 @@ defmodule Aiur.GitHub.AuthPreflight do
       _ ->
         [
           "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
-          "Aiur uses GITHUB_TOKEN for GitHub tracker/API calls, and that environment token takes precedence over `gh` keyring auth.",
+          pat_source_line(source),
           keyring,
-          "Recovery: refresh or unset GITHUB_TOKEN in the shell or .env used to launch aiur, restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
+          pat_recovery_line(source, repo)
         ]
         |> Enum.reject(&(&1 in [nil, ""]))
         |> Enum.join(" ")
     end
   end
+
+  defp pat_source_line("GITHUB_TOKEN"),
+    do: "Aiur uses GITHUB_TOKEN for GitHub tracker/API calls, and that environment token takes precedence over `gh` keyring auth."
+
+  defp pat_source_line(_source),
+    do: "Aiur authenticates with the `gh` keyring token obtained by `gh auth login`."
+
+  defp pat_recovery_line("GITHUB_TOKEN", repo),
+    do:
+      "Recovery: refresh or unset GITHUB_TOKEN in the shell or .env used to launch aiur, " <>
+        "restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` " <>
+        "and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
+
+  defp pat_recovery_line(_source, repo),
+    do:
+      "Recovery: verify `gh auth login` is logged in for github.com (`gh auth status`), restart aiur " <>
+        "so the daemon re-resolves the keyring credential, then verify `gh api rate_limit` " <>
+        "and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
 
   defp human_auth_reason(%{reason: :invalid_or_expired_token, status: status}),
     do: "GitHub returned HTTP #{status}, which usually means the token is invalid or expired"
