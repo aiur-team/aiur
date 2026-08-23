@@ -86,8 +86,13 @@ defmodule Aiur.GitHub.ResourceStore do
   Judging a body by `recorded_at_ms` would be wrong, because every write
   touches that field: a poll republish re-marking a processed comment keeps a
   three-day-old body looking current, and the eviction sweep would never delete
-  it. The sweep, the read and the restart filter all use the same decision, so
-  truly outdated data is deleted rather than merely hidden on read.
+  it. The sweep, the read and the restart filter all use the same decision, and
+  the decision distinguishes the entry from the body it happens to hold: an
+  entry whose `recorded_at_ms` is itself past retention is deleted whole, while
+  a body past retention inside an entry still in use is dropped — the processed
+  mark and the validator survive, because they are what stop a duplicate
+  dispatch and make the next read free. Truly outdated data is deleted rather
+  than merely hidden on read.
 
   ## Holding the resource, not only the validator
 
@@ -1531,36 +1536,43 @@ defmodule Aiur.GitHub.ResourceStore do
   # before asking, so a second catch-all clause here would be unreachable.
   defp expired?(at) when is_integer(at), do: now_ms() - at > @retention_ms
 
-  # An entry is truly outdated when nothing it holds can be served any more,
-  # and the field that says so depends on what the entry holds.
+  # An entry is truly outdated when nothing in it is in use any more, and that
+  # is judged on the field that owns the answer.
   #
-  # A body is judged by `fetched_at_ms` — the same field `fetch/1` refuses an
-  # expired body on — never by `recorded_at_ms`, because every write touches
-  # that field. A poll republish re-marking a processed comment, or a `304`
+  # `recorded_at_ms` is bumped by every write, so an entry whose recorded_at is
+  # itself past cutoff has had no write in the whole window: body, validator and
+  # mark are all dead, and the whole entry goes. A body, in contrast, is judged
+  # by `fetched_at_ms` — the same field `fetch/1` refuses an expired body on —
+  # because a poll republish re-marking a processed comment, or a `304`
   # re-recording a validator, refreshes `recorded_at_ms` while leaving a body
-  # three days old; a sweep that judged the entry by that field would keep the
-  # body in the table forever, answering `:miss` from `fetch/1` while the page
-  # shows it as expired — the unbounded "stale" accumulation this predicate
-  # exists to stop.
-  #
-  # An entry holding no body has no `fetched_at_ms` to be old by — it is a
-  # validator or a processed mark — so its whole useful life is `recorded_at_ms`
-  # and that is what it is judged on.
-  defp evictable?(entry, cutoff) do
+  # three days old. Such an entry is not truly outdated: its mark and its
+  # validator are still in use, so the body is dropped and the entry stands.
+  defp entry_expired?(entry, cutoff) do
     # The `|| 0` is the same nil-safe idiom `fetch/1` uses, not a redundant
-    # default: `Map.get/3`'s default only covers an *absent* key, so a body with
-    # `fetched_at_ms: nil` — a corrupt checkpoint, a hand-written entry — would
-    # otherwise compare `nil < cutoff`, sort after every number under Elixir's
-    # term ordering, and read as *not* evictable while `fetch/1` declines it.
-    # That is the unbounded "stale" accumulation this predicate exists to stop,
-    # surviving at the nil edge. Treating it as `0` (long past retention) makes
-    # sweep, read and restart agree that a body whose age nothing records is
-    # gone.
+    # default: `Map.get/3`'s default only covers an *absent* key, so a
+    # `recorded_at_ms: nil` — a corrupt checkpoint, a hand-written entry —
+    # would otherwise compare `nil < cutoff`, sort after every number under
+    # Elixir's term ordering, and read as *not* expired while nothing about the
+    # entry records when it was last touched. Treating it as `0` (long past
+    # retention) makes sweep, read and restart agree that an entry whose age
+    # nothing records is gone.
+    (Map.get(entry, :recorded_at_ms, 0) || 0) < cutoff
+  end
+
+  # Whether the held body (if any) is past retention — the same `fetch/1`
+  # decline, so "past retention" means the same thing to the read, the sweep and
+  # the restart filter. An entry holding no body has nothing to be old by.
+  defp body_expired?(entry, cutoff) do
     case Map.get(entry, :data) do
-      nil -> (Map.get(entry, :recorded_at_ms, 0) || 0) < cutoff
+      nil -> false
       _body -> (Map.get(entry, :fetched_at_ms, 0) || 0) < cutoff
     end
   end
+
+  # `drop_data/1`'s shape: the body and its version go, the validator and the
+  # processed mark stay. Used by the sweep and by the boot filter, so the two
+  # cannot disagree about what an expired body costs the entry.
+  defp drop_body(entry), do: entry |> Map.delete(:data) |> Map.delete(:data_version)
 
   # A versioned mark rides the retention window; an identity-only mark rides the
   # much tighter bound, because nothing but the clock can ever release it.
@@ -1568,27 +1580,31 @@ defmodule Aiur.GitHub.ResourceStore do
   defp within_suppression_bound?(at, _version), do: not expired?(at)
 
   # Expiry and eviction are writes like any other, so neither is allowed to be a
-  # check-then-act. A `foldl` that collects keys and a later `:ets.delete/2` for
-  # each are two operations, and a writer depositing a fresh body in the gap has
-  # its entry deleted on the strength of a `recorded_at_ms` that is no longer
-  # there — the store then answers `:miss` for a resource it was just handed, and
-  # the next reader pays for it again. Both deletions are therefore conditional on
-  # the entry still being the one the decision was made about.
+  # check-then-act. Two things can be past retention, and they are removed in
+  # two passes, each staying conditional on the entry it decided about.
   defp sweep(table) do
     cutoff = now_ms() - @retention_ms
 
-    # One atomic decision per object: an entry is deleted only while it is still
-    # the one the decision was made about. A writer refreshing it between the
-    # snapshot and the deletion changes the object, so the pinned
-    # `select_delete` stops matching and the entry survives — the same pin and
-    # the same guarantee the ceiling eviction below uses. What makes an entry
-    # evictable is decided once, in `evictable?/2`, and it is the same decision
-    # the boot-time load filter makes, so sweep, read and restart cannot
-    # disagree about when an entry is truly past retention.
+    # Pass 1 — the whole entry is past retention. `recorded_at_ms` is bumped by
+    # every write, so an entry whose recorded_at is itself past cutoff has had
+    # no write in the whole window: body, validator and mark are all dead, and
+    # the whole entry goes. One C-side match spec — nothing is copied into this
+    # process — and the guard is re-evaluated at the instant of deletion, so an
+    # entry a writer refreshed in the meantime no longer matches and survives.
+    :ets.select_delete(table, [
+      {{:_, %{recorded_at_ms: :"$1"}}, [{:<, :"$1", cutoff}], [true]}
+    ])
+
+    # Pass 2 — the body is past retention but the entry is still in use. An
+    # entry is one flat map, and the processed mark and the validator on it must
+    # outlive a body nothing can serve: `Aiur.Events.Publisher` gates dedup on
+    # `processed?/2`, and the ETag is what makes the next read free. So the body
+    # is dropped, matching `drop_data/1`'s "validator, no body" state, and the
+    # entry stands. Only an entry whose `recorded_at_ms` is also past cutoff is
+    # deleted whole, and that is pass 1 above.
     table
-    |> :ets.tab2list()
-    |> Enum.filter(fn {_key, entry} -> evictable?(entry, cutoff) end)
-    |> Enum.each(fn {key, entry} -> :ets.select_delete(table, [{{key, :"$1"}, [{:==, :"$1", {:const, entry}}], [true]}]) end)
+    |> expired_body_keys(cutoff)
+    |> Enum.each(&drop_expired_body(&1, cutoff))
 
     # A hard backstop far above real volume. Crossing it means the retention
     # window alone is not bounding the set, so drop the oldest rather than let
@@ -1608,6 +1624,30 @@ defmodule Aiur.GitHub.ResourceStore do
     end
 
     :ok
+  end
+
+  # Keys of the data-bearing entries whose body is past retention, collected by
+  # match spec so the bodies themselves are never copied into this process. A
+  # nil `fetched_at_ms` sorts before every number in Erlang term order, so the
+  # nil edge `fetch/1` declines matches here too.
+  defp expired_body_keys(table, cutoff) do
+    :ets.select(table, [
+      {{:"$1", %{data: :"$2", fetched_at_ms: :"$3"}}, [{:<, :"$3", cutoff}], [:"$1"]}
+    ])
+  end
+
+  # The body of one entry, dropped conditionally inside the swap: only while the
+  # entry still holds a body past retention. `update_reply/3`'s `:skip` is what
+  # spares a body a writer deposited after the key was collected — the whole
+  # point of the pin — and the drop is `drop_data/1`'s shape.
+  defp drop_expired_body(key, cutoff) do
+    update_reply(key, :ok, fn entry ->
+      if body_expired?(entry, cutoff) do
+        {drop_body(entry), :ok}
+      else
+        {:skip, :ok}
+      end
+    end)
   end
 
   # Writes land in ETS directly from the poll fan-out rather than through this
@@ -1756,9 +1796,17 @@ defmodule Aiur.GitHub.ResourceStore do
 
     Enum.reduce(entries, [], fn {encoded, value}, acc ->
       with key when not is_nil(key) <- decode_key(encoded),
-           %{} = entry <- decode_entry(value),
-           true <- not evictable?(entry, cutoff) do
-        [{key, entry} | acc]
+           %{} = entry <- decode_entry(value) do
+        # The same two-tier decision as the sweep: an entry whose recorded_at is
+        # itself past cutoff is not resurrected at all; a body past retention
+        # inside an entry still in use reloads *without* its body — the mark and
+        # the validator survive a restart, which is exactly when the durable
+        # processed mark is the only defence against a duplicate dispatch.
+        cond do
+          entry_expired?(entry, cutoff) -> acc
+          body_expired?(entry, cutoff) -> [{key, drop_body(entry)} | acc]
+          true -> [{key, entry} | acc]
+        end
       else
         _other -> acc
       end
