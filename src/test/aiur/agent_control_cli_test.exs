@@ -1697,7 +1697,7 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "reset-budget" do
-    test "queues the lifetime dispatch reset without a status lookup", %{orchestrator: pid} do
+    test "clears the latch synchronously and reports the applied reset", %{orchestrator: pid} do
       issue = %Issue{id: "issue-49", identifier: "repo#49", state: "error", title: "Latched"}
       :ok = DispatchBudgetStore.put_lifetime(issue.id, 40)
 
@@ -1708,25 +1708,32 @@ defmodule Aiur.AgentControlCLITest do
 
       output = capture_io(fn -> AgentControlCLI.reset_budget(["49"]) end)
 
-      assert output =~ "aiur: queued lifetime dispatch budget reset for #49"
+      # The command reports the APPLIED outcome, not an unverifiable "queued":
+      # by the time it prints, both the in-memory and durable latches are zero.
+      assert output =~ "aiur: lifetime dispatch budget reset for #49"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
 
-      # Barrier behind the cast: the bare issue number was resolved inside the
-      # orchestrator, without a blocking CLI status request.
       state = :sys.get_state(pid)
       assert get_in(state.dispatch_recovery.codex_thrash_budget, [issue.id]) == nil
       assert {:ok, 0} = DispatchBudgetStore.lifetime(issue.id)
+      assert :none = Dispatcher.dispatch_latch_status(state, issue.id)
     end
 
-    test "reports an unknown issue as queued rather than timing out", %{orchestrator: pid} do
+    test "fails loudly instead of claiming a reset when the target cannot be resolved", %{orchestrator: pid} do
+      # #2435: an unresolvable target used to print "queued" and exit 0 while
+      # nothing happened. The command must fail loudly with a reason so an
+      # operator is never left believing the latch cleared. The exact reason
+      # depends on the tracker backend (an unknown ticket, or a tracker read
+      # failure) — the contract is that it never reports success.
       output = capture_io(fn -> AgentControlCLI.reset_budget(["9999"]) end)
 
-      assert output =~ "aiur: queued lifetime dispatch budget reset for #9999"
-      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to reset lifetime dispatch budget for #9999"
+      assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      refute output =~ "lifetime dispatch budget reset for #9999"
       _state = :sys.get_state(pid)
     end
 
-    test "fails instead of claiming a reset was queued when the orchestrator is unavailable", %{orchestrator: pid} do
+    test "fails instead of claiming a reset was applied when the orchestrator is unavailable", %{orchestrator: pid} do
       Process.unregister(Orchestrator)
 
       try do
@@ -1734,7 +1741,7 @@ defmodule Aiur.AgentControlCLITest do
 
         assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to reset lifetime dispatch budget for #49 (orchestrator unavailable)"
         assert output =~ "__AIUR_CONTROL_EXIT__:1"
-        refute output =~ "queued lifetime dispatch budget reset"
+        refute output =~ "lifetime dispatch budget reset for #49"
       after
         Process.register(pid, Orchestrator)
       end
