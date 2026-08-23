@@ -470,6 +470,13 @@ for 10 minutes.
 flight. A build that is still progressing — however slow a cold `deps` +
 `compile` + `dialyzer` run may be — is never killed by the watchdog.
 
+The `system.dispatch.prewarm_blocked` alert is not raised for a routine refresh:
+a freshness probe that self-clears in seconds holds dispatch too briefly to
+matter to an operator. The alert fires only once a hold has persisted past the
+routine bound — a probe that fails or exceeds its own timeout, a build that
+genuinely holds the fleet, or a stalled hold the watchdog releases — and its
+`.resolved` when the gate clears.
+
 ## pr_watch
 
 | Key | Type | Default | Controls |
