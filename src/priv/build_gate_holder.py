@@ -659,25 +659,34 @@ def proc_cpu_ns(pid: int) -> int | None:
     """CPU nanoseconds consumed by one process, via the scheduler runtime.
 
     `/proc/<pid>/schedstat`'s first field (`sum_exec_runtime`) is the
-    high-resolution CPU time in nanoseconds and is world-readable. Fall back
-    to `/proc/<pid>/stat` utime+stime ticks when schedstat is unavailable.
+    high-resolution CPU time in nanoseconds and is world-readable. When
+    schedstat is unavailable (`CONFIG_SCHEDSTATS=n`) this returns `None` — the
+    caller's conservative "measurement unavailable" hold — rather than falling
+    back to `/proc/<pid>/stat` utime+stime ticks. That fallback resolves to
+    10ms granularity (`SC_CLK_TCK` is 100) against a 3ms idle threshold, so a
+    genuinely compiling child in the 3-10ms/window band reads as a delta of
+    exactly 0 and the slot would be released out from under it (#2386). A host
+    without schedstat cannot run the CPU gate; the safe answer there is to
+    keep the slot to the retain deadline, not to guess from a coarse number.
     """
+    # Test-only injection point: redirects the schedstat read to a path that
+    # does not exist so the unavailable path is exercised deterministically
+    # and the "no coarse fallback" property is pinned by the suite. An empty
+    # value means "read the real /proc path".
+    schedstat_path = os.environ.get("AIUR_BUILD_GATE_HOLDER_SCHEDSTAT_PATH", "")
+
+    if schedstat_path == "":
+        schedstat_path = f"/proc/{pid}/schedstat"
+
     try:
-        with open(f"/proc/{pid}/schedstat", encoding="utf-8") as file:
+        with open(schedstat_path, encoding="utf-8") as file:
             parts = file.read().split()
             if parts:
                 return int(parts[0])
     except (FileNotFoundError, ProcessLookupError, OSError, ValueError):
         pass
 
-    try:
-        with open(f"/proc/{pid}/stat", encoding="utf-8") as file:
-            fields = file.read().rsplit(")", 1)[1].split()
-        utime = int(fields[11])
-        stime = int(fields[12])
-        return (utime + stime) * 10**9 // os.sysconf("SC_CLK_TCK")
-    except (FileNotFoundError, ProcessLookupError, OSError, ValueError, IndexError):
-        return None
+    return None
 
 
 def max_hold_seconds() -> int:
