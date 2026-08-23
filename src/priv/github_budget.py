@@ -138,11 +138,11 @@ def migrate(conn):
         conn.execute("ALTER TABLE admissions ADD COLUMN lease_id TEXT")
     if "billable" not in admissions_columns:
         conn.execute("ALTER TABLE admissions ADD COLUMN billable INTEGER NOT NULL DEFAULT 1")
-    # The resource the guard booked this admission to (core / graphql / search /
-    # unknown). The broker's accounting buckets on this column, so it is what
-    # makes a guard that books a GraphQL call to core detectable from the ledger
-    # instead of only inferable from the family-to-bucket map (#2299 review).
-    # NULL rows predate the column and count as core.
+    # The resource the guard booked this admission to (core / graphql / unknown).
+    # The broker's accounting buckets on `endpoint_family`, so this column does
+    # not change how a row is counted; it records what the caller *said* it was
+    # spending, which makes a guard that books a GraphQL call to core detectable
+    # from the ledger instead of only inferable from the family-to-bucket map.
     if "resource" not in admissions_columns:
         conn.execute("ALTER TABLE admissions ADD COLUMN resource TEXT")
     # The per-actor hourly query filters by (token, consumer, time), so the
@@ -216,38 +216,40 @@ def resolve_credential_identity(conn, args):
 
 
 # The rolling-hour billable responses of one actor and one resource, oldest
-# first. Core is every REST family; GraphQL is the graphql family. A `resource`
+# first. Core is every REST booking; GraphQL is the graphql booking. The bucket
+# is the booked `resource` column, NOT the descriptive `endpoint_family`:
+# high-level GraphQL commands keep their family (pulls/issues/search) for the
+# lease pool and the audit histogram while booking `resource=graphql`, so a
+# family can no longer double as the bucket — bucketing on family again would
+# count `pr view` against the core window. Anything not booked graphql (core,
+# or an unclassified `unknown`) counts against the core window. A `resource`
 # ceiling is a request-count ceiling: the broker sees admissions, never the
 # GraphQL point price GitHub charged, so this is the coarsest thing that still
 # stops one actor from exhausting the shared hourly budget. A reconciled 304 is
 # not billable, so it stays in the admissions ledger for RPM accounting but is
 # excluded here.
 def actor_usage_rows(conn, token_key, consumer_key, resource, now):
-    # Bucketed on the `resource` the guard booked, not the descriptive
-    # `endpoint_family`: the family stays pulls/issues/search for the lease pool
-    # and audit, while the hourly accounting counts core / graphql / search. Rows
-    # written before the resource column (NULL) and rows the guard left
-    # `unknown` are core.
     if resource == "graphql":
-        bucket_clause = "resource = ?"
-        bucket_value = "graphql"
+        resource_clause = "resource = 'graphql'"
     elif resource == "search":
-        bucket_clause = "resource = ?"
-        bucket_value = "search"
+        # GitHub meters `/search/*` against a third pool (`X-Ratelimit-Resource:
+        # search`, ~30 req/min rather than 5,000/hr), so `search` is a
+        # first-class resource of its own — booking it to core or graphql
+        # mis-states the spend and paces nothing against the pool that throttles
+        # first.
+        resource_clause = "resource = 'search'"
     else:
-        bucket_clause = "(resource IS NULL OR (resource != ? AND resource != ?))"
-        bucket_value = None
-    params = (token_key, consumer_key, now - HOURLY_WINDOW_MS)
-    if bucket_value is not None:
-        params = params + (bucket_value,)
-    else:
-        params = params + ("graphql", "search")
+        # Parentheses are load-bearing: without them `AND resource IS NULL OR
+        # resource != ?` binds as `(AND resource IS NULL) OR (resource != ?)`,
+        # and the OR branch then matches every non-graphql row on any token or
+        # consumer regardless of billable.
+        resource_clause = "(resource IS NULL OR resource NOT IN ('graphql', 'search'))"
     return conn.execute(
         "SELECT admitted_at_ms FROM admissions "
         "WHERE token_key = ? AND consumer_key = ? AND billable = 1 AND admitted_at_ms > ? AND "
-        + bucket_clause
+        + resource_clause
         + " ORDER BY admitted_at_ms ASC",
-        params,
+        (token_key, consumer_key, now - HOURLY_WINDOW_MS),
     ).fetchall()
 
 
@@ -614,7 +616,8 @@ def usage(args):
         cleanup(conn, now)
         policies = conn.execute(
             "SELECT COALESCE(bindings.identity_key, policies.token_key), policies.token_key, "
-            "policies.consumer_key, policies.consumer_label, policies.core_limit_per_hour, policies.graphql_limit_per_hour, policies.search_limit_per_hour "
+            "policies.consumer_key, policies.consumer_label, policies.core_limit_per_hour, "
+            "policies.graphql_limit_per_hour, policies.search_limit_per_hour "
             "FROM policies LEFT JOIN credential_bindings AS bindings ON bindings.token_key = policies.token_key "
             "ORDER BY COALESCE(bindings.identity_key, policies.token_key), policies.consumer_key"
         ).fetchall()
@@ -694,8 +697,6 @@ def parser():
     # print each actor's limit without another round trip.
     acquire_parser.add_argument("--core-limit", type=lambda value: clamp(value, 0, 100000), default=0)
     acquire_parser.add_argument("--graphql-limit", type=lambda value: clamp(value, 0, 100000), default=0)
-    # The search pool is a third, much lower GitHub window (~30 requests/minute
-    # rather than 5,000/hour), so it gets its own per-actor ceiling too.
     acquire_parser.add_argument("--search-limit", type=lambda value: clamp(value, 0, 100000), default=0)
     # Display-only actor label (the raw consumer identity, e.g.
     # `daemon:node@host` or `workspace:/path/to/2181`). The consumer_key remains

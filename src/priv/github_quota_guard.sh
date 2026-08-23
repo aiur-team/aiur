@@ -56,6 +56,7 @@ budget_db=
 budget_enabled=0
 budget_required=0
 budget_unavailable_reason=
+budget_recovery="budget root $budget_root; repair ownership/permissions and redispatch (current runtimes derive this grant); stale runtimes must add $budget_root to agent.codex.turn_sandbox_policy.writableRoots"
 budget_lease=
 budget_renewal_pid=
 budget_lease_ttl_ms=${AIUR_GITHUB_LEASE_TTL_MS:-35000}
@@ -221,42 +222,42 @@ case "${1:-} ${2:-}" in
     done
     unset api_options
     ;;
-  # `gh pr view/list/status/checks`, `gh issue view/list/status`, `gh search
-  # issues|prs` and the GraphQL write subcommands speak the GraphQL API on the
-  # wire, which bills points against the separate GraphQL window. Setting only
-  # `endpoint_family` left `resource=unknown`, so the broker filed every one of
-  # them as core and the credential's GraphQL spend had no local record (#2299).
-  #
-  # Two axes are kept deliberately separate (#2299 review). `endpoint_family`
-  # stays the DESCRIPTIVE family (pulls/issues/search/...) because it keys the
-  # broker's concurrency lease pool and the audit family histogram — collapsing
-  # it to `graphql` would silently serialise 87% of fleet traffic onto the two
-  # default in-flight slots. `resource` carries the ACCOUNTING bucket the broker
-  # bills the hourly ceiling against. `pr diff` is the REST diff endpoint and
-  # stays a core pull.
+  # `gh pr view|list|status|checks`, `gh issue view|list|status`, and
+  # `gh search *` speak GraphQL on the wire and are billed in points against the
+  # GraphQL window, so they must book to the graphql resource — not core. They
+  # KEEP their descriptive families (pulls / issues / search): `endpoint_family`
+  # is also the lease-pool key and the audit histogram, so collapsing every
+  # GraphQL arm onto one family would merge four in-flight pools into one (a
+  # fleet-wide throughput regression) and destroy the family breakdown this bug
+  # was found with. The broker's hourly accounting buckets on the booked
+  # `resource`, not on the family. `pr diff` is REST and stays in the pulls
+  # family with resource=core (it must not inherit the graphql booking from its
+  # read-arm sibling).
   "pr view"|"pr list"|"pr status"|"pr checks") resource=graphql; endpoint_family=pulls ;;
   "pr diff") resource=core; endpoint_family=pulls ;;
   "issue view"|"issue list"|"issue status") resource=graphql; endpoint_family=issues ;;
-  "run view"|"run list"|"run watch") resource=core; endpoint_family=actions ;;
-  # `gh search issues|prs` is GraphQL on the wire; `gh search
-  # repos|code|commits|users` hits the REST /search/* endpoints, which GitHub
-  # meters against a separate `search` pool (~30 requests/minute rather than
-  # 5,000/hour). Booking the two to one bucket — core or graphql — mis-states
-  # the spend and paces nothing against the pool that will throttle first, so
-  # the subcommands are split and `search` is a first-class resource.
+  "run view"|"run list"|"run watch") endpoint_family=actions ;;
+  # `gh search` splits across two wire transports (measured with GH_DEBUG=api):
+  # `search issues|prs` are GraphQL (`X-Ratelimit-Resource: graphql`), while
+  # `search code|commits|repos|users` hit REST `/search/*` and GitHub meters
+  # them as a third pool, `search` (~30 req/min rather than 5,000/hr). The
+  # `search` pool is its own resource so something paces against it; booking it
+  # to core or graphql mis-states the spend and protects the wrong window.
   "search issues"|"search prs") resource=graphql; endpoint_family=search ;;
-  "search repos"|"search code"|"search commits"|"search users") resource=search; endpoint_family=search ;;
+  "search code"|"search commits"|"search repos"|"search users") resource=search; endpoint_family=search ;;
   "search "*) resource=search; endpoint_family=search ;;
-  # The `pr`/`issue` write subcommands are a GraphQL/REST mix and are classified
-  # per subcommand rather than as one bucket (#2297): `pr create|merge|review`
+  # The `pr`/`issue` write subcommands are a GraphQL/REST mix and must be
+  # classified per subcommand rather than as one bucket: `pr create|merge|review`
   # and `issue create` mutate through GraphQL, while the rest (close, reopen,
-  # comment, edit, ready, ...) are REST and keep the pulls/issues families.
+  # comment, edit, ready, lock/unlock, update-branch, transfer, ...) go through
+  # REST. Each keeps its descriptive pulls/issues family for the lease pool and
+  # books the resource its wire traffic actually consumes.
   "pr create"|"pr merge"|"pr review") resource=graphql; endpoint_family=pulls; direction=write ;;
   "pr "*) resource=core; endpoint_family=pulls; direction=write ;;
   "issue create") resource=graphql; endpoint_family=issues; direction=write ;;
   "issue "*) resource=core; endpoint_family=issues; direction=write ;;
-  "run rerun"|"run cancel"|"run delete") resource=core; endpoint_family=actions; direction=write ;;
-  "label create"|"label delete"|"label edit") resource=core; endpoint_family=labels; direction=write ;;
+  "run rerun"|"run cancel"|"run delete") endpoint_family=actions; direction=write ;;
+  "label create"|"label delete"|"label edit") endpoint_family=labels; direction=write ;;
   # Commands that change repository state without touching an issue or a pull
   # request. Left classified as reads they invalidated nothing, so
   # `gh repo edit --default-branch` or a release could change what a stored
@@ -733,7 +734,7 @@ if [ "$agent_guard" -eq 1 ] && undecidable_agent_command "$@"; then
 fi
 
 if [ "$admission_required" -eq 1 ] && [ "$budget_required" -eq 1 ] && [ "$budget_enabled" -ne 1 ]; then
-  printf 'aiur: GitHub shared budget unavailable (%s); refusing uncoordinated request\n' "$budget_unavailable_reason" >&2
+  printf 'aiur: GitHub shared budget unavailable (%s; %s); refusing uncoordinated request\n' "$budget_unavailable_reason" "$budget_recovery" >&2
   exit 75
 fi
 
@@ -1062,6 +1063,37 @@ cache_volatile_fields() {
   return 1
 }
 
+# REST equivalents of the verdict and merge-gating fields above: a caller
+# spelling the same read as `gh api` must not acquire a stale answer merely by
+# bypassing `gh pr view`. The pull-request resource itself is included because
+# its default document carries `mergeable`, `mergeable_state`, `merged` and
+# `state` — the exact fields `gh pr view --json ...` refuses — and nothing that
+# changes them passes through this wrapper (a merge is a human or ruleset
+# action), so even a `pulls/<n>/comments` read filed under that PR can never be
+# retired by the write that would stale it. Refusing the whole family costs
+# throughput, never correctness.
+#
+# Deliberate divergence from `Aiur.GitHub.ReadCache.Policy`: the daemon refuses
+# every `/actions` path wholesale (`policy.ex` refuses `actions(?:/|$|\?)`),
+# while this wrapper keeps stable workflow metadata (`actions/workflows`, the
+# definition list) cacheable and refuses only run and job state. A workflow
+# definition changes when its YAML is edited, which is a wrapper-passing write
+# that invalidates it; a run's status is a verdict that nothing retires. So the
+# shell is narrower than the daemon, on purpose, because the two stores serve
+# different callers with different invalidation reach.
+cache_unsafe_rest_endpoint() {
+  case "/${1#/}" in
+    */check-runs|*/check-runs/*|*/check-suites|*/check-suites/*|\
+    */status|*/status/*|*/statuses|*/statuses/*|\
+    */pulls|*/pulls/*|*/merge|*/merge/*|*/requested_reviewers|*/requested_reviewers/*|\
+    */reviews|*/reviews/*|*/actions/runs|*/actions/runs/*|\
+    */actions/jobs|*/actions/jobs/*|*/actions/workflows/*/runs|\
+    */actions/workflows/*/runs/*|*/actions/workflows/*/workflow_runs|\
+    */actions/workflows/*/workflow_runs/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # The output shapes this guard serves. Everything absent from this list — a
 # bare `gh pr view` with no number, `gh pr diff`, `gh api graphql`, every write
 # — falls through to the real `gh` untouched.
@@ -1161,6 +1193,7 @@ if [ -n "$cache_root" ]; then
         # a digest of the URL, where the resource's own writers cannot reach it.
         cache_endpoint=${cache_endpoint%%\?*}
         cache_endpoint=${cache_endpoint%%\#*}
+        if cache_unsafe_rest_endpoint "$cache_endpoint"; then cache_reads=0; fi
         case "$cache_endpoint" in
           repos/*/*/*|repos/*/*)
             cache_api_rest=${cache_endpoint#repos/}
@@ -1340,7 +1373,22 @@ cache_record() {
     ''|*[!0-9]*) cache_events_size=0 ;;
   esac
   if [ "$cache_events_size" -gt 1048576 ]; then
-    mv -f "$cache_events_file" "$cache_events_file.1" 2>/dev/null || true
+    # Timestamped rotations retain the complete 24-hour measurement window.
+    # The pid keeps simultaneous writers from replacing one another's archive;
+    # row timestamps, not filenames, decide which samples enter the ratio.
+    mv -f "$cache_events_file" "$cache_events_file.$cache_started_at.$$" 2>/dev/null || true
+
+    # Pruning is outside the call's output descriptors and keeps a one-hour
+    # safety margin beyond the reader's window. The exact prefix confines the
+    # deletion to this bounded effectiveness log. `-mmin` and `-delete` are
+    # non-POSIX, so this is gated exactly as `cache_prune` gates its own use of
+    # them: on a host without GNU/BSD find the prune is a no-op rather than a
+    # silent failure that lets archives accumulate with no recovery path.
+    if command -v find >/dev/null 2>&1; then
+      (
+        find "$agent_quota_dir" -type f -name 'agent-cache.tsv.*' -mmin +1500 -delete || true
+      ) >/dev/null 2>&1 &
+    fi
   fi
 
   # The sixth column is the miss reason. It is written only where there is one
@@ -1379,7 +1427,14 @@ cache_lookup() {
   [ -n "$cache_body" ] || return 1
   if [ "$cache_bypass" -ne 0 ]; then cache_miss_reason=bypassed; return 1; fi
   [ -f "$cache_meta" ] || return 1
-  [ -f "$cache_body" ] || return 1
+  # A meta that survived but whose body did not is a torn entry, not a cold
+  # read: `cache_prune` or a partial disk-full write left the stamp behind. The
+  # old comment called this "the entry's stamp survives its body". Recorded as
+  # `absent` it reads on the dashboard as a cold cache with diverse shapes, and
+  # store-integrity failures go unseen — the misdiagnosis #2207 exists to
+  # prevent. It is a distinct cause from `corrupt` (present but unreadable) and
+  # from `absent` (nothing was ever stored).
+  [ -f "$cache_body" ] || { cache_miss_reason=torn; return 1; }
   if [ ! -r "$cache_body" ]; then cache_miss_reason=corrupt; return 1; fi
 
   cache_fetched_at=
@@ -1669,7 +1724,7 @@ budget_acquire() {
       --core-limit "${AIUR_GITHUB_CORE_LIMIT_PER_HOUR:-0}" \
       --graphql-limit "${AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR:-0}" \
       --search-limit "${AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR:-0}" 2>/dev/null); then
-      printf '%s\n' 'aiur: GitHub budget broker unavailable; refusing uncoordinated request' >&2
+      printf 'aiur: GitHub budget broker unavailable (%s); refusing uncoordinated request\n' "$budget_recovery" >&2
       return 75
     fi
     unset budget_ignore_flag budget_cache_flags
@@ -2347,7 +2402,7 @@ consider_hold() {
 # while the primary window still reads healthy.
 consider_resource_holds() {
   case "$2" in
-    core|graphql)
+    core|graphql|search)
       consider_hold "$1/$2-hold"
       consider_hold "$1/$2-secondary-hold"
       ;;

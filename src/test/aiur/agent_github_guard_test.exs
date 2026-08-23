@@ -3,7 +3,7 @@ defmodule Aiur.AgentGitHubGuardTest do
   @moduletag :tmp_dir
 
   alias Aiur.AgentGitHubGuard
-  alias Aiur.GitHub.{AgentCache, ResourceStore}
+  alias Aiur.GitHub.{AgentCache, AgentCacheMetrics, ResourceStore}
   alias Aiur.GitHub.Budget
 
   setup %{tmp_dir: root} do
@@ -344,18 +344,19 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.cp!(context.wrapper, executor_wrapper)
     File.chmod!(executor_wrapper, 0o755)
 
+    # `System.cmd` merges the parent environment rather than replacing it, so
+    # "remove the marker" is not enough when the test VM itself runs inside an
+    # Aiur agent workspace (AIUR_AGENT_WORKSPACE is inherited back in). The
+    # guard treats an empty AIUR_AGENT_WORKSPACE as absent
+    # (`-z "${AIUR_AGENT_WORKSPACE:-}"`), so pin it to "" exactly as
+    # `run_executor_guard` does.
     assert {"ok\n", 0} =
              System.cmd(
                executor_wrapper,
                ["pr", "merge", "1670"],
-               # `System.cmd` merges the parent environment, so inside an agent
-               # workspace AIUR_AGENT_WORKSPACE would otherwise be inherited
-               # back in and the wrapper would read as an agent. The guard
-               # treats an empty value as absent, so pin it to "" to genuinely
-               # simulate the Executor shell.
                env:
-                 [{"AIUR_AGENT_WORKSPACE", ""}] ++
-                   Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end),
+                 Enum.reject(guard_env(context), fn {name, _value} -> name == "AIUR_AGENT_WORKSPACE" end) ++
+                   [{"AIUR_AGENT_WORKSPACE", ""}],
                stderr_to_stdout: true
              )
   end
@@ -802,54 +803,58 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
   end
 
-  test "a resource hold blocks the high-level command it covers", context do
+  test "a graphql resource hold blocks the GraphQL high-level read", context do
+    budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
+
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "graphql", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
     timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
 
-    # Separate databases so the graphql hold from the first scenario cannot
-    # outlive the budget it was made against and hold the second one.
-    graphql_root = Path.join(context.state_path, "graphql-hold-budget")
-    core_root = Path.join(context.state_path, "core-hold-budget")
-
-    graphql_env =
-      guard_env(context) ++
-        [
-          {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-          {"AIUR_GITHUB_BUDGET_ROOT", graphql_root},
-          {"AIUR_GITHUB_BUDGET_KEY", key},
-          {"AIUR_GITHUB_BUDGET_BROKER", broker}
-        ]
-
-    core_env =
-      guard_env(context) ++
-        [
-          {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
-          {"AIUR_GITHUB_BUDGET_ROOT", core_root},
-          {"AIUR_GITHUB_BUDGET_KEY", key},
-          {"AIUR_GITHUB_BUDGET_BROKER", broker}
-        ]
-
-    # `pr view` is GraphQL on the wire, so a graphql resource hold blocks it
-    # (#2299) and no upstream call is made.
-    assert {"", 0} =
-             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "graphql", "--delay-ms", "60000", "--db", Path.join(graphql_root, "budget.sqlite3"), "--token-key", key])
-
+    # `pr view` is GraphQL on the wire, so a GraphQL resource hold must block it.
     assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"], env: graphql_env, stderr_to_stdout: true)
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
+                   ],
+               stderr_to_stdout: true
+             )
 
     refute File.exists?(context.calls)
+  end
 
-    # A core hold leaves the GraphQL read alone and blocks a REST high-level
-    # read (`pr diff`) instead — the same hold, the command's own budget.
+  test "a core resource hold blocks a REST high-level command", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
     assert {"", 0} =
-             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "core", "--delay-ms", "60000", "--db", Path.join(core_root, "budget.sqlite3"), "--token-key", key])
+             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "core", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    assert {"ok\n", 0} =
-             System.cmd(context.wrapper, ["pr", "view", "1670"], env: core_env, stderr_to_stdout: true)
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
 
+    # `pr diff` is REST, so a core resource hold must block it.
     assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "pr", "diff", "1670"], env: core_env, stderr_to_stdout: true)
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "diff", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    refute File.exists?(context.calls)
   end
 
   test "a guarded high-level command fails closed before native pagination can bypass admissions", context do
@@ -891,20 +896,23 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    # `gh pr list` is GraphQL on the wire, so its guarded admission bills the
-    # GraphQL window rather than a core `pulls` row (#2299). The descriptive
-    # family stays `pulls` for the lease pool; the booked `resource` is what the
-    # broker's hourly accounting counts.
+    # `pr list` is GraphQL on the wire but keeps the descriptive pulls family
+    # (the lease-pool and audit key), so its single guarded admission books
+    # resource=graphql while the family stays pulls.
     assert %{"admissions" => [%{"endpoint_family" => "pulls", "resource" => "graphql"}]} = Jason.decode!(snapshot)
   end
 
-  # The decoupled axes: `endpoint_family` stays descriptive (pulls/issues/search)
-  # so the concurrency lease pool and the audit histogram keep their shape, while
-  # `resource` is the accounting bucket the hourly ceiling counts. A regression
-  # that books `pr view` to core, or collapses the family to graphql, fails here
-  # on the column it broke.
-  test "broker admissions keep the descriptive family and the booked resource separate", context do
-    budget_root = Path.join(context.state_path, "decoupled-budget")
+  # The family/bucket split this issue exists for: `pr view|list|status|checks`,
+  # `issue view|list|status`, and `search` all speak GraphQL on the wire and must
+  # be booked to the graphql resource — not core. They KEEP their descriptive
+  # families (pulls / issues / search) so the lease pool and the audit histogram
+  # stay separated — the broker's hourly accounting buckets on the booked
+  # `resource`, not on the family. The broker records the `resource` the guard
+  # booked each admission to, so a regression that books `pr view` to core fails
+  # here on `resource`, and a regression that collapses every GraphQL arm onto
+  # one family (merging the lease pools) fails here on `endpoint_family`.
+  test "high-level GraphQL commands book the graphql resource, not core", context do
+    budget_root = Path.join(context.state_path, "graphql-read-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
 
@@ -914,43 +922,221 @@ defmodule Aiur.AgentGitHubGuardTest do
       AIUR_GITHUB_BUDGET_BROKER: broker
     ]
 
-    assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], env)
-    assert {"ok\n", 0} = run_guard(context, ["pr", "diff", "1670"], env)
-    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"], env)
-    assert {"ok\n", 0} = run_guard(context, ["search", "issues", "state:open"], env)
-    assert {"ok\n", 0} = run_guard(context, ["search", "repos", "owner"], env)
+    graphql_commands = [
+      {["pr", "view", "1670"], "pulls"},
+      {["pr", "list"], "pulls"},
+      {["pr", "status"], "pulls"},
+      {["pr", "checks", "1670"], "pulls"},
+      {["issue", "view", "1670"], "issues"},
+      {["issue", "list"], "issues"},
+      {["issue", "status"], "issues"},
+      {["search", "issues", "state:open"], "search"}
+    ]
+
+    for {args, _family} <- graphql_commands do
+      assert {"ok\n", 0} = run_guard(context, args, env), "admission failed for #{inspect(args)}"
+    end
 
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
     admissions = Jason.decode!(snapshot)["admissions"]
-    assert length(admissions) == 5
-    pairs = admissions |> Enum.map(&{&1["endpoint_family"], &1["resource"]}) |> Enum.sort()
+    assert length(admissions) == length(graphql_commands)
 
-    # GraphQL-on-the-wire reads keep their pulls/issues families for the lease
-    # pool but book the graphql resource for accounting; `pr diff` is a core
-    # pull; the search subcommands keep the search family and book graphql
-    # (issues) or search (repos).
-    assert pairs == [
-             {"issues", "graphql"},
-             {"pulls", "core"},
-             {"pulls", "graphql"},
-             {"search", "graphql"},
-             {"search", "search"}
-           ]
+    for {{_args, family}, admission} <- Enum.zip(graphql_commands, admissions) do
+      assert admission["endpoint_family"] == family
+      assert admission["resource"] == "graphql"
+    end
   end
 
-  test "a search command consumes the search actor ceiling, not the core one", context do
+  # `gh search` splits across two wire transports (measured with `GH_DEBUG=api`):
+  # `search issues|prs` are GraphQL, while `search repos|code|commits|users`
+  # hit REST `/search/*`, which GitHub meters as a third pool, `search` (~30
+  # req/min rather than 5,000/hr). Booking the search subcommands to core or
+  # graphql mis-states the spend and paces nothing against the pool that
+  # throttles first, so the `search` resource is its own bucket.
+  test "gh search subcommands book the search resource, not core or graphql", context do
+    budget_root = Path.join(context.state_path, "search-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker
+    ]
+
+    search_commands = [
+      ["search", "repos", "state:open"],
+      ["search", "code", "foobar"],
+      ["search", "commits", "fix"],
+      ["search", "users", "everdred"]
+    ]
+
+    for args <- search_commands do
+      assert {"ok\n", 0} = run_guard(context, args, env), "admission failed for #{inspect(args)}"
+    end
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    admissions = Jason.decode!(snapshot)["admissions"]
+    assert length(admissions) == length(search_commands)
+
+    for admission <- admissions do
+      assert admission["endpoint_family"] == "search"
+      assert admission["resource"] == "search"
+    end
+  end
+
+  test "REST high-level commands stay in the core bucket", context do
+    budget_root = Path.join(context.state_path, "rest-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker
+    ]
+
+    rest_commands = [
+      # `pr diff` is REST even though `pr view|list|status|checks` are GraphQL.
+      {["pr", "diff", "1670"], "pulls"},
+      {["pr", "close", "1670"], "pulls"},
+      {["issue", "edit", "1670", "--body", "x"], "issues"},
+      {["issue", "comment", "1670", "--body", "x"], "issues"}
+    ]
+
+    for {args, _family} <- rest_commands do
+      assert {"ok\n", 0} = run_guard(context, args, env), "admission failed for #{inspect(args)}"
+    end
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    admissions = Jason.decode!(snapshot)["admissions"]
+    assert length(admissions) == length(rest_commands)
+
+    for {{_args, family}, admission} <- Enum.zip(rest_commands, admissions) do
+      # REST commands book to core and keep their descriptive family. Asserting
+      # the positive family (rather than `!= "graphql"`) makes this fail if a
+      # future change ever moved `pr diff` into the graphql family.
+      assert admission["endpoint_family"] == family
+      assert admission["resource"] == "core"
+    end
+  end
+
+  test "the GraphQL write subcommands book the graphql resource", context do
+    budget_root = Path.join(context.state_path, "graphql-write-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker
+    ]
+
+    # `pr create`, `pr merge`, `pr review`, and `issue create` mutate through
+    # GraphQL. Merge and approve are agent-gated, so `pr merge` runs under the
+    # Executor wrapper and `pr review` as a non-approving comment review.
+    assert {"ok\n", 0} = run_guard(context, ["pr", "create", "--title", "x"], env)
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "7", "--comment", "--body", "looks reasonable"], env)
+    assert {"ok\n", 0} = run_guard(context, ["issue", "create", "--title", "x", "--label", "agent:todo"], env)
+    assert {"ok\n", 0} = run_executor_guard(context, ["pr", "merge", "1670", "--squash"], env)
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    admissions = Jason.decode!(snapshot)["admissions"]
+    assert length(admissions) == 4
+
+    # The GraphQL write subcommands keep their descriptive family (pulls for
+    # `pr create|review|merge`, issues for `issue create`) while booking the
+    # graphql resource — the broker buckets the hourly accounting on `resource`.
+    assert Enum.map(admissions, & &1["endpoint_family"]) == ["pulls", "pulls", "issues", "pulls"]
+
+    for admission <- admissions do
+      assert admission["resource"] == "graphql"
+    end
+  end
+
+  test "pr view consumes the graphql actor ceiling, not the core one", context do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
     timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
 
-    # Pin the broker consumer so the two invocations below are the same actor.
+    # The per-actor ceiling is keyed by the broker consumer. Pin it to one
+    # literal so the two invocations below — one spawned directly, one through
+    # `timeout`, whose wrapper PPID differs — are the same actor and the ceiling
+    # accumulates deterministically in every environment. Relying on the ambient
+    # AIUR_GITHUB_BUDGET_CONSUMER made this pass in agent workspaces (where it is
+    # set) and fail in CI (where it is not).
+    consumer = "pr-view-ceiling-test"
+
+    # A graphql ceiling of 1: the second `pr view` holds, proving `pr view`
+    # spends against the GraphQL budget. If it were still booked to core (the
+    # pre-fix behaviour) this hold would never fire.
+    graphql_budget = Path.join(context.state_path, "graphql-ceiling-budget")
+
+    graphql_env = [
+      AIUR_GITHUB_BUDGET_ROOT: graphql_budget,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_BUDGET_CONSUMER: consumer,
+      AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR: "1",
+      AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "0"
+    ]
+
+    assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], graphql_env)
+
+    assert {_output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", graphql_budget},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
+                     {"AIUR_GITHUB_BUDGET_CONSUMER", consumer},
+                     {"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", "1"},
+                     {"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", "0"}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    # A core ceiling of 1 with the graphql ceiling disabled: `pr view` is
+    # admitted repeatedly because it never touches the core budget.
+    core_budget = Path.join(context.state_path, "core-ceiling-budget")
+
+    core_env = [
+      AIUR_GITHUB_BUDGET_ROOT: core_budget,
+      AIUR_GITHUB_BUDGET_KEY: key,
+      AIUR_GITHUB_BUDGET_BROKER: broker,
+      AIUR_GITHUB_BUDGET_CONSUMER: consumer,
+      AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
+      AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR: "0"
+    ]
+
+    assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], core_env)
+    assert {"ok\n", 0} = run_guard(context, ["pr", "view", "1670"], core_env)
+  end
+
+  test "a search subcommand consumes the search actor ceiling, not the core one", context do
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    # `gh search repos` is metered as `search` (~30 req/min), its own pool, so
+    # it must spend against a search ceiling rather than the core or graphql
+    # windows. A search limit of 1 holds the second call; if `search repos` were
+    # still booked to core or graphql this hold would never fire.
     consumer = "search-ceiling-test"
     search_budget = Path.join(context.state_path, "search-ceiling-budget")
 
     search_env = [
-      AIUR_GITHUB_BUDGET_ENABLED: "1",
       AIUR_GITHUB_BUDGET_ROOT: search_budget,
       AIUR_GITHUB_BUDGET_KEY: key,
       AIUR_GITHUB_BUDGET_BROKER: broker,
@@ -960,14 +1146,22 @@ defmodule Aiur.AgentGitHubGuardTest do
       AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR: "0"
     ]
 
-    # A search ceiling of 1: the second `search repos` holds, proving `search
-    # repos` spends against the search budget. A core ceiling of 1 with search
-    # disabled admits it repeatedly, proving it never touches the core budget.
-    assert {"ok\n", 0} = run_guard(context, ["search", "repos", "owner"], search_env)
+    assert {"ok\n", 0} = run_guard(context, ["search", "repos", "state:open"], search_env)
 
     assert {_output, 124} =
-             System.cmd(timeout, ["0.2", context.wrapper, "search", "repos", "owner"],
-               env: guard_env(context) ++ Enum.map(search_env, fn {k, v} -> {Atom.to_string(k), v} end),
+             System.cmd(timeout, ["0.2", context.wrapper, "search", "repos", "state:open"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", search_budget},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
+                     {"AIUR_GITHUB_BUDGET_CONSUMER", consumer},
+                     {"AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR", "1"},
+                     {"AIUR_GITHUB_CORE_LIMIT_PER_HOUR", "0"},
+                     {"AIUR_GITHUB_GRAPHQL_LIMIT_PER_HOUR", "0"}
+                   ],
                stderr_to_stdout: true
              )
   end
@@ -1530,6 +1724,28 @@ defmodule Aiur.AgentGitHubGuardTest do
              )
 
     assert output =~ "refusing uncoordinated request"
+    assert output =~ budget_root
+    assert output =~ "agent.codex.turn_sandbox_policy.writableRoots"
+    refute File.exists?(context.calls)
+  end
+
+  test "an unavailable budget root names the root and recovery configuration", context do
+    parent_file = Path.join(context.state_path, "not-a-directory")
+    budget_root = Path.join(parent_file, "github-budget")
+    File.mkdir_p!(context.state_path)
+    File.write!(parent_file, "blocking file")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+             )
+
+    assert output =~ "shared budget unavailable"
+    assert output =~ budget_root
+    assert output =~ "repair ownership/permissions and redispatch"
+    assert output =~ "agent.codex.turn_sandbox_policy.writableRoots"
     refute File.exists?(context.calls)
   end
 
@@ -2548,26 +2764,105 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert upstream_calls(context) == 1
     end
 
-    test "hits and misses are recorded for cost attribution", context do
-      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
-      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+    test "ten identical reads spend once and report a ninety percent hit rate", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+
+      outputs =
+        for _read <- 1..10 do
+          assert {output, 0} = run_cached_guard(context, args)
+          output
+        end
+
+      assert Enum.uniq(outputs) |> length() == 1
+      assert upstream_calls(context) == 1
+
+      events = Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
 
       rows =
-        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        events
         |> File.read!()
         |> String.split("\n", trim: true)
         |> Enum.map(&String.split(&1, "\t"))
 
-      # The miss carries a sixth-column reason so the 97% miss rate can be
-      # classified rather than guessed (#2299); the first read of a cold store
-      # misses as `absent`.
-      assert Enum.any?(
-               rows,
-               &match?([_at, _consumer, "miss", "pr", "1670", reason] when reason in ~w(absent bypassed corrupt clock-skewed expired invalidated), &1)
-             )
+      assert Enum.count(rows, &match?([_at, _consumer, "miss", "pr", "1670", "absent"], &1)) == 1
+      assert Enum.count(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1)) == 1
+      assert Enum.count(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1)) == 9
 
-      assert Enum.any?(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1))
-      assert Enum.any?(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1))
+      metrics = AgentCacheMetrics.snapshot(paths: [events])
+      assert metrics.hits == 9
+      assert metrics.misses == 1
+      assert metrics.hit_ratio == 0.9
+    end
+
+    test "multiple rotations retain one complete measurement window", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+      assert {_, 0} = run_cached_guard(context, args)
+
+      events = Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+      row = "#{System.os_time(:second)}\tticket:1670\thit\tpr\t1670\n"
+      oversized = String.duplicate(row, div(1_048_576, byte_size(row)) + 1)
+
+      File.write!(events, oversized)
+      assert {_, 0} = run_cached_guard(context, args)
+      File.write!(events, oversized)
+      assert {_, 0} = run_cached_guard(context, args)
+
+      archives = Path.wildcard(events <> ".*")
+      assert length(archives) == 2
+
+      metrics = AgentCacheMetrics.snapshot(paths: [events | archives])
+      assert metrics.sources_read == 3
+      assert metrics.hits > 50_000
+      assert upstream_calls(context) == 1
+    end
+
+    test "miss rows classify every cache lookup failure", context do
+      args = ["pr", "view", "1670", "--json", "body"]
+
+      # No artifact exists yet.
+      assert {_, 0} = run_cached_guard(context, args)
+      [{_key, body}] = cached_shapes(context)
+      meta = String.replace_suffix(body, ".body", ".meta")
+
+      # A caller explicitly refusing replay.
+      assert {_, 0} = run_cached_guard(context, args, AIUR_GITHUB_STATE_CACHE_BYPASS: "1")
+
+      # An unreadable body and timestamp are both corrupt artifacts.
+      File.chmod!(body, 0o000)
+      assert {_, 0} = run_cached_guard(context, args)
+      assert last_cache_miss_reason(context) == "corrupt"
+
+      File.write!(meta, "not-a-timestamp\n")
+      assert {_, 0} = run_cached_guard(context, args)
+
+      # Future timestamp and timestamp outside the TTL have distinct causes.
+      File.write!(meta, "#{System.os_time(:second) + 60}\n")
+      assert {_, 0} = run_cached_guard(context, args)
+      File.write!(meta, "1\n")
+      assert {_, 0} = run_cached_guard(context, args)
+
+      # A stamp that survived while its body vanished is a torn entry — the
+      # store was pruned or a partial write removed the body. It is a distinct
+      # cause from `absent` (nothing was ever stored) and from `corrupt`
+      # (present but unreadable).
+      File.rm!(body)
+      assert {_, 0} = run_cached_guard(context, args)
+      assert last_cache_miss_reason(context) == "torn"
+
+      # A daemon-side resource retirement is the final independent cause.
+      assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
+      assert {_, 0} = run_cached_guard(context, args)
+
+      reasons =
+        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&String.split(&1, "\t"))
+        |> Enum.filter(&(Enum.at(&1, 2) == "miss"))
+        |> Enum.map(&Enum.at(&1, 5))
+        |> MapSet.new()
+
+      assert reasons == MapSet.new(~w(absent bypassed corrupt torn clock-skewed expired invalidated))
     end
 
     test "a stale entry's miss is classified as expired rather than absent", context do
@@ -2697,17 +2992,20 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert upstream_calls(context) == 2
     end
 
-    test "a REST read of a pull request is filed under that pull request", context do
-      # The join with the daemon's writers. `gh api repos/owner/repo/pulls/1670`
-      # and `gh pr view 1670` are the same resource; filed under a digest of the
-      # URL instead, the first would survive a writer retiring the second.
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+    test "a REST read of an issue is filed under that issue", context do
+      # The join with the daemon's writers. `gh api repos/owner/repo/issues/1670`
+      # and `gh issue view 1670` are the same resource; filed under a digest of the
+      # URL instead, the first would survive a writer retiring the second. Pull
+      # requests are exercised separately: their REST resource is a merge
+      # verdict and is refused outright (see the REST verdict test), so the
+      # identity join is proven on the issue resource, which is still cacheable.
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
       assert upstream_calls(context) == 1
 
       assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
 
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670"])
       assert upstream_calls(context) == 2
     end
 
@@ -2801,6 +3099,44 @@ defmodule Aiur.AgentGitHubGuardTest do
       end
     end
 
+    test "REST verdict and merge-gating reads are never served from the store", context do
+      endpoints = [
+        "repos/owner/repo/commits/deadbeef/check-runs",
+        "repos/owner/repo/commits/deadbeef/check-suites",
+        "repos/owner/repo/commits/deadbeef/status",
+        "repos/owner/repo/statuses/main",
+        "repos/owner/repo/pulls/1670",
+        "repos/owner/repo/pulls/1670/merge",
+        "repos/owner/repo/pulls/1670/requested_reviewers",
+        "repos/owner/repo/pulls/1670/reviews",
+        "repos/owner/repo/actions/runs"
+      ]
+
+      for endpoint <- endpoints do
+        File.rm(context.calls)
+
+        assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+        assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+
+        assert upstream_calls(context) == 2, "#{endpoint} was served from the store"
+      end
+
+      assert cache_events(context, "hit") == 0
+      assert cache_events(context, "miss") == 0
+      assert cached_shapes(context) == []
+    end
+
+    test "stable Actions workflow metadata is still shared", context do
+      endpoint = "repos/owner/repo/actions/workflows"
+
+      assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+      assert {_, 0} = run_cached_guard(context, ["api", endpoint])
+
+      assert upstream_calls(context) == 1
+      assert cache_events(context, "miss") == 1
+      assert cache_events(context, "hit") == 1
+    end
+
     test "a field set carrying no verdict is still shared", context do
       # The exclusion must be the named fields, not `--json` in general.
       assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body,title,author"])
@@ -2878,29 +3214,69 @@ defmodule Aiur.AgentGitHubGuardTest do
     end
 
     test "a REST read with a query string is still filed under its resource", context do
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      # Pull requests are a refused verdict resource (see the REST verdict test),
+      # so the query-string identity rule is exercised on the issue resource,
+      # which is still cacheable.
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
       assert upstream_calls(context) == 1
 
       assert :ok = AgentCache.invalidate("owner/repo", 1670, state_dir: cache_state_dir(context))
 
-      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/pulls/1670?per_page=1"])
+      assert {_, 0} = run_cached_guard(context, ["api", "repos/owner/repo/issues/1670?per_page=1"])
       assert upstream_calls(context) == 2
     end
 
-    test "a vanished body falls through instead of answering with nothing", context do
+    test "a body that vanished before lookup falls through and is recorded as torn", context do
+      # The original hazard this pair guards: the store's prune (`cache_prune`,
+      # `-mmin +120 -delete` on `*.body` and `*.meta`) or a partial disk-full
+      # write can leave a meta behind while its body is gone. That is a torn
+      # entry, not a cold read — it must fall through to the real `gh` (never
+      # answer with nothing) and be recorded as `torn`, so the dashboard shows a
+      # store-integrity failure instead of a wall of `absent` that reads as a
+      # cold cache with diverse shapes.
       assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
       [{_shape, body}] = cached_shapes(context)
 
-      # The entry's stamp survives its body — the window between a writer removing
-      # a body it could not commit and the reader that already passed the
-      # readability check.
       File.rm!(body)
 
       assert {output, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert output != ""
+      assert upstream_calls(context) == 2
+      assert last_cache_miss_reason(context) == "torn"
+    end
+
+    test "a body vanishing after lookup is fetched and recorded as corrupt", context do
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      [{_shape, body}] = cached_shapes(context)
+
+      real_cat = System.find_executable("cat") || flunk("cat is required")
+      fake_cat = Path.join(Path.dirname(context.fake_gh), "cat")
+
+      File.write!(
+        fake_cat,
+        """
+        #!/bin/sh
+        if [ -n "${FAKE_CAT_VANISH:-}" ]; then
+          case "${1:-}" in *.body) rm -f -- "$1" ;; esac
+        fi
+        exec "#{real_cat}" "$@"
+        """
+      )
+
+      File.chmod!(fake_cat, 0o755)
+
+      env = [
+        FAKE_CAT_VANISH: body,
+        PATH: "#{Path.dirname(context.fake_gh)}:#{System.get_env("PATH")}"
+      ]
+
+      assert {output, 0} =
+               run_cached_guard(context, ["pr", "view", "1670", "--json", "body"], env)
 
       assert output != ""
       assert upstream_calls(context) == 2
+      assert last_cache_miss_reason(context) == "corrupt"
     end
 
     test "the merge gate still refuses with the store enabled", context do
@@ -2995,6 +3371,20 @@ defmodule Aiur.AgentGitHubGuardTest do
       _missing ->
         0
     end
+  end
+
+  defp last_cache_miss_reason(context) do
+    [context.state_path, "github-quota", "agent-cache.tsv"]
+    |> Path.join()
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.reverse()
+    |> Enum.find_value(fn row ->
+      case String.split(row, "\t") do
+        [_at, _consumer, "miss", _kind, _id, reason] -> reason
+        _other -> nil
+      end
+    end)
   end
 
   # Each stored answer as the broker names it: `owner/repo/kind/id/<shape>`.

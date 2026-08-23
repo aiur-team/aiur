@@ -86,13 +86,19 @@ defmodule Aiur.GitHub.ReadCache do
   # a memory leak.
   @max_entries 20_000
 
-  # A retention bound for the sweep, deliberately far above the 30s TTLs
-  # `Policy` currently hands out. It is not the maximum TTL and must not be
-  # tightened to match one: `:github_read_cache_ttls` lets an operator raise a
-  # TTL at runtime, and a sweep that dropped entries still inside their window
-  # would turn a config change into silent cache misses. Freshness is decided on
-  # read, so sweeping late costs memory and sweeping early costs points.
-  @max_ttl_ms 60 * 60_000
+  # A retention bound for the sweep, deliberately far above the TTLs `Policy`
+  # hands out. It is not the maximum TTL and must not be tightened to match one:
+  # `:github_read_cache_ttls` lets an operator raise a TTL at runtime, and a
+  # sweep that dropped entries still inside their window would turn a config
+  # change into silent cache misses. Freshness is decided on read, so sweeping
+  # late costs memory and sweeping early costs points.
+  #
+  # `Policy` now issues hour-long TTLs to webhook-backed repos (the delivery
+  # retires what it changes, so the TTL is a backstop rather than a freshness
+  # guess), so the bound sits at four hours to stay well above the largest TTL
+  # the cache can issue today and the largest an operator override is likely to
+  # set.
+  @max_ttl_ms 4 * 60 * 60_000
   @sweep_interval_ms 60_000
 
   @type identity :: Identity.t()
