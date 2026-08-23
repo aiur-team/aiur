@@ -7,7 +7,7 @@ defmodule Aiur.Workspace.ReconstructionTest do
   alias Aiur.Workspace.Provisioner
 
   setup do
-    root = Path.join(System.tmp_dir!(), "workspace-reconstruction-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("workspace-reconstruction")
     workspace = Path.join(root, "ticket")
     File.mkdir_p!(workspace)
 

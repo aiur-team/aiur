@@ -4,7 +4,7 @@ defmodule Aiur.Init.CodeownersTest do
   alias Aiur.Init.Codeowners
 
   setup do
-    dir = System.tmp_dir!() |> Path.join("codeowners-test-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("codeowners-test")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     {:ok, dir: dir}

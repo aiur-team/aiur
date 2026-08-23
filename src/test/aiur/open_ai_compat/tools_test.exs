@@ -29,7 +29,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
   end
 
   test "workspace file tools reject symlinks that escape the workspace" do
-    workspace = Path.join(System.tmp_dir!(), "aiur-tools-#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("aiur-tools")
     File.mkdir_p!(workspace)
     File.ln_s!(System.tmp_dir!(), Path.join(workspace, "outside"))
     on_exit(fn -> File.rm_rf!(workspace) end)
@@ -55,7 +55,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
   end
 
   test "workspace file tools write, replace, and list files" do
-    workspace = Path.join(System.tmp_dir!(), "aiur-tools-edit-#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("aiur-tools-edit")
     File.mkdir_p!(workspace)
     on_exit(fn -> File.rm_rf!(workspace) end)
     context = %{workspace: workspace, tool_executor: nil}
@@ -72,7 +72,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
   end
 
   test "workspace file listing supports recursive, grouped, and character-class globs" do
-    workspace = Path.join(System.tmp_dir!(), "aiur-tools-glob-#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("aiur-tools-glob")
     File.mkdir_p!(Path.join(workspace, "nested/deep"))
     File.write!(Path.join(workspace, "root.ex"), "")
     File.write!(Path.join(workspace, "nested/one.exs"), "")
@@ -92,7 +92,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
   end
 
   test "workspace file listing stops at its response limit" do
-    workspace = Path.join(System.tmp_dir!(), "aiur-tools-limit-#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("aiur-tools-limit")
     File.mkdir_p!(workspace)
 
     for index <- 1..2_050 do
@@ -109,7 +109,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
   end
 
   test "workspace replacement requires exactly one match" do
-    workspace = Path.join(System.tmp_dir!(), "aiur-tools-replace-#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("aiur-tools-replace")
     File.mkdir_p!(workspace)
     File.write!(Path.join(workspace, "note.txt"), "same same")
     on_exit(fn -> File.rm_rf!(workspace) end)
@@ -195,7 +195,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
         :ok
 
       executable ->
-        root = Path.join(System.tmp_dir!(), "aiur-command-isolation-#{System.unique_integer([:positive])}")
+        root = Aiur.TestSupport.tmp_root!("aiur-command-isolation")
         workspace = Path.join(root, "workspace")
         File.mkdir_p!(workspace)
         File.write!(Path.join(root, "host-secret"), "not visible")

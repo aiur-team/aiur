@@ -15,12 +15,7 @@ defmodule ScriptsAiurdevTest do
 
   # A fake repo root whose engine just echoes how the shim invoked it, so we can
   # assert on AIUR_RELEASE_DIR + forwarded args without building a real release.
-  defp fake_repo(
-         root \\ Path.join(
-           System.tmp_dir!(),
-           "aiurdev-shim-#{System.unique_integer([:positive])}"
-         )
-       ) do
+  defp fake_repo(root \\ Aiur.TestSupport.tmp_root!("aiurdev-shim")) do
     libexec = Path.join([root, "packaging", "npm", "aiur-cli", "libexec"])
     File.mkdir_p!(libexec)
     # `--test` resets the sandbox from $repo_root/src; the dir must exist to cd into.
@@ -85,7 +80,7 @@ defmodule ScriptsAiurdevTest do
         "aiur-workspaces",
         "repo",
         to_string(issue),
-        "aiurdev-shim-#{System.unique_integer([:positive])}"
+        Aiur.TestSupport.tmp_root!("aiurdev-shim")
       ])
 
     fake_repo(root)
@@ -154,7 +149,7 @@ defmodule ScriptsAiurdevTest do
   # A fake mise that records how it was invoked and succeeds, so `--test`'s
   # `mise exec -- mix aiur.test.reset` runs without a real toolchain.
   defp fake_mise do
-    path = Path.join(System.tmp_dir!(), "aiurdev-mise-#{System.unique_integer([:positive])}")
+    path = Aiur.TestSupport.tmp_root!("aiurdev-mise")
     opencode_dir = path <> ".opencode"
 
     File.write!(
@@ -235,7 +230,7 @@ defmodule ScriptsAiurdevTest do
   # A throwaway HOME so `--clear` (which wipes ~/.aiur/logs) never touches the
   # real one. Seeds a stale session dir the caller can assert was removed.
   defp sandbox_home do
-    home = Path.join(System.tmp_dir!(), "aiurdev-home-#{System.unique_integer([:positive])}")
+    home = Aiur.TestSupport.tmp_root!("aiurdev-home")
     File.mkdir_p!(Path.join([home, ".aiur", "logs", "old-session"]))
     on_exit(fn -> File.rm_rf!(home) end)
     home
@@ -277,7 +272,7 @@ defmodule ScriptsAiurdevTest do
   # ~/.local/bin/aiurdev -> <checkout>/scripts/aiurdev, the install that makes
   # the divergence reachable in the first place.
   defp global_shim(target) do
-    bin = Path.join(System.tmp_dir!(), "aiurdev-bin-#{System.unique_integer([:positive])}")
+    bin = Aiur.TestSupport.tmp_root!("aiurdev-bin")
     link = Path.join(bin, "aiurdev")
 
     File.mkdir_p!(bin)
@@ -703,7 +698,7 @@ defmodule ScriptsAiurdevTest do
     mise = fake_mise()
     log = Path.join(root, "release.log")
 
-    shim_dir = Path.join(System.tmp_dir!(), "aiur dev shim-#{System.unique_integer([:positive])}")
+    shim_dir = Aiur.TestSupport.tmp_root!("aiur dev shim")
     File.mkdir_p!(shim_dir)
     shim = Path.join(shim_dir, "aiurdev")
     File.cp!(@script, shim)
@@ -1073,7 +1068,7 @@ defmodule ScriptsAiurdevTest do
     # `async: true` module's two PWD-fallback tests) can't collide on a fixed
     # path. A sibling run's `rm_rf` would otherwise yank the dir out from under
     # another run's cwd and surface as `MatchError {:error, :enoent}`.
-    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "482-#{System.unique_integer([:positive])}"])
+    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", Aiur.TestSupport.tmp_root!("482")])
     home = sandbox_home()
     mise = fake_mise()
 
@@ -1111,7 +1106,7 @@ defmodule ScriptsAiurdevTest do
     root = fake_repo()
     # Per-run unique id under `aiur-workspaces` (see the sibling test above) to
     # keep concurrent runs sharing `/tmp` from colliding on a fixed path.
-    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", "483-#{System.unique_integer([:positive])}"])
+    pwd = Path.join([System.tmp_dir!(), "aiur-workspaces", "repo", Aiur.TestSupport.tmp_root!("483")])
     home = sandbox_home()
     mise = fake_mise()
 
@@ -1399,7 +1394,7 @@ defmodule ScriptsAiurdevTest do
           System.tmp_dir!(),
           "aiur-workspaces",
           "repo",
-          "9001-#{System.unique_integer([:positive])}"
+          Aiur.TestSupport.tmp_root!("9001")
         ])
 
       {workspace, _shim_w} = fake_checkout(workspace)
@@ -1562,7 +1557,7 @@ defmodule ScriptsAiurdevTest do
       mise = fake_mise()
       # A repo-shaped directory missing src/mix.exs is not an aiur checkout, and
       # refusing there would block a legitimate run for nothing.
-      partial = Path.join(System.tmp_dir!(), "aiurdev-partial-#{System.unique_integer([:positive])}")
+      partial = Aiur.TestSupport.tmp_root!("aiurdev-partial")
       File.mkdir_p!(Path.join([partial, "packaging", "npm", "aiur-cli", "libexec"]))
       File.mkdir_p!(Path.join(partial, "scripts"))
       File.write!(Path.join([partial, "scripts", "aiurdev"]), "")
@@ -1615,7 +1610,7 @@ defmodule ScriptsAiurdevTest do
       # `git -C` walks up to the nearest enclosing repository. Stamping the outer
       # repo's HEAD would claim provenance for a tree nobody built — and would
       # then compare that borrowed SHA against itself on every later launch.
-      outer = Path.join(System.tmp_dir!(), "aiurdev-outer-#{System.unique_integer([:positive])}")
+      outer = Aiur.TestSupport.tmp_root!("aiurdev-outer")
       File.mkdir_p!(outer)
       on_exit(fn -> File.rm_rf!(outer) end)
       init_git_repo(outer)

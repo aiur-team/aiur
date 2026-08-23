@@ -444,7 +444,7 @@ defmodule Aiur.AgentRunnerTest do
       # Point the handle at a directory whose parent is a regular file, so the
       # underlying JsonStore.write! (mkdir_p!) raises. The agent run has already
       # started successfully; persistence is best-effort and must never take it down.
-      not_a_dir = Path.join(System.tmp_dir!(), "ar_persist_test_#{System.unique_integer([:positive])}")
+      not_a_dir = Aiur.TestSupport.tmp_root!("ar_persist_test")
       File.write!(not_a_dir, "x")
       on_exit(fn -> File.rm_rf(not_a_dir) end)
 

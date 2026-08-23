@@ -295,8 +295,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
   end
 
   defp with_fake_binaries(scripts, fun) do
-    unique = System.unique_integer([:positive, :monotonic])
-    root = Path.join(System.tmp_dir!(), "workspace-before-remove-task-test-#{unique}")
+    root = Aiur.TestSupport.tmp_root!("workspace-before-remove-task-test")
     bin_dir = Path.join(root, "bin")
     log_path = Path.join(root, "gh.log")
 
@@ -347,8 +346,7 @@ defmodule Mix.Tasks.Workspace.BeforeRemoveTest do
   end
 
   defp in_temp_dir(fun) do
-    unique = System.unique_integer([:positive, :monotonic])
-    root = Path.join(System.tmp_dir!(), "workspace-before-remove-empty-dir-#{unique}")
+    root = Aiur.TestSupport.tmp_root!("workspace-before-remove-empty-dir")
 
     File.rm_rf!(root)
     File.mkdir_p!(root)

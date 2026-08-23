@@ -4,7 +4,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
   alias Aiur.Claude.TranscriptTailer
 
   setup do
-    path = Path.join(System.tmp_dir!(), "tailer-#{System.unique_integer([:positive])}.jsonl")
+    path = Aiur.TestSupport.tmp_root!("tailer") <> ".jsonl"
     on_exit(fn -> File.rm(path) end)
     %{path: path, test_pid: self()}
   end

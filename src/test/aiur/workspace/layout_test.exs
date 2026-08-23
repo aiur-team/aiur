@@ -74,6 +74,6 @@ defmodule Aiur.Workspace.LayoutTest do
   end
 
   defp tmp_path(name) do
-    Path.join(System.tmp_dir!(), "#{name}-#{System.unique_integer([:positive])}")
+    Aiur.TestSupport.tmp_root!("#{name}")
   end
 end
