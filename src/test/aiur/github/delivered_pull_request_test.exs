@@ -20,13 +20,13 @@ defmodule Aiur.GitHub.DeliveredPullRequestTest do
   end
 
   test "answers the number a delivery recorded for the ticket" do
-    put(42, %{"number" => 77, "state" => "open"}, :webhook)
+    put(42, delivered_pull_request(), :webhook)
 
     assert DeliveredPullRequest.number_for_target("42", "owner", "repo") == 77
   end
 
   test "owner and repo casing cannot hide the delivered entry from the poller" do
-    put(42, %{"number" => 77, "state" => "open"}, :webhook)
+    put(42, delivered_pull_request(), :webhook)
 
     assert DeliveredPullRequest.number_for_target("42", "Owner", "Repo") == 77
   end
@@ -36,7 +36,7 @@ defmodule Aiur.GitHub.DeliveredPullRequestTest do
   # deposited is not wrong, but it is not free, and restricting to deliveries
   # keeps the saving attributable to the pipe that produced it.
   test "refuses a body that was not delivered" do
-    put(42, %{"number" => 77, "state" => "open"}, :fetch)
+    put(42, delivered_pull_request(), :fetch)
 
     assert DeliveredPullRequest.number_for_target("42", "owner", "repo") == nil
   end
@@ -46,14 +46,14 @@ defmodule Aiur.GitHub.DeliveredPullRequestTest do
   # entry that would send a poller to a superseded number is the entry this
   # refuses.
   test "refuses a delivered pull request that is no longer open" do
-    put(42, %{"number" => 77, "state" => "closed"}, :webhook)
+    put(42, Map.put(delivered_pull_request(), "state", "closed"), :webhook)
 
     assert DeliveredPullRequest.number_for_target("42", "owner", "repo") == nil
   end
 
   test "refuses a body with no usable number" do
-    put(42, %{"state" => "open"}, :webhook)
-    put(43, %{"number" => "77", "state" => "open"}, :webhook)
+    put(42, Map.delete(delivered_pull_request(), "number"), :webhook)
+    put(43, Map.put(delivered_pull_request(), "number", "77"), :webhook)
 
     assert DeliveredPullRequest.number_for_target("42", "owner", "repo") == nil
     assert DeliveredPullRequest.number_for_target("43", "owner", "repo") == nil
@@ -67,14 +67,14 @@ defmodule Aiur.GitHub.DeliveredPullRequestTest do
   # `recorded_at_ms`, which every write touches including a bodyless
   # processed-mark — the confusion #2174 is fixing in the eviction sweep.
   test "refuses a body older than the freshness bound" do
-    put(42, %{"number" => 77, "state" => "open"}, :webhook)
+    put(42, delivered_pull_request(), :webhook)
 
     assert DeliveredPullRequest.number_for_target("42", "owner", "repo", delivered_identity_max_age_ms: 0) == nil
     assert DeliveredPullRequest.number_for_target("42", "owner", "repo") == 77
   end
 
   test "a caller can opt out entirely without unwiring the module" do
-    put(42, %{"number" => 77, "state" => "open"}, :webhook)
+    put(42, delivered_pull_request(), :webhook)
 
     assert DeliveredPullRequest.number_for_target("42", "owner", "repo", delivered_identity: false) == nil
   end
@@ -84,9 +84,20 @@ defmodule Aiur.GitHub.DeliveredPullRequestTest do
     assert DeliveredPullRequest.number_for_target("42", "owner", nil) == nil
   end
 
+  test "refuses a delivered pull request from a fork" do
+    body = put_in(delivered_pull_request(), ["head", "repo", "full_name"], "contributor/fork")
+    put(42, body, :webhook)
+
+    assert DeliveredPullRequest.number_for_target("42", "owner", "repo") == nil
+  end
+
   defp put(target, body, source) do
     :branch_pull_request
     |> ResourceStore.key_for_repo(@repo, target)
     |> ResourceStore.put_resource(body, source: source, version: "2026-08-20T00:00:00Z")
+  end
+
+  defp delivered_pull_request do
+    %{"number" => 77, "state" => "open", "head" => %{"repo" => %{"full_name" => @repo}}}
   end
 end

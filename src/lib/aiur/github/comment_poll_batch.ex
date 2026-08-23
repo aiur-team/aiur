@@ -142,6 +142,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     Map.merge(entry, %{
       cached_threads: cached_threads,
       repo_identity: repo_identity,
+      expected_head_repo: repo_identity,
       snapshot_pr_number: snapshot_pr_number,
       started_at_ms: started_at_ms
     })
@@ -322,6 +323,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_identity_fields do
     """
     number state headRefName headRefOid baseRefName reviewDecision
+    headRepository { nameWithOwner }
     commits(last: 1) { nodes { commit { committedDate } } }
     """
   end
@@ -376,7 +378,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_for_entry(%{pull_request_number: _number} = entry, _direct, repository, index) do
     case Map.get(repository, "delivered_#{index}") do
       %{"headRefName" => _ref} = node ->
-        if open_pull_request_node?(node),
+        if open_pull_request_node?(node) and same_head_repo?(node, entry.expected_head_repo),
           do: {:ok, normalize_pull_request(node, Map.has_key?(node, "reviewThreads"))},
           else: :unknown
 
@@ -418,9 +420,27 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp open_pull_request_node?(node), do: node |> Map.get("state") |> to_string() |> String.downcase() == "open"
 
-  defp branch_pull_request(%{known_branch: false}, []), do: :unknown
-  defp branch_pull_request(_entry, []), do: {:ok, nil}
-  defp branch_pull_request(_entry, [node | _rest]), do: {:ok, normalize_pull_request(node, false)}
+  # Fork pull requests that reuse the ticket branch name are filtered out before
+  # the first-match decision, so a contributor's fork cannot be read as the
+  # ticket's own open pull request.
+  defp branch_pull_request(entry, nodes) do
+    nodes = Enum.filter(nodes, &same_head_repo?(&1, entry.expected_head_repo))
+
+    case {entry.known_branch, nodes} do
+      {false, []} -> :unknown
+      {true, []} -> {:ok, nil}
+      {_known_branch, [node | _rest]} -> {:ok, normalize_pull_request(node, false)}
+    end
+  end
+
+  defp same_head_repo?(pull_request, expected) when is_map(pull_request) and is_binary(expected) do
+    case get_in(pull_request, ["headRepository", "nameWithOwner"]) do
+      actual when is_binary(actual) -> String.downcase(actual) == String.downcase(expected)
+      _other -> false
+    end
+  end
+
+  defp same_head_repo?(_pull_request, _expected), do: false
 
   # No `:issue_comments` or `:pr_issue_comments` key is ever emitted now, so the
   # poller's `batch_value/3` answers `:missing` for both and every comment read

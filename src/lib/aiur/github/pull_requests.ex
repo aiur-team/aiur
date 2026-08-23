@@ -101,25 +101,28 @@ defmodule Aiur.GitHub.PullRequests do
         request_fun,
         token,
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}",
-        issue_number
+        issue_number,
+        "#{owner}/#{repo}"
       )
     end
   end
 
-  defp fetch_open_ticket_pull_request(_request_fun, _token, nil, _issue_number), do: {:ok, nil}
+  defp fetch_open_ticket_pull_request(_request_fun, _token, nil, _issue_number, _expected_head_repo),
+    do: {:ok, nil}
 
-  defp fetch_open_ticket_pull_request(request_fun, token, url, issue_number) do
+  defp fetch_open_ticket_pull_request(request_fun, token, url, issue_number, expected_head_repo) do
     case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         headers = Map.get(response, :headers, [])
 
-        case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
+        case Enum.find(body, &ticket_pull_request?(&1, issue_number, expected_head_repo)) do
           nil ->
             fetch_open_ticket_pull_request(
               request_fun,
               token,
               Transport.parse_next_page_url(headers),
-              issue_number
+              issue_number,
+              expected_head_repo
             )
 
           pull_request ->
@@ -163,7 +166,7 @@ defmodule Aiur.GitHub.PullRequests do
 
       case request_fun.(branch_pull_request_request(url, token, etag, opts)) do
         {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-          open_pull_request_list_page(request_fun, token, body, response, issue_number, etag, opts)
+          open_pull_request_list_page(request_fun, token, body, response, issue_number, etag, opts, "#{owner}/#{repo}")
 
         {:ok, %{status: 304} = response} ->
           {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
@@ -183,11 +186,11 @@ defmodule Aiur.GitHub.PullRequests do
     Transport.put_caller(request, opts)
   end
 
-  defp open_pull_request_list_page(request_fun, token, body, response, issue_number, etag, opts) do
+  defp open_pull_request_list_page(request_fun, token, body, response, issue_number, etag, opts, expected_head_repo) do
     headers = Map.get(response, :headers, [])
     first_etag = Transport.header(headers, "etag") || etag
 
-    case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
+    case Enum.find(body, &ticket_pull_request?(&1, issue_number, expected_head_repo)) do
       nil ->
         fetch_open_ticket_pull_request_pages(
           request_fun,
@@ -195,7 +198,8 @@ defmodule Aiur.GitHub.PullRequests do
           Transport.parse_next_page_url(headers),
           issue_number,
           first_etag,
-          opts
+          opts,
+          expected_head_repo
         )
 
       pull_request ->
@@ -203,15 +207,23 @@ defmodule Aiur.GitHub.PullRequests do
     end
   end
 
-  defp fetch_open_ticket_pull_request_pages(_request_fun, _token, nil, _issue_number, first_etag, _opts),
-    do: {:ok, nil, first_etag}
+  defp fetch_open_ticket_pull_request_pages(
+         _request_fun,
+         _token,
+         nil,
+         _issue_number,
+         first_etag,
+         _opts,
+         _expected_head_repo
+       ),
+       do: {:ok, nil, first_etag}
 
-  defp fetch_open_ticket_pull_request_pages(request_fun, token, url, issue_number, first_etag, opts) do
+  defp fetch_open_ticket_pull_request_pages(request_fun, token, url, issue_number, first_etag, opts, expected_head_repo) do
     case request_fun.(branch_pull_request_request(url, token, nil, opts)) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         headers = Map.get(response, :headers, [])
 
-        case Enum.find(body, &ticket_pull_request?(&1, issue_number)) do
+        case Enum.find(body, &ticket_pull_request?(&1, issue_number, expected_head_repo)) do
           nil ->
             fetch_open_ticket_pull_request_pages(
               request_fun,
@@ -219,7 +231,8 @@ defmodule Aiur.GitHub.PullRequests do
               Transport.parse_next_page_url(headers),
               issue_number,
               first_etag,
-              opts
+              opts,
+              expected_head_repo
             )
 
           pull_request ->
@@ -234,10 +247,18 @@ defmodule Aiur.GitHub.PullRequests do
     end
   end
 
-  defp ticket_pull_request?(%{"head" => %{"ref" => branch}}, issue_number) when is_binary(branch),
-    do: TicketBranch.ticket_branch?(branch, issue_number)
+  defp ticket_pull_request?(%{"head" => %{"ref" => branch} = head}, issue_number, expected_head_repo)
+       when is_binary(branch) do
+    TicketBranch.ticket_branch?(branch, issue_number) and
+      same_repo?(get_in(head, ["repo", "full_name"]), expected_head_repo)
+  end
 
-  defp ticket_pull_request?(_pull_request, _issue_number), do: false
+  defp ticket_pull_request?(_pull_request, _issue_number, _expected_head_repo), do: false
+
+  defp same_repo?(actual, expected) when is_binary(actual) and is_binary(expected),
+    do: String.downcase(actual) == String.downcase(expected)
+
+  defp same_repo?(_actual, _expected), do: false
 
   @doc """
   Fetches the GitHub check runs and legacy combined commit status for `sha`.

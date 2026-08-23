@@ -149,7 +149,7 @@ defmodule Aiur.GitHub.CIPollBatch do
         nil -> branch_target_entry(target, opts)
       end
 
-    Map.merge(entry, %{owner: owner, repo: repo, started_at_ms: started_at_ms})
+    Map.merge(entry, %{owner: owner, repo: repo, started_at_ms: started_at_ms, expected_head_repo: "#{owner}/#{repo}"})
   end
 
   defp branch_target_entry(target, opts) do
@@ -242,6 +242,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp pull_request_fields(_entry) do
     """
     number state headRefName headRefOid baseRefName
+    headRepository { nameWithOwner }
     isDraft reviewDecision mergeable mergeStateStatus
     autoMergeRequest { enabledAt }
     mergeQueueEntry { id }
@@ -285,7 +286,9 @@ defmodule Aiur.GitHub.CIPollBatch do
   defp match_entry(acc, %{pull_request_number: _number} = entry, repository, index) do
     case Map.get(repository, "delivered_#{index}") do
       %{"headRefName" => _ref} = node ->
-        if open_pull_request_node?(node), do: put_first_pull_request(acc, entry, node), else: acc
+        if open_pull_request_node?(node) and same_head_repo?(node, entry.expected_head_repo),
+          do: put_first_pull_request(acc, entry, node),
+          else: acc
 
       _other ->
         Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
@@ -319,8 +322,15 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   # The first candidate branch that resolves to an open PR wins. Only when no
   # candidate matched does the "no open PR" answer stand — and then only for a
-  # branch orchestration actually knows.
+  # branch orchestration actually knows. Fork pull requests that reuse the
+  # ticket branch name are filtered out before the first-match decision, so a
+  # contributor's fork cannot be read as the ticket's own open pull request.
   defp match_candidates(acc, entry, connections) do
+    connections =
+      Enum.map(connections, fn connection ->
+        Map.update!(connection, "nodes", &Enum.filter(&1, fn node -> same_head_repo?(node, entry.expected_head_repo) end))
+      end)
+
     case Enum.find(connections, fn %{"nodes" => nodes} -> nodes != [] end) do
       nil ->
         [connection | _rest] = connections
@@ -330,6 +340,15 @@ defmodule Aiur.GitHub.CIPollBatch do
         put_entry_result(acc, entry, Map.get(connection, "nodes"), Map.get(connection, "pageInfo") || %{})
     end
   end
+
+  defp same_head_repo?(pull_request, expected) when is_map(pull_request) and is_binary(expected) do
+    case get_in(pull_request, ["headRepository", "nameWithOwner"]) do
+      actual when is_binary(actual) -> String.downcase(actual) == String.downcase(expected)
+      _other -> false
+    end
+  end
+
+  defp same_head_repo?(_pull_request, _expected), do: false
 
   defp put_entry_result(acc, entry, nodes, page_info) do
     if Map.get(page_info, "hasNextPage") == true do
