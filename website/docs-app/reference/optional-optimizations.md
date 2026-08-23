@@ -1,6 +1,8 @@
 # Optional Optimizations
 
-Most of Aiur's performance work was built against one operator's fleet: a Cloudflare tunnel for webhook ingress, a GitHub App daemon identity, a tailnet, a physical Stream Deck, and a DeepSeek-first routing pin. None of it is required to run Aiur locally. This page is the "do I need this, and how do I turn it on" layer — what each optimization buys you, when you want it, and the exact steps to configure it. The mechanics (poll cadence, budgets, credential pooling, the read cache, webhook delivery states, the tunnel boundary) live in the [GitHub API reference](/apis/github).
+Most of Aiur's performance work was built against one operator's fleet: a Cloudflare tunnel, a GitHub App daemon identity, a tailnet, a physical Stream Deck, and a DeepSeek-first routing pin. None of it is required to run Aiur locally.
+
+This page is the "do I need this, and how do I turn it on" layer. The mechanics (poll cadence, budgets, credential pooling, the read cache, webhook delivery states, the tunnel boundary) live in the [GitHub API reference](/apis/github).
 
 ## Baseline: what a local developer actually needs
 
@@ -19,7 +21,7 @@ Nothing else is load-bearing. Webhooks, the tunnel, the GitHub App, Tailscale, d
 
 ### Bottleneck it solves
 
-A personal access token shares the operator account's rate-limit budget and, worse, makes the daemon authenticate as the operator — so the daemon's own comments look like the operator's and it can react to itself. A GitHub App installation token (about one hour lifetime, refreshed with a five-minute safety margin) gives the daemon its own budget and a bot identity it recognizes as its own.
+A personal access token shares the operator account's rate-limit budget and makes the daemon authenticate as the operator, so it can react to its own comments. An App installation token (about one hour lifetime, five-minute refresh margin) gives the daemon its own budget and a bot identity it recognizes as its own.
 
 ### When you want it
 
@@ -52,7 +54,7 @@ Poll latency. By default the daemon reconciles GitHub state on a poll cadence, s
 
 ### When you want it
 
-You want events to arrive immediately and to save the poll spend that would otherwise buy them. The numbers this repo owns: the base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s reconciliation sweep, composing with the idle widen (5.0) to 1,200s when idle; and the daemon read-cache TTL rises from 30s to one hour on a repo a webhook has actually proven.
+You want events to arrive immediately and to save the poll spend that would buy them. The numbers this repo owns: base `polling.interval_seconds` is 120s; `webhooks.poll_widen_factor` 2.0 puts a proven repo on a 240s sweep, composing with the idle widen (5.0) to 1,200s; the daemon read-cache TTL rises from 30s to one hour on a proven repo.
 
 ### Configuration
 
@@ -108,7 +110,7 @@ With no `AIUR_DASHBOARD_USERNAME` or `AIUR_DASHBOARD_PASSWORD`, the loopback lis
 
 ### The `observability.dashboard_writable` interaction
 
-`dashboard_writable` (default `true`) is an authorization gate for the dashboard's write controls, not an authentication mechanism. The two credentials are required to view the dashboard at all; writable mode additionally requires them even on loopback, and read-only mode still needs them to log in. See [observability](/reference/configuration#observability).
+`dashboard_writable` (default `true`) is an authorization gate for the dashboard's write controls, not an authentication mechanism. The two credentials are required to view the dashboard at all; writable mode additionally requires them even on loopback. See [observability](/reference/configuration#observability).
 
 ### Configuration
 
@@ -141,7 +143,7 @@ Cost and concurrency: which model backend handles a ticket, and which provider A
 
 ### When you want it
 
-You want to pin the default backend or route by complexity. The shipped default is an empty `agent.priority` with codex/claude as the code default. Note that `priority: [deepseek]` in this repo's own `.aiur/config` is one operator's choice — and DeepSeek is dispatch-disabled by default, so a bare `priority: [deepseek]` is ignored without a `deepseek.enabled` block.
+You want to pin the default backend or route by complexity. The shipped default is an empty `agent.priority` with codex/claude as the code default. Note `priority: [deepseek]` in this repo's `.aiur/config` is one operator's choice — and DeepSeek is dispatch-disabled by default, so a bare `priority: [deepseek]` is ignored without a `deepseek.enabled` block.
 
 ### Configuration
 
