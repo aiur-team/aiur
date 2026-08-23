@@ -799,6 +799,49 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     end
   end
 
+  describe "claim release scheduling (#2427)" do
+    test "a transient transport failure releases the claim with a scheduled re-claim" do
+      issue_id = "issue-claim-transient"
+
+      initial = %State{
+        claimed: MapSet.new([issue_id]),
+        released_claims: %{},
+        retry_attempts: %{}
+      }
+
+      final =
+        Enum.reduce(1..3, {initial, seed_metadata()}, fn attempt, {state, metadata} ->
+          next =
+            RetryEngine.handle_retry_poll_failure(
+              state,
+              issue_id,
+              attempt,
+              metadata,
+              # `Errors.classify_error` wraps a closed socket into exactly this
+              # shape for a tracker poll.
+              {:github, :timeout, %{reason: :closed}}
+            )
+
+          case next.retry_attempts[issue_id] do
+            %{timer_ref: timer_ref} = retry when timer_ref != nil ->
+              Process.cancel_timer(timer_ref)
+              {next, retry}
+
+            _released ->
+              {next, metadata}
+          end
+        end)
+        |> elem(0)
+
+      # The claim is released at poll exhaustion, but never *without* a
+      # scheduled re-claim: a closed socket is transient, so an automatic
+      # re-claim is queued instead of demanding operator recovery.
+      refute MapSet.member?(final.claimed, issue_id)
+      assert Map.has_key?(final.released_claims, issue_id)
+      assert %{cause: :transient_tracker} = final.auto_resume[issue_id]
+    end
+  end
+
   describe "retry_exhausted alert (#1317)" do
     test "give-up alert includes the underlying error, not just a generic headline" do
       # The Publisher contamination filter's tracked_fn is process-global
@@ -896,6 +939,60 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
         assert_receive {:event, %{topic: "ticket.MT-WRITE-OK.agent.attention.error-retry_exhausted"}}, 500
       end)
+    end
+  end
+
+  describe "retry exhaustion terminal state (#2427)" do
+    defp memory_tracker_for_retry do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        opencode_command: System.find_executable("true")
+      )
+
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+    end
+
+    test "a transient exhaustion reason never stamps agent:error and schedules a re-claim" do
+      issue_id = "issue-transient-2427"
+      identifier = "MT-TRANSIENT"
+      memory_tracker_for_retry()
+
+      final =
+        RetryEngine.schedule_issue_retry(%State{}, issue_id, Config.max_retry_attempts() + 1, %{
+          identifier: identifier,
+          # Mirrors what handle_agent_down/3 records when the run exits on a
+          # closed socket: the structured transient reason rides alongside the
+          # formatted error string.
+          error: "agent exited: %Req.TransportError{reason: :closed}",
+          transient_reason: %Req.TransportError{reason: :closed},
+          delay_type: :failure
+        })
+
+      # A closed socket is a transient infrastructure fault: the terminal
+      # `agent:error` write must never reach the tracker.
+      refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 200
+
+      # The claim is released (give-up), but a bounded automatic re-claim is
+      # scheduled so the ticket recovers once the cause clears.
+      assert Map.has_key?(final.released_claims, issue_id)
+      assert %{cause: cause} = final.auto_resume[issue_id]
+      assert cause in [:provider_timeout, :transient_tracker]
+    end
+
+    test "a permanent exhaustion reason still stamps agent:error" do
+      issue_id = "issue-permanent-2427"
+      identifier = "MT-PERMANENT"
+      memory_tracker_for_retry()
+
+      RetryEngine.schedule_issue_retry(%State{}, issue_id, Config.max_retry_attempts() + 1, %{
+        identifier: identifier,
+        error: "agent exited: {:workspace_prepare_failed, :enoent}",
+        transient_reason: {:workspace_prepare_failed, :enoent},
+        delay_type: :failure
+      })
+
+      # A genuine agent failure is exactly where `agent:error` belongs.
+      assert_receive {:memory_tracker_state_update, ^identifier, "error"}, 200
     end
   end
 
