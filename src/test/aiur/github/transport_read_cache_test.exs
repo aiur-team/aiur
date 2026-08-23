@@ -103,14 +103,17 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
     assert %{refused: %{unsafe_kind: 2}, totals: %{hit: 0}} = ReadCache.snapshot()
   end
 
-  # The cache is an application child that another test may have stopped; wait
-  # for its supervisor rather than racing it.
-  defp await_read_cache(attempts \\ 100) do
-    cond do
-      ReadCache.snapshot().available? -> :ok
-      attempts > 0 -> Process.sleep(10) || await_read_cache(attempts - 1)
-      true -> start_supervised!({ReadCache, sweep_interval_ms: 0})
-    end
+  # The cache is a shared application child that a sibling test may have
+  # stopped (its ETS tables die with the process, so `snapshot/0` answers
+  # `available?: false` with no entries and every read becomes a full-price
+  # miss). Ensure the app-owned child is running — restarting it if a sibling
+  # left it down — rather than racing it with a wall-clock poll or
+  # `start_supervised!`-ing a temporary replacement that dies at module end
+  # (#2397). Signal-based: the registered name answers "up".
+  defp await_read_cache do
+    :ok = Aiur.TestSupport.ensure_read_cache_running()
+    true = ReadCache.snapshot().available?
+    :ok
   end
 
   defp attributed_calls(snapshot) do
