@@ -76,7 +76,7 @@ defmodule Aiur.RunTelemetryTaskTest do
   end
 
   test "task writes the requested output and reports missing telemetry" do
-    root = Path.join(System.tmp_dir!(), "aiur-dashboard-task-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-dashboard-task")
     output = Path.join(root, "result.html")
     missing = Path.join(root, "missing")
     on_exit(fn -> File.rm_rf!(root) end)

@@ -6,7 +6,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
   alias Aiur.JsonStore
 
   setup do
-    tmp_dir = Path.join(System.tmp_dir!(), "aiur_subscr_test_#{System.unique_integer([:positive])}")
+    tmp_dir = Aiur.TestSupport.tmp_root!("aiur_subscr_test")
     File.mkdir_p!(tmp_dir)
     original = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))

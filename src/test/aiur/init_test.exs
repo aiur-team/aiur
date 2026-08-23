@@ -50,7 +50,7 @@ defmodule Aiur.InitTest do
   ]
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-init-test-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-init-test")
     target = Path.join([dir, ".aiur", "config"])
     File.mkdir_p!(Path.dirname(target))
     # The wizard writes `prompt_file: prompt.md`; Workflow.load resolves it, so

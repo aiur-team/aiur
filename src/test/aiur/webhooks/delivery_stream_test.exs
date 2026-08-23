@@ -13,7 +13,7 @@ defmodule Aiur.Webhooks.DeliveryStreamTest do
   alias Aiur.Webhooks.{DeliveryLog, Ingest}
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-webhook-stream-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-webhook-stream")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     name = :"stream_delivery_log_#{System.unique_integer([:positive])}"

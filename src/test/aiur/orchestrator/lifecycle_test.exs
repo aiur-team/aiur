@@ -44,7 +44,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
   end
 
   test "handle_tick expires overdue control requests without changing worker state" do
-    path = Path.join(System.tmp_dir!(), "aiur-control-lifecycle-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-control-lifecycle") <> ".json"
     previous_path = Application.get_env(:aiur, :control_lifecycle_store_path)
     Application.put_env(:aiur, :control_lifecycle_store_path, path)
 

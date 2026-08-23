@@ -11,7 +11,7 @@ defmodule Aiur.RunTelemetry.SummariesTest do
   @telemetry_fixtures Path.expand("../../fixtures/run_telemetry/session-b/telemetry.ndjson", __DIR__)
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-summaries-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-summaries")
     # These two are application-global. Without restoring them, every later
     # sync test in the same partition inherits a deleted tmp root and this
     # file's analytics repo slug.
@@ -247,7 +247,7 @@ defmodule Aiur.RunTelemetry.SummariesTest do
   end
 
   defp with_tmp_reduce(fun) do
-    dir = Path.join(System.tmp_dir!(), "aiur-reduce-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-reduce")
     File.mkdir_p!(dir)
     script = Path.join(dir, "reduce")
     File.write!(script, "#!/usr/bin/env bash\nprintf 'ok\\n'\n")
