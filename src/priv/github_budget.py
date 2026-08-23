@@ -469,8 +469,8 @@ def acquire(args):
             (lease_id, args.token_key, args.endpoint_family, expires_at),
         )
         conn.execute(
-            "INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, resource, admitted_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
-            (args.token_key, args.consumer_key, lease_id, args.endpoint_family, args.resource, now),
+            "INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, resource, admitted_at_ms, billable) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (args.token_key, args.consumer_key, lease_id, args.endpoint_family, args.resource, now, args.billable),
         )
         conn.execute(
             "UPDATE budgets SET next_admission_ms = ? WHERE token_key = ?", (now + stagger, args.token_key)
@@ -733,6 +733,11 @@ def parser():
     # `daemon:node@host` or `workspace:/path/to/2181`). The consumer_key remains
     # the fingerprint; this is what `usage` prints so the report is readable.
     acquire_parser.add_argument("--consumer-label", default="")
+    # Free endpoints (`/rate_limit`, anything the shared EndpointPolicy table
+    # marks non-billable) are still admitted and leased for ordering, but their
+    # admission row is recorded non-billable so the ledger never reports them
+    # as spend (#2353). Absent, `1` preserves the original behavior.
+    acquire_parser.add_argument("--billable", type=lambda value: 0 if int(value) == 0 else 1, default=1)
     # Coalescing (#2073 U6). Absent, admission behaves exactly as it did before.
     acquire_parser.add_argument("--cache-key", default=None)
     acquire_parser.add_argument("--cache-claim-ttl-ms", type=lambda value: clamp(value, 1000, 600000), default=35000)

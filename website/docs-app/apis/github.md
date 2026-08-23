@@ -99,6 +99,40 @@ does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
 
+### What a validator may answer
+
+The savings above depend on the validator being the right one for the question
+asked. Two rules keep a `304` honest.
+
+**A page-1 ETag cannot answer a multi-page question.**
+
+GitHub orders most collections so page 1 becomes effectively immutable while
+the interesting changes land elsewhere: issue timelines are oldest-first, and
+issue and pull request listings are `created` desc. A `304` against a page-1
+ETag therefore means "page 1 is unchanged" — never "the whole list is
+unchanged".
+
+A page-1 `304` on a churned ticket is permanently stale, with no self-healing,
+because the change that would refresh it is exactly the change that lands on a
+later page.
+
+Only trust a `304` for a paginated read when the read was single-page (then
+page 1 *is* the list), or when the validator kept is the last page's rather
+than the first's. If neither is practical, do not make the read conditional:
+an unconditional read that is correct beats a conditional one that is quietly
+wrong.
+
+**A validator belongs to the thing it describes.**
+
+A read of one resource earns a validator for that resource; a read of a query
+earns a validator for that query. Writing a query's validator into a resource's
+key means any other writer of that key destroys or corrupts it.
+
+A body change deletes the ETag, and a webhook deposit writes a body-derived
+validator that is then sent on a URL where it can never match — either way a
+later conditional request is answered wrongly. Store a validator where the
+thing it describes lives, and only answer it against the read that earned it.
+
 GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
 
 The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
@@ -128,12 +162,15 @@ Dashboard and Build Order state is not on this cadence.
 | View state | Behaviour |
 | --- | --- |
 | Opening, focusing, or holding a page open | Zero API calls. |
-| Ticket backlog, Ad Hoc overlay, pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately, with no fetch. One listing per daemon boot establishes the baseline; a `webhooks` degradation re-lists while deliveries are known to be dropped, and recovery re-lists once more on the gap's trailing edge. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
+| Divergence watermark | On the same sweep cadence, one bounded `updated_at`-ordered head page of the open-issue listing. It does two jobs the deleted polls used to do: it records poller corroboration for the silence sweep (so an `issues` delivery loss can degrade the repo instead of looking like an idle one), and it re-lists the event-sourced sources when GitHub's newest open issue is newer than the store's — the proof that a delivery was dropped. One page, never a paged listing. |
+| Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, so moving it to the event stream is a separate change. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
-A change made outside Aiur reaches those three panels within one sweep rather
-than at once, which is the trade for them costing nothing while nobody is
-looking.
+The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
+moment a delivery deposits the changed issue; the sweep's only other
+steady-state cost is the single divergence-watermark head page on its own
+cadence, and pack status still reflects an outside change within one sweep.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
