@@ -72,7 +72,7 @@ defmodule Aiur.Orchestrator.IssueSync do
           # closed issue needs no state label at all (#2420).
           %Issue{state_labels: state_labels, state: state} = issue
           when (state_labels == [] or (state_labels == nil and is_nil(state))) and state != "Closed" ->
-            {healed_issue, state_acc} = heal_missing_state_label(issue, state_acc, update_state_fun)
+            {healed_issue, state_acc} = heal_or_leave_missing_state_label(issue, state_acc, update_state_fun)
             {[healed_issue | acc], state_acc}
 
           _issue ->
@@ -101,10 +101,13 @@ defmodule Aiur.Orchestrator.IssueSync do
   non-terminal and has no live owner (`running`), no in-flight claim
   (`claimed`), no pending retry (`retry_attempts`), no scheduled transient
   resume (`auto_resume`), and no legitimate reason to be unowned (operator
-  pause, dependency block, an external wait such as CI/review/error, or a
-  `todo` ticket waiting for capacity) — while its claim has been explicitly
-  released (`released_claims`) or it is a degenerate zero-label ticket dispatch
-  cannot claim.
+  pause, an explicit `needs-triage`/`human:todo`/`Epic:`/`parked` marker,
+  dependency block, an external wait such as CI/review/error, or a `todo`
+  ticket waiting for capacity) — while its claim has been explicitly released
+  (`released_claims`) or it is a degenerate zero-label ticket dispatch cannot
+  claim. The repair is evidence-gated, never shape-gated: a ticket that has
+  never entered the agent workflow (no running entry, no released claim, no
+  prior polled state) is untriaged parking and is left alone (#2420).
 
   Re-queuing restores the ticket to its last known running state (falling back
   to `agent:todo`, matching the zero-label heal), writes it through the tracker,
@@ -141,6 +144,13 @@ defmodule Aiur.Orchestrator.IssueSync do
       legitimately_unowned?(issue) ->
         false
 
+      # A ticket that has never entered the agent workflow (no running entry,
+      # no released claim, no prior polled state) is untriaged parking, not a
+      # strand: nothing removed its label, it just never had one. The repair
+      # must be evidence-gated, not shape-gated (#2420).
+      not workflow_evidence?(state, issue) ->
+        false
+
       stranded_by_claim_or_labels?(state, issue) ->
         true
 
@@ -161,11 +171,15 @@ defmodule Aiur.Orchestrator.IssueSync do
       Map.has_key?(state.auto_resume, issue_id)
   end
 
-  # States where an open ticket is deliberately unowned need no claim: operator
-  # pause, a dependency or capacity wait, an external wait (CI/review/error), or
-  # a `todo` ticket waiting for a free slot.
+  # States where an open ticket is deliberately unowned need no claim: an
+  # operator park or pause marker, a dependency or capacity wait, an external
+  # wait (CI/review/error), or a `todo` ticket waiting for a free slot. A
+  # ticket carrying `needs-triage`/`human:todo`/`Epic:` is deliberate parking,
+  # never a strand, so it is covered here too (#2420).
   defp legitimately_unowned?(%Issue{} = issue) do
     Issue.paused?(issue) or
+      Issue.parked?(issue) or
+      parked_marker?(issue) or
       DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()) or
       external_wait_state?(issue.state) or
       DispatchPolicy.normalize_issue_state(issue.state) == "todo"
@@ -176,9 +190,11 @@ defmodule Aiur.Orchestrator.IssueSync do
   # to give it one (#2361); a dispatch latch or thrash hold on the same ticket
   # still leaves the released claim unresolved, so re-queueing remains correct.
   # An open ticket with no derivable state at all (zero state labels) is
-  # invisible to dispatch and has no legitimate wait reason; F2's zero-label
+  # invisible to dispatch and has no legitimate wait reason; the zero-label
   # heal normally restores it earlier in the poll, and this is the sweep's own
-  # fallback so the invariant holds even if that write fails.
+  # fallback so the invariant holds even if that write fails. Both shapes only
+  # reach this predicate after `stranded_ticket?/2`'s evidence gate, so an
+  # unprovenanced zero-label ticket is never re-queued (#2420).
   defp stranded_by_claim_or_labels?(%State{} = state, %Issue{} = issue) do
     Map.has_key?(state.released_claims, issue.id) or
       DispatchPolicy.normalize_issue_state(issue.state) == ""
@@ -241,11 +257,36 @@ defmodule Aiur.Orchestrator.IssueSync do
   # A ticket observed with zero `agent:*` state labels is invisible to dispatch
   # (#2420): every reconciler consumes either the filtered candidate list or
   # `state.running`, and a zero-label ticket is in neither, so nothing would
-  # ever repair it. Restore its last known state from `state.running` (the
-  # state its agent was last working under), falling back to `agent:todo`, and
-  # alert so the strand is surfaced rather than silently healed.
+  # ever repair a genuine strand. But zero labels is *also* a documented,
+  # intentional state — deliberately parked work carries `needs-triage`,
+  # `human:todo`, or an `Epic:` marker with no state label, and a fresh issue
+  # nobody has triaged has neither — so the repair must be evidence-gated, not
+  # shape-gated: never touch a parked-marker ticket, restore the last known
+  # state only when a prior running/last-polled entry carries one, and when
+  # there is no evidence at all alert without writing and leave the labels
+  # alone (#2420).
+  defp heal_or_leave_missing_state_label(%Issue{} = issue, state, update_state_fun) do
+    cond do
+      Issue.parked?(issue) or parked_marker?(issue) ->
+        {issue, state}
+
+      restore_target_for(issue, state) == nil and not workflow_evidence?(state, issue) ->
+        alert_missing_state_label_no_evidence(issue, state)
+        {issue, state}
+
+      restore_target_for(issue, state) == nil ->
+        # Evidence of workflow membership exists (e.g. a released claim) but
+        # there is no non-terminal state to restore; leave the ticket for the
+        # sweep, whose re-queue falls back to `agent:todo`.
+        {issue, state}
+
+      true ->
+        heal_missing_state_label(issue, state, update_state_fun)
+    end
+  end
+
   defp heal_missing_state_label(%Issue{} = issue, state, update_state_fun) do
-    restored = restore_state_for(issue, state)
+    restored = restore_target_for(issue, state) || "todo"
     healed_issue = %{issue | state: restored, state_labels: [restored]}
 
     case update_state_fun.(issue.identifier, restored) do
@@ -264,16 +305,100 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   # The last known state comes from the running entry's issue (the state its
-  # agent was last dispatched under). Only a non-terminal state is a safe
-  # restore target; anything else (or no running entry) falls back to
-  # `agent:todo` so the ticket is dispatchable again.
-  defp restore_state_for(%Issue{} = issue, %State{} = state) do
-    case Map.get(state.running, issue.id) do
-      %{issue: %Issue{state: state_name}} when is_binary(state_name) ->
-        if StatePolicy.terminal_state_name?(state_name), do: "todo", else: state_name
+  # agent was last dispatched under) or the previous polled copy. A running
+  # entry is authoritative; the previous poll is the fallback so a swap that
+  # removed the label between polls still restores the pre-transition state.
+  defp prior_workflow_state(%Issue{id: issue_id}, %State{} = state) do
+    case Map.get(state.running, issue_id) do
+      %{issue: %Issue{state: state_name}} when is_binary(state_name) and state_name != "" ->
+        state_name
 
-      _missing ->
-        "todo"
+      %{issue: %{state: state_name}} when is_binary(state_name) and state_name != "" ->
+        state_name
+
+      _ ->
+        case Map.get(state.last_polled_issues, issue_id) do
+          %Issue{state: state_name} when is_binary(state_name) and state_name != "" -> state_name
+          %{state: state_name} when is_binary(state_name) and state_name != "" -> state_name
+          _ -> nil
+        end
+    end
+  end
+
+  defp prior_workflow_state(_issue, _state), do: nil
+
+  # The state to restore a stranded ticket to. Only a non-terminal state is a
+  # safe restore target; a terminal prior state (or no prior state at all)
+  # yields nil so the caller alerts without writing rather than guessing.
+  defp restore_target_for(%Issue{} = issue, %State{} = state) do
+    case prior_workflow_state(issue, state) do
+      nil -> nil
+      state_name -> if StatePolicy.terminal_state_name?(state_name), do: nil, else: state_name
+    end
+  end
+
+  # The sweep's restore target: a non-terminal prior state when one exists,
+  # else `agent:todo`. The sweep only re-queues a ticket after its own
+  # evidence gate (`workflow_evidence?/2`) has passed, so `todo` here is a
+  # documented fallback for a ticket whose workflow record is a released claim
+  # rather than a running/last-polled state (#2420).
+  defp restore_state_for(%Issue{} = issue, %State{} = state) do
+    restore_target_for(issue, state) || "todo"
+  end
+
+  # Positive evidence the ticket was in the agent workflow: a live running
+  # entry, a released claim (a claim was dropped), or a prior polled copy
+  # carrying a state. A ticket with none of these has never entered the
+  # workflow and is untriaged parking, not a strand (#2420).
+  defp workflow_evidence?(%State{} = state, %Issue{id: issue_id} = issue) do
+    Map.has_key?(state.running, issue_id) or
+      Map.has_key?(state.released_claims, issue_id) or
+      is_binary(prior_workflow_state(issue, state))
+  end
+
+  defp workflow_evidence?(_state, _issue), do: false
+
+  # Deliberately parked work carries a non-state marker instead of an `agent:*`
+  # state label — `needs-triage`, `human:todo`, or an `Epic:` container (the
+  # explicit `agent:parked` marker is surfaced separately as `Issue.parked?`).
+  # Such tickets must never be rewritten to `agent:todo`: that would silently
+  # reverse deliberate parking and make `human:todo` tickets dispatchable, the
+  # exact boundary that label protects (#2420).
+  defp parked_marker?(%Issue{labels: labels}) when is_list(labels) do
+    Enum.any?(labels, &parked_marker_label?/1)
+  end
+
+  defp parked_marker?(_issue), do: false
+
+  defp parked_marker_label?(label) when is_binary(label) do
+    label = label |> String.trim() |> String.downcase()
+    label in ["needs-triage", "human:todo"] or String.starts_with?(label, "epic:")
+  end
+
+  defp parked_marker_label?(_label), do: false
+
+  # A zero-label ticket with no prior workflow record is surfaced with a
+  # needs-attention alert but NOT rewritten: stamping `agent:todo` on a ticket
+  # whose history shows no prior state is a guess that would reverse deliberate
+  # parking (#2420). The active-attention check keeps the alert to one per
+  # ticket instead of one per poll.
+  defp alert_missing_state_label_no_evidence(%Issue{} = issue, %State{} = state) do
+    topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
+
+    unless active_attention?(state, topic) do
+      Alerts.emit_system(topic,
+        issue: issue.identifier,
+        message:
+          "Ticket #{issue.identifier} has no agent state label and no record of prior agent workflow membership; " <>
+            "left as-is pending triage.",
+        reason:
+          "Ticket #{issue.identifier} carries zero agent:* state labels with no prior running/last-known state and no " <>
+            "parking marker; left as-is pending triage — alerting without writing agent:todo so deliberate parking is not " <>
+            "reversed (#2420).",
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
     end
   end
 

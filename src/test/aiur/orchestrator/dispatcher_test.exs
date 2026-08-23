@@ -708,6 +708,32 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert TrackerHealth.next_poll_delay_ms(state, repo: nil) == 25_000
   end
 
+  test "the candidate poll wires the stranded-ticket reconciliation pass after dispatch" do
+    parent = self()
+
+    # A non-dispatchable ticket (no agent work in `merging`) that the poll
+    # still hands to the reconciliation pass; the sweep normally re-queues a
+    # released-claim ticket from here (#2361, #2420).
+    stranded = %{issue("wired-strand") | state: "merging", state_labels: ["merging"]}
+
+    next =
+      Dispatcher.dispatch_candidate_poll(
+        %State{released_claims: %{stranded.id => %{cause: :tracker_retry_exhausted}}},
+        fetch_candidate_issues_fun: fn current_state ->
+          Dispatcher.fetch_candidate_issues(current_state,
+            fetch_fun: fn _cache -> {:ok, [stranded], %{}} end
+          )
+        end,
+        stranded_reconciliation_fun: fn state, issues ->
+          send(parent, {:stranded_reconciliation_called, Enum.map(issues, & &1.id)})
+          state
+        end
+      )
+
+    assert_receive {:stranded_reconciliation_called, ["wired-strand"]}
+    assert next.released_claims == %{"wired-strand" => %{cause: :tracker_retry_exhausted}}
+  end
+
   test "a global pause stops candidate authorization while monitoring continues" do
     parent = self()
     state = %State{globally_paused: true, candidate_snapshot_fresh?: true}

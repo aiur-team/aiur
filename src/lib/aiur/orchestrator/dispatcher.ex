@@ -145,6 +145,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
     fetch_candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &fetch_candidate_issues/1)
     monitor_without_candidates = Keyword.get(opts, :monitor_without_candidates_fun, &monitor_without_candidates/1)
+    stranded_reconciliation = Keyword.get(opts, :stranded_reconciliation_fun, &IssueSync.sync_stranded_ticket_reconciliation/2)
 
     case fetch_candidates.(state) do
       {:paused, state} ->
@@ -200,7 +201,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           # no scheduled claim (a released claim with no recovery, or a
           # degenerate zero-label ticket) so a strand never sits unowned and
           # invisible to the label checks (#2361, #2420).
-          |> IssueSync.sync_stranded_ticket_reconciliation(issues)
+          |> stranded_reconciliation.(issues)
 
         %{state | initial_dispatch_cycle: false}
 

@@ -162,6 +162,57 @@ defmodule Aiur.GitHub.IssueStateTest do
       refute_receive {:request, %{method: :delete}}, 100
     end
 
+    # Acceptance #2420: an idempotent re-stamp — `update_issue_state(id, "rework")`
+    # on a ticket already carrying `sym:rework` — must not delete the only state
+    # label. The swap POSTs the target first (a no-op) and the removal set
+    # excludes the just-added label, so the DELETE must never fire. Without that
+    # exclusion, the swap would POST a no-op and then delete the only state
+    # label — the original remove-then-add strand, reintroduced under the new
+    # ordering.
+    test "a re-stamp of the current state label never deletes it (exclude guard)" do
+      test_pid = self()
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn req ->
+        send(test_pid, {:request, req})
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+             }}
+
+          {:get, 1} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+             }}
+
+          {:post, 2} ->
+            assert req.body == %{"labels" => ["sym:rework"]}
+            {:ok, %{status: 200}}
+
+          _ ->
+            flunk("unexpected request after the target label was already present: #{inspect(req)}")
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:request, %{method: :get}}
+      assert_receive {:request, %{method: :get}}
+      assert_receive {:request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}
+      # The just-added (already-present) label is excluded from the removal set,
+      # so no DELETE ever fires and the ticket keeps exactly one state label.
+      refute_receive {:request, %{method: :delete}}, 100
+    end
+
     test "terminal target state closes the issue" do
       calls = :ets.new(:calls, [:set, :public])
       :ets.insert(calls, {:count, 0})

@@ -924,7 +924,7 @@ defmodule Aiur.GitHub.Issues do
       title: gh_issue["title"],
       description: gh_issue["body"],
       priority: extract_priority(label_names),
-      state: collapse_degenerate_state(extract_state(gh_issue, state_labels)),
+      state: extract_state(gh_issue, state_labels),
       state_labels: state_labels,
       branch_name: nil,
       url: gh_issue["html_url"],
@@ -1029,25 +1029,17 @@ defmodule Aiur.GitHub.Issues do
   def extract_state(gh_issue, label_names, prefix) do
     gh_issue
     |> extract_state(extract_state_labels(label_names, prefix))
-    |> collapse_degenerate_state()
   end
 
-  # Zero-label (`[]`) and contradictory-label (`[_, _ | _]`) tickets used to
-  # collapse to the same `nil` here, so the candidate filter could not tell
-  # them apart and both were silently dropped before any repair pass ran —
-  # a zero-label ticket stayed invisible to dispatch forever (#2420). The
-  # clauses below now keep the two cases distinct; the public wrapper maps
-  # both back to `nil` so the `String | nil` contract holds for blocker state
-  # and expected-state checks, while the candidate filter partitions on the
-  # distinct markers.
+  # Zero-label (`[]`) and contradictory-label (`[_, _ | _]`) tickets both
+  # resolve to `nil` here: the `String | nil` contract for blocker state and
+  # expected-state checks. Keeping the two apart is the candidate filter's job,
+  # and it does so on the `Issue.state_labels` list
+  # (`degenerate_state_labels?/1`), not on atoms that never escape this
+  # module (#2420).
   defp extract_state(%{"state" => "closed"}, _state_labels), do: "Closed"
   defp extract_state(_gh_issue, [state]), do: state
-  defp extract_state(_gh_issue, []), do: :zero_state_labels
-  defp extract_state(_gh_issue, [_, _ | _]), do: :contradictory_state_labels
-
-  defp collapse_degenerate_state(:zero_state_labels), do: nil
-  defp collapse_degenerate_state(:contradictory_state_labels), do: nil
-  defp collapse_degenerate_state(state), do: state
+  defp extract_state(_gh_issue, _state_labels), do: nil
 
   @spec extract_state_labels([String.t()], String.t()) :: [String.t()]
   def extract_state_labels(label_names, prefix) do
