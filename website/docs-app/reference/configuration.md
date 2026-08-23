@@ -478,6 +478,40 @@ flight. A build that is still progressing — however slow a cold `deps` +
 | `pr_watch.watch_label` | string | `watch` | Label suffix enrolling a PR for watching. |
 | `pr_watch.command_prefix` | string | `/aiur` | One-off trusted comment command prefix. |
 
+## pr_health
+
+Periodic scan of open pull requests for conditions that stall PRs silently: a
+PR authored by a configured human merger (unmergeable by construction, since
+GitHub blocks self-approval), a non-draft PR older than `stale_hours` with no
+review, and a rework ticket whose PR's own contribution has genuinely changed
+since its blocking review.
+
+Findings raise needs-attention alerts in the Executor's alert feed
+(`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed` /
+`system.pr_health.rework_merge_only`).
+
+Enabling the scan enables the **rework re-queue**: a ticket in
+`agent:rework` whose PR's own contribution diff (`merge-base..head`) changed
+since the blocking `CHANGES_REQUESTED` review is moved to `agent:human-review`
+for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
+a brand-new review, so nothing else re-queues it.
+
+A PR whose head only moved via merges of the base branch (own contribution
+unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
+the merge-only state is visible distinctly from genuine rework.
+
+A re-queue that the thread-clearance gate refuses (the reworked PR still has
+unresolved review threads — the normal state of a rework ticket) raises
+`system.pr_health.rework_requeue_failed`; the head is not throttled on a failed
+write, so the re-queue retries on the next tick instead of silently stranding
+the ticket in rework.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `pr_health.enabled` | boolean | false | Enables the PR-health scan and the rework re-queue. |
+| `pr_health.interval_seconds` | integer | 1800 | How often the scan lists open PRs. |
+| `pr_health.stale_hours` | integer | 24 | A non-draft PR older than this with no review is flagged. |
+
 ## events
 
 | Key | Type | Default | Controls |
