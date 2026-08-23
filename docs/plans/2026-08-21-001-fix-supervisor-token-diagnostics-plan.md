@@ -14,7 +14,7 @@ execution: code
 
 - **Objective:** Make an unusable `AIUR_SUPERVISOR_TOKEN` visible at startup and distinguish instance configuration failures from caller authentication failures at the Decision API.
 - **Authority:** GitHub issue #2262 and the existing Supervisor Decision API contract.
-- **Stop conditions:** Present empty, short, or malformed tokens fail startup without leaking values; HTTP responses distinguish unavailable configuration, missing credentials, and mismatches; operator docs include a valid generation and placement recipe.
+- **Stop conditions:** Present non-empty short or malformed tokens fail startup without leaking values; empty values stay on the supported disabled path; HTTP responses distinguish unavailable configuration, missing credentials, and mismatches; operator docs include a valid generation and placement recipe.
 - **Tail ownership:** Complete the scoped local gate, draft PR self-review, and CI handoff against `main`.
 
 ---
@@ -27,8 +27,8 @@ The Supervisor Decision API must fail closed without misdirecting operators: an 
 
 ### Requirements
 
-- R1. An absent `AIUR_SUPERVISOR_TOKEN` remains a supported optional-integration state and is reported by the existing disabled-integration startup notice.
-- R2. A present empty, whitespace-only, shorter-than-32-byte, padded, or non-bearer-safe token aborts startup with a secret-safe error naming `AIUR_SUPERVISOR_TOKEN` and its requirements.
+- R1. An absent `AIUR_SUPERVISOR_TOKEN` remains a supported optional-integration state and is reported by the existing disabled-integration startup notice. An empty or whitespace-only value counts as absent (the dotenv readers and `set?/2` already treat it that way), so deliberately blanking the line also keeps the optional API disabled without a fatal boot.
+- R2. A present non-empty value that is shorter than 32 bytes, padded, or non-bearer-safe aborts startup with a secret-safe error naming `AIUR_SUPERVISOR_TOKEN` and its requirements.
 - R3. Supervisor-authenticated routes return a configuration-specific 401 when the instance has no usable configured token.
 - R4. A missing or malformed Authorization header remains distinct from a valid-shaped bearer token that does not match the configured credential.
 - R5. Authentication failures never echo either configured or presented secret material.
@@ -47,7 +47,7 @@ The Supervisor Decision API must fail closed without misdirecting operators: an 
 ### Key Technical Decisions
 
 - KTD1. Centralize token classification in a core module shared by startup validation and the Plug so minimum length and bearer-safe syntax cannot drift between the two enforcement points.
-- KTD2. Treat a present invalid value as fatal startup configuration, while preserving a genuinely absent value as the supported disabled state.
+- KTD2. Treat a present non-empty invalid value as fatal startup configuration, while preserving a genuinely absent value — including an empty or whitespace-only one — as the supported disabled state.
 - KTD3. Use three secret-safe 401 payloads: instance credential unavailable, authentication required for missing/malformed input, and credential mismatch for valid-shaped nonmatching input.
 
 ### Sequencing
@@ -65,8 +65,8 @@ Introduce shared classification first, wire startup and request behavior to it w
 - **Dependencies:** None.
 - **Files:** `src/lib/aiur/supervisor_token.ex`, `src/lib/aiur/env.ex`, `src/test/aiur/supervisor_token_test.exs`, `src/test/aiur/env_test.exs`.
 - **Approach:** Classify missing, invalid, and usable values without exposing their contents; add invalid-present errors to the existing boot gate while leaving missing optional tokens to the disabled-integration notice.
-- **Test scenarios:** Missing passes optional startup validation; empty, whitespace, 31-byte, padded, and illegal-character values each abort and name requirements without secret contents; 32-byte bearer-safe values pass.
-- **Verification:** Tests call the real startup validator so deleting the invalid-token check or accepting empty values fails them.
+- **Test scenarios:** Missing and blank values pass optional startup validation and leave the API reported off; 31-byte, padded, and illegal-character values each abort and name requirements without secret contents; 32-byte bearer-safe values pass.
+- **Verification:** Tests call the real startup validator so deleting the invalid-token check fails them, and the request-side tests fail if a blank value ever authenticates a request.
 
 ### U2. Differentiate Supervisor Decision API failures
 
@@ -103,6 +103,6 @@ Introduce shared classification first, wire startup and request behavior to it w
 ## Definition of Done
 
 - R1-R6 are implemented with one shared token classifier and no secret leakage.
-- Mutation-resistant tests prove empty values remain rejected and unavailable-vs-mismatch 401s cannot collapse.
+- Mutation-resistant tests prove non-empty unusable values abort startup, blank values stay on the disabled path (never accepted as a credential), and unavailable-vs-mismatch 401s cannot collapse.
 - All existing operator docs that describe the credential are accurate.
 - A draft PR against `main` matches the pushed diff and is self-reviewed before CI handoff.

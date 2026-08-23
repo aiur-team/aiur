@@ -509,10 +509,10 @@ credential, not dashboard Basic Auth. Set `AIUR_SUPERVISOR_TOKEN` to at least 32
 random bearer-safe bytes. Generate one with `openssl rand -base64 32`, then put
 `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the
 repository `.env` (project-local); an already-exported value wins, followed by
-the global file and then the repository file. A present empty, short,
+the global file and then the repository file. A present non-empty short,
 whitespace-surrounded, or non-bearer-safe value aborts startup, while an absent
-value leaves the API disabled. Keep the dashboard on loopback/private tunneling
-or terminate HTTPS before using the credential remotely.
+or empty value leaves the API disabled. Keep the dashboard on loopback/private
+tunneling or terminate HTTPS before using the credential remotely.
 
 Supervisor answers and revisions are disabled until their Decision kinds are
 explicitly delegated:

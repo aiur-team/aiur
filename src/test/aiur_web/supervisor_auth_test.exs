@@ -41,8 +41,21 @@ defmodule AiurWeb.SupervisorAuthTest do
     assert conn.assigns.decision_actor == @actor
   end
 
-  test "missing or invalid configured credentials identify an instance configuration problem" do
-    invalid_tokens = [nil, "", "   ", String.duplicate("a", 31), " " <> @token, @token <> " ", String.duplicate(":", 32)]
+  test "missing or blank configured credentials identify an instance configuration problem" do
+    # An empty or whitespace-only value means unset across the codebase, so it
+    # takes the "no usable credential configured" path rather than being
+    # accepted as a credential.
+    for token <- [nil, "", "   "] do
+      restore_env("AIUR_SUPERVISOR_TOKEN", token)
+
+      conn = authenticate("Bearer #{@token}")
+
+      assert_unauthorized(conn, "supervisor_auth_unconfigured", "No supervisor credential is configured on this instance")
+    end
+  end
+
+  test "a present-but-invalid configured token also identifies an instance configuration problem" do
+    invalid_tokens = [String.duplicate("a", 31), " " <> @token, @token <> " ", String.duplicate(":", 32)]
 
     for token <- invalid_tokens do
       restore_env("AIUR_SUPERVISOR_TOKEN", token)
@@ -111,6 +124,17 @@ defmodule AiurWeb.SupervisorAuthTest do
     assert_unauthorized(conn, "supervisor_auth_invalid", "Supervisor credential did not match")
     refute body =~ @token
     refute body =~ @rotated_token
+  end
+
+  test "compares digests with a constant-time function" do
+    # Asserted structurally as well as behaviourally: a naive `==` passes every
+    # behavioural test above while leaking the configured credential by timing.
+    # Read the object code rather than `:code.which/1`, which returns
+    # `:cover_compiled` under the coverage partition CI runs.
+    {_module, beam, _path} = :code.get_object_code(SupervisorAuth)
+    {:ok, {_module, [imports: imports]}} = :beam_lib.chunks(beam, [:imports])
+
+    assert {Plug.Crypto, :secure_compare, 2} in imports
   end
 
   defp authenticate(nil) do

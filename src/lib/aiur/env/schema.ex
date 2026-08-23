@@ -161,7 +161,7 @@ defmodule Aiur.Env.Schema do
 
     # --- Supervisor Decision API ---
     {"AIUR_SUPERVISOR_TOKEN",
-     type: :secret, group: :decision_api, purpose: "Bearer-safe token (at least 32 bytes) for the Supervisor Decision API; unset disables it.", fetch: "openssl rand -base64 32"},
+     type: :secret, group: :decision_api, purpose: "Bearer-safe token (at least 32 bytes) for the Supervisor Decision API; generate one with `openssl rand -base64 32`; unset or empty disables it."},
     {"AIUR_CI_READINESS_TOKEN", type: :secret, group: :decision_api, purpose: "Operator token `aiur init` uses to confirm PRs can auto-merge."},
 
     # --- Provider API keys ---

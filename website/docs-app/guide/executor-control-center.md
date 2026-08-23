@@ -205,6 +205,6 @@ Put remote access behind a private network or trusted reverse proxy and use TLS 
 
 The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Generate one with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` for all projects or the repository `.env` for one project.
 
-An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present invalid value aborts startup, while an absent value leaves the API disabled.
+An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup, while an absent or empty value leaves the API disabled.
 
 Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.

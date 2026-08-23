@@ -215,8 +215,9 @@ credential precedence is: an already-exported environment value, then
 `~/.aiur/.env`, then `./.env` in the current repository. Each dotenv file only
 fills unset names. The Supervisor Decision API uses `AIUR_SUPERVISOR_TOKEN`;
 generate one with `openssl rand -base64 32`. The value must be at least 32
-bearer-safe bytes with no surrounding whitespace. An absent value disables the
-API, while a present unusable value aborts startup. Provider keys use
+bearer-safe bytes with no surrounding whitespace. An absent or empty value
+disables the API, while a present non-empty unusable value aborts startup.
+Provider keys use
 `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
 `OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
 Keep the global per-user file outside Git trees and never commit either dotenv

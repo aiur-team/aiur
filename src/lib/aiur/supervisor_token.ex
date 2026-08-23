@@ -2,8 +2,10 @@ defmodule Aiur.SupervisorToken do
   @moduledoc """
   Classifies the bearer credential used by the Supervisor Decision API.
 
-  Missing credentials keep the optional API disabled. Values that are present
-  but unusable are invalid startup configuration.
+  Missing or blank credentials keep the optional API disabled, matching how the
+  rest of the codebase treats an empty environment value (see `Aiur.Env.set?/2`
+  and the dotenv readers). Values that are present and non-blank but unusable
+  are invalid startup configuration.
   """
 
   @minimum_token_bytes 32
@@ -16,7 +18,11 @@ defmodule Aiur.SupervisorToken do
   def classify(nil), do: :missing
 
   def classify(token) when is_binary(token) do
-    if valid?(token), do: {:ok, token}, else: :invalid
+    cond do
+      String.trim(token) == "" -> :missing
+      valid?(token) -> {:ok, token}
+      true -> :invalid
+    end
   end
 
   def classify(_other), do: :invalid
