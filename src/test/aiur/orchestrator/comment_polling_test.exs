@@ -146,8 +146,12 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
       assert third.events_etag == "new-etag"
       assert third.events_last_id == "new-merge"
-      assert third.github_connectivity[:recent_merge_store] == {:transport, 3}
-      assert third.github_poll_delays[:recent_merge_store] == 4_000
+      # A local persistence failure is not lost connectivity: the catch-all no
+      # longer stamps it `:transport`, so it lands `:unclassified` and backs off
+      # at the conservative base rather than on the network escalation curve
+      # (#2429 F2). The persistence alert below is the intended operator signal.
+      assert third.github_connectivity[:recent_merge_store] == {:unclassified, 3}
+      assert third.github_poll_delays[:recent_merge_store] == 1_000
       assert Agent.get(attempts, & &1) == 3
 
       assert_receive {:persistence_alert, "recent_merge_store.persistence_failed", message, alert_opts}
@@ -159,7 +163,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
       assert fourth.events_etag == "new-etag"
       assert fourth.events_last_id == "new-merge"
-      assert fourth.github_connectivity[:recent_merge_store] == {:transport, 3}
+      assert fourth.github_connectivity[:recent_merge_store] == {:unclassified, 3}
       assert Agent.get(attempts, & &1) == 3
       refute_receive {:persistence_alert, _, _, _}
     end
