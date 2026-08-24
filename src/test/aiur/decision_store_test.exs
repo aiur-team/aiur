@@ -13,11 +13,13 @@ defmodule Aiur.DecisionStoreTest do
     Decision,
     DecisionDispatchTasks,
     DecisionEvent,
+    DecisionExpiry,
     DecisionHistory,
     DecisionLog,
     DecisionProjection,
     DecisionPubSub,
     DecisionStore,
+    DecisionValidation,
     ExecutorCommandAttention,
     ExecutorCommandCLI,
     Issue
@@ -3611,6 +3613,62 @@ defmodule Aiur.DecisionStoreTest do
       assert case_attention_alerts(log_root, topic) == []
     end
 
+    test "boot sweep retires the already-raised expired-unanswerable needs-attention backlog", %{dir: dir} do
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "expired-backlog-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      now = ~U[2026-08-24 12:00:00Z]
+      decision = expired_unanswerable_decision(now)
+      topic = expired_unanswerable_topic(decision)
+
+      # Simulate the backlog this fix exists to clear: an older build raised the
+      # expired-unanswerable alert as needs-attention, so a raised entry is
+      # already on disk before this sweep (a boot-time backlog, not a live
+      # condition).
+      :ok =
+        Alerts.emit_custom(
+          topic,
+          "stale raised expired-unanswerable alert",
+          issue: "979",
+          reason: "stale",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
+
+      # The boot sweep reconciles the whole historical expired-unanswerable
+      # backlog through the real DecisionAttentionSignals path. An expired
+      # Command is non-actionable, so the reconcile must resolve (clear) the
+      # raised entry rather than leave it active forever — the feed must end up
+      # empty, not merely smaller (a count assertion would pass on today's code
+      # with one fewer entry).
+      {:ok, pid} =
+        DecisionExpiry.start_link(
+          name: nil,
+          initial_delay_ms: 0,
+          interval_ms: 60_000,
+          active_identifiers_fun: fn -> {:ok, []} end,
+          decisions_fun: fn -> {:ok, [decision]} end,
+          expire_fun: fn _decision_id, _reason_class, _occurred_at -> {:ok, %{status: :accepted}} end,
+          now: now
+        )
+
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+      wait_for_feed_empty(log_root, topic)
+      assert case_attention_alerts(log_root, topic) == []
+    end
+
     test "default terminal resolver identity extraction falls back to issue id when identifier is blank" do
       terminal_states = MapSet.new(["done", "closed"])
 
@@ -4242,6 +4300,39 @@ defmodule Aiur.DecisionStoreTest do
 
   defp unique_coordinator_name(suffix) do
     Module.concat(__MODULE__, "#{suffix}#{System.unique_integer([:positive])}")
+  end
+
+  # A non-executor-answerable Command (human_required, no options) in the
+  # already-expired state, the shape whose `decision-expired-unanswerable`
+  # alert was the historical backlog #2458 retires.
+  defp expired_unanswerable_decision(now) do
+    {:ok, decision} =
+      DecisionValidation.normalize(
+        %{
+          "question" => "Which archival target?",
+          "blocking" => false,
+          "authority" => "human_required",
+          "source_id" => "expired-unanswerable-1"
+        },
+        ticket: %{@ticket | identifier: "979"},
+        source: @source,
+        now: DateTime.add(now, -3_600, :second)
+      )
+
+    %{decision | decision_status: :expired}
+  end
+
+  # Mirrors `Aiur.DecisionAttentionSignals.attention_topic/2` for the expired
+  # signal, so a test can seed and then read the exact topic the reconcile
+  # retires.
+  defp expired_unanswerable_topic(decision) do
+    digest =
+      :sha256
+      |> :crypto.hash(decision.decision_id)
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    "ticket.#{decision.ticket.identifier}.agent.attention.decision-expired-unanswerable-#{digest}"
   end
 
   # #2343: each case's own store writes its delivery attention into the
