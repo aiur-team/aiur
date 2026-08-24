@@ -57,7 +57,9 @@ defmodule Aiur.Init.BotAccount do
   defp explain(io) do
     io.puts.([
       "\nAiur separates two GitHub identities:\n",
-      "  • GITHUB_TOKEN — the credential used for GitHub API and inherited `gh` operations.\n",
+      "  • GITHUB_TOKEN — the credential used for GitHub API and `gh` operations.\n",
+      "    Agents do not inherit it: the daemon writes it to the `gh` guard's file and\n",
+      "    injects it only for the duration of a governed call (#2356).\n",
       "  • github.bot_account — the login Aiur uses to recognize and suppress its own\n",
       "    comment/event loops (so an agent's own reply is never treated as human feedback).\n",
       "A dedicated bot account is recommended when operators also comment from a trusted\n",
