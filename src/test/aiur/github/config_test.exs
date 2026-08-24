@@ -6,9 +6,11 @@ defmodule Aiur.GitHub.ConfigTest do
   alias Aiur.GitHub.Config
 
   @cache_key {Config, :resolved_token}
+  @keyring_timeout_env "AIUR_GH_KEYRING_TIMEOUT_MS"
 
   setup do
     original = System.get_env("GITHUB_TOKEN")
+    original_keyring_timeout = System.get_env(@keyring_timeout_env)
 
     on_exit(fn ->
       :persistent_term.erase(@cache_key)
@@ -16,6 +18,11 @@ defmodule Aiur.GitHub.ConfigTest do
       case original do
         nil -> System.delete_env("GITHUB_TOKEN")
         value -> System.put_env("GITHUB_TOKEN", value)
+      end
+
+      case original_keyring_timeout do
+        nil -> System.delete_env(@keyring_timeout_env)
+        value -> System.put_env(@keyring_timeout_env, value)
       end
     end)
 
@@ -211,27 +218,114 @@ defmodule Aiur.GitHub.ConfigTest do
       assert log =~ "gh auth login"
     end
 
-    test "returns nil when gh is absent from PATH instead of crashing the caller" do
-      # Review regression: Task.async links the shell-out task to the caller, so
-      # an absent gh (ErlangError :enoent) inside the task used to exit the task
-      # abnormally and kill the caller across the link before Task.yield ever
-      # returned. The rescue now lives inside the task, so a gh-less box — the
-      # brand-new-developer path this ticket protects — degrades to nil exactly
-      # like an absent gh did pre-PR.
+    test "returns nil when no gh resolves on PATH (the missing-binary degradation)" do
+      # A box with no gh at all: HostCommand.find_executable/1 resolves nothing
+      # and the runner returns {"", 127}, which keyring_token/1 treats exactly
+      # like a failed lookup — nil — so the boot gate can raise its normal
+      # missing-credential message. This is the {"", 127} degradation path, not
+      # an :enoent raise: HostCommand guards its System.cmd call, so a gh-less
+      # PATH never reaches the raising path. The raising path is covered
+      # separately by the injected-runner test below.
       with_empty_path(fn ->
         assert Config.keyring_token(timeout_ms: 1_000) == nil
       end)
     end
 
+    test "a runner that raises degrades to nil instead of killing the caller" do
+      # Review blocker: Task.async links the shell-out task to the caller, so an
+      # uncaught exception inside the task exits it abnormally and the link
+      # kills the caller before Task.yield ever returns. The rescue lives inside
+      # the task and turns any runner failure into "no keyring credential".
+      # The :run_fun seam drives a runner that actually raises, making that
+      # rescue load-bearing — without the seam, the rescue was untestable
+      # because HostCommand.run degrades a missing binary to {"", 127} before
+      # System.cmd can raise :enoent.
+      assert Config.keyring_token(timeout_ms: 1_000, run_fun: fn -> raise "boom" end) == nil
+    end
+
+    test "a stalled gh is killed on timeout rather than orphaned" do
+      # Review blocker: Task.shutdown(:brutal_kill) closes the task's port but
+      # never signals the OS process, so a gh that blocks on a locked keyring /
+      # credential-helper prompt used to survive the timeout and the BEAM,
+      # still holding the keyring and accumulating an orphan per lookup. The
+      # bounded runner now reads the child's OS pid and kills it after the
+      # timeout; this test drives the real shell-out against a never-returning
+      # fake gh that records its pid, and asserts that pid is not live after
+      # the lookup returns.
+      root = Aiur.TestSupport.tmp_root!("aiur-config-keyring-orphan")
+      File.mkdir_p!(root)
+      pidfile = Path.join(root, "gh.pid")
+
+      try do
+        with_fake_gh_on_path(
+          """
+          if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+            echo $$ > #{pidfile}
+            while true; do sleep 1; done
+          fi
+          """,
+          fn ->
+            assert Config.keyring_token(timeout_ms: 200) == nil
+            assert File.exists?(pidfile), "the fake gh never started"
+
+            pid = pidfile |> File.read!() |> String.trim() |> String.to_integer()
+
+            # Allow the kill and reap to land, then assert the child is no
+            # longer a live process (a reaped pid or a zombie both count dead).
+            Process.sleep(100)
+            refute live_process?(pid), "gh pid #{pid} survived the timeout"
+          end
+        )
+      after
+        File.rm_rf!(root)
+      end
+    end
+
     test "the shipped default timeout is bounded so a boot stall cannot ship unnoticed" do
       # Pins @keyring_command_timeout_ms in the safe direction: every other test
-      # injects its own timeout_ms, so a mutation to a ten-minute stall would
-      # otherwise leave the whole suite green while boot hangs. Boot must fail
-      # fast on a locked keyring.
+      # injects its own timeout_ms or pins the env override, so a mutation to a
+      # ten-minute stall would otherwise leave the whole suite green while boot
+      # hangs. Boot must fail fast on a locked keyring.
+      System.delete_env(@keyring_timeout_env)
+
       timeout = Config.keyring_command_timeout_ms()
       assert is_integer(timeout)
       assert timeout >= 1
       assert timeout <= 10_000
+    end
+
+    test "AIUR_GH_KEYRING_TIMEOUT_MS overrides the default timeout" do
+      System.put_env(@keyring_timeout_env, "7000")
+
+      assert Config.keyring_timeout_ms() == 7_000
+      assert Config.keyring_timeout_ms(timeout_ms: 1_000) == 1_000
+    end
+
+    test "an invalid AIUR_GH_KEYRING_TIMEOUT_MS falls back to the compiled default" do
+      for bad <- ["banana", "0", "-5", ""] do
+        System.put_env(@keyring_timeout_env, bad)
+        assert Config.keyring_timeout_ms() == Config.keyring_command_timeout_ms()
+      end
+    end
+
+    test "the env override is applied to the real shell-out" do
+      log =
+        ExUnit.CaptureLog.capture_log([level: :debug], fn ->
+          with_fake_gh_on_path(
+            """
+            if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+              printf 'ghs_env_override\\n'
+              exit 0
+            fi
+            """,
+            fn ->
+              System.put_env(@keyring_timeout_env, "900")
+              assert Config.keyring_token() == "ghs_env_override"
+            end
+          )
+        end)
+
+      assert log =~ "timeout_ms=900"
     end
   end
 
@@ -377,8 +471,10 @@ defmodule Aiur.GitHub.ConfigTest do
   end
 
   # Sets PATH to a directory with no executables, so `gh` is genuinely absent
-  # and `System.cmd("gh", ...)` raises :enoent — the box with no gh installed
-  # at all.
+  # and the {"", 127} missing-binary degradation path is exercised — the box
+  # with no gh installed at all. HostCommand.run guards its System.cmd call, so
+  # this never reaches the raising `:enoent` path (that one is covered by the
+  # injected-runner test).
   defp with_empty_path(fun) do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "aiur-config-empty-path-#{unique}")
@@ -397,5 +493,25 @@ defmodule Aiur.GitHub.ConfigTest do
 
       File.rm_rf!(root)
     end
+  end
+
+  # True when `pid` names a live (non-zombie) process. A process killed by
+  # SIGKILL either disappears or lingers as a zombie (`ps` stat "Z") until its
+  # parent reaps it; neither is a live process, so only an empty/absent stat or
+  # a "Z" stat counts as dead.
+  defp live_process?(pid) when is_integer(pid) and pid > 0 do
+    case System.cmd("sh", ["-c", "ps -o stat= -p #{pid} 2>/dev/null"]) do
+      {out, 0} ->
+        case String.trim(out) do
+          "" -> false
+          "Z" <> _ -> false
+          _ -> true
+        end
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
   end
 end

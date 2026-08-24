@@ -408,11 +408,16 @@ defmodule Aiur.GitHub.Config do
   # a locked keyring, blocks on a slow/unreachable host, or waits on a missing
   # GUI credential agent would otherwise hang boot before any log line on the
   # keyring-only path a new developer takes. 5s matches the webhook admission
-  # deadline idiom and is far longer than a healthy local keyring lookup.
+  # deadline idiom and is far longer than a healthy local keyring lookup; the
+  # default is overridable through `AIUR_GH_KEYRING_TIMEOUT_MS` for a
+  # slow-but-succeeding setup (see `keyring_timeout_ms/1`).
   @keyring_command_timeout_ms 5_000
+  @keyring_timeout_env "AIUR_GH_KEYRING_TIMEOUT_MS"
+  @keyring_os_pid_key :aiur_gh_keyring_os_pid
 
   @doc """
-  The default timeout (milliseconds) for the `gh auth token` keyring shell-out.
+  The default timeout (milliseconds) for the `gh auth token` keyring shell-out,
+  applied when `#{@keyring_timeout_env}` is unset.
 
   Exposed so the boot-safety bound is testable: a boot stall from a locked
   keyring must stay well under the ten-minute mark, and a mutation of the
@@ -423,15 +428,43 @@ defmodule Aiur.GitHub.Config do
   def keyring_command_timeout_ms, do: @keyring_command_timeout_ms
 
   @doc """
+  The effective keyring lookup timeout in milliseconds.
+
+  `:timeout_ms` in `opts` wins, then `#{@keyring_timeout_env}` when it is a
+  positive integer, then the compiled-in `keyring_command_timeout_ms/0`
+  default. The env override exists so a slow-but-succeeding keyring (e.g. an
+  interactive unlock prompt that legitimately takes longer than the 5s default)
+  is not converted into a spurious "no keyring credential" at boot; an invalid
+  env value is ignored rather than crashing boot.
+  """
+  @spec keyring_timeout_ms(keyword()) :: pos_integer()
+  def keyring_timeout_ms(opts \\ []) do
+    Keyword.get(opts, :timeout_ms, env_keyring_timeout_ms() || @keyring_command_timeout_ms)
+  end
+
+  defp env_keyring_timeout_ms do
+    case System.get_env(@keyring_timeout_env) do
+      value when is_binary(value) ->
+        case Integer.parse(String.trim(value)) do
+          {ms, ""} when ms > 0 -> ms
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  @doc """
   Query the gh keyring with the env tokens CLEARED so gh returns the stored
   login rather than echoing the (possibly stale) env var.
 
   Returns the stored PAT as a trimmed string, or `nil` when gh is absent, not
   logged in via keyring (headless/CI), the lookup fails, or the shell-out does
-  not answer within `:timeout_ms` (default #{@keyring_command_timeout_ms}ms).
-  A timeout is treated exactly like an absent gh — "no keyring credential" —
-  never a fatal error, and it is logged at warning level so a stalled keyring
-  is attributable instead of a silent boot hang.
+  not answer within `keyring_timeout_ms/1`. A timeout is treated exactly like
+  an absent gh — "no keyring credential" — never a fatal error, and it is
+  logged at warning level so a stalled keyring is attributable instead of a
+  silent boot hang.
 
   Logs at debug level immediately before the shell-out, so even a boot that
   hangs (within the timeout) leaves a line to read rather than stopping with no
@@ -443,17 +476,26 @@ defmodule Aiur.GitHub.Config do
   runtime fallback, and the boot gate in `Aiur.Env` consults the same function
   so a keyring-only `gh auth login` satisfies the GitHub credential requirement
   before any env token is set.
+
+  ## Options
+
+    * `:timeout_ms` — bound on the shell-out, overriding the
+      `#{@keyring_timeout_env}` default (test seam).
+    * `:run_fun` — how the `gh auth token` command runs, defaulting to the
+      `HostCommand`-routed port spawn. Test seam so the in-task rescue that
+      turns a raising runner into "no keyring credential" is load-bearing.
   """
   @spec keyring_token(keyword()) :: String.t() | nil
   def keyring_token(opts \\ []) do
-    timeout_ms = Keyword.get(opts, :timeout_ms, @keyring_command_timeout_ms)
+    timeout_ms = keyring_timeout_ms(opts)
+    run_fun = Keyword.get(opts, :run_fun, &run_gh_auth_token_command/0)
 
     Logger.debug(
       "aiur_boot phase=github_keyring_lookup state=starting " <>
         "command=\"gh auth token --hostname github.com\" timeout_ms=#{timeout_ms}"
     )
 
-    case run_gh_auth_token(timeout_ms) do
+    case run_bounded_gh_auth_token(timeout_ms, run_fun) do
       {out, 0} -> normalize_secret(out)
       _ -> nil
     end
@@ -461,33 +503,35 @@ defmodule Aiur.GitHub.Config do
     _ -> nil
   end
 
-  # Runs the shell-out in a linked task so the caller can bound it: a gh that
-  # never returns is killed via Task.shutdown(:brutal_kill), which closes the
-  # port and terminates the gh process. This is the same yield-then-kill idiom
-  # the webhook admission path uses, and it keeps the boot gate from hanging on
-  # a stalled keyring while still treating the result as "no keyring
-  # credential" rather than an error.
+  # Runs `run_fun` in a linked task so the caller can bound it. A command that
+  # never returns is torn down after `timeout_ms` and the whole lookup degrades
+  # to "no keyring credential" — nil — the same way an absent gh is treated,
+  # never a fatal error.
   #
   # The rescue must live INSIDE the task: Task.async links the task to the
-  # caller, so an uncaught exception here (e.g. ErlangError :enoent when gh is
-  # not on PATH) would exit the task abnormally and the link would kill the
-  # caller before Task.yield ever returned — crashing boot on the exact gh-less
-  # new-developer box this protects, instead of degrading to "no keyring
-  # credential".
-  defp run_gh_auth_token(timeout_ms) do
+  # caller, so an uncaught exception inside the task would exit it abnormally
+  # and the link would kill the caller before Task.yield ever returned —
+  # crashing boot on the exact new-developer box this protects. The `:run_fun`
+  # seam makes that rescue load-bearing: a test injects a runner that raises
+  # and asserts the caller survives with nil.
+  #
+  # The timeout path also kills the OS process. Closing the task's port sends
+  # EOF but never signals the OS process, so a stalled `gh` that outlived the
+  # port would keep holding the locked keyring / credential-helper prompt and
+  # every later lookup would spawn another orphan. The child's OS pid is
+  # published to the task's dictionary by the runner and read here while the
+  # task is still alive, before it is brutal-killed.
+  defp run_bounded_gh_auth_token(timeout_ms, run_fun) do
     task =
       Task.async(fn ->
         try do
-          HostCommand.run(["auth", "token", "--hostname", "github.com"],
-            env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
-            stderr_to_stdout: true
-          )
+          run_fun.()
         rescue
           _ -> nil
         end
       end)
 
-    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+    case Task.yield(task, timeout_ms) do
       {:ok, result} ->
         result
 
@@ -498,13 +542,81 @@ defmodule Aiur.GitHub.Config do
         nil
 
       nil ->
+        os_pid = task_keyring_os_pid(task)
+        Task.shutdown(task, :brutal_kill)
+        kill_os_process(os_pid)
+
         Logger.warning(
           "aiur_boot phase=github_keyring_lookup state=timed_out " <>
-            "timeout_ms=#{timeout_ms} treating_as=no_keyring_credential " <>
+            "timeout_ms=#{timeout_ms} treated_as=no_keyring_credential " <>
             "run `gh auth login` to use the gh keyring"
         )
 
         nil
+    end
+  end
+
+  # The real runner: `gh auth token --hostname github.com` with the env tokens
+  # cleared so gh returns the stored keyring login rather than echoing a
+  # (possibly stale) env var. The executable is resolved through
+  # HostCommand.find_executable/1 so the guard wrapper is used when installed
+  # (budget admission, #2353). The command runs as a port with `:os_pid` so the
+  # bounded runner can read the child's OS pid from the task dictionary and
+  # kill it on timeout; closing the port alone would orphan the process.
+  defp run_gh_auth_token_command do
+    case HostCommand.find_executable() do
+      nil ->
+        {"", 127}
+
+      path ->
+        port =
+          Port.open({:spawn_executable, String.to_charlist(path)}, [
+            :binary,
+            :exit_status,
+            :use_stdio,
+            :stderr_to_stdout,
+            {:args, ["auth", "token", "--hostname", "github.com"]},
+            {:env, [{~c"GITHUB_TOKEN", ~c""}, {~c"GH_TOKEN", ~c""}]}
+          ])
+
+        Process.put(@keyring_os_pid_key, port_os_pid(port))
+        collect_port_output(port)
+    end
+  end
+
+  defp port_os_pid(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, pid} when is_integer(pid) and pid > 0 -> pid
+      _ -> nil
+    end
+  end
+
+  defp task_keyring_os_pid(task) do
+    case Process.info(task.pid, :dictionary) do
+      {:dictionary, dict} ->
+        case Keyword.get(dict, @keyring_os_pid_key) do
+          pid when is_integer(pid) and pid > 0 -> pid
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp kill_os_process(pid) when is_integer(pid) and pid > 0 do
+    System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp kill_os_process(_pid), do: :ok
+
+  defp collect_port_output(port, acc \\ "") do
+    receive do
+      {^port, {:data, data}} -> collect_port_output(port, acc <> data)
+      {^port, {:exit_status, status}} -> {acc, status}
     end
   end
 

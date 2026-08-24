@@ -18,10 +18,17 @@ defmodule Aiur.EnvTest do
   setup do
     original = Map.take(System.get_env(), Map.keys(@secret_values))
     Enum.each(Map.keys(@secret_values), &System.delete_env/1)
+    original_keyring_timeout = System.get_env("AIUR_GH_KEYRING_TIMEOUT_MS")
+    System.delete_env("AIUR_GH_KEYRING_TIMEOUT_MS")
 
     on_exit(fn ->
       Enum.each(Map.keys(@secret_values), &System.delete_env/1)
       Enum.each(original, fn {key, value} -> System.put_env(key, value) end)
+
+      case original_keyring_timeout do
+        nil -> System.delete_env("AIUR_GH_KEYRING_TIMEOUT_MS")
+        value -> System.put_env("AIUR_GH_KEYRING_TIMEOUT_MS", value)
+      end
     end)
 
     :ok
@@ -204,13 +211,14 @@ defmodule Aiur.EnvTest do
       )
     end
 
-    test "a box with no gh installed fails the gate with the standard message, not a crash" do
-      # Review regression: on a gh-less box the keyring shell-out's task used to
-      # die with ErlangError :enoent and, because Task.async links the task to
-      # the caller, kill the boot process before the gate could raise its normal
-      # ArgumentError. The absent-gh case must degrade to the same friendly
-      # missing-credential message as every other no-credential path — the
-      # brand-new-developer scenario this ticket names.
+    test "a box with no gh on PATH fails the gate with the standard message, not a crash" do
+      # On a gh-less box the keyring shell-out resolves nothing through
+      # HostCommand and degrades to the {"", 127} "no keyring credential"
+      # result, so the gate must raise its normal missing-credential
+      # ArgumentError instead of crashing — the brand-new-developer scenario
+      # this ticket names. (The Task.async-linked raise that used to kill the
+      # caller is pinned separately in config_test via the injected-runner
+      # seam; here the empty PATH exercises the real degraded shell-out.)
       with_empty_path(fn ->
         error =
           assert_raise ArgumentError, fn ->
@@ -500,8 +508,10 @@ defmodule Aiur.EnvTest do
   end
 
   # Sets PATH to a directory with no executables, so `gh` is genuinely absent
-  # and `System.cmd("gh", ...)` raises :enoent — the box with no gh installed
-  # at all.
+  # and the {"", 127} missing-binary degradation path is exercised — the box
+  # with no gh installed at all. HostCommand.run guards its System.cmd call, so
+  # this never reaches the raising `:enoent` path (that one is pinned in
+  # config_test via the injected-runner seam).
   defp with_empty_path(fun) do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "aiur-env-empty-path-#{unique}")
