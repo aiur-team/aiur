@@ -47,30 +47,12 @@ defmodule Aiur.GitHub.AuthPreflight do
   cycle exactly as it is today.
   """
 
-  alias Aiur.GitHub.{AppCredentials, Errors, HostCommand, Transport}
+  alias Aiur.GitHub.{AppCredentials, Errors, HostCommand, LocalHold, Transport}
 
   require Logger
 
   @memo_key {__MODULE__, :proven_identity}
   @epoch_key {__MODULE__, :invalidation_epoch}
-
-  # A local budget hold is a local counter trip that names its own release
-  # time (`reset_at`), so preflight can wait a short self-clearing hold out
-  # instead of failing the run on it (#2444). These three bounds keep that
-  # wait honest:
-  #
-  #   * `@local_hold_max_wait_ms` is the ceiling — a hold whose `reset_at` is
-  #     further out than this is a genuine capacity problem and still fails,
-  #     so waiting cannot mask real starvation.
-  #   * `@local_hold_max_waits` caps the number of consecutive waits, so a
-  #     pathologically re-armed hold terminates instead of pinning the caller
-  #     indefinitely.
-  #   * `@local_hold_jitter_ms` is the max jitter added on top of `reset_at`,
-  #     so concurrent waiters do not all wake and retry at the same instant
-  #     and re-trip the smoother in a stampede.
-  @local_hold_max_wait_ms 60_000
-  @local_hold_max_waits 3
-  @local_hold_jitter_ms 500
 
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
   def preflight_auth(opts \\ []) do
@@ -207,91 +189,18 @@ defmodule Aiur.GitHub.AuthPreflight do
   defp run_full_preflight(owner, repo, token, opts) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     gh_auth_status_fun = Keyword.get(opts, :gh_auth_status_fun, &default_gh_auth_status_fun/0)
-    sleep_fun = Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1)
-    max_wait_ms = Keyword.get(opts, :local_hold_max_wait_ms, @local_hold_max_wait_ms)
-    max_waits = Keyword.get(opts, :local_hold_max_waits, @local_hold_max_waits)
 
-    run_preflight_with_local_hold_retry(owner, repo, token, request_fun, gh_auth_status_fun, sleep_fun, max_wait_ms, max_waits)
-  end
-
-  # A correctly-classified, short, self-clearing local budget hold is not a
-  # credential or connectivity failure: the request guard throttled a shared
-  # resource for a bounded window and GitHub never saw the request. Failing
-  # the run on it turned a four-second hold into a terminated agent run plus a
-  # full retry (#2444). So when the checks come back `:local_hold`, wait the
-  # hold out — up to `max_waits` consecutive times, each bounded by
-  # `max_wait_ms` — and only give up with the ordinary diagnostic when the
-  # hold names a reset beyond the ceiling or keeps re-arming past the cap.
-  #
-  # The retry decision runs on the raw diagnostic, before `enrich_auth_diagnostic`
-  # pays for a `gh auth status` subprocess: re-proving the keyring on every
-  # wait would spend a subprocess per retry for no signal, since the answer
-  # cannot change while the local guard is the one throttling.
-  defp run_preflight_with_local_hold_retry(owner, repo, token, request_fun, gh_auth_status_fun, sleep_fun, max_wait_ms, waits_left) do
     result =
-      owner
-      |> preflight_checks(repo)
-      |> run_preflight_checks(request_fun, token, owner, repo)
-
-    with {:error, %{classification: :local_hold} = diagnostic} <- result,
-         {:wait, wait_ms} <- local_hold_wait_ms(diagnostic, max_wait_ms),
-         true <- waits_left > 0 do
-      log_and_sleep_hold(diagnostic, wait_ms, sleep_fun)
-
-      run_preflight_with_local_hold_retry(
-        owner,
-        repo,
-        token,
-        request_fun,
-        gh_auth_status_fun,
-        sleep_fun,
-        max_wait_ms,
-        waits_left - 1
+      LocalHold.run(
+        fn ->
+          owner
+          |> preflight_checks(repo)
+          |> run_preflight_checks(request_fun, token, owner, repo)
+        end,
+        LocalHold.caller_opts(opts)
       )
-    else
-      _other -> finalize_preflight_result(result, gh_auth_status_fun)
-    end
-  end
 
-  # Logs the wait and sleeps until the hold clears. The sleep is skipped — but
-  # the retry still happens — when `reset_at` has already passed (`{:wait, 0}`),
-  # so a hold that cleared before the failure was produced is retried
-  # immediately rather than failing the run (the daemon-restart burst case).
-  defp log_and_sleep_hold(diagnostic, wait_ms, sleep_fun) do
-    Logger.info(
-      "GitHub auth preflight held by local budget, waiting #{wait_ms}ms " <>
-        "(reset_at=#{hold_reset_at(diagnostic)}) then retrying"
-    )
-
-    if wait_ms > 0, do: sleep_fun.(wait_ms)
-  end
-
-  # The hold payload already carries its own release time; nothing needs to be
-  # inferred. Returns `{:wait, ms}` when the hold clears within the ceiling (a
-  # small jitter spreads concurrent waiters) and `:no_wait` when it is beyond
-  # the ceiling — a genuine capacity problem that should still fail, so real
-  # starvation is not masked by waiting. A `reset_at` already in the past is
-  # `{:wait, 0}`: the hold has cleared by the time the failure was produced
-  # (the daemon-restart burst case), so retry immediately rather than failing.
-  defp local_hold_wait_ms(diagnostic, max_wait_ms) do
-    case Map.get(diagnostic, :detail) do
-      %{hold: %{reset_at: %DateTime{} = reset_at}} ->
-        wait_ms =
-          DateTime.diff(reset_at, DateTime.utc_now(), :millisecond) +
-            :rand.uniform(@local_hold_jitter_ms + 1) - 1
-
-        if wait_ms > max_wait_ms, do: :no_wait, else: {:wait, max(wait_ms, 0)}
-
-      _other ->
-        :no_wait
-    end
-  end
-
-  defp hold_reset_at(diagnostic) do
-    case Map.get(diagnostic, :detail) do
-      %{hold: %{reset_at: reset_at}} -> inspect(reset_at)
-      _ -> "(unknown)"
-    end
+    finalize_preflight_result(result, gh_auth_status_fun)
   end
 
   # The token never lands in the table; only a digest of it does.
