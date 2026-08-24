@@ -117,7 +117,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       state
       |> remove_stopped_running_entry(issue_id, running_entry)
-      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), exit_retry_metadata(running_entry, reason))
+      |> schedule_issue_retry(issue_id, exit_retry_attempt(running_entry, reason), exit_retry_metadata(running_entry, reason))
     end
   end
 
@@ -131,6 +131,28 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # this path and retry-poll deferral, so every shape a hold can arrive in
   # (raw, `:local_hold`, legacy transport, workspace preflight wrapper, preflight
   # diagnostic) is treated identically.
+  #
+  # A hold-caused exit must also leave the failure attempt counter untouched:
+  # the retry reuses the attempt this run was dispatched at rather than
+  # incrementing it. Incrementing would let repeated holds push the stored
+  # attempt above `Config.max_retry_attempts()`, so the *first* genuine failure
+  # after them would hit the `next_attempt > max` give-up branch and stamp
+  # `agent:error` on attempt one of the real work — the same #2339 casualty,
+  # one step removed. A fresh dispatch (`retry_attempt` absent or 0) schedules
+  # its first retry at attempt 1, matching the non-hold path.
+  defp exit_retry_attempt(running_entry, reason) do
+    case local_budget_hold_reason(reason) do
+      %{} ->
+        case Map.get(running_entry, :retry_attempt) do
+          attempt when is_integer(attempt) and attempt > 0 -> attempt
+          _ -> 1
+        end
+
+      nil ->
+        next_retry_attempt_from_running(running_entry)
+    end
+  end
+
   defp exit_retry_metadata(running_entry, reason) do
     case local_budget_hold_reason(reason) do
       %{} = hold ->
@@ -569,7 +591,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
               tracker_identity: tracker_identity,
               priority: priority,
               issue_state: issue_state,
-              terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
+              terminal_membership_pending?: metadata[:terminal_membership_pending?] == true,
+              # Persisted so the non-consuming classification is observable and
+              # asserted directly: a `:local_budget_hold` retry is bounded by
+              # the hold's own `reset_at` and never advances toward give-up
+              # (#2429 rework round 2). `pop_retry_attempt_state/3` deliberately
+              # does not round-trip it — the retry path reclassifies the failure
+              # it sees at dispatch time rather than trusting stale metadata.
+              delay_type: metadata[:delay_type],
+              local_budget_hold: metadata[:local_budget_hold]
             })
       }
     end
