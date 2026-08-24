@@ -12,6 +12,10 @@ on:
     branches:
       - main
       - v2
+  # Manual re-run path: lets an operator (or an agent) trigger CI on a branch
+  # head directly when the pull_request synchronize path is not creating runs
+  # (#2397). Checks attach to the head commit either way.
+  workflow_dispatch:
 
 # Initial PR runs share a stable group; reruns and every non-PR event get a
 # unique group so they cannot replace another pending or in-progress run.
@@ -136,6 +140,11 @@ jobs:
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
     runs-on: ubuntu-latest
+    # Bound the job so a wedged step fails fast and red instead of running to
+    # GitHub's 6h default and showing as a non-informative cancelled stall
+    # (#2397). Partition-1 historical wall-clock is ~4-6 min even under load;
+    # 45 min is generous headroom.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -156,10 +165,18 @@ jobs:
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
           TEST_PARTITIONS: 4
-        # Capture the full log so the known-flaky reporter below can classify
-        # failing test names when the partition goes red (#2397). The runner's
-        # default shell has `pipefail`, so a failing `make` still fails the step.
-        run: make coverage-partition 2>&1 | tee "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
+        # Capture the full log for the known-flaky reporter below, but write it
+        # to a file instead of piping through `tee`: tests that leave orphaned
+        # background processes (opencode/sleep CLI harnesses) hold the pipe's
+        # write end open, so `tee` never sees EOF and the step hangs until the
+        # job dies as a non-informative cancelled red (#2397). A file redirect
+        # lets those orphans inherit the file FD harmlessly while the step
+        # completes the moment `make` exits.
+        run: make coverage-partition > "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" 2>&1
+      - name: Print partition log
+        if: ${{ failure() }}
+        working-directory: .
+        run: cat "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
       - name: Report known-flaky test names
         if: ${{ failure() }}
         shell: bash
