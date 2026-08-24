@@ -134,6 +134,23 @@ alerts:
 #   watch_label: watch        # label a PR `<label_prefix>:watch` (e.g. agent:watch) to monitor all its code-owner/trusted comments
 #   command_prefix: /aiur     # a trusted comment starting with this (or mentioning github.bot_account) handles that one comment, no label needed
 
+# === PR health scan (opt-in; OFF by default) ===
+# Periodically flags open PRs that stall silently: one authored by a configured
+# human merger (unmergeable by construction — GitHub blocks self-approval), and
+# a non-draft PR older than stale_hours with no review. Both raise
+# needs-attention alerts.
+#
+# Enabling the scan also enables the rework re-queue (#2337): a ticket in
+# agent:rework whose PR's own contribution diff changed since its blocking
+# CHANGES_REQUESTED review is automatically moved to agent:human-review for the
+# second look. A PR whose head only moved via merges of the base branch (own
+# contribution unchanged) is NOT re-queued — it raises
+# system.pr_health.rework_merge_only so the merge-only state is visible.
+# pr_health:
+#   enabled: false            # true = run the scan on interval_seconds
+#   interval_seconds: 1800    # how often the scan lists open PRs
+#   stale_hours: 24           # a non-draft PR older than this with no review is flagged
+
 # === Build Order providers (optional; in-memory only) ===
 # Supervised providers fetch configured-repository detail and retain sanitized typed ticket history.
 # Restarting Aiur clears their snapshots; consumers receive unavailable state until a new read succeeds.

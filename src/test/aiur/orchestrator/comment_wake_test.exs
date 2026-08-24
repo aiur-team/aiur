@@ -703,7 +703,10 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
   describe "mark_pr_merged_issue_done/2" do
     test "returns state unchanged when no matching running entry exists" do
       state = base_state()
-      result = CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123")
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123", open_pull_requests_fun: fn _identifier -> {:ok, []} end)
+
       assert result == state
     end
 
@@ -744,7 +747,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
                 claimed: MapSet.new()
             }
           end,
-          merger_allowed_fun: fn _login -> true end
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
       refute Map.has_key?(result.running, issue.id)
@@ -765,7 +769,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         emit_alert_fun: fn _name, _opts ->
           send(parent, :unexpected_alert)
           :ok
-        end
+        end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
       assert_receive {:checked_allowlist, "its-everdred"}
@@ -786,7 +791,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         emit_alert_fun: fn name, opts ->
           send(parent, {:alert_emitted, name, opts})
           :ok
-        end
+        end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
       assert_receive {:checked_allowlist, "unknown-bot"}
@@ -811,7 +817,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         emit_alert_fun: fn name, opts ->
           send(parent, {:alert_emitted, name, opts})
           :ok
-        end
+        end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
       assert_receive {:checked_allowlist, nil}
@@ -831,7 +838,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           emit_alert_fun: fn name, opts ->
             send(parent, {:alert_emitted, name, opts})
             :ok
-          end
+          end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
       assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
@@ -848,7 +856,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           assert CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
                    merged_by_login: "unknown-bot",
                    update_issue_state_fun: fn _id, "done" -> :ok end,
-                   merger_allowed_fun: fn _login -> false end
+                   merger_allowed_fun: fn _login -> false end,
+                   open_pull_requests_fun: fn _identifier -> {:ok, []} end
                  ) == state
         end)
 
@@ -893,7 +902,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
           terminate_running_issue_fun: fn s, id, true ->
             %{s | running: Map.delete(s.running, id), claimed: MapSet.new()}
-          end
+          end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
       assert_receive {:checked, "bad-actor"}
@@ -937,7 +947,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
               | running: Map.delete(current_state.running, issue_id),
                 claimed: MapSet.new()
             }
-          end
+          end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
       assert_receive {:alert, "ticket.100.merge.attribution_check_failed", opts}
@@ -945,6 +956,65 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert Keyword.get(opts, :severity) == "critical"
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
+    end
+
+    test "a merged PR whose ticket has other open PRs routes it to rework, never done, with no terminal teardown" do
+      # The live webhook path (EventTopics {:pr_merged, id}) calls this without a
+      # precomputed target_state, so the merge must not terminalize a ticket that
+      # still has another open PR carrying CHANGES_REQUESTED: it lands in rework,
+      # the running entry survives (no session clear / terminate / blockee resume),
+      # and the remaining PR's findings stay dispatchable.
+      issue = %Issue{
+        id: "issue-remaining-open",
+        identifier: "2307",
+        state: "in-progress",
+        tracker_identity: tracker_identity("2307")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          merged_by_login: "its-everdred",
+          update_issue_state_fun: fn identifier, state_name ->
+            send(parent, {:transition, identifier, state_name})
+            :ok
+          end,
+          observe_membership_fun: fn _identity, _lc ->
+            send(parent, :membership_recorded)
+            :ok
+          end,
+          resume_blockees_fun: fn current_state, _identifier ->
+            send(parent, :blockees_resumed)
+            current_state
+          end,
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier ->
+            {:ok,
+             [
+               %{
+                 "number" => 2318,
+                 "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+                 "review_decision" => "CHANGES_REQUESTED"
+               }
+             ]}
+          end
+        )
+
+      assert_receive {:transition, "2307", "rework"}
+      refute_receive {:transition, "2307", "done"}
+      refute_receive :membership_recorded
+      refute_receive :blockees_resumed
+      assert Map.has_key?(result.running, issue.id)
+      assert MapSet.member?(result.claimed, issue.id)
     end
   end
 
