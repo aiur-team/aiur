@@ -10,16 +10,50 @@
 # informative: red caused only by known flakes is a flake that fired, not proof
 # the change is broken.
 #
-# Update the list when a flake is fixed (remove the entry) or when a new flake
-# is confirmed and ticketed (add the exact name printed by the runner). Keep
-# entries byte-exact — the comparison is a full-line match.
+# Provenance: each entry records where it was last observed (run URL or commit,
+# date) so stale entries can be audited and pruned once a flake stops firing.
+# Update the list when a flake is fixed (remove the entry once it has not fired
+# for several weeks) or when a new flake is confirmed (add the exact name
+# printed by the runner). Keep entries byte-exact — the comparison is a
+# full-line match.
 
 # Quarantined for #2397: reads the configured repository through the shared
 # WorkflowStore singleton, which can serve a stale valid config under load.
+# Last observed run 32630000223 (2026-08-23).
 Aiur.GitHub.IssuesTest :: normalize_issue/4 marks malformed configured repositories explicitly nonjoinable
 
+# Shared WorkflowStore-config family, sibling of the quarantined test above.
+# Last observed run 32646869941 coverage (1/4) (2026-08-23).
+Aiur.GitHub.IssuesTest :: normalize_issue/4 does not use the current checkout when repository configuration is absent
+
 # decision_store_test.exs:2624 saturation dispatch ordering (#2402).
+# Last observed 2026-08-23.
 Aiur.DecisionStoreTest :: saturation fails admission durably and opens delivery attention
 
 # decision_store_test.exs journal append `append_failed, :enoent` (#2403). The
 # exact test name varies by run; add it here once pinned.
+
+# Fixed by #2405 (signal-based restart wait). Kept so a recurrence is
+# classified as known rather than a regression; remove once stable.
+# Last observed run 32629780488 (2026-08-23).
+Aiur.BuildOrder.TicketDetailCoordinatorTest :: abnormal restart kills owned in-flight reads before replacement demand
+
+# Dispatched on #2373 (open).
+# Last observed 2026-08-23.
+Aiur.BuildOrder.TicketHistoryProviderTest :: publishes immutable per-ticket updates and tolerates subscriber churn
+
+# Shared PubSub/ReadCache collapse cluster — six failures in one partition at
+# commit 5c1679f7 (2026-08-23). Fixed by the #2405 shared-children recovery;
+# kept so a recurrence is classified as known; remove once stable.
+Aiur.GitHub.TransportReadCacheTest :: a repeated cacheable GraphQL read never reaches the socket or the quota meter
+Aiur.GitHub.TransportReadCacheTest :: a CI status read reaches the socket every time
+Aiur.CurrentRunMembership.StoreTest :: corrupt journal contents never reach health or PubSub
+Aiur.CurrentRunMembership.StoreTest :: corrupt recovery contents never reach health or PubSub
+Aiur.CurrentRunMembership.StoreTest :: publishes the durable accepted membership fact over the headless PubSub API
+Aiur.Opencode.SlotTest :: PubSub event topology all attach/visible events broadcast on slots_topic/0
+
+# Unticketed. Observed blocking docs-only PR #2412 (+84/-0, one file) and #2282
+# (2026-08-23); passes on current main in isolation (12 tests, 0 failures).
+# Ruled out the obvious regression suspect #2370 by running against main.
+Aiur.GitHub.BotIdentityTest :: daemon_account/3 under a split identity resolves the daemon App bot, not the account agents publish as
+Aiur.GitHub.BotIdentityTest :: falls back from config bot account to authenticated viewer login
