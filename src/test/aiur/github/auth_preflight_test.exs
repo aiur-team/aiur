@@ -162,6 +162,12 @@ defmodule Aiur.GitHub.AuthPreflightTest do
   # token-source branch, so this holds for both GITHUB_APP and GITHUB_TOKEN
   # sources; pre-fix this diagnostic classified as `:transport` and carried the
   # wrong recovery text.
+  #
+  # The reset is 30s out — within the hold wait-out ceiling — so this also
+  # exercises the re-armed cap (#2444): the request_fun keeps re-issuing the
+  # same hold, preflight waits `@local_hold_max_waits` times (each sleep
+  # injected to return immediately), and the final diagnostic still names the
+  # hold.
   test "a local budget hold during preflight names the local hold, never App or token recovery" do
     hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
     request_fun = fn _request -> {:error, {:aiur, :locally_held, hold}} end
@@ -169,7 +175,8 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     assert {:error, {:github_auth_preflight_failed, diagnostic}} =
              AuthPreflight.preflight_auth(
                request_fun: request_fun,
-               gh_auth_status_fun: fn -> {:ok, :available} end
+               gh_auth_status_fun: fn -> {:ok, :available} end,
+               local_hold_sleep_fun: fn _ms -> :ok end
              )
 
     assert diagnostic.classification == :local_hold
@@ -189,6 +196,140 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     assert AuthPreflight.local_hold_reason?({:aiur, :locally_held, hold})
     refute AuthPreflight.local_hold_reason?({:github_auth_preflight_failed, %{classification: :dns}})
     refute AuthPreflight.local_hold_reason?(:missing_github_token)
+  end
+
+  describe "local budget hold wait-out (#2444)" do
+    # #2444 acceptance 1: a `:local_hold` whose `reset_at` is a couple of
+    # seconds out is waited out and the retry succeeds — preflight returns
+    # `:ok`, so the workspace provisioning path never produces
+    # `workspace_github_connectivity_failed` and the agent run survives. The
+    # sleep is injected so the test asserts on the run surviving (a `:ok`
+    # return) and on the wait actually happening (the sleep duration), not on
+    # a log line and not on a real 2s wall-clock wait.
+    test "a short local budget hold is waited out and the preflight succeeds" do
+      parent = self()
+      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      counter = start_counter()
+
+      request_fun = fn request ->
+        attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if attempt == 1 do
+          {:error, {:aiur, :locally_held, hold}}
+        else
+          ok_response(request)
+        end
+      end
+
+      sleep_fun = fn ms ->
+        send(parent, {:sleep, ms})
+        :ok
+      end
+
+      assert :ok =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :not_installed} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # One held attempt, then a full successful retry (three checks).
+      assert count(counter) == 4
+
+      # The hold was 2s out, so the wait honours `reset_at` plus up to 500ms of
+      # jitter — nothing more.
+      assert_receive {:sleep, wait_ms}
+      assert wait_ms >= 1_500 and wait_ms <= 2_500
+      refute_receive {:sleep, _}
+    end
+
+    # #2444 acceptance 2 (the mutation guard): a hold whose `reset_at` is
+    # beyond the ceiling is a genuine capacity problem and still fails
+    # preflight. Without this bound the wait-out fix is indistinguishable from
+    # swallowing the error. The request_fun is called exactly once — no wait,
+    # no retry — and the ordinary diagnostic is returned.
+    test "a local budget hold beyond the ceiling still fails preflight without waiting" do
+      parent = self()
+      # Two minutes out — beyond the 60s default ceiling.
+      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      counter = start_counter()
+
+      request_fun = counting_request_fun(counter, fn _ -> {:error, {:aiur, :locally_held, hold}} end)
+      sleep_fun = fn _ms -> send(parent, :slept) end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :available} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      assert diagnostic.classification == :local_hold
+      assert count(counter) == 1
+      refute_receive :slept
+    end
+
+    # #2444 acceptance 3: a pathologically re-armed hold (each wait produces a
+    # fresh hold) terminates after the configured cap rather than pinning the
+    # caller forever. Three waits by default, then the fourth attempt fails
+    # closed.
+    test "a repeatedly re-armed local hold terminates after the configured cap" do
+      reset_at = DateTime.add(DateTime.utc_now(), 1, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      counter = start_counter()
+      sleep_counter = start_counter()
+
+      request_fun = counting_request_fun(counter, fn _ -> {:error, {:aiur, :locally_held, hold}} end)
+      sleep_fun = fn _ms -> Agent.update(sleep_counter, &(&1 + 1)) end
+
+      assert {:error, {:github_auth_preflight_failed, %{classification: :local_hold}}} =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :available} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # 3 waits + the final failing attempt; it never waits forever.
+      assert count(counter) == 4
+      assert count(sleep_counter) == 3
+    end
+
+    # #2444 acceptance 4: a hold whose `reset_at` has already passed by the
+    # time the failure is produced (the daemon-restart burst) is retried
+    # immediately — zero sleep — and succeeds, so the restart does not fail
+    # the run for a hold that has already cleared.
+    test "a local hold whose reset_at has passed is retried immediately and succeeds" do
+      reset_at = DateTime.add(DateTime.utc_now(), -1, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      counter = start_counter()
+      sleep_counter = start_counter()
+
+      request_fun = fn request ->
+        attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if attempt == 1 do
+          {:error, {:aiur, :locally_held, hold}}
+        else
+          ok_response(request)
+        end
+      end
+
+      sleep_fun = fn _ms -> Agent.update(sleep_counter, &(&1 + 1)) end
+
+      assert :ok =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :not_installed} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # One held attempt, then a full successful retry (three checks).
+      assert count(counter) == 4
+      # Nothing to wait for — `reset_at` already passed.
+      assert count(sleep_counter) == 0
+    end
   end
 
   describe "ensure_preflight/1 — what an idle hour costs" do

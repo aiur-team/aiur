@@ -47,7 +47,11 @@ defmodule Aiur.GitHub.AuthPreflight do
   cycle exactly as it is today.
   """
 
-  alias Aiur.GitHub.{Config, Errors, HostCommand, Transport}
+  # `AppCredentials` is reached through `Config.token_source/0` rather than
+  # directly: that function already answers `:github_app` when the App is
+  # configured, and also distinguishes `:env` from `:keyring`, which the plain
+  # `AppCredentials.configured?/0` split could not.
+  alias Aiur.GitHub.{Config, Errors, HostCommand, LocalHold, Transport}
 
   require Logger
 
@@ -190,10 +194,17 @@ defmodule Aiur.GitHub.AuthPreflight do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     gh_auth_status_fun = Keyword.get(opts, :gh_auth_status_fun, &default_gh_auth_status_fun/0)
 
-    owner
-    |> preflight_checks(repo)
-    |> run_preflight_checks(request_fun, token, owner, repo)
-    |> finalize_preflight_result(gh_auth_status_fun)
+    result =
+      LocalHold.run(
+        fn ->
+          owner
+          |> preflight_checks(repo)
+          |> run_preflight_checks(request_fun, token, owner, repo)
+        end,
+        LocalHold.caller_opts(opts)
+      )
+
+    finalize_preflight_result(result, gh_auth_status_fun)
   end
 
   # The token never lands in the table; only a digest of it does.

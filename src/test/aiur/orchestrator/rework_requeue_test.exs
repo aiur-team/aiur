@@ -162,6 +162,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
       last_seen: Keyword.get(opts, :last_seen, %{}),
       merge_only_alerted: Keyword.get(opts, :merge_only_alerted, MapSet.new()),
       requeue_failed_alerted: Keyword.get(opts, :requeue_failed_alerted, MapSet.new()),
+      local_hold_opts: Keyword.get(opts, :local_hold_opts, []),
       start_paused?: true
     }
   end
@@ -258,6 +259,66 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
       assert :atomics.get(writes, 1) == 2
       assert :atomics.get(alert_calls, 1) == 1
       refute Map.has_key?(second.last_seen, "2337")
+    end
+
+    # #2444 acceptance: a rework re-queue that meets a short, self-clearing
+    # local budget hold on the state write waits it out and retries, so the
+    # ticket completes the transition to `agent:human-review` instead of
+    # stranding in `agent:rework` (the live `rework_requeue_failed` on #2309).
+    # The sleep is injected; the assertion is on the write succeeding and the
+    # head being throttled (the transition happened), not on a log line.
+    test "a re-queue held by a short local budget hold waits and completes the transition" do
+      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+      {:ok, writes} = Agent.start_link(fn -> 0 end)
+
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          state_writer: fn id, state_name ->
+            attempt = Agent.get_and_update(writes, fn n -> {n + 1, n + 1} end)
+            send(self(), {:state_write, id, state_name, attempt})
+            if attempt == 1, do: {:error, {:github, :local_hold, detail}}, else: :ok
+          end,
+          local_hold_opts: [local_hold_sleep_fun: fn _ms -> :ok end]
+        )
+
+      result = ReworkRequeue.tick(state)
+
+      # Two write attempts: the first is held, the retry succeeds.
+      assert_receive {:state_write, "2337", "human-review", 1}
+      assert_receive {:state_write, "2337", "human-review", 2}
+      # A successful write throttles the head — the ticket has left rework.
+      assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
+    end
+
+    # #2444 mutation guard at this site: a hold whose `reset_at` is beyond the
+    # ceiling is a genuine capacity problem and the re-queue must still fail —
+    # the ticket stays in rework and the failure is surfaced, never swallowed.
+    test "a re-queue held beyond the ceiling still alerts and leaves the ticket in rework" do
+      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+
+      state =
+        base_state(
+          tickets_fetcher: fn -> {:ok, [issue(%{})]} end,
+          state_writer: fn _, _ -> {:error, {:github, :local_hold, detail}} end,
+          alert_fun: fn name, opts ->
+            send(self(), {:alert, name, opts})
+            :ok
+          end,
+          local_hold_opts: [local_hold_sleep_fun: fn _ -> flunk("must not sleep for a beyond-ceiling hold") end]
+        )
+
+      result = ReworkRequeue.tick(state)
+
+      assert_receive {:alert, "system.pr_health.rework_requeue_failed", opts}
+      assert Keyword.get(opts, :needs_attention) == true
+      assert Keyword.get(opts, :issue) == "2337"
+      # Failed write → head uncached → retried next tick; ticket stays in rework.
+      refute Map.has_key?(result.last_seen, "2337")
     end
 
     test "a re-queue write that clears the gate throttles the head for steady state" do
@@ -446,10 +507,12 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
           end,
           alert_fun: fn _, _ -> :ok end,
           enabled?: fn -> true end,
+          local_hold_opts: [local_hold_sleep_fun: fn _ms -> :ok end],
           start_paused?: true
         )
 
       assert state.start_paused? == true
+      assert is_function(Keyword.fetch!(state.local_hold_opts, :local_hold_sleep_fun), 1)
       assert %{interval_ms: 60_000, last_seen: %{}} = state
 
       ReworkRequeue.tick(state)
