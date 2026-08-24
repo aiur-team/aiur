@@ -6,12 +6,14 @@ defmodule Aiur.GitHub.ConfigTest do
   alias Aiur.GitHub.Config
 
   @cache_key {Config, :resolved_token}
+  @source_cache_key {Config, :resolved_token_source}
 
   setup do
     original = System.get_env("GITHUB_TOKEN")
 
     on_exit(fn ->
       :persistent_term.erase(@cache_key)
+      :persistent_term.erase(@source_cache_key)
 
       case original do
         nil -> System.delete_env("GITHUB_TOKEN")
@@ -126,6 +128,54 @@ defmodule Aiur.GitHub.ConfigTest do
     System.put_env("GITHUB_TOKEN", "raw-env-token")
 
     assert Config.token() == "raw-env-token"
+  end
+
+  test "token_source/0 reports the env var when GITHUB_TOKEN is set and unresolved" do
+    :persistent_term.erase(@cache_key)
+    :persistent_term.erase(@source_cache_key)
+    System.put_env("GITHUB_TOKEN", "raw-env-token")
+
+    assert Config.token_source() == :env
+  end
+
+  test "token_source/0 reports the keyring when resolve_token fell back to it" do
+    :persistent_term.erase(@cache_key)
+    :persistent_term.erase(@source_cache_key)
+    System.delete_env("GITHUB_TOKEN")
+
+    assert Config.resolve_token(
+             validate_fun: fn token -> token == "keyring-token" end,
+             keyring_fun: fn -> "keyring-token" end
+           ) == "keyring-token"
+
+    assert Config.token_source() == :keyring
+  end
+
+  test "token_source/0 reports the env var when resolve_token used it" do
+    :persistent_term.erase(@cache_key)
+    :persistent_term.erase(@source_cache_key)
+    System.put_env("GITHUB_TOKEN", "env-token")
+
+    assert Config.resolve_token(
+             validate_fun: fn token -> token == "env-token" end,
+             keyring_fun: fn -> "keyring-token" end
+           ) == "env-token"
+
+    assert Config.token_source() == :env
+  end
+
+  test "token_source/0 reports :none when no credential is resolved or present" do
+    :persistent_term.erase(@cache_key)
+    :persistent_term.erase(@source_cache_key)
+    System.delete_env("GITHUB_TOKEN")
+
+    assert Config.token_source() == :none
+  end
+
+  test "keyring_token/0 returns nil or a token string without raising" do
+    # The host may or may not be logged into the gh keyring, so only the
+    # stable contract is asserted: a token string or nil, never a raise.
+    assert (result = Config.keyring_token()) == nil or is_binary(result)
   end
 
   test "human merger allowlist is explicit and case-insensitive" do

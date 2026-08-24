@@ -9,6 +9,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Codex.SessionRecovery
+  alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
@@ -73,10 +74,31 @@ defmodule Aiur.AgentRunner do
 
   @doc false
   @spec transient_run_error?(term(), String.t()) :: boolean()
-  def transient_run_error?(reason, "codex"), do: SessionRecovery.recoverable?(reason) or transient_run_error?(reason)
+  def transient_run_error?(reason, "codex") do
+    SessionRecovery.recoverable?(reason) or transient_run_error?(reason) or github_transport_transient?(reason)
+  end
+
   def transient_run_error?(:port_closed, _backend), do: false
   def transient_run_error?({:port_exit, status}, _backend) when is_integer(status), do: false
-  def transient_run_error?(reason, _backend), do: transient_run_error?(reason)
+  def transient_run_error?(reason, _backend), do: transient_run_error?(reason) or github_transport_transient?(reason)
+
+  # A GitHub transport failure during the run — DNS, timeout, TLS, connection
+  # closed, rate limit, 5xx, or a local budget hold — is a transient
+  # infrastructure fault, not an agent defect (#2427). The run must exit cleanly
+  # for a cheap continuation re-dispatch with a fresh session instead of raising
+  # at `run/3`: a raise books a *failure* retry that counts against
+  # max_retry_attempts, and a few flaky sockets then exhaust into `agent:error`
+  # or release the ticket's claim with no scheduled re-claim. Classified through
+  # the shared `Aiur.GitHub.Errors` classifier so the transient/permanent list
+  # lives in one place.
+  defp github_transport_transient?({:github, _kind, _detail} = reason),
+    do: Errors.retryable_github_error?(reason)
+
+  defp github_transport_transient?(%{__struct__: struct} = reason)
+       when struct in [Req.TransportError, Mint.TransportError],
+       do: Errors.retryable_github_error?(Errors.classify_error({:error, reason}))
+
+  defp github_transport_transient?(_reason), do: false
 
   defp run_on_worker_host(issue, codex_update_recipient, opts, worker_host) do
     Logger.info("Starting worker attempt for #{issue_context(issue)} worker_host=#{worker_host_for_log(worker_host)}")
