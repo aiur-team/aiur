@@ -148,7 +148,7 @@ defmodule Aiur.CLITest do
   end
 
   test "loads ask body files without changing command blocks" do
-    path = Path.join(System.tmp_dir!(), "aiur-ask-body-#{System.unique_integer([:positive])}")
+    path = Aiur.TestSupport.tmp_root!("aiur-ask-body")
     body = "gh auth refresh -h github.com -s workflow\ngh auth token\n"
     File.write!(path, body)
     on_exit(fn -> File.rm(path) end)

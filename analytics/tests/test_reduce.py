@@ -16,6 +16,75 @@ BUILD_ORDER = FIXTURES / "build-order.json"
 
 
 class ReduceFilesTest(unittest.TestCase):
+    def test_preserves_fleet_build_pressure_and_source_evidence(self):
+        metrics = {
+            "fleet_agents_occupied": 13,
+            "fleet_agents_configured": 16,
+            "fleet_agents_max": 16,
+            "fleet_agents_effective": 12,
+            "build_gate_capacity": 2,
+            "build_gate_active": 2,
+            "build_gate_queued": 8,
+            "build_queue_oldest_wait_seconds": 189,
+        }
+        attributes = {
+            "actor": "_daemon",
+            "actor_type": "system",
+            "availability": "measured",
+            **metrics,
+            "fleet_capacity_status": "current",
+            "fleet_capacity_age_ms": 41,
+            "fleet_capacity_observed_at_ms": 1787306400001,
+            "build_gate_enabled": True,
+            "build_gate_status": "measured",
+            "build_gate_observed_at_ms": 1787306400002,
+            "partial_fields": ["fd_count"],
+        }
+        record = {
+            "schema_version": 2,
+            "kind": "resource",
+            "timestamp": "2026-08-21T18:00:00Z",
+            "boot_id": "pressure-boot",
+            "sequence": 1,
+            "record_id": "pressure-boot:1",
+            "attributes": attributes,
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "telemetry.ndjson"
+            path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+            dataset = reducer.reduce_files([path])
+
+        actor = dataset["actors"]["_daemon"]
+        sample = actor["samples"][0]
+        for metric, value in metrics.items():
+            self.assertEqual(sample[metric], value)
+            self.assertEqual(actor["profile"][metric]["count"], 1)
+            self.assertEqual(actor["profile"][metric]["max"], value)
+
+        self.assertEqual(sample["fleet_capacity_status"], "current")
+        self.assertEqual(sample["fleet_capacity_age_ms"], 41)
+        self.assertEqual(sample["fleet_capacity_observed_at_ms"], 1787306400001)
+        self.assertIs(sample["build_gate_enabled"], True)
+        self.assertEqual(sample["build_gate_status"], "measured")
+        self.assertEqual(sample["build_gate_observed_at_ms"], 1787306400002)
+        self.assertEqual(sample["partial_fields"], ["fd_count"])
+
+        materialized = json.loads(json.dumps(reducer.boot_summary(dataset, "pressure-boot")))
+        retained = materialized["actors"]["_daemon"]["samples"][0]
+        self.assertEqual({metric: retained[metric] for metric in metrics}, metrics)
+        for field in reducer.RESOURCE_EVIDENCE:
+            self.assertEqual(retained[field], sample[field])
+        self.assertEqual(retained["partial_fields"], ["fd_count"])
+
+        legacy = reducer.reduce_files([SESSION_A])["actors"]["_daemon"]
+        legacy_sample = legacy["samples"][0]
+        for metric in metrics:
+            self.assertIsNone(legacy_sample[metric])
+            self.assertNotIn(metric, legacy["profile"])
+        self.assertIsNone(legacy_sample["fleet_capacity_status"])
+        self.assertIsNone(legacy_sample["build_gate_status"])
+
     def test_reduces_fixture_stream(self):
         dataset = reducer.reduce_files([SESSION_A, SESSION_B])
 

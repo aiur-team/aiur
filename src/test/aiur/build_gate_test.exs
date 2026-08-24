@@ -747,6 +747,82 @@ defmodule Aiur.BuildGateTest do
     assert held >= 29
   end
 
+  test "status reports the oldest live queue wait and zero for an empty queue", %{gate_dir: gate_dir} do
+    assert %{oldest_wait_seconds: 0} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    queue_dir = Path.join(gate_dir, "queue")
+    File.mkdir_p!(queue_dir)
+    self_pid = String.to_integer(System.pid())
+    now = System.os_time(:second)
+
+    File.write!(Path.join(queue_dir, "lease-v2-newer"), "pid=#{self_pid}\nstarted_at=#{now - 20}\n")
+    File.write!(Path.join(queue_dir, "lease-v2-oldest"), "pid=#{self_pid}\nstarted_at=#{now - 190}\n")
+
+    assert %{queued: 2, oldest_wait_seconds: wait} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    assert wait >= 189
+  end
+
+  test "disabled status reports a measured empty wait" do
+    assert %{enabled?: false, active: 0, queued: 0, oldest_wait_seconds: 0} =
+             BuildGate.status(capacity: 0, stagger_seconds: 0, min_free_memory_mb: nil)
+  end
+
+  @tag @linux_only
+  test "Linux status scans two active and eight queued holders in one bounded pass", context do
+    release_path = Path.join(context.gate_dir, "scan.release")
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Port.open({:spawn_executable, String.to_charlist(bash)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [
+          "-c",
+          ~S"""
+          now=$(date +%s)
+          for slot in 1 2; do
+            path="$2/slot-$slot.lock"
+            exec {fd}<>"$path"
+            flock "$fd"
+            printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - slot))" > "$1/slot-$slot.owner"
+          done
+          mkdir -p "$1/queue"
+          for queue in $(seq 1 8); do
+            path="$1/queue/lease-v2-$queue"
+            printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - queue * 10))" > "$path"
+            exec {fd}<>"$path"
+            flock "$fd"
+          done
+          printf 'ready\n'
+          while [[ ! -e $3 ]]; do sleep 0.05; done
+          """,
+          "build-gate-saturated-holder",
+          context.gate_dir,
+          context.lock_dir,
+          release_path
+        ]
+      ])
+
+    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+
+    on_exit(fn ->
+      File.touch!(release_path)
+      if Port.info(holder), do: Port.close(holder)
+    end)
+
+    started_ms = System.monotonic_time(:millisecond)
+    status = build_gate_status(gate_dir: context.gate_dir, capacity: 2, strategy: :linux_lock)
+    elapsed_ms = System.monotonic_time(:millisecond) - started_ms
+
+    assert %{active: 2, queued: 8, oldest_wait_seconds: wait, degraded?: nil} = Map.put_new(status, :degraded?, nil)
+    assert wait >= 79
+    assert elapsed_ms < 5_000
+  end
+
   @tag @linux_only
   test "status rejects a FIFO queue record without blocking", context do
     queue_dir = Path.join(context.gate_dir, "queue")

@@ -672,7 +672,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   end
 
   test "a locked shared budget cannot strand the orchestrator", %{orchestrator: pid} do
-    budget_dir = Path.join(System.tmp_dir!(), "aiur-orchestrator-budget-#{System.unique_integer([:positive])}")
+    budget_dir = Aiur.TestSupport.tmp_root!("aiur-orchestrator-budget")
     previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
     previous_dir = Application.get_env(:aiur, :github_budget_dir)
 
@@ -706,13 +706,13 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
     on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
 
-    assert_receive {:locked_budget_result, {:error, :github_budget_broker_unavailable}}, 2_000
+    assert_receive {:locked_budget_result, {:error, :github_budget_broker_timeout}}, 2_000
     assert answers?(pid)
     close_port(lock)
   end
 
   test "locked lease release stays inside the orchestrator request deadline", %{orchestrator: pid} do
-    budget_dir = Path.join(System.tmp_dir!(), "aiur-orchestrator-release-#{System.unique_integer([:positive])}")
+    budget_dir = Aiur.TestSupport.tmp_root!("aiur-orchestrator-release")
     previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
     previous_dir = Application.get_env(:aiur, :github_budget_dir)
 

@@ -11,11 +11,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   alias Ecto.Changeset
 
   test "workspace bootstrap can be implemented in after_create hook" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-hook-bootstrap-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-hook-bootstrap")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -62,11 +58,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "create_for_issue uses a pr-<pr#> leaf for a PR-anchored unit (identifier stays <pr#>)" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-pr-anchored-leaf-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-pr-anchored-leaf")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -99,11 +91,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace bootstrap supports normal git metadata writes" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-git-metadata-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-git-metadata")
 
     try do
       source_repo = Path.join(test_root, "source")
@@ -222,11 +210,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "before_run repairs stale git metadata locks before agent turns" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-before-run-git-locks-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-git-locks")
 
     try do
       source_repo = Path.join(test_root, "source")
@@ -300,11 +284,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "before_run verifies git add can create the index lock before agent turns" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-before-run-git-add-probe-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-git-add-probe")
 
     previous_path = System.get_env("PATH")
 
@@ -367,11 +347,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "before_run git index probe ignores workspace ignore rules" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-before-run-git-ignored-probe-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-git-ignored-probe")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -399,11 +375,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "before_run rejects git metadata outside the issue workspace" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-external-gitdir-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-external-gitdir")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -437,11 +409,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "before_run recreates dirty leftover workspaces for todo dispatches" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-before-run-stale-leftover-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover")
 
     try do
       {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "STALE-1")
@@ -465,11 +433,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "before_run recreates dirty leftover workspaces when retry still carries todo label" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-before-run-stale-leftover-retry-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-retry")
 
     try do
       {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "STALE-RETRY-1")
@@ -493,11 +457,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "before_run dirty refresh refusal uses exit 65 rather than output wording" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-before-run-stale-leftover-exit-code-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-exit-code")
 
     try do
       {workspace, trace_file} =
@@ -540,11 +500,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   # The fix skips the origin/main refresh non-fatally and leaves the WIP intact
   # so the agent keeps working on its branch (it rebases/merges at PR time).
   test "before_run skips refresh and preserves WIP for dirty in-progress resume (does not retry-exhaust the agent)" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-before-run-protect-resume-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-protect-resume")
 
     try do
       {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "LIVE-1")
@@ -576,11 +532,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "materialize_from_base creates the workspace's parent dir when missing (repo-namespaced layout)" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-materialize-parent-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-materialize-parent")
 
     try do
       base = Path.join(test_root, "base")
@@ -611,11 +563,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "after_create hook receives repository URL and configured base branch" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-hook-repo-url-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-hook-repo-url")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -637,7 +585,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "materialize branches from the live configured base rather than main" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-workspace-configured-base-#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("aiur-workspace-configured-base")
 
     try do
       origin = Path.join(test_root, "origin.git")
@@ -686,11 +634,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace path is deterministic per issue identifier" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-deterministic-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-deterministic")
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -702,11 +646,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace path is namespaced by repo so issue numbers do not collide across repos" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-repo-namespace-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-repo-namespace")
 
     try do
       # GitHub: segment is the full owner/name, so issue #10 in two different
@@ -769,11 +709,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "repo namespacing is idempotent when the root already ends with the repo segment" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-idempotent-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-idempotent")
 
     try do
       # `aiur init` bakes owner/name into the root; materialization must not
@@ -798,11 +734,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace falls back to a flat <root>/<issue> layout for the memory tracker" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-memory-flat-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-memory-flat")
 
     try do
       # The memory tracker has no repo segment, so the issue dir sits directly
@@ -823,11 +755,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace reuses existing issue directory without deleting local changes" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-reuse-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-reuse")
 
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -862,11 +790,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace replaces stale non-directory paths" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-stale-path-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-stale-path")
 
     try do
       stale_workspace = Path.join([workspace_root, "project", "MT-STALE"])
@@ -885,11 +809,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace rejects symlink escapes under the configured root" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-symlink-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-symlink")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -913,11 +833,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace canonicalizes symlinked workspace roots before creating issue directories" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-root-symlink-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-root-symlink")
 
     try do
       actual_root = Path.join(test_root, "actual-workspaces")
@@ -940,11 +856,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace remove rejects the workspace root itself with a distinct error" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-root-remove-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-root-remove")
 
     try do
       File.mkdir_p!(workspace_root)
@@ -961,11 +873,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace surfaces after_create hook failures" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-hook-failure-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-hook-failure")
 
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -981,11 +889,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "github workspace preflight blocks launch with a path-specific operator alert" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-github-preflight-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-github-preflight")
 
     previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
     previous_fun = Application.get_env(:aiur, :workspace_github_preflight_fun)
@@ -1032,11 +936,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "github workspace preflight receives remote worker host" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-remote-github-preflight-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-remote-github-preflight")
 
     previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
     previous_fun = Application.get_env(:aiur, :workspace_github_preflight_fun)
@@ -1107,11 +1007,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace surfaces after_create hook timeouts" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-hook-timeout-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-hook-timeout")
 
     try do
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -1128,11 +1024,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace installs agent support (no repo content) when no bootstrap hook is configured" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-workspace-empty-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-workspace-empty")
 
     try do
       write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
@@ -1163,17 +1055,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
   # `workspace_root`. The path is now pinned per process, so a clobber of the
   # global env must not move this test's reads.
   test "workspace resolution ignores a concurrent clobber of the global workflow path" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-workspace-clobber-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-workspace-clobber")
 
-    other_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-workspace-clobber-other-#{System.unique_integer([:positive])}"
-      )
+    other_root = Aiur.TestSupport.tmp_root!("aiur-workspace-clobber-other")
 
     try do
       path = Workflow.workflow_file_path()
@@ -1205,11 +1089,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace before_run seeds warm cache from configured bootstrap image" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-bootstrap-image-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-bootstrap-image")
 
     previous_path = System.get_env("PATH")
     previous_trace = System.get_env("AIUR_TEST_DOCKER_TRACE")
@@ -1258,11 +1138,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace bootstrap image keeps existing warm cache directories" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-bootstrap-image-existing-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-bootstrap-image-existing")
 
     previous_path = System.get_env("PATH")
     previous_trace = System.get_env("AIUR_TEST_DOCKER_TRACE")
@@ -1310,11 +1186,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace removes all workspaces for a closed issue identifier" do
-    workspace_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-issue-workspace-cleanup-#{System.unique_integer([:positive])}"
-      )
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-elixir-issue-workspace-cleanup")
 
     try do
       target_workspace = Path.join([workspace_root, "project", "S_1"])
@@ -1338,11 +1210,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace cleanup handles missing workspace root" do
-    missing_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-missing-workspaces-#{System.unique_integer([:positive])}"
-      )
+    missing_root = Aiur.TestSupport.tmp_root!("aiur-elixir-missing-workspaces")
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: missing_root)
 
@@ -1795,21 +1663,13 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace remove returns error information for missing directory" do
-    random_path =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-missing-#{System.unique_integer([:positive])}"
-      )
+    random_path = Aiur.TestSupport.tmp_root!("aiur-elixir-missing")
 
     assert {:ok, []} = Workspace.remove(random_path)
   end
 
   test "workspace hooks support multiline YAML scripts and run at lifecycle boundaries" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-hooks-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-hooks")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -1843,11 +1703,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace remove continues when before_remove hook fails" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-hooks-fail-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-hooks-fail")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -1868,11 +1724,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "workspace remove continues when before_remove hook fails with large output" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-hooks-large-fail-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-hooks-large-fail")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -1905,11 +1757,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     Application.put_env(:aiur, :workspace_hook_timeout_ms, 10)
 
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-workspace-hooks-timeout-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-workspace-hooks-timeout")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -2046,11 +1894,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Config.settings!().agent.codex.command ==
              "codex --config 'model=\"gpt-5.5\"' app-server"
 
-    explicit_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-explicit-sandbox-root-#{System.unique_integer([:positive])}"
-      )
+    explicit_root = Aiur.TestSupport.tmp_root!("aiur-elixir-explicit-sandbox-root")
 
     explicit_workspace = Path.join(explicit_root, "MT-EXPLICIT")
     explicit_cache = Path.join(explicit_workspace, "cache")
@@ -2972,11 +2816,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "runtime sandbox policy resolution augments explicit workspaceWrite policies" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-runtime-sandbox-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-runtime-sandbox")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -3051,11 +2891,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "configured workspaceWrite roots must exist and be writable directories" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-configured-sandbox-roots-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-configured-sandbox-roots")
 
     File.mkdir_p!(test_root)
 
@@ -3121,11 +2957,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "local runtime derives the enabled GitHub budget root exactly once" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-runtime-budget-root-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-runtime-budget-root")
 
     workspace = Path.join(test_root, "workspace")
     budget_root = Path.join(test_root, "github-budget")
@@ -3165,7 +2997,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
   test "generated local sandbox policy admits package-manager cache-miss writes only to sidecars" do
     test_id = System.unique_integer([:positive])
-    test_root = Path.join(System.tmp_dir!(), "aiur-elixir-package-cache-sandbox-#{test_id}")
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-package-cache-sandbox")
     repo_url = "https://github.com/owner/cache-miss-#{test_id}.git"
     repo_state = Aiur.RepoBase.repo_path(repo_url)
 
@@ -3244,11 +3076,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "local Codex runtime preflights the enabled build-gate root" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-runtime-build-gate-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-runtime-build-gate")
 
     previous_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
 
@@ -3365,11 +3193,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "runtime sandbox policy resolution defaults and augments workspaceWrite policies" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-runtime-sandbox-branches-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-runtime-sandbox-branches")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -3543,11 +3367,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
   end
 
   test "remote workspace lifecycle uses ssh host aliases from worker config" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-remote-workspace-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-remote-workspace")
 
     previous_path = System.get_env("PATH")
     previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")

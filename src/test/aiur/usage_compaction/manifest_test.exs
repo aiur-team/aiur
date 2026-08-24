@@ -118,7 +118,7 @@ defmodule Aiur.UsageCompaction.ManifestTest do
   end
 
   test "writes and loads durably, treating an absent file as missing" do
-    dir = Path.join(System.tmp_dir!(), "aiur-manifest-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-manifest")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
     path = Path.join(dir, "manifest.json")

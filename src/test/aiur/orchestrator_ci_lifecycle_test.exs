@@ -58,11 +58,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     previous_client = Application.get_env(:aiur, :github_client_module)
     previous_store_path = Application.get_env(:aiur, :ci_approval_store_path)
 
-    store_path =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur_ci_lifecycle_#{System.unique_integer([:positive])}.json"
-      )
+    store_path = Aiur.TestSupport.tmp_root!("aiur_ci_lifecycle") <> ".json"
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",

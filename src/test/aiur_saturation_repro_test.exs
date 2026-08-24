@@ -81,7 +81,7 @@ defmodule AiurSaturationReproTest do
 
   # Build a fake `aiur` CLI + a fake `epmd` on PATH, in a temp dir.
   defp stub_env(status_rc, epmd_names) do
-    dir = Path.join(System.tmp_dir!(), "aiur-repro-test-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-repro-test")
     File.mkdir_p!(dir)
     on_exit_dir = dir
 
@@ -155,7 +155,7 @@ defmodule AiurSaturationReproTest do
   # --- watch_window: crash classification over the window -------------------
 
   defp watch(stub_daemon_state, dump_setup \\ "") do
-    dir = Path.join(System.tmp_dir!(), "aiur-repro-watch-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-repro-watch")
     File.mkdir_p!(dir)
     ExUnit.Callbacks.on_exit(fn -> File.rm_rf!(dir) end)
 
