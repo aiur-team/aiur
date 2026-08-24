@@ -65,6 +65,12 @@ Aiur.GitHub.BotIdentityTest :: falls back from config bot account to authenticat
 Aiur.DecisionApiIntegrationTest :: authenticated enrichment and delegated answer share one durable lifecycle
 Aiur.DecisionApiIntegrationTest :: authenticated revision uses OCC-8 persistence, correlation, and trusted supervisor basis
 
+# Unticketed, observed 2026-08-24 run 32785192527 coverage (3/4); previously
+# blocked PR #2423 (its-everdred, 2026-08-24). Wall-clock-deadline class: the
+# CLI's "running through the tracker poll" path races the runner replacement
+# under load.
+Aiur.OrchestratorStatusTest :: tracker poll unpause replaces a dead runner and reports running through the CLI
+
 # Unticketed, observed 2026-08-24 run 32782984118 coverage (3/4). Same code was
 # fully green on head 1ff0f23aa (run 32780225293); passes locally in isolation
 # (199 tests, 0 failures with the streamdeck file). Concurrency-shaped
