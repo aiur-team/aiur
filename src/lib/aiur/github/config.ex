@@ -550,18 +550,17 @@ defmodule Aiur.GitHub.Config do
   # because `rescue` only covers raises: a `throw` or `exit` from `run_fun`
   # would otherwise exit the linked task by the same path.
   #
-  # The timeout path also kills the OS process GROUP. Closing the task's port
-  # sends EOF but never signals the OS process, so a stalled `gh` that
-  # outlived the port would keep holding the locked keyring / credential-helper
-  # prompt and every later lookup would spawn another orphan. The child's OS
-  # pid is published to the task's dictionary by the runner and read here while
-  # the task is still alive. The BEAM's port spawn makes the child a process
-  # group leader (os_pid == pgid), so a negative-pid signal reaches the whole
-  # group — including a guard wrapper that is the port program and the real
-  # `gh` / lease-renewer it spawned, which a direct-pid kill would orphan. The
-  # group is signalled BEFORE the task is torn down: Task.shutdown closes the
-  # port, erl_child_setup may reap the child, and the OS could recycle the pid
-  # before a later kill landed on an unrelated process.
+  # The timeout path also kills the port child and everything it spawned.
+  # Closing the task's port sends EOF but never signals the OS process, so a
+  # stalled `gh` that outlived the port would keep holding the locked keyring /
+  # credential-helper prompt and every later lookup would spawn another orphan.
+  # The child's OS pid is published to the task's dictionary by the runner and
+  # read here while the task is still alive; `kill_os_process/1` then signals
+  # the direct pid, its descendants and the group it may lead (see its comment
+  # for why the group alone cannot be relied on). The kill runs BEFORE the task
+  # is torn down: Task.shutdown closes the port, erl_child_setup may reap the
+  # child, and the OS could recycle the pid before a later kill landed on an
+  # unrelated process.
   defp run_bounded_gh_auth_token(timeout_ms, run_fun) do
     task =
       Task.async(fn ->
@@ -603,11 +602,11 @@ defmodule Aiur.GitHub.Config do
   # cleared so gh returns the stored keyring login rather than echoing a
   # (possibly stale) env var. The executable is resolved through
   # HostCommand.find_executable/1 so the guard wrapper is used when installed
-  # (budget admission, #2353). The command runs as a port; the BEAM spawn makes
-  # the child a process group leader (os_pid == pgid), so the bounded runner
-  # can read that pid from the task dictionary and kill the whole GROUP on
-  # timeout — reaching a guard wrapper AND the `gh` / lease-renewer it spawned,
-  # not just the direct child. Closing the port alone would orphan the process.
+  # (budget admission, #2353). The command runs as a port so the bounded runner
+  # can read the child's OS pid from the task dictionary and kill it and its
+  # descendants on timeout — reaching a guard wrapper AND the `gh` /
+  # lease-renewer it spawned, not just the direct child. Closing the port
+  # alone would orphan the process.
   defp run_gh_auth_token_command do
     case HostCommand.find_executable() do
       nil ->
@@ -649,26 +648,60 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
-  # Kills the port child's whole process group. The BEAM's port spawn places
-  # the child in its own group (os_pid == pgid), so a negative-pid signal
-  # reaches the group the child leads: when the guard wrapper is the port
-  # program that is the wrapper AND the real `gh` it spawned as a child AND any
-  # background lease renewer — killing only the direct pid would orphan the
-  # very process holding the locked keyring. TERM is sent first so the
-  # wrapper's cleanup trap can release the budget lease (SIGKILL is
-  # untrappable), then, after a brief bound for that trap to run, KILL clears
-  # anything that did not exit on TERM.
+  # Kills the port child and everything it spawned, without depending on the
+  # child leading a process group. Whether the BEAM's port spawn places the
+  # child in its own group is environment-dependent: it does on a dev host
+  # (os_pid == pgid == sid), but NOT on CI, where the child shares the parent's
+  # group and a negative-pid signal returns ESRCH and signals nothing — leaking
+  # the stalled `gh` and its children. The kill therefore targets the direct
+  # child pid AND every descendant pid (enumerated BEFORE any signal, so a
+  # child reparented by the direct TERM is still found), and ALSO sends the
+  # group signal for hosts where the child does lead a group — reaching a
+  # guard wrapper, the real `gh` it spawned and any background lease renewer
+  # in one sweep. TERM is sent first so a wrapper's cleanup trap can release
+  # the budget lease (SIGKILL is untrappable), then, after a brief bound for
+  # that trap to run, KILL clears anything that ignored TERM. The kill runs
+  # BEFORE the task is torn down: Task.shutdown closes the port,
+  # erl_child_setup may reap the child, and the OS could recycle the pid
+  # before a later kill landed on an unrelated process.
   defp kill_os_process(pid) when is_integer(pid) and pid > 0 do
-    group = "-#{pid}"
-    System.cmd("kill", ["-TERM", group], stderr_to_stdout: true)
+    tree = [pid | descendant_os_pids(pid)]
+    signal_os_pid("TERM", pid)
+    signal_os_pid("TERM", -pid)
     Process.sleep(150)
-    System.cmd("kill", ["-KILL", group], stderr_to_stdout: true)
+    Enum.each(tree, &signal_os_pid("KILL", &1))
+    signal_os_pid("KILL", -pid)
     :ok
   rescue
     _ -> :ok
   end
 
   defp kill_os_process(_pid), do: :ok
+
+  # Sends `signal` to `target`: a positive target is a pid, a negative target
+  # (-pid) is the process group led by `pid`. Stderr is captured (and
+  # discarded) so an ESRCH on a host where the child does not lead a group
+  # cannot raise.
+  defp signal_os_pid(signal, target) do
+    System.cmd("kill", [signal, Integer.to_string(target)], stderr_to_stdout: true)
+    :ok
+  end
+
+  # Every descendant OS pid of `pid`, recursively, enumerated from the live
+  # process table via pgrep's parent filter (available on Linux and macOS).
+  # Returns [] when pgrep is unavailable or the pid has no children.
+  defp descendant_os_pids(pid) do
+    pid
+    |> child_os_pids()
+    |> Enum.flat_map(&[&1 | descendant_os_pids(&1)])
+  end
+
+  defp child_os_pids(pid) do
+    case System.cmd("pgrep", ["-P", Integer.to_string(pid)], stderr_to_stdout: true) do
+      {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1)
+      _ -> []
+    end
+  end
 
   defp collect_port_output(port, acc \\ "") do
     receive do
