@@ -528,6 +528,22 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Per-class poll cadences from `polling.intervals`, in seconds, keyed by poll
+  class atom. `%{}` when the operator set none, in which case every class falls
+  back to `poll_interval_seconds/0`. A value of `0` means the class is
+  on-demand (no timer, #2309). See `Aiur.PollCadence`.
+  """
+  @spec poll_intervals() :: %{required(atom()) => non_neg_integer()}
+  def poll_intervals do
+    settings!().polling.intervals
+    |> Enum.reduce(%{}, fn {class, seconds}, acc when is_binary(class) ->
+      Map.put(acc, String.to_existing_atom(class), seconds)
+    end)
+  rescue
+    ArgumentError -> %{}
+  end
+
+  @doc """
   How often the single view-state reconciliation sweep runs.
 
   A recovery bound for lost webhook deliveries, not a freshness knob. See
@@ -957,6 +973,18 @@ defmodule Aiur.Config do
   @spec load_cooldown_seconds() :: non_neg_integer()
   def load_cooldown_seconds do
     settings!().agent.load_cooldown_seconds
+  end
+
+  @doc """
+  Minimum seconds a ready-work capacity-starvation condition must persist before
+  `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise
+  (#2447). The dwell is data, not a magic number, so the below-target ramp
+  (which clears itself within a few poll cycles) can be filtered without
+  hard-coding the bound in the alert path.
+  """
+  @spec capacity_starvation_alert_after_seconds() :: pos_integer()
+  def capacity_starvation_alert_after_seconds do
+    settings!().agent.capacity_starvation_alert_after_seconds
   end
 
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()

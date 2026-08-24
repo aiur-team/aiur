@@ -935,6 +935,55 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  # #2429 acceptance: a local budget hold during the workspace preflight is a
+  # local counter trip, not lost connectivity. Provisioning still fails closed
+  # (the hold must clear before the workspace can be used), but the wrong
+  # `system.github.connectivity_lost` blocker must not fire.
+  test "github workspace preflight local hold fails closed without a connectivity_lost alert" do
+    workspace_root =
+      Path.join(
+        System.tmp_dir!(),
+        "aiur-elixir-workspace-github-local-hold-#{System.unique_integer([:positive])}"
+      )
+
+    previous_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
+    previous_fun = Application.get_env(:aiur, :workspace_github_preflight_fun)
+    parent = self()
+
+    try do
+      :ok = Exchange.subscribe("system.github.connectivity_lost")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        workspace_root: workspace_root
+      )
+
+      Application.put_env(:aiur, :workspace_github_preflight_enabled, true)
+
+      Application.put_env(:aiur, :workspace_github_preflight_fun, fn workspace ->
+        send(parent, {:workspace_preflight, workspace})
+
+        {:error, {:github_auth_preflight_failed, %{classification: :local_hold, endpoint: :rate_limit, repo: "owner/repo", token_source: "GITHUB_APP"}}}
+      end)
+
+      assert {:error, {:workspace_github_connectivity_failed, workspace, {:github_auth_preflight_failed, %{classification: :local_hold}}}} =
+               Workspace.create_for_issue("MT-GH-LOCAL-HOLD")
+
+      assert_receive {:workspace_preflight, ^workspace}
+      refute_receive {:event, %{topic: "system.github.connectivity_lost"}}, 200
+    after
+      restore_app_env(:workspace_github_preflight_enabled, previous_enabled)
+      restore_app_env(:workspace_github_preflight_fun, previous_fun)
+
+      for pattern <- Exchange.bindings_for(self()) do
+        Exchange.unsubscribe(pattern)
+      end
+
+      File.rm_rf(workspace_root)
+    end
+  end
+
   test "github workspace preflight receives remote worker host" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-remote-github-preflight")
 
@@ -2501,6 +2550,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert settings.agent.target_load_average == 1.0
     assert settings.agent.load_ramp_step == 1
     assert settings.agent.load_cooldown_seconds == 60
+    assert settings.agent.capacity_starvation_alert_after_seconds == 60
 
     assert {:ok, settings} =
              Schema.parse(%{
@@ -2508,7 +2558,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
                "agent" => %{
                  "target_load_average" => nil,
                  "load_ramp_step" => 3,
-                 "load_cooldown_seconds" => 0
+                 "load_cooldown_seconds" => 0,
+                 "capacity_starvation_alert_after_seconds" => 300
                }
              })
 
@@ -2516,13 +2567,16 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert settings.agent.max_load_average == 1.5
     assert settings.agent.load_ramp_step == 3
     assert settings.agent.load_cooldown_seconds == 0
+    assert settings.agent.capacity_starvation_alert_after_seconds == 300
 
     for invalid_agent <- [
           %{target_load_average: 0},
           %{target_load_average: -1},
           %{load_ramp_step: 0},
           %{load_ramp_step: -1},
-          %{load_cooldown_seconds: -1}
+          %{load_cooldown_seconds: -1},
+          %{capacity_starvation_alert_after_seconds: 0},
+          %{capacity_starvation_alert_after_seconds: -1}
         ] do
       assert {:error, {:invalid_workflow_config, _}} =
                Schema.parse(%{tracker: %{kind: "memory"}, agent: invalid_agent})

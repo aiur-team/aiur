@@ -95,9 +95,21 @@ end
 
 — `src/lib/aiur/github/dispatch_authorization.ex:31-33`
 
-The consequence: a stale or hand-edited label set that carries **two state
-labels at once** makes a ticket silently undispatchable — `authorize` denies
-before any other check, so the contradiction is never resolved automatically.
+The consequence: a stale or hand-edited label set carrying **two state labels
+at once** denies dispatch. A poll-time repair heals the pair to its winner
+(`agent:todo` wins).
+
+A **zero**-label ticket is repaired only when there is evidence it was in the
+agent workflow — its last known state is restored, or `agent:todo` when only a
+released claim survives.
+
+Deliberately parked tickets (`needs-triage`, `human:todo`, `Epic:`) and
+untriaged tickets with no workflow record are left alone and surfaced with an
+alert instead of being silently re-dispatched.
+
+An open ticket with no live agent and no scheduled claim is re-queued and
+alerted.
+
 Markers sit *beside* the single state label, which is why they are kept out of
 `@state_suffixes` in the first place.
 
@@ -313,10 +325,25 @@ enforces rather than one the Executor's prompt is trusted to observe
   `{:answer_invalid, {:executor_scope, {:reversibility, ...}}}`.
 
 Everything else — `human_required`, `irreversible`, `partially_reversible`, and
-any unrecognized or missing value — is refused, so the Executor must escalate.
-The policy is fail-closed by construction: `normalize_policy/1` defaults to
+any unrecognized value — is refused, so the Executor must escalate. The policy
+is fail-closed by construction: `normalize_policy/1` defaults to
 `%{allowed_kinds: [], allow_non_reversible: false}` on malformed input
 (`decision_authority.ex:110`).
+
+Classification is consequence-based and defaults delegable. A request that
+omits `authority`/`reversibility` is normalized to `supervisor_allowed` +
+`reversible` (`src/lib/aiur/decision_validation.ex`), so reversible
+engineering calls land inside the Executor floor instead of stranding the
+agent.
+
+Known Command types carry an explicit policy in
+`src/lib/aiur/decision_command_type.ex` (re-review `kind: "rework_review"` →
+`supervisor_preferred`; sequencing `kind: "sequencing"` →
+`supervisor_allowed`; pre-OCC `legacy_attention` stays `human_required`).
+
+Because omission defaults to the floor, a Command that is genuinely
+irreversible, involves spend, or changes product direction must declare
+`authority: human_required` explicitly or it will be Executor-answerable.
 
 The parallel `supervisor` path additionally requires the answer's declared
 `policy_basis` to match the Decision's own authority/kind/reversibility, or it

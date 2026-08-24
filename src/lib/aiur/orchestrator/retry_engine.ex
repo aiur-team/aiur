@@ -117,7 +117,51 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       state
       |> remove_stopped_running_entry(issue_id, running_entry)
-      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), failure_retry_metadata(running_entry, reason))
+      |> schedule_issue_retry(issue_id, exit_retry_attempt(running_entry, reason), exit_retry_metadata(running_entry, reason))
+    end
+  end
+
+  # A local GitHub budget hold in an agent exit reason is definitionally
+  # transient: retrying before its own `reset_at` is guaranteed to fail, so the
+  # retry is scheduled after `reset_at` and must not consume the ticket's
+  # failure retry budget. Without this, a seconds-long hold exhausts
+  # `max_retry_attempts` and stamps the ticket `agent:error` — the #2339
+  # casualty, where a hold with 97% of the real budget free killed the ticket
+  # (#2429). `local_budget_hold_reason/1` is the single extraction used by both
+  # this path and retry-poll deferral, so every shape a hold can arrive in
+  # (raw, `:local_hold`, legacy transport, workspace preflight wrapper, preflight
+  # diagnostic) is treated identically.
+  #
+  # A hold-caused exit must also leave the failure attempt counter untouched:
+  # the retry reuses the attempt this run was dispatched at rather than
+  # incrementing it. Incrementing would let repeated holds push the stored
+  # attempt above `Config.max_retry_attempts()`, so the *first* genuine failure
+  # after them would hit the `next_attempt > max` give-up branch and stamp
+  # `agent:error` on attempt one of the real work — the same #2339 casualty,
+  # one step removed. A fresh dispatch (`retry_attempt` absent or 0) schedules
+  # its first retry at attempt 1, matching the non-hold path.
+  defp exit_retry_attempt(running_entry, reason) do
+    case local_budget_hold_reason(reason) do
+      %{} ->
+        case Map.get(running_entry, :retry_attempt) do
+          attempt when is_integer(attempt) and attempt > 0 -> attempt
+          _ -> 1
+        end
+
+      nil ->
+        next_retry_attempt_from_running(running_entry)
+    end
+  end
+
+  defp exit_retry_metadata(running_entry, reason) do
+    case local_budget_hold_reason(reason) do
+      %{} = hold ->
+        running_entry
+        |> failure_retry_metadata(reason)
+        |> Map.merge(%{delay_type: :local_budget_hold, local_budget_hold: hold})
+
+      nil ->
+        failure_retry_metadata(running_entry, reason)
     end
   end
 
@@ -547,7 +591,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
               tracker_identity: tracker_identity,
               priority: priority,
               issue_state: issue_state,
-              terminal_membership_pending?: metadata[:terminal_membership_pending?] == true
+              terminal_membership_pending?: metadata[:terminal_membership_pending?] == true,
+              # Persisted so the non-consuming classification is observable and
+              # asserted directly: a `:local_budget_hold` retry is bounded by
+              # the hold's own `reset_at` and never advances toward give-up
+              # (#2429 rework round 2). `pop_retry_attempt_state/3` deliberately
+              # does not round-trip it — the retry path reclassifies the failure
+              # it sees at dispatch time rather than trusting stale metadata.
+              delay_type: metadata[:delay_type],
+              local_budget_hold: metadata[:local_budget_hold]
             })
       }
     end
@@ -756,7 +808,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
   # failed tracker write must not crash the orchestrator.
-  defp move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
+  #
+  # Exposed (`@doc false`) as a test seam: the distinct `{:error,
+  # {:no_state_label_written, _}}` return is the F3 "do not report success for a
+  # write that did not happen" contract, and the tests pin it so a regression to
+  # `:ok` cannot pass the suite unnoticed (#2420).
+  @doc false
+  @spec move_exhausted_issue_to_error_state(String.t(), String.t(), term()) ::
+          :ok | :alert_emitted | {:error, {:no_state_label_written, String.t()}}
+  def move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
     Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
     case Tracker.update_issue_state(identifier, "error") do
@@ -780,11 +840,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
       {:error, reason} ->
         Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
 
-        :ok
+        # The terminal `error` write did not happen, so report it honestly
+        # instead of a false `:ok`, and alert rather than only logging (#2420):
+        # a swallowed write here would leave the ticket with its active-state
+        # label and no signal to the Executor that exhaustion never parked it.
+        Alerts.emit_custom(
+          "ticket.#{identifier}.agent.attention.error-state-write-failed",
+          "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
+          issue: identifier,
+          reason: "Exhausted retry budget, but the terminal error-state write failed (#{inspect(reason)}); the ticket was not parked in error.",
+          needs_attention: true,
+          severity: "warning",
+          central: true
+        )
+
+        {:error, {:no_state_label_written, identifier}}
     end
   end
 
-  defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
+  def move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
 
   defp maybe_mark_observed_error_alert(state, issue_id, true) do
     %{
@@ -856,28 +930,30 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   @doc false
   @spec handle_retry_poll_failure(State.t(), String.t(), integer(), map(), term()) :: State.t()
-  def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, {:aiur, :locally_held, %{} = hold} = reason) do
-    defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
-  end
-
-  # The broker classifies a held GitHub request as `{:github, :transport,
-  # %{reason: {:aiur, :locally_held, hold}}}` (`Errors.classify_error` wraps the
-  # raw `{:aiur, :locally_held, hold}` into the transport taxonomy), so the raw
-  # form never reaches this path from a tracker fetch. Recognize both shapes so
-  # a transient budget hold always takes the non-consuming `:local_budget_hold`
-  # retry instead of counting against the retry budget meant for genuine agent
-  # failures (#2409).
-  def handle_retry_poll_failure(
-        %State{} = state,
-        issue_id,
-        attempt,
-        metadata,
-        {:github, :transport, %{reason: {:aiur, :locally_held, %{} = hold}}} = reason
-      ) do
-    defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
-  end
-
+  # A tracker poll failure can be a local GitHub budget hold in several shapes:
+  # raw `{:aiur, :locally_held, hold}`, the `:local_hold` classification
+  # `{:github, :local_hold, %{hold: hold}}` (#2429), the legacy
+  # `{:github, :transport, %{reason: ...}}` wrapper old classifier versions
+  # produced, the `{:github_auth_preflight_failed, %{classification:
+  # :local_hold}}` diagnostic `ensure_tracker_preflight` surfaces when the
+  # preflight probe itself is held, and any of those wrapped in
+  # `{:workspace_github_connectivity_failed, workspace, inner}`. All must take
+  # the non-consuming `:local_budget_hold` retry instead of counting against
+  # the retry budget meant for genuine agent failures (#2409, #2339).
+  # `local_budget_hold_reason/1` is the single extraction shared with agent-exit
+  # retry metadata, so a seconds-long hold can never exhaust a budget or stamp
+  # `agent:error` (#2429).
   def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
+    case local_budget_hold_reason(reason) do
+      %{} = hold ->
+        defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
+
+      nil ->
+        handle_generic_retry_poll_failure(state, issue_id, attempt, metadata, reason)
+    end
+  end
+
+  defp handle_generic_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
     identifier = metadata[:identifier] || issue_id
     retry_poll_failures = normalize_retry_poll_failures(metadata[:retry_poll_failures]) + 1
 
@@ -933,12 +1009,38 @@ defmodule Aiur.Orchestrator.RetryEngine do
     )
   end
 
-  # Unwraps a local GitHub budget hold from either its raw `{:aiur, :locally_held,
-  # hold}` shape or the transport-classified `{:github, :transport, %{reason:
-  # ...}}` shape, so `recovery_delay_options/1` can name the hold's own release
-  # time for the automatic resume (#2409).
+  # Unwraps a local GitHub budget hold from every shape it can arrive in, so
+  # `recovery_delay_options/1` can name the hold's own release time for the
+  # automatic resume and agent-exit retry scheduling can route it to the
+  # non-consuming `:local_budget_hold` retry (#2409, #2429):
+  #
+  #   * raw `{:aiur, :locally_held, hold}`
+  #   * the `:local_hold` classification `Errors.classify_error` now assigns
+  #     (`{:github, :local_hold, %{hold: hold}}`)
+  #   * the legacy transport-classified `{:github, :transport, %{reason: ...}}`
+  #     wrapper older classifier versions produced
+  #   * a workspace preflight failure `{:workspace_github_connectivity_failed,
+  #     workspace, inner}` — the shape an agent exits with when its workspace
+  #     preflight is held (#2339)
+  #   * the preflight diagnostic `{:github_auth_preflight_failed,
+  #     %{classification: :local_hold, detail: ...}}` that `ensure_preflight/1`
+  #     surfaces when the held request is the preflight probe itself.
   defp local_budget_hold_reason({:aiur, :locally_held, hold}) when is_map(hold), do: hold
+  defp local_budget_hold_reason({:github, :local_hold, %{hold: hold}}) when is_map(hold), do: hold
+
+  defp local_budget_hold_reason({:github, :local_hold, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold),
+    do: hold
+
   defp local_budget_hold_reason({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold), do: hold
+
+  defp local_budget_hold_reason({:workspace_github_connectivity_failed, _workspace, inner}),
+    do: local_budget_hold_reason(inner)
+
+  defp local_budget_hold_reason({:github_auth_preflight_failed, %{classification: :local_hold} = diagnostic}),
+    do: local_budget_hold_reason(Map.get(diagnostic, :detail))
+
+  defp local_budget_hold_reason(%{hold: hold}) when is_map(hold), do: hold
+  defp local_budget_hold_reason(%{reason: {:aiur, :locally_held, hold}}) when is_map(hold), do: hold
   defp local_budget_hold_reason(_reason), do: nil
 
   defp local_budget_reset_delay(hold) do
@@ -982,8 +1084,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   # A local budget hold names its own release time (`reset_at`); the automatic
   # resume should not fire before it, or it would re-dispatch straight back into
-  # the same hold. Handles both the raw `{:aiur, :locally_held, hold}` and the
-  # classified `{:github, :transport, %{reason: ...}}` form (#2409).
+  # the same hold. Handles the raw `{:aiur, :locally_held, hold}` and the
+  # `:local_hold` / legacy transport-classified `{:github, ...}` forms (#2409,
+  # #2429).
   defp recovery_delay_options(reason) do
     case local_budget_hold_reason(reason) do
       %{reset_at: %DateTime{} = reset_at} ->

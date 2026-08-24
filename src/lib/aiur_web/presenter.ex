@@ -59,7 +59,14 @@ defmodule AiurWeb.Presenter do
   end
 
   defp polling_payload(%{} = polling) do
-    Map.take(polling, [:checking?, :next_poll_in_ms, :poll_interval_ms, :effective_interval_ms, :idle_backoff])
+    Map.take(polling, [
+      :checking?,
+      :next_poll_in_ms,
+      :poll_interval_ms,
+      :effective_interval_ms,
+      :idle_backoff,
+      :class_intervals
+    ])
   end
 
   defp polling_payload(_polling), do: nil
