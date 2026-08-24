@@ -913,9 +913,12 @@ What a review agent needs in its prompt, every time:
   any test that does**. This is what separates a review from a summary. It has
   repeatedly found tests that assert pre-existing behaviour: a `%{}` pattern that
   matches any map, a vacuous global-pause test, an assertion pinned to a constant
-  the change never touches. The author-side of this rule is now in `AGENTS.md`
-  ("Tests must fail without the production change they guard") — the reviewer's
-  check should be a formality, not the first time it is performed.
+  the change never touches. The author-side rules that move these checks before
+  review — the unknown-path, computed-age and collapsed-cause rules — live in
+  the repo's `AGENTS.md` (`Tests must fail without the production change they
+  guard` and `Computed ages and collapsed causes`); cross-reference those
+  sections rather than restating them, so the reviewer's check is a formality,
+  not the first time it is performed.
 - **The test-run hazard.** `mix test test/some_dir/` silently excludes
   `test/aiur/*.exs` one level up. Require the exact command run to be reported.
 - **Worktree isolation** (`isolation: "worktree"`) whenever the agent may rebase,
