@@ -485,6 +485,15 @@ The read-only CLI probe runs alongside it with one control-RPC timeout per
 command, so a normal record may spend up to roughly 30 seconds on terminal
 evidence before the browser capture completes.
 
+The visual check's preconditions fail with distinct, non-zero codes so a
+wrapper can tell which one stopped it: 68 when `AIUR_EXECUTOR_RUN_ID` is
+missing, 67 when the dashboard URL cannot be discovered, 69 when
+`AIUR_DASHBOARD_PASSWORD` is missing. Each failure prints a one-line stderr
+naming the variable to set and writes a "did not run" verdict — a skipped
+check must never exit 0 or read as a healthy capture. `record` forwards that
+precondition line to its own stderr, so a log that redirects stdout+stderr
+still shows why the check did not run.
+
 Take the recorded assessment's count language from the atomic
 `summary.count_sentence` that `record` embeds (or the one `summarize` prints in
 the same call), not from an earlier separate poll. `summarize` and `record` each
