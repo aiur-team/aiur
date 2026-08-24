@@ -28,7 +28,9 @@ The CI poll drops from its batch a target a `check_run` delivery already answere
 
 ## GitHub App authentication
 
-The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise. Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
+The daemon authenticates with a short-lived GitHub App installation token when App credentials are configured, and falls back to the `GITHUB_TOKEN` personal access token otherwise.
+
+When no App credentials are set, a `GITHUB_TOKEN` env var is preferred, then the `gh` keyring (`gh auth login`). Installation tokens identify the machine integration, are scoped to one installation's repositories, and expire after about an hour.
 
 ### Set up the App
 
@@ -54,7 +56,9 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 | `GITHUB_APP_PRIVATE_KEY_PATH` | Path to the private-key PEM file; preferred. |
 | `GITHUB_APP_PRIVATE_KEY` | Inline PEM alternative; use one or the other. |
 
-`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`; the token remains the fallback when no App credentials are present.
+`GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
+
+The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
 
 ### Token lifecycle
 
@@ -85,7 +89,32 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 ## Poll cadence
 
-Poll spend still scales inversely with the interval, so `polling.interval_seconds` defaults to 120.
+The cadence is per-state-class since #2309: each poll loop resolves its interval
+by naming the class it serves, and `polling.intervals` overrides
+`polling.interval_seconds` for one class while every unlisted class falls back
+to the scalar.
+
+Poll spend still scales inversely with a class's interval, so
+`polling.interval_seconds` defaults to 120 — and the class that moves the most
+GraphQL spend is the one to widen, not the cheap tracker poll.
+
+- **`dispatch`** — the tracker poll (open issues, `agent:*` labels). Cheap
+  conditional REST (mostly free `304`s) and the dispatch trigger, so it stays at
+  the base cadence and is the default for every unlisted class.
+- **`ci`** — check state on a pull request with work in flight. Expensive
+  GraphQL, but demand-scoped (only read while a PR is in flight) and deliberately
+  left at the fallback: a wider `ci` would slow CI detection, which has
+  agent-visible consequences.
+- **`review`** — comments and review threads. Expensive GraphQL; webhooks cover
+  comment *arrival*, so the poll is a safety net and minutes is defensible. The
+  widening is enforced: a repo not proven webhook-backed keeps `review` at the
+  dispatch rate (see below).
+- **`planning`** — Build Order catalog and ticket history. The most expensive
+  reads and the least urgent; recommended `0` (on-demand, no timer).
+- **`firehose`** — repo events. Already self-regulating via GitHub's
+  `X-Poll-Interval`; the class exists so `aiur status` can show its configured
+  cadence, not to change its loop. Its loop is not gated on a class cadence — it
+  rides the dispatch tick — so it stays at the fallback (`interval_seconds`).
 
 The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
 
@@ -95,11 +124,51 @@ does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
 
+### What a validator may answer
+
+The savings above depend on the validator being the right one for the question
+asked. Two rules keep a `304` honest.
+
+**A page-1 ETag cannot answer a multi-page question.**
+
+GitHub orders most collections so page 1 becomes effectively immutable while
+the interesting changes land elsewhere: issue timelines are oldest-first, and
+issue and pull request listings are `created` desc. A `304` against a page-1
+ETag therefore means "page 1 is unchanged" — never "the whole list is
+unchanged".
+
+A page-1 `304` on a churned ticket is permanently stale, with no self-healing,
+because the change that would refresh it is exactly the change that lands on a
+later page.
+
+Only trust a `304` for a paginated read when the read was single-page (then
+page 1 *is* the list), or when the validator kept is the last page's rather
+than the first's. If neither is practical, do not make the read conditional:
+an unconditional read that is correct beats a conditional one that is quietly
+wrong.
+
+**A validator belongs to the thing it describes.**
+
+A read of one resource earns a validator for that resource; a read of a query
+earns a validator for that query. Writing a query's validator into a resource's
+key means any other writer of that key destroys or corrupts it.
+
+A body change deletes the ETag, and a webhook deposit writes a body-derived
+validator that is then sent on a URL where it can never match — either way a
+later conditional request is answered wrongly. Store a validator where the
+thing it describes lives, and only answer it against the read that earned it.
+
 GraphQL is now used only to resolve which pull request belongs to a ticket, and to read inline review threads for the pull request that resolved.
 
 The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
 
-Spend scales with target count, not with comment volume.
+Spend scales with target count, not with comment volume. The table below is for
+the **dispatch-class** cadence — the tick every poll loop rides.
+
+A per-class entry in `polling.intervals` scales the same way for that class:
+halving a class's interval doubles its own spend, and the GraphQL pollers are
+the classes worth widening (CI, comments/review threads, and previously the
+Build Order catalog, now event-sourced).
 
 | `interval_seconds` | Approximate GraphQL spend | Worst-case wake latency |
 | --- | --- | --- |
@@ -119,17 +188,25 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
 
-Dashboard and Build Order state is not on this cadence.
+Dashboard state derives its staleness from the `dispatch` class (the cadence of
+the orchestrator snapshot it renders), and the Build Order catalog is
+event-sourced — its staleness and refresh bounds follow the `planning` class.
+
+`planning` is recommended as `0` (on-demand), so the most expensive query in the
+system runs only when a page opens or a degradation needs a re-list.
 
 | View state | Behaviour |
 | --- | --- |
 | Opening, focusing, or holding a page open | Zero API calls. |
-| Ticket backlog, Ad Hoc overlay, pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). |
+| Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately, with no fetch. One listing per daemon boot establishes the baseline; a `webhooks` degradation re-lists while deliveries are known to be dropped, and recovery re-lists once more on the gap's trailing edge. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
+| Divergence watermark | On the same sweep cadence, one bounded `updated_at`-ordered head page of the open-issue listing. It does two jobs the deleted polls used to do: it records poller corroboration for the silence sweep (so an `issues` delivery loss can degrade the repo instead of looking like an idle one), and it re-lists the event-sourced sources when GitHub's newest open issue is newer than the store's — the proof that a delivery was dropped. One page, never a paged listing. |
+| Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, so moving it to the event stream is a separate change. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
-A change made outside Aiur reaches those three panels within one sweep rather
-than at once, which is the trade for them costing nothing while nobody is
-looking.
+The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
+moment a delivery deposits the changed issue; the sweep's only other
+steady-state cost is the single divergence-watermark head page on its own
+cadence, and pack status still reflects an outside change within one sweep.
 
 | Immediate wake | Why idle backoff does not delay it |
 | --- | --- |
@@ -461,6 +538,38 @@ or the next poll and retires the affected answers then.
 
 That gap is the exposure, and it is why a verdict is never kept at all.
 
+## What the agent guard governs
+
+Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon
+scrubs them from every agent environment and instead writes the bot PAT to a
+credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
+reads.
+
+The wrapper injects the credential only into the real `gh` process it spawns
+for a governed call, for the duration of that call — never into the agent's
+environment and never into the sibling processes the wrapper launches.
+
+So `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent shell returns
+nothing, and a bare `curl` to `api.github.com` from an agent workspace is
+unauthenticated.
+
+This is a **policy boundary, not a capability boundary.** Agents run as the
+same OS user as the daemon, so an agent that deliberately goes looking can read
+the credential file, the shared budget database, or the operator keyring.
+
+What the file removes is the raw token from the *environment* of every agent
+process — where a dependency's build script, a `curl` one-liner, or a Node
+fetch would inherit it — and the broker ledger counts the governed calls, not
+every request a determined agent could make.
+
+| Path | Governed by the guard |
+| --- | --- |
+| `gh` on the agent's PATH (the wrapper in the workspace `.aiur-runtime/bin`) | Yes — rate-limited, metered, and recorded in the broker ledger. |
+| `git` on the agent's PATH (the wrapper in the workspace `.aiur-runtime/bin`) | Yes — destructive-command protection, not quota. |
+| `gh`/`git` invoked by absolute path (`/usr/bin/gh`), or after a `PATH` reset | No — but unauthenticated, because the environment carries no token and the agent's `GH_CONFIG_DIR` is empty. |
+| Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
+| The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
+
 ## Changes Aiur makes itself
 
 There is a third path, and it is the cheapest one: a change Aiur makes.
@@ -493,10 +602,12 @@ The webhook shortens reaction time for repository events while polling continues
 
 | Setting | Value |
 | --- | --- |
-| Payload URL | `https://hooks.aiur.dev/api/v1/github/webhook` |
+| Payload URL | `https://<your-host>/api/v1/github/webhook` |
 | Content type | `application/json` |
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
+
+The hostname is yours to choose — `hooks.aiur.dev` is this operator's setup, not a requirement. Without a domain, a quick tunnel (`cloudflared tunnel --url`) exposes the daemon on a temporary public URL, fine for a single session.
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
 
@@ -528,8 +639,8 @@ Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
 
 | Boundary | Operator requirement |
 | --- | --- |
-| Origin | Route the tunnel to the Aiur daemon at `127.0.0.1:4000`. |
-| Public host | Serve the webhook at `hooks.aiur.dev`. |
+| Origin | Point the tunnel at whatever address the daemon actually bound: `127.0.0.1` on the pinned `server.port` by default, or the `server.host` address if you pinned one. Pin `server.port` to a fixed value first — the default `0` binds a fresh OS port each boot. A `502` means the tunnel aims somewhere the daemon is not listening. |
+| Public host | Serve the webhook at a hostname you control (`hooks.aiur.dev` here); without one, a quick tunnel (`cloudflared tunnel --url`) works for a single session. |
 | Reachable path | Route only `/api/v1/github/webhook`; finish the ingress list with a catch-all `404`. |
 | Network | No inbound firewall rule is needed or wanted because `cloudflared` dials out. |
 
@@ -537,7 +648,7 @@ The path scope and webhook signature are independent locks:
 
 | Lock | Protects against |
 | --- | --- |
-| Path-only tunnel routing | Public access to the dashboard and every other route on `127.0.0.1:4000`. |
+| Path-only tunnel routing | Public access to the dashboard and every other route served on the daemon's bound address. |
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.

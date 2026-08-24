@@ -30,7 +30,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   @backoff_ms [120_000, 300_000, 900_000]
   @max_attempts 3
 
-  @type cause :: :transient_tracker | :rate_limit | :provider_timeout
+  @type cause :: :transient_tracker | :rate_limit | :provider_timeout | :local_budget_hold
 
   @doc "Bounded backoff schedule for the given 1-based attempt."
   @spec backoff_ms(pos_integer()) :: pos_integer()
@@ -50,12 +50,24 @@ defmodule Aiur.Orchestrator.AutoResume do
   automatic re-dispatch. Returns `nil` for terminal/operator causes.
 
   Tracker errors follow `Aiur.GitHub.Errors`'s taxonomy (including the
-  secondary-rate-limit 403 whose body names a rate limit); provider timeouts
-  are recognized as bare or wrapped `:timeout` / transport terms.
+  secondary-rate-limit 403 whose body names a rate limit and the
+  auth-preflight transport shape the claim-release path surfaces — both go
+  through `Aiur.GitHub.Errors.transient_github_error?/1`, the same shared
+  classifier `Aiur.Orchestrator.HumanReview` uses to defer rather than
+  terminate); provider timeouts are recognized as bare or wrapped `:timeout` /
+  transport terms.
+
+  A raw `Req.TransportError`/`Mint.TransportError` (the shape the transport
+  error funnel surfaces) is normalised through the shared taxonomy before
+  classifying, so "suppressed as transient" in `RetryEngine` and "scheduled
+  for auto-resume" here are the same predicate by construction (#2427 review).
   """
   @spec classify(term()) :: cause() | nil
   def classify(reason) do
+    reason = normalise_transport_error(reason)
+
     cond do
+      local_budget_hold?(reason) -> :local_budget_hold
       tracker_rate_limited?(reason) -> :rate_limit
       tracker_transient?(reason) -> :transient_tracker
       provider_timeout?(reason) -> :provider_timeout
@@ -63,22 +75,91 @@ defmodule Aiur.Orchestrator.AutoResume do
     end
   end
 
+  # A raw `%Req.TransportError{}`/`%Mint.TransportError{}` (as `transport.ex`'s
+  # error funnel surfaces) is normalised through `Errors.classify_error/1`
+  # before classifying, exactly as `RetryEngine.transient_exhaustion_reason?/1`
+  # does, so a reason the shared classifier calls transient (DNS, timeout, TLS,
+  # connection closed) always schedules a re-claim. Without this, a DNS failure
+  # (`:nxdomain`) — transient to the shared classifier, absent from the
+  # provider-timeout whitelist — released a claim with no re-claim scheduled:
+  # strictly worse than the `agent:error` it used to get (#2427 review).
+  defp normalise_transport_error(%{__struct__: struct} = reason)
+       when struct in [Req.TransportError, Mint.TransportError] do
+    Errors.classify_error({:error, reason})
+  end
+
+  defp normalise_transport_error(reason), do: reason
+
   defp tracker_rate_limited?({:github, :rate_limited, _detail}), do: true
   defp tracker_rate_limited?(_reason), do: false
 
+  # A local GitHub budget hold is a transient infrastructure fault — the guard
+  # is throttling a resource for a bounded window, not rejecting the work — so
+  # a ticket parked in `agent:error` by one must auto-resume once the hold
+  # lifts instead of waiting for an operator. Recognized in the raw
+  # `{:aiur, :locally_held, hold}` form, the `:local_hold` classification
+  # `Errors.classify_error` now assigns, the legacy transport-classified
+  # `{:github, :transport, %{reason: ...}}` form (#2409, #2429), a workspace
+  # preflight failure `{:workspace_github_connectivity_failed, workspace,
+  # inner}` (the shape an agent exits with when its workspace preflight is
+  # held, #2339), and the preflight diagnostic
+  # `{:github_auth_preflight_failed, %{classification: :local_hold}}`.
+  defp local_budget_hold?({:aiur, :locally_held, _hold}), do: true
+  defp local_budget_hold?({:github, :local_hold, _detail}), do: true
+  defp local_budget_hold?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}), do: true
+
+  defp local_budget_hold?({:workspace_github_connectivity_failed, _workspace, inner}),
+    do: local_budget_hold?(inner)
+
+  defp local_budget_hold?({:github_auth_preflight_failed, %{classification: :local_hold}}), do: true
+  defp local_budget_hold?(_reason), do: false
+
+  # The shared transient classifier (taxonomy + 408/429/5xx + the auth-preflight
+  # transport diagnostic) so the claim-release path and retry exhaustion treat
+  # a TransportError as a transient fault that schedules a re-claim rather than
+  # parking the ticket with no recovery (#2361, #2420). A workspace connectivity
+  # failure wraps the inner tracker/preflight reason, and a raw `:nxdomain`
+  # DNS failure bypasses the classifier's structured tuple, so both are
+  # unwrapped/recognized here so the taxonomy and the exhaustion-classification
+  # boundary agree everywhere (#2429 / #2427).
   defp tracker_transient?(reason) do
-    Errors.retryable_github_error?(reason)
+    reason
+    |> unwrap_workspace_connectivity()
+    |> then(fn inner -> Errors.transient_github_error?(inner) or dns_failure?(inner) end)
   end
+
+  # A workspace connectivity failure wraps the inner tracker/preflight reason;
+  # unwrap it so the transient classification applies to what is actually
+  # failing rather than the wrapper (#2429 / #2427).
+  defp unwrap_workspace_connectivity({:workspace_github_connectivity_failed, _workspace, inner}),
+    do: inner
+
+  defp unwrap_workspace_connectivity(reason), do: reason
+
+  # A DNS transport failure (`:nxdomain`) is a transient infrastructure fault,
+  # but `Errors.retryable_github_error?/1` only recognizes the already-classified
+  # `{:github, kind, _}` tuple. A raw `:nxdomain` — bare, `{:error, ...}`-wrapped,
+  # or inside a `Req.TransportError`/`Mint.TransportError` — bypasses the
+  # classifier and would otherwise park a retry-exhausted ticket in `agent:error`
+  # instead of auto-resuming once DNS recovers (#2429 / #2427). `Errors` already
+  # maps `:nxdomain` → `:dns`; this closes the gap at the exhaustion-classification
+  # boundary so the classifier and the taxonomy agree everywhere.
+  defp dns_failure?({:error, reason}), do: dns_failure?(reason)
+
+  defp dns_failure?(%{__struct__: struct, reason: reason})
+       when struct in [Req.TransportError, Mint.TransportError],
+       do: dns_failure?(reason)
+
+  defp dns_failure?(:nxdomain), do: true
+  defp dns_failure?(_reason), do: false
 
   defp provider_timeout?(:timeout), do: true
   defp provider_timeout?({:error, :timeout}), do: true
   defp provider_timeout?({:timeout, _detail}), do: true
 
-  defp provider_timeout?(%{__struct__: struct, reason: reason})
-       when struct in [Req.TransportError, Mint.TransportError] do
-    reason in [:timeout, :closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset]
-  end
-
+  # Bare transport terms from a provider (not a `Req.TransportError` struct —
+  # those are normalised through the shared taxonomy in `classify/1` before
+  # reaching here).
   defp provider_timeout?(reason)
        when reason in [:timeout, :closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset],
        do: true

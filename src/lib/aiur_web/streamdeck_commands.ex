@@ -63,7 +63,6 @@ defmodule AiurWeb.StreamdeckCommands do
       "context" => context(decision.context),
       "options" => Enum.map(decision.options, &option/1),
       "status" => Atom.to_string(decision.decision_status),
-      "blocking" => decision.blocking,
       "answer" => answer(Decision.active_answer(decision)),
       "created_at" => DateTime.to_iso8601(decision.created_at)
     }

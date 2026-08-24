@@ -159,7 +159,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       Endpoint.config(:decision_store) || Aiur.DecisionStore,
       Endpoint.config(:decision_metrics) || Aiur.DecisionMetrics,
       Endpoint.config(:recent_merge_store) || Aiur.RecentMergeStore,
-      PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000)
+      PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch)
     }
   end
 

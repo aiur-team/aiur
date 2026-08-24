@@ -10,11 +10,10 @@ live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 ## Orientation
 
 Aiur's intended operating modes are documented in
-[README.md § Who drives Aiur?](README.md#who-drives-aiur). In short: every run has an
-**Executor** — the operator of the run — and that is either the human driving the CLI
-directly, or the human's coding agent operating Aiur on their behalf while they stay in
-conversation with it. Both are first-class. `README.md § What Aiur is not` records the
-misreadings this distinction commonly produces.
+[`src/README.md § Who operates a run`](src/README.md#who-operates-a-run). In short: every
+run has an **Executor** — the operator of the run — and that is either the human driving the
+CLI directly, or the human's coding agent operating Aiur on their behalf while they stay in
+conversation with it. Both are first-class.
 
 The Executor skills live at [`.claude/skills/aiur-run`](.claude/skills/aiur-run/SKILL.md)
 (operate a run end to end) and
@@ -138,9 +137,10 @@ aiurdev --host …              # explicitly override configured/default dashboa
 
 Every subcommand except `build` is handled by the shared engine, so the
 npm-installed `aiur` accepts the exact same set. When config omits `server.host`,
-the engine supplies a lower-precedence default: an authenticated Tailscale IPv4
-when safely available, otherwise `127.0.0.1`. A configured value wins over that
-default; explicit `--host` wins over both.
+the engine binds the dashboard on `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST`
+override) — there is no automatic Tailscale detection, so set `server.host`
+explicitly to serve the dashboard beyond the machine. A configured value wins over
+that default; explicit `--host` wins over both.
 
 Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
 Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
@@ -233,6 +233,13 @@ GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
 will run the agent.
 
+Agent processes do **not** inherit `GITHUB_TOKEN`/`GH_TOKEN`: the daemon
+scrubs them from every agent environment and the `gh` guard injects the
+credential from a file only for the duration of a governed call (#2356). A
+raw `curl` from an agent workspace is unauthenticated, so anything that
+speaks HTTP directly is metered by GitHub's anonymous limit, not by Aiur's
+guard — the ledger counts governed `gh`/`git` calls, and only those.
+
 **Before changing anything that talks to GitHub — polling, budgets, the read
 cache, webhooks, credentials — read
 [`website/docs-app/apis/github.md`](website/docs-app/apis/github.md).** It is
@@ -266,6 +273,56 @@ Do not commit:
 - secrets, tokens, or basic-auth credentials
 - per-machine paths, Tailscale IPs, or hostnames in this file
 - credentials embedded in YAML or log output
+
+## Tests must fail without the production change they guard
+
+**A test that passes with your production change reverted is not coverage.**
+It asserts behavior that was already true, so it passes against the trivially
+wrong implementation and reports nothing. Before opening a PR, for each test
+you added: undo the production hunk it is meant to guard, run that test, and
+confirm it **fails**; restore the hunk and re-run — it must pass. If it still
+passes with the change reverted, the test is asserting something the code
+already did — fix it to assert the specific behavior the change adds, or
+delete it. If you cannot revert cleanly, say so in the PR body rather than
+skipping the check.
+
+Name the result in the PR body: one line per new test ("`sweep_once` test
+fails with the production hunk reverted") or an explicit statement of why the
+check could not be run.
+
+When you revert for this check, the tree must be dirty **only** in the
+intended way: `git diff` shows the production hunk you meant to remove and
+nothing else. Run it in a worktree, never the live checkout, and before the
+run assert no *unintended* modifications are present (`git status --porcelain`
+must show exactly the revert you made and no stray files) — a dirty tree from
+another process is the wrong-checkout signature #2362 is about, and HEAD alone
+does not catch it. Report the exact command you ran in the PR body so a
+reviewer can see what actually executed.
+
+Recurring shapes to avoid — each has shipped and cost a review round:
+
+- `assert %{} = …` and other patterns that match anything. `%{}` matches any
+  map, `_` matches anything, `is_binary(x)` proves nothing about a value whose
+  *content* is the point, and `f(x) == f(x)` self-comparisons can never fail.
+- Asserting a constant the change introduced (`assert {:cache, :issue_graph,
+  3_600_000} = ...`) instead of the behavior that produces it — a cache hit,
+  a reordered ranking, a persisted effect.
+- Asserting a rendered string without asserting the value behind it.
+- Fixtures built to avoid the failure mode. If the fixture cannot reach the
+  bug, the test cannot either — a broker double that delegates every command
+  but the one under test exercises a configuration that cannot exist.
+- Reading real state. Any test that touches `~/.aiur`, the live ledger, or a
+  shared global path must point at a temp path explicitly. Green in CI and red
+  on a live host is worse than red everywhere.
+
+Keeping a test that already passes on `main` is fine when it is deliberately a
+guard against a *future* regression — but say so in the test name or a
+comment, and do not count it toward covering this change.
+
+The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
+discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
+author-side rule so the check happens before review, not for the first time in
+review.
 
 ## Manual testing — the only definition
 

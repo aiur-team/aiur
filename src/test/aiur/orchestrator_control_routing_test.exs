@@ -925,11 +925,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
   end
 
   defp live_worker_workspace(issue_id) do
-    workspace =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur_control_routing_#{issue_id}_#{System.unique_integer([:positive])}"
-      )
+    workspace = Aiur.TestSupport.tmp_root!("aiur_control_routing_#{issue_id}")
 
     marker = Path.join(workspace, "must-survive")
     File.mkdir_p!(workspace)

@@ -164,7 +164,7 @@ defmodule AiurWeb.ObservabilityApiController do
   # against a 120s poll marks a healthy fleet stale for most of every cycle.
   # See `Aiur.PollCadence.snapshot_tolerance_ms/1`.
   defp snapshot_timeout_ms do
-    PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000)
+    PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch)
   end
 
   # The dashboard distinguishes a stopped Orchestrator from an empty read model,

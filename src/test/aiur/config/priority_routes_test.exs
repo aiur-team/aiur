@@ -253,4 +253,116 @@ defmodule Aiur.Config.PriorityRoutesTest do
                CodingAgent.route_price_identity("openrouter:anthropic/claude-opus-5")
     end
   end
+
+  describe "avoid_peak_pricing routing policy (#1456 behaviour)" do
+    # Pinned clock instants — the policy never reads the real clock in tests.
+    @peak_weekday_now ~U[2026-08-24 02:00:00Z]
+    @off_peak_weekday_now ~U[2026-08-24 12:00:00Z]
+    @weekend_off_peak_now ~U[2026-08-29 02:00:00Z]
+
+    defp dispatch_issue(opts) do
+      issue = %Aiur.Issue{identifier: "T-9"}
+
+      CodingAgent.select_for_dispatch(
+        issue,
+        Keyword.merge(
+          [
+            backends: ["deepseek", "openrouter:anthropic/claude-opus-5"],
+            configured_backends: ["deepseek", "openrouter"],
+            api_key_fetcher: fn _ -> "key" end,
+            state: %{"backends" => %{}}
+          ],
+          opts
+        )
+      )
+    end
+
+    test "avoid_peak_pricing true skips a peak-priced route and falls through to the next priority entry" do
+      assert {:ok, %Aiur.Issue{selected_backend: "openrouter"}} =
+               dispatch_issue(avoid_peak_pricing: true, now: @peak_weekday_now)
+    end
+
+    test "avoid_peak_pricing true keeps the route while off-peak (including weekends)" do
+      assert {:ok, %Aiur.Issue{selected_backend: "deepseek"}} =
+               dispatch_issue(avoid_peak_pricing: true, now: @off_peak_weekday_now)
+
+      assert {:ok, %Aiur.Issue{selected_backend: "deepseek"}} =
+               dispatch_issue(avoid_peak_pricing: true, now: @weekend_off_peak_now)
+    end
+
+    test "avoid_peak_pricing false uses agent.priority exactly as written, even at peak" do
+      assert {:ok, %Aiur.Issue{selected_backend: "deepseek"}} =
+               dispatch_issue(avoid_peak_pricing: false, now: @peak_weekday_now)
+    end
+
+    test "an unknown or unparseable window fails toward NOT rerouting" do
+      # A malformed schedule (as if the hand-maintained table were broken)
+      # classifies as :unknown; the route is kept and agent.priority is used
+      # exactly as written.
+      malformed = fn
+        :deepseek -> %{utc_offset_hours: 8}
+        _provider -> nil
+      end
+
+      assert {:ok, %Aiur.Issue{selected_backend: "deepseek"}} =
+               dispatch_issue(
+                 avoid_peak_pricing: true,
+                 now: @peak_weekday_now,
+                 window_schedule_for: malformed
+               )
+    end
+
+    test "a sole peak-priced route is kept, model pin intact — never emptied out" do
+      # `priority: ["deepseek:deepseek-v4-pro"]` at peak: rejecting the only
+      # candidate would empty the list and fall through to a bare dispatch with
+      # no pinned model (whatever `agent.kind` resolves to). The policy keeps
+      # the original list instead — the visible peak rate beats a silently
+      # dropped model pin.
+      assert {:ok, %Aiur.Issue{selected_backend: "deepseek", selected_model: "deepseek-v4-pro"}} =
+               dispatch_issue(
+                 backends: ["deepseek:deepseek-v4-pro"],
+                 configured_backends: ["deepseek"],
+                 avoid_peak_pricing: true,
+                 now: @peak_weekday_now
+               )
+    end
+
+    test "the production config-read path defaults to avoid_peak_pricing on (no pricing_policy key)" do
+      # No `avoid_peak_pricing` option is passed, so the policy reads config —
+      # the only path production takes. The injected reader simulates
+      # `Config.avoid_peak_pricing?/0` for an operator with no
+      # `agent.pricing_policy` key, whose default-on `true` is the behaviour
+      # the whole feature is about.
+      assert {:ok, %Aiur.Issue{selected_backend: "openrouter"}} =
+               dispatch_issue(
+                 now: @peak_weekday_now,
+                 avoid_peak_pricing_reader: fn -> true end
+               )
+    end
+
+    test "a config-read avoid_peak_pricing: false uses agent.priority exactly as written" do
+      assert {:ok, %Aiur.Issue{selected_backend: "deepseek"}} =
+               dispatch_issue(
+                 now: @peak_weekday_now,
+                 avoid_peak_pricing_reader: fn -> false end
+               )
+    end
+
+    test "an unreadable config never reroutes" do
+      # `Config.avoid_peak_pricing?/0` raises on an unreadable config
+      # (settings!/1); the policy rescues that to "do not reroute" rather than
+      # guessing a preference that would move work.
+      unreadable = fn -> raise ArgumentError, "config unreadable" end
+
+      assert {:ok, %Aiur.Issue{selected_backend: "deepseek"}} =
+               dispatch_issue(
+                 now: @peak_weekday_now,
+                 avoid_peak_pricing_reader: unreadable
+               )
+    end
+
+    test "peak_priced_route?/2 is false for providers with no windowed schedule" do
+      assert CodingAgent.peak_priced_route?("openrouter:anthropic/claude-opus-5", @peak_weekday_now) == false
+    end
+  end
 end

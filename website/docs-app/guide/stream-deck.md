@@ -1,6 +1,6 @@
 # Stream Deck
 
-Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
+Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or install the physical Stream Deck + sidecar. Both surfaces show the same fleet state and provide the same agent controls.
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
@@ -272,5 +272,13 @@ The Approve state is unmistakable: when an answer is armed the strip shows a gre
 An answer given on the deck is recorded with operator attribution (`operator` / `streamdeck`) — the same authoritative path as a Dashboard answer. It is never an Executor answer with an operator flavour in free text.
 
 That is also what lets the deck answer `human_required` Commands an Executor cannot. Answers are only accepted for the agent currently focused on the deck.
+
+### Authority
+
+A plugged-in deck is a **permanently-authorized operator client** — equivalent to a permanently logged-in browser. The 300-second channel-token expiry bounds the *socket*, not the device's standing authority: the sidecar stores the dashboard credentials and re-mints the token itself over HTTP Basic.
+
+A plugged-in deck stays authorized for as long as it sits on the desk; it is not a device whose authority expires and must be re-granted. That is by design, and it is what lets the deck answer `human_required` and `irreversible` Commands — the floor constrains automation, not the operator.
+
+The same property means a stolen or unattended deck carries full operator authority, so treat it like a logged-in session rather than a token that quietly lapses. Answers remain version-checked regardless: the deck answers the exact Command version it read, and a stale press is rejected as a conflict — never recorded as a second decision.
 
 Aiur holds a streaming connection to ElevenLabs, so transcription results can appear while you are still speaking rather than after you release the key. If the selected microphone stops producing audio or disconnects, capture reports the problem instead of remaining in a false listening state.

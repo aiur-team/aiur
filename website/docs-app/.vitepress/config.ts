@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 
-export default defineConfig({
+export default withMermaid(defineConfig({
   title: 'Aiur Docs',
   description: 'Run and coordinate fleets of coding agents with Aiur.',
   base: '/docs/',
@@ -53,11 +54,11 @@ export default defineConfig({
         ]
       },
       {
-        text: 'Usage',
+        text: 'Interfaces',
         items: [
           { text: 'TUI', link: '/guide/tui' },
           { text: 'CLI', link: '/reference/cli' },
-          { text: 'Dashboard', link: '/guide/executor-control-center' },
+          { text: 'GUI', link: '/guide/gui' },
           { text: 'Stream Deck', link: '/guide/stream-deck' }
         ]
       },
@@ -84,7 +85,8 @@ export default defineConfig({
       {
         text: 'Reference',
         items: [
-          { text: 'Configuration', link: '/reference/configuration' }
+          { text: 'Configuration', link: '/reference/configuration' },
+          { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
         ]
       }
     ],
@@ -98,4 +100,4 @@ export default defineConfig({
     outline: { level: [2, 3], label: 'On this page' },
     search: { provider: 'local' }
   }
-})
+}))

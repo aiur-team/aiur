@@ -101,10 +101,10 @@ defmodule Aiur.Env.Schema do
   The only boot-aborting credential requirement.
 
   The daemon must be able to authenticate with GitHub. `GITHUB_TOKEN` alone
-  satisfies it; otherwise the complete `github_app` credential group
-  (`github_credential_groups`) must be present. Absence is a startup failure
-  naming what is missing; the tracker configuration requirement is enforced
-  separately by `Aiur.Config.validate!/0`.
+  satisfies it; otherwise a `gh` keyring login (`gh auth login`) or the
+  complete `github_app` credential group (`github_credential_groups`) must be
+  present. Absence is a startup failure naming what is missing; the tracker
+  configuration requirement is enforced separately by `Aiur.Config.validate!/0`.
   """
   @spec github_credential_requirement() :: %{
           token: String.t(),
@@ -116,9 +116,10 @@ defmodule Aiur.Env.Schema do
       token: "GITHUB_TOKEN",
       alternative_group: :github_app,
       missing_message:
-        "no GitHub credential is configured: set GITHUB_TOKEN, or configure the " <>
-          "complete GitHub App set (GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and " <>
-          "one of GITHUB_APP_PRIVATE_KEY_PATH / GITHUB_APP_PRIVATE_KEY)"
+        "no GitHub credential is configured: set GITHUB_TOKEN, run `gh auth login` " <>
+          "to use the gh keyring, or configure the complete GitHub App set " <>
+          "(GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and one of " <>
+          "GITHUB_APP_PRIVATE_KEY_PATH / GITHUB_APP_PRIVATE_KEY)"
     }
   end
 
@@ -136,6 +137,11 @@ defmodule Aiur.Env.Schema do
      group: :required,
      purpose: "Fallback GitHub credential; ignored when the GitHub App vars below are set.",
      fetch: "github.com/settings/tokens -> Generate -> repo scope"},
+    {"GH_TOKEN",
+     type: :secret,
+     group: :required,
+     purpose: "Alternative GitHub credential name the guard reads when GITHUB_TOKEN is unset; never required.",
+     fetch: "same token as GITHUB_TOKEN, exported under gh's preferred name"},
 
     # --- GitHub App auth ---
     {"GITHUB_APP_ID", type: :string, group: :github_app, purpose: "GitHub App numeric id; preferred auth, short-lived installation tokens.", fetch: "App settings page, top of page"},
@@ -156,8 +162,8 @@ defmodule Aiur.Env.Schema do
     {"ELEVENLABS_API_KEY", type: :secret, group: :voice, purpose: "Speech-to-text for dashboard and Stream Deck mics.", fetch: "elevenlabs.io -> Profile -> API Keys"},
 
     # --- Dashboard ---
-    {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/executor-control-center"},
-    {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/executor-control-center"},
+    {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/gui"},
+    {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/gui"},
 
     # --- Supervisor Decision API ---
     {"AIUR_SUPERVISOR_TOKEN",

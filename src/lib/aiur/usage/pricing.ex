@@ -8,6 +8,7 @@ defmodule Aiur.Usage.Pricing do
   """
 
   alias Aiur.Usage.{PriceTable, Pricing.Components, Pricing.Dimensions, Pricing.Result}
+  alias Aiur.Usage.PriceTable.Window
   alias Aiur.UsageEnvelope
   alias Aiur.UsageEnvelope.RelationshipRegistry
 
@@ -136,7 +137,8 @@ defmodule Aiur.Usage.Pricing do
         token_dimension: component.token_dimension,
         relationship_revision: envelope.relationship_revision,
         currency: currency,
-        pricing_effective_date: envelope.pricing_effective_date
+        pricing_effective_date: envelope.pricing_effective_date,
+        pricing_window: Window.resolve(envelope.provider, envelope.occurred_at)
       },
       Dimensions.for_component(envelope.provider, component.token_dimension, dimensions)
     )

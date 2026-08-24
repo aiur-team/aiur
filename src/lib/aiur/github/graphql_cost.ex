@@ -77,13 +77,15 @@ defmodule Aiur.GitHub.GraphQLCost do
   **The estimate is an upper bound on shape, not GitHub's price.** Measured
   against the reported `rateLimit { cost }` on live daemon traffic, the CI poll
   batch bills **1 point** where this arithmetic says ~510, and the comment poll
-  batch bills **10-11** where it says ~660. GitHub evidently discounts
-  connections that resolve to far fewer nodes than were requested. So the
-  ceiling is set two orders of magnitude above anything this tree ships: it
-  exists to stop a document whose *shape* has gone pathological — an unbounded
-  fan-out, a page size typo — and it must never be tightened toward the
-  estimate, because refusing real traffic on a number known to be 50-500x wrong
-  is exactly the confident wrongness the assumed costs above produced.
+  batch bills **8 points** (at its shipped `reviewThreads(first: 20)` shape)
+  where it says ~15, and billed **35** at the previous `first: 100` where it
+  said ~68. GitHub evidently discounts connections that resolve to far fewer
+  nodes than were requested. So the ceiling is set two orders of magnitude
+  above anything this tree ships: it exists to stop a document whose *shape*
+  has gone pathological — an unbounded fan-out, a page size typo — and it must
+  never be tightened toward the estimate, because refusing real traffic on a
+  number known to be wildly wrong is exactly the confident wrongness the
+  assumed costs above produced.
 
   The ceiling refuses; it does not split. Splitting a document generically means
   re-planning someone else's query, and the batch callers already chunk
@@ -97,8 +99,9 @@ defmodule Aiur.GitHub.GraphQLCost do
   @selection "rateLimit { limit cost remaining resetAt }"
 
   # Two orders of magnitude above the largest document this tree sends (the
-  # comment poll batch, ~700 by this arithmetic and 10-11 points in fact). See
-  # the moduledoc: this is a shape guard, not a budget model.
+  # comment poll batch, ~15 by this arithmetic and 8 points in fact at its
+  # shipped `reviewThreads(first: 20)` shape). See the moduledoc: this is a
+  # shape guard, not a budget model.
   @default_cost_ceiling_points 20_000
   @nodes_per_point 100
 

@@ -136,14 +136,71 @@ defmodule Aiur.EnvTest do
                )
     end
 
-    test "aborts when no GitHub credential is configured, naming the requirement" do
-      error = assert_raise ArgumentError, fn -> Env.validate_startup!(%{}, require_github_credential: true) end
+    test "aborts when no GitHub credential of any kind is configured, naming the requirement" do
+      error =
+        assert_raise ArgumentError, fn ->
+          Env.validate_startup!(%{}, require_github_credential: true, keyring_fun: fn -> nil end)
+        end
+
       assert error.message =~ "GITHUB_TOKEN"
       assert error.message =~ "GITHUB_APP_ID"
+      assert error.message =~ "gh auth login"
     end
 
     test "GITHUB_TOKEN alone satisfies the requirement" do
       assert :ok = Env.validate_startup!(%{"GITHUB_TOKEN" => "ghp_real"}, require_github_credential: true)
+    end
+
+    test "a gh keyring login alone satisfies the requirement (env absent)" do
+      assert :ok =
+               Env.validate_startup!(%{}, require_github_credential: true, keyring_fun: fn -> "ghs_keyring" end)
+    end
+
+    test "an empty gh keyring does not satisfy the requirement" do
+      error =
+        assert_raise ArgumentError, fn ->
+          Env.validate_startup!(%{}, require_github_credential: true, keyring_fun: fn -> "" end)
+        end
+
+      assert error.message =~ "no GitHub credential is configured"
+    end
+
+    test "a gh keyring login satisfies the gate through the real gh shell-out (#2376)" do
+      # The load-bearing scenario: on a box with only `gh auth login` — no
+      # GITHUB_TOKEN / GH_TOKEN in the environment — the boot gate must consult
+      # the same `gh auth token` keyring lookup the runtime uses. This drives
+      # the real `Aiur.GitHub.Config.keyring_token/0` -> System.cmd("gh", ...)
+      # path against a fake `gh` on PATH, so it is an integration test of the
+      # actual shell-out, not an assertion against an injected stub.
+      with_fake_gh_on_path(
+        """
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          printf 'ghs_keyring_only_token\\n'
+          exit 0
+        fi
+        """,
+        fn ->
+          assert :ok = Env.validate_startup!(%{}, require_github_credential: true)
+        end
+      )
+    end
+
+    test "the gate still fails when the gh shell-out yields nothing" do
+      with_fake_gh_on_path(
+        """
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          exit 1
+        fi
+        """,
+        fn ->
+          error =
+            assert_raise ArgumentError, fn ->
+              Env.validate_startup!(%{}, require_github_credential: true)
+            end
+
+          assert error.message =~ "no GitHub credential is configured"
+        end
+      )
     end
 
     test "a complete GitHub App set satisfies the requirement without GITHUB_TOKEN" do
@@ -163,7 +220,10 @@ defmodule Aiur.EnvTest do
     test "a partial GitHub App group still aborts even when GITHUB_TOKEN is absent" do
       error =
         assert_raise ArgumentError, fn ->
-          Env.validate_startup!(%{"GITHUB_APP_ID" => "123"}, require_github_credential: true)
+          Env.validate_startup!(%{"GITHUB_APP_ID" => "123"},
+            require_github_credential: true,
+            keyring_fun: fn -> nil end
+          )
         end
 
       assert error.message =~ "GITHUB_APP_ID"
@@ -301,8 +361,8 @@ defmodule Aiur.EnvTest do
 
   describe "precedence conflicts — ~/.aiur/.env vs ./.env" do
     setup do
-      home_env = Path.join(System.tmp_dir!(), "aiur-env-test-home-#{System.unique_integer([:positive])}.env")
-      repo_env = Path.join(System.tmp_dir!(), "aiur-env-test-repo-#{System.unique_integer([:positive])}.env")
+      home_env = Aiur.TestSupport.tmp_root!("aiur-env-test-home") <> ".env"
+      repo_env = Aiur.TestSupport.tmp_root!("aiur-env-test-repo") <> ".env"
 
       on_exit(fn ->
         File.rm(home_env)
@@ -345,6 +405,43 @@ defmodule Aiur.EnvTest do
   describe "boot hook wiring" do
     test "maybe_validate_environment/0 is a safe no-op in the test environment" do
       assert :ok = Aiur.Application.maybe_validate_environment()
+    end
+  end
+
+  # Puts a fake `gh` on PATH for the duration of `fun` so the real
+  # `System.cmd("gh", ...)` keyring shell-out resolves to a deterministic stub.
+  # `token_script` must define the `gh auth token` behaviour and then fall
+  # through: the helper appends a pass-through to the real `gh` (located before
+  # PATH changed) for every other invocation, so a concurrent test that shells
+  # out to `gh` still reaches the real binary instead of a stub.
+  defp with_fake_gh_on_path(token_script, fun) do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "aiur-env-fake-gh-#{unique}")
+    bin_dir = Path.join(root, "bin")
+    File.mkdir_p!(bin_dir)
+    fake_gh = Path.join(bin_dir, "gh")
+
+    pass_through =
+      case System.find_executable("gh") do
+        nil -> "exit 99\n"
+        path -> "exec #{path} \"$@\"\n"
+      end
+
+    File.write!(fake_gh, "#!/bin/sh\n" <> token_script <> "\n" <> pass_through)
+    File.chmod!(fake_gh, 0o755)
+
+    original_path = System.get_env("PATH")
+    System.put_env("PATH", bin_dir <> ":" <> (original_path || ""))
+
+    try do
+      fun.()
+    after
+      case original_path do
+        nil -> System.delete_env("PATH")
+        value -> System.put_env("PATH", value)
+      end
+
+      File.rm_rf!(root)
     end
   end
 end

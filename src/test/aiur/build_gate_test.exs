@@ -69,6 +69,17 @@ defmodule Aiur.BuildGateTest do
              build_gate_status(gate_dir: gate_dir, capacity: 2, strategy: :pid)
   end
 
+  test "status reports the effective post-command retain window", %{gate_dir: gate_dir} do
+    # The retain duration in effect is observable on the status surface so the
+    # gate's throughput trade is measurable next time, not inferred from
+    # `fuser` (#2398).
+    assert %{enabled?: true, retain_seconds: 120} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    assert %{enabled?: true, retain_seconds: 120} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :linux_lock)
+  end
+
   test "reports a slot with a dead owner and live process group as active", %{gate_dir: gate_dir} do
     slot_path = Path.join(gate_dir, "slot-1")
     {pgid, 0} = System.cmd("ps", ["-o", "pgid=", "-p", System.pid()])
@@ -153,6 +164,64 @@ defmodule Aiur.BuildGateTest do
     refute ungated_output =~ "aiur_build_gate"
 
     assert File.read!(context.log_path) == "test\nformat\n"
+  end
+
+  test "strips --trace when --max-cases N (N>1) would otherwise silently serialize", context do
+    assert {output, 0} = run_bash("mix test --max-cases 4 --trace", context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases 4\n"
+  end
+
+  test "strips --trace with the --max-cases=N form and leaves non-conflicting flags alone", context do
+    assert {output, 0} = run_bash("mix test --max-cases=4 --trace", context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases=4\n"
+
+    for command <- [
+          "mix test --max-cases 4",
+          "mix test --trace",
+          "mix test --max-cases 1 --trace"
+        ] do
+      assert {command_output, 0} = run_bash(command, context)
+      refute command_output =~ "aiur_build_gate trace_stripped"
+    end
+
+    assert File.read!(context.log_path) ==
+             "test --max-cases=4\ntest --max-cases 4\ntest --trace\ntest --max-cases 1 --trace\n"
+  end
+
+  test "normalizes a mise exec -- mix command combining --trace with --max-cases", context do
+    guarded_context = with_command_wrappers!(context)
+
+    assert {output, 0} = run_sh("mise exec -- mix test --max-cases 4 --trace", guarded_context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases 4\n"
+  end
+
+  test "normalizes an elixir -S mix command combining --trace with --max-cases", context do
+    elixir_bin = Path.join(context.gate_dir, "elixir-bin")
+    File.mkdir_p!(elixir_bin)
+    write_fake_elixir_mix!(Path.join(elixir_bin, "mix"))
+
+    guarded_context =
+      context
+      |> with_command_wrappers!()
+      |> Map.merge(%{
+        bin_dir: elixir_bin,
+        system_path: system_path_without_build_wrapper()
+      })
+
+    assert {output, 0} = run_sh("elixir -S mix test --max-cases 4 --trace", guarded_context)
+    assert output =~ "aiur_build_gate trace_stripped"
+
+    assert context.log_path |> File.read!() |> String.split("\n", trim: true) |> List.last() ==
+             "test --max-cases 4"
+  end
+
+  test "a non-mix elixir eval passes through the gate with its arguments intact", context do
+    assert {output, 0} = run_bash(~s|elixir -e 'IO.puts("ok")'|, context)
+    assert output =~ "ok"
+    refute File.exists?(context.log_path)
   end
 
   test "queues a contending command until the prior lease releases", context do
@@ -736,6 +805,82 @@ defmodule Aiur.BuildGateTest do
     assert held >= 29
   end
 
+  test "status reports the oldest live queue wait and zero for an empty queue", %{gate_dir: gate_dir} do
+    assert %{oldest_wait_seconds: 0} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    queue_dir = Path.join(gate_dir, "queue")
+    File.mkdir_p!(queue_dir)
+    self_pid = String.to_integer(System.pid())
+    now = System.os_time(:second)
+
+    File.write!(Path.join(queue_dir, "lease-v2-newer"), "pid=#{self_pid}\nstarted_at=#{now - 20}\n")
+    File.write!(Path.join(queue_dir, "lease-v2-oldest"), "pid=#{self_pid}\nstarted_at=#{now - 190}\n")
+
+    assert %{queued: 2, oldest_wait_seconds: wait} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    assert wait >= 189
+  end
+
+  test "disabled status reports a measured empty wait" do
+    assert %{enabled?: false, active: 0, queued: 0, oldest_wait_seconds: 0} =
+             BuildGate.status(capacity: 0, stagger_seconds: 0, min_free_memory_mb: nil)
+  end
+
+  @tag @linux_only
+  test "Linux status scans two active and eight queued holders in one bounded pass", context do
+    release_path = Path.join(context.gate_dir, "scan.release")
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Port.open({:spawn_executable, String.to_charlist(bash)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [
+          "-c",
+          ~S"""
+          now=$(date +%s)
+          for slot in 1 2; do
+            path="$2/slot-$slot.lock"
+            exec {fd}<>"$path"
+            flock "$fd"
+            printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - slot))" > "$1/slot-$slot.owner"
+          done
+          mkdir -p "$1/queue"
+          for queue in $(seq 1 8); do
+            path="$1/queue/lease-v2-$queue"
+            printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - queue * 10))" > "$path"
+            exec {fd}<>"$path"
+            flock "$fd"
+          done
+          printf 'ready\n'
+          while [[ ! -e $3 ]]; do sleep 0.05; done
+          """,
+          "build-gate-saturated-holder",
+          context.gate_dir,
+          context.lock_dir,
+          release_path
+        ]
+      ])
+
+    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+
+    on_exit(fn ->
+      File.touch!(release_path)
+      if Port.info(holder), do: Port.close(holder)
+    end)
+
+    started_ms = System.monotonic_time(:millisecond)
+    status = build_gate_status(gate_dir: context.gate_dir, capacity: 2, strategy: :linux_lock)
+    elapsed_ms = System.monotonic_time(:millisecond) - started_ms
+
+    assert %{active: 2, queued: 8, oldest_wait_seconds: wait, degraded?: nil} = Map.put_new(status, :degraded?, nil)
+    assert wait >= 79
+    assert elapsed_ms < 5_000
+  end
+
   @tag @linux_only
   test "status rejects a FIFO queue record without blocking", context do
     queue_dir = Path.join(context.gate_dir, "queue")
@@ -845,38 +990,57 @@ defmodule Aiur.BuildGateTest do
     # loop — while still holding the slot flock. Four slots leaked this way in
     # fifteen minutes.
     #
-    # The daemon is never going to exit, so the release has to come from the
-    # bounded retain window rather than from `waitpid` — and it has to come
-    # without signalling the daemon.
+    # The daemons are never going to exit, so the release has to come from the
+    # CPU-gated retain (#2398) rather than from `waitpid` — and it has to come
+    # without signalling the daemons. Both daemons are idle (0% CPU), so the
+    # holder releases the slot after the one-second idle window, long before
+    # the 120s default retain window expires.
     daemon_pid_path = Path.join(context.gate_dir, "adopted-daemon.pid")
+    default_term_daemon_pid_path = Path.join(context.gate_dir, "adopted-daemon-default-term.pid")
 
     gated_context =
       Map.merge(context, %{
         adopted_daemon_pid_path: daemon_pid_path,
-        retain_seconds: 2,
-        max_hold_seconds: 0,
+        adopted_daemon_default_term_pid_path: default_term_daemon_pid_path,
         started_path: ""
       })
 
     assert {output, 0} = run_bash("mix test", gated_context)
     assert output =~ "aiur_build_gate acquired slot=1 command=test"
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    # The effective retain window is observable on the gate log.
+    assert output =~ "retain_seconds=120"
     wait_for_file!(daemon_pid_path)
+    wait_for_file!(default_term_daemon_pid_path)
     daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
-    on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true) end)
 
-    # The slot comes back on its own, well inside the retain window.
+    default_term_daemon_pid =
+      default_term_daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    on_exit(fn ->
+      System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true)
+      System.cmd("kill", ["-KILL", Integer.to_string(default_term_daemon_pid)], stderr_to_stdout: true)
+    end)
+
+    # The slot comes back on its own, well inside the default retain window:
+    # the idle daemon is not doing build work, so the courtesy is over in ~1s.
     wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
     refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
 
-    marker = File.read!(Path.join(context.gate_dir, "slot-1.hold-timeout"))
-    assert marker =~ "mix test"
-    assert marker =~ "reason=retained"
+    # An early release is the expected steady state, not a timeout: it must not
+    # leave a `reason=retained` marker that the daemon turns into a
+    # needs-attention alert for every build that saw an adopted daemon.
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
 
-    # The daemon is left running, deliberately. gnome-keyring-daemon holds the
+    # The daemons are left running, deliberately. gnome-keyring-daemon holds the
     # credential the fleet's GitHub access depends on: cleanup must scope
     # itself to the leased command's session and never signal an adopted
-    # stranger, no matter how long it lives.
+    # stranger, no matter how long it lives. Both the TERM-ignoring daemon and
+    # the default-disposition one survive (#2404).
     assert {_state, 0} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(daemon_pid)])
+
+    assert {_state, 0} =
+             System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(default_term_daemon_pid)])
 
     # The flock is genuinely gone, not merely the owner file: the next gated
     # command takes the same slot.
@@ -886,13 +1050,16 @@ defmodule Aiur.BuildGateTest do
 
   @tag @linux_only
   test "a holder whose wrapped command exited releases its slot at the max-hold cap", context do
-    # The leak (#2349): the wrapped command exits but a descendant keeps the
-    # subreaper's `waitpid(-1)` from ever seeing ECHILD, so the slot is held
-    # long after the command is gone. The absolute wall-clock cap is the
-    # backstop that frees it regardless of how the child exited.
+    # The leak (#2349): the wrapped command exits but a CPU-burning descendant
+    # keeps the subreaper's `waitpid(-1)` from ever seeing ECHILD, so the slot
+    # is held long after the command is gone. The descendant is genuinely busy
+    # (#2398), so the holder keeps the lease while it compiles; the absolute
+    # wall-clock cap is the backstop that frees the slot regardless.
+    release_descendant_on_exit(context)
+
     gated_context =
       Map.merge(context, %{
-        descendant_sleep_seconds: 60,
+        descendant_release_barrier: true,
         max_hold_seconds: 3,
         started_path: ""
       })
@@ -901,7 +1068,8 @@ defmodule Aiur.BuildGateTest do
     assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
     wait_for_file!(context.descendant_path)
 
-    # The retained descendant is still alive, so the slot stays protected.
+    # The retained descendant is still alive and busy, so the slot stays
+    # protected (it must not be released by the idle window).
     assert %{active: 1} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
 
     # The cap expires and the holder releases the slot, leaving a durable
@@ -916,6 +1084,256 @@ defmodule Aiur.BuildGateTest do
     assert marker =~ "held_for_seconds="
     assert %{active: 0} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
     refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+  end
+
+  @tag @linux_only
+  test "an idle retained Mix descendant releases the slot well inside the retain window", context do
+    # A retained descendant that consumes no CPU (here a long `sleep`) is not
+    # doing build work. The holder keeps the slot only while a descendant is
+    # compiling (#2398), so it releases after the one-second idle window
+    # instead of holding the default 120s retain window.
+    gated_context =
+      Map.merge(context, %{
+        descendant_sleep_seconds: 30,
+        max_hold_seconds: 0,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    wait_for_file!(context.descendant_path)
+
+    # The slot frees long before the 120s retain window, and without a timeout
+    # marker — an early release is the expected steady state, not a defect.
+    wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+  end
+
+  @tag @linux_only
+  test "back-to-back builds that leave idle adopted daemons drain the queue without saturating the gate", context do
+    # The #2398 acceptance shape: N builds completing back-to-back on an idle
+    # box must not leave the gate at `0/N active` with a non-empty queue. Each
+    # build spawns an idle adopted daemon that reparents onto its holder, so
+    # `waitpid(-1)` never reaches ECHILD and, before #2398, every slot sat
+    # "held without a command" for the full 120s retain window. The CPU-gated
+    # retain releases each slot ~1s after its build exits, so the second wave
+    # acquires promptly and the queue drains.
+    daemon_paths = for index <- 1..4, do: Path.join(context.gate_dir, "adopted-daemon-#{index}.pid")
+
+    on_exit(fn ->
+      for path <- daemon_paths do
+        if File.exists?(path) do
+          pid = path |> File.read!() |> String.trim() |> String.to_integer()
+          System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+        end
+      end
+    end)
+
+    gated_context =
+      Map.merge(context, %{
+        slots: 2,
+        started_path: ""
+      })
+
+    results =
+      daemon_paths
+      |> Enum.with_index(1)
+      |> Enum.map(fn {daemon_path, index} ->
+        Task.async(fn ->
+          run_bash(
+            "mix test --partition #{index}",
+            Map.put(gated_context, :adopted_daemon_pid_path, daemon_path)
+          )
+        end)
+      end)
+      |> Task.await_many(60_000)
+
+    assert Enum.all?(results, &match?({_output, 0}, &1))
+
+    # The queue drained and both slots returned to idle: no slot was wedged by
+    # a 120s retain hold. `0/N active` with a non-empty queue is exactly the
+    # saturation shape this ticket is about.
+    wait_for_status!(context.gate_dir, 2, fn status ->
+      status.active == 0 and status.queued == 0
+    end)
+
+    # An early release is the expected steady state, not a timeout: no
+    # needs-attention markers from any of the four builds.
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    refute File.exists?(Path.join(context.gate_dir, "slot-2.hold-timeout"))
+  end
+
+  @tag @linux_only
+  test "a periodically-waking adopted daemon does not hold the slot after the command exits", context do
+    # A real session daemon (dbus-daemon on a live session) is not `sleep`: it
+    # wakes on timers and handles messages, so it consumes a small but nonzero
+    # slice of CPU. The 3ms/s idle threshold must sit above that floor, or
+    # every real daemon would be misread as "build work" and #2398 would be
+    # straight back. This fixture is a low-duty-cycle timer loop (~0.5ms/s)
+    # that pins the lower bound: it provably consumes CPU, yet is still
+    # released by the idle window.
+    daemon_pid_path = Path.join(context.gate_dir, "adopted-waking-daemon.pid")
+
+    gated_context =
+      Map.merge(context, %{
+        adopted_daemon_pid_path: daemon_pid_path,
+        adopted_daemon_wakeup: true,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    wait_for_file!(daemon_pid_path)
+    daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+    on_exit(fn -> System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true) end)
+
+    # The fixture genuinely consumes CPU — a `sleep 600` daemon consumes
+    # nothing and would pin no lower bound at all.
+    first_cpu = cpu_ns_from_schedstat(daemon_pid)
+    Process.sleep(1_500)
+    second_cpu = cpu_ns_from_schedstat(daemon_pid)
+    assert second_cpu > first_cpu
+
+    # Yet the slot still comes back inside the idle window: ~0.5ms/s is far
+    # below the 3ms/s threshold, so this is not "build work".
+    wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+
+    # The daemon is left running, deliberately, exactly like the keyring.
+    assert {_state, 0} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(daemon_pid)])
+  end
+
+  @tag @linux_only
+  test "a holder keeps the slot when descendant CPU measurement is unavailable", context do
+    # On a kernel without CONFIG_SCHEDSTATS the holder cannot read descendant
+    # CPU. The old `/proc/stat` fallback resolved to 10ms granularity against
+    # the 3ms threshold, reading a genuinely compiling child in the 3-10ms/window
+    # band as idle and releasing the slot out from under it (#2386).
+    # Measurement-unavailable must therefore hold conservatively to the retain
+    # deadline instead of guessing from a coarse number.
+    gated_context =
+      Map.merge(context, %{
+        descendant_sleep_seconds: 30,
+        retain_seconds: 4,
+        cpu_measure_unavailable: true,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    wait_for_file!(context.descendant_path)
+
+    # Well past the 1s idle window the slot is still held: there is no idle
+    # release when the measurement that would prove idleness is unavailable.
+    Process.sleep(2_000)
+    assert %{active: 1} = build_gate_status(gate_dir: context.gate_dir, capacity: 1)
+
+    # The retain deadline is the guaranteed release, with the durable marker.
+    wait_for_status!(context.gate_dir, 1, fn status ->
+      status.active == 0 and File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    end)
+
+    marker = File.read!(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    assert marker =~ "reason=retained"
+  end
+
+  @tag @linux_only
+  test "descendant CPU measurement reports unavailable instead of a coarse stat fallback", context do
+    # The #2398 review pinned a latent #2386 regression: the old code fell back
+    # from an unreadable schedstat to `/proc/<pid>/stat` utime+stime ticks,
+    # which resolve to 10ms granularity against the 3ms idle threshold. A
+    # genuinely compiling child in the 3-10ms/window band read as a delta of 0
+    # — indistinguishable from an idle daemon — and the slot was released out
+    # from under it. Measurement unavailable must be reported as `None` (the
+    # conservative hold), never as a coarse number that looks comparable.
+    python = System.find_executable("python3") || flunk("python3 is required")
+    holder_path = Path.expand("../../priv/build_gate_holder.py", __DIR__)
+    missing_path = Path.join(context.gate_dir, "no-such-schedstat")
+
+    probe = ~S"""
+    import runpy, sys, os
+    holder = runpy.run_path(sys.argv[1])
+    value = holder["proc_cpu_ns"](os.getpid())
+    print("none" if value is None else "number")
+    """
+
+    # Sanity: on this host schedstat is present, so a live process reads a
+    # number through the real path.
+    assert {"number\n", 0} =
+             System.cmd(python, ["-c", probe, holder_path], stderr_to_stdout: true)
+
+    # When the schedstat path is unreadable (CONFIG_SCHEDSTATS=n), the holder
+    # must report measurement-unavailable (None) rather than falling back to a
+    # coarse `/proc/stat` tick count.
+    assert {"none\n", 0} =
+             System.cmd(
+               python,
+               ["-c", probe, holder_path],
+               env: [{"AIUR_BUILD_GATE_HOLDER_SCHEDSTAT_PATH", missing_path}],
+               stderr_to_stdout: true
+             )
+  end
+
+  @tag @linux_only
+  test "a zero retain window disables the post-command courtesy entirely", context do
+    # agent.build_gate_retain_seconds: 0 is the documented opt-out: the
+    # wrapped command has already exited, so the slot is handed straight back
+    # even with a still-busy descendant — no idle-window sampling, no courtesy
+    # at all.
+    release_descendant_on_exit(context)
+
+    gated_context =
+      Map.merge(context, %{
+        descendant_release_barrier: true,
+        retain_seconds: 0,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash("mix test", gated_context)
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    # The effective retain value is observable on the gate log.
+    assert output =~ "retain_seconds=0"
+    wait_for_file!(context.descendant_path)
+
+    # Released promptly despite the busy descendant: the courtesy is off, so
+    # nothing keeps the slot and nothing is signalled.
+    wait_for_status!(context.gate_dir, 1, fn status -> status.active == 0 end)
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.owner"))
+    refute File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+  end
+
+  @tag @linux_only
+  test "the retain value plumbed through BuildGate.shell_env is honoured by the holder", context do
+    # End to end: Config.build_gate_retain_seconds -> BuildGate.shell_env
+    # exports AIUR_BUILD_GATE_RETAIN_SECONDS -> the holder's retain_seconds().
+    # A non-default value (2s) must actually change the holder's behaviour: a
+    # busy retained descendant is released at the 2s courtesy ceiling with a
+    # marker, not held for the 120s default. If the export name were wrong or
+    # the holder ignored the value, the slot would still be held past the 2s
+    # window and this test would time out.
+    release_descendant_on_exit(context)
+
+    gated_context =
+      Map.merge(context, %{
+        descendant_release_barrier: true,
+        started_path: ""
+      })
+
+    assert {output, 0} = run_bash_with_shell_env("mix test", gated_context, retain_seconds: 2)
+    assert output =~ "aiur_build_gate lease_retained slot=1 status=0"
+    assert output =~ "retain_seconds=2"
+    wait_for_file!(context.descendant_path)
+
+    # The busy descendant keeps the slot through the 2s courtesy ceiling, then
+    # the holder releases at the deadline with a durable marker.
+    wait_for_status!(context.gate_dir, 1, fn status ->
+      status.active == 0 and File.exists?(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    end)
+
+    marker = File.read!(Path.join(context.gate_dir, "slot-1.hold-timeout"))
+    assert marker =~ "reason=retained"
   end
 
   @tag @linux_only
@@ -986,9 +1404,13 @@ defmodule Aiur.BuildGateTest do
 
   @tag @linux_only
   test "cancellation after direct Mix exit reaps retained descendants before releasing capacity", context do
+    # The descendant must be CPU-burning (#2398) so the holder is still
+    # retaining when the parent is cancelled — an idle descendant would be
+    # released by the idle window before the TERM arrives, which is correct for
+    # an adopted daemon but not what this cancellation path is testing.
     gated_context =
       Map.merge(context, %{
-        descendant_sleep_seconds: 30,
+        descendant_release_barrier: true,
         status_read_delay_seconds: 5,
         started_path: ""
       })
@@ -1006,6 +1428,13 @@ defmodule Aiur.BuildGateTest do
       |> File.read!()
       |> String.trim()
       |> String.to_integer()
+
+    # The busy descendant is normally reaped by the holder's cancellation
+    # cleanup; guard the early-failure window so a failed test never leaks a
+    # CPU-burning loop.
+    on_exit(fn ->
+      System.cmd("kill", ["-KILL", Integer.to_string(descendant_pid)], stderr_to_stdout: true)
+    end)
 
     assert_process_gone!(mix_pid)
 
@@ -1050,6 +1479,91 @@ defmodule Aiur.BuildGateTest do
     assert_process_gone!(mix_pid)
 
     assert {_output, 0} =
+             run_bash(
+               "mix compile",
+               Map.merge(context, %{started_path: "", timeout_seconds: 2})
+             )
+  end
+
+  @tag @linux_only
+  test "pause containment spares adopted session daemons while reaping the build", context do
+    # #2387: pausing an agent must never take out the session keyring. The
+    # pause/cancel path (`PauseContainment` -> the holder's exception path)
+    # used to sweep every child of the subreaper and `killpg` its process
+    # group, which is how an adopted `dbus-daemon` / `gnome-keyring-daemon`
+    # died. This mirrors the assertion #2381 added for the timeout path: the
+    # build's own process is gone but the adopted daemons are still alive.
+    #
+    # Two daemons stand in for the real daemon (#2404): one ignores TERM
+    # (covers the SIGKILL-escalation path), and one keeps the default SIGTERM
+    # disposition, as the real gnome-keyring-daemon does. A partial revert of
+    # #2391 that sweeps adopted daemons with SIGTERM alone kills only the
+    # default-disposition one; asserting both survive catches it.
+    daemon_pid_path = Path.join(context.gate_dir, "pause-adopted-daemon.pid")
+    default_term_daemon_pid_path = Path.join(context.gate_dir, "pause-adopted-daemon-default-term.pid")
+
+    gated_context =
+      Map.merge(context, %{
+        sleep_seconds: 30,
+        started_path: context.started_path,
+        adopted_daemon_pid_path: daemon_pid_path,
+        adopted_daemon_default_term_pid_path: default_term_daemon_pid_path
+      })
+
+    task = Task.async(fn -> run_bash("mix test", gated_context) end)
+
+    wait_for_file!(context.started_path)
+    wait_for_file!(context.mix_pid_path)
+    wait_for_file!(daemon_pid_path)
+    wait_for_file!(default_term_daemon_pid_path)
+
+    mix_pid = context.mix_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+    daemon_pid = daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    default_term_daemon_pid =
+      default_term_daemon_pid_path |> File.read!() |> String.trim() |> String.to_integer()
+
+    # Clean up all processes even if a later assertion fails mid-test; the
+    # daemons would otherwise outlive the run.
+    on_exit(fn ->
+      System.cmd("kill", ["-KILL", Integer.to_string(mix_pid)], stderr_to_stdout: true)
+      System.cmd("kill", ["-KILL", Integer.to_string(daemon_pid)], stderr_to_stdout: true)
+      System.cmd("kill", ["-KILL", Integer.to_string(default_term_daemon_pid)], stderr_to_stdout: true)
+    end)
+
+    # The holder is the subreaper that Popen'd the build; its owner record
+    # carries its PID, published before the wrapped command even spawns.
+    holder_pid = wait_for_holder_pid!(context.gate_dir)
+
+    # Wait until each daemon's `setsid` parent has exited and it has actually
+    # reparented onto the holder (PPID == holder_pid), so the pause lands on a
+    # genuinely adopted stranger rather than a process still owned by the
+    # build. Gating on "not the wrapped command" was satisfiable before the
+    # reparent, because the daemon's immediate parent is the intermediate
+    # subshell (#2404).
+    wait_for_adopted_daemon!(daemon_pid, holder_pid)
+    wait_for_adopted_daemon!(default_term_daemon_pid, holder_pid)
+
+    # Signal the holder directly so its containment exception path (the one
+    # that used to sweep the adopted daemons) runs. In production
+    # `PauseContainment` reaches it via the agent's process group.
+    System.cmd("kill", ["-TERM", Integer.to_string(holder_pid)], stderr_to_stdout: true)
+
+    assert {_output, status} = Task.await(task, 10_000)
+    assert status in [125, 0]
+
+    # The build's own process is contained...
+    assert_process_gone!(mix_pid)
+
+    # ...while both adopted daemons (the gnome-keyring-daemon analogues)
+    # survive — the TERM-ignoring one and the default-disposition one.
+    assert {_state, 0} = System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(daemon_pid)])
+
+    assert {_state, 0} =
+             System.cmd("ps", ["-o", "stat=", "-p", Integer.to_string(default_term_daemon_pid)])
+
+    # The slot is released promptly for the next build.
+    assert {_output2, 0} =
              run_bash(
                "mix compile",
                Map.merge(context, %{started_path: "", timeout_seconds: 2})
@@ -1971,6 +2485,40 @@ defmodule Aiur.BuildGateTest do
     System.cmd("bash", ["-c", command], env: build_gate_env(context), stderr_to_stdout: true)
   end
 
+  # Runs a gated command through the real Config -> BuildGate.shell_env
+  # plumbing (not the test's hand-built build_gate_env), so a config-derived
+  # value like the retain window is proven to reach and be honoured by the
+  # detached holder rather than merely appearing in a log line (#2398).
+  defp run_bash_with_shell_env(command, context, shell_opts) do
+    shell_env =
+      BuildGate.shell_env(
+        Keyword.merge(
+          [slots: 1, stagger_seconds: 0, min_free_memory_mb: 0, gate_dir: context.gate_dir],
+          shell_opts
+        )
+      )
+
+    provided = shell_env |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+    test_env = Enum.reject(build_gate_env(context), fn {name, _value} -> MapSet.member?(provided, name) end)
+    System.cmd("bash", ["-c", command], env: shell_env ++ test_env, stderr_to_stdout: true)
+  end
+
+  # sum_exec_runtime (ns) for a PID, the same scheduler runtime the holder
+  # reads to gate the retain window. Used to prove an adopted-daemon fixture
+  # genuinely consumes CPU (nonzero) so its release pins the idle threshold's
+  # lower bound rather than passing vacuously (#2398).
+  defp cpu_ns_from_schedstat(pid) do
+    path = "/proc/#{pid}/schedstat"
+
+    case File.read(path) do
+      {:ok, contents} ->
+        contents |> String.split() |> List.first() |> String.to_integer()
+
+      {:error, reason} ->
+        flunk("schedstat is required for the CPU-gated retain tests: #{path} (#{reason})")
+    end
+  end
+
   defp real_executable_behind_wrapper!(command) do
     wrapper = Path.join(System.get_env("AIUR_BUILD_GATE_BIN", ""), command)
     wrapper_stat = File.stat(wrapper)
@@ -2045,6 +2593,7 @@ defmodule Aiur.BuildGateTest do
       {"FAKE_MIX_DESCENDANT_RELEASE", if(Map.get(context, :descendant_release_barrier, false), do: context.descendant_release_path, else: "")},
       {"FAKE_MIX_DESCENDANT_SLEEP", Integer.to_string(Map.get(context, :descendant_sleep_seconds, 0))},
       {"FAKE_MIX_ADOPTED_DAEMON_PID", Map.get(context, :adopted_daemon_pid_path, "")},
+      {"FAKE_MIX_ADOPTED_DAEMON_DEFAULT_TERM_PID", Map.get(context, :adopted_daemon_default_term_pid_path, "")},
       {"FAKE_MIX_DESCENDANT_COMMAND", Map.get(context, :descendant_command, "")},
       {"FAKE_MIX_DESCENDANT_GATE_LOG", Map.get(context, :descendant_gate_log, "")},
       {"FAKE_MIX_PID", Map.get(context, :mix_pid_path, "")},
@@ -2070,7 +2619,18 @@ defmodule Aiur.BuildGateTest do
       {"PATH", path}
     ]
 
-    env ++ Map.get(context, :extra_env, [])
+    env ++ build_gate_holder_test_hooks(context) ++ Map.get(context, :extra_env, [])
+  end
+
+  # Holder test-hook env entries kept out of build_gate_env so that function's
+  # cyclomatic complexity stays under the Credo limit. These drive the
+  # #2398 review fixtures: a periodically-waking adopted daemon, and forcing
+  # the no-schedstat measurement path.
+  defp build_gate_holder_test_hooks(%{gate_dir: gate_dir} = context) do
+    [
+      {"FAKE_MIX_ADOPTED_DAEMON_WAKEUP", if(Map.get(context, :adopted_daemon_wakeup, false), do: "1", else: "0")},
+      {"AIUR_BUILD_GATE_HOLDER_SCHEDSTAT_PATH", if(Map.get(context, :cpu_measure_unavailable, false), do: Path.join(gate_dir, "no-schedstat"), else: "")}
+    ]
   end
 
   defp start_gated_port(command, context) do
@@ -2232,6 +2792,68 @@ defmodule Aiur.BuildGateTest do
     end
   end
 
+  # A `setsid`-detached daemon keeps its own session once its `setsid` parent
+  # exits and reparents onto the holder's subreaper. Wait until that actually
+  # happened — PPID equals the holder's PID — so a pause test provably targets
+  # an adopted stranger and not a process still owned by the build (#2387).
+  # Gating on "not the wrapped command" was satisfiable before the reparent,
+  # because the daemon's immediate parent is the intermediate subshell, never
+  # the wrapped command itself (#2404).
+  defp wait_for_adopted_daemon!(daemon_pid, holder_pid, attempts \\ 300)
+
+  defp wait_for_adopted_daemon!(_daemon_pid, _holder_pid, 0),
+    do: flunk("timed out waiting for the daemon to reparent onto the holder")
+
+  defp wait_for_adopted_daemon!(daemon_pid, holder_pid, attempts) do
+    case System.cmd("ps", ["-o", "ppid=", "-p", Integer.to_string(daemon_pid)], stderr_to_stdout: true) do
+      {output, 0} ->
+        if output |> String.trim() |> String.to_integer() == holder_pid do
+          :ok
+        else
+          Process.sleep(10)
+          wait_for_adopted_daemon!(daemon_pid, holder_pid, attempts - 1)
+        end
+
+      _ ->
+        Process.sleep(10)
+        wait_for_adopted_daemon!(daemon_pid, holder_pid, attempts - 1)
+    end
+  end
+
+  # The holder records itself in the slot owner record once it starts; wait
+  # for that so a pause test can signal the holder's exception path directly.
+  defp wait_for_holder_pid!(gate_dir, attempts \\ 200)
+
+  defp wait_for_holder_pid!(_gate_dir, 0), do: flunk("timed out waiting for a gate holder pid")
+
+  defp wait_for_holder_pid!(gate_dir, attempts) do
+    case holder_pid_from_owner(gate_dir) do
+      nil ->
+        Process.sleep(10)
+        wait_for_holder_pid!(gate_dir, attempts - 1)
+
+      pid ->
+        pid
+    end
+  end
+
+  defp holder_pid_from_owner(gate_dir) do
+    gate_dir
+    |> Path.join("slot-*.owner")
+    |> Path.wildcard()
+    |> Enum.find_value(&holder_pid_from_owner_file/1)
+  end
+
+  defp holder_pid_from_owner_file(path) do
+    with {:ok, contents} <- File.read(path),
+         [_, pid] <- Regex.run(~r/holder_pid=(\d+)/, contents),
+         pid when pid > 0 <- String.to_integer(pid) do
+      pid
+    else
+      _ -> nil
+    end
+  end
+
   defp write_meminfo!(context, available_mb) do
     path = Map.get(context, :meminfo_path, Path.join(context.gate_dir, "meminfo"))
     File.write!(path, "MemAvailable: #{available_mb * 1_024} kB\n")
@@ -2292,12 +2914,45 @@ defmodule Aiur.BuildGateTest do
     if [[ -n ${FAKE_MIX_ADOPTED_DAEMON_PID:-} ]]; then
       # A daemon from an unrelated session, the way dbus-daemon and
       # gnome-keyring-daemon appear under a build. It leaves this command's
-      # session, ignores TERM, outlives mix, and reparents onto the holder.
-      setsid bash -c '
-        trap "" TERM
-        printf "%s\\n" "$$" > "$1"
-        exec sleep 600
-      ' fake-adopted-daemon "$FAKE_MIX_ADOPTED_DAEMON_PID" </dev/null >/dev/null 2>&1 &
+      # session, ignores TERM, and outlives mix. The intermediate `( ... )`
+      # subshell exits immediately so the daemon reparents onto the holder's
+      # subreaper even while the command is still running -- the #2387
+      # incident shape.
+      (
+        setsid bash -c '
+          trap "" TERM
+          printf "%s\\n" "$$" > "$1"
+          if [[ ${FAKE_MIX_ADOPTED_DAEMON_WAKEUP:-0} == 1 ]]; then
+            # A real session daemon is not `sleep`: it wakes on timers and
+            # handles messages, consuming a small but nonzero slice of CPU.
+            # This low-duty-cycle timer loop (a ~0.5ms burst every second) is
+            # that shape, staying far below the 3ms/s busy threshold, so the
+            # threshold lower bound is pinned by a test rather than by
+            # assertion (#2398).
+            while :; do
+              for ((i = 0; i < 300; i++)); do :; done
+              sleep 1
+            done
+          else
+            exec sleep 600
+          fi
+        ' fake-adopted-daemon "$FAKE_MIX_ADOPTED_DAEMON_PID" </dev/null >/dev/null 2>&1 &
+      ) </dev/null >/dev/null 2>&1
+    fi
+
+    if [[ -n ${FAKE_MIX_ADOPTED_DAEMON_DEFAULT_TERM_PID:-} ]]; then
+      # The real gnome-keyring-daemon does not ignore SIGTERM, so the
+      # TERM-ignoring daemon above is more robust than production: a partial
+      # revert of #2391 that sweeps adopted daemons with SIGTERM alone would
+      # kill this default-disposition daemon while the ignoring one survived,
+      # and the keyring-protection test would still look green. Both must
+      # survive containment (#2404).
+      (
+        setsid bash -c '
+          printf "%s\n" "$$" > "$1"
+          exec sleep 600
+        ' fake-adopted-daemon-default-term "$FAKE_MIX_ADOPTED_DAEMON_DEFAULT_TERM_PID" </dev/null >/dev/null 2>&1 &
+      ) </dev/null >/dev/null 2>&1
     fi
 
     if [[ -n ${FAKE_MIX_DESCENDANT_RELEASE:-} ]] || ((FAKE_MIX_DESCENDANT_SLEEP > 0)); then
@@ -2305,7 +2960,16 @@ defmodule Aiur.BuildGateTest do
         printf '%s\\n' "$$" > "${FAKE_MIX_DESCENDANT}.pid"
         printf 'started\\n' > "$FAKE_MIX_DESCENDANT"
         if [[ -n ${FAKE_MIX_DESCENDANT_RELEASE:-} ]]; then
-          while [[ ! -e $FAKE_MIX_DESCENDANT_RELEASE ]]; do sleep 0.02; done
+          # A real duty cycle, not a bare polling loop: a short busy spin per
+          # wakeup keeps this "CPU-burning" descendant unambiguously above the
+          # holder's 3ms/s idle threshold even when the host is loaded. A bare
+          # `sleep 0.02` poll drifts to ~5-7ms/s — only ~2x the threshold —
+          # and drops under it under CI load, releasing the retained slot
+          # early (#2398).
+          while [[ ! -e $FAKE_MIX_DESCENDANT_RELEASE ]]; do
+            for ((i = 0; i < 500; i++)); do :; done
+            sleep 0.02
+          done
         else
           sleep "$FAKE_MIX_DESCENDANT_SLEEP"
         fi
