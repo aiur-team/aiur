@@ -3,11 +3,11 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   alias Aiur.Events.{Exchange, GithubWebhook, Publisher}
   alias Aiur.Events.GithubWebhook.Normalizer
+  alias Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe
   alias Aiur.GitHub.ReadCache
   alias Aiur.Webhooks
   alias Aiur.Webhooks.ModeRegistry
   alias Aiur.Workflow
-  alias Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe
 
   @repo "owner/repo"
   @dedup_table Aiur.Events.Publisher.Dedup
@@ -506,7 +506,18 @@ defmodule Aiur.Events.GithubWebhookTest do
       Process.unlink(probe)
 
       on_exit(fn ->
-        if Process.alive?(probe), do: Process.exit(probe, :normal)
+        # Synchronous stop (unlike `Process.exit/2`, which is async and can
+        # still hold the name when the live orchestrator is re-registered) so
+        # the probe's registration is actually released first, then restore.
+        if Process.alive?(probe) do
+          try do
+            GenServer.stop(probe)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+
+        if Process.whereis(Aiur.Orchestrator) == probe, do: Process.unregister(Aiur.Orchestrator)
 
         if is_pid(original) do
           try do
