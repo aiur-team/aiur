@@ -57,3 +57,14 @@ Aiur.Opencode.SlotTest :: PubSub event topology all attach/visible events broadc
 # Ruled out the obvious regression suspect #2370 by running against main.
 Aiur.GitHub.BotIdentityTest :: daemon_account/3 under a split identity resolves the daemon App bot, not the account agents publish as
 Aiur.GitHub.BotIdentityTest :: falls back from config bot account to authenticated viewer login
+
+# Unticketed, observed 2026-08-24 run 32782984118 coverage (3/4). Same code was
+# fully green on head 1ff0f23aa (run 32780225293); passes locally in isolation
+# (199 tests, 0 failures with the streamdeck file). Concurrency-shaped
+# (simultaneous readers must not wait on each other).
+Aiur.AgentGitHubGuardTest :: agent reads through the shared state cache simultaneous readers of different resources are not made to wait on each other
+
+# Unticketed, observed 2026-08-24 run 32782984118 coverage (2/4). Same code was
+# fully green on head 1ff0f23aa (run 32780225293); passes locally in isolation.
+# Timing-shaped (socket token expiry delivery).
+AiurWeb.StreamdeckChannelTest :: a joined channel closes when its socket token expires
