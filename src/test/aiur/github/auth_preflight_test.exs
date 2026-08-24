@@ -6,11 +6,14 @@ defmodule Aiur.GitHub.AuthPreflightTest do
   alias Aiur.GitHub.Transport
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @source_cache_key {Aiur.GitHub.Config, :resolved_token_source}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
     prev_cached_token = :persistent_term.get(@token_cache_key, :unset)
+    prev_source = :persistent_term.get(@source_cache_key, :unset)
     :persistent_term.erase(@token_cache_key)
+    :persistent_term.erase(@source_cache_key)
     System.put_env("GITHUB_TOKEN", "preflight-token")
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -27,6 +30,11 @@ defmodule Aiur.GitHub.AuthPreflightTest do
       case prev_cached_token do
         :unset -> :persistent_term.erase(@token_cache_key)
         token -> :persistent_term.put(@token_cache_key, token)
+      end
+
+      case prev_source do
+        :unset -> :persistent_term.erase(@source_cache_key)
+        source -> :persistent_term.put(@source_cache_key, source)
       end
     end)
 
@@ -108,6 +116,35 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     assert diagnostic.gh_keyring_status == :available
     assert diagnostic.message =~ "GITHUB_TOKEN"
     refute inspect(diagnostic) =~ "preflight-token"
+  end
+
+  test "a keyring-sourced credential is reported as the gh keyring, not GITHUB_TOKEN" do
+    # Simulate a boot where `gh auth login` was the only credential: resolve_pat_token
+    # cached the keyring token, so the diagnostic must name that source and give the
+    # matching recovery, never "refresh or unset GITHUB_TOKEN" — a variable the
+    # developer never set (#2374).
+    :persistent_term.put(@token_cache_key, "keyring-token")
+    :persistent_term.put(@source_cache_key, :keyring)
+
+    request_fun = fn %{url: "https://api.github.com/rate_limit"} ->
+      {:ok,
+       %{
+         status: 403,
+         headers: [{"x-ratelimit-remaining", "0"}],
+         body: %{"message" => "API rate limit exceeded"}
+       }}
+    end
+
+    assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+             AuthPreflight.preflight_auth(
+               request_fun: request_fun,
+               gh_auth_status_fun: fn -> {:ok, :available} end
+             )
+
+    assert diagnostic.token_source == "gh keyring"
+    assert diagnostic.message =~ "gh keyring"
+    assert diagnostic.message =~ "gh auth login"
+    refute diagnostic.message =~ "refresh or unset GITHUB_TOKEN"
   end
 
   test "formats diagnostic maps and plain fallback reasons" do

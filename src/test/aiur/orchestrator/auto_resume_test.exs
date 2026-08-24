@@ -119,6 +119,20 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       assert AutoResume.classify({:workspace_github_connectivity_failed, "/workspaces/123", {:error, %Req.TransportError{reason: :nxdomain}}}) == :transient_tracker
     end
 
+    # #2427 review: a raw `%Req.TransportError{}` (the shape the transport
+    # error funnel surfaces) is normalised through the shared taxonomy before
+    # classifying, so a reason the shared classifier calls transient always
+    # schedules a re-claim. `:nxdomain` is the regression: it is transient to
+    # the shared classifier but was never in the provider-timeout whitelist,
+    # so the raw struct used to classify as `nil` (no re-claim).
+    test "classifies a raw transport struct through the shared taxonomy" do
+      assert AutoResume.classify(%Req.TransportError{reason: :closed}) == :transient_tracker
+      assert AutoResume.classify(%Req.TransportError{reason: :nxdomain}) == :transient_tracker
+      assert AutoResume.classify(%Req.TransportError{reason: :econnrefused}) == :transient_tracker
+      assert AutoResume.classify(%Req.TransportError{reason: {:tls_alert, :handshake_failure}}) == :transient_tracker
+      assert AutoResume.classify(%Req.TransportError{reason: :timeout}) == :transient_tracker
+    end
+
     # #2409: a local GitHub budget hold is a transient infrastructure fault, so
     # a ticket parked in `agent:error` by one auto-resumes once the hold lifts
     # instead of waiting for an operator. Recognized in the raw
