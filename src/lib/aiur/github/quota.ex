@@ -1038,17 +1038,17 @@ defmodule Aiur.GitHub.Quota do
       %{
         consumer: consumer,
         # Every row in this file was written by the agent `gh` wrapper, so the
-        # call site is known exactly even though the ticket varies. Naming it
-        # keeps the fleet's own spend as one ranked row rather than scattering
-        # it across a row per ticket, which is what makes "daemon or agents?"
-        # answerable at a glance — the question a wrong answer was already given
-        # to once.
-        caller: @agent_shell_caller,
+        # call site is known exactly even though the ticket varies. The caller
+        # names that call site (`agent-shell:gh pr view`) so `github-cost` can
+        # rank the agent-side spend by gh subcommand rather than folding the
+        # whole fleet into one `agent-shell:gh` row (#2299). A row written
+        # before the call-site column falls back to the undifferentiated name.
+        caller: shell_caller(rest),
         direction: String.to_existing_atom(direction),
         resource: resource,
         cost: 1,
         cost_source: if(resource == "graphql", do: :assumed, else: :reported),
-        token_key: shell_column(rest, 1),
+        token_key: shell_column(rest, 2),
         pid: shell_pid(rest),
         observed_at: observed_at
       }
@@ -1060,10 +1060,28 @@ defmodule Aiur.GitHub.Quota do
   defp shell_resource([resource | _rest]) when resource in @primary_resources, do: resource
   defp shell_resource(_columns), do: "core"
 
+  # The fifth column is the gh subcommand the guard recorded (`pr view`, `issue
+  # list`, `api graphql`, ...). Rows that predate it have no call-site column.
+  # The guard allowlists the value, and the reader re-checks it: a row that
+  # somehow carries a character outside the safe set (a forged spend row, say)
+  # is not named — it falls back to the undifferentiated caller so an injected
+  # call site can never appear as its own ranked row.
+  defp shell_caller([_resource, call_site | _]) when is_binary(call_site) and call_site != "" do
+    if Regex.match?(~r/\A[a-zA-Z0-9 _-]+\z/, call_site),
+      do: @agent_shell_caller <> " " <> call_site,
+      else: @agent_shell_caller
+  end
+
+  defp shell_caller(_columns), do: @agent_shell_caller
+
+  # The credential fingerprint (column 6) and the wrapper pid (column 7) ride
+  # after the call site so a request is attributable to its pool and to the
+  # exact subprocess that made it (#2255). Rows written before either column
+  # degrade to nil.
   defp shell_column(columns, index), do: Enum.at(columns, index) |> shell_blank()
 
   defp shell_pid(columns) do
-    case Enum.at(columns, 2) do
+    case Enum.at(columns, 3) do
       pid when is_binary(pid) ->
         case Integer.parse(pid) do
           {value, ""} when value > 0 -> value
