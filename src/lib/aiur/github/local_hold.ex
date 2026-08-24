@@ -172,14 +172,7 @@ defmodule Aiur.GitHub.LocalHold do
   defp retry_plan(error, max_wait_ms, max_waits, retries) when max_waits > 0 do
     case budget_layer_fault(error) do
       {:hold, detail} ->
-        if Errors.retryable_github_error?({:github, :local_hold, detail}) do
-          case wait_ms(detail, max_wait_ms) do
-            {:wait, wait_ms} -> {:wait, wait_ms, detail}
-            :no_wait -> :keep
-          end
-        else
-          :keep
-        end
+        hold_plan(detail, max_wait_ms)
 
       {:backoff, detail} ->
         if Errors.retryable_github_error?({:github, :timeout, %{reason: :github_budget_broker_timeout}}) do
@@ -194,6 +187,21 @@ defmodule Aiur.GitHub.LocalHold do
   end
 
   defp retry_plan(_error, _max_wait_ms, _max_waits, _retries), do: :keep
+
+  # A local budget hold is waited out to its `reset_at` (bounded by
+  # `max_wait_ms`) when the shared classifier still calls it transient; a hold
+  # beyond the ceiling, or one the classifier no longer considers transient,
+  # fails closed.
+  defp hold_plan(detail, max_wait_ms) do
+    if Errors.retryable_github_error?({:github, :local_hold, detail}) do
+      case wait_ms(detail, max_wait_ms) do
+        {:wait, wait_ms} -> {:wait, wait_ms, detail}
+        :no_wait -> :keep
+      end
+    else
+      :keep
+    end
+  end
 
   # Recognizes the transient budget-layer fault families `run/2` waits out, in
   # both the raw classified error shape and the auth-preflight diagnostic
