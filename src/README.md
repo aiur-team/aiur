@@ -848,4 +848,4 @@ is not a product-performance budget; BO-014 owns those thresholds.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0. See [LICENSE](../LICENSE) and [NOTICE](../NOTICE).
