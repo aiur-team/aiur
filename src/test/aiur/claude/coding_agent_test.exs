@@ -9,7 +9,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   alias Aiur.Workflow
 
   test "spawned claude shell receives workspace, configured base, and launch vars" do
-    root = Path.join(System.tmp_dir!(), "aiur_claude_env_#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_env")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     marker = Path.join(workspace, "env_marker")
@@ -36,7 +36,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   end
 
   test "turn/start carries the configured model and completes a turn" do
-    root = Path.join(System.tmp_dir!(), "aiur_claude_model_#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_model")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
@@ -88,7 +88,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   end
 
   test "rate-limit notifications ingest through the Claude meter adapter and log only a redacted marker" do
-    root = Path.join(System.tmp_dir!(), "aiur_claude_meter_#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_meter")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
@@ -153,7 +153,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   end
 
   test "tool calls execute through the injected tool executor" do
-    root = Path.join(System.tmp_dir!(), "aiur_claude_tool_call_#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_tool_call")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
@@ -234,7 +234,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   end
 
   test "tool call failures and unsupported calls are reported" do
-    root = Path.join(System.tmp_dir!(), "aiur_claude_tool_errors_#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_tool_errors")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
@@ -288,7 +288,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   end
 
   test "two concurrent claude sessions run distinct models: config default vs issue tag" do
-    root = Path.join(System.tmp_dir!(), "aiur_claude_multi_#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_multi")
     config_ws = Path.join(root, "config-agent")
     tag_ws = Path.join(root, "tag-agent")
     File.mkdir_p!(config_ws)
@@ -346,7 +346,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     # crash the turn — the Elixir-side mirror of the unguarded-stdout EPIPE that
     # killed the Node agent. Delivering a queued operator message onto a
     # torn-down port must now fail with `{:error, :port_closed}` instead.
-    root = Path.join(System.tmp_dir!(), "aiur_claude_port_closed_#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_port_closed")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     on_exit(fn -> File.rm_rf(root) end)
@@ -373,7 +373,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     # `:turn_ended_with_error` carrying that tuple reason — the same
     # `{:port_exit, N}` shape the AgentEventLog encoder fix now persists), rather
     # than crash the receive loop.
-    root = Path.join(System.tmp_dir!(), "aiur_claude_port_exit_#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_port_exit")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
