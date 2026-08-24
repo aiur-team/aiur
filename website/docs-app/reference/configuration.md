@@ -116,24 +116,49 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
+| `polling.intervals` | map of class → integer | `%{}` | Per-class poll cadences in seconds. Each key names a poll class — `dispatch`, `ci`, `review`, `planning`, `firehose` — and overrides `interval_seconds` for that class only. A class with no entry falls back to `interval_seconds`, so an unset map keeps today's single-interval behaviour exactly. `0` means the class is on-demand — no timer, refreshed only when a consumer explicitly asks — which is the recommended value for `planning`. (`firehose` is not recommended at any value: its loop rides the dispatch tick and is not gated, so an entry would be a dead knob.) `dispatch` must be a positive integer: the dispatch tick always runs, so `dispatch: 0` is rejected. `review` only diverges on a repo proven webhook-backed — on a polling repo its safety net stays at the dispatch rate. An unknown class key or a negative value is rejected. |
 | `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 | `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. The open-backlog and ad-hoc-overlay sources are event-sourced and not swept at all; the sweep reconciles the daemon-owned Build Order pack-status projection (which writes `status.json` on disk and stays on this cadence until it is moved to the event stream too) and runs the issue-family divergence watermark — a single bounded `updated_at`-ordered head page that keeps webhook loss detectable and re-converges a dropped delivery. |
 
 Freshness thresholds follow this cadence. You do not set them separately.
 
-- The **effective** interval is `interval_seconds` after `idle_widen_factor`,
+- The **effective** interval is a class's interval after `idle_widen_factor`,
   `webhooks.poll_widen_factor` and GitHub's poll floors are applied.
+- Since #2309 each poll loop resolves its interval by naming the class it
+  serves, and `polling.intervals` lets those classes diverge. The classes:
+
+  | Class | Polls | Why it gets its own cadence |
+  | --- | --- | --- |
+  | `dispatch` | open issues and `agent:*` labels (the dispatch trigger) | Cheap (conditional REST, usually `304`) and urgent. The default for every unlisted class and for un-named `PollCadence` reads. |
+  | `ci` | check state on a pull request with work in flight | Expensive GraphQL and urgent, but only while a PR is actually in flight (the loop is demand-scoped). `intervals.ci` is deliberately not recommended: the loop rides the dispatch tick, so a value below `dispatch` is inert (the loop can never fire more often than the tick) and one above it *slows* CI detection — a stale CI read has agent-visible consequences. Leave it unset to inherit `interval_seconds`. |
+  | `review` | comments and review threads | Expensive GraphQL, moderately urgent, and webhook-covered for comment *arrival* — the poll is a safety net, so minutes is defensible. The divergence is enforced, not asserted: on a repo not proven webhook-backed the class resolves to the dispatch cadence, so the safety net never silently slows on a polling repo. |
+  | `planning` | Build Order catalog, pack status, ad-hoc listings | The most expensive reads and the least urgent. Recommended value `0` (on-demand): the catalog's only consumers are web pages and it is demand-gated, so it needs no timer. |
+  | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. The firehose loop is **not gated** on a class cadence — it rides the dispatch tick — so no value is recommended: leave it unset to inherit `interval_seconds`. An entry would be a dead knob. |
+
 - The dashboard, the Units catalog and Build Order ticket history all judge
-  staleness against that effective interval.
-- Build Order's remaining catalog cadence (the base for its boot/mount/degraded
-  reads and its staleness window) is derived from it too, so an idle fleet widens
-  it exactly as it widens the tracker poll. The catalog itself is event-sourced
-  (#2325) and demand-gated (#2312): there is no recurring sweep — reads happen
-  when a page opens or a degradation needs a re-list.
-- So a change to `interval_seconds` needs no matching threshold edit.
-- `aiur status` prints the effective value, for example
-  `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
+  staleness against the effective interval of the class they mean: the
+  orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
+  ticket history from `planning`.
+- Build Order's own refresh cadences follow the `planning` class, so an operator
+  can run the expensive Build Order reads on demand while dispatch stays at 2.
+  The catalog itself is event-sourced (#2325) and demand-gated (#2312): there
+  is no recurring sweep — reads happen when a page opens or a degradation needs
+  a re-list — and the `planning` cadence remains the base for its boot/mount/
+  degraded reads and its staleness window. With `planning: 0` the class has no
+  timer at all: a page mount or an explicit refresh is the only thing that
+  reads it.
+- So a change to an interval needs no matching threshold edit.
+- `aiur status` prints the effective value and the live interval per class, for
+  example:
+  ```
+  POLL idle backoff active: interval=1200s base=120s factor=5.0x
+  POLL class intervals: ci=120s dispatch=120s firehose=120s planning=0s review=300s
+  ```
+  `0s` means the class is on-demand: no timer, refreshed only when a consumer
+  asks. `ci` sits at the dispatch cadence because the loop rides the tick and is
+  deliberately not given its own interval; `review` shows its configured value
+  only while the repo is proven webhook-backed.
 - The idle widening only applies once the daemon has observed an idle cycle:
   a freshly restarted fleet starts at the base interval, and a live fleet with
   dispatchable tickets keeps the base interval so work is not left waiting
@@ -198,6 +223,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it. When enabled, `procs_running` above `run_queue_threshold × schedulers` holds only when the same CPU sample shows less than 60% reclaimable capacity, catching real short bursts without treating niced work as contention (`run_queue` capacity hold). |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
+| `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
 | `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
 | `agent.rate_limit_primary` | string | default backend | Deprecated primary backend watched for automatic rate-limit recovery; derived from `agent.priority` when set. |

@@ -1,7 +1,7 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore, TrackerIdentity}
+  alias Aiur.{AgentQueueStore, CIApprovalStore, PollCadence, TrackerIdentity}
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{CiLifecycle, State}
 
@@ -1002,6 +1002,71 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
       refute_received {:recorded, _position, _message}
+    end
+  end
+
+  describe "CI poll :ci-cadence throttle" do
+    setup do
+      PollCadence.forget_effective_interval_ms()
+      on_exit(&PollCadence.forget_effective_interval_ms/0)
+      :ok
+    end
+
+    # The throttle returns the state untouched — no issue fetch, no GraphQL
+    # poll — so the injected fetchers/pollers must never fire. This is the
+    # whole point: an expensive CI read must not run at the dispatch rate once
+    # an operator gives `:ci` its own (wider) cadence.
+    test "skips the poll while within the published ci cadence" do
+      PollCadence.publish_effective_interval_ms(300_000, class: :ci)
+      state = %State{last_ci_poll_started_at_ms: System.monotonic_time(:millisecond)}
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn _states -> flunk("throttled poll must not fetch issues") end,
+          ci_poller: fn _targets, _opts -> flunk("throttled poll must not poll") end,
+          token: "test-gh-token"
+        )
+
+      assert next == state
+    end
+
+    # A recent poll is never throttled before the dispatcher has published a
+    # live `:ci` cadence (cold start, harnesses): the first read of a freshly
+    # in-flight PR must not be held back by a cadence nobody has observed yet.
+    test "a recent poll is not throttled before the ci cadence is published" do
+      PollCadence.forget_effective_interval_ms()
+      issue = issue(unique_identifier("ci-unthrottled"), "ci-wait")
+      state = %State{last_ci_poll_started_at_ms: System.monotonic_time(:millisecond)}
+
+      next = poll_ci(state, issue, %{status: "pending", head_sha: "head-1", pr_number: 1})
+
+      assert next.last_ci_poll_started_at_ms != nil
+      assert is_map(next.ci_lifecycle.poll_cache)
+    end
+
+    # Mutant #1 (review #2309): the CI throttle timestamp must NOT advance when
+    # there are no in-flight targets. The loop is demand-scoped — it only polls
+    # pull requests with work in flight — so a no-target tick is the "there is
+    # nothing to read yet" state, and advancing the timestamp there would hold a
+    # PR that enters `ci-wait` between polls back for the previous poll's full
+    # cadence. This drives the production path and fails if the timestamp is
+    # hoisted out of the `targets == []` guard.
+    test "the ci throttle timestamp does not advance when no targets are in flight" do
+      PollCadence.publish_effective_interval_ms(300_000, class: :ci)
+
+      # Last polled long enough ago that the class cadence has elapsed, so the
+      # loop is due to run — and then finds nothing in flight.
+      state = %State{last_ci_poll_started_at_ms: System.monotonic_time(:millisecond) - 600_000}
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn _states -> {:ok, []} end,
+          ci_poller: fn _targets, _opts -> flunk("no in-flight targets: the CI poll must not run") end,
+          token: "test-gh-token"
+        )
+
+      # The demand-scoping rule: no targets read, so the throttle clock stays put.
+      assert next.last_ci_poll_started_at_ms == state.last_ci_poll_started_at_ms
     end
   end
 
