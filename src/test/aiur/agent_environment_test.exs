@@ -665,8 +665,10 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_BUILD_GATE_BIN", ~c"/work/aiur/440/.aiur-runtime/build-bin"} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_BIN", 0)
 
-      assert {~c"AIUR_BUILD_GATE_SLOTS", ~c"2"} =
+      assert {~c"AIUR_BUILD_GATE_SLOTS", slots_value} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_SLOTS", 0)
+
+      assert to_string(slots_value) == Integer.to_string(Aiur.Config.max_concurrent_builds())
 
       assert {~c"AIUR_BUILD_START_STAGGER_SECONDS", ~c"0"} =
                List.keyfind(env, ~c"AIUR_BUILD_START_STAGGER_SECONDS", 0)
@@ -816,7 +818,7 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert prefix =~ "AIUR_BUILD_GATE_BIN='/work/aiur/440/.aiur-runtime/build-bin'"
       assert prefix =~ "BASH_ENV="
-      assert prefix =~ "AIUR_BUILD_GATE_SLOTS='2'"
+      assert prefix =~ "AIUR_BUILD_GATE_SLOTS='#{Aiur.Config.max_concurrent_builds()}'"
     end
   end
 
