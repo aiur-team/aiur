@@ -248,6 +248,19 @@ defmodule Aiur.Events.GithubCommentsPoller do
   # dies between the read and the publish loses nothing, and the recovery costs
   # no request. Publishing first as well means the crash window contains no
   # validator at all, and the sweep after it is unconditional.
+  #
+  # A `nil` validator means the reader decided its validator cannot answer the
+  # whole list (an issue-comment read that paginated — new comments land on the
+  # last page, so a page-1 `304` would hide them; see website/docs-app/apis/github.md).
+  # The store keeps a held validator for an unchanged body unless it is dropped
+  # explicitly, so nil forces the drop: the next read must be unconditional
+  # rather than answered by a stale page-1 `304`.
+  defp remember_list(resource, comments, nil) when is_list(comments) do
+    ResourceStore.put_resource(resource, comments, etag: nil, source: :poll)
+    ResourceStore.drop_etag(resource)
+    nil
+  end
+
   defp remember_list(resource, comments, etag) when is_list(comments) do
     ResourceStore.put_resource(resource, comments, etag: etag, source: :poll)
     etag

@@ -17,6 +17,8 @@ defmodule Aiur.GitHub.Issues do
     Transport
   }
 
+  alias Aiur.Orchestrator.DispatchPolicy
+
   @max_issue_response_bytes 65_536
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
@@ -91,57 +93,14 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def fetch_issue_raw(issue_number, opts \\ []) do
-    with {:ok, {owner, repo}} <- raw_repository(opts),
-         {:ok, token} <- Transport.require_token(opts) do
-      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
-      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}"
-
-      case request_fun.(%{
-             method: :get,
-             url: url,
-             token: token,
-             max_response_bytes: @max_issue_response_bytes,
-             caller: "issue_raw"
-           }) do
-        {:ok, %{private: %{aiur_response_too_large: true}, status: status} = response}
-        when status != 200 ->
-          {:error, Errors.github_status_error(response)}
-
-        {:ok, %{private: %{aiur_response_too_large: true}}} ->
-          {:error, :github_issue_response_too_large}
-
-        {:ok, %{status: 200, body: body}} when is_map(body) ->
-          {:ok, body}
-
-        {:ok, %{status: 200}} ->
-          {:error, :invalid_github_issue_response}
-
-        {:ok, %{status: _status} = response} ->
-          {:error, Errors.github_status_error(response)}
-
-        {:error, reason} ->
-          {:error, Errors.classify_error({:error, reason})}
-      end
-    end
-  end
-
   @doc """
   Fetches one issue through `Aiur.GitHub.ResourceStore`.
 
-  Same endpoint and same body as `fetch_issue_raw/2` — `GET
+  Same endpoint and same body as an unconditional `GET
   /repos/{owner}/{repo}/issues/{number}` — but addressed by the issue's identity
-  rather than by the caller, so readers of that issue meet in one entry. That is
-  the point: the orchestrator's per-issue reconciliation poll, the Build Order
-  ticket-detail pane and the dashboard's ticket panel were each reading this exact
-  URL on their own schedule into their own cache.
-
-  One caller of the same URL is deliberately still outside this:
-  `Aiur.GitHub.IssueDependencies` reaches `fetch_issue_raw/2` through
-  `Aiur.GitHub.Client`, unconditionally, and neither reads nor populates the store.
-  It is named in `docs/measurements/2026-08-17-build-order-read-cost.md` rather
-  than quietly left out of the claim.
+  rather than by the caller, so readers of that issue meet in one entry. The
+  unconditional form was retired (#2326) so no new call site can pick it by coin
+  flip; this conditional form is the only reader of the endpoint.
 
   The answer says which of three costs was paid, because "we had it" and "we
   revalidated it for free" are different claims and only one of them can be
@@ -181,8 +140,8 @@ defmodule Aiur.GitHub.Issues do
   the store's own bound evicted it — so a `304` can arrive with nothing to serve.
   That is not an error and must not surface as one: the read retries once without
   the validator, which is exactly the unconditional request the caller would have
-  made anyway. Every other store fault degrades the same way, to
-  `fetch_issue_raw/2`'s behaviour.
+  made anyway. Every other store fault degrades the same way, to a plain
+  conditional request.
   """
   @spec fetch_issue_raw_conditional(integer() | String.t(), keyword()) ::
           {:ok, map(), :fresh | :not_modified | :fetched} | {:error, term()}
@@ -442,7 +401,7 @@ defmodule Aiur.GitHub.Issues do
       case fetch_label_issue_pages_conditional(ctx, url, cache) do
         {:ok, issues, updated_cache} ->
           candidates =
-            filter_and_authorize_candidates(
+            filter_and_authorize_candidates_with_degenerate(
               issues,
               active_states,
               ctx.request_fun,
@@ -461,14 +420,36 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix) do
-    candidates =
+    dispatchable =
       Enum.filter(issues, fn issue ->
         is_binary(issue.state) and
           MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
       end)
 
-    authorize_dispatches(candidates, request_fun, token, owner, repo, prefix)
+    authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
   end
+
+  # The orchestrator's conditional open-issue poll (`?state=open&per_page=100`
+  # is unfiltered, so this sees every open issue) partitions rather than
+  # discards: zero- and multi-`agent:*`-label tickets are returned alongside
+  # the authorized dispatch candidates so the orchestrator's repair pass can
+  # heal them. Every other non-dispatchable open ticket (terminal/error
+  # labels) is dropped exactly as before (#2420).
+  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix) do
+    {dispatchable, rest} =
+      Enum.split_with(issues, fn issue ->
+        is_binary(issue.state) and
+          MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
+      end)
+
+    authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
+    healable = Enum.filter(rest, &degenerate_state_labels?/1)
+    authorized ++ healable
+  end
+
+  defp degenerate_state_labels?(%Issue{state_labels: []}), do: true
+  defp degenerate_state_labels?(%Issue{state_labels: [_, _ | _]}), do: true
+  defp degenerate_state_labels?(_issue), do: false
 
   @spec fetch_issues_for_each_label(
           [String.t()],
@@ -952,7 +933,14 @@ defmodule Aiur.GitHub.Issues do
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
       creator_login: get_in(gh_issue, ["user", "login"]),
       dispatch_revision: dispatch_revision,
+      # `dispatch_authorized?: false` means "not verified to dispatch", and the
+      # tri-state `dispatch_authorization` starts `:deferred` ("not yet checked")
+      # until `authorize_dispatches` resolves it to `:authorized` or `:denied`
+      # from a fetched timeline. `:deferred` must never be read as revoked, so a
+      # poll that re-normalizes a running issue without (yet) re-verifying it
+      # cannot terminate its agent (#2409).
       dispatch_authorized?: false,
+      dispatch_authorization: :deferred,
       paused: paused_label?(label_names, prefix),
       parked: parked_label?(label_names, prefix),
       labels: Enum.map(label_names, &String.downcase/1),
@@ -981,7 +969,14 @@ defmodule Aiur.GitHub.Issues do
   is blocked" defect this gate exists to prevent.
   """
   @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
-  def hydrate_blocked_by(%Issue{} = issue), do: hydrate_blocked_by(issue, [])
+  def hydrate_blocked_by(%Issue{} = issue) do
+    # The dispatch gate must never be served a blocked-by list the store holds
+    # that has silently gone stale — a blocker added on GitHub's side without
+    # Aiur's own write or a webhook delivery must still hold dispatch. So this
+    # entry point always revalidates with the stored ETag (a free 304 when
+    # unchanged) instead of serving the held body blind (#2326).
+    hydrate_blocked_by(issue, revalidate: true)
+  end
 
   @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
   def hydrate_blocked_by(%Issue{blocked_by: blockers} = issue, _opts) when blockers != [] do
@@ -1034,11 +1029,28 @@ defmodule Aiur.GitHub.Issues do
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
   def extract_state(gh_issue, label_names, prefix) do
-    extract_state(gh_issue, extract_state_labels(label_names, prefix))
+    gh_issue
+    |> extract_state(extract_state_labels(label_names, prefix))
   end
 
+  # A zero-label (`[]`) ticket resolves to `nil` here — the `String | nil`
+  # contract for blocker state and expected-state checks — and is told apart
+  # from a multi-label ticket by the candidate filter on the `Issue.state_labels`
+  # list (`degenerate_state_labels?/1`), not on atoms that never escape this
+  # module (#2420). A multi-label (`[_, _ | _]`) ticket is itself resolved
+  # deterministically by the clause below (#2384).
   defp extract_state(%{"state" => "closed"}, _state_labels), do: "Closed"
   defp extract_state(_gh_issue, [state]), do: state
+
+  # A ticket carrying two `agent:*` state labels is a broken lifecycle state.
+  # `extract_state` used to answer `nil` here, which made every consumer see an
+  # "unknown" state — worst of all the CI lifecycle, whose terminal transition
+  # would then be skipped and never clear a stale `agent:ci-wait`, stranding the
+  # pair as permanently undispatchable (#2366). Resolve the pair deterministically
+  # so a state-labeled ticket always has a concrete state.
+  defp extract_state(_gh_issue, state_labels) when is_list(state_labels) and state_labels != [],
+    do: DispatchPolicy.resolve_state_labels(state_labels)
+
   defp extract_state(_gh_issue, _state_labels), do: nil
 
   @spec extract_state_labels([String.t()], String.t()) :: [String.t()]

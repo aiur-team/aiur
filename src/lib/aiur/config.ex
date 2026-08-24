@@ -278,15 +278,29 @@ defmodule Aiur.Config do
   provider's peak-pricing window, falling through to the next `agent.priority`
   entry. Defaults to `true`.
 
-  Shape only for now — #1456 implements the behaviour. `false` means "ignore
-  pricing windows entirely and use `agent.priority` exactly as written"; it
-  never changes how spend is *reported*. See
-  `Aiur.Config.Schema.PricingPolicy`.
+  When the window cannot be determined, routing never reroutes (it fails toward
+  not rerouting). `false` means "ignore pricing windows entirely and use
+  `agent.priority` exactly as written"; it never changes how spend is
+  *reported*. See `Aiur.Config.Schema.PricingPolicy`.
   """
   @spec avoid_peak_pricing?() :: boolean()
   def avoid_peak_pricing? do
-    case settings!().agent.pricing_policy do
-      %{avoid_peak_pricing: value} when is_boolean(value) -> value
+    avoid_peak_pricing_value(settings!())
+  end
+
+  @doc """
+  The effective `avoid_peak_pricing` value for already-parsed settings.
+
+  Defaults to `true` when the pricing policy is absent: the knob is opt-out,
+  not opt-in, so an operator who never touches it gets the conservative
+  peak-avoiding behaviour. The pure form is what the routing policy reads
+  through, so the default is asserted directly rather than only through a live
+  config read.
+  """
+  @spec avoid_peak_pricing_value(term()) :: boolean()
+  def avoid_peak_pricing_value(settings) do
+    case settings do
+      %{agent: %{pricing_policy: %{avoid_peak_pricing: value}}} when is_boolean(value) -> value
       _ -> true
     end
   end
@@ -514,10 +528,29 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Per-class poll cadences from `polling.intervals`, in seconds, keyed by poll
+  class atom. `%{}` when the operator set none, in which case every class falls
+  back to `poll_interval_seconds/0`. A value of `0` means the class is
+  on-demand (no timer, #2309). See `Aiur.PollCadence`.
+  """
+  @spec poll_intervals() :: %{required(atom()) => non_neg_integer()}
+  def poll_intervals do
+    settings!().polling.intervals
+    |> Enum.reduce(%{}, fn {class, seconds}, acc when is_binary(class) ->
+      Map.put(acc, String.to_existing_atom(class), seconds)
+    end)
+  rescue
+    ArgumentError -> %{}
+  end
+
+  @doc """
   How often the single view-state reconciliation sweep runs.
 
   A recovery bound for lost webhook deliveries, not a freshness knob. See
-  `Aiur.GitHub.ViewStateSweep`.
+  `Aiur.GitHub.ViewStateSweep`. The two view-only sources it sweeps
+  (`OpenTicketSource`, `AdHocSource`) are reconciled only while a LiveView is
+  watching them, so with no dashboard session open the sweep refreshes neither;
+  `PackStatus` stays reconciled on every tick regardless of viewers.
   """
   @spec view_state_sweep_seconds() :: pos_integer()
   def view_state_sweep_seconds do
@@ -738,6 +771,18 @@ defmodule Aiur.Config do
     settings!().agent.build_gate_max_hold_seconds || 0
   end
 
+  @doc """
+  Maximum post-command courtesy window (seconds) the detached lease holder
+  keeps a slot after the wrapped command exits, gated on a descendant still
+  consuming CPU (#2398). The holder releases the moment the retained tree goes
+  idle, so this bounds only genuinely-busy descendants. `0` disables the
+  courtesy.
+  """
+  @spec build_gate_retain_seconds() :: non_neg_integer()
+  def build_gate_retain_seconds do
+    settings!().agent.build_gate_retain_seconds || 0
+  end
+
   @doc "Scheduler count enforced for every Mix VM launched by an agent."
   @spec mix_scheduler_cap() :: pos_integer()
   def mix_scheduler_cap do
@@ -928,6 +973,18 @@ defmodule Aiur.Config do
   @spec load_cooldown_seconds() :: non_neg_integer()
   def load_cooldown_seconds do
     settings!().agent.load_cooldown_seconds
+  end
+
+  @doc """
+  Minimum seconds a ready-work capacity-starvation condition must persist before
+  `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise
+  (#2447). The dwell is data, not a magic number, so the below-target ramp
+  (which clears itself within a few poll cycles) can be filtered without
+  hard-coding the bound in the alert path.
+  """
+  @spec capacity_starvation_alert_after_seconds() :: pos_integer()
+  def capacity_starvation_alert_after_seconds do
+    settings!().agent.capacity_starvation_alert_after_seconds
   end
 
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()

@@ -17,7 +17,7 @@ defmodule Aiur.TestSupportTest do
   test "write_workflow_file! waits for the active config reload to finish" do
     ensure_workflow_store_running()
     store = Process.whereis(WorkflowStore)
-    workspace_root = Path.join(System.tmp_dir!(), "synced-workflow-#{System.unique_integer([:positive])}")
+    workspace_root = Aiur.TestSupport.tmp_root!("synced-workflow")
 
     :sys.suspend(store)
     :erlang.trace(store, true, [:receive])
@@ -46,7 +46,7 @@ defmodule Aiur.TestSupportTest do
   test "write_workflow_file_async! warns when the active config reload times out" do
     ensure_workflow_store_running()
     store = Process.whereis(WorkflowStore)
-    workspace_root = Path.join(System.tmp_dir!(), "async-workflow-#{System.unique_integer([:positive])}")
+    workspace_root = Aiur.TestSupport.tmp_root!("async-workflow")
 
     Application.put_env(:aiur, :workflow_store_call_timeout_ms, 25)
     :sys.suspend(store)

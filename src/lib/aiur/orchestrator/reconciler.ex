@@ -519,7 +519,8 @@ defmodule Aiur.Orchestrator.Reconciler do
         |> clear_reported_divergence(issue.id)
         |> Orchestrator.terminate_running_issue(issue.id, false)
 
-      !DispatchPolicy.issue_dispatch_authorized?(issue) ->
+      !DispatchPolicy.issue_dispatch_authorized?(issue) and
+          not DispatchPolicy.issue_dispatch_authorization_deferred?(issue) ->
         Logger.warning([
           "Issue dispatch authorization was revoked: ",
           State.issue_context(issue),
@@ -531,6 +532,21 @@ defmodule Aiur.Orchestrator.Reconciler do
         state
         |> clear_reported_divergence(issue.id)
         |> Orchestrator.terminate_running_issue(issue.id, false)
+
+      # Authorization could not be *checked* this cycle — a transient budget
+      # hold, rate limit, or transport failure on the provenance fetch — as
+      # opposed to verified revoked. Killing the agent here would convert a
+      # 30-second throttle into a terminal `agent:error` via retry exhaustion,
+      # so the running agent stays and the next poll re-verifies from a fresh
+      # timeline once the cause clears (#2409).
+      !DispatchPolicy.issue_dispatch_authorized?(issue) ->
+        Logger.info([
+          "Issue dispatch authorization is temporarily unverifiable (deferred); ",
+          "keeping active agent: ",
+          State.issue_context(issue)
+        ])
+
+        state
 
       # A ticket whose operator Command is open must not keep burning agent
       # turns re-verifying state while the next action is unchosen (#1637: 8

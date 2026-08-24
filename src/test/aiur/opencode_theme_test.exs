@@ -58,7 +58,7 @@ defmodule Aiur.OpencodeThemeTest do
 
   describe "ensure_active/1 (full orchestration with tmp paths)" do
     setup do
-      tmp = Path.join(System.tmp_dir!(), "aiur_theme_#{System.unique_integer([:positive])}")
+      tmp = Aiur.TestSupport.tmp_root!("aiur_theme")
       themes_dir = Path.join(tmp, "themes")
       kv_path = Path.join(tmp, "kv.json")
       File.mkdir_p!(themes_dir)

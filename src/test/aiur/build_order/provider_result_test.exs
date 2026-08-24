@@ -49,4 +49,20 @@ defmodule Aiur.BuildOrder.ProviderResultTest do
   test "caller validation failures retain their local taxonomy" do
     assert ProviderResult.failed(:invalid_requested_root).error == :invalid_requested_root
   end
+
+  test "locally held GraphQL budgets retain only their bounded classification" do
+    result =
+      ProviderResult.failed(
+        {:aiur, :locally_held,
+         %{
+           reason: :shared_budget,
+           resource: "graphql",
+           reset_at: ~U[2026-08-22 12:00:00Z],
+           private: "not retained"
+         }}
+      )
+
+    assert result.error ==
+             {:aiur, :locally_held, %{reason: :shared_budget, resource: "graphql", reset_at: ~U[2026-08-22 12:00:00Z]}}
+  end
 end

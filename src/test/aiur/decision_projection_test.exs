@@ -254,7 +254,7 @@ defmodule Aiur.DecisionProjectionTest do
       assert decoded.question == decision.question
       assert decoded.content_hash == decision.content_hash
       assert decoded.ticket.identifier == "979"
-      assert decoded.authority == :human_required
+      assert decoded.authority == :supervisor_allowed
     end
 
     test "a later version and full option/recommendation content survive the round trip" do
@@ -1030,7 +1030,7 @@ defmodule Aiur.DecisionProjectionTest do
       assert serialized["schema_version"] == Decision.schema_version()
       assert [entry] = serialized["decisions"]
       assert entry["decision_id"] == decision.decision_id
-      assert entry["authority"] == "human_required"
+      assert entry["authority"] == "supervisor_allowed"
     end
   end
 end

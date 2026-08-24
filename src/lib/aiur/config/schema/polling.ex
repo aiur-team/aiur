@@ -6,6 +6,12 @@ defmodule Aiur.Config.Schema.Polling do
   @min_usage_interval_seconds 120
   @max_idle_widen_factor 100.0
 
+  # Mirrored from `Aiur.PollCadence.poll_classes/0`. Kept local here so the
+  # schema does not reference `PollCadence` (which references `Aiur.Config`,
+  # which embeds this schema — a compile cycle). A test asserts the two stay in
+  # sync.
+  @known_poll_classes ["dispatch", "ci", "review", "planning", "firehose"]
+
   @primary_key false
   embedded_schema do
     # The tracker sweep and the repo-events firehose share this tick, so the
@@ -35,8 +41,21 @@ defmodule Aiur.Config.Schema.Polling do
     # freshness knob: a delivery that arrives is already free and instant, and
     # shortening this makes nothing fresher. 15 minutes bounds the worst-case
     # blind spot to well inside an operator's attention span while costing a
-    # fraction of what the three per-source cadences it replaced did.
+    # fraction of what the three per-source cadences it replaced did. The two
+    # view-only sources it sweeps are reconciled only while a LiveView is
+    # watching them, so an idle daemon with no dashboard session open makes no
+    # requests from those two; PackStatus stays reconciled on every tick
+    # regardless of viewers (it writes the authoritative status.json projection).
     field(:view_state_sweep_seconds, :integer, default: 900)
+    # Per-class poll cadences, in seconds, for the state classes Aiur polls.
+    # Each entry names a poll class (`dispatch`, `ci`, `review`, `planning`,
+    # `firehose`); a class with no entry uses `interval_seconds`. The map is
+    # optional, so existing configs that only set `interval_seconds` keep
+    # exactly today's behaviour (every class shares the single value). See
+    # `Aiur.PollCadence` for how each class resolves and is consumed.
+    field(:intervals, {:map, :integer}, default: %{})
+    # A per-class interval of `0` means the class has no timer — it is
+    # on-demand, refreshed only when a consumer explicitly asks (#2309).
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -48,7 +67,7 @@ defmodule Aiur.Config.Schema.Polling do
     end
 
     schema
-    |> cast(attrs, [:interval_seconds, :idle_widen_factor, :usage_interval_seconds, :view_state_sweep_seconds], empty_values: [])
+    |> cast(attrs, [:interval_seconds, :idle_widen_factor, :usage_interval_seconds, :view_state_sweep_seconds, :intervals], empty_values: [])
     |> validate_number(:interval_seconds, greater_than: 0)
     |> validate_number(:view_state_sweep_seconds, greater_than: 0)
     |> validate_number(:idle_widen_factor,
@@ -61,5 +80,35 @@ defmodule Aiur.Config.Schema.Polling do
       greater_than_or_equal_to: @min_usage_interval_seconds,
       message: "must be at least #{@min_usage_interval_seconds} seconds; the provider usage endpoint allows about one request every two minutes and rejects the rest"
     )
+    # A typo'd class name (or a class that does not exist) silently falls back
+    # to `interval_seconds`, which is exactly how an operator would lose the
+    # divergence they asked for — so an unknown key fails loudly instead.
+    |> validate_change(:intervals, &validate_intervals/2)
   end
+
+  # String keys, because `{:map, :integer}` casts keep the YAML keys verbatim.
+  # A class interval of `0` is deliberate — it means the class is on-demand and
+  # has no timer (#2309) — so only negatives and non-integers are rejected.
+  # `dispatch` is the one exception: the dispatch tick must always run, so a
+  # `0` there would stop the scheduler (an immediate-reschedule busy loop), and
+  # it is rejected outright rather than silently falling back.
+  defp validate_intervals(:intervals, intervals) when is_map(intervals) do
+    Enum.flat_map(intervals, fn {class, seconds} ->
+      cond do
+        class not in @known_poll_classes ->
+          [{:intervals, "unknown poll class #{inspect(class)}; expected one of #{@known_poll_classes |> Enum.sort() |> Enum.join(", ")}"}]
+
+        class == "dispatch" and not (is_integer(seconds) and seconds >= 1) ->
+          [{:intervals, "interval for dispatch must be a positive integer (seconds); the dispatch tick can never be on-demand (0), got: #{inspect(seconds)}"}]
+
+        not (is_integer(seconds) and seconds >= 0) ->
+          [{:intervals, "interval for #{class} must be a non-negative integer (seconds); 0 disables the class timer (on-demand), got: #{inspect(seconds)}"}]
+
+        true ->
+          []
+      end
+    end)
+  end
+
+  defp validate_intervals(:intervals, _invalid), do: []
 end

@@ -61,14 +61,37 @@ budget_lease=
 budget_renewal_pid=
 budget_lease_ttl_ms=${AIUR_GITHUB_LEASE_TTL_MS:-35000}
 budget_ignore_token_cooldown=0
+# Seconds a failed identity derivation stays cached before the next admitted
+# call retries it. Bounds an outage to one `gh api user` per credential per
+# window instead of one per call (`budget_derive_identity`, #2353 review).
+budget_identity_retry_ttl=300
 budget_consumer=${AIUR_GITHUB_BUDGET_CONSUMER:-"executor:${PPID:-$$}"}
 budget_consumer_key=
+# Set when THIS wrapper resolved the credential key from a token rather than
+# receiving `AIUR_GITHUB_BUDGET_KEY` from a caller. Only then does it derive the
+# credential's stable identity — a caller that already picked the key has made
+# the identity decision itself (#2353).
+budget_key_derived=0
 
 case "$budget_requested" in
   0|false|FALSE|no|NO|off|OFF) budget_required=0 ;;
   *) [ -n "$budget_root" ] && budget_required=1 ;;
 esac
 unset budget_requested
+
+# #2356: agents carry no GITHUB_TOKEN/GH_TOKEN (Aiur.AgentEnvironment scrubs
+# them). The credential comes from the file the daemon wrote and is injected
+# only into the real `gh` child of THIS governed call, never the agent env or
+# this wrapper's other children. The env fallback keeps host/Executor working.
+guard_token=
+if [ -n "${AIUR_GITHUB_CREDENTIAL_FILE:-}" ] && [ -f "$AIUR_GITHUB_CREDENTIAL_FILE" ]; then
+  guard_token=$(sed -n '1p' "$AIUR_GITHUB_CREDENTIAL_FILE" 2>/dev/null || true)
+fi
+[ -n "$guard_token" ] || guard_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+run_gh() {
+  if [ -n "${guard_token:-}" ]; then GH_TOKEN="$guard_token" GITHUB_TOKEN= "$real_gh" "$@"
+  else GITHUB_TOKEN= GH_TOKEN= "$real_gh" "$@"; fi
+}
 
 fingerprint_value() {
   if command -v shasum >/dev/null 2>&1; then
@@ -78,6 +101,110 @@ fingerprint_value() {
   else
     return 1
   fi
+}
+
+# The broker's stable one-way identity for a credential, domain-separated
+# exactly as `Aiur.GitHub.Budget.identity_key/1` computes it for a machine
+# user: sha256 of `aiur-github-credential-v1<NUL>machine_user:primary:<login>`.
+# `\000` is the clear spelling of a NUL byte for POSIX printf, which treats `\0`
+# as the start of an octal escape — so `\0` and `\000` produce the identical NUL
+# and the hashed input is byte-identical to the Elixir side's
+# `aiur-github-credential-v1\0machine_user:primary:<login>` either way.
+identity_fingerprint() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf 'aiur-github-credential-v1\000machine_user:primary:%s' "$1" | shasum -a 256 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf 'aiur-github-credential-v1\000machine_user:primary:%s' "$1" | sha256sum 2>/dev/null | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+# Derives the credential's stable identity key for a host (non-agent) run that
+# resolved its own token. `gh api user` reports the login of whichever
+# credential the wrapper resolved (the bot's GITHUB_TOKEN, or the operator's
+# keyring account), so the binding matches the token's identity. The derivation
+# costs one Core request per new credential and is cached by token key under
+# the budget root, so subsequent host calls reuse it.
+#
+# The derivation runs only for a call that is about to be admitted against a
+# metered pool. A local credential read (`auth token`, `config`) must not pay a
+# GitHub network round trip just to learn its own identity — the boot gate that
+# consults `Config.keyring_token/0` would otherwise block offline, and the
+# derivation's own request is unadmitted (#2353 review). A failed derivation is
+# cached for `budget_identity_retry_ttl` seconds so an outage is not re-paid per
+# call; within the window the call degrades to no identity key — the raw token
+# hash is recorded, exactly as today — never to a wrong identity.
+budget_derive_identity() {
+  [ -n "$budget_key" ] || return 0
+  [ -z "$budget_identity_key" ] || return 0
+  [ "$budget_key_derived" -eq 1 ] || return 0
+  [ "$budget_enabled" -eq 1 ] || return 0
+  [ "$admission_required" -eq 1 ] || return 0
+  [ "$resource" != none ] || return 0
+
+  identity_cache="$budget_root/identity-$budget_key"
+  budget_cached=
+  if [ -f "$identity_cache" ]; then
+    budget_cached=$(sed -n '1p' "$identity_cache" 2>/dev/null || true)
+  fi
+
+  case "$budget_cached" in
+    "failed "*) 
+      # A failed derivation is cached so an outage costs one `gh api user` per
+      # credential per window, not one per call. Once the window ages out, the
+      # next admitted call tries again, so a credential that was briefly
+      # offline still gets bound once GitHub is reachable.
+      budget_failed_at=${budget_cached#failed }
+      budget_now=$(date -u +%s 2>/dev/null || printf '')
+      if [ -n "$budget_failed_at" ] && [ -n "$budget_now" ] &&
+         [ "$budget_failed_at" -ge 0 ] 2>/dev/null && [ "$budget_now" -ge 0 ] 2>/dev/null &&
+         [ $((budget_now - budget_failed_at)) -lt $budget_identity_retry_ttl ]; then
+        unset budget_cached budget_failed_at budget_now
+        return 0
+      fi
+      unset budget_failed_at budget_now
+      ;;
+    ''|*[!0-9a-f]*)
+      : ;;  # no cache, or a value that is not a hex identity key — re-derive
+    *)
+      budget_identity_key=$budget_cached
+      unset budget_cached
+      return 0
+      ;;
+  esac
+  unset budget_cached
+
+  # Routed through `run_gh` (#2356): agents carry no GITHUB_TOKEN/GH_TOKEN, so a
+  # direct `$real_gh` call here would go out unauthenticated and derive an empty
+  # login, splitting one credential's usage across two identities.
+  budget_login=$(run_gh api user --jq .login 2>/dev/null || true)
+  # `Aiur.GitHub.Credential.stable_identity/1` downcases every identity part,
+  # so the shell derivation must too, or a login with any uppercase character
+  # would hash to a different identity key here than on the daemon side and
+  # split one credential across two identities in the usage report.
+  if command -v tr >/dev/null 2>&1; then
+    budget_login=$(printf '%s' "$budget_login" | tr '[:upper:]' '[:lower:]')
+  fi
+  case "$budget_login" in
+    ''|*[!A-Za-z0-9_-]*)
+      budget_failed_at=$(date -u +%s 2>/dev/null || printf '')
+      case "$budget_failed_at" in
+        ''|*[!0-9]*) : ;;
+        *) printf 'failed %s\n' "$budget_failed_at" > "$identity_cache" 2>/dev/null || true ;;
+      esac
+      unset budget_failed_at
+      return 0
+      ;;
+    *)
+      budget_identity_key=$(identity_fingerprint "$budget_login") || budget_identity_key=
+      if [ -n "$budget_identity_key" ]; then
+        printf '%s\n' "$budget_identity_key" > "$identity_cache" 2>/dev/null || true
+      fi
+      ;;
+  esac
+  unset budget_login
+  return 0
 }
 
 if [ -n "$state_root" ]; then
@@ -100,9 +227,12 @@ if [ "$budget_required" -eq 1 ]; then
     budget_unavailable_reason='state directory is unavailable'
   else
     if [ -z "$budget_key" ]; then
-      budget_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+      # `guard_token` is the file credential (agents) or the inherited env
+      # token (host/Executor); the keyring read below feeds both too.
+      budget_token=$guard_token
       if [ -z "$budget_token" ]; then
         budget_token=$(GITHUB_TOKEN= GH_TOKEN= "$real_gh" auth token --hostname github.com 2>/dev/null || true)
+        [ -n "$budget_token" ] && guard_token=$budget_token
       fi
 
       if [ -z "$budget_token" ]; then
@@ -110,6 +240,7 @@ if [ "$budget_required" -eq 1 ]; then
       else
         budget_key=$(fingerprint_value "$budget_token") || budget_key=
         [ -n "$budget_key" ] || budget_unavailable_reason='credential fingerprint is unavailable'
+        budget_key_derived=1
       fi
       unset budget_token
     fi
@@ -138,6 +269,12 @@ admission_required=1
 admission_resource=unknown
 endpoint_family=rest
 api_paginated=0
+# High-level (non-`gh api`) budgeted commands run with `GH_DEBUG=api` so this
+# wrapper can observe the HTTP response status. `gh` keeps the status internal
+# for those commands, which left every 304 from `pr view`/`issue view`/`search`
+# billed as if it had cost quota (#2353). The debug transcript is consumed for
+# the reconcile and then stripped, so the caller's stderr is unchanged.
+high_level_debug=0
 
 api_command_endpoint() {
   shift
@@ -175,7 +312,10 @@ api_command_endpoint() {
 }
 
 case "${1:-} ${2:-}" in
-  "api rate_limit") resource=none; endpoint_family=rate_limit ;;
+  # `/rate_limit` is accepted with or without its leading slash — the same
+  # spelling tolerance the GraphQL arm below has — so the free endpoint is
+  # never misbooked to `rest`/core (#2353).
+  "api rate_limit"|"api /rate_limit") resource=none; endpoint_family=rate_limit ;;
   "api graphql"|"api /graphql")
     resource=graphql
     endpoint_family=graphql
@@ -278,7 +418,7 @@ if [ "${1:-}" = api ]; then
   resolved_api_endpoint=$(api_command_endpoint "$@") || resolved_api_endpoint=
 
   case "$resolved_api_endpoint" in
-    rate_limit)
+    rate_limit|/rate_limit)
       resource=none
       endpoint_family=rate_limit
       ;;
@@ -522,7 +662,20 @@ fi
 if [ "$validate_only" -eq 1 ]; then exit 0; fi
 
 admission_resource=$resource
-[ "$admission_resource" != none ] || admission_resource=core
+# Identity derivation needs the command's admission decision (resource /
+# admission_required), which the classification above just made — so it runs
+# here, not at the top of the script, and only for a call that is about to be
+# admitted against a metered pool (`budget_derive_identity` re-checks the same
+# gates). A local `auth token`/`config` read never pays a GitHub round trip.
+budget_derive_identity
+# `none` is the shared EndpointPolicy table's pool for endpoints GitHub does
+# not meter (`/rate_limit`). They are admitted for ordering but their ledger
+# row keeps `resource: none` — the same row the daemon's Budget path writes —
+# rather than being booked onto the core bucket, so the guard and the daemon
+# cannot disagree about what rate-limit probes cost (#2353). No `none`->core
+# mapping is applied: the only admitted `none`-resource command is `api
+# rate_limit`, and non-admitted `none` commands (config/auth token) never
+# reach the broker.
 
 # ---------------------------------------------------------------------------
 # SECURITY INVARIANT — agents never approve or merge a pull request.
@@ -1526,9 +1679,16 @@ cache_store() {
   cache_body_tmp=$cache_body.$$.tmp
   if cat "$cache_stage" > "$cache_body_tmp" 2>/dev/null && mv -f "$cache_body_tmp" "$cache_body" 2>/dev/null; then
     # The body lands first and the stamp commits the entry, so a reader that
-    # finds a readable stamp always finds a complete body behind it.
-    cache_write_file "$cache_meta" "$cache_started_at" || rm -f "$cache_body" 2>/dev/null || true
+    # finds a readable stamp always finds a complete body behind it. Line 1 of
+    # the meta stays the fetched-at stamp (the only line `cache_lookup` reads);
+    # line 2, when present, is the response ETag a later re-read validates
+    # against (#2307 conditional reads). No other reader touches line 2.
+    cache_meta_body=$cache_started_at
+    if [ -n "$cache_response_etag" ]; then cache_meta_body="$cache_started_at
+$cache_response_etag"; fi
+    cache_write_file "$cache_meta" "$cache_meta_body" || rm -f "$cache_body" 2>/dev/null || true
     cache_record store
+    unset cache_meta_body
   else
     rm -f "$cache_body_tmp" 2>/dev/null || true
   fi
@@ -1687,6 +1847,15 @@ PY
 budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
 
+  # Free endpoints (the shared EndpointPolicy table marks only `rate_limit`
+  # non-billable) are still admitted and leased for ordering, but their
+  # admission row must be recorded non-billable so the ledger never reports
+  # them as spend — the same `--billable 0` the daemon's Budget path passes
+  # (#2353). The broker defaults to `1`, so omitting this would bill every
+  # `/rate_limit` probe as core spend.
+  budget_billable_flag=
+  [ "$endpoint_family" = rate_limit ] && budget_billable_flag="--billable 0"
+
   while :; do
     # Whatever this loop last waited for — a hold, a full lease table, another
     # agent's identical fetch — the answer may have arrived meanwhile. Looking
@@ -1705,7 +1874,7 @@ budget_acquire() {
       [ "$cache_claim_overtake" -eq 1 ] && budget_cache_flags="$budget_cache_flags --cache-ignore-claim"
     fi
     if ! budget_result=$(budget_command acquire --resource "$admission_resource" --consumer-key "$budget_consumer_key" --consumer-label "$budget_consumer_label" --endpoint-family "$endpoint_family" \
-      $budget_ignore_flag $budget_cache_flags \
+      $budget_ignore_flag $budget_cache_flags $budget_billable_flag \
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
@@ -1811,6 +1980,69 @@ budget_reconcile_response() {
   if awk '/^HTTP\/[^[:space:]]+[[:space:]]+[0-9][0-9][0-9]/ { status = $2 } END { exit status == 304 ? 0 : 1 }' "$output_file"; then
     budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true
   fi
+}
+
+# 304 reconciliation for high-level commands. `gh` only exposes the HTTP status
+# under `GH_DEBUG=api`, so the guarded run above captured it in `$error_file` as
+# `< HTTP/... <status>` lines. A high-level command can issue several HTTP
+# requests under one lease (`gh pr view` resolves the repo through git
+# subprocesses and then makes one or more API requests), so the reconcile fires
+# only when EVERY observed status is 304 — a single 304 among 200s must not
+# mark the whole lease free, which under-reported spend whenever a 200 preceded
+# a 304 (#2353 review). Then the whole debug transcript is stripped so every
+# later consumer (rate-limit classification, stderr replay) sees only the real
+# stderr. A command that produced no debug (budget disabled, no request, a
+# caller that already set its own debug) is a no-op here.
+budget_reconcile_debug() {
+  [ "$budget_enabled" -eq 1 ] || return 0
+  [ -n "$budget_lease" ] || return 0
+  [ -n "$error_file" ] && [ -f "$error_file" ] || return 0
+
+  debug_statuses=$(sed -n -E 's/^< HTTP\/[^[:space:]]+[[:space:]]+([0-9]{3}).*/\1/p' "$error_file")
+  all_304=1
+  case "$debug_statuses" in
+    '') all_304=0 ;;
+    *)
+      for debug_status in $debug_statuses; do
+        case "$debug_status" in
+          304) ;;
+          *) all_304=0; break ;;
+        esac
+      done
+      ;;
+  esac
+  if [ "$all_304" -eq 1 ]; then
+    budget_command reconcile --lease-id "$budget_lease" --status 304 >/dev/null 2>&1 || true
+  fi
+  unset all_304 debug_statuses debug_status
+
+  strip_gh_debug "$error_file"
+  return 0
+}
+
+# Drops `GH_DEBUG=api`'s transcript from a stderr capture, keeping only what
+# gh printed outside it (pre-request warnings and post-request errors). The
+# transcript is contiguous: every debug line between the request's start and
+# its `Request took` marker — request headers, request body, response headers,
+# response body — is removed, and the `[git ...]` subprocess lines `gh` prints
+# BEFORE the first request marker are dropped too (they are part of the debug
+# transcript, not caller-facing stderr), so the caller's stderr and the error
+# classifiers see exactly what they saw before high-level debug was enabled.
+strip_gh_debug() {
+  [ -f "$1" ] || return 0
+  strip_tmp="$1.dbg.$$"
+  if awk '
+    /^\* Request at / { in_debug = 1; next }
+    in_debug && /^\* Request took / { in_debug = 0; next }
+    !in_debug && /^\[git / { next }
+    !in_debug { print }
+  ' "$1" > "$strip_tmp" 2>/dev/null; then
+    mv -f "$strip_tmp" "$1" 2>/dev/null || rm -f "$strip_tmp" 2>/dev/null || true
+  else
+    rm -f "$strip_tmp" 2>/dev/null || true
+  fi
+  unset strip_tmp
+  return 0
 }
 
 budget_start_renewal() {
@@ -2532,13 +2764,32 @@ output_file=
 api_capture=0
 api_requested_include=0
 stderr_streamed=0
+cache_served_304=0
+cache_response_etag=
+cache_conditional_etag=
+
+# A 304 "Not Modified" is detected from the response status line, never from
+# gh's exit code: gh exits 1 on a 304, but a served 304 is a SUCCESS that
+# answers from the cache (#2307 agent conditional reads). Reads the HTTP status
+# line that `--include` puts at the top of `output_file`.
+response_status_is_304() {
+  [ -n "$output_file" ] && [ -f "$output_file" ] || return 1
+  awk '/^HTTP\/[^[:space:]]+[[:space:]]+[0-9][0-9][0-9]/ { status = $2 } END { exit status == 304 ? 0 : 1 }' "$output_file"
+}
 
 # `gh api` is always run with `--include` so the rate-limit headers can be read,
 # then the headers are stripped again unless the caller asked for them. The
 # bytes this prints are what the caller sees, so they are also exactly what the
-# cache must store.
+# cache must store. On a served 304 the response carried no body, so the answer
+# is the cached body — which for an `--include` entry is already the correct
+# include-shaped bytes (headers and body), and for a plain entry the body alone,
+# exactly as a fresh cache hit serves the same entry. A 304 means "what you hold
+# is current" (#2307), so serving the cached body to an `--include` caller must
+# not be replaced by the bare 304 status line the response actually carried.
 emit_api_output() {
-  if [ "$api_requested_include" -eq 1 ]; then
+  if [ "$cache_served_304" -eq 1 ] && [ -n "$cache_body" ] && [ -f "$cache_body" ]; then
+    cat "$cache_body"
+  elif [ "$api_requested_include" -eq 1 ]; then
     cat "$output_file"
   elif sed -n '1p' "$output_file" | grep -Eq '^HTTP/'; then
     sed '1,/^[[:space:]]*$/d' "$output_file"
@@ -2552,6 +2803,22 @@ if [ "$resource" != none ]; then
   error_file=$(mktemp "${TMPDIR:-/tmp}/aiur-gh-stderr.XXXXXX" 2>/dev/null || true)
   status_file=$(mktemp "${TMPDIR:-/tmp}/aiur-gh-status.XXXXXX" 2>/dev/null || true)
   umask "$old_umask"
+fi
+
+# High-level budgeted commands (anything but `gh api`, which already captures
+# its status through `--include`) run under `GH_DEBUG=api` so the wrapper can
+# see whether the response was a free 304. `gh` prints the status line only in
+# that transcript; without it every `pr view`/`issue view`/`search` 304 is
+# billed as if it had cost quota (#2353). `run watch` is the one interactive
+# streamer and is deliberately excluded: its stderr must stay live, and a debug
+# transcript interleaved with its progress would be worse than the accounting
+# gap. Every other high-level command is buffered (below) so the transcript is
+# consumed for reconciliation and then stripped before the caller sees stderr.
+if [ "$budget_enabled" -eq 1 ] && [ "$resource" != none ] && [ "${1:-}" != api ]; then
+  case "${1:-} ${2:-}" in
+    "run watch") : ;;
+    *) high_level_debug=1 ;;
+  esac
 fi
 
 if [ -n "$error_file" ]; then
@@ -2586,23 +2853,64 @@ if [ -n "$error_file" ]; then
   if [ "$api_capture" -eq 1 ]; then
     # stdout is already being captured for header parsing, so there is no live
     # output to interleave with; buffering stderr here costs nothing.
-    if [ "$api_requested_include" -eq 1 ]; then
-      "$real_gh" "$@" > "$output_file" 2> "$error_file"
+    #
+    # Conditional re-read (#2307): when the store holds a body AND a validator
+    # for this resource, the re-fetch sends If-None-Match so an unchanged
+    # answer comes back 304 and is reconciled free instead of billed again. The
+    # validator is only ever offered while a body is held — a 304 with no body
+    # would spend a request and learn nothing (the same contract as the
+    # daemon's ResourceStore). gh exits 1 on a 304, which is not a failure
+    # here: the 304 is detected from the status line below and the cached body
+    # answers the call.
+    cache_conditional_etag=
+    if [ -n "$cache_body" ] && [ -f "$cache_body" ] && [ -f "$cache_meta" ]; then
+      cache_conditional_etag=$(sed -n '2p' "$cache_meta" 2>/dev/null || printf '')
+    fi
+    if [ -n "$cache_conditional_etag" ]; then
+      if [ "$api_requested_include" -eq 1 ]; then
+        run_gh "$@" -H "If-None-Match: $cache_conditional_etag" > "$output_file" 2> "$error_file"
+      else
+        run_gh "$@" -H "If-None-Match: $cache_conditional_etag" --include > "$output_file" 2> "$error_file"
+      fi
+    elif [ "$api_requested_include" -eq 1 ]; then
+      run_gh "$@" > "$output_file" 2> "$error_file"
     else
-      "$real_gh" "$@" --include > "$output_file" 2> "$error_file"
+      run_gh "$@" --include > "$output_file" 2> "$error_file"
     fi
     status=$?
+
+    # The response's own ETag is what a later re-read validates against. On a
+    # served 304 the response carries the same validator, so capturing it here
+    # also keeps the entry's validator in place. `tr` is gated because an
+    # isolated `PATH` (the test harness, a hardened shell) may lack it; without
+    # it a trailing CR is left on the stored validator, which only costs a
+    # later 304 match, never correctness.
+    if [ -n "$output_file" ] && [ -f "$output_file" ]; then
+      cache_response_etag=$(sed -n -E 's/^[[:space:]]*[Ee][Tt][Aa][Gg]:[[:space:]]*(.*)$/\1/p' "$output_file" | tail -n 1)
+      if command -v tr >/dev/null 2>&1; then
+        cache_response_etag=$(printf '%s\n' "$cache_response_etag" | tr -d '\r')
+      fi
+    fi
+
+    if response_status_is_304 && [ -n "$cache_body" ] && [ -f "$cache_body" ]; then
+      cache_served_304=1
+      status=0
+    fi
   elif [ -n "$cache_stage" ]; then
-    "$real_gh" "$@" > "$cache_stage" 2> "$error_file"
+    if [ "$high_level_debug" -eq 1 ]; then
+      ( GH_DEBUG=api; export GH_DEBUG; run_gh "$@" ) > "$cache_stage" 2> "$error_file"
+    else
+      run_gh "$@" > "$cache_stage" 2> "$error_file"
+    fi
     status=$?
     cat "$cache_stage"
-  elif [ -n "$status_file" ] && command -v tee > /dev/null 2>&1; then
+  elif [ -n "$status_file" ] && command -v tee > /dev/null 2>&1 && [ "$high_level_debug" -eq 0 ]; then
     # Pass stderr through `tee` so it reaches the terminal as it is written
     # while still being captured for the rate-limit classification below.
     # Replaying a buffered copy after exit stalls `gh run watch` progress — an
     # allowlisted read — and swallows interactive prompts. `tee` ends the
     # pipeline, so the real exit status travels via `status_file`.
-    { { "$real_gh" "$@"; printf '%s\n' "$?" > "$status_file"; } 2>&1 1>&3 | tee "$error_file" >&2; } 3>&1
+    { { run_gh "$@"; printf '%s\n' "$?" > "$status_file"; } 2>&1 1>&3 | tee "$error_file" >&2; } 3>&1
     stderr_streamed=1
     # An unreadable or non-numeric status means the real exit code could not be
     # confirmed. Reporting 0 there would turn a failed `gh` into an apparent
@@ -2612,7 +2920,11 @@ if [ -n "$error_file" ]; then
       ''|*[!0-9]*) status=1 ;;
     esac
   else
-    "$real_gh" "$@" 2> "$error_file"
+    if [ "$high_level_debug" -eq 1 ]; then
+      ( GH_DEBUG=api; export GH_DEBUG; run_gh "$@" ) 2> "$error_file"
+    else
+      run_gh "$@" 2> "$error_file"
+    fi
     status=$?
   fi
 
@@ -2621,7 +2933,9 @@ if [ -n "$error_file" ]; then
 
     # The cache copy is produced by a SECOND pass rather than by redirecting the
     # first. The agent's stdout must not depend on the cache being writable.
-    if [ -n "$cache_body" ] && [ "$status" -eq 0 ]; then
+    # On a served 304 the response carried no body, so nothing is re-stored —
+    # the existing body stays and the entry's stamp is refreshed below.
+    if [ "$cache_served_304" -eq 0 ] && [ -n "$cache_body" ] && [ "$status" -eq 0 ]; then
       old_umask=$(umask)
       umask 077
       cache_stage=$(mktemp "${TMPDIR:-/tmp}/aiur-gh-cache.XXXXXX" 2>/dev/null || true)
@@ -2630,11 +2944,25 @@ if [ -n "$error_file" ]; then
     fi
   fi
 
+  # High-level 304s reconcile here, before the transcript would otherwise leak:
+  # the status is read for reconciliation and then the debug is stripped so the
+  # replay below is exactly the stderr the caller would have seen without it.
+  if [ "$high_level_debug" -eq 1 ]; then
+    budget_reconcile_debug
+  fi
+
   if [ "$stderr_streamed" -eq 0 ]; then
-    while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line" >&2; done < "$error_file"
+    while IFS= read -r line || [ -n "$line" ]; do
+      # gh prints `gh: HTTP 304` on stderr for a served 304 — noise that would
+      # read as a failure. A 304 is a success answered from the cache.
+      if [ "$cache_served_304" -eq 1 ] && printf '%s\n' "$line" | grep -Eiq '^gh: HTTP 304'; then
+        continue
+      fi
+      printf '%s\n' "$line" >&2
+    done < "$error_file"
   fi
 else
-  "$real_gh" "$@"
+  run_gh "$@"
   status=$?
 fi
 
@@ -2662,7 +2990,7 @@ probe_rate_limit() {
   budget_ignore_token_cooldown=1
   if budget_acquire; then
     budget_start_renewal
-    rate_limit_observation=$("$real_gh" api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
+    rate_limit_observation=$(run_gh api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
   else
     rate_limit_observation=
   fi
@@ -2716,6 +3044,16 @@ if [ -n "$cache_root" ]; then
 fi
 cache_invalidate_writes
 cache_store
+# A served 304 confirmed the cached body is current: refresh the fetched-at
+# stamp so the entry stays warm (the re-validated answer is as fresh as a 200)
+# while keeping the stored body — the 304 carried no bytes to store.
+if [ "$cache_served_304" -eq 1 ] && [ -n "$cache_meta" ]; then
+  cache_meta_body=$cache_started_at
+  if [ -n "$cache_conditional_etag" ]; then cache_meta_body="$cache_started_at
+$cache_conditional_etag"; fi
+  cache_write_file "$cache_meta" "$cache_meta_body" || true
+  unset cache_meta_body
+fi
 cache_prune
 if [ -n "$cache_root" ]; then umask "$cache_old_umask"; fi
 if [ -n "$cache_stage" ]; then rm -f "$cache_stage" 2>/dev/null || true; fi

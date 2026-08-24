@@ -132,8 +132,10 @@ defmodule Aiur.GitHub.Client do
   def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ []),
     do: DependenciesApi.remove_dependency(blocked_issue_number, blocker_issue_id, opts)
 
-  @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def fetch_issue_raw(issue_number, opts \\ []), do: Issues.fetch_issue_raw(issue_number, opts)
+  @spec fetch_issue_raw_conditional(integer() | String.t(), keyword()) ::
+          {:ok, map(), :fresh | :not_modified | :fetched} | {:error, term()}
+  def fetch_issue_raw_conditional(issue_number, opts \\ []),
+    do: Issues.fetch_issue_raw_conditional(issue_number, opts)
 
   @spec fetch_team_members(String.t(), String.t(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
@@ -149,11 +151,6 @@ defmodule Aiur.GitHub.Client do
   def fetch_pull_request_review_comments(pr_number, opts \\ []),
     do: PullRequests.fetch_pull_request_review_comments(pr_number, opts)
 
-  @spec fetch_pull_request_reviews(String.t() | integer(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def fetch_pull_request_reviews(pr_number, opts \\ []),
-    do: PullRequests.fetch_pull_request_reviews(pr_number, opts)
-
   @spec fetch_pull_request_reviews_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_pull_request_reviews_conditional(pr_number, opts \\ []),
@@ -164,6 +161,14 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_request_for_branch(issue_number, opts \\ []) do
     CycleFetchCache.fetch({:open_pull_request_for_branch, to_string(issue_number)}, fn ->
       fetch_open_pull_request_for_branch_stored(issue_number, opts)
+    end)
+  end
+
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_for_branch(issue_number, opts \\ []) do
+    CycleFetchCache.fetch({:open_pull_requests_for_branch, to_string(issue_number)}, fn ->
+      PullRequests.fetch_open_pull_requests_for_branch(issue_number, opts)
     end)
   end
 
@@ -224,10 +229,10 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_requests_by_label(label, opts \\ []),
     do: PullRequests.fetch_open_pull_requests_by_label(label, opts)
 
-  @spec fetch_open_pull_requests_by_label_conditional(String.t(), keyword()) ::
-          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
-  def fetch_open_pull_requests_by_label_conditional(label, opts \\ []),
-    do: PullRequests.fetch_open_pull_requests_by_label_conditional(label, opts)
+  @spec fetch_open_pull_requests(keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests(opts \\ []),
+    do: PullRequests.fetch_open_pull_requests(opts)
 
   @spec fetch_recent_repo_review_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
@@ -244,14 +249,6 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_recent_repo_issue_comments_conditional(keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_recent_repo_issue_comments_conditional(opts \\ []), do: Comments.fetch_recent_repo_issue_comments_conditional(opts)
-
-  @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def fetch_issue_comments(issue_number, opts \\ []) do
-    CycleFetchCache.fetch({:issue_comments, to_string(issue_number), comment_cursor_key(opts)}, fn ->
-      Comments.fetch_issue_comments(issue_number, opts)
-    end)
-  end
 
   @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
@@ -270,6 +267,11 @@ defmodule Aiur.GitHub.Client do
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request(pr_number, opts \\ []),
     do: PullRequests.fetch_open_pull_request(pr_number, opts)
+
+  @spec fetch_compare_files(String.t(), String.t(), keyword()) ::
+          {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def fetch_compare_files(base_sha, head_sha, opts \\ []),
+    do: PullRequests.fetch_compare_files(base_sha, head_sha, opts)
 
   @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}

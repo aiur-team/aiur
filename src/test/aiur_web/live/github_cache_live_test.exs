@@ -827,7 +827,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
   defp seed_ledger do
     path =
-      Path.join(System.tmp_dir!(), "aiur-ghc-live-ledger-#{System.unique_integer([:positive])}.sqlite3")
+      Aiur.TestSupport.tmp_root!("aiur-ghc-live-ledger") <> ".sqlite3"
 
     {:ok, conn} = Basic.open(path)
     _ = Basic.exec(conn, @ledger_admissions_schema)
@@ -1009,6 +1009,24 @@ defmodule AiurWeb.GithubCacheLiveTest do
       assert reading(quota) == before
     end
 
+    test "says when a caller's reads were not deposited, rather than pretending none happened" do
+      Source.install(entries(2))
+      quota = install_graphql_quota()
+      Quota.observe(quota, graphql_request(:issue_relationships), graphql_response(2))
+      _settle = Quota.snapshot(quota)
+
+      # A caller whose reads all missed and failed to deposit would otherwise
+      # read as "none this boot" — the same text as a caller with no traffic.
+      ReadCacheProvider.install(%{
+        available?: true,
+        callers: %{"issue_relationships" => %{hit: 0, miss: 3, not_deposited: 3}}
+      })
+
+      {:ok, _view, html} = live(build_conn(), "/github-cache")
+
+      assert html |> budget_block() |> served_free("issue_relationships") == "3 reads not deposited"
+    end
+
     test "keeps the widened ranking keyboard-reachable on narrow viewports" do
       Source.install(entries(2))
       install_graphql_quota()
@@ -1078,6 +1096,15 @@ defmodule AiurWeb.GithubCacheLiveTest do
       Source.install(entries(2))
       install_graphql_quota()
 
+      # The first half must show the collecting state, which the page reaches
+      # only when its quota-history has fewer than two observed samples. With no
+      # provider installed the page reads the shared app sampler, whose ring
+      # reflects everything observed so far this boot, so whether it has two
+      # samples depends on when this test runs in the partition. Point the page
+      # at a double with a single sample instead, the same seam the sibling
+      # tests use.
+      __MODULE__.QuotaHistoryProvider.install(Enum.take(quota_samples(), 1))
+
       {:ok, _view, collecting} = live(build_conn(), "/github-cache")
       assert collecting |> budget_block() |> Floki.find(~s([data-role="usage-collecting"])) != []
       assert collecting |> budget_block() |> Floki.find(~s([data-role="usage-chart"])) == []
@@ -1091,6 +1118,15 @@ defmodule AiurWeb.GithubCacheLiveTest do
       legend = chart |> Floki.find(~s([data-band])) |> Floki.attribute("data-band")
       assert "__outside__" in legend
       assert "comment_poll_batch" in legend
+
+      notes = drawn |> budget_block() |> Floki.find(~s([data-role="usage-previous-window-note"]))
+      assert length(notes) == 2
+
+      for note <- notes do
+        text = Floki.text(note)
+        assert text =~ "before the current credential window"
+        assert text =~ "headline and table describe only the current window"
+      end
     end
 
     test "a meter that booted mid-window does not blame the remainder on another consumer" do
@@ -1542,8 +1578,11 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
   defp quota_samples do
     for index <- 0..1 do
+      sampled_at = DateTime.add(@reset, -1800 + index * 30, :second)
+      window_started_at = if index == 0, do: DateTime.add(@reset, -3600, :second), else: DateTime.add(@reset, -1785, :second)
+
       %{
-        t_ms: DateTime.to_unix(DateTime.add(@reset, -1800 + index * 30, :second), :millisecond),
+        t_ms: DateTime.to_unix(sampled_at, :millisecond),
         budgets: %{
           "graphql" => %{
             resource: "graphql",
@@ -1555,6 +1594,8 @@ defmodule AiurWeb.GithubCacheLiveTest do
             outside: 907,
             direction: :shortfall,
             estimated?: false,
+            observed_from: DateTime.add(@reset, -1800, :second),
+            window_started_at: window_started_at,
             window: %{limit: 5_000, remaining: 4_000, used: 1_000, reset_at: @reset}
           }
         }

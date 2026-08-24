@@ -16,7 +16,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     # failing the assertion the test is actually about (#2397).
     :ok = Aiur.TestSupport.ensure_pubsub_running()
 
-    dir = Path.join(System.tmp_dir!(), "aiur-current-run-membership-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-current-run-membership")
     on_exit(fn -> File.rm_rf!(dir) end)
     %{dir: dir}
   end

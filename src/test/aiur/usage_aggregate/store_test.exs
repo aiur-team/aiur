@@ -192,6 +192,6 @@ defmodule Aiur.UsageAggregate.StoreTest do
     %{input: input, cached_input: nil, cache_creation_input: nil, output: nil, reasoning_output: nil, provider_reported_total: nil}
   end
 
-  defp tmp(kind), do: Path.join(System.tmp_dir!(), "aiur-usage-#{kind}-#{System.unique_integer([:positive])}")
+  defp tmp(kind), do: Aiur.TestSupport.tmp_root!("aiur-usage-#{kind}")
   defp unique(kind), do: String.to_atom("usage_#{kind}_#{System.unique_integer([:positive])}")
 end

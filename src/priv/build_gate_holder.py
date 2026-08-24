@@ -2,8 +2,10 @@
 """Own a Linux build slot until a Mix process tree exits."""
 
 import ctypes
+import base64
 import errno
 import fcntl
+import json
 import os
 import signal
 import stat
@@ -14,6 +16,11 @@ import time
 
 POLL_SECONDS = 0.01
 TERM_GRACE_SECONDS = 1.0
+SCAN_CANDIDATE_LIMIT = 512
+SCAN_DETAIL_LIMIT = 64
+SCAN_ISSUE_LIMIT = 32
+SCAN_METADATA_BUDGET = 64 * 1024
+SCAN_MANIFEST_LIMIT = 16 * 1024
 # Absolute wall-clock backstop for a leased slot (#2349). A slot is a shared
 # fleet resource; nothing may hold one indefinitely because of a bookkeeping
 # bug — an externally-reaped command, a process-group kill, or a daemon
@@ -28,13 +35,30 @@ HOLD_TIMEOUT_STATUS = 124
 # reparented onto it — `dbus-daemon` and `gnome-keyring-daemon` autolaunched by
 # a `git`/`gh` credential lookup both land here and never exit — so the
 # courtesy is time-boxed well below the absolute cap. Four slots leaked for
-# forty minutes waiting on daemons that were never going to exit.
+# forty minutes waiting on daemons that were never going to exit. Since #2398
+# the courtesy is CPU-gated (see the retain-tuning block below): an idle
+# adopted daemon no longer holds the slot for the full window.
 DEFAULT_RETAIN_SECONDS = 120
 # Absolute bound on any descendant-cleanup loop (#2381). Cleanup is best
 # effort: a descendant that will not die must never keep the holder spinning,
 # because a wedged slot starves every queued build while a failed cleanup
 # leaks one process.
 CLEANUP_TIMEOUT_SECONDS = 10.0
+# Post-command retain tuning (#2398). The holder keeps the slot after the
+# wrapped command exits only while a descendant is still consuming CPU — a
+# genuine Mix child finishing the build's work. Adopted session daemons
+# (dbus-daemon, gnome-keyring-daemon) reparent onto this subreaper and never
+# exit, so the `waitpid` ECHILD early-exit is unreachable while either is
+# alive; holding the full retain window for an idle daemon is what saturated
+# the gate (every slot "held without a command" for 120s). The holder samples
+# the descendant subtree's consumed CPU and releases as soon as the tree has
+# been idle for a full window.
+CPU_SAMPLE_SECONDS = 0.1
+CPU_IDLE_WINDOW_SECONDS = 1.0
+# CPU consumed by the whole descendant subtree across a full idle window that
+# counts as "build work" rather than an idle daemon. 3ms/s is 0.3% of one
+# core — far below a compiling Mix child, far above a dormant session daemon.
+CPU_IDLE_BUSY_THRESHOLD_NS = 3_000_000
 _cancel_signal = None
 _hold_timeout_reason = None
 _lease_fd = None
@@ -183,6 +207,153 @@ def read_regular(path: str) -> int:
             os.close(descriptor)
 
 
+def scan_locks_manifest(manifest_path: str) -> int:
+    try:
+        request = json.loads(read_bounded_regular_bytes(manifest_path, SCAN_MANIFEST_LIMIT))
+        gate_dir = request["gate_dir"]
+        lock_dir = request["lock_dir"]
+        capacity = request["capacity"]
+        if not isinstance(gate_dir, str) or not isinstance(lock_dir, str):
+            return 125
+        if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < 0:
+            return 125
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError, OSError):
+        return 125
+
+    scan = {"active": 0, "queued": 0, "scanned": 0, "details": [], "issues": []}
+    budget_reasons = set()
+    metadata_bytes = 0
+
+    def add_issue(reason: str, path: str, detail=None) -> None:
+        if len(scan["issues"]) >= SCAN_ISSUE_LIMIT:
+            budget_reasons.add("issue_budget")
+            return
+        issue = {"reason": reason, "path": path}
+        if detail is not None:
+            issue["detail"] = detail
+        scan["issues"].append(issue)
+
+    def inspect_candidate(kind: str, slot, lock_path: str, metadata_path: str) -> bool:
+        nonlocal metadata_bytes
+        if scan["scanned"] >= SCAN_CANDIDATE_LIMIT:
+            budget_reasons.add("candidate_budget")
+            return False
+
+        scan["scanned"] += 1
+        result = probe_lock(lock_path, metadata_path)
+        state = result.get("state")
+
+        if state == "locked":
+            if kind == "slot":
+                scan["active"] += 1
+            elif kind == "queue":
+                scan["queued"] += 1
+
+            encoded = result.get("contents")
+            encoded_bytes = len(encoded) if isinstance(encoded, str) else 0
+            if len(scan["details"]) >= SCAN_DETAIL_LIMIT:
+                budget_reasons.add("holder_detail_budget")
+            elif metadata_bytes + encoded_bytes > SCAN_METADATA_BUDGET:
+                budget_reasons.add("metadata_budget")
+            else:
+                metadata_bytes += encoded_bytes
+                scan["details"].append(
+                    {
+                        "kind": kind,
+                        "slot": slot,
+                        "lock_path": lock_path,
+                        "metadata_path": metadata_path,
+                        "result": result,
+                    }
+                )
+        elif state == "error":
+            add_issue("lock_probe_failed", lock_path, result)
+
+        return True
+
+    for slot in range(1, capacity + 1):
+        if not inspect_candidate(
+            "slot",
+            slot,
+            os.path.join(lock_dir, f"slot-{slot}.lock"),
+            os.path.join(gate_dir, f"slot-{slot}.owner"),
+        ):
+            break
+
+    queue_dir = os.path.join(gate_dir, "queue")
+    try:
+        with os.scandir(queue_dir) as entries:
+            for entry in entries:
+                if entry.name.startswith("lease-v2-"):
+                    path = os.path.join(queue_dir, entry.name)
+                    if not inspect_candidate("queue", None, path, path):
+                        break
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        add_issue("queue_unreadable", queue_dir, str(error.errno))
+
+    phase_lock = os.path.join(lock_dir, "phase-start.lock")
+    phase_metadata = os.path.join(gate_dir, "phase-start.owner")
+    if os.path.exists(phase_lock) or os.path.exists(phase_metadata):
+        inspect_candidate("phase", None, phase_lock, phase_metadata)
+
+    for reason in sorted(budget_reasons):
+        add_issue("scan_budget_exceeded", gate_dir, reason)
+
+    scan["degraded"] = bool(scan["issues"])
+    print(json.dumps(scan, separators=(",", ":")))
+    return 0
+
+
+def probe_lock(lock_path: str, cleanup_path: str) -> dict:
+    descriptor = None
+    try:
+        flags = os.O_RDONLY | os.O_NONBLOCK
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+
+        descriptor = os.open(lock_path, flags)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            return {"state": "error", "reason": "not_regular", "type": file_type(metadata.st_mode)}
+
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            result = {"state": "locked"}
+            try:
+                contents = read_regular_bytes(cleanup_path)
+                result["contents"] = base64.b64encode(contents).decode("ascii")
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                result["metadata_error"] = "not_regular" if error.errno in (errno.ELOOP, errno.EINVAL) else str(error.errno)
+            return result
+
+        try:
+            os.unlink(cleanup_path)
+        except FileNotFoundError:
+            pass
+        return {"state": "unlocked"}
+    except FileNotFoundError:
+        return {"state": "error", "reason": "missing"}
+    except OSError as error:
+        reason = "not_regular" if error.errno in (errno.ELOOP, errno.EINVAL, errno.ENXIO) else str(error.errno)
+        return {"state": "error", "reason": reason, "type": "other"}
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def file_type(mode: int) -> str:
+    if stat.S_ISFIFO(mode):
+        return "other"
+    if stat.S_ISDIR(mode):
+        return "directory"
+    return "other"
+
+
 def become_subreaper() -> None:
     libc = ctypes.CDLL(None, use_errno=True)
 
@@ -239,6 +410,17 @@ def read_regular_bytes(path: str) -> bytes:
         if len(contents) == 4096:
             raise OSError(errno.EFBIG, "build-gate metadata is too large")
         return contents
+    finally:
+        os.close(descriptor)
+
+
+def read_bounded_regular_bytes(path: str, limit: int) -> str:
+    descriptor = open_regular(path, os.O_RDONLY)
+    try:
+        contents = os.read(descriptor, limit + 1)
+        if len(contents) > limit:
+            raise OSError(errno.EFBIG, "bounded input is too large")
+        return contents.decode("utf-8")
     finally:
         os.close(descriptor)
 
@@ -522,17 +704,43 @@ def reap_exited_children() -> bool:
 def reap_remaining_children(
     retain_until: float | None, owner_path: str, token: str, agent_pgid: int
 ) -> None:
+    """Keep the slot only while a descendant is still doing the build's work.
+
+    After the wrapped command exits the holder has no way to tell a genuine
+    Mix descendant from a session daemon reparented onto this subreaper
+    (`dbus-daemon`, `gnome-keyring-daemon` — the `waitpid` ECHILD early-exit
+    is unreachable while either is alive). Retaining the full window for an
+    idle daemon held every slot for 120s after every build (#2398), so the
+    courtesy is now CPU-gated: a tree that has consumed no CPU for a full
+    idle window is not compiling, and the slot is released immediately.
+    Nothing is ever signalled — the keyring daemon holds the fleet's GitHub
+    credential.
+    """
+    # A `0` retain window disables the courtesy entirely: the wrapped command
+    # has already exited, so the slot is handed straight back.
+    if retain_seconds() == 0:
+        return
+
+    # Reap anything that exited while the command's status was being handed
+    # off. A tree with no live descendants has nothing to protect.
+    if not reap_exited_children():
+        return
+
+    last_sample = time.monotonic()
+    window_start = last_sample
+    window_cpu = subtree_cpu_ns()
+
     while True:
         raise_if_cancelled()
 
         if not process_group_alive(agent_pgid):
             raise InterruptedError("agent process group exited while descendants retained the lease")
 
-        # Backstop (#2349, bounded properly in #2381): after the wrapped
-        # command exits, the holder keeps the lease only to protect genuine
-        # Mix descendants. A daemon reparented onto this subreaper (dbus,
-        # keyring, ...) keeps `waitpid(-1)` from ever reaching ECHILD while
-        # the agent group lives — the observed multi-hour leak.
+        # Backstop (#2349, bounded properly in #2381, CPU-gated in #2398):
+        # after the wrapped command exits, the holder keeps the lease only to
+        # protect descendants still consuming CPU. A daemon reparented onto
+        # this subreaper keeps `waitpid(-1)` from ever reaching ECHILD, so the
+        # deadline is the guaranteed release for a busy descendant.
         #
         # On expiry: give the slot back and stop. Nothing is signalled. The
         # holder cannot distinguish a stuck build descendant from a session
@@ -552,7 +760,98 @@ def reap_remaining_children(
             return
 
         if child_pid == 0:
+            now = time.monotonic()
+
+            if now - last_sample >= CPU_SAMPLE_SECONDS:
+                last_sample = now
+                current_cpu = subtree_cpu_ns()
+
+                if current_cpu is not None:
+                    if window_cpu is None:
+                        window_cpu = current_cpu
+                        window_start = now
+                    elif current_cpu - window_cpu > CPU_IDLE_BUSY_THRESHOLD_NS:
+                        # The tree is consuming CPU — a genuine Mix child is
+                        # still compiling. Keep the lease and restart the idle
+                        # window.
+                        window_cpu = current_cpu
+                        window_start = now
+                    elif now - window_start >= CPU_IDLE_WINDOW_SECONDS:
+                        # No descendant has consumed CPU for a full idle
+                        # window: they are adopted session daemons, not build
+                        # work. Give the slot back immediately, without
+                        # signalling anything.
+                        release_slot(owner_path, token)
+                        return
+
+                # Measurement unavailable for every live descendant (all raced
+                # exit, or /proc is not readable): keep the slot
+                # conservatively — the waitpid reaping either confirms the
+                # tree is gone or measurement recovers.
+
             time.sleep(POLL_SECONDS)
+
+
+def subtree_cpu_ns() -> int | None:
+    """Total CPU nanoseconds consumed by the holder's live descendants.
+
+    `None` means a live descendant tree exists but none of its processes could
+    be read (measurement unavailable), so the caller keeps the slot
+    conservatively instead of guessing. `0` means the tree is empty.
+    """
+    pids = descendants_of(os.getpid())
+
+    if not pids:
+        return 0
+
+    total = 0
+    measured = 0
+
+    for pid in pids:
+        value = proc_cpu_ns(pid)
+
+        if value is not None:
+            total += value
+            measured += 1
+
+    if measured == 0:
+        return None
+
+    return total
+
+
+def proc_cpu_ns(pid: int) -> int | None:
+    """CPU nanoseconds consumed by one process, via the scheduler runtime.
+
+    `/proc/<pid>/schedstat`'s first field (`sum_exec_runtime`) is the
+    high-resolution CPU time in nanoseconds and is world-readable. When
+    schedstat is unavailable (`CONFIG_SCHEDSTATS=n`) this returns `None` — the
+    caller's conservative "measurement unavailable" hold — rather than falling
+    back to `/proc/<pid>/stat` utime+stime ticks. That fallback resolves to
+    10ms granularity (`SC_CLK_TCK` is 100) against a 3ms idle threshold, so a
+    genuinely compiling child in the 3-10ms/window band reads as a delta of
+    exactly 0 and the slot would be released out from under it (#2386). A host
+    without schedstat cannot run the CPU gate; the safe answer there is to
+    keep the slot to the retain deadline, not to guess from a coarse number.
+    """
+    # Test-only injection point: redirects the schedstat read to a path that
+    # does not exist so the unavailable path is exercised deterministically
+    # and the "no coarse fallback" property is pinned by the suite. An empty
+    # value means "read the real /proc path".
+    schedstat_path = os.environ.get("AIUR_BUILD_GATE_HOLDER_SCHEDSTAT_PATH", "")
+
+    if schedstat_path == "":
+        schedstat_path = f"/proc/{pid}/schedstat"
+
+    try:
+        with open(schedstat_path, encoding="utf-8") as file:
+            parts = file.read().split()
+            if parts:
+                return int(parts[0])
+    except (FileNotFoundError, ProcessLookupError, OSError, ValueError):
+        pass
+
+    return None
 
 
 def max_hold_seconds() -> int:
@@ -719,5 +1018,8 @@ if __name__ == "__main__":
             sys.exit(0)
         except OSError:
             sys.exit(125)
+
+    if len(sys.argv) == 3 and sys.argv[1] == "--scan-locks-manifest":
+        sys.exit(scan_locks_manifest(sys.argv[2]))
 
     sys.exit(main())

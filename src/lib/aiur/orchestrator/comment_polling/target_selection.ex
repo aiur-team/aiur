@@ -8,8 +8,6 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
 
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.{ResourceFetch, ResourceStore}
-  alias Aiur.GitHub.Transport
   alias Aiur.Issue
   alias Aiur.Orchestrator.State
   alias Aiur.Tracker
@@ -70,9 +68,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   # feature is disabled so the rest of the poll cycle is untouched.
   defp watch_comment_poll_targets(%State{} = _state, opts) do
     if GitHubConfig.pr_watch_enabled?() do
-      fetcher = watch_pull_request_fetcher(opts)
-
-      case fetcher.(GitHubConfig.watch_label()) do
+      case watch_pull_requests(GitHubConfig.watch_label(), opts) do
         {:ok, pull_requests} when is_list(pull_requests) ->
           {:ok, build_watch_targets(pull_requests, opts)}
 
@@ -89,43 +85,23 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
 
   defp watch_pull_request_fetcher(opts) do
     Keyword.get_lazy(opts, :watch_pull_request_fetcher, fn ->
-      fn label -> conditional_open_pull_requests_by_label(label, opts) end
+      fn label -> GitHubClient.fetch_open_pull_requests_by_label(label, opts) end
     end)
   end
 
-  # One conditional read of the open-pull-request collection per cycle (#2069).
-  # In steady state GitHub answers `304` — a request the primary REST limit does
-  # not bill — and `ResourceFetch` serves the held list back, so watch-target
-  # discovery stops being a full-price re-read of every open PR every cycle. A
-  # `200` means something actually changed and the fresh list replaces the held
-  # one. The key is the watch label because that is the only identity the caller
-  # holds before the lookup answers.
-  defp conditional_open_pull_requests_by_label(label, opts) do
-    key = ResourceStore.key_for_repo(:labelled_pull_requests, repo_full_name(opts), label)
-
-    fetcher = fn fetch_opts ->
-      GitHubClient.fetch_open_pull_requests_by_label_conditional(
-        label,
-        Keyword.merge(opts, etag: Keyword.get(fetch_opts, :etag))
-      )
-    end
-
-    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "comment poll watch targets") do
-      {:ok, pull_requests, _meta} -> {:ok, pull_requests}
+  # Watch-target discovery reads the open-pull-request collection every cycle
+  # (one `GET /pulls?state=open&per_page=100`). It used to be conditional
+  # (#2069) so steady state was a budget-free `304` — but the listing is
+  # `created` desc, so a page-1 validator cannot answer the multi-page question
+  # once the listing grows past 100: a watch label added to an older PR on
+  # page 2+ would be hidden by a page-1 `304` forever. The read is now
+  # unconditional — correct beats quietly wrong, and the read is one per cycle
+  # (website/docs-app/apis/github.md, #2330).
+  defp watch_pull_requests(label, opts) do
+    case watch_pull_request_fetcher(opts).(label) do
+      {:ok, pull_requests} when is_list(pull_requests) -> {:ok, pull_requests}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp repo_full_name(opts) do
-    case Keyword.get(opts, :repo) do
-      repo when is_binary(repo) and repo != "" ->
-        repo
-
-      _other ->
-        case Transport.parse_repo() do
-          {:ok, {owner, repo}} -> "#{owner}/#{repo}"
-          _other -> nil
-        end
+      other -> {:error, {:unexpected_watch_targets, other}}
     end
   end
 

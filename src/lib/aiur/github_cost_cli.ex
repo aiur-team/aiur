@@ -25,6 +25,7 @@ defmodule Aiur.GitHubCostCLI do
   contain. Consumers should branch on whether `data.credentials` is present.
   """
 
+  alias Aiur.GitHub.BudgetLedger
   alias Aiur.GitHub.CredentialUsage
   alias Aiur.GitHub.Quota
   alias Aiur.GitHub.ReadCache
@@ -32,6 +33,21 @@ defmodule Aiur.GitHubCostCLI do
 
   @table_min_width 96
   @headers ["CALLER", "BUDGET", "POINTS", "POINTS/HR", "CALLS", "SHARE", "SOURCE"]
+
+  @doc """
+  The broker's admission ledger retention, in seconds.
+
+  The ledger keeps one rolling hour of admissions — the same window GitHub's
+  `/rate_limit` buckets are measured over — so it can only ever be reconciled
+  against that span. `aiur github-cost` prints this beside its totals (#2353):
+  the ledger is a spend *record*, not a meter, and nothing outside the window
+  can be checked against `/rate_limit` after the fact.
+  """
+  @spec ledger_window_seconds() :: pos_integer()
+  def ledger_window_seconds, do: div(BudgetLedger.window_ms(), 1_000)
+
+  @spec ledger_window() :: %{window_seconds: pos_integer(), window_label: String.t()}
+  defp ledger_window, do: %{window_seconds: ledger_window_seconds(), window_label: "1 hour"}
 
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
@@ -106,7 +122,8 @@ defmodule Aiur.GitHubCostCLI do
         callers: Enum.map(callers, &present_caller(&1, callers)),
         windows: Map.new(windows, fn {resource, window} -> {resource, present_window(window)} end),
         reconciliation: snapshot |> Map.get(:reconciliation, %{}) |> for_budget(budget),
-        cache: cache_snapshot(opts)
+        cache: cache_snapshot(opts),
+        ledger: ledger_window()
       }
     })
     |> put_credential_view(rows, budget, callers, pool)
@@ -245,6 +262,7 @@ defmodule Aiur.GitHubCostCLI do
 
     print_windows(data["windows"])
     print_reconciliation(data["reconciliation"])
+    print_ledger(data["ledger"])
     # Reading order, not merge order. The ranking says where the budget went,
     # the window says how much is left, the reconciliation says whether the
     # ranking adds up, and the cache says how much never had to be spent — that
@@ -259,6 +277,23 @@ defmodule Aiur.GitHubCostCLI do
     print_credentials(data["credentials"])
     print_pool_reconciliation(data["pool_reconciliation"])
   end
+
+  # The ledger window is a scope warning, not a number to reconcile against.
+  # The broker's `admissions` are pruned at one rolling hour, so any attempt to
+  # reconcile a longer interval against `/rate_limit` is guaranteed to fail;
+  # stating the window beside the totals is what keeps the two from being read
+  # as covering the same span (#2353).
+  defp print_ledger(%{"window_seconds" => seconds} = ledger) when is_integer(seconds) do
+    label = Map.get(ledger, "window_label") || "#{seconds}s"
+    IO.puts("")
+    # Deliberately avoids the word "reconcile": an unobserved meter's report
+    # must never mention reconciliation (credential_usage_test's pre-existing
+    # guarantee), so the window is stated as the span any comparison is bound
+    # to instead (#2353).
+    IO.puts("admission ledger window: #{label} — the ledger holds one rolling hour, so match it against at most that span of /rate_limit")
+  end
+
+  defp print_ledger(_ledger), do: :ok
 
   defp print_credentials(credentials) when is_list(credentials) and credentials != [] do
     IO.puts("")
@@ -316,6 +351,7 @@ defmodule Aiur.GitHubCostCLI do
     )
 
     print_refusals(cache["refused"])
+    print_not_deposited(cache["not_deposited"])
   end
 
   defp print_cache(_cache), do: IO.puts("\nread cache: not running (no measurement)")
@@ -334,6 +370,17 @@ defmodule Aiur.GitHubCostCLI do
   end
 
   defp print_refusals(_refused), do: :ok
+
+  # The accounting remainder: every miss either deposited or did not, and the
+  # not-deposited side is split by why. Without it, `misses` minus `deposits`
+  # is a silent subtraction an operator cannot tell apart from the cache being
+  # short of work.
+  defp print_not_deposited(not_deposited) when is_map(not_deposited) and map_size(not_deposited) > 0 do
+    line = Enum.map_join(not_deposited, ", ", fn {reason, count} -> "#{reason} #{count}" end)
+    IO.puts("read cache not deposited: #{line}")
+  end
+
+  defp print_not_deposited(_not_deposited), do: :ok
 
   defp print_rows(rows, format) do
     cells = Enum.map(rows, &row_cells/1)

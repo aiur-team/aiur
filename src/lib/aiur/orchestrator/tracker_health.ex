@@ -13,6 +13,8 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
+  alias Aiur.PollCadence
+  alias Aiur.Webhooks
   alias Aiur.Webhooks.IntervalPolicy
 
   @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
@@ -29,6 +31,14 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def note_github_connectivity_failure(%State{} = state, source, reason) do
     classification = connectivity_classification(reason)
     detail = Orchestrator.connectivity_detail(reason)
+
+    if classification == :unclassified do
+      # F2 of #2429: a reason this classifier does not recognize is itself a
+      # finding. Surface the raw term instead of silently stamping it `:transport`
+      # (which asserted "connectivity lost" for failures that have nothing to do
+      # with the network).
+      Logger.warning("github_connectivity_unclassified source=#{source} reason=#{inspect(reason)} classification=#{classification}")
+    end
 
     {streaks, alerts} =
       GitHubConnectivity.note_failure(state.github_connectivity, source, classification)
@@ -47,9 +57,25 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     }
   end
 
+  # A local budget hold is not connectivity: it must not ride the transport
+  # escalation curve and must not emit `system.github.connectivity_lost` (#2429).
+  # Recognized in the raw `{:aiur, :locally_held, hold}` shape and in the
+  # transport-classified `{:github, :transport, %{reason: ...}}` shape old
+  # `Errors.classify_error` versions produced, so a hold is never misread as a
+  # network break.
+  defp connectivity_classification({:aiur, :locally_held, _hold}), do: :local_hold
+  defp connectivity_classification({:github, :local_hold, _detail}), do: :local_hold
+
+  defp connectivity_classification({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}),
+    do: :local_hold
+
   defp connectivity_classification({:github, classification, _detail}), do: classification
   defp connectivity_classification({:github_api_status, 429}), do: :rate_limited
-  defp connectivity_classification(_reason), do: :transport
+
+  # Catch-all that assigns no specific meaning: an unknown reason is `:unclassified`
+  # (handled conservatively, surfaced with its raw term by the caller) rather than
+  # being asserted to be `:transport` (#2429 F2).
+  defp connectivity_classification(_reason), do: :unclassified
 
   defp connectivity_streak_count(streaks, source) do
     case Map.get(streaks, source) do
@@ -118,6 +144,82 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
     %{delay_ms: delay_ms, idle_backoff?: idle_backoff?, idle_widen_factor: idle_factor}
   end
+
+  @doc false
+  @spec publish_poll_cadence(State.t(), map()) :: :ok
+  def publish_poll_cadence(%State{} = state, %{delay_ms: delay_ms} = schedule)
+      when is_integer(delay_ms) and delay_ms > 0 do
+    # `:dispatch` is the interval the tick actually scheduled — GitHub
+    # `X-Poll-Interval` / connectivity backoff floors included. Every other
+    # class composes the same widening the schedule applied (webhook factor for
+    # a proven webhook-backed repo, idle factor while the fleet is idle) on top
+    # of its own class base, so a class whose `polling.intervals` entry differs
+    # from `interval_seconds` resolves its own live cadence instead of silently
+    # inheriting the dispatch one (#2309).
+    PollCadence.publish_effective_interval_ms(delay_ms, class: :dispatch)
+    idle_factor = if schedule.idle_backoff?, do: schedule.idle_widen_factor, else: 1.0
+    publish_class_cadences(state, Aiur.GitHub.Config.repo(), idle_factor)
+    :ok
+  end
+
+  # A non-positive delay — a momentary "poll now" reschedule, say — leaves the
+  # last published cadences in force rather than crashing the orchestrator. A
+  # skipped publish is never worse than a crash for a freshness bookkeeping
+  # step.
+  def publish_poll_cadence(_state, _schedule), do: :ok
+
+  # `state` is threaded through so every class composes the same GitHub
+  # `X-Poll-Interval` / connectivity backoff floor the dispatch schedule
+  # applies. Before #2309 every consumer derived from the dispatch tick — floor
+  # included — so a class whose published cadence dropped the floor would read
+  # *narrower* than the daemon actually polls while GitHub throttles us, which
+  # is a behaviour change on a default config. The floor keeps that from
+  # happening: a widened class still resolves no faster than the tick that
+  # drives its loop.
+  defp publish_class_cadences(%State{} = state, repo, idle_factor) when is_binary(repo) do
+    for class <- PollCadence.poll_classes() -- [:dispatch] do
+      PollCadence.publish_effective_interval_ms(class_effective_ms(state, class, repo, idle_factor), class: class)
+    end
+
+    :ok
+  end
+
+  defp publish_class_cadences(_state, _repo, _idle_factor), do: :ok
+
+  defp class_effective_ms(%State{} = state, class, repo, idle_factor) do
+    case effective_class_base_ms(class, repo) do
+      # On-demand class: no timer, publish 0 so status shows `planning=0s` and
+      # any tick-riding loop for the class is fully disabled (#2309).
+      0 ->
+        0
+
+      base_ms ->
+        webhook_ms = IntervalPolicy.poll_interval_ms(base_ms, repo)
+        widened_ms = if idle_factor > 1.0, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
+
+        case github_next_poll_delay_ms(state) do
+          github_ms when is_integer(github_ms) -> max(github_ms, widened_ms)
+          _none -> widened_ms
+        end
+    end
+  end
+
+  # The `:review` divergence is safe only while webhooks prove coverage: a repo
+  # that polls for comments has no arrival signal, so its safety-net poll must
+  # keep the dispatch rate no matter what `intervals.review` says — a wide
+  # `review` on a polling repo would be a silent minutes-long floor on
+  # operator-comment wakes. On a proven webhook-backed repo the configured
+  # review cadence applies; on a polling repo it resolves to the dispatch
+  # cadence (exactly the behaviour before this class existed).
+  defp effective_class_base_ms(:review, repo) do
+    if Webhooks.webhook_backed?(repo) do
+      PollCadence.base_interval_ms(class: :review)
+    else
+      PollCadence.base_interval_ms(class: :dispatch)
+    end
+  end
+
+  defp effective_class_base_ms(class, _repo), do: PollCadence.base_interval_ms(class: class)
 
   # The fleet is only actually idle when it has nothing to do AND has observed
   # that. Four conditions, all required:

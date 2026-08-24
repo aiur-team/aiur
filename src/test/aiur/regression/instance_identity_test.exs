@@ -79,7 +79,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       # realpath-derived key. HOME is pinned to a sibling temp dir that holds no
       # config and is not an ancestor of the projects, so this genuinely exercises
       # the not-under-$HOME variant regardless of the runner's real $HOME/TMPDIR.
-      base = Path.join(System.tmp_dir!(), "aiur-noconfig-#{System.unique_integer([:positive])}")
+      base = Aiur.TestSupport.tmp_root!("aiur-noconfig")
       home = Path.join(base, "home")
       proj_a = Path.join(base, "alpha")
       proj_b = Path.join(base, "beta")
@@ -132,7 +132,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
       # must NOT treat it as a repo root, or every project under $HOME collapses
       # onto hash($HOME) and they reap each other. A fake $HOME holds the global
       # config; two projects beneath it must derive distinct, non-$HOME keys.
-      home = Path.join(System.tmp_dir!(), "aiur-home-#{System.unique_integer([:positive])}")
+      home = Aiur.TestSupport.tmp_root!("aiur-home")
       File.mkdir_p!(Path.join(home, ".aiur"))
       File.write!(Path.join([home, ".aiur", "config"]), "")
       proj_a = Path.join([home, "projects", "alpha"])
@@ -180,7 +180,7 @@ defmodule Aiur.Regression.InstanceIdentityTest do
     test "walk-up from cwd: a subdir and the project root derive the same key; a sibling root differs" do
       # AIUR_REPO_ROOT unset, so the key is derived by walking $PWD up to `.aiur/config`
       # — the real launch/control path that explicit-root tests never exercise.
-      base = Path.join(System.tmp_dir!(), "aiur-walkup-#{System.unique_integer([:positive])}")
+      base = Aiur.TestSupport.tmp_root!("aiur-walkup")
       root_a = Path.join(base, "projA")
       deep_a = Path.join([root_a, "src", "deep"])
       root_b = Path.join(base, "projB")
