@@ -12,7 +12,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     previous_budget_settings = Application.get_env(:aiur, :github_budget_settings_override)
     previous_deadline = Application.get_env(:aiur, :github_request_deadline_ms)
     quota = start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
-    budget_dir = Path.join(System.tmp_dir!(), "aiur-transport-budget-#{System.unique_integer([:positive])}")
+    budget_dir = Aiur.TestSupport.tmp_root!("aiur-transport-budget")
 
     Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
     Application.put_env(:aiur, :github_quota_server, quota)

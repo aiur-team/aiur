@@ -72,8 +72,8 @@ defmodule Aiur.CoreTest do
     assert config.max_vertical_panes == 3
     assert Config.max_vertical_panes() == 3
     assert config.agent.max_turns == 20
-    assert config.agent.max_concurrent_builds == 2
-    assert Config.max_concurrent_builds() == 2
+    assert config.agent.max_concurrent_builds == 4
+    assert Config.max_concurrent_builds() == 4
 
     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_seconds: "invalid")
 
@@ -423,8 +423,8 @@ defmodule Aiur.CoreTest do
       assert List.first(candidates) == repo_local_default
       assert Workflow.workflow_file_path() == Workflow.resolve_config_path(candidates)
 
-      absent_a = Path.join(System.tmp_dir!(), "aiur-absent-a-#{System.unique_integer([:positive])}")
-      absent_b = Path.join(System.tmp_dir!(), "aiur-absent-b-#{System.unique_integer([:positive])}")
+      absent_a = Aiur.TestSupport.tmp_root!("aiur-absent-a")
+      absent_b = Aiur.TestSupport.tmp_root!("aiur-absent-b")
       assert Workflow.resolve_config_path([absent_a, absent_b]) == absent_a
     after
       Workflow.set_workflow_file_path(original_workflow_path)
@@ -570,11 +570,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "non-active issue state stops running agent without cleaning workspace" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-nonactive-reconcile-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-nonactive-reconcile")
 
     issue_id = "issue-1"
     issue_identifier = "MT-555"
@@ -633,11 +629,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "unexplained error issue state preserves a running agent" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-error-reconcile-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-error-reconcile")
 
     issue_id = "issue-error"
     issue_identifier = "MT-ERR"
@@ -706,11 +698,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "terminal issue state stops running agent and cleans workspace" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-terminal-reconcile-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-terminal-reconcile")
 
     issue_id = "issue-2"
     issue_identifier = "MT-556"
@@ -770,11 +758,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "missing running issues stop active agents without cleaning the workspace" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-missing-running-reconcile-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-missing-running-reconcile")
 
     previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
     issue_id = "issue-missing"
@@ -1671,7 +1655,7 @@ defmodule Aiur.CoreTest do
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.WorkflowStore)
 
-    Workflow.set_workflow_file_path(Path.join(System.tmp_dir!(), "missing-workflow-#{System.unique_integer([:positive])}.md"))
+    Workflow.set_workflow_file_path(Aiur.TestSupport.tmp_root!("missing-workflow") <> ".md")
 
     issue = %Issue{
       identifier: "MT-780",
@@ -1738,11 +1722,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner keeps workspace after successful codex run" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-retain-workspace-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-retain-workspace")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -1821,11 +1801,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner forwards timestamped codex updates to recipient" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-updates-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-updates")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -1921,11 +1897,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner surfaces ssh startup failures instead of silently hopping hosts" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-single-host-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-single-host")
 
     previous_path = System.get_env("PATH")
     previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")
@@ -1992,11 +1964,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner pauses on before_run failure and resumes after operator intervention" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-before-run-pause-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-before-run-pause")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -2103,11 +2071,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner continues with a follow-up turn while the issue remains active" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-continuation-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-continuation")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -2229,11 +2193,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner drains queued operator messages at the turn boundary" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-queued-operator-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-queued-operator")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -2361,11 +2321,7 @@ defmodule Aiur.CoreTest do
       end)
     end
 
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-completed-codex-replacement-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-completed-codex-replacement")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -2599,11 +2555,7 @@ defmodule Aiur.CoreTest do
   defp assert_agent_runner_interrupt_operator(interrupt_outcome) do
     outcome_name = Atom.to_string(interrupt_outcome)
 
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-interrupt-operator-#{outcome_name}-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-interrupt-operator-#{outcome_name}")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -2770,11 +2722,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner delivers queued operator messages at the turn boundary after a deferred checkpoint" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-checkpoint-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-checkpoint")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -2896,11 +2844,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner requeues drained operator message when parent turn completes before delivery acknowledgement" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-checkpoint-completion-race-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-checkpoint-completion-race")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -3035,11 +2979,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner interrupts an active turn and waits for the next operator message before resuming" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-pause-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-pause")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -3204,11 +3144,7 @@ defmodule Aiur.CoreTest do
   defp assert_agent_runner_pause_no_active_turn(event_order) do
     order_name = Atom.to_string(event_order)
 
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-pause-no-active-turn-#{order_name}-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-pause-no-active-turn-#{order_name}")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -3350,11 +3286,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner processes restored and newly-queued operator input on explicit resume after pause" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-requeue-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-requeue")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -3533,11 +3465,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "agent runner stops continuing once agent.max_turns is reached" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-agent-runner-max-turns-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-max-turns")
 
     try do
       template_repo = Path.join(test_root, "source")
@@ -3667,11 +3595,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "app server starts with workspace cwd and expected startup command" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-args-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-args")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -3804,11 +3728,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "app server startup command supports codex args override from workflow config" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-custom-args-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-custom-args")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -3889,11 +3809,7 @@ defmodule Aiur.CoreTest do
   end
 
   test "app server startup payload uses configurable approval and sandbox settings from workflow config" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-policy-overrides-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-policy-overrides")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")

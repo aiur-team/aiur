@@ -21,9 +21,21 @@ defmodule Aiur.DecisionValidation do
   `Aiur.DecisionStore` (which owns
   replay/version/dedup state) decides whether a request is a fresh
   Decision, an accepted enrichment, or a duplicate.
+
+  Classification is consequence-based, not topic-based. A request that omits
+  `authority`/`reversibility` defaults to the Executor-answerable pair
+  (`supervisor_allowed` + `reversible`) rather than inheriting
+  `human_required`: reversible, low-consequence engineering calls — re-review
+  requests, PR/ticket sequencing — are exactly the Commands the Executor is
+  positioned to answer, and a `human_required` default stranded agents until an
+  operator appeared. Known Command types override the fallback through
+  `Aiur.DecisionCommandType` (re-review requests classify `supervisor_preferred`,
+  legacy-attention projections stay `human_required`). A Command that is
+  genuinely irreversible, involves spend or external publication, or changes
+  product direction must declare that explicitly or it will be Executor-answerable.
   """
 
-  alias Aiur.{Config, Decision, DecisionArtifact, DecisionProvenance, SecretRedactor}
+  alias Aiur.{Config, Decision, DecisionArtifact, DecisionCommandType, DecisionProvenance, SecretRedactor}
 
   @question_max 2000
   @short_summary_max 500
@@ -41,9 +53,9 @@ defmodule Aiur.DecisionValidation do
   @legacy_attention_slug_max 64
   @legacy_attention_topic_max 500
 
-  @default_authority :human_required
+  @default_authority :supervisor_allowed
   @default_urgency :normal
-  @default_reversibility :irreversible
+  @default_reversibility :reversible
 
   @type error :: {atom(), atom()}
 
@@ -71,8 +83,16 @@ defmodule Aiur.DecisionValidation do
            normalize_legacy_attention(Keyword.get(opts, :legacy_attention), normalized_ticket),
          {:ok, provenance} <- DecisionProvenance.normalize(provenance, now),
          {:ok, question} <- fetch_required_string(payload, :question, 1, @question_max, :question),
+         {:ok, kind} <- fetch_optional_string(payload, :kind, @kind_max, :kind),
+         type_policy <- DecisionCommandType.for_kind(kind),
          {:ok, authority} <-
-           fetch_enum_with_default(payload, :authority, Decision.authorities(), @default_authority, :authority),
+           fetch_enum_with_default(
+             payload,
+             :authority,
+             Decision.authorities(),
+             type_field(type_policy, :authority, @default_authority),
+             :authority
+           ),
          {:ok, urgency} <-
            fetch_enum_with_default(payload, :urgency, Decision.urgencies(), @default_urgency, :urgency),
          {:ok, blocking} <- fetch_required_boolean(payload, :blocking, :blocking),
@@ -81,10 +101,9 @@ defmodule Aiur.DecisionValidation do
              payload,
              :reversibility,
              Decision.reversibilities(),
-             @default_reversibility,
+             type_field(type_policy, :reversibility, @default_reversibility),
              :reversibility
            ),
-         {:ok, kind} <- fetch_optional_string(payload, :kind, @kind_max, :kind),
          {:ok, context} <- fetch_context(payload),
          {:ok, options} <- fetch_options(payload),
          {:ok, recommendation} <- fetch_recommendation(payload, options),
@@ -202,6 +221,13 @@ defmodule Aiur.DecisionValidation do
       _other -> {:error, {field, :invalid_type}}
     end
   end
+
+  # A known Command type (see `Aiur.DecisionCommandType`) supplies the effective
+  # default for an omitted field; an explicitly declared field always wins
+  # because `fetch_enum_with_default/5` only consults the default on `nil`.
+  defp type_field(nil, _field, fallback), do: fallback
+  defp type_field(%{authority: authority}, :authority, _fallback), do: authority
+  defp type_field(%{reversibility: reversibility}, :reversibility, _fallback), do: reversibility
 
   defp to_allowed_atom(value, allowed, field) do
     atom_value = String.to_existing_atom(value)

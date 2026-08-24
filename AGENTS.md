@@ -10,11 +10,10 @@ live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 ## Orientation
 
 Aiur's intended operating modes are documented in
-[README.md § Who drives Aiur?](README.md#who-drives-aiur). In short: every run has an
-**Executor** — the operator of the run — and that is either the human driving the CLI
-directly, or the human's coding agent operating Aiur on their behalf while they stay in
-conversation with it. Both are first-class. `README.md § What Aiur is not` records the
-misreadings this distinction commonly produces.
+[`src/README.md § Who operates a run`](src/README.md#who-operates-a-run). In short: every
+run has an **Executor** — the operator of the run — and that is either the human driving the
+CLI directly, or the human's coding agent operating Aiur on their behalf while they stay in
+conversation with it. Both are first-class.
 
 The Executor skills live at [`.claude/skills/aiur-run`](.claude/skills/aiur-run/SKILL.md)
 (operate a run end to end) and
@@ -138,9 +137,10 @@ aiurdev --host …              # explicitly override configured/default dashboa
 
 Every subcommand except `build` is handled by the shared engine, so the
 npm-installed `aiur` accepts the exact same set. When config omits `server.host`,
-the engine supplies a lower-precedence default: an authenticated Tailscale IPv4
-when safely available, otherwise `127.0.0.1`. A configured value wins over that
-default; explicit `--host` wins over both.
+the engine binds the dashboard on `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST`
+override) — there is no automatic Tailscale detection, so set `server.host`
+explicitly to serve the dashboard beyond the machine. A configured value wins over
+that default; explicit `--host` wins over both.
 
 Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
 Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
@@ -232,6 +232,13 @@ policy.
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
 will run the agent.
+
+Agent processes do **not** inherit `GITHUB_TOKEN`/`GH_TOKEN`: the daemon
+scrubs them from every agent environment and the `gh` guard injects the
+credential from a file only for the duration of a governed call (#2356). A
+raw `curl` from an agent workspace is unauthenticated, so anything that
+speaks HTTP directly is metered by GitHub's anonymous limit, not by Aiur's
+guard — the ledger counts governed `gh`/`git` calls, and only those.
 
 **Before changing anything that talks to GitHub — polling, budgets, the read
 cache, webhooks, credentials — read

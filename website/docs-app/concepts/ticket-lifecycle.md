@@ -71,10 +71,10 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | --- | --- | --- |
 | `ci-wait` | orchestrator | `src/lib/aiur/orchestrator/ci_lifecycle.ex:88-96`, callers `:1030,:1167` |
 | `in-progress` | orchestrator on CI pass / ci-wait fallback re-wake; **also the agent itself** at turn start | `ci_lifecycle.ex:1068-1076`, `:1366-1375`; `shared-agent-instructions.md:44,49,120` |
-| `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection | `ci_lifecycle.ex:1100-1109`; `comment_wake.ex:950`; `human_review.ex:144-147` |
+| `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle.ex:1100-1109`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume.ex:166-169` |
-| `human-review`, `merging` | **the agent itself**, via `gh issue edit` — not orchestrator code | `shared-agent-instructions.md:44,49,120` |
-| `done` | orchestrator on merge | `merged_ticket_reconciler.ex:52-57`; `comment_wake.ex:83` |
+| `human-review`, `merging` | **the agent itself**, via `gh issue edit`; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
+| `done` | orchestrator on merge — only when no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
@@ -95,9 +95,21 @@ end
 
 — `src/lib/aiur/github/dispatch_authorization.ex:31-33`
 
-The consequence: a stale or hand-edited label set that carries **two state
-labels at once** makes a ticket silently undispatchable — `authorize` denies
-before any other check, so the contradiction is never resolved automatically.
+The consequence: a stale or hand-edited label set carrying **two state labels
+at once** denies dispatch. A poll-time repair heals the pair to its winner
+(`agent:todo` wins).
+
+A **zero**-label ticket is repaired only when there is evidence it was in the
+agent workflow — its last known state is restored, or `agent:todo` when only a
+released claim survives.
+
+Deliberately parked tickets (`needs-triage`, `human:todo`, `Epic:`) and
+untriaged tickets with no workflow record are left alone and surfaced with an
+alert instead of being silently re-dispatched.
+
+An open ticket with no live agent and no scheduled claim is re-queued and
+alerted.
+
 Markers sit *beside* the single state label, which is why they are kept out of
 `@state_suffixes` in the first place.
 
@@ -313,10 +325,25 @@ enforces rather than one the Executor's prompt is trusted to observe
   `{:answer_invalid, {:executor_scope, {:reversibility, ...}}}`.
 
 Everything else — `human_required`, `irreversible`, `partially_reversible`, and
-any unrecognized or missing value — is refused, so the Executor must escalate.
-The policy is fail-closed by construction: `normalize_policy/1` defaults to
+any unrecognized value — is refused, so the Executor must escalate. The policy
+is fail-closed by construction: `normalize_policy/1` defaults to
 `%{allowed_kinds: [], allow_non_reversible: false}` on malformed input
 (`decision_authority.ex:110`).
+
+Classification is consequence-based and defaults delegable. A request that
+omits `authority`/`reversibility` is normalized to `supervisor_allowed` +
+`reversible` (`src/lib/aiur/decision_validation.ex`), so reversible
+engineering calls land inside the Executor floor instead of stranding the
+agent.
+
+Known Command types carry an explicit policy in
+`src/lib/aiur/decision_command_type.ex` (re-review `kind: "rework_review"` →
+`supervisor_preferred`; sequencing `kind: "sequencing"` →
+`supervisor_allowed`; pre-OCC `legacy_attention` stays `human_required`).
+
+Because omission defaults to the floor, a Command that is genuinely
+irreversible, involves spend, or changes product direction must declare
+`authority: human_required` explicitly or it will be Executor-answerable.
 
 The parallel `supervisor` path additionally requires the answer's declared
 `policy_basis` to match the Decision's own authority/kind/reversibility, or it
@@ -454,8 +481,20 @@ happened and burns a dispatch (`rework_gate.ex:3-13`).
 ## Step 8 — Merge
 
 Merge the PR yourself or delegate it to your Executor. `agent:merging` →
-`agent:done`; a merged PR closes the issue, the orchestrator stamps `done`
-(`merged_ticket_reconciler.ex:52-57`), and the agent never self-merges.
+`agent:done`; a merged PR closes the issue and the orchestrator stamps `done`
+(`merged_ticket_reconciler.ex:92-129`) — but only when the ticket has no
+blocking open pull request.
+
+A ticket can legitimately carry two open `aiur/<ticket>-` PRs, so a merge that
+leaves one still open routes the ticket to `rework` (that PR has unresolved
+review findings) or `human-review` (it is merely awaiting review) instead of
+`done`, keeping the remaining PR's findings dispatchable.
+
+A stale draft — one with no update within the staleness window — does not block
+`done`: a superseded attempt left open must not pin its ticket out of its
+terminal state.
+
+The agent never self-merges.
 
 ## Where tickets get stuck
 

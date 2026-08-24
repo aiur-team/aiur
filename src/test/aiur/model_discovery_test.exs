@@ -14,7 +14,7 @@ defmodule Aiur.ModelDiscoveryTest do
   @anthropic_instance %{base_url: "https://api.anthropic.com/v1", api_key_env: "ANTHROPIC_API_KEY"}
 
   setup context do
-    dir = Path.join(System.tmp_dir!(), "aiur-model-discovery-#{:erlang.phash2(context.test)}-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-model-discovery-#{:erlang.phash2(context.test)}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
     {:ok, cache: Path.join(dir, "model-catalog.json")}
@@ -379,6 +379,7 @@ defmodule Aiur.ModelDiscoveryTest do
       currency: "USD",
       context_tier: :not_applicable,
       cache_write_duration: :not_applicable,
+      window: :flat,
       price: "0.00",
       token_unit: 1_000_000,
       effective_date: ~D[2026-08-01],

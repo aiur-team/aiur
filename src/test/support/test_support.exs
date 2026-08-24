@@ -459,6 +459,11 @@ defmodule Aiur.TestSupport do
   # different (or no) definitions still override via `:alerts_file_path` or an
   # `alerts_file` config entry — both take precedence over this default.
   @default_alerts_source Path.expand("../../../.aiur/alerts", __DIR__)
+
+  @doc "Absolute path of the repository's canonical `.aiur/alerts` definitions, or nil."
+  @spec default_alerts_source() :: String.t() | nil
+  def default_alerts_source, do: @default_alerts_source
+
   defp write_default_alerts_file!(config_path) do
     dest = Path.join(Path.dirname(config_path), "alerts")
     if File.regular?(@default_alerts_source), do: File.cp!(@default_alerts_source, dest)
@@ -860,7 +865,7 @@ defmodule Aiur.TestSupport do
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
-          max_concurrent_builds: 2,
+          max_concurrent_builds: 4,
           build_start_stagger_seconds: 0,
           min_free_memory_mb: nil,
           max_turns: 20,
@@ -1002,6 +1007,7 @@ defmodule Aiur.TestSupport do
         tracker_section,
         "polling:",
         "  interval_seconds: #{yaml_value(poll_interval_seconds)}",
+        polling_intervals_yaml(config),
         "workspace:",
         "  root: #{yaml_value(workspace_root)}",
         workspace_bootstrap_image && "  bootstrap_image: #{yaml_value(workspace_bootstrap_image)}",
@@ -1210,6 +1216,26 @@ defmodule Aiur.TestSupport do
       Keyword.put(config, to_key, Keyword.get(overrides, from_key))
     else
       config
+    end
+  end
+
+  # Emits `polling.intervals` (per-class cadences, #2309) when the caller passed
+  # a `:polling_intervals` map, e.g. %{"planning" => 600, "review" => 300}.
+  defp polling_intervals_yaml(config) do
+    case Keyword.get(config, :polling_intervals) do
+      nil ->
+        nil
+
+      intervals when is_map(intervals) and map_size(intervals) > 0 ->
+        lines =
+          intervals
+          |> Enum.sort_by(fn {class, _seconds} -> to_string(class) end)
+          |> Enum.map_join("\n", fn {class, seconds} -> "    #{class}: #{yaml_value(seconds)}" end)
+
+        "  intervals:\n" <> lines
+
+      _other ->
+        nil
     end
   end
 

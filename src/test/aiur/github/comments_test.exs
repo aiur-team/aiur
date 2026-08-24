@@ -45,19 +45,6 @@ defmodule Aiur.GitHub.CommentsTest do
     end
   end
 
-  describe "fetch_issue_comments/2" do
-    test "returns comments list on 200" do
-      comments = [%{"id" => 1, "body" => "first"}, %{"id" => 2, "body" => "second"}]
-
-      request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "/issues/3/comments"
-        {:ok, %{status: 200, body: comments, headers: []}}
-      end
-
-      assert {:ok, ^comments} = Comments.fetch_issue_comments(3, request_fun: request_fun)
-    end
-  end
-
   describe "fetch_issue_comments_conditional/2" do
     test "sends the saved ETag and treats 304 as a successful unchanged response" do
       request_fun = fn %{method: :get, etag: etag} = request ->
@@ -82,7 +69,7 @@ defmodule Aiur.GitHub.CommentsTest do
                Comments.fetch_issue_comments_conditional(3, request_fun: request_fun)
     end
 
-    test "follows all pages after a changed conditional response" do
+    test "follows all pages after a changed conditional response but drops the validator once the list paginates" do
       request_fun = fn %{method: :get, url: url} ->
         if String.contains?(url, "page=2") do
           {:ok, %{status: 200, body: [%{"id" => 2}], headers: []}}
@@ -94,7 +81,22 @@ defmodule Aiur.GitHub.CommentsTest do
         end
       end
 
-      assert {:ok, [%{"id" => 1}, %{"id" => 2}], ~s("fresh-etag")} =
+      # #2330: an issue's comment list is oldest-first, so a page-1 ETag cannot
+      # answer a multi-page list — a new comment would land on the last page
+      # while page 1 answers 304 forever. Once the read paginates, the validator
+      # is dropped so the next read is unconditional.
+      assert {:ok, [%{"id" => 1}, %{"id" => 2}], nil} =
+               Comments.fetch_issue_comments_conditional(3, request_fun: request_fun)
+    end
+
+    test "keeps the validator for a single-page issue comment read" do
+      request_fun = fn %{method: :get} ->
+        {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"etag", ~s("fresh-etag")}]}}
+      end
+
+      # A single-page read earns its validator: page 1 IS the whole list, so a
+      # page-1 `304` is the trustworthy "nothing changed" answer.
+      assert {:ok, [%{"id" => 1}], ~s("fresh-etag")} =
                Comments.fetch_issue_comments_conditional(3, request_fun: request_fun)
     end
   end
@@ -120,6 +122,25 @@ defmodule Aiur.GitHub.CommentsTest do
 
     assert {:not_modified, ~s("scan-etag")} =
              Comments.fetch_recent_repo_review_comments_conditional(etag: ~s("scan-etag"), request_fun: request_fun)
+  end
+
+  test "keeps the validator even when the repo-wide stream paginates" do
+    # The repo-wide stream is read sort=updated&direction=desc, so everything
+    # newer than the scan's cursor lands on page 1 — a page-1 `304` is the
+    # trustworthy whole-window answer even when older pages ride along (#2330).
+    request_fun = fn %{method: :get, url: url} ->
+      if String.contains?(url, "page=2") do
+        {:ok, %{status: 200, body: [%{"id" => 2}], headers: []}}
+      else
+        next =
+          ~s(<https://api.github.com/repos/owner/repo/pulls/comments?sort=updated&direction=desc&per_page=100&page=2>; rel="next")
+
+        {:ok, %{status: 200, body: [%{"id" => 1}], headers: [{"etag", ~s("fresh-etag")}, {"link", next}]}}
+      end
+    end
+
+    assert {:ok, [%{"id" => 1}, %{"id" => 2}], ~s("fresh-etag")} =
+             Comments.fetch_recent_repo_review_comments_conditional(request_fun: request_fun)
   end
 
   describe "comment_query/1" do
