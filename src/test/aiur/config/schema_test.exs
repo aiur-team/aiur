@@ -494,6 +494,21 @@ defmodule Aiur.Config.SchemaTest do
       assert message =~ "non-negative"
     end
 
+    # Review feedback #2309 (finding 1): `dispatch` now binds the tick, so `0`
+    # there is not an on-demand value — it would stop the scheduler (an
+    # immediate-reschedule busy loop). The schema rejects it outright rather
+    # than silently falling back, so the dead-config failure mode is impossible.
+    test "intervals rejects dispatch: 0 (the dispatch tick must always run)" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"intervals" => %{"dispatch" => 0}}})
+
+      assert message =~ "dispatch"
+      assert message =~ "positive"
+
+      {:ok, settings} = Schema.parse(%{"polling" => %{"intervals" => %{"dispatch" => 60}}})
+      assert settings.polling.intervals == %{"dispatch" => 60}
+    end
+
     test "usage_interval_seconds defaults above the floor" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.polling.usage_interval_seconds == 300

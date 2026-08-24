@@ -285,6 +285,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
   # dispatch rate once an operator sets `intervals.review` wider — the tradeoff
   # #2309 exists to make, and webhooks cover the arrival of a comment in the
   # meantime.
+  #
+  # The divergence is *enforced*, not asserted: `TrackerHealth` publishes a
+  # `:review` cadence wider than the dispatch tick only when the repo is proven
+  # webhook-backed, so on a polling repo the published `:review` value equals
+  # the dispatch cadence and this gate never binds — the safety net stays at the
+  # dispatch rate. This is the "no webhook installed: nothing is ever
+  # suppressed" contract (see `apis/github.md`).
   defp within_review_cadence?(state, now_ms) do
     PollCadence.within_class_cadence?(state.last_comment_poll_started_at_ms, now_ms, :review)
   end

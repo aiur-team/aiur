@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.State
   alias Aiur.PollCadence
+  alias Aiur.Webhooks
   alias Aiur.Webhooks.IntervalPolicy
 
   @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
@@ -122,7 +123,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   @doc false
   @spec publish_poll_cadence(State.t(), map()) :: :ok
-  def publish_poll_cadence(%State{} = _state, %{delay_ms: delay_ms} = schedule)
+  def publish_poll_cadence(%State{} = state, %{delay_ms: delay_ms} = schedule)
       when is_integer(delay_ms) and delay_ms > 0 do
     # `:dispatch` is the interval the tick actually scheduled — GitHub
     # `X-Poll-Interval` / connectivity backoff floors included. Every other
@@ -133,7 +134,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
     # inheriting the dispatch one (#2309).
     PollCadence.publish_effective_interval_ms(delay_ms, class: :dispatch)
     idle_factor = if schedule.idle_backoff?, do: schedule.idle_widen_factor, else: 1.0
-    publish_class_cadences(Aiur.GitHub.Config.repo(), idle_factor)
+    publish_class_cadences(state, Aiur.GitHub.Config.repo(), idle_factor)
     :ok
   end
 
@@ -143,18 +144,26 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # step.
   def publish_poll_cadence(_state, _schedule), do: :ok
 
-  defp publish_class_cadences(repo, idle_factor) when is_binary(repo) do
+  # `state` is threaded through so every class composes the same GitHub
+  # `X-Poll-Interval` / connectivity backoff floor the dispatch schedule
+  # applies. Before #2309 every consumer derived from the dispatch tick — floor
+  # included — so a class whose published cadence dropped the floor would read
+  # *narrower* than the daemon actually polls while GitHub throttles us, which
+  # is a behaviour change on a default config. The floor keeps that from
+  # happening: a widened class still resolves no faster than the tick that
+  # drives its loop.
+  defp publish_class_cadences(%State{} = state, repo, idle_factor) when is_binary(repo) do
     for class <- PollCadence.poll_classes() -- [:dispatch] do
-      PollCadence.publish_effective_interval_ms(class_effective_ms(class, repo, idle_factor), class: class)
+      PollCadence.publish_effective_interval_ms(class_effective_ms(state, class, repo, idle_factor), class: class)
     end
 
     :ok
   end
 
-  defp publish_class_cadences(_repo, _idle_factor), do: :ok
+  defp publish_class_cadences(_state, _repo, _idle_factor), do: :ok
 
-  defp class_effective_ms(class, repo, idle_factor) do
-    case PollCadence.base_interval_ms(class: class) do
+  defp class_effective_ms(%State{} = state, class, repo, idle_factor) do
+    case effective_class_base_ms(class, repo) do
       # On-demand class: no timer, publish 0 so status shows `planning=0s` and
       # any tick-riding loop for the class is fully disabled (#2309).
       0 ->
@@ -162,9 +171,31 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
       base_ms ->
         webhook_ms = IntervalPolicy.poll_interval_ms(base_ms, repo)
-        if idle_factor > 1.0, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
+        widened_ms = if idle_factor > 1.0, do: IntervalPolicy.widen(webhook_ms, idle_factor), else: webhook_ms
+
+        case github_next_poll_delay_ms(state) do
+          github_ms when is_integer(github_ms) -> max(github_ms, widened_ms)
+          _none -> widened_ms
+        end
     end
   end
+
+  # The `:review` divergence is safe only while webhooks prove coverage: a repo
+  # that polls for comments has no arrival signal, so its safety-net poll must
+  # keep the dispatch rate no matter what `intervals.review` says — a wide
+  # `review` on a polling repo would be a silent minutes-long floor on
+  # operator-comment wakes. On a proven webhook-backed repo the configured
+  # review cadence applies; on a polling repo it resolves to the dispatch
+  # cadence (exactly the behaviour before this class existed).
+  defp effective_class_base_ms(:review, repo) do
+    if Webhooks.webhook_backed?(repo) do
+      PollCadence.base_interval_ms(class: :review)
+    else
+      PollCadence.base_interval_ms(class: :dispatch)
+    end
+  end
+
+  defp effective_class_base_ms(class, _repo), do: PollCadence.base_interval_ms(class: class)
 
   # The fleet is only actually idle when it has nothing to do AND has observed
   # that. Four conditions, all required:

@@ -4,8 +4,9 @@ defmodule Aiur.PerClassCadenceTest do
   use Aiur.TestSupport
 
   alias Aiur.BuildOrder.Cadence
-  alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.{SnapshotStore, State, TrackerHealth}
   alias Aiur.PollCadence
+  alias Aiur.Webhooks.ModeRegistry
 
   setup do
     PollCadence.forget_effective_interval_ms()
@@ -36,6 +37,33 @@ defmodule Aiur.PerClassCadenceTest do
       assert PollCadence.base_interval_ms(class: :ci) == 120_000
       assert PollCadence.base_interval_ms(class: :review) == 120_000
       assert PollCadence.base_interval_ms(class: :firehose) == 120_000
+    end
+
+    # Review feedback #2309 (finding 1): `intervals.dispatch` was accepted,
+    # documented and shipped but read by nothing — the dispatch tick's base
+    # stayed `interval_seconds`. It now binds: the resolver honors the entry and
+    # the scheduler's base is seeded from it, so `dispatch: 60` actually cuts the
+    # tracker cadence instead of being a dead key.
+    test "intervals.dispatch binds the dispatch tick" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        poll_interval_seconds: 120,
+        polling_intervals: %{"dispatch" => 60}
+      )
+
+      assert PollCadence.base_interval_ms(class: :dispatch) == 60_000
+      # An unlisted class is untouched by the dispatch override.
+      assert PollCadence.base_interval_ms(class: :review) == 120_000
+
+      # And the scheduler honors it: a state seeded from the dispatch class base
+      # (which `Lifecycle.init/2` and `Lifecycle.refresh_runtime_config/1` now do)
+      # schedules at 60s, not at the 120s scalar.
+      state = %State{
+        poll_interval_ms: PollCadence.base_interval_ms(class: :dispatch),
+        github_poll_delays: %{},
+        running: %{}
+      }
+
+      assert TrackerHealth.next_poll_delay_ms(state) == 60_000
     end
   end
 
@@ -85,6 +113,27 @@ defmodule Aiur.PerClassCadenceTest do
       # means the demand, not the clock, starts it (#2309).
       assert PollCadence.within_class_cadence?(nil, now, :planning)
       assert PollCadence.within_class_cadence?(now - 1, now, :planning)
+    end
+
+    # Mutant #8 (review #2309): the `:dispatch -> :ok` zero-publish guard is the
+    # whole `0 = on-demand` contract for the class that can never be on-demand. A
+    # momentary "poll now" reschedule publishes `0`; it must leave the last real
+    # dispatch cadence in force, never erase it (which would silently move every
+    # dispatch-class threshold to the cold-start fallback for a tick).
+    test "a 0 publish never erases the dispatch cadence" do
+      PollCadence.publish_effective_interval_ms(120_000, class: :dispatch)
+      PollCadence.publish_effective_interval_ms(0, class: :dispatch)
+
+      assert PollCadence.published_effective_interval_ms(class: :dispatch) == 120_000
+      assert PollCadence.effective_interval_ms(class: :dispatch) == 120_000
+    end
+
+    test "an un-named 0 publish leaves the dispatch cadence in force" do
+      PollCadence.publish_effective_interval_ms(120_000, class: :dispatch)
+      PollCadence.publish_effective_interval_ms(0)
+
+      assert PollCadence.published_effective_interval_ms() == 120_000
+      assert PollCadence.effective_interval_ms() == 120_000
     end
 
     # Acceptance: "a test that a per-class value reaches the right consumer."
@@ -208,26 +257,135 @@ defmodule Aiur.PerClassCadenceTest do
     end
   end
 
+  # Mutant #7 (review #2309): `TrackerHealth.publish_poll_cadence/2` is the only
+  # production path that publishes a per-class cadence in a running daemon, and
+  # it had no test — the rest of this suite publishes every class by hand, so
+  # deleting `publish_class_cadences/2` left it green. These tests drive the
+  # production function and would fail if the per-class publish call vanished
+  # (every un-published class would inherit the dispatch value instead of its
+  # own).
+  describe "TrackerHealth.publish_poll_cadence/2 production path" do
+    setup do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        poll_interval_seconds: 120,
+        polling_intervals: %{"dispatch" => 120, "review" => 300, "planning" => 0}
+      )
+
+      # The default `ModeRegistry` is shared across this VM, and schedule /
+      # publish assertions are exact values: a webhook-proven repo would apply
+      # `webhooks.poll_widen_factor` (2.0) to every base, so force the test repo
+      # back to plain polling before each case. This is what makes the suite
+      # order-independent.
+      if repo = Aiur.GitHub.Config.repo(), do: ModeRegistry.configure(repo, false)
+
+      :ok
+    end
+
+    defp publish_schedule do
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}}
+      schedule = TrackerHealth.poll_schedule(state)
+      :ok = TrackerHealth.publish_poll_cadence(state, schedule)
+      state
+    end
+
+    test "publishes every class cadence from the configured intervals" do
+      publish_schedule()
+
+      assert PollCadence.published_effective_interval_ms(class: :dispatch) == 120_000
+      # CI and firehose fall back to interval_seconds (no entry configured).
+      assert PollCadence.published_effective_interval_ms(class: :ci) == 120_000
+      assert PollCadence.published_effective_interval_ms(class: :firehose) == 120_000
+      # Planning is on-demand.
+      assert PollCadence.published_effective_interval_ms(class: :planning) == 0
+    end
+
+    # Review feedback finding 5: on a repo not proven webhook-backed, the
+    # comment-poll safety net must keep the dispatch rate no matter what
+    # `intervals.review` says — a wide `review` on a polling repo would be a
+    # silent minutes-long floor on operator-comment wakes. The divergence is
+    # enforced at publish time.
+    test "review diverges only on a repo proven webhook-backed" do
+      publish_schedule()
+
+      # The test checkout's repo is not webhook-proven: review stays at dispatch.
+      assert PollCadence.published_effective_interval_ms(class: :review) ==
+               PollCadence.published_effective_interval_ms(class: :dispatch)
+
+      # Prove the same repo webhook-backed: the configured review cadence binds.
+      # The production path reads the default `ModeRegistry` (which is running),
+      # so `record_delivery/2` — the exact call a webhook receiver makes — is
+      # what promotes the repo.
+      repo = Aiur.GitHub.Config.repo()
+      assert is_binary(repo)
+
+      :ok = Aiur.Webhooks.record_delivery(repo, at: ~U[2026-08-10 12:00:00Z])
+      assert Aiur.Webhooks.webhook_backed?(repo)
+
+      publish_schedule()
+
+      review_ms = PollCadence.published_effective_interval_ms(class: :review)
+      dispatch_ms = PollCadence.published_effective_interval_ms(class: :dispatch)
+      assert review_ms > dispatch_ms
+      assert review_ms == 600_000
+
+      # Restore polling so this case does not leak webhook state into sibling
+      # cases' exact-value assertions.
+      ModeRegistry.configure(repo, false)
+    end
+
+    # Review feedback finding 4: `class_effective_ms/3` must compose the same
+    # GitHub `X-Poll-Interval` / connectivity backoff floor the dispatch schedule
+    # applies. Before #2309 every consumer read the single floored value, so a
+    # class whose published cadence dropped the floor would read *narrower* than
+    # the daemon actually polls while GitHub throttles us — a behaviour change on
+    # a default config.
+    test "class cadences compose the GitHub floor like the dispatch schedule" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        poll_interval_seconds: 120,
+        polling_intervals: %{"planning" => 600}
+      )
+
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{comments: 900_000}}
+      schedule = TrackerHealth.poll_schedule(state)
+
+      # The dispatch tick itself is floored.
+      assert schedule.delay_ms == 900_000
+      :ok = TrackerHealth.publish_poll_cadence(state, schedule)
+
+      # Planning resolves to 600s but is floored by the 900s GitHub delay.
+      assert PollCadence.published_effective_interval_ms(class: :dispatch) == 900_000
+      assert PollCadence.published_effective_interval_ms(class: :planning) == 900_000
+    end
+
+    test "an on-demand class stays 0 even under a GitHub floor" do
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{comments: 900_000}}
+      schedule = TrackerHealth.poll_schedule(state)
+      :ok = TrackerHealth.publish_poll_cadence(state, schedule)
+
+      assert PollCadence.published_effective_interval_ms(class: :planning) == 0
+    end
+  end
+
   # Acceptance: "a measurement before and after, using the same one-hour ledger
   # window, showing where the GraphQL points went." The #2309 ledger table
   # measured per-call GraphQL costs (CI 92/46 = 2, comment poll 77/14 = 5.5,
   # review threads 61/61 = 1, Build Order catalog 27/2 = 13.5). This projects a
   # one-hour window before (every class at the dispatch cadence) and after (the
-  # proposed diverged cadences), resolving the cadences through
-  # `PollCadence.effective_interval_ms/1` so the projection is pinned to the
-  # code actually being shipped, not to arithmetic alone. A live one-hour ledger
-  # run against a real repository is the operator's operational confirmation;
-  # this is the model the PR ships against.
+  # cadences the shipped `polling.intervals` example recommends), resolving the
+  # cadences through `PollCadence.base_interval_ms/1` from the config map itself
+  # so the projection measures what the shipped configuration produces, not
+  # hand-published constants. A live one-hour ledger run against a real
+  # repository is the operator's operational confirmation; this is the model the
+  # PR ships against.
+  #
+  # The figure is deliberately the *opt-in ceiling*: it is computed at the base
+  # cadences, so the idle/webhook widen factors (which only lengthen intervals)
+  # and the webhook-proof prerequisite on `review` can only push the real spend
+  # below it. For any config that leaves `polling.intervals` unset — every
+  # class falls back to `interval_seconds`, so no gate ever binds — the
+  # merge-time delta is exactly zero.
   describe "one-hour GraphQL ledger measurement (before/after)" do
     @hour_ms 3_600_000
-    @dispatch_cadence_ms 120_000
-    # CI stays at the dispatch cadence the loop rides on: demand-scoping (only
-    # poll PRs with work in flight) is its cost control, not a wider interval.
-    @ci_cadence_ms 120_000
-    @review_cadence_ms 300_000
-    # Planning is on-demand (#2309, author-pinned `planning: 0`): no timer, so
-    # no hourly spend at all.
-    @planning_cadence_ms 0
 
     # Points per call, measured in the #2309 ledger table.
     @ci_points_per_call 2.0
@@ -238,27 +396,38 @@ defmodule Aiur.PerClassCadenceTest do
     defp hourly_calls(0), do: 0
     defp hourly_calls(interval_ms), do: div(@hour_ms, interval_ms)
 
-    test "diverging review and making planning on-demand moves the one-hour GraphQL spend" do
-      PollCadence.publish_effective_interval_ms(@dispatch_cadence_ms, class: :dispatch)
-      PollCadence.publish_effective_interval_ms(@ci_cadence_ms, class: :ci)
-      PollCadence.publish_effective_interval_ms(@review_cadence_ms, class: :review)
-      PollCadence.publish_effective_interval_ms(@planning_cadence_ms, class: :planning)
+    test "the shipped recommended intervals move the one-hour GraphQL spend" do
+      # The shipped example config (`.aiur/examples/config.example` and the
+      # workflow templates): dispatch at the tracker cadence, review at 300s,
+      # planning on-demand. CI is deliberately not listed, so it inherits
+      # `interval_seconds` — CI stays demand-scoped at the dispatch tick.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        poll_interval_seconds: 120,
+        polling_intervals: %{"dispatch" => 120, "review" => 300, "planning" => 0}
+      )
+
+      dispatch = PollCadence.base_interval_ms(class: :dispatch)
+      ci = PollCadence.base_interval_ms(class: :ci)
+      review = PollCadence.base_interval_ms(class: :review)
+      planning = PollCadence.base_interval_ms(class: :planning)
+
+      assert {dispatch, ci, review, planning} == {120_000, 120_000, 300_000, 0}
 
       before =
-        @dispatch_cadence_ms
-        |> hourly_calls()
-        |> Kernel.*(@ci_points_per_call + @review_points_per_call + @review_threads_points_per_call + @planning_points_per_call)
+        hourly_calls(dispatch) *
+          (@ci_points_per_call + @review_points_per_call + @review_threads_points_per_call + @planning_points_per_call)
 
       after_spend =
-        hourly_calls(PollCadence.effective_interval_ms(class: :ci)) * @ci_points_per_call +
-          hourly_calls(PollCadence.effective_interval_ms(class: :review)) *
-            (@review_points_per_call + @review_threads_points_per_call) +
-          hourly_calls(PollCadence.effective_interval_ms(class: :planning)) * @planning_points_per_call
+        hourly_calls(ci) * @ci_points_per_call +
+          hourly_calls(review) * (@review_points_per_call + @review_threads_points_per_call) +
+          hourly_calls(planning) * @planning_points_per_call
 
-      # Before: 660 points/hour. After: 138 points/hour — CI stays demand-scoped
-      # at the dispatch tick, review halves, and the Build Order catalog (the
-      # most expensive per-call query) stops running on a timer entirely, which
-      # is the whole point of the ticket.
+      # Before: 660 points/hour. After (shipped example: review 300s, planning
+      # on-demand): 138 points/hour — CI stays demand-scoped at the dispatch
+      # tick, review halves, and the Build Order catalog (the most expensive
+      # per-call query) stops running on a timer entirely. The `219` figure the
+      # PR body once quoted was the `planning: 600` variant and is not shipped;
+      # 138 is the number for the recommended config.
       assert before == 660
       assert after_spend == 138
       assert after_spend < before * 0.25

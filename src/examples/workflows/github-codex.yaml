@@ -75,13 +75,15 @@ observability:
 polling:
   interval_seconds: 30
   idle_widen_factor: 5.0
-  # Per-class cadences override interval_seconds for one class (#2309).
-  #   intervals:
-  #     dispatch: 120
-  #     ci: 30
-  #     review: 300
-  #     planning: 0        # on-demand: no timer
-  #     firehose: 0        # self-regulating via X-Poll-Interval
+  # Per-class cadences override interval_seconds for one class (#2309). The
+  # `ci` class is deliberately not listed — it only ever slows CI detection, so
+  # keep it at the fallback. `review` widens only while a webhook proves
+  # comment coverage; `planning` and `firehose` are on-demand (0 = no timer).
+  intervals:
+    dispatch: 30
+    review: 300
+    planning: 0        # on-demand: no timer
+    firehose: 0        # self-regulating via X-Poll-Interval
 executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
 server:

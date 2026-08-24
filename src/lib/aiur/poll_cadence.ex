@@ -445,8 +445,11 @@ defmodule Aiur.PollCadence do
       {:ok, %{polling: %{interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 ->
         case Map.fetch(Config.poll_intervals(), class) do
           # `0` is the explicit on-demand answer, not an invalid entry — a class
-          # configured to 0 has no base cadence at all (#2309).
-          {:ok, 0} -> 0
+          # configured to 0 has no base cadence at all (#2309). `:dispatch` is
+          # the exception: the dispatch tick must always run, and a 0 there is
+          # rejected by the schema, so a 0 read (defensive; a hand-edited store)
+          # falls back to the scalar rather than stopping the scheduler.
+          {:ok, 0} when class != :dispatch -> 0
           {:ok, class_seconds} when is_integer(class_seconds) and class_seconds > 0 -> class_seconds * 1_000
           _unset_or_invalid -> seconds * 1_000
         end

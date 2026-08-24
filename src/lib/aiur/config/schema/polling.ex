@@ -88,12 +88,18 @@ defmodule Aiur.Config.Schema.Polling do
 
   # String keys, because `{:map, :integer}` casts keep the YAML keys verbatim.
   # A class interval of `0` is deliberate — it means the class is on-demand and
-  # has no timer (#2309), so only negatives and non-integers are rejected.
+  # has no timer (#2309) — so only negatives and non-integers are rejected.
+  # `dispatch` is the one exception: the dispatch tick must always run, so a
+  # `0` there would stop the scheduler (an immediate-reschedule busy loop), and
+  # it is rejected outright rather than silently falling back.
   defp validate_intervals(:intervals, intervals) when is_map(intervals) do
     Enum.flat_map(intervals, fn {class, seconds} ->
       cond do
         class not in @known_poll_classes ->
           [{:intervals, "unknown poll class #{inspect(class)}; expected one of #{@known_poll_classes |> Enum.sort() |> Enum.join(", ")}"}]
+
+        class == "dispatch" and not (is_integer(seconds) and seconds >= 1) ->
+          [{:intervals, "interval for dispatch must be a positive integer (seconds); the dispatch tick can never be on-demand (0), got: #{inspect(seconds)}"}]
 
         not (is_integer(seconds) and seconds >= 0) ->
           [{:intervals, "interval for #{class} must be a non-negative integer (seconds); 0 disables the class timer (on-demand), got: #{inspect(seconds)}"}]

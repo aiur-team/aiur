@@ -99,15 +99,21 @@ polling:
   interval_seconds: {{POLLING}}
   idle_widen_factor: 5.0                 # multiply the interval while no agents are active; operator/webhook wakes remain immediate
   view_state_sweep_seconds: 900          # the single view-state reconciliation sweep; recovers lost webhook deliveries, not a freshness knob
-  # Per-class poll cadences in seconds; a class with no entry falls back to
-  # interval_seconds. Optional — an unset map keeps the single-interval behaviour.
-  #   0 means on-demand: no timer, refresh only when a consumer explicitly asks.
-  #   intervals:
-  #     dispatch: 120      # tracker poll (open issues / agent:* labels)
-  #     ci: 60             # check state on a PR with work in flight (demand-scoped)
-  #     review: 300        # comments and review threads
-  #     planning: 0        # Build Order catalog: demand-driven, no timer
-  #     firehose: 0        # repo events (self-regulating via X-Poll-Interval)
+  # Per-class poll cadences in seconds (#2309); a class with no entry falls back
+  # to interval_seconds. Optional — an unset map keeps the single-interval
+  # behaviour exactly. Recommended shape for a quota-conscious fleet:
+  #   dispatch stays at the tracker cadence (cheap ETag'd REST, urgent),
+  #   review widens only while a webhook proves comment coverage (the poll is a
+  #   safety net; on a polling repo it stays at the dispatch rate), and planning
+  #   and firehose are on-demand (0 = no timer, refresh when a consumer asks).
+  # The `ci` class is deliberately NOT listed: CI is demand-scoped and its only
+  # effect is to *slow* CI detection when set wider than the tick, which is an
+  # agent-visible problem — keep it at the fallback.
+  intervals:
+    dispatch: 120      # tracker poll (open issues / agent:* labels); must be > 0
+    review: 300        # comments and review threads (webhook-proven repos only)
+    planning: 0        # Build Order catalog: demand-driven, no timer
+    firehose: 0        # repo events (self-regulating via X-Poll-Interval)
 max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 

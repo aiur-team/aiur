@@ -8,7 +8,7 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
   # completed read arms no successor timer even while the page stays open.
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
@@ -165,6 +165,110 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
     assert state.catalog.timer == nil
   end
 
+  # Mutant #2/#3 (review #2309): `successor_allowed?/2` is what stops an
+  # on-demand catalog from re-arming a timer after a FAILED read. A failed read
+  # must keep its retry state (the next demand or reconcile may re-read), but it
+  # must not schedule — a timer is exactly the cadence `planning: 0` removes.
+  # This drives the production failure path while a viewer holds the page, and
+  # fails if `successor_allowed?` is dropped.
+  test "a failed on-demand catalog read while a viewer holds the page arms no successor timer" do
+    parent = self()
+    {:ok, projection} = start_projection(catalog_refresh_ms: 0)
+
+    subscriber =
+      spawn(fn ->
+        GraphProjection.subscribe_catalog(projection)
+        send(parent, {:subscribed, self()})
+        receive do: (:stop -> :ok)
+      end)
+
+    assert_receive {:subscribed, ^subscriber}, 2_000
+
+    reader = await_reader(:catalog)
+    finish(reader, {:error, :transport})
+
+    # Synchronous barrier: the catalog call queues behind the reader-result
+    # message, so once it answers the failure handler has run.
+    GraphProjection.catalog(projection)
+
+    state = :sys.get_state(projection)
+    assert MapSet.size(state.catalog.demanders) == 1
+    # The failed read kept a retry deadline but, on-demand, armed no timer.
+    assert state.catalog.timer == nil
+    assert state.catalog.health.next_retry_at != nil
+  end
+
+  # Mutant #5 (review #2309): the on-demand clause in `no_schedule?/3` is what
+  # stops a reconcile message from re-arming an on-demand catalog's retry timer.
+  # A store change reconciles active scopes (`reschedule_active_scopes`); for an
+  # on-demand catalog with a pending retry that reconcile must not arm the timer
+  # the `0` value removes — the next read stays demand-driven.
+  test "a store change never re-arms an on-demand catalog retry" do
+    parent = self()
+    {:ok, projection} = start_projection(catalog_refresh_ms: 0)
+
+    subscriber =
+      spawn(fn ->
+        GraphProjection.subscribe_catalog(projection)
+        send(parent, {:subscribed, self()})
+        receive do: (:stop -> :ok)
+      end)
+
+    assert_receive {:subscribed, ^subscriber}, 2_000
+
+    reader = await_reader(:catalog)
+    finish(reader, {:error, :transport})
+
+    # Synchronous barrier: the catalog call queues behind the reader-result
+    # message, so once it answers the failure handler has run.
+    GraphProjection.catalog(projection)
+
+    state = :sys.get_state(projection)
+    assert state.catalog.timer == nil
+    assert state.catalog.health.next_retry_at != nil
+
+    # A store change for the active repo reconciles active scopes. The id is
+    # non-numeric so `reconcile_issue_root` short-circuits (no ResourceStore in
+    # this harness); the point is that `reschedule_active_scopes` runs.
+    send(projection, {:github_resource_changed, %{key: {:issue, "demand-owner", "repo", "I1"}}})
+
+    # Synchronous barrier: the catalog call queues behind the store-change
+    # message, so once it answers the handler has run.
+    GraphProjection.catalog(projection)
+
+    state = :sys.get_state(projection)
+    assert state.catalog.timer == nil
+  end
+
+  # Mutant #6 (review #2309): `selected_staleness_ms/1` falling back to the raw
+  # `catalog_refresh_ms` when the catalog is on-demand would give a selected
+  # root a zero-width staleness bound — the page would brand a just-read root
+  # "stale" the instant it rendered. On-demand means *no timer*, not zero-width
+  # staleness, so the bound must fall back to the tracker's base poll interval.
+  # This drives the production snapshot path (`selected/2` → `Policy.snapshot`
+  # with `selected_staleness_ms/1`) and fails if the fallback is dropped.
+  test "an on-demand catalog keeps a selected root's staleness bound at the fallback, not zero" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection(catalog_refresh_ms: 0)
+
+    # Demand creates the entry; refresh dispatches the one read.
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    GraphProjection.refresh(projection, first)
+    reader = await_reader({:selected, first})
+    finish(reader, {:ok, ProviderResult.complete(selected(first))})
+
+    # Wait for the completion to be processed (the `after_broadcast` event
+    # confirms it) before taking a snapshot.
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # The completed read lands and a snapshot is taken: the clock is fixed at 0
+    # and `last_success_ms` is 0, so with the fallback bound (120s) the root is
+    # still healthy, and with a raw `catalog_refresh_ms` of 0 it would already
+    # be `:stale` (0 - 0 >= 0).
+    assert {:ok, %Snapshot{data: %SelectedRoot{}, health: health}} = GraphProjection.selected(projection, first)
+    assert health.state == :healthy
+  end
+
   defp start_projection(opts \\ []) do
     parent = self()
 
@@ -220,6 +324,10 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogDemandTest do
   defp finish(reader, result), do: send(reader, {:finish, result})
 
   defp catalog(roots), do: Catalog.new(roots, ProviderHealth.new(1, :healthy, true))
+
+  defp selected(identity) do
+    SelectedRoot.new(root(identity), [], ProviderHealth.new(1, :healthy, true))
+  end
 
   defp root(identity) do
     {owner, repository} = @repository
