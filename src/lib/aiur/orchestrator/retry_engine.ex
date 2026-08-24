@@ -808,7 +808,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
   # failed tracker write must not crash the orchestrator.
-  defp move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
+  #
+  # Exposed (`@doc false`) as a test seam: the distinct `{:error,
+  # {:no_state_label_written, _}}` return is the F3 "do not report success for a
+  # write that did not happen" contract, and the tests pin it so a regression to
+  # `:ok` cannot pass the suite unnoticed (#2420).
+  @doc false
+  @spec move_exhausted_issue_to_error_state(String.t(), String.t(), term()) ::
+          :ok | :alert_emitted | {:error, {:no_state_label_written, String.t()}}
+  def move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
     Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
     case Tracker.update_issue_state(identifier, "error") do
@@ -850,7 +858,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
+  def move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
 
   defp maybe_mark_observed_error_alert(state, issue_id, true) do
     %{
