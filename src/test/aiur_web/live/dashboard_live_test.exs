@@ -2598,6 +2598,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     store = start_decision_store(decision_store_name, dispatcher)
     decision = request_dashboard_decision(store, "dashboard-action")
+    decision_id = decision.decision_id
     start_counting_orchestrator(orchestrator_name)
 
     # The delivery outcome is produced asynchronously: the store dispatches on
@@ -2606,10 +2607,10 @@ defmodule AiurWeb.DashboardLiveTest do
     # reload. The default reload path throttles that reload by
     # @reload_min_interval_ms (400ms), and under load the whole async chain
     # can outrun any wall-clock wait — the flake #1920 observed (fails
-    # ~1-in-10 under load). render/1 already synchronizes with the LiveView
-    # process (a ping that drains its mailbox), so removing the artificial
-    # reload delay here is a real synchronization point: as soon as the store
-    # records the failure, the next render reflects it. This uses the same
+    # ~1-in-10 under load). Removing the artificial reload delay and reloading
+    # explicitly (reload_view/1 below) makes the render deterministic: once the
+    # store records the failure the reload reflects it, with no budget on how
+    # fast the LiveView happened to schedule its own reload. This uses the same
     # control_center_reload_timer hook the burst-throttle test relies on, and
     # changes no production timing.
     reload_timer = fn destination, message, _delay_ms ->
@@ -2622,7 +2623,14 @@ defmodule AiurWeb.DashboardLiveTest do
       snapshot_timeout_ms: 100,
       decision_store: decision_store_name,
       dashboard_writable: true,
-      control_center_reload_timer: reload_timer
+      control_center_reload_timer: reload_timer,
+      # #2343 review: reload_view/1 must read a genuinely fresh payload. The
+      # default cached reload path (PayloadLoader.fetch_cached) may serve a
+      # payload up to @reload_min_interval_ms (400ms) old — captured before the
+      # retry moved the store to :queued — so the explicit reload has to bypass
+      # the cache entirely (cache_server() == false routes to load_uncached/1).
+      # Established hook; see the fresh-filter tests at :818 and :1608.
+      control_center_cache: false
     )
 
     {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
@@ -2642,6 +2650,18 @@ defmodule AiurWeb.DashboardLiveTest do
       "answer" => %{"choice" => "option:ship", "rationale" => "Checks are green"}
     }
 
+    # The store publishes {:decision_changed, ...} synchronously after each
+    # lifecycle append (answer, then delivery failure), so subscribing before
+    # the submit lets the test wait on that message — the delivery-failure
+    # signal — instead of polling the rendered output on a wall-clock deadline
+    # (the #2343 flake). Note the old `eventually(render(view), 100)` was ~100
+    # attempts at 10ms per attempt (a second+), not 100ms: it failed not from
+    # impatience but because PayloadLoader.schedule/2 coalesced a reload while
+    # one was already scheduled, so the dropped reload never recovered no matter
+    # how long the poll ran. Waiting on the broadcast and re-reading the store
+    # (and re-mounting the page below) removes that failure mode entirely.
+    :ok = DecisionPubSub.subscribe()
+
     # render_submit returns the render produced by the submit handler itself,
     # before the async delivery-failure broadcast reaches the LiveView, so the
     # transient "Answer recorded" notice is still visible here. With the
@@ -2651,24 +2671,29 @@ defmodule AiurWeb.DashboardLiveTest do
     html = render_submit(view, "answer-decision", params)
     assert html =~ "Answer recorded"
 
-    assert eventually(fn ->
-             {:ok, current} = DecisionStore.get(decision.decision_id, store)
-             current.delivery_status == :failed
-           end)
+    # The answer append published one broadcast; consume it so the
+    # assert_receive below can only match the delivery-failure broadcast.
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
 
-    # The delivery outcome is produced asynchronously: background dispatch task
-    # -> store records the failure -> {:decision_changed, ...} broadcast. With
-    # the immediate reload timer, render/1 (whose ping drains the LiveView
-    # mailbox) reflects that failure on the next call, so this wait is
-    # deterministic rather than a wall-clock guess at the whole async chain.
+    # The delivery-failure broadcast is published synchronously in
+    # notify_lifecycle after the store appends the failed event, so receiving
+    # it proves the failure is durable — the assert_receive waits out the
+    # background dispatch task, with no wall-clock budget on the store state.
     #
-    # The remaining async hop is still a wall-clock deadline: under a loaded
-    # CI host the store write or the render drain can stall a scheduler, and
-    # the default 100 attempts x 10ms (~1s) budget is what flaked at load-avg
-    # 88 (#2340). 300 attempts (~3s) keeps the same message-synchronized
-    # assertion while budgeting for the loaded box.
-    assert eventually(fn -> render(view) =~ "Delivery failed" end, 300)
-    html = render(view)
+    # This supersedes main's #2340 widening of this poll to 300 attempts (~3s):
+    # a longer wall-clock budget on a render poll is the #2337 anti-pattern.
+    # Waiting on the broadcast removes the deadline entirely.
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
+    assert {:ok, %{delivery_status: :failed}} = DecisionStore.get(decision.decision_id, store)
+
+    # Mount the decision page fresh to read the recorded-answer + failed-
+    # delivery UI. The first LiveView's payload updates arrive as async diffs
+    # that race the test proxy's render, so polling its render would recreate
+    # the #2343 seed-7777 flake. A fresh mount's initial render reads the store
+    # synchronously (control_center_cache: false bypasses the 400ms cached-
+    # reload window), which is deterministically :failed here — no deadline, no
+    # render-poll.
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     assert html =~ "Recorded answer"
     assert html =~ "Delivery failed"
     assert html =~ ~s(phx-click="retry-decision")
@@ -2676,15 +2701,31 @@ defmodule AiurWeb.DashboardLiveTest do
     html = view |> element(~s(button[phx-click="retry-decision"])) |> render_click()
     assert html =~ "delivery retry was scheduled"
 
-    assert eventually(fn ->
-             {:ok, current} = DecisionStore.get(decision.decision_id, store)
-             current.delivery_status == :queued
-           end)
+    # The retry's dispatch_queued append publishes a third broadcast; waiting on
+    # it proves the store landed at :queued (same synchronous notify_lifecycle
+    # guarantee), so the retry has no poll budget either.
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
+    assert {:ok, %{delivery_status: :queued}} = DecisionStore.get(decision.decision_id, store)
 
-    # Same load-sensitivity rationale as the "Delivery failed" wait above: the
-    # retry button disappearing is gated on a broadcast + render that a loaded
-    # box can stall past a 100-attempt (~1s) deadline. 300 attempts (~3s).
-    assert eventually(fn -> not String.contains?(render(view), ~s(phx-click="retry-decision")) end, 300)
+    # The retry affordance must be gone from the already-mounted view that
+    # served the click. This is the assertion a fresh mount cannot make: a
+    # fresh mount renders from scratch with no prior assigns, so it never
+    # exercises LiveView change tracking. Re-rendering `view` here requires
+    # the expanded history row to notice that the record behind it moved from
+    # :failed to :queued. The component only re-renders when the dependency on
+    # @expanded_decision is visible at the call site; an `assign(:decision, ...)`
+    # inside the component would hide that dependency and keep the cached
+    # "Delivery failed" row — and its retry button — on screen.
+    refute render(view) =~ ~s(phx-click="retry-decision")
+
+    # The retry affordance must be gone from the rendered page — same reasoning
+    # as the fresh mount above: read the :queued state through a new mount's
+    # synchronous initial render rather than racing the old view's async diff
+    # (also superseding main's #2340 300-attempt widening of this poll).
+    {:ok, _refreshed_view, refreshed_html} =
+      live(build_conn(), "/commands/#{decision.decision_id}")
+
+    refute refreshed_html =~ ~s(phx-click="retry-decision")
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
     assert Enum.count(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1)) == 1
@@ -5760,7 +5801,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_dashboard_metrics(name, decision_store, opts \\ []) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-metrics")
     path = Path.join(dir, "decision-latency.ndjson")
     on_exit(fn -> File.rm_rf!(dir) end)
 
@@ -5774,7 +5815,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_restartable_dashboard_metrics(name, decision_store) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-restart-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-metrics-restart")
     File.mkdir_p!(dir)
 
     restart = fn ->
@@ -5817,7 +5858,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_recent_merge_store(name) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-merges-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-merges")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     start_supervised!({RecentMergeStore, name: name, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
@@ -5906,7 +5947,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_decision_store(name, dispatcher, opts \\ []) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-decisions-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-decisions")
     previous = Application.get_env(:aiur, :decision_state_dir)
     Application.put_env(:aiur, :decision_state_dir, dir)
 

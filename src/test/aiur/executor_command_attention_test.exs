@@ -13,7 +13,7 @@ defmodule Aiur.ExecutorCommandAttentionTest do
 
   test "opens once per version and resolves only a durable active escalation" do
     parent = self()
-    path = Path.join(System.tmp_dir!(), "executor-command-attention-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("executor-command-attention") <> ".json"
     on_exit(fn -> File.rm(path) end)
 
     assert {:ok, :opened} =
@@ -59,7 +59,7 @@ defmodule Aiur.ExecutorCommandAttentionTest do
   end
 
   test "retains pending state when alert delivery fails and completes on retry" do
-    path = Path.join(System.tmp_dir!(), "executor-command-attention-retry-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("executor-command-attention-retry") <> ".json"
     on_exit(fn -> File.rm(path) end)
 
     assert {:error, :alert_unavailable} =

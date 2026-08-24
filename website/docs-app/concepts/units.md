@@ -71,8 +71,11 @@ The authenticated Usage and cost summary follows **Tokens by model** with **Cost
 | Unreported upstream | Reads `OpenRouter -> upstream unknown`. |
 | Unavailable estimate | Reads **Unknown**, never zero. |
 | `mix aiur.cost_report --json` | Keeps `provider` and `upstream_provider` as separate fields. |
+| `mix aiur.pricing_window` | Shows which peak/off-peak pricing window is currently in force, the next boundary, and how `avoid_peak_pricing` routing treats it. |
 
-Provider-reported and API-equivalent estimates stay separate.
+Provider-reported and API-equivalent estimates stay separate. Peak/off-peak
+windowed providers (DeepSeek) price a call at the rate actually in force; when
+the window cannot be determined, the conservative peak rate is reported.
 
 ## Tickets
 

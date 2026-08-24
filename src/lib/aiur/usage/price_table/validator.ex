@@ -22,7 +22,8 @@ defmodule Aiur.Usage.PriceTable.Validator do
     :price_revision,
     :source_url,
     :source_reviewed_at,
-    :pricing_scope
+    :pricing_scope,
+    :window
   ]
   @currency ~r/^[A-Z]{3}$/
   @decimal ~r/^\d+(?:\.\d+)?$/
@@ -74,7 +75,8 @@ defmodule Aiur.Usage.PriceTable.Validator do
          {:ok, revision} <- scalar(value_of(value, :price_revision), :invalid_price_revision),
          {:ok, source} <- source(value_of(value, :source_url)),
          {:ok, reviewed_at} <- date(value_of(value, :source_reviewed_at), :invalid_price_source_reviewed_at),
-         {:ok, scope} <- scalar(value_of(value, :pricing_scope), :invalid_pricing_scope) do
+         {:ok, scope} <- scalar(value_of(value, :pricing_scope), :invalid_pricing_scope),
+         {:ok, window} <- window(value_of(value, :window)) do
       {:ok,
        %{
          provider: provider,
@@ -84,6 +86,7 @@ defmodule Aiur.Usage.PriceTable.Validator do
          currency: currency,
          context_tier: context_tier,
          cache_write_duration: cache_write_duration,
+         window: window,
          price: price,
          token_unit: unit,
          effective_date: effective_date,
@@ -101,7 +104,14 @@ defmodule Aiur.Usage.PriceTable.Validator do
     entries
     |> Enum.group_by(&series_key/1)
     |> Enum.any?(fn {_key, series} ->
-      series |> Enum.map(& &1.effective_date) |> Enum.uniq() |> length() != length(series)
+      # Peak/off-peak window variants legitimately share an effective date
+      # (one `:peak` + one `:off_peak` revision per date). Only a duplicate
+      # within the SAME window is an ambiguous interval.
+      series
+      |> Enum.group_by(& &1.effective_date)
+      |> Enum.any?(fn {_date, same_day} ->
+        same_day |> Enum.map(& &1.window) |> Enum.uniq() |> length() != length(same_day)
+      end)
     end)
     |> if(do: {:error, :ambiguous_price_interval}, else: :ok)
   end
@@ -140,6 +150,21 @@ defmodule Aiur.Usage.PriceTable.Validator do
   end
 
   defp price(_value), do: {:error, :invalid_price}
+
+  defp window(:flat), do: {:ok, :flat}
+  defp window(:peak), do: {:ok, :peak}
+  defp window(:off_peak), do: {:ok, :off_peak}
+
+  defp window(value) when is_binary(value) do
+    case value do
+      "flat" -> {:ok, :flat}
+      "peak" -> {:ok, :peak}
+      "off_peak" -> {:ok, :off_peak}
+      _ -> {:error, :invalid_price_window}
+    end
+  end
+
+  defp window(_value), do: {:error, :invalid_price_window}
 
   defp currency(value) when is_binary(value) do
     if String.valid?(value) and Regex.match?(@currency, value),

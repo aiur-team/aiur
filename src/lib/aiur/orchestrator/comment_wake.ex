@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
@@ -80,21 +80,53 @@ defmodule Aiur.Orchestrator.CommentWake do
     Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
 
     terminal_state =
-      case update_issue_state_fun.(to_string(identifier), "done") do
-        :ok ->
-          state
-          |> complete_merged_issue(
-            identifier,
-            clear_session_handle_fun,
-            observe_membership_fun,
-            terminate_running_issue_fun,
-            mark_reconciled_fun,
-            set_terminal_verification_pending_fun
-          )
-          |> resume_blockees_fun.(to_string(identifier))
+      case merged_issue_target_state(identifier, opts) do
+        "done" ->
+          case update_issue_state_fun.(to_string(identifier), "done") do
+            :ok ->
+              state
+              |> complete_merged_issue(
+                identifier,
+                clear_session_handle_fun,
+                observe_membership_fun,
+                terminate_running_issue_fun,
+                mark_reconciled_fun,
+                set_terminal_verification_pending_fun
+              )
+              |> resume_blockees_fun.(to_string(identifier))
+
+            {:error, reason} ->
+              Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+              state
+          end
+
+        target when target in ["rework", "human-review"] ->
+          # A merged PR does not close a ticket that still has other open PRs:
+          # the ticket must stay active so the remaining PR's review findings
+          # stay dispatchable. No terminal teardown runs — the ticket is not
+          # done, so dependents stay blocked on it and no session handle is
+          # cleared. The merged PR's own reconciliation is not marked here; the
+          # poll-cycle reconciler consumes the merge and records it.
+          case update_issue_state_fun.(to_string(identifier), target) do
+            :ok ->
+              Logger.info("PR merge left ticket open with remaining PRs: issue_identifier=#{identifier} target=#{target}")
+
+              state
+
+            {:error, reason} ->
+              Logger.warning("PR merge remaining-open transition skipped: issue_identifier=#{identifier} target=#{target} reason=#{inspect(reason)}")
+
+              state
+          end
 
         {:error, reason} ->
-          Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+          Logger.warning("PR merge target could not be determined; ticket left unchanged: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+          # A merged PR whose ticket could not be transitioned to `done` is a
+          # stranded ticket; alert rather than only log so the Executor sees it
+          # (#2420). Mirrors `MergedTicketReconciler.emit_failed_alert/5`.
+          emit_merge_terminal_write_failed_alert(identifier, reason)
 
           state
       end
@@ -109,9 +141,43 @@ defmodule Aiur.Orchestrator.CommentWake do
     terminal_state
   end
 
+  # The state a merged-PR ticket should land in. Callers that already ran
+  # `MergedTicketReconciler.merged_ticket_target/2` pass the decided
+  # `:target_state` (the reconciler does, so its terminal path does not
+  # re-enumerate the open-PR listing); everyone else — the live webhook route —
+  # computes it here so no path can write `done` without checking the ticket's
+  # other open PRs first.
+  defp merged_issue_target_state(identifier, opts) do
+    case Keyword.get(opts, :target_state) do
+      target when target in ["done", "rework", "human-review"] ->
+        target
+
+      _other ->
+        case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
+          {:ok, target} -> target
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
   defp emit_merge_alert(name, opts) do
     {message, alert_opts} = Keyword.pop!(opts, :message)
     Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))
+  end
+
+  # A merged PR that names a ticket but fails to transition it to `done` leaves
+  # the ticket stranded on an active-state label; surface it to the Executor
+  # rather than only logging it (#2420).
+  defp emit_merge_terminal_write_failed_alert(identifier, reason) do
+    Alerts.emit_custom(
+      "ticket.#{identifier}.agent.attention.merge_terminal_write_failed",
+      "Merged PR could not transition ticket #{identifier} to done (#{inspect(reason)}); the ticket was not closed.",
+      issue: identifier,
+      reason: "The merge-to-done terminal write failed (#{inspect(reason)}) and the ticket keeps its active-state label; it is not stranded invisibly but needs attention.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
   end
 
   defp audit_merge_attribution(
@@ -380,20 +446,20 @@ defmodule Aiur.Orchestrator.CommentWake do
         schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
 
       :active ->
-        case transition_comment_issue_to_rework(issue_number, issue_number, source, event, nil) do
-          :ok ->
+        case transition_comment_issue_to_rework(state, issue_number, issue_number, source, event, nil) do
+          {:ok, state} ->
             # The transition landed, so any retry still pending from an earlier
             # comment on this issue is now moot — cancel it rather than let it fire.
             state
             |> cancel_comment_rework_retry(issue_number, source)
             |> seed_idle_comment_wake_event(issue_number, event)
 
-          {:skip, reason} ->
+          {{:skip, reason}, state} ->
             Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
             cancel_comment_rework_retry(state, issue_number, source)
 
-          {:error, reason} ->
+          {{:error, reason}, state} ->
             Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
             schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
@@ -548,16 +614,17 @@ defmodule Aiur.Orchestrator.CommentWake do
         issue_key = rework_issue_key(running_entry, issue_number)
 
         case transition_comment_issue_to_rework(
+               protected_state,
                issue_key,
                issue_number,
                source,
                event,
                Map.get(running_entry, :telemetry_attempt_id)
              ) do
-          :ok ->
-            protected_state
+          {:ok, state} ->
+            state
 
-          {:error, reason} ->
+          {{:error, reason}, _state} ->
             Logger.warning(
               "#{source} active rework transition deferred behind delivery fence: " <>
                 "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
@@ -565,7 +632,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
             protected_state
 
-          {:skip, _reason} ->
+          {{:skip, _reason}, _state} ->
             protected_state
         end
     end
@@ -881,21 +948,22 @@ defmodule Aiur.Orchestrator.CommentWake do
     issue_key = rework_issue_key(running_entry, issue_number)
 
     case transition_comment_issue_to_rework(
+           state,
            issue_key,
            issue_number,
            source,
            event,
            Map.get(running_entry, :telemetry_attempt_id)
          ) do
-      :ok ->
+      {:ok, state} ->
         revalidate_comment_reactivation(state, running_entry, issue_number, source)
 
-      {:skip, reason} ->
+      {{:skip, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
         Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
         state
 
-      {:error, reason} ->
+      {{:error, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
 
         Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
@@ -904,44 +972,109 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp transition_comment_issue_to_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
+  defp transition_comment_issue_to_rework(state, issue_key, telemetry_ticket, source, event, attempt_id) do
     cond do
       not trusted_comment_event?(event) ->
-        {:skip, :untrusted_author}
+        {{:skip, :untrusted_author}, state}
 
       benign_review_pass_comment?(event) ->
-        {:skip, :benign_review_pass_comment}
+        {{:skip, :benign_review_pass_comment}, state}
 
       # An APPROVED pull request, or a review that predates the current head, is
       # not a request for rework — routing on it deadlocks the ticket (#1756).
       reason = ReviewFreshness.rework_skip_reason(event) ->
-        {:skip, reason}
+        {{:skip, reason}, state}
 
       true ->
-        # `rework` requires work that exists and was rejected: a ticket with no
-        # open PR has nothing a reviewer rejected, so refuse the transition at
-        # the source instead of stamping a verdict on an absent PR (#2075). A
-        # transient PR-lookup failure returns `{:error, _}` so the existing
-        # retry chain handles it like any other transient tracker fault.
-        case ReworkGate.verify_open_pr(issue_key, rework_open_pr_opts(event)) do
-          :ok ->
-            write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id)
+        # #2422: `rework` is only justified while a reviewer is actually asking
+        # for a change. GitHub's `reviewDecision` is sticky — it never clears
+        # when findings are addressed — so it cannot distinguish "outstanding
+        # findings" from "was once told to change something". Unresolved review
+        # threads can, and routing on them is what lets a finished rework
+        # escape `agent:rework` instead of looping. The check rides on the same
+        # open-PR lookup `ReworkGate` already owns, so a ticket with no open PR
+        # is still refused at the source (#2075); a transient thread read
+        # surfaces as `{:error, _}` for the existing retry chain.
+        case ReworkGate.verify_unresolved_review_threads(issue_key, rework_threads_opts(event)) do
+          {:ok, pr} ->
+            write_bounded_comment_rework(
+              state,
+              issue_key,
+              telemetry_ticket,
+              source,
+              event,
+              attempt_id,
+              ReworkGate.head_sha(pr)
+            )
 
           {:skip, reason} ->
-            {:skip, reason}
+            {{:skip, reason}, state}
 
           {:error, reason} ->
-            {:error, reason}
+            {{:error, reason}, state}
         end
     end
   end
 
-  # The open-PR lookup is injectable via the event for tests; otherwise it
-  # routes through `ReworkGate`'s default (the tracker's open-PR fetch, which
-  # fails open where no PR notion exists).
+  # A rework-attempt bound for the comment path: the same head SHA must not
+  # re-enter `agent:rework` indefinitely (#2422). When a head has already been
+  # routed to rework `State.rework_attempt_limit/0` times without moving, the
+  # next routing is a stuck condition — raise attention once and stop instead
+  # of looping. `head_sha` is nil when the PR context cannot be read; the bound
+  # then fails open (the rework write proceeds, exactly as before #2422).
+  defp write_bounded_comment_rework(
+         %State{} = state,
+         issue_key,
+         telemetry_ticket,
+         source,
+         event,
+         attempt_id,
+         head_sha
+       ) do
+    identifier = to_string(issue_key)
+    opts = rework_attempt_alert_opts(event)
+
+    case ReworkGate.verify_rework_attempt(state, identifier, head_sha, opts) do
+      {:ok, state} ->
+        case write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
+          :ok -> {:ok, State.bump_rework_attempt(state, identifier, head_sha)}
+          {:error, _reason} = error -> {error, state}
+        end
+
+      {:skip, reason, state} ->
+        {{:skip, reason}, state}
+    end
+  end
+
+  # The open-PR lookup and the unresolved-thread read are injectable via the
+  # event for tests; otherwise they route through `ReworkGate`'s defaults (the
+  # tracker's open-PR fetch and review-thread fetch, which fail open where no
+  # PR notion exists).
+  defp rework_threads_opts(event) do
+    event
+    |> rework_open_pr_opts()
+    |> maybe_put_threads_fetcher(event)
+  end
+
   defp rework_open_pr_opts(event) do
     case Map.get(event, :open_pr_fetcher) do
       fun when is_function(fun, 1) -> [open_pr_fetcher: fun]
+      _ -> []
+    end
+  end
+
+  defp maybe_put_threads_fetcher(opts, event) do
+    case Map.get(event, :unresolved_threads_fetcher) do
+      fun when is_function(fun, 1) -> Keyword.put(opts, :unresolved_threads_fetcher, fun)
+      _ -> opts
+    end
+  end
+
+  # The rework-attempt attention's emitter is injectable for tests; production
+  # routes through `Aiur.Alerts.emit_system/2`.
+  defp rework_attempt_alert_opts(event) do
+    case Map.get(event, :emit_alert_fun) do
+      fun when is_function(fun, 2) -> [emit_alert_fun: fun]
       _ -> []
     end
   end

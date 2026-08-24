@@ -201,6 +201,42 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert File.stat!(AgentGitHubGuard.budget_broker_path(context.workspace)).mode |> Bitwise.band(0o111) != 0
   end
 
+  # #2356: the guard's credential file sits in the shared budget root so every
+  # workspace's wrapper resolves the same host credential without a token in
+  # any environment.
+  test "the guard credential file lives in the shared budget root", _context do
+    assert AgentGitHubGuard.agent_token_path() == Path.join(Budget.state_dir(), "agent-token")
+  end
+
+  test "ensure_agent_token_file writes the credential at mode 0600", context do
+    token_file = Path.join(context.state_path, "agent-token")
+
+    assert :ok = AgentGitHubGuard.ensure_agent_token_file(token: "bot-pat", path: token_file)
+
+    assert File.read!(token_file) == "bot-pat\n"
+    assert Bitwise.band(File.stat!(token_file).mode, 0o077) == 0
+  end
+
+  test "ensure_agent_token_file removes a stale file when no credential is available", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "stale-token\n")
+
+    assert :no_credential = AgentGitHubGuard.ensure_agent_token_file(token: nil, path: token_file)
+    refute File.exists?(token_file)
+  end
+
+  test "remote install writes the guard credential file for SSH workers", _context do
+    script = AgentGitHubGuard.remote_install_script("/work/aiur/remote", token: "remote-bot-pat")
+    assert script =~ "agent-token"
+    assert script =~ "remote-bot-pat"
+    assert script =~ "chmod 600"
+
+    script = AgentGitHubGuard.remote_install_script("/work/aiur/remote", token: nil)
+    assert script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
+    refute script =~ "remote-bot-pat"
+  end
+
   test "keeps the Executor wrapper outside the budget state directory" do
     refute String.starts_with?(AgentGitHubGuard.host_bin_dir(), Budget.state_dir())
   end
@@ -591,6 +627,80 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
     assert events =~ "\tread\tgraphql\tissue view\tfingerprint-abc\t"
+  end
+
+  # #2356: the agent environment carries no GITHUB_TOKEN/GH_TOKEN — the guard
+  # reads the credential from the file the daemon wrote and injects it ONLY
+  # into the real `gh` child of the governed call. A bare curl or a dependency
+  # build script never sees it.
+  test "governed gh injects the token-file credential only into the real gh child", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    observed = Path.join(context.state_path, "observed-token-env")
+    custom_gh = Path.join(context.state_path, "custom-gh")
+    File.mkdir_p!(context.state_path)
+
+    File.write!(token_file, "file-credential\n")
+    File.mkdir_p!(Path.dirname(custom_gh))
+
+    File.write!(custom_gh, """
+    #!/bin/sh
+    printf 'GH_TOKEN=%s\\nGITHUB_TOKEN=%s\\n' "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}" > #{observed}
+    printf 'ok\\n'
+    """)
+
+    File.chmod!(custom_gh, 0o755)
+
+    env =
+      Enum.map(guard_env(context), fn
+        {"AIUR_REAL_GH", _} -> {"AIUR_REAL_GH", custom_gh}
+        {"AIUR_GITHUB_CREDENTIAL_FILE", _} -> {"AIUR_GITHUB_CREDENTIAL_FILE", token_file}
+        entry -> entry
+      end)
+
+    assert {"ok\n", 0} = run_agent_guard(context, ["api", "repos/owner/repo/issues/2356"], env)
+    assert File.read!(observed) == "GH_TOKEN=file-credential\nGITHUB_TOKEN=\n"
+  end
+
+  # #2356 acceptance: a governed `gh` call with the credential supplied ONLY
+  # through the token file still succeeds AND records an admission under the
+  # credential's own budget key — no environment token involved.
+  test "a governed call with a token-file-only credential records an admission", context do
+    budget_root = Path.join(context.state_path, "token-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "file-credential\n")
+
+    identity_key = Budget.identity_key("machine_user:primary:aiur-bot")
+    key = Budget.token_key("file-credential")
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/2356"],
+               AIUR_GITHUB_CREDENTIAL_FILE: token_file,
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_BUDGET_IDENTITY_KEY: identity_key,
+               AIUR_GITHUB_STAGGER_MS: "0"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               broker,
+               "snapshot",
+               "--db",
+               Path.join(budget_root, "budget.sqlite3"),
+               "--token-key",
+               key,
+               "--identity-key",
+               identity_key
+             ])
+
+    assert length(Jason.decode!(snapshot)["admissions"]) == 1
+
+    # The agent request record carries the credential fingerprint (never the
+    # token), so the admission is attributable to the file-backed credential.
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    assert events =~ "\tread\tcore\t#{key}\t"
   end
 
   # Retention (#2255): the agent request record keeps the previous two
@@ -1993,6 +2103,11 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(context.calls)
   end
 
+  # GitHub bills `rate_limit` at zero (#2328), so an explicit probe is still
+  # admitted through the shared core budget (it takes an RPM slot, an in-flight
+  # lease, and a stagger) but must be written to the ledger non-billable — it
+  # never counts toward a per-actor hourly core ceiling or the core family
+  # total the ceilings are re-derived from.
   test "api rate_limit is admitted non-billable in either spelling", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -2023,6 +2138,93 @@ defmodule Aiur.AgentGitHubGuardTest do
       decoded = Jason.decode!(snapshot)
       assert Enum.any?(decoded["admissions"], &(&1["endpoint_family"] == "rate_limit" and &1["resource"] == "none" and &1["billable"] == false))
     end
+  end
+
+  # The second-order half of #2328: the recovery path probes rate limit exactly
+  # when the fleet is under pressure, so the probe must not spend local budget.
+  # On a rate-limit failure the wrapper admits the original call (billable) and
+  # the probe (non-billable), and the core family total the ceilings are
+  # derived from counts only the original call.
+  test "a rate-limit probe on failure is admitted non-billable and leaves the core total honest", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    reset = System.os_time(:second) + 3_600
+
+    assert {_output, 1} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_REPO_STATE_PATH: "",
+               AIUR_AGENT_QUOTA_STATE_PATH: "",
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_BUDGET_CONSUMER: "workspace:/agent-2328",
+               FAKE_GH_FAIL: "1",
+               FAKE_GH_ERROR: "HTTP 403: API rate limit exceeded",
+               FAKE_RATE_LIMIT: "4077 #{reset} 4405 #{reset}"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => admissions} = Jason.decode!(snapshot)
+    assert Enum.map(admissions, &{&1["endpoint_family"], &1["billable"]}) == [{"issues", true}, {"rate_limit", false}]
+
+    actor =
+      Budget.usage(state_dir: budget_root, enabled?: true)
+      |> Map.fetch!(:actors)
+      |> Enum.find(&(&1.consumer_label == "workspace:/agent-2328"))
+
+    # The billable core figure — what the ceilings are re-derived from — holds
+    # only the original call; the probe no longer pads it.
+    assert actor.core.used == 1
+  end
+
+  # `rate_limit` stays non-billable for the *hourly ceiling* but still counts
+  # for pacing: the broker's requests-per-minute slot is consumed by a free
+  # probe exactly as it would be by a billed call (#2284's "no quota can still
+  # cost a slot"). One rate_limit admission is therefore enough to hold the
+  # next request in the same minute.
+  test "a non-billable rate_limit probe still consumes a rate-per-minute pacing slot", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"5000 0 5000 0", 0} =
+             run_guard(context, ["api", "rate_limit"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_REQUESTS_PER_MINUTE: "1",
+               AIUR_GITHUB_STAGGER_MS: "0"
+             )
+
+    # GitHub bills the probe at zero, so its ledger admission must be recorded
+    # non-billable — the "non-billable" in this test's name is asserted here,
+    # not just implied by the pacing behaviour (#2328 review).
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
+
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    assert {_output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker},
+                     {"AIUR_GITHUB_REQUESTS_PER_MINUTE", "1"},
+                     {"AIUR_GITHUB_STAGGER_MS", "0"}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    refute File.exists?(context.calls)
   end
 
   test "a guarded 304 response is reconciled as unbilled", context do
@@ -2674,6 +2876,28 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert output =~ "username=other"
     assert output =~ "password=other-token"
     refute output =~ "agent-token"
+  end
+
+  # #2356: agents carry no GITHUB_TOKEN/GH_TOKEN; the git guard's credential
+  # helper reads the token from the same credential file the `gh` guard uses,
+  # so a governed `git push` still authenticates without a token in the env.
+  test "git authentication reads the token file when the environment carries no token", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "file-git-token\n")
+
+    input = "protocol=https\nhost=github.com\n\n"
+
+    assert {output, 0} =
+             run_git_credential(context, input,
+               AIUR_GITHUB_CREDENTIAL_FILE: token_file,
+               GITHUB_TOKEN: nil,
+               GH_TOKEN: nil,
+               HOME: context.workspace
+             )
+
+    assert output =~ "username=x-access-token"
+    assert output =~ "password=file-git-token"
   end
 
   test "git push rejects a credential-bearing GitHub remote", context do
@@ -4534,6 +4758,10 @@ defmodule Aiur.AgentGitHubGuardTest do
       {"AIUR_AGENT_WORKSPACE", context.workspace},
       {"FAKE_GH_CALLS", context.calls},
       {"GITHUB_TOKEN", ""},
+      # #2356: the guard reads the credential from this file. Pointed at a
+      # path that never exists so the harness never picks up a real host token;
+      # tests that exercise the file supply their own.
+      {"AIUR_GITHUB_CREDENTIAL_FILE", Path.join(context.state_path, "no-agent-token")},
       {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
       {"AIUR_GITHUB_BUDGET_ROOT", ""},
       {"AIUR_GITHUB_BUDGET_KEY", ""},

@@ -30,7 +30,7 @@ defmodule Aiur.Events.WebhookPollReconciliationTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: @repo)
 
-    dir = Path.join(System.tmp_dir!(), "aiur-reconciliation-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-reconciliation")
     File.mkdir_p!(dir)
     store_path = Path.join(dir, "github_resources.json")
 

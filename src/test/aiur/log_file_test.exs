@@ -30,7 +30,7 @@ defmodule Aiur.LogFileTest do
 
       original_env = Application.get_env(:aiur, :log_file)
 
-      tmp_root = Path.join(System.tmp_dir!(), "aiur-logfile-test-#{System.unique_integer([:positive])}")
+      tmp_root = Aiur.TestSupport.tmp_root!("aiur-logfile-test")
       log_file = Path.join(tmp_root, "log/aiur.log")
       Application.put_env(:aiur, :log_file, log_file)
 
@@ -193,7 +193,7 @@ defmodule Aiur.LogFileTest do
       original_path = Application.get_env(:aiur, :workflow_file_path)
       System.delete_env("AIUR_DEBUG")
 
-      dir = Path.join(System.tmp_dir!(), "aiur-config-debug-#{System.unique_integer([:positive])}")
+      dir = Aiur.TestSupport.tmp_root!("aiur-config-debug")
       File.mkdir_p!(dir)
 
       on_exit(fn ->

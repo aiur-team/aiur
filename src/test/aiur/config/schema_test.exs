@@ -448,6 +448,67 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.polling.usage_interval_seconds == 120
     end
 
+    # Per-class cadences (#2309): `polling.intervals` names a class and
+    # overrides `interval_seconds` for that class only. The map is optional and
+    # empty by default, so existing configs keep today's single-interval
+    # behaviour.
+    test "intervals defaults to an empty map" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.polling.intervals == %{}
+    end
+
+    test "intervals accepts a per-class map of positive seconds" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "polling" => %{
+            "interval_seconds" => 120,
+            "intervals" => %{"dispatch" => 120, "planning" => 600, "review" => 300}
+          }
+        })
+
+      assert settings.polling.intervals == %{"dispatch" => 120, "planning" => 600, "review" => 300}
+    end
+
+    test "intervals accepts 0 as the on-demand (no timer) value" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "polling" => %{"intervals" => %{"planning" => 0, "firehose" => 0}}
+        })
+
+      assert settings.polling.intervals == %{"planning" => 0, "firehose" => 0}
+    end
+
+    test "intervals rejects an unknown class" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"intervals" => %{"plannning" => 600}}})
+
+      assert message =~ "unknown poll class"
+      assert message =~ "planning"
+    end
+
+    test "intervals rejects a negative value" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"intervals" => %{"planning" => -1}}})
+
+      assert message =~ "planning"
+      assert message =~ "non-negative"
+    end
+
+    # Review feedback #2309 (finding 1): `dispatch` now binds the tick, so `0`
+    # there is not an on-demand value — it would stop the scheduler (an
+    # immediate-reschedule busy loop). The schema rejects it outright rather
+    # than silently falling back, so the dead-config failure mode is impossible.
+    test "intervals rejects dispatch: 0 (the dispatch tick must always run)" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"polling" => %{"intervals" => %{"dispatch" => 0}}})
+
+      assert message =~ "dispatch"
+      assert message =~ "positive"
+
+      {:ok, settings} = Schema.parse(%{"polling" => %{"intervals" => %{"dispatch" => 60}}})
+      assert settings.polling.intervals == %{"dispatch" => 60}
+    end
+
     test "usage_interval_seconds defaults above the floor" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.polling.usage_interval_seconds == 300

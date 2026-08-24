@@ -15,7 +15,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   as elapsed time.
   """
 
-  alias Aiur.RunTelemetry
+  alias Aiur.{Orchestrator, RunTelemetry}
+  alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
 
   @default_buckets 180
@@ -28,11 +29,17 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
           source_observed_at: String.t() | nil,
           cap: non_neg_integer(),
+          cap_available?: boolean(),
+          configured_cap: non_neg_integer() | nil,
+          session_cap: non_neg_integer() | nil,
+          cap_binding: String.t() | nil,
+          cap_staleness: {:stale | :retained, non_neg_integer()} | nil,
           cores: pos_integer(),
           cpu_ceiling: number(),
           host_mem_bytes: number(),
           actors: [map()],
           series: [map()],
+          pressure: map(),
           tickets: [map()],
           complexity_breakdown: [map()],
           kpis: map()
@@ -162,6 +169,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @spec model(map(), keyword()) :: model()
   def model(dataset, opts \\ []) do
     cap = Keyword.get(opts, :cap, @default_cap)
+    cap_available? = Keyword.get(opts, :cap_available?, true)
+    configured_cap = Keyword.get(opts, :configured_cap, cap)
+    session_cap = Keyword.get(opts, :session_cap, cap)
+    cap_binding = Keyword.get(opts, :cap_binding)
+    cap_staleness = Keyword.get(opts, :cap_staleness)
     cores = Keyword.get(opts, :cores, System.schedulers_online())
     host_mem = Keyword.get(opts, :host_mem_bytes, @default_host_mem_bytes)
     buckets = Keyword.get(opts, :buckets, @default_buckets)
@@ -190,8 +202,22 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         {key, {actor_kind(key, a), bucket_actor(Map.get(a, :samples, []), timeline, axis0, bw, buckets)}}
       end)
 
-    series = build_series(bucketed, display, display_keys, axis0, bw, buckets)
-    kpis = compute_kpis(series, tickets, %{cap: cap, cores: cores, host_mem: host_mem, bw: bw, dataset: dataset}, opts)
+    pressure_buckets =
+      actors
+      |> Map.get("_daemon", %{})
+      |> Map.get(:samples, [])
+      |> bucket_pressure(timeline, axis0, bw, buckets)
+
+    series = build_series(bucketed, pressure_buckets, display, display_keys, axis0, bw, buckets)
+
+    kpis =
+      compute_kpis(
+        series,
+        tickets,
+        %{cap: cap, cap_available?: cap_available?, cores: cores, host_mem: host_mem, bw: bw, dataset: dataset},
+        opts
+      )
+
     complexity_breakdown = complexity_breakdown(tickets)
 
     rows =
@@ -205,15 +231,140 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
       source_observed_at: get_in(dataset, [:provenance, :time_range, :end]),
       cap: cap,
+      cap_available?: cap_available?,
+      configured_cap: configured_cap,
+      session_cap: session_cap,
+      cap_binding: cap_binding,
+      cap_staleness: cap_staleness,
       cores: cores,
       cpu_ceiling: cores * 100,
       host_mem_bytes: host_mem,
       actors: display,
       series: series,
+      pressure: pressure_summary(series),
       tickets: rows,
       complexity_breakdown: complexity_breakdown,
       kpis: kpis
     }
+  end
+
+  @doc """
+  Formats the effective agent cap with everything needed to act on it.
+
+  Three facts travel with the number, because the bare figure is what made
+  #2241 possible:
+
+    * the *binding constraint* — `2 cap` reads identically whether an AIMD
+      envelope backed off, a session override lowered the ceiling, or paused
+      reservations are holding slots, and each wants a different response;
+    * the *other ceilings* — the session ceiling `aiur status` prints and the
+      configured value in `.aiur/config`, whenever either differs from the
+      effective cap, so the two surfaces never contradict each other;
+    * the *age* — a retained snapshot renders, per the `SnapshotStore`
+      contract, but never unmarked. A confident cap from an hour-old reading is
+      the failure this page already had once (#1564).
+
+  An absent effective fact renders `unknown cap`, never a silent substitution
+  of the configured value in either direction.
+  """
+  @spec cap_label(model()) :: String.t()
+  def cap_label(%{} = model) do
+    head =
+      case model do
+        %{cap_available?: false} -> "unknown cap"
+        %{cap: cap} -> "#{cap} cap"
+      end
+
+    head <> annotations(model)
+  end
+
+  @doc """
+  Renders idle slot-hours, or an em dash when no effective cap was reported.
+
+  Kept beside `cap_label/1` so every surface spells the unknown the same way:
+  the figure is a subtraction from the cap, so an unknown cap has no figure.
+  """
+  @spec wasted_slot_hours_label(number() | nil) :: String.t()
+  def wasted_slot_hours_label(hours) when is_number(hours), do: "#{hours}h"
+  def wasted_slot_hours_label(_hours), do: "—"
+
+  defp annotations(model) do
+    case Enum.reject([binding_note(model), ceiling_note(model), age_note(model)], &is_nil/1) do
+      [] -> ""
+      notes -> " (" <> Enum.join(notes, ", ") <> ")"
+    end
+  end
+
+  defp binding_note(model) do
+    case Map.get(model, :cap_binding) do
+      binding when is_binary(binding) -> "binding: #{binding}"
+      _absent -> nil
+    end
+  end
+
+  # The configured value is always shown when the effective cap is unknown: it
+  # is the only ceiling left to report, and its absence is what would make the
+  # "unknown" unactionable.
+  defp ceiling_note(%{cap_available?: false, configured_cap: configured}) when is_integer(configured),
+    do: "configured #{configured}"
+
+  defp ceiling_note(%{cap_available?: false}), do: nil
+
+  defp ceiling_note(%{cap: cap} = model) do
+    session = Map.get(model, :session_cap, cap)
+    configured = Map.get(model, :configured_cap, cap)
+
+    [{"session", session}, {"configured", configured}]
+    |> Enum.filter(fn {_name, value} -> is_integer(value) and value != cap end)
+    # One number, one name. When the session ceiling and the configured value
+    # coincide, "configured" is the one an operator can go and change.
+    |> Enum.reverse()
+    |> Enum.uniq_by(fn {_name, value} -> value end)
+    |> Enum.reverse()
+    |> case do
+      [] -> nil
+      pairs -> Enum.map_join(pairs, ", ", fn {name, value} -> "#{name} #{value}" end)
+    end
+  end
+
+  # `cap_staleness` is populated only for a degraded read, so its mere presence
+  # is the signal. A current reading carries no note at all.
+  defp age_note(model) do
+    case Map.get(model, :cap_staleness) do
+      {:retained, age_ms} -> "retained, daemon unreachable#{age_suffix(age_ms)}"
+      {:stale, age_ms} -> "stale#{age_suffix(age_ms)}"
+      _absent -> nil
+    end
+  end
+
+  # Under a second the age says nothing an operator can act on, and printing
+  # "0s old" beside "stale" reads as a contradiction rather than a warning.
+  defp age_suffix(age_ms) when is_integer(age_ms) and age_ms >= 1_000, do: ", #{humanize_age(age_ms)} old"
+  defp age_suffix(_age_ms), do: ""
+
+  defp humanize_age(age_ms) do
+    seconds = div(age_ms, 1_000)
+
+    cond do
+      seconds < 60 -> "#{seconds}s"
+      seconds < 3_600 -> "#{div(seconds, 60)}m"
+      true -> "#{Float.round(seconds / 3_600, 1)}h"
+    end
+  end
+
+  # Idle slot-hours are measured against the ceiling that actually existed —
+  # the effective cap — not the configured one, so the figure counts slots the
+  # dispatcher could have filled rather than slots that were never on offer.
+  #
+  # With no known ceiling there is no subtrahend, so there is no figure. `nil`
+  # renders as an em dash: an unknown cap must not produce a precise-looking
+  # hour count derived from a number the page just admitted it does not have.
+  defp wasted_slot_hours(_series, %{cap_available?: false}, _bucket_hours), do: nil
+
+  defp wasted_slot_hours(series, ctx, bucket_hours) do
+    series
+    |> Enum.reduce(0.0, fn s, acc -> acc + max(ctx.cap - s.conc, 0) * bucket_hours end)
+    |> round1()
   end
 
   # ---- per-actor summary ----
@@ -264,12 +415,207 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp bucket_index(ts, t0, bw, buckets), do: ((ts - t0) / bw) |> trunc() |> clamp(0, buckets - 1)
 
-  defp build_series(bucketed, display, display_keys, t0, bw, buckets) do
+  defp bucket_pressure(samples, timeline, axis0, bw, buckets) do
+    Enum.reduce(samples, %{}, fn sample, acc ->
+      case Map.get(sample, :timestamp_ms) do
+        ts when is_integer(ts) ->
+          index = bucket_index(Timeline.project(timeline, ts), axis0, bw, buckets)
+          Map.update(acc, index, pressure_cell(sample), &merge_pressure_cell(&1, sample))
+
+        _other ->
+          acc
+      end
+    end)
+  end
+
+  defp pressure_cell(sample), do: merge_pressure_cell(%{}, sample)
+
+  defp merge_pressure_cell(cell, sample) do
+    fleet_status = field(sample, :fleet_capacity_status)
+    build_status = field(sample, :build_gate_status)
+    ts = Map.get(sample, :timestamp_ms, 0)
+
+    cell
+    |> put_latest_state(:fleet_capacity_status, :fleet_state_ts, fleet_status, ts)
+    |> put_latest_state(:build_gate_status, :build_state_ts, build_status, ts)
+    |> put_latest_state(:fleet_admission_signal, :fleet_signal_ts, field(sample, :fleet_admission_signal), ts)
+    |> put_latest_observation(:fleet_capacity_observed_at_ms, :fleet_observed_ts, field(sample, :fleet_capacity_observed_at_ms), ts)
+    |> put_latest_observation(:build_gate_observed_at_ms, :build_observed_ts, field(sample, :build_gate_observed_at_ms), ts)
+    |> then(fn acc ->
+      if fleet_status == "current" do
+        acc
+        |> put_max(:fleet_agents_occupied, field(sample, :fleet_agents_occupied))
+        |> put_latest_metrics(ts,
+          fleet_agents_configured: field(sample, :fleet_agents_configured),
+          fleet_agents_max: field(sample, :fleet_agents_max),
+          fleet_agents_effective: field(sample, :fleet_agents_effective),
+          fleet_load: field(sample, :fleet_load),
+          fleet_load_threshold: field(sample, :fleet_load_threshold),
+          fleet_schedulers: field(sample, :fleet_schedulers)
+        )
+      else
+        acc
+      end
+    end)
+    |> then(fn acc ->
+      if build_status in ["measured", "disabled", "partial"] do
+        acc
+        |> put_max(:build_gate_active, field(sample, :build_gate_active))
+        |> put_max(:build_gate_queued, field(sample, :build_gate_queued))
+        |> put_max(:build_queue_oldest_wait_seconds, field(sample, :build_queue_oldest_wait_seconds))
+        |> put_min_max(:build_gate_capacity, field(sample, :build_gate_capacity))
+        |> put_latest_metrics(ts, build_gate_capacity: field(sample, :build_gate_capacity))
+      else
+        acc
+      end
+    end)
+  end
+
+  defp put_latest_state(cell, _key, _ts_key, nil, _ts), do: cell
+
+  defp put_latest_state(cell, key, ts_key, value, ts) do
+    if ts >= Map.get(cell, ts_key, -1), do: cell |> Map.put(key, value) |> Map.put(ts_key, ts), else: cell
+  end
+
+  defp put_latest_observation(cell, key, ts_key, value, ts) do
+    if ts >= Map.get(cell, ts_key, -1) do
+      cell
+      |> Map.put(key, if(is_number(value), do: value, else: nil))
+      |> Map.put(ts_key, ts)
+    else
+      cell
+    end
+  end
+
+  defp put_latest_metrics(cell, ts, metrics) do
+    if ts >= Map.get(cell, :metric_ts, -1) do
+      metrics
+      |> Enum.reduce(Map.put(cell, :metric_ts, ts), &put_numeric_metric/2)
+    else
+      cell
+    end
+  end
+
+  defp put_numeric_metric({key, value}, cell), do: Map.put(cell, key, if(is_number(value), do: value, else: nil))
+
+  defp put_max(cell, _key, value) when not is_number(value), do: cell
+  defp put_max(cell, key, value), do: Map.update(cell, key, value, &max(&1, value))
+
+  # Tracks both edges of a capacity that changes mid-run so a peak can never be
+  # presented beside a single "latest" capacity it may not have occurred under.
+  defp put_min_max(cell, _key, value) when not is_number(value), do: cell
+
+  defp put_min_max(cell, key, value) do
+    cell
+    |> Map.update({key, :min}, value, &min(&1, value))
+    |> Map.update({key, :max}, value, &max(&1, value))
+  end
+
+  defp field(sample, key), do: Map.get(sample, key, Map.get(sample, Atom.to_string(key)))
+
+  defp build_series(bucketed, pressure_buckets, display, display_keys, t0, bw, buckets) do
     for b <- 0..(buckets - 1) do
       bucketed
       |> Enum.reduce({0.0, 0.0, 0.0, 0.0, 0, %{}}, &fold_cell(&1, &2, b, display_keys))
       |> series_bucket(b, t0, bw, display)
+      |> Map.merge(pressure_bucket(Map.get(pressure_buckets, b)))
     end
+  end
+
+  defp pressure_bucket(nil), do: %{pressure_state: :empty}
+
+  defp pressure_bucket(cell) do
+    fleet = Map.get(cell, :fleet_capacity_status)
+    build = Map.get(cell, :build_gate_status)
+
+    state =
+      cond do
+        fleet == "stale" -> :stale_fleet
+        build == "degraded" -> :degraded_build
+        build == "partial" or fleet != "current" or build not in ["measured", "disabled"] -> :partial
+        true -> :measured
+      end
+
+    cell
+    |> Map.drop([:metric_ts, :fleet_state_ts, :build_state_ts, :fleet_observed_ts, :build_observed_ts])
+    |> drop_unavailable_fleet(fleet)
+    |> drop_unavailable_build(build)
+    |> Map.put(:pressure_state, state)
+  end
+
+  defp drop_unavailable_fleet(cell, "current"), do: cell
+
+  defp drop_unavailable_fleet(cell, _status),
+    do:
+      Map.drop(cell, [
+        :fleet_agents_occupied,
+        :fleet_agents_configured,
+        :fleet_agents_max,
+        :fleet_agents_effective,
+        :fleet_load,
+        :fleet_load_threshold,
+        :fleet_schedulers,
+        :fleet_admission_signal
+      ])
+
+  defp drop_unavailable_build(cell, status) when status in ["measured", "disabled", "partial"], do: cell
+
+  defp drop_unavailable_build(cell, _status),
+    do: Map.drop(cell, [:build_gate_capacity, :build_gate_active, :build_gate_queued, :build_queue_oldest_wait_seconds])
+
+  @doc false
+  @spec pressure_summary([map()]) :: map()
+  def pressure_summary(series) do
+    %{
+      peak_occupied: max_value(series, :fleet_agents_occupied),
+      peak_active_builds: max_value(series, :build_gate_active),
+      peak_queued_builds: max_value(series, :build_gate_queued),
+      longest_wait_seconds: max_value(series, :build_queue_oldest_wait_seconds),
+      latest_configured_capacity: latest_value(series, :fleet_agents_configured),
+      latest_max_capacity: latest_value(series, :fleet_agents_max),
+      latest_effective_capacity: latest_value(series, :fleet_agents_effective),
+      latest_admission_signal: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_admission_signal),
+      latest_load: latest_value(series, :fleet_load),
+      latest_load_threshold: latest_value(series, :fleet_load_threshold),
+      latest_schedulers: latest_value(series, :fleet_schedulers),
+      latest_build_capacity: latest_source_value(series, :build_gate_status, ["measured", "disabled", "partial"], :build_gate_capacity),
+      min_build_capacity: series_min_value(series, :build_gate_capacity),
+      max_build_capacity: series_max_value(series, :build_gate_capacity),
+      latest_fleet_observed_at_ms: latest_source_value(series, :fleet_capacity_status, ["current"], :fleet_capacity_observed_at_ms),
+      latest_build_observed_at_ms:
+        latest_source_value(
+          series,
+          :build_gate_status,
+          ["measured", "disabled", "partial"],
+          :build_gate_observed_at_ms
+        )
+    }
+  end
+
+  defp latest_source_value(series, status_key, valid_statuses, value_key) do
+    case Enum.find(Enum.reverse(series), &(Map.get(&1, status_key) in valid_statuses)) do
+      nil -> nil
+      sample -> Map.get(sample, value_key)
+    end
+  end
+
+  defp latest_value(series, key) do
+    series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1) |> List.last()
+  end
+
+  defp max_value(series, key) do
+    values = series |> Enum.map(&Map.get(&1, key)) |> Enum.filter(&is_number/1)
+    Enum.max(values, fn -> nil end)
+  end
+
+  defp series_min_value(series, key) do
+    values = series |> Enum.map(&Map.get(&1, {key, :min})) |> Enum.filter(&is_number/1)
+    Enum.min(values, fn -> nil end)
+  end
+
+  defp series_max_value(series, key) do
+    values = series |> Enum.map(&Map.get(&1, {key, :max})) |> Enum.filter(&is_number/1)
+    Enum.max(values, fn -> nil end)
   end
 
   defp fold_cell({key, {kind, arr}}, {ex, ot, tc, tm, cc, per}, b, display_keys) do
@@ -309,7 +655,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     mean_cpu = mean(Enum.sum(Enum.map(series, & &1.total_cpu)), length(series))
     mem_now = (List.last(series) || %{}) |> Map.get(:total_mem, 0)
     bucket_hours = ctx.bw / 1000 / 3600
-    wasted = series |> Enum.reduce(0.0, fn s, acc -> acc + max(ctx.cap - s.conc, 0) * bucket_hours end)
+    wasted = wasted_slot_hours(series, ctx, bucket_hours)
     merged = Enum.count(tickets, fn {_id, t} -> merged?(t) end)
     # A Build Order knows its own size; telemetry only knows the tickets that ran,
     # so inferring scope from it would report a build complete before it started.
@@ -326,7 +672,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       done: merged,
       total: total,
       done_pct: pct(merged, total),
-      wasted_slot_hours: round1(wasted),
+      wasted_slot_hours: wasted,
       sessions: ctx.dataset |> Dataset.boot_ids() |> length(),
       active_ms: round(ctx.bw * length(series)),
       cpu_hours: round1(cpu_hours(ctx.dataset))
@@ -608,11 +954,83 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   defp runtime_opts(opts) do
     opts
-    |> Keyword.put_new(:cap, safe_cap())
+    |> Keyword.merge(runtime_caps(opts), fn _key, given, _derived -> given end)
     |> Keyword.put_new(:cores, System.schedulers_online())
     |> Keyword.put_new(:host_mem_bytes, host_mem_bytes())
     |> Keyword.put_new(:buckets, @default_buckets)
   end
+
+  defp runtime_caps(opts) do
+    if Keyword.has_key?(opts, :cap) do
+      []
+    else
+      opts |> capacity_reading() |> cap_facts()
+    end
+  end
+
+  # Every ceiling the daemon reports travels together. Reading only `effective`
+  # is what let the page and `aiur status` disagree: the CLI prints the session
+  # ceiling, so a page that never mentions it cannot be reconciled with the CLI.
+  defp cap_facts({%{effective: effective} = capacity, polling, staleness})
+       when is_integer(effective) and effective > 0 do
+    [
+      cap: effective,
+      cap_available?: true,
+      session_cap: positive_or(Map.get(capacity, :max), effective),
+      configured_cap: positive_or(Map.get(capacity, :configured), effective),
+      # The polling report travels from the same snapshot as the capacity, so
+      # the page cannot blame "ticket supply" in a state where `aiur status`
+      # says "has not polled yet" (#2138). Two surfaces, one classifier, one
+      # answer.
+      cap_binding: CapacityBinding.short_label(CapacityBinding.binding(capacity, polling)),
+      cap_staleness: staleness
+    ]
+  end
+
+  # No effective fact means no ceiling is known. The local config file is NOT
+  # substituted here: this process may not run on the daemon's host, so its
+  # `.aiur/config` is a different fact wearing the same name, and reporting it
+  # as "configured" would put a confident number under an admitted unknown.
+  defp cap_facts(_reading) do
+    [cap: safe_cap(), cap_available?: false, configured_cap: nil, session_cap: nil, cap_binding: nil, cap_staleness: nil]
+  end
+
+  defp positive_or(value, _fallback) when is_integer(value) and value > 0, do: value
+  defp positive_or(_value, fallback), do: fallback
+
+  # A retained-but-aged snapshot is still rendered — `SnapshotStore` returns it
+  # precisely so callers can show last-known-good data — but its age comes back
+  # with it and is never discarded. Dropping `freshness` here is what turned an
+  # hours-old cap into an unmarked current one.
+  defp capacity_reading(opts) do
+    orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
+    timeout = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
+
+    case Orchestrator.dashboard_snapshot(orchestrator, timeout) do
+      {:current, %{capacity: %{} = capacity} = snapshot, _freshness} ->
+        {capacity, snapshot_polling(snapshot), nil}
+
+      {:stale, %{capacity: %{} = capacity} = snapshot, freshness} ->
+        {capacity, snapshot_polling(snapshot), staleness(freshness)}
+
+      _other ->
+        :unavailable
+    end
+  end
+
+  defp snapshot_polling(%{polling: %{} = polling}), do: polling
+  defp snapshot_polling(_snapshot), do: %{}
+
+  # The two degraded states must not collapse into one message. An aged reading
+  # from a live daemon is a cap that may have moved since; a retained reading
+  # from a daemon that is no longer there is a cap nobody is enforcing.
+  defp staleness(%{reason: :orchestrator_unavailable} = freshness),
+    do: {:retained, freshness_age_ms(freshness)}
+
+  defp staleness(freshness), do: {:stale, freshness_age_ms(freshness)}
+
+  defp freshness_age_ms(%{age_ms: age_ms}) when is_integer(age_ms) and age_ms >= 0, do: age_ms
+  defp freshness_age_ms(_freshness), do: 0
 
   defp safe_cap do
     Aiur.Config.max_concurrent_agents()

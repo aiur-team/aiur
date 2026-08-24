@@ -8,6 +8,17 @@ Install the npm package with Node.js (the hosted quick-start uses Node 20):
 npm install -g aiur-cli
 ```
 
+## Prerequisites
+
+| Tool | Why you need it |
+| --- | --- |
+| Node.js | Runs the `aiur-cli` npm package. |
+| `gh` (GitHub CLI) | Authenticates with GitHub. Run `gh auth login` once — the boot gate falls back to the `gh` keyring, so no manual `GITHUB_TOKEN` export is required. |
+| `tmux` | The launcher runs each Aiur daemon in its own detached tmux session. |
+| A tracker repository | The repository `aiur init` is pointed at, with issues carrying `agent:todo`. |
+
+`python3` is optional: it powers the local budget broker, and without it the daemon runs GitHub requests unmetered. Everything below the baseline is optional — see [Optional Optimizations](/reference/optional-optimizations) for what you can turn on and what it costs.
+
 ## Initialize
 
 Run `aiur init` in the repository Aiur should operate.
@@ -17,7 +28,7 @@ Run `aiur init` in the repository Aiur should operate.
 | Detect tools | Finds available agent toolchains. |
 | Scaffold | Writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and `.aiur/alerts`. |
 | Prepare state | Creates the repository state node and optional `.aiur/prewarm`. |
-| GitHub auth | Writes `./.env` guidance for `GITHUB_TOKEN` without prompting for the secret. |
+| GitHub auth | Writes `./.env` guidance for `GITHUB_TOKEN` without prompting for the secret. A `gh auth login` keyring credential also satisfies the boot gate. |
 | Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
 | Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
@@ -29,11 +40,12 @@ The bare `aiur` command discovers `.aiur/config`, starts a foreground run when t
 
 | Dashboard mode | Requirement |
 | --- | --- |
-| Writable | Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`. On loopback a writable dashboard binds without them but fails closed; beyond loopback it refuses to start without them. |
-| Read-only loopback | Set `observability.dashboard_writable: false` and configure both dashboard credentials. Without them the listener may bind, but every dashboard request is refused until they are set. |
-| Listener disabled | No URL is printed. |
+| No credentials | The loopback listener binds but every dashboard request is refused until `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` are set (a writable dashboard issues a basic-auth challenge; a read-only one returns `503` naming both variables). A dashboard bound beyond loopback refuses to start at all. |
+| Writable (default) | `observability.dashboard_writable: true` (the default) and both `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`, including on loopback. |
+| Read-only | `observability.dashboard_writable: false`; both credentials are still required to view the dashboard. |
+| Listener disabled | `--no-dashboard`; no URL is printed. |
 
-Continue with the [Dashboard](/guide/executor-control-center) guide.
+Continue with the [GUI](/guide/gui) guide.
 
 ## Core subcommands
 

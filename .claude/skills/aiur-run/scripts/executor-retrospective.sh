@@ -17,7 +17,10 @@ wait_backoff="${AIUR_EXECUTOR_WAIT_BACKOFF:-2}"
 
 if [[ ! "$run_id" =~ ^[A-Za-z0-9._-]+$ ]] || [ "$run_id" = "." ] || [ "$run_id" = ".." ]; then
   printf 'AIUR_EXECUTOR_RUN_ID is required, must match [A-Za-z0-9._-]+, and cannot be . or ..\n' >&2
-  exit 64
+  # Precondition exit codes are distinct so a wrapper can tell which
+  # precondition failed: 67 = URL undiscoverable, 68 = run ID missing,
+  # 69 = dashboard password missing.
+  exit 68
 fi
 if [[ ! "$interval_seconds" =~ ^[1-9][0-9]*$ ]]; then
   printf 'AIUR_EXECUTOR_RETROSPECTIVE_SECONDS must be a positive integer\n' >&2
@@ -454,7 +457,7 @@ plan_wait() {
 }
 
 record() {
-  local assessment="${2:-}" adjustment="${3:-unchanged}" at epoch last elapsed report event current payload
+  local assessment="${2:-}" adjustment="${3:-unchanged}" at epoch last elapsed report event current payload visual_check_err
   [ -n "$assessment" ] || {
     printf 'usage: %s record <assessment> [adjustment-or-unchanged]\n' "$0" >&2
     exit 64
@@ -496,7 +499,22 @@ record() {
   # dashboard. Capture failure is itself durable attention evidence, but must
   # not discard the completed wake/outcome summary.
   if [ "${AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK:-1}" != "0" ]; then
-    visual_check visual-check >/dev/null 2>&1 || true
+    # The hourly path must not swallow the precondition line the way the
+    # wrapper that redirects stdout+stderr to a log does. record still
+    # completes and still writes the did-not-run narrative, but one stderr
+    # line naming the failing precondition survives, so a redirected log is
+    # never silently empty next to a bare exit code.
+    visual_check_err="$(mktemp "$run_dir/visual-check.XXXXXX")"
+    # Scope the temp file to this block so an interrupted shell or a future
+    # `set -e` change cannot strand it in $run_dir.
+    trap 'rm -f "$visual_check_err"' EXIT INT TERM
+    # `$?` must be read immediately after the visual_check call: any command
+    # inserted between the pipeline and this printf would silently change what
+    # $? means, and the forwarded line would name the wrong failure.
+    visual_check visual-check >/dev/null 2>"$visual_check_err" || \
+      printf 'visual check did not run (status %s): %s\n' "$?" "$(head -n 1 "$visual_check_err")" >&2
+    rm -f "$visual_check_err"
+    trap - EXIT INT TERM
   fi
 
   # The terminal is an operator-facing surface too. Keep this outside the
@@ -531,11 +549,17 @@ dashboard_url_from_socket() {
 # the Aiur dashboard apart from any other listener, and writing a stranger's
 # pages into the hourly narrative as if they were the daemon's is worse than
 # the explicit attention verdict a failed discovery produces.
+#
+# On success stdout is "url<TAB>socket": the dashboard URL and the tmux socket
+# (empty for the URL override or the ambient server) whose server published
+# it. visual_check() reuses the socket for the credential fallback so it reads
+# the same daemon whose dashboard it is about to capture, never a sibling
+# instance on the host.
 dashboard_url() {
-  local url tmux_bin socket socket_dir candidate found
+  local url tmux_bin socket socket_dir candidate found found_socket
 
   if [ -n "${AIUR_DASHBOARD_URL:-}" ]; then
-    printf '%s\n' "${AIUR_DASHBOARD_URL%/}"
+    printf '%s\t%s\n' "${AIUR_DASHBOARD_URL%/}" ""
     return 0
   fi
 
@@ -546,12 +570,12 @@ dashboard_url() {
   # than one Aiur daemon is live on the host.
   if [ -n "${AIUR_TMUX_SOCKET:-}" ]; then
     url="$(dashboard_url_from_socket "$tmux_bin" "$AIUR_TMUX_SOCKET" || true)"
-    [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+    [ -n "$url" ] && { printf '%s\t%s\n' "$url" "$AIUR_TMUX_SOCKET"; return 0; }
   fi
 
   # 2. The ambient tmux server, for an Executor running inside the session.
   url="$(dashboard_url_from_socket "$tmux_bin" '' || true)"
-  [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+  [ -n "$url" ] && { printf '%s\t%s\n' "$url" ""; return 0; }
 
   # 3. Live aiur-* tmux servers on this host. The Executor usually runs
   # outside the daemon's tmux session, so the ambient server above is its own,
@@ -564,7 +588,7 @@ dashboard_url() {
     for socket in "$socket_dir"/aiur-*"$AIUR_EXECUTOR_RUN_ID"*; do
       [ -S "$socket" ] || continue
       url="$(dashboard_url_from_socket "$tmux_bin" "$(basename "$socket")" || true)"
-      [ -n "$url" ] && { printf '%s\n' "$url"; return 0; }
+      [ -n "$url" ] && { printf '%s\t%s\n' "$url" "$(basename "$socket")"; return 0; }
     done
   fi
 
@@ -573,19 +597,116 @@ dashboard_url() {
   # Executor owns, and picking by glob order would silently audit the wrong
   # fleet. Refusing sends the operator to AIUR_TMUX_SOCKET instead.
   found=""
+  found_socket=""
   for socket in "$socket_dir"/aiur-*; do
     [ -S "$socket" ] || continue
     candidate="$(dashboard_url_from_socket "$tmux_bin" "$(basename "$socket")" || true)"
     [ -n "$candidate" ] || continue
     if [ -z "$found" ]; then
       found="$candidate"
+      found_socket="$(basename "$socket")"
     elif [ "$found" != "$candidate" ]; then
       return 1
     fi
   done
 
   [ -n "$found" ] || return 1
-  printf '%s\n' "$found"
+  printf '%s\t%s\n' "$found" "$found_socket"
+}
+
+# Find the daemon BEAM process under one tmux pane. The pane runs the release
+# launcher chain (shell → launcher script → bin/aiur → beam.smp), so the BEAM
+# is a descendant of the pane PID. Scoped to the pane's subtree so a host
+# running several daemons can never read the wrong instance's credentials.
+beam_descendant() {
+  local frontier="$1" pid ppid next_ppid i
+  for i in 1 2 3 4 5 6 7 8; do
+    next_ppid=""
+    for pid in /proc/[0-9]*; do
+      pid="${pid#/proc/}"
+      ppid="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null || true)"
+      case " $frontier " in
+        *" $ppid "*) ;;
+        *) continue ;;
+      esac
+      if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q -- 'beam.smp'; then
+        printf '%s\n' "$pid"
+        return 0
+      fi
+      next_ppid="${next_ppid:+$next_ppid }$pid"
+    done
+    [ -n "$next_ppid" ] || return 1
+    frontier="$next_ppid"
+  done
+  return 1
+}
+
+# Read one variable from the running daemon's environment. The BEAM loads .env
+# itself, so the authoritative copy lives in /proc/<beam>/environ; the tmux
+# server's environment is only what a pane inherited and can be stale. The
+# read is scoped to the same socket that published the dashboard URL so a
+# multi-daemon host never mixes one instance's credentials into another's
+# capture. A concrete (non-empty) socket is required: an operator-set
+# AIUR_DASHBOARD_URL has no daemon socket attached, and probing the ambient
+# server for credentials would risk reading a stranger's pane.
+daemon_env_var() {
+  local var="$1" socket="$2" tmux_bin session pane_pid beam_pid value pane_pids
+  [ -n "$socket" ] || return 1
+  tmux_bin="$(command -v tmux || true)"
+  [ -n "$tmux_bin" ] || return 1
+
+  session="${AIUR_TMUX_SESSION:-${socket}-default}"
+  pane_pids="$("$tmux_bin" -L "$socket" list-panes -t "$session" -F '#{pane_pid}' 2>/dev/null || true)"
+  [ -n "$pane_pids" ] || return 1
+
+  # Try every pane, not just the first: the daemon pane is the session's first
+  # window in the common case, but a TUI or agent pane may sort ahead, and
+  # stopping at the first pane would miss credentials the daemon BEAM does hold.
+  for pane_pid in $pane_pids; do
+    [[ "$pane_pid" =~ ^[1-9][0-9]*$ ]] || continue
+
+    beam_pid="$(beam_descendant "$pane_pid" || true)"
+    if [ -n "$beam_pid" ]; then
+      # -r guards the read so a pane that exited between list-panes and here
+      # cannot leak a "No such file or directory" onto the check's stderr.
+      value="$( { [ -r "/proc/$beam_pid/environ" ] && tr '\0' '\n' < "/proc/$beam_pid/environ"; } 2>/dev/null | sed -n "s/^${var}=//p" | head -n 1 || true)"
+      [ -n "$value" ] && { printf '%s\n' "$value"; return 0; }
+    fi
+
+    # The pane shell's own environment is a weaker source (it misses variables
+    # the BEAM loaded from .env itself) but is better than failing when the
+    # BEAM is not a recognizable descendant of the pane.
+    value="$( { [ -r "/proc/$pane_pid/environ" ] && tr '\0' '\n' < "/proc/$pane_pid/environ"; } 2>/dev/null | sed -n "s/^${var}=//p" | head -n 1 || true)"
+    [ -n "$value" ] && { printf '%s\n' "$value"; return 0; }
+  done
+  return 1
+}
+
+# Write the "did not run" evidence for a precondition failure. Both the
+# narrative verdict and the machine-readable report say "did not run" — never
+# "attention" — so a wrapper that reads either artifact (or an empty stdout
+# log) can never mistake a skipped check for one that ran and found nothing.
+# Direct invocations of capture-dashboard.mjs write the same two files, so a
+# wrapper sees one consistent shape whether the failure was caught here or in
+# the browser script.
+write_did_not_run() {
+  local dir="$1" detail="$2" message="$3" base="${4:-}"
+  cat > "$dir/verdict.md" <<EOF
+# Dashboard visual check
+
+- capture: **did not run** — $message
+
+Overall: **did not run**. Captures were not attempted.
+EOF
+  cat > "$dir/report.json" <<EOF
+{
+  "checkedAt": "$(now_iso)",
+  "baseUrl": "$base",
+  "verdict": "did-not-run",
+  "precondition": "$detail",
+  "pages": []
+}
+EOF
 }
 
 # Capture the four operator-facing reports and append their compact verdict to
@@ -595,6 +716,7 @@ dashboard_url() {
 # serialized.
 visual_check() {
   local capture_script capture_dir dashboard_base_url timestamp capture_status verdict
+  local dashboard_socket dashboard_username dashboard_password discovery
   local url_override="${AIUR_DASHBOARD_URL:-}"
   # "$@" still carries the subcommand word (the dispatcher never shifts), so
   # $1 is "visual-check" and an operator-supplied base URL arrives as $2.
@@ -624,22 +746,62 @@ visual_check() {
   capture_dir="${AIUR_EXECUTOR_DASHBOARD_CAPTURE_DIR:-${retro_file}.d/dashboard-$timestamp}"
   mkdir -p "$capture_dir"
 
-  dashboard_base_url="$(AIUR_DASHBOARD_URL="$url_override" dashboard_url || true)"
-  if [ -z "$dashboard_base_url" ]; then
-    capture_status=67
-    verdict="$capture_dir/verdict.md"
-    cat > "$verdict" <<EOF
-# Dashboard visual check
-
-- capture: **attention** — could not discover the daemon dashboard URL; set AIUR_DASHBOARD_URL or run from the Aiur tmux session.
-
-Overall: **attention**. Captures were not attempted.
-EOF
+  discovery="$(AIUR_DASHBOARD_URL="$url_override" dashboard_url 2>/dev/null || true)"
+  if [ -n "$discovery" ]; then
+    dashboard_base_url="${discovery%%$'\t'*}"
+    dashboard_socket="${discovery#*$'\t'}"
+    [ "$dashboard_socket" = "$discovery" ] && dashboard_socket=""
   else
-    set +e
-    AIUR_DASHBOARD_URL="$dashboard_base_url" node "$capture_script" "$capture_dir" > "$capture_dir/capture-output.json" 2> "$capture_dir/capture-error.log"
-    capture_status=$?
-    set -e
+    dashboard_base_url=""
+    dashboard_socket=""
+  fi
+  if [ -z "$dashboard_base_url" ]; then
+    # Precondition: no dashboard URL to capture. Exit 67 names this exact
+    # precondition, the stderr line tells the operator which variable to set,
+    # and the verdict says "did not run" so an empty log can never read as a
+    # healthy capture.
+    capture_status=67
+    printf 'AIUR_DASHBOARD_URL is required: could not discover the daemon dashboard URL. Set AIUR_DASHBOARD_URL, or run inside the Aiur tmux session.\n' >&2
+    write_did_not_run \
+      "$capture_dir" \
+      'AIUR_DASHBOARD_URL is not set; no dashboard URL to capture.' \
+      'could not discover the daemon dashboard URL; set AIUR_DASHBOARD_URL or run from the Aiur tmux session.' \
+      "$dashboard_base_url"
+  else
+    # Credentials normally live in the daemon's environment, so the wrapper may
+    # not carry them even though the daemon does. Read what the operator would
+    # have to extract by hand when the environment is bare — but only when the
+    # URL came from a tmux socket, so the read is scoped to the daemon that
+    # published it. An operator-set AIUR_DASHBOARD_URL has no socket to scope
+    # to, so that path requires the credentials explicitly.
+    dashboard_username="${AIUR_DASHBOARD_USERNAME:-}"
+    dashboard_password="${AIUR_DASHBOARD_PASSWORD:-}"
+    if [ -n "$dashboard_socket" ]; then
+      [ -n "$dashboard_username" ] || dashboard_username="$(daemon_env_var AIUR_DASHBOARD_USERNAME "$dashboard_socket" || true)"
+      [ -n "$dashboard_password" ] || dashboard_password="$(daemon_env_var AIUR_DASHBOARD_PASSWORD "$dashboard_socket" || true)"
+    fi
+    dashboard_username="${dashboard_username:-aiur}"
+
+    if [ -z "$dashboard_password" ]; then
+      # Precondition: the dashboard refuses every request without a password.
+      # Exit 69 names this precondition distinctly from a missing URL (67) or a
+      # missing run ID (68).
+      capture_status=69
+      printf 'AIUR_DASHBOARD_PASSWORD is required: set AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD, or run where the daemon environment has them.\n' >&2
+      write_did_not_run \
+        "$capture_dir" \
+        'AIUR_DASHBOARD_PASSWORD is not set; the dashboard refuses all requests without it.' \
+        'AIUR_DASHBOARD_PASSWORD is not set and could not be read from the running daemon; set it (with AIUR_DASHBOARD_USERNAME) and retry.' \
+        "$dashboard_base_url"
+    else
+      set +e
+      AIUR_DASHBOARD_URL="$dashboard_base_url" \
+      AIUR_DASHBOARD_USERNAME="$dashboard_username" \
+      AIUR_DASHBOARD_PASSWORD="$dashboard_password" \
+        node "$capture_script" "$capture_dir" > "$capture_dir/capture-output.json" 2> "$capture_dir/capture-error.log"
+      capture_status=$?
+      set -e
+    fi
   fi
 
   verdict="$capture_dir/verdict.md"

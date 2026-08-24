@@ -942,6 +942,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def issue_dispatch_authorized?(_issue), do: false
 
+  # A deferred authorization (a transient budget hold / rate limit / transport
+  # failure prevented the provenance fetch) is distinct from a verified denial.
+  # Dispatch still skips the ticket this cycle (fail-closed), but the
+  # orchestrator must never read `:deferred` as revocation — that would kill a
+  # running agent over a 30-second throttle (#2409).
+  @spec issue_dispatch_authorization_deferred?(term()) :: boolean()
+  def issue_dispatch_authorization_deferred?(%Issue{dispatch_authorization: :deferred}), do: true
+  def issue_dispatch_authorization_deferred?(_issue), do: false
+
   @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
   def todo_issue_blocked_by_non_terminal?(
         %Issue{state: issue_state, blocked_by: blockers},
@@ -1040,6 +1049,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def state_slug(_state_name), do: nil
 
+  # Explicit state precedence for contradictory-label resolution (#2437): the
+  # label with the most outstanding work wins. The terminal `done` must never
+  # beat `rework`/`in-progress`/`human-review`/`error` — resolving a done+rework
+  # pair to `done` silently discards the outstanding work and the heal would
+  # close the ticket with it. `ci-wait` is a transient sub-state that must never
+  # win a resolution, so it maps to an index strictly past every other label —
+  # including unknown ones (a mistyped or future state, `merging`, `cancelled`)
+  # — which keeps an unknown disposition from ever losing to the transient
+  # `ci-wait`. `todo` is a special case (it means "no work has been done yet"
+  # rather than a disposition) handled below.
+  @state_precedence ~w(rework in-progress human-review error done)
+  @ci_wait_state "ci-wait"
+
   @doc """
   Deterministically resolves a set of contradictory `agent:*` state labels to
   the single state a ticket should be treated as.
@@ -1048,9 +1070,23 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   yet to redo". When both are present they contradict, and `todo` wins: a
   ticket that is also `todo` has not been worked, so any `rework` verdict
   stamped alongside it is the artifact of a broken writer, and "pick this up
-  again" (`todo`) is the honest fallback — never a review verdict. Any other
-  pair resolves to the alphabetically-first label so the choice is always
-  deterministic. Empty input resolves to `nil`.
+  again" (`todo`) is the honest fallback — never a review verdict.
+
+  Among labels that both assert a real disposition, the winner is the one with
+  the most outstanding work, in the explicit precedence order `rework` >
+  `in-progress` > `human-review` > `error` > `done`. Resolving the terminal
+  `done` over an outstanding disposition would silently discard the work —
+  nothing reopens the ticket and the heal would report the pair as healed
+  exactly when the work is lost — so the order deliberately favors re-opening
+  over closing (#2437). `ci-wait` is a transient sub-state and never wins a
+  resolution: it means "the agent is paused waiting for CI", so any other state
+  label on the ticket is the real disposition and takes precedence (a
+  `ci-wait`+`rework` ticket is really a rework ticket whose stale `ci-wait` was
+  never cleared). Labels outside the precedence list (`merging`, `cancelled`, a
+  mistyped or future state) lose to every known disposition but still outrank
+  the transient `ci-wait`, so `ci-wait` can never win a resolution; ties among
+  equally-ranked labels resolve by the order the labels arrived. Empty input
+  resolves to `nil`.
   """
   @spec resolve_state_labels([String.t()]) :: String.t() | nil
   def resolve_state_labels(state_labels) when is_list(state_labels) do
@@ -1059,16 +1095,33 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       |> Enum.map(&normalize_state_label/1)
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
-      |> Enum.sort()
 
     cond do
-      "todo" in normalized -> "todo"
-      normalized == [] -> nil
-      true -> hd(normalized)
+      "todo" in normalized ->
+        "todo"
+
+      normalized == [] ->
+        nil
+
+      true ->
+        Enum.min_by(normalized, &state_precedence_index/1)
     end
   end
 
   def resolve_state_labels(_state_labels), do: nil
+
+  # Smaller index = more outstanding work and wins a resolution. Unknown labels
+  # map one step past the known dispositions (so a mistyped or future state
+  # never beats a real one) but still before `ci-wait`, which is the one label
+  # that must never win a resolution — it maps past the unknowns as well. Ties
+  # among equal indices resolve by the order the labels arrived.
+  defp state_precedence_index(state) do
+    case Enum.find_index(@state_precedence, &(&1 == state)) do
+      nil when state == @ci_wait_state -> length(@state_precedence) + 1
+      nil -> length(@state_precedence)
+      index -> index
+    end
+  end
 
   # Normalizes a state label to its bare, unprefixed lowercase form so both the
   # GitHub ingestion shape (`"todo"`, prefix already stripped) and any
