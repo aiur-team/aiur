@@ -50,6 +50,7 @@ defmodule Aiur.Application do
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
+    Budget.warn_metering_unavailable()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
@@ -370,14 +371,18 @@ defmodule Aiur.Application do
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
-      # The single view-state cadence. Starts after the three sources it sweeps
-      # so its first tick never races their boot fill.
+      # The single view-state cadence, now reconciling only the pack-status
+      # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
+      # timer). Starts after its sources so its first tick never races their
+      # boot fill.
       Aiur.GitHub.ViewStateSweep,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
       maybe_ls_remote_ticker(ls_remote_ticker?),
+      Aiur.Orchestrator.PRHealthScanner,
+      Aiur.Orchestrator.ReworkRequeue,
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,

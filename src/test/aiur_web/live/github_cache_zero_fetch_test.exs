@@ -199,7 +199,7 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       # Proving the counter still catches it is what makes the zeros above
       # meaningful rather than vacuous.
       _ignored =
-        Issues.fetch_issue_raw(2073,
+        Issues.fetch_issue_raw_conditional(2073,
           repository: {"aiur-team", "aiur"},
           token: "test-token-not-used-the-plug-intercepts"
         )

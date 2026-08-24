@@ -89,6 +89,68 @@ defmodule Aiur.Usage.PricingFixture do
     definitions |> RelationshipRegistry.new() |> ok!()
   end
 
+  def deepseek_definition(overrides \\ %{}) do
+    Map.merge(
+      %{
+        provider: :deepseek,
+        source: "deepseek.openai_compat.request_usage",
+        source_version: "openai-compatible-2026-08",
+        revision: "deepseek-request-usage-2026-08",
+        provider_total_authoritative: true,
+        dimensions: %{
+          input: :additive,
+          cached_input: :additive,
+          cache_creation_input: {:subset_of, :input},
+          output: :additive,
+          reasoning_output: {:subset_of, :output}
+        }
+      },
+      overrides
+    )
+  end
+
+  def deepseek_envelope!(overrides \\ %{}) do
+    base = %{
+      idempotency_key: "deepseek:request-29",
+      provider: :deepseek,
+      source: "deepseek.openai_compat.request_usage",
+      source_version: "openai-compatible-2026-08",
+      source_event_id: "request-29",
+      measurement_kind: :delta,
+      counter_scope: :request,
+      counter_epoch: "request-epoch-29",
+      agent_family: :deepseek,
+      backend: :openai_compat,
+      transport: :openai_compat,
+      auth_mode: :api_key,
+      requested_model: "deepseek-v4-flash",
+      resolved_model: "deepseek-v4-flash",
+      account_generation: account_generation(:deepseek, :openai_compat),
+      tokens: deepseek_tokens(),
+      relationship_revision: "deepseek-request-usage-2026-08"
+    }
+
+    base
+    |> Map.merge(overrides)
+    |> envelope_attributes()
+    |> UsageEnvelope.new()
+    |> ok!()
+  end
+
+  def deepseek_tokens(overrides \\ %{}) do
+    Map.merge(
+      %{
+        input: 1_000_000,
+        cached_input: 0,
+        cache_creation_input: 0,
+        output: 0,
+        reasoning_output: 0,
+        provider_reported_total: 1_000_000
+      },
+      overrides
+    )
+  end
+
   def default_price_table!, do: PriceTable.default() |> ok!()
 
   def price_table!(relationship_revision, overrides \\ %{}) do
@@ -105,6 +167,7 @@ defmodule Aiur.Usage.PricingFixture do
             currency: "USD",
             context_tier: :short_context,
             cache_write_duration: :not_applicable,
+            window: :flat,
             price: "1.00",
             token_unit: 1_000_000,
             effective_date: ~D[2026-07-15],

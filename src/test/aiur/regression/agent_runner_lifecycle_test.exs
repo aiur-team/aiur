@@ -8,11 +8,7 @@ defmodule Aiur.Regression.AgentRunnerLifecycleTest do
   alias Aiur.SessionHandle
 
   setup do
-    tmp_dir =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur_agent_runner_lifecycle_test_#{System.unique_integer([:positive])}"
-      )
+    tmp_dir = Aiur.TestSupport.tmp_root!("aiur_agent_runner_lifecycle_test")
 
     File.mkdir_p!(tmp_dir)
     original = Application.get_env(:aiur, :log_file)

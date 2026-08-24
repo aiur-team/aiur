@@ -122,6 +122,9 @@ defmodule Aiur.Orchestrator.State do
           codex_rate_limits: map() | nil,
           events_etag: String.t() | nil,
           events_last_id: String.t() | nil,
+          firehose_partial_streak: non_neg_integer(),
+          firehose_truncation_alert_active: boolean(),
+          firehose_truncation_alert_resolution_emitted: boolean(),
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
@@ -155,7 +158,14 @@ defmodule Aiur.Orchestrator.State do
           # warming base. Drives the at-most-once-per-N-ticks hold log so a
           # slow/stuck base build stays visible in the daemon log without
           # spamming it (see Dispatcher.log_prewarm_hold/2).
-          prewarm_hold_ticks: non_neg_integer()
+          prewarm_hold_ticks: non_neg_integer(),
+          # Monotonic ms when the current consecutive prewarm hold began (nil
+          # when no hold is in progress). The `system.dispatch.prewarm_blocked`
+          # alert is only raised once a hold has persisted past
+          # `Dispatcher.@prewarm_blocked_alert_after_ms`, so a routine refresh
+          # probe — a hold that self-clears in seconds — is never reported while
+          # a genuine block still is (see Dispatcher.maybe_emit_prewarm_blocked_alert/3).
+          prewarm_hold_since_ms: non_neg_integer() | nil
         }
 
   # The Orchestrator is the single owner of the correlated control lifecycle;
@@ -235,6 +245,9 @@ defmodule Aiur.Orchestrator.State do
     codex_rate_limits: nil,
     events_etag: nil,
     events_last_id: nil,
+    firehose_partial_streak: 0,
+    firehose_truncation_alert_active: false,
+    firehose_truncation_alert_resolution_emitted: false,
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
@@ -270,7 +283,8 @@ defmodule Aiur.Orchestrator.State do
     poll_cycles_completed: 0,
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
-    prewarm_hold_ticks: 0
+    prewarm_hold_ticks: 0,
+    prewarm_hold_since_ms: nil
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}
@@ -615,10 +629,20 @@ defmodule Aiur.Orchestrator.State do
 
   def paused_running_count(_running), do: 0
 
+  # Paused entries that keep their fleet reservation. A deliberate/Executor
+  # pause holds its slot so the polling loop cannot auto-claim replacement
+  # work. CI-wait, dependency-blocked, and duration-capped pauses are the
+  # exception: the daemon owns that wait (or the agent has simply hit its time
+  # cap and is parked for review), so the parked runner releases normal
+  # dispatch capacity — holding the slot would convert the time cap into a
+  # capacity leak where parked agents accumulate against the fleet limit
+  # (#2329).
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration]
+
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   def reserved_paused_running_count(running) when is_map(running) do
     Enum.count(running, fn
-      {_issue_id, %{paused_reason: reason}} when reason in [:ci_wait, :blocker_dependency] -> false
+      {_issue_id, %{paused_reason: reason}} when reason in @non_reserving_pause_reasons -> false
       {_issue_id, entry} -> paused_running_entry?(entry)
     end)
   end

@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Config do
 
   require Logger
 
-  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, HostCommand, Transport}
 
   @default_label_prefix "agent"
 
@@ -331,6 +331,28 @@ defmodule Aiur.GitHub.Config do
     Aiur.Config.settings!().pr_watch.command_prefix
   end
 
+  @doc """
+  Whether the PR-health scanner runs (`pr_health.enabled`). Opt-in so a repo
+  that has not configured thresholds pays no GitHub API budget.
+  """
+  @spec pr_health_enabled?() :: boolean()
+  def pr_health_enabled? do
+    Aiur.Config.settings!().pr_health.enabled
+  end
+
+  @doc "PR-health scan cadence, in milliseconds."
+  @spec pr_health_interval_ms() :: pos_integer()
+  def pr_health_interval_ms do
+    interval = Aiur.Config.settings!().pr_health.interval_seconds
+    max(interval, 1) * 1_000
+  end
+
+  @doc "A non-draft PR older than this many hours with no review is flagged."
+  @spec pr_health_stale_hours() :: pos_integer()
+  def pr_health_stale_hours do
+    Aiur.Config.settings!().pr_health.stale_hours
+  end
+
   @impl Aiur.TrackerConfig
   def validate! do
     cond do
@@ -382,11 +404,23 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
-  # Query the gh keyring with the env tokens CLEARED so gh returns the stored
-  # login rather than echoing the (possibly stale) env var. nil when gh is
-  # absent or not logged in via keyring (headless/CI).
-  defp keyring_token do
-    case System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
+  @doc """
+  Query the gh keyring with the env tokens CLEARED so gh returns the stored
+  login rather than echoing the (possibly stale) env var.
+
+  Returns the stored PAT as a trimmed string, or `nil` when gh is absent, not
+  logged in via keyring (headless/CI), or the lookup fails.
+
+  Routed through the host guard so the keyring lookup is admitted and recorded
+  like every other gh call (#2353). This is the single source of truth for
+  "does a gh keyring credential exist": `resolve_pat_token/1` uses it as its
+  runtime fallback, and the boot gate in `Aiur.Env` consults the same function
+  so a keyring-only `gh auth login` satisfies the GitHub credential requirement
+  before any env token is set.
+  """
+  @spec keyring_token() :: String.t() | nil
+  def keyring_token do
+    case HostCommand.run(["auth", "token", "--hostname", "github.com"],
            env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
            stderr_to_stdout: true
          ) do

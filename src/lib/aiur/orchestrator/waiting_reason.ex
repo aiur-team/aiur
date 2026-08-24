@@ -50,10 +50,32 @@ defmodule Aiur.Orchestrator.WaitingReason do
       open_decision?(Map.get(attrs, :open_decision_count)) -> :waiting_for_human
       Map.get(attrs, :work_state) == :completed -> :awaiting_dispatch
       unresponsive?(attrs) -> :unresponsive
-      tracker_reason != :active -> tracker_reason
-      true -> running_state_reason(attrs)
+      # A duration-capped pause is one consistent state, never re-labelled by
+      # whatever the tracker state happens to be. #2310 and #2311 paused for
+      # the same `max_agent_duration` reason rendered `waiting_for_human` and
+      # `paused` depending on their tracker state; "maximum agent duration
+      # reached" is a local pause, not a tracker wait, so it always reads
+      # `paused` (an open decision above still wins — it is a separate cause).
+      duration_capped_pause?(attrs) -> :paused
+      true -> running_reason(attrs, tracker_reason)
     end
   end
+
+  # The residual classification once the overrides (open decision, completed,
+  # unresponsive, duration cap) are ruled out: tracker state first, then the
+  # pause-reason-specific labels, then the `:paused`/`:sleeping` work state.
+  defp running_reason(attrs, tracker_reason) do
+    if tracker_reason != :active do
+      tracker_reason
+    else
+      running_state_reason(attrs)
+    end
+  end
+
+  defp duration_capped_pause?(%{pause_reason: :max_agent_duration, work_state: :paused}),
+    do: true
+
+  defp duration_capped_pause?(_attrs), do: false
 
   @doc "Every retry-queue row is backing off by definition."
   @spec for_retry() :: t()

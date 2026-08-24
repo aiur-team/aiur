@@ -55,7 +55,7 @@ alerts:
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
   "system.dispatch.prewarm_blocked.resolved":
-    message: Shared prewarm recovered
+    message: Shared prewarm released dispatch
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
   "system.dispatch.capacity_starved":

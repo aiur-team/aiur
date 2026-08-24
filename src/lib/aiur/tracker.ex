@@ -18,6 +18,8 @@ defmodule Aiur.Tracker do
               {:ok, [map()]} | {:error, term()}
   @callback fetch_open_pull_request_for_branch(String.t() | integer()) ::
               {:ok, map() | nil} | {:error, term()}
+  @callback fetch_open_pull_requests_for_branch(String.t() | integer()) ::
+              {:ok, [map()]} | {:error, term()}
   @callback update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   @callback update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
@@ -132,6 +134,12 @@ defmodule Aiur.Tracker do
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request_for_branch(issue_id) do
     adapter().fetch_open_pull_request_for_branch(issue_id)
+  end
+
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_for_branch(issue_id) do
+    adapter().fetch_open_pull_requests_for_branch(issue_id)
   end
 
   @spec project_identity() :: String.t() | nil

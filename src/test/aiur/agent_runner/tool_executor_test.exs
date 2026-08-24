@@ -653,7 +653,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       identifier = "TE-publication-#{System.unique_integer([:positive])}"
       issue = %Issue{id: "gid-publication-success", identifier: identifier}
       test_pid = self()
-      workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+      workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
       on_exit(fn -> File.rm_rf!(workspace) end)
 
       executor =
@@ -704,7 +704,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       identifier = "TE-publication-failure-#{System.unique_integer([:positive])}"
       issue = %Issue{id: "gid-publication-failure", identifier: identifier}
       test_pid = self()
-      workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+      workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
       on_exit(fn -> File.rm_rf!(workspace) end)
 
       executor =
@@ -758,7 +758,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         identifier = "TE-publication-#{label}-#{System.unique_integer([:positive])}"
         issue = %Issue{id: "gid-#{label}", identifier: identifier}
         test_pid = self()
-        workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+        workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
         on_exit(fn -> File.rm_rf!(workspace) end)
 
         executor =
@@ -799,7 +799,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       start_supervised!({Aiur.CoordinationTasks, name: name})
       secret = "ghp_" <> String.duplicate("c", 36)
       issue = %Issue{id: "gid-publication-log", identifier: "AIUR-PUBLICATION-LOG"}
-      workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+      workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
       on_exit(fn -> File.rm_rf!(workspace) end)
 
       executor =
@@ -927,7 +927,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       identifier = "TE-publication-remote-#{System.unique_integer([:positive])}"
       issue = %Issue{id: "gid-publication-remote", identifier: identifier}
       test_pid = self()
-      workspace = Path.join(System.tmp_dir!(), "aiur-publication-#{System.unique_integer([:positive])}")
+      workspace = Aiur.TestSupport.tmp_root!("aiur-publication")
       on_exit(fn -> File.rm_rf!(workspace) end)
 
       executor =
