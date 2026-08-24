@@ -490,24 +490,8 @@ defmodule Aiur.EnvTest do
     File.mkdir_p!(bin_dir)
     fake_gh = Path.join(bin_dir, "gh")
 
-    pidfile =
-      if Keyword.get(opts, :assert_reaped, false) do
-        pid_root = Path.join(System.tmp_dir!(), "aiur-env-keyring-reap-#{unique}")
-        File.mkdir_p!(pid_root)
-        Path.join(pid_root, "gh.pid")
-      end
-
-    script =
-      case pidfile do
-        nil -> token_script
-        path -> "echo $$ > #{path}\n" <> token_script
-      end
-
-    pass_through =
-      case System.find_executable("gh") do
-        nil -> "exit 99\n"
-        path -> "exec #{path} \"$@\"\n"
-      end
+    {pidfile, script} = fake_gh_script(token_script, unique, opts)
+    pass_through = pass_through_script()
 
     File.write!(fake_gh, "#!/bin/sh\n" <> script <> "\n" <> pass_through)
     File.chmod!(fake_gh, 0o755)
@@ -520,14 +504,37 @@ defmodule Aiur.EnvTest do
     try do
       fun.()
     after
-      case original_path do
-        nil -> System.delete_env("PATH")
-        value -> System.put_env("PATH", value)
-      end
-
+      restore_path(original_path)
       File.rm_rf!(root)
     end
   end
+
+  # Builds the fake `gh` script: with `assert_reaped: true` the fake records
+  # its OS pid to a file (in a directory outside the fake-gh root, which is
+  # removed before `on_exit` runs) so `assert_reaped_on_exit/2` can assert the
+  # process was killed rather than leaked. Returns `{pidfile_or_nil, script}`.
+  defp fake_gh_script(token_script, unique, opts) do
+    case Keyword.get(opts, :assert_reaped, false) do
+      false ->
+        {nil, token_script}
+
+      true ->
+        pid_root = Path.join(System.tmp_dir!(), "aiur-env-keyring-reap-#{unique}")
+        File.mkdir_p!(pid_root)
+        pidfile = Path.join(pid_root, "gh.pid")
+        {pidfile, "echo $$ > #{pidfile}\n" <> token_script}
+    end
+  end
+
+  defp pass_through_script do
+    case System.find_executable("gh") do
+      nil -> "exit 99\n"
+      path -> "exec #{path} \"$@\"\n"
+    end
+  end
+
+  defp restore_path(nil), do: System.delete_env("PATH")
+  defp restore_path(value), do: System.put_env("PATH", value)
 
   # Fails the test if the OS pid recorded at `pidfile` is still live when the
   # test completes, then removes the recording directory. The pidfile lives
