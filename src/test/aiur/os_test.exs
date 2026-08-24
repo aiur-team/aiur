@@ -58,11 +58,7 @@ defmodule Aiur.OsTest do
   end
 
   defp write_script!(body) do
-    root =
-      Path.join(
-        System.tmp_dir!(),
-        "os-test-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
-      )
+    root = Aiur.TestSupport.tmp_root!("os-test-#{System.system_time(:nanosecond)}")
 
     path = Path.join(root, "fake-stty")
     File.rm_rf!(root)

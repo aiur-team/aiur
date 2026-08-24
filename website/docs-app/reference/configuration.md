@@ -193,7 +193,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`); see [Routes in `agent.priority`](#routes-in-agent-priority). Presence makes a backend dispatchable, the first available entry is the default, and limits advance to the next entry until recovery. A non-empty list replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and `backend_configs.<b>.enabled`. |
-| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. Shape only today; time-of-day routing lands later. |
+| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
@@ -483,6 +483,25 @@ agent:
 | `prewarm.base_build_file` | string | none | Sibling script loaded into `base_build`. |
 | `prewarm.poll_seconds` | integer | 0 | Base-refresh interval; 0 disables polling. |
 
+`poll_seconds: 0` disables periodic refreshes, not dispatch-time freshness checks.
+
+When a prewarm build or freshness probe holds fleet dispatch, an independent idle
+watchdog releases the gate for cold-clone fallback once the hold has been stalled
+for 10 minutes.
+
+"Stalled" means the hold's worker process is dead with no completion signal in
+flight. A build that is still progressing — however slow a cold `deps` +
+`compile` + `dialyzer` run may be — is never killed by the watchdog.
+
+The `system.dispatch.prewarm_blocked` alert is not raised for a routine refresh:
+a freshness probe that self-clears in seconds holds dispatch too briefly to
+matter to an operator.
+
+The alert fires only once a hold has persisted past the routine bound: a probe
+that fails or exceeds its own timeout, a build that genuinely holds the fleet,
+or a stalled hold the watchdog releases. Its `.resolved` fires when the gate
+clears.
+
 ## pr_watch
 
 | Key | Type | Default | Controls |
@@ -490,6 +509,40 @@ agent:
 | `pr_watch.enabled` | boolean | false | Enables trusted PR comment watching. |
 | `pr_watch.watch_label` | string | `watch` | Label suffix enrolling a PR for watching. |
 | `pr_watch.command_prefix` | string | `/aiur` | One-off trusted comment command prefix. |
+
+## pr_health
+
+Periodic scan of open pull requests for conditions that stall PRs silently: a
+PR authored by a configured human merger (unmergeable by construction, since
+GitHub blocks self-approval), a non-draft PR older than `stale_hours` with no
+review, and a rework ticket whose PR's own contribution has genuinely changed
+since its blocking review.
+
+Findings raise needs-attention alerts in the Executor's alert feed
+(`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed` /
+`system.pr_health.rework_merge_only`).
+
+Enabling the scan enables the **rework re-queue**: a ticket in
+`agent:rework` whose PR's own contribution diff (`merge-base..head`) changed
+since the blocking `CHANGES_REQUESTED` review is moved to `agent:human-review`
+for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
+a brand-new review, so nothing else re-queues it.
+
+A PR whose head only moved via merges of the base branch (own contribution
+unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
+the merge-only state is visible distinctly from genuine rework.
+
+A re-queue that the thread-clearance gate refuses (the reworked PR still has
+unresolved review threads — the normal state of a rework ticket) raises
+`system.pr_health.rework_requeue_failed`; the head is not throttled on a failed
+write, so the re-queue retries on the next tick instead of silently stranding
+the ticket in rework.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `pr_health.enabled` | boolean | false | Enables the PR-health scan and the rework re-queue. |
+| `pr_health.interval_seconds` | integer | 1800 | How often the scan lists open PRs. |
+| `pr_health.stale_hours` | integer | 24 | A non-draft PR older than this with no review is flagged. |
 
 ## events
 

@@ -23,7 +23,7 @@ defmodule Aiur.Init.DotenvTest do
   describe "load/0" do
     @tag :not_async
     test "sets env from file, existing env wins" do
-      dir = System.tmp_dir!() |> Path.join("dotenv-test-#{System.unique_integer([:positive])}")
+      dir = Aiur.TestSupport.tmp_root!("dotenv-test")
       File.mkdir_p!(dir)
       File.write!(Path.join(dir, ".env"), "LOADED_ONLY=fromfile\nPRESET=fromfile\n")
 

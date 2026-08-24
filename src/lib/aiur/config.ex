@@ -278,15 +278,29 @@ defmodule Aiur.Config do
   provider's peak-pricing window, falling through to the next `agent.priority`
   entry. Defaults to `true`.
 
-  Shape only for now — #1456 implements the behaviour. `false` means "ignore
-  pricing windows entirely and use `agent.priority` exactly as written"; it
-  never changes how spend is *reported*. See
-  `Aiur.Config.Schema.PricingPolicy`.
+  When the window cannot be determined, routing never reroutes (it fails toward
+  not rerouting). `false` means "ignore pricing windows entirely and use
+  `agent.priority` exactly as written"; it never changes how spend is
+  *reported*. See `Aiur.Config.Schema.PricingPolicy`.
   """
   @spec avoid_peak_pricing?() :: boolean()
   def avoid_peak_pricing? do
-    case settings!().agent.pricing_policy do
-      %{avoid_peak_pricing: value} when is_boolean(value) -> value
+    avoid_peak_pricing_value(settings!())
+  end
+
+  @doc """
+  The effective `avoid_peak_pricing` value for already-parsed settings.
+
+  Defaults to `true` when the pricing policy is absent: the knob is opt-out,
+  not opt-in, so an operator who never touches it gets the conservative
+  peak-avoiding behaviour. The pure form is what the routing policy reads
+  through, so the default is asserted directly rather than only through a live
+  config read.
+  """
+  @spec avoid_peak_pricing_value(term()) :: boolean()
+  def avoid_peak_pricing_value(settings) do
+    case settings do
+      %{agent: %{pricing_policy: %{avoid_peak_pricing: value}}} when is_boolean(value) -> value
       _ -> true
     end
   end

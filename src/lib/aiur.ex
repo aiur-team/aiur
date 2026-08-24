@@ -381,6 +381,8 @@ defmodule Aiur.Application do
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
       maybe_ls_remote_ticker(ls_remote_ticker?),
+      Aiur.Orchestrator.PRHealthScanner,
+      Aiur.Orchestrator.ReworkRequeue,
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,

@@ -6,7 +6,7 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
   alias Aiur.OpenAICompat.BalanceBaseline
 
   defp baseline_path do
-    dir = Path.join(System.tmp_dir!(), "aiur-balance-baseline-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-balance-baseline")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
     Path.join(dir, "balance-baseline.json")
@@ -83,7 +83,7 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
   test "a failed baseline write degrades to dollar-only and never raises" do
     # The path is an existing directory, so the write raises EISDIR; the module
     # must swallow it and report no baseline rather than propagating a raise.
-    dir = Path.join(System.tmp_dir!(), "aiur-baseline-writefail-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-baseline-writefail")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
 
@@ -99,7 +99,7 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
     # same failure shape as a read-only mount or full disk — `mkdir` itself
     # fails, before the file write — and the probe must swallow it rather than
     # propagate a raise up through the meter probe.
-    file = Path.join(System.tmp_dir!(), "aiur-baseline-mkdirfail-#{System.unique_integer([:positive])}")
+    file = Aiur.TestSupport.tmp_root!("aiur-baseline-mkdirfail")
     File.write!(file, "not a directory")
     on_exit(fn -> File.rm(file) end)
 

@@ -459,6 +459,11 @@ defmodule Aiur.TestSupport do
   # different (or no) definitions still override via `:alerts_file_path` or an
   # `alerts_file` config entry — both take precedence over this default.
   @default_alerts_source Path.expand("../../../.aiur/alerts", __DIR__)
+
+  @doc "Absolute path of the repository's canonical `.aiur/alerts` definitions, or nil."
+  @spec default_alerts_source() :: String.t() | nil
+  def default_alerts_source, do: @default_alerts_source
+
   defp write_default_alerts_file!(config_path) do
     dest = Path.join(Path.dirname(config_path), "alerts")
     if File.regular?(@default_alerts_source), do: File.cp!(@default_alerts_source, dest)
