@@ -13,10 +13,10 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   gap this file exists to close.
 
   "No poll cycle in between" is asserted, not assumed: a stand-in registered as
-  `Aiur.Orchestrator` must never receive `:run_poll_cycle` for a review
-  submission. If review deliveries were ever routed through the reconciler
-  instead of published directly, the wake would depend on a poll and these tests
-  would fail.
+  `Aiur.Orchestrator` must never receive a dispatcher wake (`:run_poll_cycle`,
+  or a `:request_refresh` call) for a review submission. If review deliveries
+  were ever routed through the reconciler instead of published directly, the
+  wake would depend on a poll and these tests would fail.
 
   The receiver also runs W-4's admission gate ahead of the dispatch, and that
   gate is durable and process-wide. Each test therefore gets its own
@@ -289,6 +289,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
 
   defp refute_received_poll_cycle(_pid) do
     refute_receive {:orchestrator, :run_poll_cycle}, 200
+    refute_receive {:orchestrator, {:"$gen_call", _from, :request_refresh}}, 200
   end
 
   # GitHub stamps every delivery with its own id, so the default here is unique
@@ -312,7 +313,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   # again inside a test that deliberately replays one underlying event through
   # two independent deliveries.
   defp fresh_admission_store! do
-    dir = Path.join(System.tmp_dir!(), "aiur-webhook-delivery-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-webhook-delivery")
     name = :"delivery_test_log_#{System.unique_integer([:positive])}"
     log = start_supervised!({DeliveryLog, name: name, state_dir: dir}, id: name)
 

@@ -31,7 +31,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   """
 
   setup do
-    directory = Path.join(System.tmp_dir!(), "pack-status-#{System.unique_integer([:positive])}")
+    directory = Aiur.TestSupport.tmp_root!("pack-status")
     pack_path = Path.join([directory, "analytics-streamdeck", "build-order.json"])
     workspace_directory = Path.join(directory, "workspace-build-orders")
     previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
@@ -516,9 +516,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   end
 
   test "default polling ignores foreign override packs", _context do
-    suffix = System.unique_integer([:positive])
-    state_root = Path.join(System.tmp_dir!(), "pack-status-tracked-state-#{suffix}")
-    override_directory = Path.join(System.tmp_dir!(), "pack-status-tracked-override-#{suffix}")
+    state_root = Aiur.TestSupport.tmp_root!("pack-status-tracked-state")
+    override_directory = Aiur.TestSupport.tmp_root!("pack-status-tracked-override")
     repository = Config.repo()
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_pack = Application.get_env(:aiur, :build_order_planning_pack)
@@ -572,7 +571,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
   test "default polling projects lifecycle for a workspace-published pack", context do
     suffix = System.unique_integer([:positive])
-    state_root = Path.join(System.tmp_dir!(), "pack-status-workspace-state-#{suffix}")
+    state_root = Aiur.TestSupport.tmp_root!("pack-status-workspace-state")
     workspace_directory = context.workspace_directory
     workspace_path = Path.join(workspace_directory, "pack-status-workspace-#{suffix}.json")
     status_path = PackPaths.status_path(workspace_path)
@@ -648,8 +647,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   end
 
   test "default polling surfaces malformed tracked manifests", _context do
-    suffix = System.unique_integer([:positive])
-    state_root = Path.join(System.tmp_dir!(), "pack-status-malformed-state-#{suffix}")
+    state_root = Aiur.TestSupport.tmp_root!("pack-status-malformed-state")
     repository = Config.repo()
     previous_root = Application.get_env(:aiur, :repo_base_root)
     previous_pack = Application.get_env(:aiur, :build_order_planning_pack)

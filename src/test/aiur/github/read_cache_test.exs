@@ -630,6 +630,45 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert %{hit: 1, miss: 1, deposit: 1} = snapshot.callers["issue_relationships"]
     end
 
+    test "counts a response refused at deposit as unsuccessful, not as a silent gap" do
+      request = graphql("issue_relationships", safe_document(2073))
+
+      partial = {:ok, %{status: 200, body: %{"data" => %{}, "errors" => [%{"type" => "RATE_LIMITED"}]}}}
+
+      assert ^partial = ReadCache.through(request, fn -> partial end)
+
+      snapshot = Metrics.snapshot()
+
+      assert %{unsuccessful: 1} = snapshot.not_deposited
+      assert %{not_deposited: 1, deposit: 0, miss: 1} = snapshot.classes[:issue_graph]
+      assert %{not_deposited: 1} = snapshot.callers["issue_relationships"]
+      # The accounting remainder closes: this miss deposited nothing and said why.
+      assert %{not_deposited: 1, miss: 1, deposit: 0} = snapshot.totals
+    end
+
+    test "counts a good response refused at the entry ceiling as no_room" do
+      request = graphql("issue_relationships", safe_document(2073))
+
+      # Fill the table to the ceiling; the deposit refusal is the backstop
+      # answering "the cache could not hold it", and it must be counted as
+      # `no_room` rather than folded into the unsuccessful bucket.
+      ceiling = ReadCache.max_entries()
+      now = System.monotonic_time(:millisecond)
+      rows = for n <- 1..ceiling, do: {{:filler, n}, "x", now}
+      :ets.insert(:aiur_github_read_cache_entries, rows)
+      assert :ets.info(:aiur_github_read_cache_entries, :size) == ceiling
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "good"}} end)
+      end)
+
+      snapshot = Metrics.snapshot()
+
+      assert %{no_room: 1} = snapshot.not_deposited
+      assert %{not_deposited: 1, deposit: 0} = snapshot.classes[:issue_graph]
+      assert %{not_deposited: 1} = snapshot.totals
+    end
+
     test "counts a refusal against its caller with a reason, not as a miss" do
       assert {:ok, _response} = ReadCache.through(graphql("ci_poll_batch", ci_document()), fn -> {:ok, %{status: 200, body: "x"}} end)
 
@@ -789,7 +828,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # overrides freshness the call site thought it controlled, so the *short*
       # bucket must never outrun the tightest cadence a caller can be on. The
       # long bucket is a different thing: see the mode test below.
-      #
       # The poll-cadence classes (Build Order detail, comments) stay at or below
       # the Build Order detail freshness derived from the default poll interval.
       # `:repo_config` rides the CIReadiness assessment cadence instead (its
@@ -802,6 +840,63 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       # No class may be left without a bound when one is added.
       assert Enum.sort(Policy.classes()) == [:comments, :issue_graph, :repo_config]
+    end
+
+    test "every unsafe selection is refused however high the TTL is set" do
+      # #2327 raised the TTLs a webhook-backed repo can earn to an hour. The
+      # safety half of that change is that the refusal is decided by content,
+      # never by a number that happens to be small — so each term in
+      # `@unsafe_selections` is asserted against a TTL far above anything
+      # shipped, and above the sweep bound, to prove the refusal cannot be
+      # bought off by raising one.
+      previous = Application.get_env(:aiur, :github_read_cache_ttls)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:aiur, :github_read_cache_ttls, previous),
+          else: Application.delete_env(:aiur, :github_read_cache_ttls)
+      end)
+
+      Application.put_env(:aiur, :github_read_cache_ttls, %{comments: 3_600_000, issue_graph: 3_600_000})
+
+      # The override is live, so a safe read IS cacheable at the raised TTL —
+      # the loop below is only meaningful if the raised value actually applies.
+      assert {:cache, :issue_graph, 3_600_000} = Policy.classify(graphql("issue_relationships", safe_document(2073)))
+
+      selections = [
+        "statusCheckRollup { state }",
+        "checkSuites(first: 1) { nodes { status } }",
+        # The `CheckRun` and `StatusContext` terms are GraphQL *type* names,
+        # so they appear in documents as inline-fragment guards, exactly as the
+        # CI poll batch writes them.
+        "... on CheckRun { name status conclusion }",
+        "... on StatusContext { state }",
+        "reviewDecision",
+        "mergeStateStatus",
+        "mergeable",
+        "reviewThreads(first: 1) { nodes { id } }",
+        "latestReviews(first: 1) { nodes { id } }",
+        "reviews(first: 1) { nodes { id } }"
+      ]
+
+      for selection <- selections do
+        request = graphql("issue_relationships", unsafe_document(2073, selection))
+
+        assert {:no_cache, :unsafe_kind} = Policy.classify(request),
+               "a high TTL must not make a cacheable-looking read of #{selection} servable"
+      end
+    end
+
+    test "no class TTL, in either bucket, reaches the sweep bound" do
+      # `@max_ttl_ms` is the retention bound the sweep deletes past. A TTL at
+      # or above it would mean the sweep deletes entries still inside their own
+      # validity window and turns the backstop into a silent miss generator —
+      # so both the polling bucket and the webhook-backed bucket must stay
+      # below it.
+      for class <- Policy.classes() do
+        assert Policy.ttl_ms(class) < ReadCache.max_ttl_ms()
+        assert Policy.ttl_ms(class, :webhook) < ReadCache.max_ttl_ms()
+      end
     end
 
     test "the TTL widens for a webhook-backed repo and collapses when it degrades" do
@@ -955,6 +1050,10 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
   defp ci_document do
     "query C($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: 2073) { ... on PullRequest { commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } } }"
+  end
+
+  defp unsafe_document(number, selection) do
+    "query Q($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: #{number}) { ... on PullRequest { #{selection} } } } }"
   end
 
   defp issue_comment_delivery(number) do

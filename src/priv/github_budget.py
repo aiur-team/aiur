@@ -152,6 +152,13 @@ def migrate(conn):
     # from the ledger instead of only inferable from the family-to-bucket map.
     if "resource" not in admissions_columns:
         conn.execute("ALTER TABLE admissions ADD COLUMN resource TEXT")
+    # A lease-less admission is of unknown status, not free: no lease means
+    # nothing can ever prove it was a `304`, and the safe default for unknown is
+    # billable. Stale pre-#2284 writers that could not take a lease are stopped
+    # at the schema (version stamp + lease trigger, #2307) rather than by
+    # redefining what counts as spend.
+    if "billable_reason" not in admissions_columns:
+        conn.execute("ALTER TABLE admissions ADD COLUMN billable_reason TEXT")
     # The per-actor hourly query filters by (token, consumer, time), so the
     # column gets its own index. It cannot live in the CREATE TABLE script
     # above: on a pre-#2181 database the table predates the column and the index
@@ -251,6 +258,10 @@ def actor_usage_rows(conn, token_key, consumer_key, resource, now):
         # and the OR branch then matches every non-graphql row on any token or
         # consumer regardless of billable.
         resource_clause = "(resource IS NULL OR resource NOT IN ('graphql', 'search'))"
+    # A `304` is reconciled to `billable = 0`. A lease-less row stays billable:
+    # its status is unknown, and unknown defaults to billed. Keeping it in the
+    # ledger is what GitHub actually charged, and the meter must agree with the
+    # ledger.
     return conn.execute(
         "SELECT admitted_at_ms FROM admissions "
         "WHERE token_key = ? AND consumer_key = ? AND billable = 1 AND admitted_at_ms > ? AND "
@@ -523,7 +534,7 @@ def reconcile(args):
         resolve_credential_identity(conn, args)
         if args.status == 304:
             conn.execute(
-                "UPDATE admissions SET billable = 0 WHERE token_key = ? AND lease_id = ? AND billable = 1",
+                "UPDATE admissions SET billable = 0, billable_reason = '304' WHERE token_key = ? AND lease_id = ? AND billable = 1",
                 (args.token_key, args.lease_id),
             )
         conn.execute("COMMIT")
@@ -593,7 +604,7 @@ def snapshot(args):
             (args.token_key,),
         ).fetchall()
         admissions = conn.execute(
-            "SELECT endpoint_family, resource, admitted_at_ms, billable FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
+            "SELECT endpoint_family, resource, admitted_at_ms, billable, billable_reason FROM admissions WHERE token_key = ? ORDER BY id", (args.token_key,)
         ).fetchall()
         conn.execute("COMMIT")
         print(
@@ -602,8 +613,8 @@ def snapshot(args):
                     "cooldown_until_ms": cooldown[0] if cooldown else 0,
                     "inflight": dict(leases),
                     "admissions": [
-                        {"endpoint_family": endpoint_family, "resource": resource, "admitted_at_ms": admitted_at_ms, "billable": bool(billable)}
-                        for endpoint_family, resource, admitted_at_ms, billable in admissions
+                        {"endpoint_family": endpoint_family, "resource": resource, "admitted_at_ms": admitted_at_ms, "billable": bool(billable), "billable_reason": billable_reason}
+                        for endpoint_family, resource, admitted_at_ms, billable, billable_reason in admissions
                     ],
                 }
             )

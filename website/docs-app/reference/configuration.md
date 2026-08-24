@@ -15,7 +15,7 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 - **All-or-nothing credential groups.** A partially configured group (one dashboard credential without the other, or some but not all GitHub App credentials) fails at startup naming the missing members; a fully absent group is a supported setup.
 - **Type validation.** Values that fail their declared type (for example `AIUR_OPENCODE_BRIDGE_PORT=banana`) abort the boot naming the variable and what was expected, instead of failing at first use hours later.
 - **Secrets never leak.** Secrets render as an empty placeholder in `.env.example` and are excluded from error text and startup warnings. No real value from any `.env` file reaches the generated example, logs, or error output.
-- **Dashboard credentials** (`AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`) are values an operator chooses and types into a browser; see [Executor control center](/guide/executor-control-center) for choosing and setting them. Without them the dashboard refuses all requests (fails closed); the CLI and TUI are unaffected.
+- **Dashboard credentials** (`AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`) are values an operator chooses and types into a browser; see [GUI](/guide/gui) for choosing and setting them. Without them the dashboard refuses all requests (fails closed); the CLI and TUI are unaffected.
 
 The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
 
@@ -116,24 +116,49 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
+| `polling.intervals` | map of class → integer | `%{}` | Per-class poll cadences in seconds. Each key names a poll class — `dispatch`, `ci`, `review`, `planning`, `firehose` — and overrides `interval_seconds` for that class only. A class with no entry falls back to `interval_seconds`, so an unset map keeps today's single-interval behaviour exactly. `0` means the class is on-demand — no timer, refreshed only when a consumer explicitly asks — which is the recommended value for `planning`. (`firehose` is not recommended at any value: its loop rides the dispatch tick and is not gated, so an entry would be a dead knob.) `dispatch` must be a positive integer: the dispatch tick always runs, so `dispatch: 0` is rejected. `review` only diverges on a repo proven webhook-backed — on a polling repo its safety net stays at the dispatch rate. An unknown class key or a negative value is rejected. |
 | `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 | `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. The open-backlog and ad-hoc-overlay sources are event-sourced and not swept at all; the sweep reconciles the daemon-owned Build Order pack-status projection (which writes `status.json` on disk and stays on this cadence until it is moved to the event stream too) and runs the issue-family divergence watermark — a single bounded `updated_at`-ordered head page that keeps webhook loss detectable and re-converges a dropped delivery. |
 
 Freshness thresholds follow this cadence. You do not set them separately.
 
-- The **effective** interval is `interval_seconds` after `idle_widen_factor`,
+- The **effective** interval is a class's interval after `idle_widen_factor`,
   `webhooks.poll_widen_factor` and GitHub's poll floors are applied.
+- Since #2309 each poll loop resolves its interval by naming the class it
+  serves, and `polling.intervals` lets those classes diverge. The classes:
+
+  | Class | Polls | Why it gets its own cadence |
+  | --- | --- | --- |
+  | `dispatch` | open issues and `agent:*` labels (the dispatch trigger) | Cheap (conditional REST, usually `304`) and urgent. The default for every unlisted class and for un-named `PollCadence` reads. |
+  | `ci` | check state on a pull request with work in flight | Expensive GraphQL and urgent, but only while a PR is actually in flight (the loop is demand-scoped). `intervals.ci` is deliberately not recommended: the loop rides the dispatch tick, so a value below `dispatch` is inert (the loop can never fire more often than the tick) and one above it *slows* CI detection — a stale CI read has agent-visible consequences. Leave it unset to inherit `interval_seconds`. |
+  | `review` | comments and review threads | Expensive GraphQL, moderately urgent, and webhook-covered for comment *arrival* — the poll is a safety net, so minutes is defensible. The divergence is enforced, not asserted: on a repo not proven webhook-backed the class resolves to the dispatch cadence, so the safety net never silently slows on a polling repo. |
+  | `planning` | Build Order catalog, pack status, ad-hoc listings | The most expensive reads and the least urgent. Recommended value `0` (on-demand): the catalog's only consumers are web pages and it is demand-gated, so it needs no timer. |
+  | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. The firehose loop is **not gated** on a class cadence — it rides the dispatch tick — so no value is recommended: leave it unset to inherit `interval_seconds`. An entry would be a dead knob. |
+
 - The dashboard, the Units catalog and Build Order ticket history all judge
-  staleness against that effective interval.
-- Build Order's remaining catalog cadence (the base for its boot/mount/degraded
-  reads and its staleness window) is derived from it too, so an idle fleet widens
-  it exactly as it widens the tracker poll. The catalog itself is event-sourced
-  (#2325) and demand-gated (#2312): there is no recurring sweep — reads happen
-  when a page opens or a degradation needs a re-list.
-- So a change to `interval_seconds` needs no matching threshold edit.
-- `aiur status` prints the effective value, for example
-  `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
+  staleness against the effective interval of the class they mean: the
+  orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
+  ticket history from `planning`.
+- Build Order's own refresh cadences follow the `planning` class, so an operator
+  can run the expensive Build Order reads on demand while dispatch stays at 2.
+  The catalog itself is event-sourced (#2325) and demand-gated (#2312): there
+  is no recurring sweep — reads happen when a page opens or a degradation needs
+  a re-list — and the `planning` cadence remains the base for its boot/mount/
+  degraded reads and its staleness window. With `planning: 0` the class has no
+  timer at all: a page mount or an explicit refresh is the only thing that
+  reads it.
+- So a change to an interval needs no matching threshold edit.
+- `aiur status` prints the effective value and the live interval per class, for
+  example:
+  ```
+  POLL idle backoff active: interval=1200s base=120s factor=5.0x
+  POLL class intervals: ci=120s dispatch=120s firehose=120s planning=0s review=300s
+  ```
+  `0s` means the class is on-demand: no timer, refreshed only when a consumer
+  asks. `ci` sits at the dispatch cadence because the loop rides the tick and is
+  deliberately not given its own interval; `review` shows its configured value
+  only while the repo is proven webhook-backed.
 - The idle widening only applies once the daemon has observed an idle cycle:
   a freshly restarted fleet starts at the base interval, and a live fleet with
   dispatchable tickets keeps the base interval so work is not left waiting
@@ -170,13 +195,13 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`); see [Routes in `agent.priority`](#routes-in-agent-priority). Presence makes a backend dispatchable, the first available entry is the default, and limits advance to the next entry until recovery. A non-empty list replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and `backend_configs.<b>.enabled`. |
-| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. Shape only today; time-of-day routing lands later. |
+| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
-| `agent.max_concurrent_builds` | integer | 2 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). |
+| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.build_gate_max_hold_seconds` | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
@@ -198,6 +223,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it. When enabled, `procs_running` above `run_queue_threshold × schedulers` holds only when the same CPU sample shows less than 60% reclaimable capacity, catching real short bursts without treating niced work as contention (`run_queue` capacity hold). |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
+| `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
 | `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
 | `agent.rate_limit_primary` | string | default backend | Deprecated primary backend watched for automatic rate-limit recovery; derived from `agent.priority` when set. |
@@ -460,6 +486,25 @@ agent:
 | `prewarm.base_build_file` | string | none | Sibling script loaded into `base_build`. |
 | `prewarm.poll_seconds` | integer | 0 | Base-refresh interval; 0 disables polling. |
 
+`poll_seconds: 0` disables periodic refreshes, not dispatch-time freshness checks.
+
+When a prewarm build or freshness probe holds fleet dispatch, an independent idle
+watchdog releases the gate for cold-clone fallback once the hold has been stalled
+for 10 minutes.
+
+"Stalled" means the hold's worker process is dead with no completion signal in
+flight. A build that is still progressing — however slow a cold `deps` +
+`compile` + `dialyzer` run may be — is never killed by the watchdog.
+
+The `system.dispatch.prewarm_blocked` alert is not raised for a routine refresh:
+a freshness probe that self-clears in seconds holds dispatch too briefly to
+matter to an operator.
+
+The alert fires only once a hold has persisted past the routine bound: a probe
+that fails or exceeds its own timeout, a build that genuinely holds the fleet,
+or a stalled hold the watchdog releases. Its `.resolved` fires when the gate
+clears.
+
 ## pr_watch
 
 | Key | Type | Default | Controls |
@@ -467,6 +512,40 @@ agent:
 | `pr_watch.enabled` | boolean | false | Enables trusted PR comment watching. |
 | `pr_watch.watch_label` | string | `watch` | Label suffix enrolling a PR for watching. |
 | `pr_watch.command_prefix` | string | `/aiur` | One-off trusted comment command prefix. |
+
+## pr_health
+
+Periodic scan of open pull requests for conditions that stall PRs silently: a
+PR authored by a configured human merger (unmergeable by construction, since
+GitHub blocks self-approval), a non-draft PR older than `stale_hours` with no
+review, and a rework ticket whose PR's own contribution has genuinely changed
+since its blocking review.
+
+Findings raise needs-attention alerts in the Executor's alert feed
+(`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed` /
+`system.pr_health.rework_merge_only`).
+
+Enabling the scan enables the **rework re-queue**: a ticket in
+`agent:rework` whose PR's own contribution diff (`merge-base..head`) changed
+since the blocking `CHANGES_REQUESTED` review is moved to `agent:human-review`
+for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
+a brand-new review, so nothing else re-queues it.
+
+A PR whose head only moved via merges of the base branch (own contribution
+unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
+the merge-only state is visible distinctly from genuine rework.
+
+A re-queue that the thread-clearance gate refuses (the reworked PR still has
+unresolved review threads — the normal state of a rework ticket) raises
+`system.pr_health.rework_requeue_failed`; the head is not throttled on a failed
+write, so the re-queue retries on the next tick instead of silently stranding
+the ticket in rework.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `pr_health.enabled` | boolean | false | Enables the PR-health scan and the rework re-queue. |
+| `pr_health.interval_seconds` | integer | 1800 | How often the scan lists open PRs. |
+| `pr_health.stale_hours` | integer | 24 | A non-draft PR older than this with no review is flagged. |
 
 ## events
 
@@ -552,9 +631,9 @@ These policy keys never grant transport access by themselves. The supervisor API
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
-| `server.host` | string | launcher-selected | HTTP bind address. An explicit value wins over the launcher's authenticated Tailscale-or-loopback default. |
+| `server.host` | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
 
-When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscale IPv4 if dashboard credentials are configured and otherwise uses `127.0.0.1`. A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
+When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
 
 A fixed `server.port` that is already bound — for example a second `aiur` instance on the same host — does not crash the daemon. The second instance logs an explicit startup message naming the port and the conflict, disables only its own dashboard, and keeps running agents.
 

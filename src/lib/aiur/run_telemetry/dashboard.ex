@@ -206,9 +206,28 @@ defmodule Aiur.RunTelemetry.Dashboard do
         </details>
       </section>
 
+      <section id="fleet-pressure" class="panel" aria-labelledby="fleet-pressure-title">
+        <div class="section-heading">
+          <div><p class="kicker">04 / whole-host pressure</p><h2 id="fleet-pressure-title">Fleet-wide build pressure</h2></div>
+          <p>Exact occupied-agent and build-gate evidence. Missing or degraded observations remain gaps, never zeroes.</p>
+        </div>
+        <div class="phase-legend" aria-label="Fleet pressure source states"><span>Current</span><span>Stale fleet</span><span>Degraded build</span><span>Partial</span><span>Empty</span></div>
+        <p id="pressure-state" class="empty-state" hidden></p>
+        <div class="chart-viewport" tabindex="0" aria-label="Scrollable whole-host fleet pressure chart">
+          <svg id="pressure-chart" class="chart" role="img" aria-label="Fleet-wide occupied agents, build depth, and oldest wait"></svg>
+        </div>
+        <details class="data-table"><summary>Accessible fleet pressure data</summary>
+          <div class="table-actions">
+            <span id="pressure-table-count" class="result-count" role="status" aria-live="polite"></span>
+            <button id="pressure-table-more" type="button" aria-controls="pressure-table-body" hidden>Show more samples</button>
+          </div>
+          <div class="table-scroll"><table id="pressure-table"><caption>Timestamped whole-host fleet and build-pressure samples</caption><thead><tr><th>Sample time</th><th>Fleet source</th><th>Fleet observed</th><th>Build source</th><th>Build observed</th><th>Binding</th><th>Load</th><th>Occupied</th><th>Configured / max / effective</th><th>Build capacity</th><th>Active / queued</th><th>Oldest wait</th></tr></thead><tbody id="pressure-table-body"></tbody></table></div>
+        </details>
+      </section>
+
       <section id="ticket-lifecycle" class="panel" aria-labelledby="ticket-lifecycle-title">
         <div class="section-heading">
-          <div><p class="kicker">04 / ticket phases</p><h2 id="ticket-lifecycle-title">Ticket lifecycle</h2></div>
+          <div><p class="kicker">05 / ticket phases</p><h2 id="ticket-lifecycle-title">Ticket lifecycle</h2></div>
           <p>Real dispatch, setup, implementation, test, PR, review, and rework boundaries.</p>
         </div>
         <div class="controls lifecycle-controls">
@@ -233,7 +252,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
 
       <section id="resource-profiles" class="panel" aria-labelledby="resource-profiles-title">
         <div class="section-heading">
-          <div><p class="kicker">05 / distribution</p><h2 id="resource-profiles-title">Resource profiles</h2></div>
+          <div><p class="kicker">06 / distribution</p><h2 id="resource-profiles-title">Resource profiles</h2></div>
           <p>Measured samples only; unavailable observations remain separately counted.</p>
         </div>
         <div class="table-scroll"><table id="profile-table"><caption>Per-actor resource distribution</caption><thead><tr><th>Actor</th><th>Metric</th><th>Samples</th><th>Minimum</th><th>Median</th><th>P95</th><th>Maximum</th></tr></thead><tbody id="profile-table-body"></tbody></table></div>
@@ -241,7 +260,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
 
       <section id="operational-notes" class="panel notes-panel" aria-labelledby="operational-notes-title">
         <div class="section-heading">
-          <div><p class="kicker">06 / interpretation</p><h2 id="operational-notes-title">Operational notes</h2></div>
+          <div><p class="kicker">07 / interpretation</p><h2 id="operational-notes-title">Operational notes</h2></div>
           <p>Evidence-led observations, not hidden heuristics.</p>
         </div>
         <ul id="notes-list" class="notes-list"></ul>
@@ -364,10 +383,15 @@ defmodule Aiur.RunTelemetry.Dashboard do
       const metrics = [
         ["cpu_percent", "CPU", "%"], ["rss_bytes", "RSS", "bytes"], ["fd_count", "File descriptors", "count"],
         ["read_bytes_per_second", "Read I/O", "bytes/s"], ["write_bytes_per_second", "Write I/O", "bytes/s"],
-        ["system_fd_used", "System FD used", "count"], ["system_fd_headroom_ratio", "System FD headroom", "ratio"]
+        ["system_fd_used", "System FD used", "count"], ["system_fd_headroom_ratio", "System FD headroom", "ratio"],
+        ["fleet_agents_occupied", "Fleet-wide occupied agents", "count"], ["fleet_agents_effective", "Fleet effective capacity", "count"],
+        ["build_gate_active", "Whole-host active builds", "count"], ["build_gate_queued", "Whole-host queued builds", "count"],
+        ["build_queue_oldest_wait_seconds", "Oldest live build wait", "seconds"]
       ];
       const actorTablePageSize = 500;
       let actorTableRows = [], actorTableOffset = 0, actorTableMetric = "cpu_percent";
+      const pressureTablePageSize = 500;
+      let pressureTableRows = [], pressureTableOffset = 0;
       const $ = id => document.getElementById(id);
       const dateFormatter = new Intl.DateTimeFormat(undefined, {dateStyle:"medium", timeStyle:"medium"});
       const node = (tag, className, text) => { const item = document.createElement(tag); if (className) item.className = className; if (text !== undefined) item.textContent = text; return item; };
@@ -395,6 +419,10 @@ defmodule Aiur.RunTelemetry.Dashboard do
         operator_process_unavailable: "Executor process unavailable",
         operator_pid_unavailable: "Executor PID unavailable"
       })[reason] || String(reason || "unknown reason");
+      const fleetMetric = key => key.startsWith("fleet_agents_");
+      const buildMetric = key => key.startsWith("build_gate_") || key.startsWith("build_queue_");
+      const sourceMeasured = (key,sample) => fleetMetric(key) ? sample.fleet_capacity_status === "current" : buildMetric(key) ? ["measured","disabled","partial"].includes(sample.build_gate_status) : sample.availability === "measured";
+      const metricSource = (key,sample) => fleetMetric(key) ? (sample.fleet_capacity_status || "empty") : buildMetric(key) ? (sample.build_gate_status || "empty") : sample.availability;
 
       function renderHeader() {
         $("generated-at").textContent = date(data.generated_at);
@@ -449,7 +477,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
           let minimum=null, maximum=null, unavailable=null;
           for (let index=start;index<end;index++) {
             const sample=samples[index], value=numeric(sample[metric]), candidate={index,sample,value};
-            if (sample.availability !== "measured" || value === null) unavailable ||= candidate;
+            if (!sourceMeasured(metric,sample) || value === null) unavailable ||= candidate;
             else { if (!minimum || value<minimum.value) minimum=candidate; if (!maximum || value>maximum.value) maximum=candidate; }
           }
           [minimum,maximum,unavailable].filter(Boolean).sort((a,b)=>a.index-b.index).forEach(candidate => {
@@ -469,8 +497,21 @@ defmodule Aiur.RunTelemetry.Dashboard do
 
       function appendActorTablePage() {
         const body=$("actor-table-body"), next=Math.min(actorTableOffset+actorTablePageSize,actorTableRows.length);
-        actorTableRows.slice(actorTableOffset,next).forEach(sample => { const row=node("tr"); [date(sample.timestamp),actorLabel(sample.actor),sample.availability,metricValue(actorTableMetric,sample[actorTableMetric]),sample.boot_id].forEach(value=>row.append(node("td",null,value))); body.append(row); });
+        actorTableRows.slice(actorTableOffset,next).forEach(sample => { const row=node("tr"); [date(sample.timestamp),actorLabel(sample.actor),metricSource(actorTableMetric,sample),sourceMeasured(actorTableMetric,sample)?metricValue(actorTableMetric,sample[actorTableMetric]):"—",sample.boot_id].forEach(value=>row.append(node("td",null,value))); body.append(row); });
         actorTableOffset=next; $("actor-table-count").textContent=`Showing ${actorTableOffset} of ${actorTableRows.length} samples`; $("actor-table-more").hidden=actorTableOffset>=actorTableRows.length;
+      }
+
+      function resetPressureTable(rows, emptyMessage) {
+        pressureTableRows=rows; pressureTableOffset=0; clear($("pressure-table-body"));
+        if (emptyMessage) {
+          tableEmpty($("pressure-table-body"),10,emptyMessage); $("pressure-table-count").textContent=""; $("pressure-table-more").hidden=true;
+        } else appendPressureTablePage();
+      }
+
+      function appendPressureTablePage() {
+        const body=$("pressure-table-body"), next=Math.min(pressureTableOffset+pressureTablePageSize,pressureTableRows.length);
+        pressureTableRows.slice(pressureTableOffset,next).forEach(sample=>{ const fleet=sample.fleet_capacity_status||"empty", build=sample.build_gate_status||"empty", validFleet=fleet==="current", validBuild=["measured","disabled","partial"].includes(build); const load=validFleet&&numeric(sample.fleet_load)!==null?`${number(sample.fleet_load)} / ${number(sample.fleet_load_threshold)}`:"—"; const row=node("tr"); [date(sample.timestamp),fleet,date(sample.fleet_capacity_observed_at_ms),build,date(sample.build_gate_observed_at_ms),sample.fleet_admission_signal||"—",load,validFleet?number(sample.fleet_agents_occupied):"—",validFleet?`${number(sample.fleet_agents_configured)} / ${number(sample.fleet_agents_max)} / ${number(sample.fleet_agents_effective)}`:"— / — / —",validBuild?number(sample.build_gate_capacity):"—",validBuild?`${number(sample.build_gate_active)} / ${number(sample.build_gate_queued)}`:"— / —",validBuild&&numeric(sample.build_queue_oldest_wait_seconds)!==null?`${number(sample.build_queue_oldest_wait_seconds)} s`:"—"].forEach(value=>row.append(node("td",null,value))); body.append(row); });
+        pressureTableOffset=next; $("pressure-table-count").textContent=`Showing ${pressureTableOffset} of ${pressureTableRows.length} samples`; $("pressure-table-more").hidden=pressureTableOffset>=pressureTableRows.length;
       }
 
       function renderActorChart() {
@@ -494,7 +535,7 @@ defmodule Aiur.RunTelemetry.Dashboard do
           const chartLimit=Math.max(60,Math.floor(1800/actors.length));
           decimateSamples(actor.samples || [],metric,chartLimit).forEach(sample => {
             const x=scale(Number(sample.timestamp_ms),minTime,maxTime,left,right), value=numeric(sample[metric]);
-            if (sample.availability === "measured" && value !== null) {
+            if (sourceMeasured(metric,sample) && value !== null) {
               const y=scale(value,0,yMax,bottom,top); segment.push({x,y}); const circle=svgNode("circle",{cx:x,cy:y,r:5,fill:actorColor(actor.actor),class:"sample-point",tabindex:0,role:"img"});
               const label=`${actorLabel(actor.actor)} · ${metricMeta(metric)[1]} ${metricValue(metric,value)} · ${date(sample.timestamp)}`; circle.setAttribute("aria-label",label); const title=svgNode("title"); title.textContent=label; circle.append(title); bindDetail(circle,label,detail); svg.append(circle);
             } else { flush(); const group=svgNode("g",{tabindex:0,role:"img","aria-label":`${actorLabel(actor.actor)} unavailable at ${date(sample.timestamp)}: ${unavailableReason(sample.unavailable_reason)}`}); group.append(svgNode("line",{x1:x-4,x2:x+4,y1:bottom-4,y2:bottom+4,class:"unavailable-mark"}),svgNode("line",{x1:x-4,x2:x+4,y1:bottom+4,y2:bottom-4,class:"unavailable-mark"})); bindDetail(group,group.getAttribute("aria-label"),detail); svg.append(group); }
@@ -502,6 +543,28 @@ defmodule Aiur.RunTelemetry.Dashboard do
         });
         resetActorTable(allSamples,metric);
         const startLabel=svgNode("text",{x:left,y:307,class:"axis-label"}); startLabel.textContent=date(new Date(minTime).toISOString()); const endLabel=svgNode("text",{x:right,y:307,"text-anchor":"end",class:"axis-label"}); endLabel.textContent=date(new Date(maxTime).toISOString()); svg.append(startLabel,endLabel);
+      }
+
+      function renderPressure() {
+        const samples=((data.actors._daemon||{}).samples||[]).slice().sort((a,b)=>Number(a.timestamp_ms)-Number(b.timestamp_ms));
+        const svg=$("pressure-chart"), state=$("pressure-state"); clear(svg);
+        if (!samples.length) { state.hidden=false; state.textContent="No fleet pressure observations were recorded."; resetPressureTable([],"No fleet pressure observations were recorded."); return; }
+        state.hidden=true;
+        const width=1000,height=330,left=82,right=975,countTop=24,countBottom=180,waitTop=225,waitBottom=285;
+        svg.setAttribute("viewBox",`0 0 ${width} ${height}`); svg.setAttribute("height",String(height));
+        const countKeys=["fleet_agents_occupied","fleet_agents_effective","build_gate_capacity","build_gate_active","build_gate_queued"];
+        const bounds=samples.reduce((acc,sample)=>{ const timestamp=Number(sample.timestamp_ms); if(Number.isFinite(timestamp)){ acc.minTime=Math.min(acc.minTime,timestamp); acc.maxTime=Math.max(acc.maxTime,timestamp); } countKeys.forEach(key=>{ const value=numeric(sample[key]); if(sourceMeasured(key,sample)&&value!==null) acc.countMax=Math.max(acc.countMax,value); }); const wait=numeric(sample.build_queue_oldest_wait_seconds); if(sourceMeasured("build_queue_oldest_wait_seconds",sample)&&wait!==null) acc.waitMax=Math.max(acc.waitMax,wait); return acc; },{minTime:Infinity,maxTime:-Infinity,countMax:1,waitMax:1});
+        const minTime=bounds.minTime, maxTime=Math.max(bounds.maxTime,minTime+1), countMax=bounds.countMax, waitMax=bounds.waitMax;
+        const draw=(key,color,top,bottom,maximum,label)=>{ let points=[]; const flush=()=>{ if(points.length){ const path=svgNode("path",{d:points.map((p,i)=>`${i?"L":"M"}${p.x},${p.y}`).join(" "),fill:"none",stroke:color,"stroke-width":2.5}); const title=svgNode("title"); title.textContent=label; path.append(title); svg.append(path); } points=[]; }; decimateSamples(samples,key,600).forEach(sample=>{ const value=numeric(sample[key]); if(sourceMeasured(key,sample)&&value!==null) points.push({x:scale(Number(sample.timestamp_ms),minTime,maxTime,left,right),y:scale(value,0,maximum,bottom,top)}); else flush(); }); flush(); };
+        draw("fleet_agents_occupied",palette[0],countTop,countBottom,countMax,"Occupied agents");
+        draw("fleet_agents_effective",palette[3],countTop,countBottom,countMax,"Effective capacity");
+        draw("build_gate_capacity","#6e6e80",countTop,countBottom,countMax,"Build capacity");
+        draw("build_gate_active",palette[1],countTop,countBottom,countMax,"Active builds");
+        draw("build_gate_queued","#b42318",countTop,countBottom,countMax,"Queued builds");
+        draw("build_queue_oldest_wait_seconds","#b42318",waitTop,waitBottom,waitMax,"Oldest live wait");
+        const stateSamples=["fleet_agents_occupied","build_gate_active","build_gate_queued","build_queue_oldest_wait_seconds"].flatMap(key=>decimateSamples(samples,key,250));
+        [...new Map(stateSamples.map(sample=>[sample.timestamp_ms,sample])).values()].sort((a,b)=>Number(a.timestamp_ms)-Number(b.timestamp_ms)).forEach(sample=>{ const fleet=sample.fleet_capacity_status||"empty", build=sample.build_gate_status||"empty"; const sourceState=fleet==="stale"?"stale fleet":build==="degraded"?"degraded build":fleet!=="current"||!["measured","disabled"].includes(build)?"partial":"current"; const colors={current:"#10a37f","stale fleet":"#d97706","degraded build":"#b42318",partial:"#6e6e80",empty:"#d7d7d7"}; const x=scale(Number(sample.timestamp_ms),minTime,maxTime,left,right); svg.append(svgNode("rect",{x:x-3,y:198,width:6,height:10,fill:colors[sourceState]||colors.empty,tabindex:0,role:"img","aria-label":`${sourceState} at ${date(sample.timestamp)}`})); });
+        resetPressureTable(samples);
       }
 
       function setupLifecycleControls() {
@@ -548,7 +611,8 @@ defmodule Aiur.RunTelemetry.Dashboard do
         ]; notes.forEach(text=>$("notes-list").append(node("li",null,text)));
       }
 
-      renderHeader(); renderEvidence(); renderFindings(); setupActorControls(); setupLifecycleControls(); renderProfiles(); renderNotes();
+      $("pressure-table-more").addEventListener("click",appendPressureTablePage);
+      renderHeader(); renderEvidence(); renderFindings(); setupActorControls(); renderPressure(); setupLifecycleControls(); renderProfiles(); renderNotes();
     })();
     """
   end

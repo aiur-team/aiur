@@ -331,8 +331,7 @@ defmodule Mix.Tasks.PrBody.CheckTest do
   end
 
   defp in_temp_repo(fun) do
-    unique = System.unique_integer([:positive, :monotonic])
-    root = Path.join(System.tmp_dir!(), "validate-pr-body-task-test-#{unique}")
+    root = Aiur.TestSupport.tmp_root!("validate-pr-body-task-test")
 
     File.rm_rf!(root)
     File.mkdir_p!(root)

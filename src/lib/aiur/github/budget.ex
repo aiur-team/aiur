@@ -129,19 +129,26 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  @spec broker_path() :: Path.t()
-  def broker_path do
-    :aiur
-    |> :code.priv_dir()
-    |> to_string()
-    |> Path.join("github_budget.py")
+  @spec broker_path(keyword()) :: Path.t()
+  def broker_path(opts \\ []) do
+    case Keyword.get(opts, :broker_path) do
+      path when is_binary(path) and path != "" -> path
+      # Tests inject a broker variant (e.g. one without the `reconcile`
+      # subcommand) through the `:broker_path` option; production always uses
+      # the broker shipped in `priv/`.
+      _missing -> :aiur |> :code.priv_dir() |> to_string() |> Path.join("github_budget.py")
+    end
   end
 
   @doc "Configuration exported to the agent-side `gh` wrapper."
   @spec guard_settings(keyword()) :: map()
   def guard_settings(opts \\ []), do: settings(opts)
 
-  @spec acquire(map(), keyword()) :: {:ok, lease()} | {:hold, hold()} | {:error, :github_budget_broker_unavailable} | :bypass
+  @spec acquire(map(), keyword()) ::
+          {:ok, lease()}
+          | {:hold, hold()}
+          | {:error, :github_budget_broker_unavailable | :github_budget_broker_timeout}
+          | :bypass
   def acquire(request, opts \\ []) do
     with true <- enabled?(opts),
          token when is_binary(token) <- Map.get(request, :token),
@@ -195,7 +202,16 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(%{id: id, token_key: key}, {:ok, %{status: 304}}, opts)
        when is_binary(id) and is_binary(key) do
-    _ = command(["reconcile", "--lease-id", id, "--status", "304"], key, opts)
+    case command(["reconcile", "--lease-id", id, "--status", "304"], key, opts) do
+      {:ok, _output} -> :ok
+      # `command` already logs the broker failure generically; this names the
+      # reconcile specifically so a stale broker (one without the `reconcile`
+      # subcommand) or a broken reconcile is visible in the daemon log instead
+      # of reading as "reconciliation did not fire".
+      {:error, reason} -> Logger.warning("github_budget_reconcile_failed lease_id=#{id} reason=#{inspect(reason)}")
+      :bypass -> :ok
+    end
+
     :ok
   end
 
@@ -267,6 +283,15 @@ defmodule Aiur.GitHub.Budget do
 
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds, :shared_budget)
+
+      # The deadline expired before the broker answered at all. That is
+      # distinguishable from a malformed reply: the broker may still be
+      # starting up (a `python3` subprocess that races the deadline under load)
+      # rather than having said something unintelligible, so a caller that
+      # wants a verdict — the ceiling-hold tests above all — can retry the
+      # former without retrying a genuinely broken broker (#2286).
+      {:error, :github_budget_broker_timeout} ->
+        {:error, :github_budget_broker_timeout}
 
       _unavailable ->
         {:error, :github_budget_broker_unavailable}
@@ -443,13 +468,13 @@ defmodule Aiur.GitHub.Budget do
           _missing -> []
         end
 
-      command_args = [broker_path() | args] ++ token_args ++ identity_args
+      command_args = [broker_path(opts) | args] ++ token_args ++ identity_args
 
       case port_command(python, command_args, command_deadline(opts)) do
         {:ok, output, 0} -> {:ok, output}
         {:ok, output, status} -> broker_unavailable(status, output)
         {:error, reason} -> broker_unavailable(:exception, inspect(reason))
-        :timeout -> broker_unavailable(:timeout, "deadline exceeded")
+        :timeout -> broker_timeout()
       end
     else
       _unavailable -> :bypass
@@ -551,6 +576,11 @@ defmodule Aiur.GitHub.Budget do
   defp broker_unavailable(status, output) do
     Logger.warning("github_budget_broker_unavailable status=#{inspect(status)} output=#{inspect(String.trim(output))}")
     {:error, :github_budget_broker_unavailable}
+  end
+
+  defp broker_timeout do
+    Logger.warning("github_budget_broker_timeout")
+    {:error, :github_budget_broker_timeout}
   end
 
   defp python_executable(opts), do: Keyword.get(opts, :python, System.find_executable("python3"))
@@ -770,15 +800,20 @@ defmodule Aiur.GitHub.Budget do
       cooldown_until_ms: cooldown,
       inflight: inflight,
       admissions:
-        Enum.map(
-          admissions,
-          &%{
-            endpoint_family: &1["endpoint_family"],
-            resource: &1["resource"],
-            admitted_at_ms: &1["admitted_at_ms"],
-            billable: &1["billable"]
+        Enum.map(admissions, fn admission ->
+          %{
+            endpoint_family: admission["endpoint_family"],
+            resource: admission["resource"],
+            admitted_at_ms: admission["admitted_at_ms"],
+            # `billable = false` is a reconciled `304`; `billable_reason`
+            # records why the broker stopped billing the row (`"304"`) so the
+            # running system can verify reconciliation happened and tell it
+            # apart from any other unbilled state instead of reading a bare
+            # flag.
+            billable: Map.get(admission, "billable", true),
+            billable_reason: Map.get(admission, "billable_reason")
           }
-        )
+        end)
     }
   end
 

@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator.{CommentPolling, State}
+  alias Aiur.PollCadence
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -65,6 +66,42 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       assert put_in(result.ci_lifecycle.poll_cache[:issue_list_cache], nil) ==
                put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], nil)
     end
+  end
+
+  describe "start_async/2 review-cadence throttle" do
+    setup do
+      PollCadence.forget_effective_interval_ms()
+      :ok
+    end
+
+    # The skip branch returns the state unchanged and spawns nothing, so this is
+    # the one `start_async` path a unit test can exercise without the full
+    # owned-poll handshake machinery. The "runs" side is covered by the shared
+    # `PollCadence.within_class_cadence?/3` contract in
+    # `Aiur.PerClassCadenceTest`.
+    test "does not start a poll while within the published review cadence" do
+      PollCadence.publish_effective_interval_ms(300_000, class: :review)
+      state = %{base_state() | last_comment_poll_started_at_ms: System.monotonic_time(:millisecond)}
+
+      result = CommentPolling.start_async(state)
+
+      assert result.github_comment_poll == nil
+      assert result.last_comment_poll_started_at_ms == state.last_comment_poll_started_at_ms
+    end
+
+    test "a recent start does not throttle before the review cadence is published" do
+      PollCadence.forget_effective_interval_ms()
+      state = %{base_state() | last_comment_poll_started_at_ms: System.monotonic_time(:millisecond)}
+
+      result = CommentPolling.start_async(state)
+
+      assert result.github_comment_poll != nil
+      # Clean up the spawned owner/poll so nothing leaks past the test.
+      terminate_spawned_poll(result.github_comment_poll)
+    end
+
+    defp terminate_spawned_poll(%{owner: owner}) when is_pid(owner), do: Process.exit(owner, :kill)
+    defp terminate_spawned_poll(_poll), do: :ok
   end
 
   describe "poll_github_firehose/2" do
@@ -146,8 +183,12 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
       assert third.events_etag == "new-etag"
       assert third.events_last_id == "new-merge"
-      assert third.github_connectivity[:recent_merge_store] == {:transport, 3}
-      assert third.github_poll_delays[:recent_merge_store] == 4_000
+      # A local persistence failure is not lost connectivity: the catch-all no
+      # longer stamps it `:transport`, so it lands `:unclassified` and backs off
+      # at the conservative base rather than on the network escalation curve
+      # (#2429 F2). The persistence alert below is the intended operator signal.
+      assert third.github_connectivity[:recent_merge_store] == {:unclassified, 3}
+      assert third.github_poll_delays[:recent_merge_store] == 1_000
       assert Agent.get(attempts, & &1) == 3
 
       assert_receive {:persistence_alert, "recent_merge_store.persistence_failed", message, alert_opts}
@@ -159,7 +200,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
       assert fourth.events_etag == "new-etag"
       assert fourth.events_last_id == "new-merge"
-      assert fourth.github_connectivity[:recent_merge_store] == {:transport, 3}
+      assert fourth.github_connectivity[:recent_merge_store] == {:unclassified, 3}
       assert Agent.get(attempts, & &1) == 3
       refute_receive {:persistence_alert, _, _, _}
     end

@@ -8,6 +8,7 @@ defmodule Aiur.DecisionStoreTest do
 
   alias Aiur.{
     AlertFeed,
+    Alerts,
     Boot,
     Decision,
     DecisionDispatchTasks,
@@ -18,20 +19,22 @@ defmodule Aiur.DecisionStoreTest do
     DecisionPubSub,
     DecisionStore,
     ExecutorCommandAttention,
-    ExecutorCommandCLI
+    ExecutorCommandCLI,
+    Issue
   }
 
   alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
   alias AiurWeb.ControlCenterPresenter
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
 
   setup do
     original_override = Application.get_env(:aiur, :decision_state_dir)
-    dir = Path.join(System.tmp_dir!(), "aiur-decision-store-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-decision-store")
     Application.put_env(:aiur, :decision_state_dir, dir)
 
     on_exit(fn ->
@@ -2264,17 +2267,17 @@ defmodule Aiur.DecisionStoreTest do
     end
   end
 
-  test "fails an Executor answer closed when the Command declares no delegable policy", %{dir: dir} do
+  test "fails an Executor answer closed only when the Command declares a non-delegable policy", %{dir: dir} do
     pid = start_store!(dir, dispatch_delay_ms: 60_000)
 
-    # No authority or reversibility supplied: the request defaults are
-    # human_required/irreversible, so an absent declaration must refuse rather
-    # than fall through to the permissive branch.
+    # An omitted authority/reversibility now defaults to the Executor-answerable
+    # pair, so an absent declaration no longer strands the agent. The floor
+    # still refuses an explicitly non-delegable declaration.
     assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Undeclared policy?", "blocking" => true})
-    assert decision.authority == :human_required
-    assert decision.reversibility == :irreversible
+    assert decision.authority == :supervisor_allowed
+    assert decision.reversibility == :reversible
 
-    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+    assert {:ok, %{status: :accepted}} =
              DecisionStore.answer(
                decision.decision_id,
                %{
@@ -2285,6 +2288,127 @@ defmodule Aiur.DecisionStoreTest do
                [actor: %{kind: :executor, id: "executor-1"}],
                pid
              )
+
+    assert {:ok, %{decision: refused}} =
+             request(pid, %{
+               "question" => "Explicitly operator-scoped?",
+               "blocking" => true,
+               "authority" => "human_required",
+               "reversibility" => "irreversible"
+             })
+
+    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+             DecisionStore.answer(
+               refused.decision_id,
+               %{
+                 "idempotency_key" => "executor-explicitly-refused",
+                 "expected_version" => 1,
+                 "custom_response" => "Looks obvious to me."
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+  end
+
+  test "a re-review request Command is Executor-answerable and releases the agent", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    # The issue's most common Command shape: completed rework is green but
+    # reviewDecision is stuck on a stale review. It classifies
+    # supervisor_preferred + reversible, so the Executor answers directly and
+    # the requesting agent resumes without an operator.
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Rework is complete and CI is green, but reviewDecision is stuck on a stale review — please re-review to release it.",
+               "blocking" => true,
+               "kind" => "rework_review"
+             })
+
+    assert decision.authority == :supervisor_preferred
+    assert decision.reversibility == :reversible
+
+    assert {:ok, %{status: :accepted, action: answer}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "executor-re-review",
+                 "expected_version" => 1,
+                 "custom_response" => "Re-reviewing now."
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert {:ok, %Decision{answer: %{actor: %{kind: :executor}}, decision_status: status}} = DecisionStore.get(decision.decision_id, pid)
+    assert status in [:acknowledged, :resolved, :decided]
+  end
+
+  test "a sequencing Command is Executor-answerable and releases the agent", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Reconcile the precedence overlap: strip and stack, or keep and close?",
+               "blocking" => true,
+               "kind" => "sequencing"
+             })
+
+    assert decision.authority == :supervisor_allowed
+    assert decision.reversibility == :reversible
+
+    assert {:ok, %{status: :accepted, action: answer}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "executor-sequencing",
+                 "expected_version" => 1,
+                 "custom_response" => "Keep and close: strip the overlap onto #2438 and stack."
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+  end
+
+  test "a known-irreversible Command still refuses the Executor and still escalates", %{dir: dir} do
+    opener = fn _decision, _executor_id, _reason -> {:ok, :opened} end
+    pid = start_store!(dir, executor_attention_opener: opener, dispatch_delay_ms: 60_000)
+
+    # Genuinely irreversible / spend / product-direction Commands stay outside
+    # the Executor floor: this is the guard that keeps the classification fix
+    # from becoming a blanket widening.
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Spend on the paid provider to unblock the build?",
+               "blocking" => true,
+               "authority" => "human_required",
+               "reversibility" => "irreversible",
+               "kind" => "spend"
+             })
+
+    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "executor-irreversible", "expected_version" => 1, "custom_response" => "Go."},
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    # Refused, not recorded: the Command stays open for the operator.
+    assert {:ok, %Decision{decision_status: :open, answer: nil}} = DecisionStore.get(decision.decision_id, pid)
+
+    # The Executor's remaining option is escalation, which still notifies the
+    # operator and leaves the Command answerable.
+    assert {:ok, %{status: :opened}} =
+             DecisionStore.escalate_executor_command(
+               decision.decision_id,
+               %{expected_version: 1, executor_id: "executor-1", reason: "This involves spend and is not reversible."},
+               pid
+             )
+
+    assert {:ok, %Decision{decision_status: :open, answer: nil}} = DecisionStore.get(decision.decision_id, pid)
   end
 
   test "an Executor answer never opens an operator attention", %{dir: dir} do
@@ -2691,7 +2815,7 @@ defmodule Aiur.DecisionStoreTest do
       topic =
         "ticket.979.agent.attention.decision-delivery-#{String.replace(rejected_action.action_id, "_", "-")}"
 
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
       send(active_worker, :release)
       assert_receive {:saturation_dispatch_started, queued_id, queued_worker}, 1_000
       assert queued_id == queued.decision_id
@@ -2995,7 +3119,17 @@ defmodule Aiur.DecisionStoreTest do
       assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
 
       topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
+      # A structurally-unreachable target is never raised as needs-attention
+      # (#2419): the delivery topic is cleared via its `.resolved` record — the
+      # only form `AlertFeed` treats as a clear — so the feed stays empty.
+      assert case_attention_alerts(log_root, topic) == []
+
+      assert [%{"topic" => resolved_topic, "needs_attention" => false}] =
+               AlertFeed.list(roots: [], log_roots: [log_root])
+               |> Enum.filter(&(&1["topic"] == topic <> ".resolved"))
+
+      assert resolved_topic == topic <> ".resolved"
 
       refute_receive {:target_attempt, _, _}, 100
 
@@ -3003,7 +3137,7 @@ defmodule Aiur.DecisionStoreTest do
       assert_receive {:target_attempt, 2, true}, 1_000
       settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
       assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
     end
 
     test "projection repair failure after answer append suppresses dispatch", %{dir: dir} do
@@ -3072,17 +3206,23 @@ defmodule Aiur.DecisionStoreTest do
       topic =
         "ticket.979.agent.attention.decision-lifecycle-persistence-#{String.replace(action.action_id, "_", "-")}"
 
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, action.action_id, pid)
       assert_receive :background_dispatch, 1_000
       assert_receive {:lifecycle_reservation, 3}, 1_000
       _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
     end
 
     test "boot reconciliation tolerates failed delivery without an attempt", %{dir: dir} do
-      pid = start_store!(dir, dispatch_delay_ms: 5_000, reconcile_delay_ms: 5_000)
+      pid =
+        start_store!(dir,
+          dispatch_delay_ms: 5_000,
+          reconcile_delay_ms: 5_000,
+          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new()} end
+        )
+
       assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-empty-failure"))
       payload = %{"idempotency_key" => "empty-failure-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, _result} = answer(pid, decision.decision_id, payload)
@@ -3280,15 +3420,275 @@ defmodule Aiur.DecisionStoreTest do
       assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
       failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
       assert List.last(failed.dispatch_attempts).failure_reason_class == "send_failed"
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       GenServer.stop(pid)
-      pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
-      assert [%{"topic" => ^topic}] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
+      pid2 =
+        start_store!(dir,
+          dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end,
+          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new()} end
+        )
+
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
 
       assert :ok = DecisionStore.record_transport_async(:restored, item, nil, pid2)
       _restored = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
-      assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+      assert case_attention_alerts(log_root, topic) == []
+    end
+
+    test "target-agent-unavailable failure is resolved, not raised, including after a listener restart",
+         %{dir: dir} do
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "absent-agent-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-absent-target"))
+      payload = %{"idempotency_key" => "absent-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+
+      topic =
+        "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+
+      # Recorded, but never as needs-attention: the target agent is structurally
+      # absent, so re-raising would demand action nothing can take. The delivery
+      # topic is cleared via its `.resolved` record rather than prepended with a
+      # `needs_attention: false` copy — the resolved record is the only form
+      # `AlertFeed` treats as a clear (#2419).
+      assert case_attention_alerts(log_root, topic) == []
+
+      assert [%{"topic" => resolved_topic, "needs_attention" => false}] =
+               AlertFeed.list(roots: [], log_roots: [log_root])
+               |> Enum.filter(&(&1["topic"] == topic <> ".resolved"))
+
+      assert resolved_topic == topic <> ".resolved"
+
+      # A listener restart must not re-raise it either: the failure class is
+      # non-actionable regardless of ticket state, so the boot reprojection
+      # resolves it without ever consulting the terminal resolver, and the feed
+      # stays empty.
+      GenServer.stop(pid)
+      _pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
+      assert case_attention_alerts(log_root, topic) == []
+    end
+
+    test "a later target-agent-unavailable failure clears a previously raised delivery alert", %{dir: dir} do
+      parent = self()
+      counter = :counters.new(1, [])
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "absent-agent-clears-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      dispatcher = fn _decision, opts ->
+        :counters.add(counter, 1, 1)
+        attempt = :counters.get(counter, 1)
+        send(parent, {:queue_attempt, attempt, opts[:attempt_id]})
+
+        if attempt == 1 do
+          {:ok, %{status: :accepted, item: %{id: 95}}}
+        else
+          {:error, :no_running_agent}
+        end
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-absent-clear"))
+      payload = %{"idempotency_key" => "absent-clear-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+      assert_receive {:queue_attempt, 1, attempt_id}, 1_000
+      _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+      item = correlated_queue_item(decision, action, attempt_id, 95)
+      topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+
+      # First attempt fails with a deliverable error: the delivery alert is raised.
+      assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+      _failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
+
+      # The agent goes away and the explicit retry now fails with
+      # target_agent_unavailable: the non-actionable branch resolves the topic,
+      # retiring the earlier raise instead of leaving it active forever.
+      assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, action.action_id, pid)
+
+      _refailed =
+        wait_for_decision(pid, decision.decision_id, &(length(Decision.active_dispatch_attempts(&1)) == 2))
+
+      assert {:ok, refailed} = DecisionStore.get(decision.decision_id, pid)
+      assert List.last(Decision.active_dispatch_attempts(refailed)).failure_reason_class == "target_agent_unavailable"
+      assert case_attention_alerts(log_root, topic) == []
+    end
+
+    test "target-agent-unavailable decision stays visible and retryable on the decision surface", %{dir: dir} do
+      dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-absent-visible"))
+      payload = %{"idempotency_key" => "absent-visible-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: _action}} = answer(pid, decision.decision_id, payload)
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+
+      # Not dropped: clearing the needs-attention raise is an alert-surface
+      # choice, not a liveness one. The answered decision stays queryable with
+      # its delivery failure recorded, and the Control Center surface renders it
+      # as a failed, retryable delivery — the surface that keeps a
+      # temporarily-restarting agent's answer visible.
+      assert {:ok, current} = DecisionStore.get(decision.decision_id, pid)
+      assert current.delivery_status == :failed
+      assert List.last(Decision.active_dispatch_attempts(current)).failure_reason_class == "target_agent_unavailable"
+
+      [row] = DecisionPresenter.rows([current])
+      assert row.lifecycle == :delivery_failed
+      assert row.retryable == true
+      assert row.failure_reason == "target_agent_unavailable"
+    end
+
+    test "boot resolves the already-raised needs-attention backlog for non-actionable failures", %{dir: dir} do
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "absent-agent-backlog-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      dispatcher = fn _decision, _opts -> {:error, :no_running_agent} end
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-absent-backlog"))
+      payload = %{"idempotency_key" => "absent-backlog-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+      _failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+
+      topic =
+        "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+
+      # Simulate the backlog this fix exists to clear: an older build raised the
+      # delivery failure as needs-attention, so a raised entry is already on
+      # disk before this listener restarts.
+      _ =
+        Alerts.emit_custom(
+          topic,
+          "stale raised delivery alert",
+          issue: "979",
+          reason: "stale",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
+
+      GenServer.stop(pid)
+
+      # The boot reprojection must resolve (clear) the raised entry rather than
+      # leave it active forever — the feed must end up empty, not merely smaller.
+      _pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
+      wait_for_feed_empty(log_root, topic)
+      assert case_attention_alerts(log_root, topic) == []
+    end
+
+    test "default terminal resolver identity extraction falls back to issue id when identifier is blank" do
+      terminal_states = MapSet.new(["done", "closed"])
+
+      issues = [
+        %Issue{id: "1471", identifier: nil, state: "done"},
+        %Issue{id: "1582", identifier: "", state: "closed"},
+        %Issue{id: "1660", identifier: "1660", state: "done"},
+        %Issue{id: "2051", identifier: "2051", state: "open"}
+      ]
+
+      assert DecisionStore.terminal_identities(issues, terminal_states) ==
+               MapSet.new(["1471", "1582", "1660"])
+    end
+
+    test "default terminal resolver identity extraction ignores non-terminal and non-issue entries" do
+      terminal_states = MapSet.new(["done"])
+
+      issues = [
+        %Issue{id: "1471", identifier: nil, state: "done"},
+        %Issue{id: "2051", identifier: "2051", state: "open"},
+        %{id: "9999", state: "done"}
+      ]
+
+      assert DecisionStore.terminal_identities(issues, terminal_states) == MapSet.new(["1471"])
+    end
+
+    test "terminal-ticket delivery failure is resolved, not re-raised, on listener restart", %{dir: dir} do
+      parent = self()
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "terminal-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      dispatcher = fn _decision, opts ->
+        send(parent, {:queue_attempt, opts[:attempt_id]})
+        {:ok, %{status: :accepted, item: %{id: 94}}}
+      end
+
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0)
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-terminal"))
+      payload = %{"idempotency_key" => "terminal-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+      assert_receive {:queue_attempt, attempt_id}, 1_000
+      _queued = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+
+      item = correlated_queue_item(decision, action, attempt_id, 94)
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+
+      topic =
+        "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+
+      assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "send_failed"
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
+
+      GenServer.stop(pid)
+
+      # Ticket #979 is terminal: the restarted listener must clear the stale
+      # delivery alert instead of re-raising it — the feed must end up empty,
+      # not merely smaller (a count assertion would pass on today's code with
+      # one fewer entry, which is the non-constraining shape this test rejects).
+      _pid2 =
+        start_store!(dir,
+          dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end,
+          terminal_ticket_resolver: fn _identifiers -> {:ok, MapSet.new(["979"])} end
+        )
+
+      wait_for_feed_empty(log_root, topic)
+
+      assert case_attention_alerts(log_root, topic) == []
     end
 
     test "target agent explicitly acknowledges and resolves with duplicate suppression", %{dir: dir} do
@@ -3811,6 +4211,20 @@ defmodule Aiur.DecisionStoreTest do
     end
   end
 
+  defp wait_for_feed_empty(log_root, topic, attempts \\ 200)
+
+  defp wait_for_feed_empty(_log_root, _topic, 0),
+    do: flunk("needs-attention feed did not empty after listener restart")
+
+  defp wait_for_feed_empty(log_root, topic, attempts) do
+    if case_attention_alerts(log_root, topic) == [] do
+      :ok
+    else
+      Process.sleep(10)
+      wait_for_feed_empty(log_root, topic, attempts - 1)
+    end
+  end
+
   defp wait_for_named_process(name, previous, attempts \\ 100)
 
   defp wait_for_named_process(_name, _previous, 0), do: flunk("named process did not restart")
@@ -3828,5 +4242,18 @@ defmodule Aiur.DecisionStoreTest do
 
   defp unique_coordinator_name(suffix) do
     Module.concat(__MODULE__, "#{suffix}#{System.unique_integer([:positive])}")
+  end
+
+  # #2343: each case's own store writes its delivery attention into the
+  # case-scoped `log_root` via the shared `:log_file` app env, but any other
+  # emitter alive during the case body resolves that same global env, so the
+  # root can transiently carry sibling alerts (observed: `decision-expired-
+  # unanswerable` from other tickets). These cases assert on their OWN alert,
+  # so the read is scoped to the case's topic rather than assuming the root is
+  # globally empty — the root being "owned" by one case is not something a test
+  # can rely on while the log root is a VM-global knob.
+  defp case_attention_alerts(log_root, topic) do
+    AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+    |> Enum.filter(&(&1["topic"] == topic))
   end
 end

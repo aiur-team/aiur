@@ -27,7 +27,17 @@ defmodule Aiur.DecisionExpiryTest do
                expire_fun: fn decision_id, reason_class, occurred_at ->
                  send(test_pid, {:expired, decision_id, reason_class, occurred_at})
                  {:ok, %{status: :accepted}}
-               end
+               end,
+               # #2343: without an injected attention reconcile, the sweep's
+               # default path calls DecisionAttentionSignals with the real
+               # Alerts.emit_system, which resolves the alert-ledger root from
+               # the VM-global :log_file env — a knob every async sibling case
+               # re-points at its own root. This orphan expiry therefore wrote a
+               # real decision-expired-unanswerable alert into whichever sibling
+               # root was current, leaking across concurrent cases. The test
+               # asserts expiry only, so inject the reconcile the same way the
+               # other attention-neutralizing tests in this file do.
+               attention_reconcile_fun: fn _decisions, _stale, _expired, _occurred_at -> :ok end
              )
 
     assert_received {:expired, orphan_id, "agent_not_running", @now}
@@ -73,7 +83,13 @@ defmodule Aiur.DecisionExpiryTest do
                expire_fun: fn decision_id, reason_class, occurred_at ->
                  send(test_pid, {:expired, decision_id, reason_class, occurred_at})
                  {:ok, %{status: :accepted}}
-               end
+               end,
+               # #2343: same shared alert-log leak guard as the orphan expiry
+               # test above — an uninjected sweep reaches the real
+               # Alerts.emit_system and writes into whichever sibling root the
+               # VM-global :log_file env currently points at. This test asserts
+               # expiry only, so the reconcile is injected as a no-op.
+               attention_reconcile_fun: fn _decisions, _stale, _expired, _occurred_at -> :ok end
              )
 
     assert_received {:expired, _decision_id, "agent_not_running", @now}
@@ -197,6 +213,16 @@ defmodule Aiur.DecisionExpiryTest do
           send(test_pid, {:expired, decision_id, reason_class, occurred_at})
           {:ok, %{status: :accepted}}
         end,
+        # #2343: without an injected attention reconcile, the sweep's default
+        # path calls DecisionAttentionSignals with the real Alerts.emit_system,
+        # which resolves the alert-ledger root from the VM-global :log_file env
+        # — a knob every async sibling case re-points at its own root. The
+        # expired-orphan sweep therefore wrote a real decision-expired-
+        # unanswerable alert into whichever sibling root was current, leaking
+        # across concurrent cases. The other tests in this file inject the
+        # attention signal; this scheduled-sweep test only asserts the supplied
+        # sources drive the sweep, so inject the reconcile the same way.
+        attention_reconcile_fun: fn _decisions, _stale, _expired, _occurred_at -> :ok end,
         now: @now,
         grace_seconds: 300
       )

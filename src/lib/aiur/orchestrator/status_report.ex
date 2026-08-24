@@ -25,6 +25,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
+  alias Aiur.PollCadence
   alias Aiur.ProgressRetention
   alias Aiur.RepoBase
   alias Aiur.TicketActivity
@@ -412,7 +413,8 @@ defmodule Aiur.Orchestrator.StatusReport do
         poll_interval_ms: state.poll_interval_ms,
         effective_interval_ms: state.effective_poll_interval_ms || state.poll_interval_ms,
         idle_backoff: state.idle_poll_backoff,
-        tracker_snapshot_fresh?: state.candidate_snapshot_fresh?
+        tracker_snapshot_fresh?: state.candidate_snapshot_fresh?,
+        class_intervals: PollCadence.effective_intervals()
       }
     }
   end
