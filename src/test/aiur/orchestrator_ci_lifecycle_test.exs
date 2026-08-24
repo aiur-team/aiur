@@ -29,6 +29,17 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       record_update(issue_id, state_name, opts)
     end
 
+    def remove_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
+      case recipient() do
+        recipient when is_pid(recipient) ->
+          send(recipient, {:label_removed, issue_id, label})
+          Process.get(@update_result_key, :ok)
+
+        _other ->
+          {:error, :unscoped_test_call}
+      end
+    end
+
     defp record_update(issue_id, state_name, opts) do
       case recipient() do
         recipient when is_pid(recipient) ->
@@ -293,6 +304,99 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts])
 
       assert MapSet.member?(next.claimed, identifier)
+    end
+
+    test "terminal CI clears ci-wait on a ticket carrying contradictory state labels" do
+      identifier = unique_identifier("ci-contradictory-failure")
+      recorder = start_recorder("ticket.#{identifier}.ci.failed")
+
+      # Two `agent:*` state labels make `extract_state` resolve to the real
+      # disposition (rework, not the transient ci-wait). The lifecycle must not
+      # let the pair strand the ticket: the terminal swap replaces the whole
+      # label set, so exactly one state label survives (#2366).
+      issue = %{issue(identifier, nil) | state_labels: ["ci-wait", "rework"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "failed-head",
+          pr_number: 941,
+          failures: [%{name: "lint", result: "failure", excerpt: "failed"}]
+        })
+
+      sync_recorder(recorder)
+
+      # The transition resolves the contradictory pair to its real disposition
+      # (`rework`) for the `expected_state` guard instead of passing `nil`
+      # (which used to fail validation and skip the swap entirely).
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "rework"]}}
+      assert next.running[identifier].issue.state == "rework"
+    end
+
+    test "passing CI on a human-review + stale ci-wait pair keeps review and clears ci-wait" do
+      identifier = unique_identifier("ci-contradictory-review")
+      recorder = start_recorder()
+
+      issue = %{issue(identifier, nil) | state_labels: ["ci-wait", "human-review"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: "reviewed-head",
+          pr_number: 941
+        })
+
+      sync_recorder(recorder)
+
+      # The pair resolves to human-review, so the review disposition is kept and
+      # the stale `ci-wait` marker is removed directly — the ticket must end with
+      # exactly one state label (#2366).
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      assert_received {:recorded, _position, {:label_removed, ^identifier, "agent:ci-wait"}}
+      assert next.running[identifier].issue.state == "human-review"
+    end
+
+    test "a failed stale ci-wait removal leaves the ticket untouched and keeps the poll alive" do
+      identifier = unique_identifier("ci-stale-remove-error")
+      recorder = start_recorder()
+
+      issue = %{issue(identifier, nil) | state_labels: ["ci-wait", "human-review"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      # The stale-label removal is best-effort: a transient GitHub failure must
+      # not take down the poll loop. It logs and leaves the state untouched so
+      # the next terminal observation retries (#2366).
+      RecordingGitHubClient.return({:error, :github_down})
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: "reviewed-head",
+          pr_number: 941
+        })
+
+      sync_recorder(recorder)
+
+      # The poll completed without raising and the review disposition is
+      # retained; no terminal transition happened.
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      assert next.running[identifier].issue.state == "human-review"
     end
 
     test "passing CI records the head and publishes after the active-state write" do
