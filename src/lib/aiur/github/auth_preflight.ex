@@ -233,35 +233,37 @@ defmodule Aiur.GitHub.AuthPreflight do
       |> preflight_checks(repo)
       |> run_preflight_checks(request_fun, token, owner, repo)
 
-    case result do
-      {:error, %{classification: :local_hold} = diagnostic} when waits_left > 0 ->
-        case local_hold_wait_ms(diagnostic, max_wait_ms) do
-          {:wait, wait_ms} ->
-            Logger.info(
-              "GitHub auth preflight held by local budget, waiting #{wait_ms}ms " <>
-                "(reset_at=#{hold_reset_at(diagnostic)}) then retrying"
-            )
+    with {:error, %{classification: :local_hold} = diagnostic} <- result,
+         {:wait, wait_ms} <- local_hold_wait_ms(diagnostic, max_wait_ms),
+         true <- waits_left > 0 do
+      log_and_sleep_hold(diagnostic, wait_ms, sleep_fun)
 
-            if wait_ms > 0, do: sleep_fun.(wait_ms)
-
-            run_preflight_with_local_hold_retry(
-              owner,
-              repo,
-              token,
-              request_fun,
-              gh_auth_status_fun,
-              sleep_fun,
-              max_wait_ms,
-              waits_left - 1
-            )
-
-          :no_wait ->
-            finalize_preflight_result(result, gh_auth_status_fun)
-        end
-
-      _other ->
-        finalize_preflight_result(result, gh_auth_status_fun)
+      run_preflight_with_local_hold_retry(
+        owner,
+        repo,
+        token,
+        request_fun,
+        gh_auth_status_fun,
+        sleep_fun,
+        max_wait_ms,
+        waits_left - 1
+      )
+    else
+      _other -> finalize_preflight_result(result, gh_auth_status_fun)
     end
+  end
+
+  # Logs the wait and sleeps until the hold clears. The sleep is skipped — but
+  # the retry still happens — when `reset_at` has already passed (`{:wait, 0}`),
+  # so a hold that cleared before the failure was produced is retried
+  # immediately rather than failing the run (the daemon-restart burst case).
+  defp log_and_sleep_hold(diagnostic, wait_ms, sleep_fun) do
+    Logger.info(
+      "GitHub auth preflight held by local budget, waiting #{wait_ms}ms " <>
+        "(reset_at=#{hold_reset_at(diagnostic)}) then retrying"
+    )
+
+    if wait_ms > 0, do: sleep_fun.(wait_ms)
   end
 
   # The hold payload already carries its own release time; nothing needs to be
@@ -272,18 +274,16 @@ defmodule Aiur.GitHub.AuthPreflight do
   # `{:wait, 0}`: the hold has cleared by the time the failure was produced
   # (the daemon-restart burst case), so retry immediately rather than failing.
   defp local_hold_wait_ms(diagnostic, max_wait_ms) do
-    with %{hold: %{reset_at: %DateTime{} = reset_at}} <- Map.get(diagnostic, :detail) do
-      wait_ms =
-        DateTime.diff(reset_at, DateTime.utc_now(), :millisecond) +
-          :rand.uniform(@local_hold_jitter_ms + 1) - 1
+    case Map.get(diagnostic, :detail) do
+      %{hold: %{reset_at: %DateTime{} = reset_at}} ->
+        wait_ms =
+          DateTime.diff(reset_at, DateTime.utc_now(), :millisecond) +
+            :rand.uniform(@local_hold_jitter_ms + 1) - 1
 
-      if wait_ms > max_wait_ms do
+        if wait_ms > max_wait_ms, do: :no_wait, else: {:wait, max(wait_ms, 0)}
+
+      _other ->
         :no_wait
-      else
-        {:wait, max(wait_ms, 0)}
-      end
-    else
-      _ -> :no_wait
     end
   end
 

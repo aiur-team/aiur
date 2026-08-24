@@ -1,6 +1,7 @@
 defmodule Aiur.Workspace.HooksTest do
   use Aiur.TestSupport
 
+  alias Aiur.GitHub.AuthPreflight
   alias Aiur.Workflow
   alias Aiur.Workspace.Hooks
 
@@ -161,7 +162,7 @@ defmodule Aiur.Workspace.HooksTest do
       reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
       hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
 
-      Aiur.GitHub.AuthPreflight.preflight_auth(
+      AuthPreflight.preflight_auth(
         request_fun: fn _request ->
           attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
 
