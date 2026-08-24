@@ -2060,6 +2060,62 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert healed_state.last_polled_issues == %{}
     end
 
+    test "emits one fleet alert for tickets undispatchable due to contradictory labels" do
+      dual_a = %{issue("dual-a", nil) | state_labels: ["ci-wait", "rework"]}
+      dual_b = %{issue("dual-b", nil) | state_labels: ["ci-wait", "human-review"]}
+
+      now_ms = System.monotonic_time(:millisecond)
+
+      state = %State{
+        contradictory_state_label_tickets: %{
+          dual_a.id => %{identifier: dual_a.identifier, labels: ["ci-wait", "rework"], since_ms: now_ms - 120_000},
+          dual_b.id => %{identifier: dual_b.identifier, labels: ["ci-wait", "human-review"], since_ms: now_ms - 120_000}
+        }
+      }
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual_a, dual_b],
+          fn _id, _target -> :ok end
+        )
+
+      # One actionable line names the whole undispatchable set instead of one
+      # buried warning per ticket (#2366).
+      assert healed_state.contradictory_state_label_alert_active
+      assert map_size(healed_state.contradictory_state_label_tickets) == 2
+
+      assert Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels" and
+                   &1["message"] =~ "2 tickets undispatchable due to contradictory labels")
+             )
+    end
+
+    test "resolves the fleet alert once every ticket carries a single state label" do
+      dual = %{issue("dual-c", nil) | state_labels: ["ci-wait", "rework"]}
+
+      now_ms = System.monotonic_time(:millisecond)
+
+      state = %State{
+        contradictory_state_label_tickets: %{
+          dual.id => %{identifier: dual.identifier, labels: ["ci-wait", "rework"], since_ms: now_ms - 120_000}
+        },
+        contradictory_state_label_alert_active: true
+      }
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(state, [], fn _id, _target -> :ok end)
+
+      assert healed_state.contradictory_state_label_tickets == %{}
+      assert healed_state.contradictory_state_label_alert_active == false
+
+      assert Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()]),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels.resolved")
+             )
+    end
+
     test "heals a done+rework pair to rework so the ticket is not closed" do
       # #2437: the terminal `done` must never win a contradiction. A ticket
       # carrying `done` + `rework` heals to `rework` (the outstanding work),
@@ -2091,6 +2147,31 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert healed_state.last_polled_issues[dual.id].state == "rework"
 
       refute DispatchPolicy.terminal_issue_state?("rework", DispatchPolicy.terminal_state_set())
+    end
+
+    test "does not alert for a pair first seen this poll" do
+      # The fleet alert is debounced: a pair the heal repairs on the same
+      # observation must not alarm. A pair with no prior observation (first seen
+      # this poll) sits below the debounce — it is tracked so a pair that
+      # persists past one cycle still alerts, but the single fleet line must not
+      # fire yet (#2366).
+      dual = %{issue("dual-fresh", nil) | state_labels: ["ci-wait", "rework"]}
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn _id, _target -> :ok end
+        )
+
+      refute healed_state.contradictory_state_label_alert_active
+      assert is_map(healed_state.contradictory_state_label_tickets[dual.id])
+      assert healed_state.contradictory_state_label_tickets[dual.id].since_ms <= System.monotonic_time(:millisecond)
+
+      refute Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels")
+             )
     end
   end
 
