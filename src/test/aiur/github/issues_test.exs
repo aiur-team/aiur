@@ -258,16 +258,93 @@ defmodule Aiur.GitHub.IssuesTest do
         end
       end
 
-      assert {:ok, [%Issue{id: "42", state: "in-progress"}], cache} =
+      # The conditional path (the orchestrator's dispatch poll) partitions
+      # rather than discards: the zero-label issue 44 is returned alongside the
+      # authorized dispatch candidate 42 so the repair pass can heal it (#2420).
+      # The terminal-labelled issue 43 is still dropped.
+      assert {:ok, issues, cache} =
                Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
 
-      assert {:ok, [%Issue{id: "42", state: "todo"}], cache} =
+      assert Enum.map(issues, & &1.id) == ["42", "44"]
+      assert Enum.find(issues, &(&1.id == "42")).state == "in-progress"
+      assert Enum.find(issues, &(&1.id == "44")).state_labels == []
+
+      assert {:ok, issues, cache} =
                Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
 
-      assert {:ok, [%Issue{id: "42", state: "todo"}], _cache} =
+      assert Enum.map(issues, & &1.id) == ["42", "44"]
+      assert Enum.find(issues, &(&1.id == "42")).state == "todo"
+
+      assert {:ok, issues, _cache} =
                Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+
+      assert Enum.map(issues, & &1.id) == ["42", "44"]
 
       assert Agent.get(list_step, & &1) == 3
+    end
+
+    test "the conditional path surfaces a zero-label and a contradictory-label ticket for repair" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["todo", "in-progress"]
+      )
+
+      issue = fn number, labels ->
+        %{
+          "number" => number,
+          "title" => "Issue #{number}",
+          "body" => nil,
+          "html_url" => "https://github.com/owner/repo/issues/#{number}",
+          "labels" => labels,
+          "assignee" => nil,
+          "created_at" => "2026-01-01T00:00:00Z",
+          "updated_at" => "2026-01-02T00:00:00Z"
+        }
+      end
+
+      page = [
+        issue.(50, [%{"name" => "sym:todo"}]),
+        issue.(51, []),
+        issue.(52, [%{"name" => "sym:in-progress"}, %{"name" => "sym:rework"}])
+      ]
+
+      # Dispatch authorization needs a labeled timeline event for the
+      # dispatchable candidate; the degenerate tickets must not be authorized.
+      request_fun = fn request ->
+        if String.ends_with?(request.url, "/timeline?per_page=100") do
+          labeled_event = %{
+            "id" => 1,
+            "event" => "labeled",
+            "label" => %{"name" => "sym:todo"},
+            "actor" => %{"login" => "its-everdred"},
+            "created_at" => "2026-01-01T00:00:00Z"
+          }
+
+          {:ok, %{status: 200, headers: [], body: [labeled_event]}}
+        else
+          assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+          {:ok, %{status: 200, headers: [], body: page}}
+        end
+      end
+
+      assert {:ok, issues, _cache} =
+               Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+
+      ids = Enum.map(issues, & &1.id)
+      assert "50" in ids
+      assert "51" in ids
+      assert "52" in ids
+
+      # The zero-label (51) and contradictory-label (52) tickets keep their
+      # degenerate state_labels so the orchestrator's repair pass can heal
+      # them; only the dispatch candidate (50) is authorized.
+      assert Enum.find(issues, &(&1.id == "51")).state_labels == []
+      assert Enum.find(issues, &(&1.id == "52")).state_labels == ["in-progress", "rework"]
+      assert Enum.find(issues, &(&1.id == "50")).dispatch_authorized?
+      refute Enum.find(issues, &(&1.id == "51")).dispatch_authorized?
+      refute Enum.find(issues, &(&1.id == "52")).dispatch_authorized?
     end
   end
 

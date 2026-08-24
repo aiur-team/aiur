@@ -2026,19 +2026,152 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert healed_state.last_polled_issues[dual.id].state == "todo"
     end
 
-    test "passes through issues with a single or no state label" do
+    test "repairs an issue with no state label and passes through single-labelled issues" do
       single = %{issue("single", "rework") | state_labels: ["rework"]}
-      none = issue("none", "todo")
+
+      # The zero-label ticket's previous polled copy carried `rework`, which is
+      # the positive evidence that it was in the agent workflow and not
+      # deliberate parking: a remove-then-add swap dropped the label, so the
+      # heal restores the last known state instead of guessing.
+      none = %{issue("none", nil) | state_labels: []}
+      parent = self()
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{last_polled_issues: %{none.id => issue("none", "rework")}},
+          [single, none],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      # A zero-label ticket with prior workflow evidence is invisible to
+      # dispatch and nothing else repairs it, so it is restored to its last
+      # known state and written through the tracker (#2420). A single-labelled
+      # ticket passes through untouched.
+      assert_receive {:heal, "its-everdred/aiur#none", "rework"}
+      refute_receive {:heal, "its-everdred/aiur#single", _}, 0
+
+      assert Enum.map(healed_issues, & &1.id) == ["single", "none"]
+      assert Enum.find(healed_issues, &(&1.id == "none")).state == "rework"
+      assert Enum.find(healed_issues, &(&1.id == "none")).state_labels == ["rework"]
+      assert healed_state.last_polled_issues[none.id].state == "rework"
+      assert healed_state.last_polled_issues[none.id].state_labels == ["rework"]
+    end
+
+    test "leaves a zero-label ticket with no workflow evidence alone and alerts without writing" do
+      topic = "ticket.its-everdred/aiur#untriaged.agent.attention.state-label-missing-no-evidence"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      # A fresh issue with no labels has no running entry and no prior polled
+      # state: stamping `agent:todo` on it would guess at work that never
+      # existed. It must be left untouched and surfaced with an alert instead
+      # of silently re-dispatched (#2420).
+      untriaged = %{issue("untriaged", nil) | state_labels: []}
 
       {healed_state, healed_issues} =
         IssueSync.reconcile_contradictory_state_labels(
           %State{},
-          [single, none],
-          fn _id, _target -> flunk("must not rewrite single-labelled issues") end
+          [untriaged],
+          fn _id, _target -> flunk("must not write a state label without workflow evidence") end
         )
 
-      assert Enum.map(healed_issues, & &1.id) == ["single", "none"]
+      assert [left_alone] = healed_issues
+      assert left_alone.id == "untriaged"
+      assert left_alone.state_labels == []
+      assert is_nil(left_alone.state)
       assert healed_state.last_polled_issues == %{}
+
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "left as-is"
+    end
+
+    test "leaves a deliberately parked zero-label ticket alone" do
+      # `needs-triage`, `human:todo`, and `Epic:` containers carry no `agent:*`
+      # state label on purpose; dispatching them would reverse deliberate
+      # parking, so the heal must not touch them even though they are zero-label
+      # (#2420).
+      parked = %{issue("parked", nil) | state_labels: [], labels: ["needs-triage"]}
+      human_todo = %{issue("human-todo", nil) | state_labels: [], labels: ["human:todo"]}
+      epic = %{issue("epic", nil) | state_labels: [], labels: ["epic:fleet"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [parked, human_todo, epic],
+          fn _id, _target -> flunk("must not rewrite a deliberately parked ticket") end
+        )
+
+      assert Enum.map(healed_issues, & &1.id) == ["parked", "human-todo", "epic"]
+      assert Enum.all?(healed_issues, &(&1.state_labels == []))
+      assert healed_state.last_polled_issues == %{}
+    end
+
+    test "restores a zero-label ticket to its last known running state and alerts" do
+      topic = "ticket.its-everdred/aiur#sweep.agent.attention.state-label-missing"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      stranded = %{issue("sweep", nil) | state_labels: []}
+
+      running_entry = %{
+        pid: self(),
+        identifier: "its-everdred/aiur#sweep",
+        issue: issue("sweep", "in-progress")
+      }
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{running: %{"sweep" => running_entry}},
+          [stranded],
+          fn _id, _target -> :ok end
+        )
+
+      assert [healed] = healed_issues
+      assert healed.state == "in-progress"
+      assert healed.state_labels == ["in-progress"]
+      assert healed_state.last_polled_issues["sweep"].state_labels == ["in-progress"]
+
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "restored in-progress"
+    end
+
+    test "keeps a zero-label issue dispatchable even when the heal write fails" do
+      # Evidence of prior workflow membership (the previous poll saw `rework`)
+      # is what makes the heal attempt; the write failing must not strand the
+      # ticket this cycle.
+      none = %{issue("none", nil) | state_labels: []}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{last_polled_issues: %{none.id => issue("none", "rework")}},
+          [none],
+          fn _id, _target -> {:error, :github_down} end
+        )
+
+      assert [healed] = healed_issues
+      assert healed.state == "rework"
+      assert healed.state_labels == ["rework"]
+
+      # A failed heal write must not strand the ticket this cycle: the healed
+      # issue is returned dispatchable, and the original evidence entry (not a
+      # healed copy) is what last_polled_issues still holds so the next poll
+      # retries the heal.
+      assert healed_state.last_polled_issues == %{none.id => issue("none", "rework")}
     end
 
     test "keeps the resolved issue dispatchable even when the heal write fails" do
@@ -2172,6 +2305,159 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
                AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
                &(&1["topic"] == "system.fleet.contradictory_state_labels")
              )
+    end
+  end
+
+  describe "sync_stranded_ticket_reconciliation (#2361)" do
+    test "re-queues a released-claim ticket with no recovery and alerts" do
+      topic = "ticket.its-everdred/aiur#released.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      stranded = issue("released", "rework")
+      parent = self()
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{released_claims: %{"released" => %{cause: :tracker_retry_exhausted}}},
+          [stranded],
+          fn identifier, target ->
+            send(parent, {:requeue, identifier, target})
+            :ok
+          end
+        )
+
+      # A valid `agent:rework` label with a released claim and no recovery is
+      # invisible to label checks but has no owner and nothing scheduled to give
+      # it one; it must be re-queued to a dispatchable state and surfaced.
+      assert_receive {:requeue, "its-everdred/aiur#released", "todo"}
+      assert next_state.released_claims == %{}
+
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "restored todo"
+    end
+
+    test "leaves a released-claim ticket with a scheduled transient resume alone" do
+      recovered = issue("recovered", "rework")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{
+            released_claims: %{"recovered" => %{cause: :tracker_retry_exhausted}},
+            auto_resume: %{"recovered" => %{attempt: 1, cause: :transient_tracker}}
+          },
+          [recovered],
+          fn _id, _target -> flunk("must not re-queue a ticket with recovery scheduled") end
+        )
+
+      assert next_state.released_claims != %{}
+    end
+
+    test "leaves a running ticket alone" do
+      running = issue("running", "rework")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{running: %{"running" => %{pid: self(), issue: running}}},
+          [running],
+          fn _id, _target -> flunk("must not re-queue a ticket with a live owner") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a todo ticket waiting for capacity alone" do
+      queued = issue("queued", "todo")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [queued],
+          fn _id, _target -> flunk("must not re-queue a todo ticket queued for dispatch") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a ci-wait ticket with no owner alone" do
+      waiting = issue("waiting", "ci-wait")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [waiting],
+          fn _id, _target -> flunk("must not re-queue a ticket waiting on external CI") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "re-queues a zero-label non-dispatchable ticket to its last known state and alerts" do
+      topic = "ticket.its-everdred/aiur#nolabel.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      # The previous poll saw this ticket under `rework`; the label has since
+      # vanished (a broken swap) while the running entry did not survive. The
+      # prior polled state is the evidence that re-queuing is a repair rather
+      # than a guess at work that never existed (#2420).
+      stranded = issue("nolabel", nil)
+      parent = self()
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{last_polled_issues: %{stranded.id => issue("nolabel", "rework")}},
+          [stranded],
+          fn identifier, target ->
+            send(parent, {:requeue, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:requeue, "its-everdred/aiur#nolabel", "rework"}
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a zero-label ticket with no workflow evidence alone" do
+      # A ticket that has never entered the agent workflow (no running entry,
+      # no released claim, no prior polled state) is untriaged parking, not a
+      # strand; the sweep must not re-queue it (#2420).
+      untriaged = issue("untriaged", nil)
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [untriaged],
+          fn _id, _target -> flunk("must not re-queue a ticket with no workflow evidence") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a deliberately parked zero-label ticket alone" do
+      parked = %{issue("parked", nil) | labels: ["human:todo"]}
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [parked],
+          fn _id, _target -> flunk("must not re-queue a deliberately parked ticket") end
+        )
+
+      assert next_state.released_claims == %{}
     end
   end
 
