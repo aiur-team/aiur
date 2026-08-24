@@ -207,6 +207,46 @@ defmodule Aiur.AnalyticsCLI do
         IO.puts(["PRs merged: ", to_string(metrics["merged"])])
         IO.puts(["Tickets done: ", to_string(metrics["done"]), "/", to_string(metrics["total"])])
         IO.puts(["Wasted capacity: ", wasted_capacity(metrics["wasted_slot_hours"])])
+        pressure = model["pressure"] || %{}
+
+        IO.puts([
+          "Fleet-wide pressure: peak occupied ",
+          display(pressure["peak_occupied"]),
+          "; active builds ",
+          display(pressure["peak_active_builds"]),
+          "; queued builds ",
+          display(pressure["peak_queued_builds"]),
+          "; longest live wait ",
+          display_seconds(pressure["longest_wait_seconds"])
+        ])
+
+        IO.puts([
+          "Binding admission signal: ",
+          display(pressure["latest_admission_signal"]),
+          "; load ",
+          display(pressure["latest_load"]),
+          " / threshold ",
+          display(pressure["latest_load_threshold"])
+        ])
+
+        IO.puts([
+          "Latest measured capacities: configured ",
+          display(pressure["latest_configured_capacity"]),
+          "; max ",
+          display(pressure["latest_max_capacity"]),
+          "; effective ",
+          display(pressure["latest_effective_capacity"]),
+          "; build slots ",
+          build_capacity_range(pressure["min_build_capacity"], pressure["max_build_capacity"], pressure["latest_build_capacity"])
+        ])
+
+        IO.puts([
+          "Latest source observations: fleet ",
+          iso(pressure["latest_fleet_observed_at_ms"]),
+          "; build ",
+          iso(pressure["latest_build_observed_at_ms"])
+        ])
+
         IO.puts("Complexity tiers:")
 
         Enum.each(model["complexity_breakdown"], fn tier ->
@@ -248,6 +288,19 @@ defmodule Aiur.AnalyticsCLI do
   end
 
   defp elapsed(_value), do: nil
+  defp display(nil), do: "unavailable"
+  defp display(value), do: to_string(value)
+  defp display_seconds(nil), do: "unavailable"
+  defp display_seconds(value), do: "#{value}s"
+
+  # A peak can occur under a capacity that changed mid-run, so render the
+  # observed range (min..max) and never present the latest single value as the
+  # capacity the peak happened under.
+  defp build_capacity_range(min, max, latest) when is_integer(min) and is_integer(max) do
+    if min == max, do: to_string(min), else: "#{min}..#{max} (latest #{latest})"
+  end
+
+  defp build_capacity_range(_min, _max, latest), do: display(latest)
 
   defp print_window(%{"state" => "unavailable", "mode" => mode, "start" => start, "end" => finish}) when is_binary(start) or is_binary(finish),
     do: IO.puts(["Window: unavailable; requested ", iso(start), " to ", iso(finish), " (", mode, ")"])

@@ -364,6 +364,28 @@ defmodule Aiur.GitHub.Config do
     Aiur.Config.settings!().pr_watch.command_prefix
   end
 
+  @doc """
+  Whether the PR-health scanner runs (`pr_health.enabled`). Opt-in so a repo
+  that has not configured thresholds pays no GitHub API budget.
+  """
+  @spec pr_health_enabled?() :: boolean()
+  def pr_health_enabled? do
+    Aiur.Config.settings!().pr_health.enabled
+  end
+
+  @doc "PR-health scan cadence, in milliseconds."
+  @spec pr_health_interval_ms() :: pos_integer()
+  def pr_health_interval_ms do
+    interval = Aiur.Config.settings!().pr_health.interval_seconds
+    max(interval, 1) * 1_000
+  end
+
+  @doc "A non-draft PR older than this many hours with no review is flagged."
+  @spec pr_health_stale_hours() :: pos_integer()
+  def pr_health_stale_hours do
+    Aiur.Config.settings!().pr_health.stale_hours
+  end
+
   @impl Aiur.TrackerConfig
   def validate! do
     cond do

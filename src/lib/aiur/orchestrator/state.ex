@@ -158,7 +158,14 @@ defmodule Aiur.Orchestrator.State do
           # warming base. Drives the at-most-once-per-N-ticks hold log so a
           # slow/stuck base build stays visible in the daemon log without
           # spamming it (see Dispatcher.log_prewarm_hold/2).
-          prewarm_hold_ticks: non_neg_integer()
+          prewarm_hold_ticks: non_neg_integer(),
+          # Monotonic ms when the current consecutive prewarm hold began (nil
+          # when no hold is in progress). The `system.dispatch.prewarm_blocked`
+          # alert is only raised once a hold has persisted past
+          # `Dispatcher.@prewarm_blocked_alert_after_ms`, so a routine refresh
+          # probe — a hold that self-clears in seconds — is never reported while
+          # a genuine block still is (see Dispatcher.maybe_emit_prewarm_blocked_alert/3).
+          prewarm_hold_since_ms: non_neg_integer() | nil
         }
 
   # The Orchestrator is the single owner of the correlated control lifecycle;
@@ -218,6 +225,13 @@ defmodule Aiur.Orchestrator.State do
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
     dependency_circular_wait: %{},
+    # Fleet aggregate for tickets carrying more than one `agent:*` state label
+    # (`contradictory_state_label_tickets` maps issue id -> %{identifier, labels,
+    # since_ms}; `contradictory_state_label_alert_active` latches the single
+    # fleet alert until the set clears). Kept on State so the orchestrator is the
+    # single writer and `aiur alerts`/`aiur status` can read it back (#2366).
+    contradictory_state_label_tickets: %{},
+    contradictory_state_label_alert_active: false,
     running: %{},
     running_issue_cache: %{},
     completed: MapSet.new(),
@@ -276,7 +290,8 @@ defmodule Aiur.Orchestrator.State do
     poll_cycles_completed: 0,
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
-    prewarm_hold_ticks: 0
+    prewarm_hold_ticks: 0,
+    prewarm_hold_since_ms: nil
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

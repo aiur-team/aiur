@@ -17,6 +17,8 @@ defmodule Aiur.ExecutorBindings do
     {"system.tracker.auth_preflight_failed.resolved", "dispatch:auto"},
     {"system.fleet.capacity.backoff", "dispatch:auto"},
     {"system.fleet.capacity.resumed", "dispatch:auto"},
+    {"system.fleet.contradictory_state_labels", "dispatch:auto"},
+    {"system.fleet.contradictory_state_labels.resolved", "dispatch:auto"},
     {"system.github.connectivity_lost", "dispatch:auto"},
     {"ticket.*.pr.opened", "pr:auto"},
     {"ticket.*.branch.push", "rework:auto"},

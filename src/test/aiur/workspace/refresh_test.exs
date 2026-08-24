@@ -6,7 +6,7 @@ defmodule Aiur.Workspace.RefreshTest do
   alias Aiur.Workspace.{Ownership, Refresh}
 
   setup do
-    test_root = Path.join(System.tmp_dir!(), "refresh_test_#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("refresh_test")
     workspace = Path.join(test_root, "ws")
     File.mkdir_p!(workspace)
 

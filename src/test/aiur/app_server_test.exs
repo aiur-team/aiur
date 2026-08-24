@@ -2,11 +2,7 @@ defmodule Aiur.AppServerTest do
   use Aiur.TestSupport
 
   test "app server rejects the workspace root and paths outside workspace root" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-cwd-guard-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-cwd-guard")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -40,11 +36,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server rejects symlink escape cwd paths under the workspace root" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-symlink-cwd-guard-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-symlink-cwd-guard")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -77,11 +69,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server augments workspaceWrite policies without exposing the lock namespace" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-supported-turn-policies-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-supported-turn-policies")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -176,11 +164,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server marks request-for-input events as a hard failure" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-input-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-input")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -244,11 +228,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server fails when command execution approval is required under safer defaults" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-approval-required-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-approval-required")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -307,11 +287,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server auto-approves command execution approval requests when approval policy is never" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-auto-approve-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-auto-approve")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -458,11 +434,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server auto-approves MCP tool approval prompts when approval policy is never" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-user-input-auto-approve-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-tool-user-input-auto-approve")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -546,11 +518,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server sends a generic non-interactive answer for freeform tool input prompts" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-user-input-required-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-tool-user-input-required")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -622,11 +590,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server continues after an optional account/read endpoint rejects the request" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-user-input-options-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-tool-user-input-options")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -725,11 +689,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "failed thread startup invalidates a lifecycle binding observed during the handshake" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-account-generation-startup-failure-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-account-generation-startup-failure")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -784,11 +744,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server rejects unsupported dynamic tool calls without stalling" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-call-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-tool-call")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -876,11 +832,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server executes supported dynamic tool calls and returns the tool result" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-supported-tool-call-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-supported-tool-call")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -989,11 +941,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server emits tool_call_failed for supported tool failures" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-tool-call-failed-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-tool-call-failed")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -1086,11 +1034,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server buffers partial JSON lines until newline terminator" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-partial-line-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-partial-line")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -1150,11 +1094,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server captures codex side output and logs it through Logger" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-stderr-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-stderr")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -1225,11 +1165,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server emits malformed events for JSON-like protocol lines that fail to decode" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-malformed-protocol-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-malformed-protocol")
 
     try do
       workspace_root = Path.join(test_root, "workspaces")
@@ -1296,11 +1232,7 @@ defmodule Aiur.AppServerTest do
   end
 
   test "app server launches over ssh for remote workers" do
-    test_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-elixir-app-server-remote-ssh-#{System.unique_integer([:positive])}"
-      )
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-app-server-remote-ssh")
 
     previous_path = System.get_env("PATH")
     previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")

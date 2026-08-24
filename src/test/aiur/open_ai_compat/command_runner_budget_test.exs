@@ -10,7 +10,7 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
       start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
     end
 
-    root = Path.join(System.tmp_dir!(), "aiur-command-budget-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-command-budget")
     workspace = Path.join(root, "workspace")
     budget = Path.join(root, "host-budget")
     File.mkdir_p!(workspace)

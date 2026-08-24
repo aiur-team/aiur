@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   require Logger
 
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Errors
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, ReworkGate, State}
@@ -75,7 +76,8 @@ defmodule Aiur.Orchestrator.HumanReview do
   # is throttling a resource for a bounded window, not reporting a provenance
   # problem. The transport layer returns it in the raw `{:aiur, :locally_held,
   # hold}` shape (`Transport.uncached_quota_request`), and `Errors.classify_error`
-  # additionally wraps it as `{:github, :transport, %{reason: ...}}`; both must
+  # wraps it as `{:github, :local_hold, %{reason: ..., hold: ...}}` (#2429).
+  # Both, plus the legacy `{:github, :transport, %{reason: ...}}` wrapper, must
   # defer the human-review transition (the ticket stays in `human-review` and the
   # next poll re-verifies) rather than reverting it to `rework`, which strands a
   # healthy PR in a state whose rework turn has nothing to fix (#2409).
@@ -84,9 +86,15 @@ defmodule Aiur.Orchestrator.HumanReview do
   defp transient_human_review_verification_error?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}),
     do: true
 
-  defp transient_human_review_verification_error?({:github, kind, _detail})
-       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
-       do: true
+  # The GitHub error taxonomy (DNS / timeout / TLS / transport / rate-limit /
+  # local budget hold, plus 408/429/5xx and the auth-preflight transport shape)
+  # delegates to the shared `Aiur.GitHub.Errors.transient_github_error?/1`
+  # classifier — `retryable_github_error?/1` already recognizes the
+  # `:local_hold` classification (#2431) — so this deferral and the
+  # claim-release/retry auto-resume path agree on what is a transient
+  # infrastructure fault (#2420).
+  defp transient_human_review_verification_error?({:github, _kind, _detail} = reason),
+    do: Errors.transient_github_error?(reason)
 
   defp transient_human_review_verification_error?({:github_api_status, status})
        when status in [408, 429] or status in 500..599,

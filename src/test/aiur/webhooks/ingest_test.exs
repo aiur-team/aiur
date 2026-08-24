@@ -4,7 +4,7 @@ defmodule Aiur.Webhooks.IngestTest do
   alias Aiur.Webhooks.{DeliveryLog, Ingest}
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-webhook-ingest-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-webhook-ingest")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     name = :"ingest_delivery_log_#{System.unique_integer([:positive])}"
