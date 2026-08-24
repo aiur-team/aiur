@@ -508,19 +508,27 @@ defmodule Aiur.GitHub.Config do
   # to "no keyring credential" — nil — the same way an absent gh is treated,
   # never a fatal error.
   #
-  # The rescue must live INSIDE the task: Task.async links the task to the
+  # The guard must live INSIDE the task: Task.async links the task to the
   # caller, so an uncaught exception inside the task would exit it abnormally
   # and the link would kill the caller before Task.yield ever returned —
   # crashing boot on the exact new-developer box this protects. The `:run_fun`
-  # seam makes that rescue load-bearing: a test injects a runner that raises
-  # and asserts the caller survives with nil.
+  # seam makes that guard load-bearing: a test injects a runner that raises
+  # and asserts the caller survives with nil. `catch _, _ -> nil` is included
+  # because `rescue` only covers raises: a `throw` or `exit` from `run_fun`
+  # would otherwise exit the linked task by the same path.
   #
-  # The timeout path also kills the OS process. Closing the task's port sends
-  # EOF but never signals the OS process, so a stalled `gh` that outlived the
-  # port would keep holding the locked keyring / credential-helper prompt and
-  # every later lookup would spawn another orphan. The child's OS pid is
-  # published to the task's dictionary by the runner and read here while the
-  # task is still alive, before it is brutal-killed.
+  # The timeout path also kills the OS process GROUP. Closing the task's port
+  # sends EOF but never signals the OS process, so a stalled `gh` that
+  # outlived the port would keep holding the locked keyring / credential-helper
+  # prompt and every later lookup would spawn another orphan. The child's OS
+  # pid is published to the task's dictionary by the runner and read here while
+  # the task is still alive. The BEAM's port spawn makes the child a process
+  # group leader (os_pid == pgid), so a negative-pid signal reaches the whole
+  # group — including a guard wrapper that is the port program and the real
+  # `gh` / lease-renewer it spawned, which a direct-pid kill would orphan. The
+  # group is signalled BEFORE the task is torn down: Task.shutdown closes the
+  # port, erl_child_setup may reap the child, and the OS could recycle the pid
+  # before a later kill landed on an unrelated process.
   defp run_bounded_gh_auth_token(timeout_ms, run_fun) do
     task =
       Task.async(fn ->
@@ -528,6 +536,8 @@ defmodule Aiur.GitHub.Config do
           run_fun.()
         rescue
           _ -> nil
+        catch
+          _, _ -> nil
         end
       end)
 
@@ -536,15 +546,15 @@ defmodule Aiur.GitHub.Config do
         result
 
       {:exit, _reason} ->
-        # With the in-task rescue the task never exits abnormally; kept as a
+        # With the in-task guard the task never exits abnormally; kept as a
         # defensive fallback so an unexpected exit still degrades to "no
         # keyring credential" rather than a crash.
         nil
 
       nil ->
         os_pid = task_keyring_os_pid(task)
-        Task.shutdown(task, :brutal_kill)
         kill_os_process(os_pid)
+        Task.shutdown(task, :brutal_kill)
 
         Logger.warning(
           "aiur_boot phase=github_keyring_lookup state=timed_out " <>
@@ -560,9 +570,11 @@ defmodule Aiur.GitHub.Config do
   # cleared so gh returns the stored keyring login rather than echoing a
   # (possibly stale) env var. The executable is resolved through
   # HostCommand.find_executable/1 so the guard wrapper is used when installed
-  # (budget admission, #2353). The command runs as a port with `:os_pid` so the
-  # bounded runner can read the child's OS pid from the task dictionary and
-  # kill it on timeout; closing the port alone would orphan the process.
+  # (budget admission, #2353). The command runs as a port; the BEAM spawn makes
+  # the child a process group leader (os_pid == pgid), so the bounded runner
+  # can read that pid from the task dictionary and kill the whole GROUP on
+  # timeout — reaching a guard wrapper AND the `gh` / lease-renewer it spawned,
+  # not just the direct child. Closing the port alone would orphan the process.
   defp run_gh_auth_token_command do
     case HostCommand.find_executable() do
       nil ->
@@ -604,8 +616,20 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  # Kills the port child's whole process group. The BEAM's port spawn places
+  # the child in its own group (os_pid == pgid), so a negative-pid signal
+  # reaches the group the child leads: when the guard wrapper is the port
+  # program that is the wrapper AND the real `gh` it spawned as a child AND any
+  # background lease renewer — killing only the direct pid would orphan the
+  # very process holding the locked keyring. TERM is sent first so the
+  # wrapper's cleanup trap can release the budget lease (SIGKILL is
+  # untrappable), then, after a brief bound for that trap to run, KILL clears
+  # anything that did not exit on TERM.
   defp kill_os_process(pid) when is_integer(pid) and pid > 0 do
-    System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+    group = "-#{pid}"
+    System.cmd("kill", ["-TERM", group], stderr_to_stdout: true)
+    Process.sleep(150)
+    System.cmd("kill", ["-KILL", group], stderr_to_stdout: true)
     :ok
   rescue
     _ -> :ok

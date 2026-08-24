@@ -243,37 +243,57 @@ defmodule Aiur.GitHub.ConfigTest do
       assert Config.keyring_token(timeout_ms: 1_000, run_fun: fn -> raise "boom" end) == nil
     end
 
-    test "a stalled gh is killed on timeout rather than orphaned" do
-      # Review blocker: Task.shutdown(:brutal_kill) closes the task's port but
-      # never signals the OS process, so a gh that blocks on a locked keyring /
-      # credential-helper prompt used to survive the timeout and the BEAM,
-      # still holding the keyring and accumulating an orphan per lookup. The
-      # bounded runner now reads the child's OS pid and kills it after the
-      # timeout; this test drives the real shell-out against a never-returning
-      # fake gh that records its pid, and asserts that pid is not live after
-      # the lookup returns.
+    test "a runner that throws or exits degrades to nil instead of killing the caller" do
+      # The in-task guard is `catch _, _ -> nil` as well as `rescue _ -> nil`:
+      # rescue alone only covers raises, so a `throw` or `exit` from run_fun
+      # would exit the linked task abnormally and kill the caller across the
+      # link by the same path as an uncaught raise. Both must degrade to "no
+      # keyring credential" instead.
+      assert Config.keyring_token(timeout_ms: 1_000, run_fun: fn -> throw(:boom) end) == nil
+      assert Config.keyring_token(timeout_ms: 1_000, run_fun: fn -> exit(:boom) end) == nil
+    end
+
+    test "a stalled gh and the process it spawned are killed together on timeout" do
+      # Review blocker: the timeout kill must target the whole process GROUP,
+      # not just the direct child. On a host where the guard wrapper
+      # (~/.aiur/bin/gh) is the port program, the direct pid is the wrapper
+      # shell and the real `gh` runs as its child — a single-pid kill would
+      # orphan it, still holding the locked keyring. The BEAM's port spawn
+      # makes the direct child a group leader (os_pid == pgid), so a
+      # negative-pid kill reaches the wrapper AND everything it spawned. This
+      # test drives the real shell-out against a never-returning fake gh that
+      # spawns a grandchild and records both pids, then asserts neither is live
+      # after the lookup returns — the grandchild dying is what makes the group
+      # kill distinguishable from a direct-pid kill.
       root = Aiur.TestSupport.tmp_root!("aiur-config-keyring-orphan")
       File.mkdir_p!(root)
       pidfile = Path.join(root, "gh.pid")
+      childfile = Path.join(root, "gh.child.pid")
 
       try do
         with_fake_gh_on_path(
           """
           if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
             echo $$ > #{pidfile}
+            sleep 300 &
+            echo $! > #{childfile}
             while true; do sleep 1; done
           fi
           """,
           fn ->
             assert Config.keyring_token(timeout_ms: 200) == nil
             assert File.exists?(pidfile), "the fake gh never started"
+            assert File.exists?(childfile), "the fake gh never spawned its child"
 
             pid = pidfile |> File.read!() |> String.trim() |> String.to_integer()
+            child = childfile |> File.read!() |> String.trim() |> String.to_integer()
 
-            # Allow the kill and reap to land, then assert the child is no
-            # longer a live process (a reaped pid or a zombie both count dead).
-            Process.sleep(100)
+            # Allow the kill and reap to land, then assert neither the fake gh
+            # nor its spawned child is a live process (a reaped pid or a zombie
+            # both count dead).
+            Process.sleep(200)
             refute live_process?(pid), "gh pid #{pid} survived the timeout"
+            refute live_process?(child), "gh child pid #{child} survived the timeout"
           end
         )
       after
