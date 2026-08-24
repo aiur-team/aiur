@@ -96,6 +96,7 @@ defmodule Aiur.Orchestrator.HumanReview do
 
   defp reject_human_review_transition(%State{} = state, %Issue{} = issue, reason, opts) do
     issue_key = issue.id || issue.identifier
+    rework_opts = Keyword.get(opts, :rework_opts, [])
 
     # A revert to `rework` is only meaningful against an open pull request: a
     # human-review ticket with no open PR has nothing a reviewer rejected, so
@@ -103,9 +104,13 @@ defmodule Aiur.Orchestrator.HumanReview do
     # the ticket in a state nothing selects (#2075). With an open PR the revert
     # is the real "reviewer asked for changes" signal; without one the honest
     # restore is `todo` (make it dispatchable again, no verdict).
-    case ReworkGate.verify_open_pr(issue_key, Keyword.get(opts, :rework_opts, [])) do
-      :ok ->
-        revert_human_review_state(state, issue, issue_key, "rework", "reverting to rework")
+    case ReworkGate.open_pr(issue_key, rework_opts) do
+      {:ok, %{} = pr} ->
+        # #2422 bound: the same head must not be reverted into `agent:rework`
+        # indefinitely. A human-review revert already means unresolved review
+        # threads (that is the gate that failed), so a reverted head that never
+        # moves is a stuck condition — raise attention once and stop looping.
+        revert_to_rework_with_bound(state, issue, issue_key, pr, rework_opts)
 
       {:skip, :no_open_pr} ->
         Logger.warning("human-review transition rejected for a ticket with no open PR; reverting to todo: #{State.issue_context(issue)} reason=#{inspect(reason)}")
@@ -119,12 +124,46 @@ defmodule Aiur.Orchestrator.HumanReview do
     end
   end
 
-  defp revert_human_review_state(%State{} = state, %Issue{} = issue, issue_key, target_state, log_label) do
+  # Reverts a human-review ticket to `rework` while holding the #2422
+  # rework-attempt bound: an open-PR head that keeps being rejected without
+  # moving is a stuck condition, so once the same head has hit the bound the
+  # revert is refused and a one-time attention is raised instead of looping.
+  defp revert_to_rework_with_bound(%State{} = state, %Issue{} = issue, issue_key, pr, rework_opts) do
+    head_sha = ReworkGate.head_sha(pr)
+
+    case ReworkGate.verify_rework_attempt(
+           state,
+           to_string(issue_key),
+           head_sha,
+           rework_attempt_alert_opts(rework_opts)
+         ) do
+      {:ok, state} ->
+        state
+        |> revert_human_review_state(issue, issue_key, "rework", "reverting to rework", fn reverted ->
+          State.bump_rework_attempt(reverted, to_string(issue_key), head_sha)
+        end)
+
+      {:skip, bound_reason, state} ->
+        Logger.warning("human-review rework revert stopped by rework-attempt bound: #{State.issue_context(issue)} reason=#{inspect(bound_reason)}")
+
+        state
+    end
+  end
+
+  defp rework_attempt_alert_opts(rework_opts) do
+    case Keyword.get(rework_opts, :emit_alert_fun) do
+      fun when is_function(fun, 2) -> [emit_alert_fun: fun]
+      _ -> []
+    end
+  end
+
+  defp revert_human_review_state(%State{} = state, %Issue{} = issue, issue_key, target_state, log_label, on_success \\ nil) do
     Logger.warning("human-review transition rejected; #{log_label}: #{State.issue_context(issue)}")
 
     case Tracker.update_issue_state(to_string(issue_key), target_state) do
       :ok ->
-        Reconciler.maybe_reactivate_or_refresh(state, %{issue | state: target_state})
+        state = Reconciler.maybe_reactivate_or_refresh(state, %{issue | state: target_state})
+        if is_function(on_success, 1), do: on_success.(state), else: state
 
       {:error, update_reason} ->
         Logger.warning("human-review #{log_label} failed: #{State.issue_context(issue)} reason=#{inspect(update_reason)}")
