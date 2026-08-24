@@ -26,6 +26,48 @@ defmodule Aiur.GitHub.PullRequests do
     end
   end
 
+  @doc """
+  The fingerprint of a pull request's own contribution at a given head.
+
+  `GET /repos/{o}/{r}/compare/{base}...{head}` returns the three-dot diff
+  between the merge-base of `base` and `head` and `head` — the PR's own
+  contribution, with merges of the base branch excluded. The returned
+  `{filename, sha}` pairs are content-sensitive (the blob sha changes when the
+  file's content changes), so comparing the fingerprint at a blocking review's
+  `commit_id` against the current head distinguishes a genuine rework from a
+  merge-only push of the base branch (#2337 rework follow-up).
+  """
+  @spec fetch_compare_files(String.t(), String.t(), keyword()) ::
+          {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def fetch_compare_files(base_sha, head_sha, opts \\ [])
+      when is_binary(base_sha) and is_binary(head_sha) and base_sha != "" and head_sha != "" do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/compare/#{base_sha}...#{head_sha}"
+
+      case request_fun.(%{method: :get, url: url, token: token}) do
+        {:ok, %{status: 200, body: %{"files" => files}}} when is_list(files) ->
+          {:ok, Enum.map(files, &compare_file_fingerprint/1) |> Enum.reject(&is_nil/1)}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  defp compare_file_fingerprint(file) when is_map(file) do
+    case {Map.get(file, "filename"), Map.get(file, "sha")} do
+      {filename, sha} when is_binary(filename) and is_binary(sha) -> {filename, sha}
+      _other -> nil
+    end
+  end
+
+  defp compare_file_fingerprint(_file), do: nil
+
   @spec fetch_pull_request_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_pull_request_review_comments(pr_number, opts \\ []) do
@@ -131,6 +173,61 @@ defmodule Aiur.GitHub.PullRequests do
           pull_request ->
             {:ok, pull_request}
         end
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  @doc """
+  Fetches every open pull request whose head branch belongs to `issue_number`.
+
+  The singular `fetch_open_pull_request_for_branch/2` answers "does this ticket
+  have an open PR?" with the newest match and is the right shape for a gate that
+  needs one canonical PR. A ticket can legitimately have more than one open PR —
+  two `aiur/<ticket>-<slug>` branches worked in parallel, where a merge of the
+  first must not let the second be abandoned. This plural form lists them all,
+  reusing the same paginated open-pull-request listing and the same
+  `TicketBranch.ticket_branch?/2` head-branch filter, so callers that must
+  consider every open PR (the merged-ticket reconciler) do not reimplement the
+  lookup.
+  """
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_for_branch(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+
+      fetch_open_ticket_pull_requests(
+        request_fun,
+        token,
+        "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}",
+        issue_number,
+        []
+      )
+    end
+  end
+
+  defp fetch_open_ticket_pull_requests(_request_fun, _token, nil, _issue_number, acc), do: {:ok, acc}
+
+  defp fetch_open_ticket_pull_requests(request_fun, token, url, issue_number, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        headers = Map.get(response, :headers, [])
+        matched = Enum.filter(body, &ticket_pull_request?(&1, issue_number))
+
+        fetch_open_ticket_pull_requests(
+          request_fun,
+          token,
+          Transport.parse_next_page_url(headers),
+          issue_number,
+          acc ++ matched
+        )
 
       {:ok, %{status: _status} = response} ->
         {:error, Errors.github_status_error(response)}
@@ -355,6 +452,49 @@ defmodule Aiur.GitHub.PullRequests do
       query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
       fetch_labeled_open_pull_requests(request_fun, token, url, label, [])
+    end
+  end
+
+  @doc """
+  Fetches every OPEN pull request for the repository, regardless of label.
+
+  Unlike `fetch_open_pull_requests_by_label/2` this does not filter the list,
+  so it is the scan the PR-health checks use: the unmergeable-author case is a
+  PR opened by a configured human merger on any branch, and an ageing
+  non-draft PR can be flagged whether or not its head is an `aiur/<id>` branch.
+
+  Paginated through `per_page=100`; the caller is expected to have a bounded
+  repo where one page (or a few) covers the open set.
+  """
+  @spec fetch_open_pull_requests(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests(opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}"
+      fetch_all_open_pull_requests(request_fun, token, url, [])
+    end
+  end
+
+  # Follows the GitHub `Link` `rel="next"` pagination, mirroring
+  # `fetch_labeled_open_pull_requests/5`, so a repo with more than 100 open PRs
+  # cannot silently hide an unmergeable or ageing PR past the first page.
+  @spec fetch_all_open_pull_requests(function(), String.t(), String.t() | nil, [map()]) ::
+          {:ok, [map()]} | {:error, term()}
+  defp fetch_all_open_pull_requests(_request_fun, _token, nil, acc), do: {:ok, acc}
+
+  defp fetch_all_open_pull_requests(request_fun, token, url, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
+        next = Transport.parse_next_page_url(headers)
+        fetch_all_open_pull_requests(request_fun, token, next, acc ++ body)
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
     end
   end
 

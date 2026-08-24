@@ -319,8 +319,9 @@ defmodule Aiur.GitHub.GraphQLCostTest do
     end
 
     # The default has to sit far above every document this tree sends, because
-    # the estimate is a node count and GitHub bills these documents 50-500x
-    # cheaper. Only a shape that has gone genuinely pathological trips it.
+    # the estimate is a node count and GitHub bills these documents far cheaper
+    # (the CI poll batch bills 1 point where the arithmetic says ~510). Only a
+    # shape that has gone genuinely pathological trips it.
     test "the default ceiling only trips on a pathological fan-out" do
       assert GraphQLCost.check("query A { repository { " <> String.duplicate(over_budget_alias(), 100) <> " } }") == :ok
 
@@ -346,8 +347,10 @@ defmodule Aiur.GitHub.GraphQLCostTest do
   # The ceiling is a shape guard, and a shape guard that refuses real traffic is
   # an outage. The batches are the largest documents this tree sends, so if the
   # ceiling is ever tightened toward the node estimate these fail first — which
-  # is the point, because measured GitHub billing for these two is 1 and 10-11
-  # points, not the ~510 and ~660 the node arithmetic predicts.
+  # is the point, because measured GitHub billing is 1 point for the CI poll
+  # batch and 8 for the comment poll batch at its shipped
+  # `reviewThreads(first: 20)` shape, not the ~510 and ~15 the node arithmetic
+  # predicts.
   describe "the ceiling never refuses real traffic" do
     setup do
       write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")

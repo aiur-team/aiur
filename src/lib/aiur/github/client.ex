@@ -164,6 +164,14 @@ defmodule Aiur.GitHub.Client do
     end)
   end
 
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_for_branch(issue_number, opts \\ []) do
+    CycleFetchCache.fetch({:open_pull_requests_for_branch, to_string(issue_number)}, fn ->
+      PullRequests.fetch_open_pull_requests_for_branch(issue_number, opts)
+    end)
+  end
+
   # The busiest REST call site in the daemon (#2265): the three per-cycle
   # pollers each ask "is there an open pull request for this ticket's branch"
   # once per ticket. Routing through `ResourceFetch` under the dedicated
@@ -220,6 +228,11 @@ defmodule Aiur.GitHub.Client do
           {:ok, [map()]} | {:error, term()}
   def fetch_open_pull_requests_by_label(label, opts \\ []),
     do: PullRequests.fetch_open_pull_requests_by_label(label, opts)
+
+  @spec fetch_open_pull_requests(keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests(opts \\ []),
+    do: PullRequests.fetch_open_pull_requests(opts)
 
   @spec fetch_recent_repo_review_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
@@ -299,6 +312,11 @@ defmodule Aiur.GitHub.Client do
           {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_open_pull_request_conditional(pr_number, opts \\ []),
     do: PullRequests.fetch_open_pull_request_conditional(pr_number, opts)
+
+  @spec fetch_compare_files(String.t(), String.t(), keyword()) ::
+          {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def fetch_compare_files(base_sha, head_sha, opts \\ []),
+    do: PullRequests.fetch_compare_files(base_sha, head_sha, opts)
 
   @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}

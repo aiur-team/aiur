@@ -45,6 +45,63 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  describe "fetch_compare_files/3" do
+    test "returns content-sensitive {filename, sha} fingerprints from the compare endpoint" do
+      body = %{
+        "status" => "ahead",
+        "ahead_by" => 2,
+        "behind_by" => 0,
+        "files" => [
+          %{"filename" => "lib/foo.ex", "status" => "modified", "sha" => "blob-sha-1"},
+          %{"filename" => "test/foo_test.exs", "status" => "added", "sha" => "blob-sha-2"}
+        ]
+      }
+
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/compare/base-sha...head-sha"
+        {:ok, %{status: 200, body: body, headers: []}}
+      end
+
+      assert {:ok, [{"lib/foo.ex", "blob-sha-1"}, {"test/foo_test.exs", "blob-sha-2"}]} =
+               PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+
+    test "returns an empty fingerprint list when nothing changed" do
+      request_fun = fn _ -> {:ok, %{status: 200, body: %{"files" => []}, headers: []}} end
+
+      assert {:ok, []} = PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+
+    test "drops entries that carry no filename or sha" do
+      body = %{
+        "files" => [
+          %{"filename" => "lib/foo.ex", "status" => "modified", "sha" => "blob-sha-1"},
+          %{"status" => "removed"},
+          %{"filename" => "lib/bar.ex"}
+        ]
+      }
+
+      request_fun = fn _ -> {:ok, %{status: 200, body: body, headers: []}} end
+
+      assert {:ok, [{"lib/foo.ex", "blob-sha-1"}]} =
+               PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+
+    test "surfaces a GitHub API error" do
+      request_fun = fn _ -> {:ok, %{status: 404, body: %{}}} end
+
+      assert {:error, {:github, :http, %{status: 404}}} =
+               PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+
+    test "surfaces a transport error" do
+      request_fun = fn _ -> {:error, :timeout} end
+
+      assert {:error, {:github, :timeout, %{reason: :timeout}}} =
+               PullRequests.fetch_compare_files("base-sha", "head-sha", request_fun: request_fun)
+    end
+  end
+
   describe "fetch_pull_request_head_ref/2" do
     test "returns head ref from PR response" do
       request_fun = fn %{method: :get, url: url} ->
@@ -260,6 +317,49 @@ defmodule Aiur.GitHub.PullRequestsTest do
     test "returns nil for closed/merged PR" do
       assert PullRequests.open_pull_request_or_nil(%{"state" => "closed"}) == nil
       assert PullRequests.open_pull_request_or_nil(%{"state" => "merged"}) == nil
+    end
+  end
+
+  describe "fetch_open_pull_requests/1" do
+    # #2346 review: the unfiltered open-PR scan (the PR-health checks) had no
+    # coverage at all. Its own docstring says pagination is what stops an
+    # unmergeable or ageing PR past page 1 from hiding, so that stated
+    # requirement plus the failure branches are asserted here.
+    test "lists every open PR and follows Link rel=next across pages" do
+      page1 = %{"number" => 1, "state" => "open"}
+      page2 = %{"number" => 250, "state" => "open"}
+
+      request_fun = fn req ->
+        if String.contains?(req.url, "page=2") do
+          {:ok, %{status: 200, headers: [], body: [page2]}}
+        else
+          next = ~s(<https://api.github.com/repos/owner/repo/pulls?state=open&per_page=100&page=2>; rel="next")
+          {:ok, %{status: 200, headers: [{"link", next}], body: [page1]}}
+        end
+      end
+
+      assert {:ok, prs} = PullRequests.fetch_open_pull_requests(request_fun: request_fun)
+      assert Enum.map(prs, & &1["number"]) == [1, 250]
+    end
+
+    test "returns an empty list when there are no open PRs" do
+      request_fun = fn _req -> {:ok, %{status: 200, headers: [], body: []}} end
+
+      assert {:ok, []} = PullRequests.fetch_open_pull_requests(request_fun: request_fun)
+    end
+
+    test "surfaces a GitHub API error on a non-200 response" do
+      request_fun = fn _req -> {:ok, %{status: 500, headers: [], body: %{}}} end
+
+      assert {:error, {:github, :http, %{status: 500}}} =
+               PullRequests.fetch_open_pull_requests(request_fun: request_fun)
+    end
+
+    test "surfaces a transport error" do
+      request_fun = fn _req -> {:error, :timeout} end
+
+      assert {:error, {:github, :timeout, %{reason: :timeout}}} =
+               PullRequests.fetch_open_pull_requests(request_fun: request_fun)
     end
   end
 end

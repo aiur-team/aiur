@@ -75,6 +75,7 @@ defmodule Aiur.GitHubCostCLITest do
         hit_rate: 0.75,
         totals: %{hit: 30, miss: 10, deposit: 10, refused: 2500},
         refused: %{issue_list: 1200, pull_list: 700, comment_stream: 300, repo_events: 168, unsafe_kind: 103, unclassified: 29},
+        not_deposited: %{},
         classes: %{},
         callers: %{},
         invalidations: %{events: 2, marks: 4}
@@ -92,6 +93,31 @@ defmodule Aiur.GitHubCostCLITest do
     assert output =~ "comment_stream 300"
     assert output =~ "repo_events 168"
     assert output =~ "unclassified 29"
+  end
+
+  test "prints why cacheable reads were not deposited, so the miss/deposit gap is attributable" do
+    cache = fn ->
+      %{
+        available?: true,
+        entries: 12,
+        hit_rate: 0.75,
+        totals: %{hit: 30, miss: 30, deposit: 10, not_deposited: 20, refused: 0},
+        not_deposited: %{unsuccessful: 18, no_room: 2},
+        refused: %{},
+        classes: %{},
+        callers: %{},
+        invalidations: %{events: 2, marks: 4}
+      }
+    end
+
+    output =
+      capture_io(fn ->
+        assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, cache_fun: cache, format: :records)
+      end)
+
+    assert output =~ "read cache not deposited:"
+    assert output =~ "unsuccessful 18"
+    assert output =~ "no_room 2"
   end
 
   test "never prints a hit rate over no observations" do

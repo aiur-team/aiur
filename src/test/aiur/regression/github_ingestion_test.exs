@@ -16,7 +16,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
     # Isolate the per-issue/alert log to a tmp dir: this file exercises
     # `src/lib/aiur/events`, whose publishes record IssueLog/alert markers.
     tmp_dir =
-      Path.join(System.tmp_dir!(), "aiur_github_ingestion_test_#{System.unique_integer([:positive])}")
+      Aiur.TestSupport.tmp_root!("aiur_github_ingestion_test")
 
     File.mkdir_p!(tmp_dir)
     original_log_file = Application.get_env(:aiur, :log_file)
@@ -735,7 +735,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
 
       nil ->
         path =
-          Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.unique_integer([:positive])}")
+          Aiur.TestSupport.tmp_root!("aiur-codeowners")
 
         File.write!(path, contents)
 
