@@ -3669,6 +3669,54 @@ defmodule Aiur.DecisionStoreTest do
       assert case_attention_alerts(log_root, topic) == []
     end
 
+    test "an expired-unanswerable Command stays visible as history when the sweep retires its alert", %{dir: dir} do
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "expired-visible-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      now = ~U[2026-08-24 12:00:00Z]
+      pid = start_store!(dir, dispatch_delay_ms: 5_000, reconcile_delay_ms: 5_000)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Which archival target?",
+                 "blocking" => false,
+                 "authority" => "human_required",
+                 "source_id" => "expired-visible"
+               })
+
+      assert {:ok, %{decision: expired}} = DecisionStore.expire(decision.decision_id, "agent_not_running", [now: now], pid)
+      assert expired.decision_status == :expired
+
+      # The boot sweep reconciles the expired-unanswerable backlog through the
+      # real store and the real DecisionAttentionSignals path. Retiring the
+      # alert is an alert-surface choice, not a liveness one: the expired
+      # Command must stay queryable as history on the decision surface.
+      assert {:ok, 0} =
+               DecisionExpiry.sweep(
+                 now: DateTime.add(now, 60, :second),
+                 grace_seconds: 300,
+                 active_identifiers_fun: fn -> {:ok, []} end,
+                 decisions_fun: fn -> {:ok, DecisionStore.list(pid)} end,
+                 expire_fun: fn _decision_id, _reason_class, _occurred_at -> {:ok, %{status: :accepted}} end
+               )
+
+      assert {:ok, current} = DecisionStore.get(decision.decision_id, pid)
+      assert current.decision_status == :expired
+
+      [row] = DecisionPresenter.rows([current])
+      assert row.decision_status == :expired
+      assert row.lifecycle == :expired
+    end
+
     test "default terminal resolver identity extraction falls back to issue id when identifier is blank" do
       terminal_states = MapSet.new(["done", "closed"])
 
