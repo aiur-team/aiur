@@ -218,7 +218,12 @@ defmodule Aiur.AgentControlCLI do
     exit_marker(supervision_exit_code)
   end
 
-  defp print_polling_status(%{
+  defp print_polling_status(polling) do
+    print_polling_backoff(polling)
+    print_class_intervals(polling)
+  end
+
+  defp print_polling_backoff(%{
          checking?: false,
          idle_backoff: %{active?: true, factor: factor},
          effective_interval_ms: effective_ms,
@@ -231,7 +236,22 @@ defmodule Aiur.AgentControlCLI do
     )
   end
 
-  defp print_polling_status(_polling), do: :ok
+  defp print_polling_backoff(_polling), do: :ok
+
+  # Per-class cadence (#2309): an operator can see that planning is on-demand
+  # (0s) while dispatch is at 2 minutes without reading config. Present only when
+  # the snapshot carries `class_intervals`; the live orchestrator snapshot always
+  # does, test fixtures may not.
+  defp print_class_intervals(%{class_intervals: class_intervals}) when is_map(class_intervals) and map_size(class_intervals) > 0 do
+    line =
+      class_intervals
+      |> Enum.sort_by(fn {class, _ms} -> class end)
+      |> Enum.map_join(" ", fn {class, ms} -> "#{class}=#{poll_seconds(ms)}s" end)
+
+    IO.puts("POLL class intervals: #{line}")
+  end
+
+  defp print_class_intervals(_polling), do: :ok
 
   defp poll_seconds(milliseconds) when is_integer(milliseconds) and milliseconds >= 0,
     do: div(milliseconds, 1_000)

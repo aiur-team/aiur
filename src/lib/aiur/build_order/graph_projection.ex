@@ -25,6 +25,13 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # unbounded age.
   @carry_grace_intervals 2
 
+  # The "bound" fallback when the catalog is on-demand (`planning: 0`, #2309):
+  # the tracker's base poll interval, mirroring `Aiur.BuildOrder.Cadence`'s own
+  # fallback. On-demand means no *timer*, not zero-width retry backoff or
+  # staleness, so a failed read's retry base and a page's displayed staleness
+  # fall back to this rather than becoming 0.
+  @catalog_on_demand_fallback_ms 120_000
+
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
@@ -739,11 +746,11 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp fail_scope_start(state, entry, scope, now) do
     scheduled? = active_scope?(state, scope)
-    delay = Policy.retry_delay_ms(entry.health.retry_count, scope_interval(state, scope), nil, now)
+    delay = Policy.retry_delay_ms(entry.health.retry_count, retry_base_ms(state, scope), nil, now)
     next_retry_at = DateTime.add(now, delay, :millisecond)
     entry = Policy.apply_failure(entry, :transport, now, next_retry_at, scheduled?)
     state = put_scope_entry(state, entry, scope)
-    state = if(scheduled?, do: schedule_scope(state, scope, delay), else: state)
+    state = if(scheduled? and successor_allowed?(state, scope), do: schedule_scope(state, scope, delay), else: state)
     {state, [{:health, snapshot_for_entry(scope_entry(state, scope), state)}]}
   end
 
@@ -1028,18 +1035,18 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp count_resolution_failure(_failure), do: nil
 
   defp labels_penalty_ms(state, failures) do
-    backoff = state.policy.catalog_refresh_ms * Integer.pow(2, min(failures - 1, 16))
+    backoff = catalog_bound_ms(state) * Integer.pow(2, min(failures - 1, 16))
     min(backoff, state.policy.catalog_labels_refresh_ms)
   end
 
   defp complete_failure(state, entry, scope, failure, provider_result) do
     now = now(state)
     scheduled? = active_scope?(state, scope)
-    delay = Policy.retry_delay_ms(entry.health.retry_count, scope_interval(state, scope), provider_result, now)
+    delay = Policy.retry_delay_ms(entry.health.retry_count, retry_base_ms(state, scope), provider_result, now)
     next_retry_at = DateTime.add(now, delay, :millisecond)
     entry = Policy.apply_failure(entry, failure, now, next_retry_at, true)
     state = put_scope_entry(state, entry, scope)
-    state = if(scheduled?, do: schedule_scope(state, scope, delay), else: state)
+    state = if(scheduled? and successor_allowed?(state, scope), do: schedule_scope(state, scope, delay), else: state)
     {state, [{:health, snapshot_for_entry(scope_entry(state, scope), state)}]}
   end
 
@@ -1085,6 +1092,11 @@ defmodule Aiur.BuildOrder.GraphProjection do
     entry = scope_entry(state, scope)
 
     cond do
+      # A zero interval is the on-demand sentinel: the catalog has no cadence, so
+      # a successful read arms nothing — the next read is demand-driven (#2309).
+      scope_interval(state, scope) == 0 ->
+        state
+
       is_nil(entry) or not is_nil(entry.inflight) or not is_nil(entry.timer) ->
         state
 
@@ -1101,8 +1113,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     entry = scope_entry(state, scope)
 
     cond do
-      not configuration_ready?(state) or is_nil(entry) or not active_scope?(state, scope) or
-        not is_nil(entry.inflight) or not is_nil(entry.timer) ->
+      no_schedule?(state, scope, entry) ->
         state
 
       is_nil(entry.health.next_retry_at) ->
@@ -1115,6 +1126,15 @@ defmodule Aiur.BuildOrder.GraphProjection do
         delay = max(0, DateTime.diff(entry.health.next_retry_at, now(state), :millisecond))
         schedule_scope(state, scope, delay)
     end
+  end
+
+  # No timer to restore: either the catalog is on-demand (#2309 — a page refresh
+  # is demand-driven, so a message must not re-arm the cadence), or the scope is
+  # not configured / not active / already scheduled.
+  defp no_schedule?(state, scope, entry) do
+    (scope == :catalog and catalog_on_demand?(state)) or
+      not configuration_ready?(state) or is_nil(entry) or not active_scope?(state, scope) or
+      not is_nil(entry.inflight) or not is_nil(entry.timer)
   end
 
   defp schedule_scope(state, scope, delay) do
@@ -1163,6 +1183,9 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
+  # The catalog's *timer* cadence: `0` when the planning class is on-demand, in
+  # which case nothing arms a catalog timer and every read is demand-driven
+  # (#2309). The timer-arming call sites guard against `0` directly.
   defp scope_interval(state, :catalog), do: state.policy.catalog_refresh_ms
 
   # A selected root has no refresh interval of its own any more. What remains for
@@ -1178,6 +1201,33 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # which degradation triggers the reconciliation. That is the base a selected
   # root's failure backoff widens from.
   defp scope_interval(state, {:selected, _identity}), do: state.policy.delivery_staleness_ms
+
+  # Whether the catalog is on-demand: `polling.intervals.planning: 0` (#2309).
+  defp catalog_on_demand?(state), do: state.policy.catalog_refresh_ms == 0
+
+  # A non-zero base for the two "bound" roles a cadence still feeds when the
+  # catalog is on-demand: a failed read's retry delay, and the staleness window
+  # a page displays. On-demand means *no timer*, not zero-width backoff/staleness,
+  # so the bound falls back to the tracker's base poll interval (mirroring
+  # `Aiur.BuildOrder.Cadence`'s own fallback) when the cadence is `0`; a real
+  # cadence is its own bound.
+  defp catalog_bound_ms(state) do
+    case state.policy.catalog_refresh_ms do
+      0 -> @catalog_on_demand_fallback_ms
+      cadence_ms -> cadence_ms
+    end
+  end
+
+  # A failed read arms a successor timer only when the scope actually keeps a
+  # cadence — an on-demand catalog never does (#2309); selected roots always do
+  # (their retry must survive `reschedule_active_scopes`).
+  defp successor_allowed?(state, :catalog), do: not catalog_on_demand?(state)
+  defp successor_allowed?(_state, {:selected, _identity}), do: true
+
+  # The retry base for a failed read. Both scopes use the catalog bound: the
+  # catalog's own cadence when it exists, the tracker's base poll interval when
+  # the catalog is on-demand (#2309).
+  defp retry_base_ms(state, _scope), do: catalog_bound_ms(state)
 
   defp scope_entry(state, :catalog), do: state.catalog
 
@@ -1197,7 +1247,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
       state.active_repository,
       state.authority_epoch,
       now_ms(state),
-      state.policy.catalog_refresh_ms
+      catalog_bound_ms(state)
     )
   end
 

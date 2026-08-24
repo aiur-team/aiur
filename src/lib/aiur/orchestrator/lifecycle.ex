@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, ProcessReaper}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
@@ -80,14 +80,22 @@ defmodule Aiur.Orchestrator.Lifecycle do
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
 
+    # The dispatch tick's base is the `:dispatch` poll class, not the raw
+    # `interval_seconds` scalar: since #2309 an operator can give the tracker
+    # poll its own `polling.intervals.dispatch` entry, and the scheduler must
+    # honor it exactly like every other class. `base_interval_ms/1` falls back
+    # to `interval_seconds` for an unlisted class, so a config without an
+    # `intervals` map resolves the same value it always did.
+    dispatch_base_ms = PollCadence.base_interval_ms(class: :dispatch)
+
     state = %State{
       snapshot_key: snapshot_key,
       # A restarted server keeps its prior fleet view until this generation has
       # completed a fresh poll and projection. Older projector tasks are fenced
       # by this token before they can replace that retained view.
       snapshot_generation: SnapshotStore.begin_generation(snapshot_key),
-      poll_interval_ms: config.polling.interval_seconds * 1_000,
-      effective_poll_interval_ms: config.polling.interval_seconds * 1_000,
+      poll_interval_ms: dispatch_base_ms,
+      effective_poll_interval_ms: dispatch_base_ms,
       idle_poll_backoff: %{active?: false, factor: config.polling.idle_widen_factor},
       max_concurrent_agents: config.agent.max_concurrent_agents,
       # `--max-agents N` at launch: seed the session override (highest
@@ -271,7 +279,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
     %{
       state
-      | poll_interval_ms: config.polling.interval_seconds * 1_000,
+      | # The dispatch class base (#2309): falls back to `interval_seconds` for
+        # an unlisted `dispatch`, so a config without `polling.intervals` keeps
+        # today's value exactly.
+        poll_interval_ms: PollCadence.base_interval_ms(class: :dispatch),
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
   end
