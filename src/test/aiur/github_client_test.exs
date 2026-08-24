@@ -756,7 +756,12 @@ defmodule Aiur.GitHub.ClientTest do
              %{
                status: 200,
                headers: [],
-               body: [%{"number" => 52, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}]
+               body: [
+                 %{
+                   "number" => 52,
+                   "head" => %{"ref" => "aiur/35-add-new-test-cases", "repo" => %{"full_name" => "owner/repo"}}
+                 }
+               ]
              }}
 
           url =~ "/repos/owner/repo/pulls?" ->
@@ -765,8 +770,14 @@ defmodule Aiur.GitHub.ClientTest do
                status: 200,
                headers: [{"link", "<#{next_page}>; rel=\"next\""}],
                body: [
-                 %{"number" => 50, "head" => %{"ref" => "feature/not-a-ticket"}},
-                 %{"number" => 51, "head" => %{"ref" => "aiur/35-parallel-branch"}}
+                 %{
+                   "number" => 50,
+                   "head" => %{"ref" => "feature/not-a-ticket", "repo" => %{"full_name" => "owner/repo"}}
+                 },
+                 %{
+                   "number" => 51,
+                   "head" => %{"ref" => "aiur/35-parallel-branch", "repo" => %{"full_name" => "owner/repo"}}
+                 }
                ]
              }}
         end
@@ -776,6 +787,35 @@ defmodule Aiur.GitHub.ClientTest do
                Client.fetch_open_pull_requests_for_branch(35, request_fun: request_fun)
 
       assert Enum.map(pull_requests, &Map.get(&1, "number")) == [51, 52]
+    end
+
+    # The merged-ticket reconciler reads this list to decide whether a ticket
+    # still has work open. A fork PR that reuses the ticket branch name must not
+    # keep the ticket open, so the same head-repo guard the singular lookup
+    # applies has to hold here too.
+    test "omits a fork PR that reuses a ticket branch, keeping the same-repo one" do
+      request_fun = fn %{method: :get} ->
+        {:ok,
+         %{
+           status: 200,
+           headers: [],
+           body: [
+             %{
+               "number" => 60,
+               "head" => %{"ref" => "aiur/35-parallel-branch", "repo" => %{"full_name" => "contributor/fork"}}
+             },
+             %{
+               "number" => 61,
+               "head" => %{"ref" => "aiur/35-add-new-test-cases", "repo" => %{"full_name" => "owner/repo"}}
+             }
+           ]
+         }}
+      end
+
+      assert {:ok, pull_requests} =
+               Client.fetch_open_pull_requests_for_branch(35, request_fun: request_fun)
+
+      assert Enum.map(pull_requests, &Map.get(&1, "number")) == [61]
     end
 
     test "returns an empty list when the ticket has no open PR" do

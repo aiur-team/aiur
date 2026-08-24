@@ -211,24 +211,27 @@ defmodule Aiur.GitHub.PullRequests do
         token,
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}",
         issue_number,
+        "#{owner}/#{repo}",
         []
       )
     end
   end
 
-  defp fetch_open_ticket_pull_requests(_request_fun, _token, nil, _issue_number, acc), do: {:ok, acc}
+  defp fetch_open_ticket_pull_requests(_request_fun, _token, nil, _issue_number, _expected_head_repo, acc),
+    do: {:ok, acc}
 
-  defp fetch_open_ticket_pull_requests(request_fun, token, url, issue_number, acc) do
+  defp fetch_open_ticket_pull_requests(request_fun, token, url, issue_number, expected_head_repo, acc) do
     case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         headers = Map.get(response, :headers, [])
-        matched = Enum.filter(body, &ticket_pull_request?(&1, issue_number))
+        matched = Enum.filter(body, &ticket_pull_request?(&1, issue_number, expected_head_repo))
 
         fetch_open_ticket_pull_requests(
           request_fun,
           token,
           Transport.parse_next_page_url(headers),
           issue_number,
+          expected_head_repo,
           acc ++ matched
         )
 
