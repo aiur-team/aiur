@@ -546,6 +546,27 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert Enum.any?(rows, &match?([_at, _consumer, _direction, _resource, "pr" | _], &1))
   end
 
+  # A call site the allowlist does not yet enumerate must still be attributed.
+  # gh grows subcommands, and Aiur grows call sites, so the interesting case is
+  # not the ones listed above — it is the next one. The column degrades to the
+  # bare command name rather than to an `unknown` bucket, so a new subcommand
+  # is ranked one level coarser instead of vanishing from the breakdown, and a
+  # brand-new top-level command still names itself (#2299).
+  test "an unrecognised call site degrades to the command name, not an unknown bucket", context do
+    # `pr` is allowlisted but `sync` is not: the call site keeps the command.
+    assert {"ok\n", 0} = run_guard(context, ["pr", "sync", "1670"])
+    # A top-level command the classification does not enumerate at all.
+    assert {"ok\n", 0} = run_guard(context, ["cache", "list"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    call_sites = events |> String.split("\n", trim: true) |> Enum.map(&(String.split(&1, "\t") |> Enum.at(4)))
+
+    assert "pr" in call_sites
+    assert "cache" in call_sites
+    refute "unknown" in call_sites
+    refute Enum.any?(call_sites, &(&1 in ["", nil]))
+  end
+
   # The agent-side record now carries the credential fingerprint (never the
   # token) and the wrapper pid, so a request is attributable to its ticket's
   # pool and to the exact subprocess that made it without a live /proc sweep
