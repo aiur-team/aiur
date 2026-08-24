@@ -94,6 +94,12 @@ defmodule Aiur.GitHub.ResourceStore do
   dispatch and make the next read free. Truly outdated data is deleted rather
   than merely hidden on read.
 
+  The drop is itself a write, so the now-bodyless entry's `recorded_at_ms` is
+  refreshed by its own eviction — it rides that fresh clock for another full
+  window before pass 1 can take it. One-shot, not a loop: pass 2 cannot match
+  a body that is already gone, and a bodyless mark riding `recorded_at_ms` is
+  the intent, so the two passes are not independent in time.
+
   ## Holding the resource, not only the validator
 
   An entry may also hold the resource's own `:data` — the object GitHub
@@ -1551,11 +1557,11 @@ defmodule Aiur.GitHub.ResourceStore do
     # The `|| 0` is the same nil-safe idiom `fetch/1` uses, not a redundant
     # default: `Map.get/3`'s default only covers an *absent* key, so a
     # `recorded_at_ms: nil` — a corrupt checkpoint, a hand-written entry —
-    # would otherwise compare `nil < cutoff`, sort after every number under
-    # Elixir's term ordering, and read as *not* expired while nothing about the
-    # entry records when it was last touched. Treating it as `0` (long past
-    # retention) makes sweep, read and restart agree that an entry whose age
-    # nothing records is gone.
+    # would otherwise compare `nil < cutoff` and read as *not* expired,
+    # because Erlang's term order sorts atoms after numbers
+    # (`number < atom < ...`), so `nil < cutoff` is `false`. Treating it as
+    # `0` (long past retention) makes sweep, read and restart agree that an
+    # entry whose age nothing records is gone.
     (Map.get(entry, :recorded_at_ms, 0) || 0) < cutoff
   end
 
@@ -1627,12 +1633,26 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   # Keys of the data-bearing entries whose body is past retention, collected by
-  # match spec so the bodies themselves are never copied into this process. A
-  # nil `fetched_at_ms` sorts before every number in Erlang term order, so the
-  # nil edge `fetch/1` declines matches here too.
+  # match spec so the bodies themselves are never copied into this process. The
+  # three arms mirror `body_expired?/2` exactly, so the sweep cannot disagree
+  # with the read and the boot filter about which bodies are expired:
+  #
+  #   * an integer `fetched_at_ms` past the cutoff — the common case;
+  #   * a nil `fetched_at_ms` — a corrupt checkpoint, a hand-written entry.
+  #     `body_expired?/2` reads nil as the epoch (`|| 0`), and Erlang's term
+  #     order sorts atoms *after* every number (`number < atom < ...`), so
+  #     `nil < cutoff` is `false` — a plain `:<` guard would skip it;
+  #   * an absent `fetched_at_ms` — a map pattern cannot require a key to be
+  #     *absent*, so this arm matches the whole entry and rejects the key by
+  #     name.
+  #
+  # All three require a non-nil body, which is the half of `body_expired?/2`
+  # that says an entry holding no body has nothing to be old by.
   defp expired_body_keys(table, cutoff) do
     :ets.select(table, [
-      {{:"$1", %{data: :"$2", fetched_at_ms: :"$3"}}, [{:<, :"$3", cutoff}], [:"$1"]}
+      {{:"$1", %{data: :"$2", fetched_at_ms: :"$3"}}, [{:andalso, {:not, {:==, :"$2", nil}}, {:<, :"$3", cutoff}}], [:"$1"]},
+      {{:"$1", %{data: :"$2", fetched_at_ms: :"$3"}}, [{:andalso, {:not, {:==, :"$2", nil}}, {:==, :"$3", nil}}], [:"$1"]},
+      {{:"$1", :"$2"}, [{:andalso, {:is_map_key, :data, :"$2"}, {:andalso, {:not, {:==, {:map_get, :data, :"$2"}, nil}}, {:not, {:is_map_key, :fetched_at_ms, :"$2"}}}}], [:"$1"]}
     ])
   end
 

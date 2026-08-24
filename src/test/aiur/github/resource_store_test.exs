@@ -532,11 +532,17 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       key = ResourceStore.key(:issue, "owner", "repo", 5155)
 
-      assert ResourceStore.data(key) == nil,
+      # Asserted on the entry, not through `data/1`/`fetch/1`: both readers
+      # declined an expired body on main already, so only the entry itself can
+      # prove the body did not reload.
+      assert [{^key, kept}] = :ets.lookup(ResourceStore.Table, key),
+             "the entry must survive the restart; only the body goes"
+
+      refute Map.has_key?(kept, :data),
              "an expired body must not survive a restart on the strength of a fresh recorded_at"
 
-      assert ResourceStore.fetch(key) == :miss,
-             "an expired body must not be servable after a restart"
+      refute Map.has_key?(kept, :data_version),
+             "the body's version must not survive the restart either"
 
       assert ResourceStore.processed?(key, "2026-08-14T00:00:00Z"),
              "the processed mark on the entry must survive the restart"
@@ -571,11 +577,50 @@ defmodule Aiur.GitHub.ResourceStoreTest do
 
       key = ResourceStore.key(:issue, "owner", "repo", 5157)
 
-      assert ResourceStore.data(key) == nil,
+      # Asserted on the entry, not through `data/1`/`fetch/1`: the readers
+      # already decline a body with no `fetched_at_ms` on main, so only the
+      # entry can prove the boot filter dropped it.
+      assert [{^key, kept}] = :ets.lookup(ResourceStore.Table, key),
+             "the entry must survive the restart; only the body goes"
+
+      refute Map.has_key?(kept, :data),
              "a body with no fetched_at_ms must be dropped at boot, matching fetch/1's decline"
 
-      assert ResourceStore.fetch(key) == :miss,
-             "a body with no fetched_at_ms must not be servable after a restart"
+      refute Map.has_key?(kept, :data_version),
+             "the body's version must not survive the restart either"
+    end
+
+    # The other half of the boot filter's decision: an entry whose
+    # `recorded_at_ms` is itself past cutoff has had no write in the whole
+    # window, so *nothing* in it is in use any more — the whole entry is
+    # skipped, body and mark together. Nothing before this rework covered this
+    # direction, which is why the `:skip` mutant survived.
+    test "an entry whose recorded_at is itself past cutoff is not resurrected at boot", %{path: path} do
+      now = System.system_time(:millisecond)
+
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue|owner|repo|5158" => %{
+              "data" => %{"number" => 5158},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "fetched_at_ms" => now,
+              "recorded_at_ms" => now - 73 * 60 * 60 * 1000,
+              "processed_at_ms" => now - 73 * 60 * 60 * 1000,
+              "version" => "2026-08-14T00:00:00Z"
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      key = ResourceStore.key(:issue, "owner", "repo", 5158)
+
+      assert :ets.lookup(ResourceStore.Table, key) == [],
+             "a whole entry whose recorded_at is itself past cutoff must not be resurrected at boot"
     end
   end
 
@@ -1585,20 +1630,56 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       send(store, :sweep)
       _state = :sys.get_state(store)
 
-      assert ResourceStore.data(key) == nil,
-             "the expired body must be dropped even though mark_processed refreshed recorded_at"
+      # Asserted on the entry, not through `data/1`/`fetch/1`: both readers
+      # declined an expired body on main already, so only the entry can prove
+      # the sweep actually removed the body. `:1600` binds `kept` and then
+      # discards it — that binding is now load-bearing.
+      assert [{^key, kept}] = :ets.lookup(ResourceStore.Table, key),
+             "the entry itself must survive; only the body goes"
 
-      assert ResourceStore.fetch(key) == :miss,
-             "the expired body must not be servable after the sweep"
+      refute Map.has_key?(kept, :data),
+             "the expired body must actually leave the entry, not merely be hidden on read"
+
+      refute Map.has_key?(kept, :data_version),
+             "the body's version must leave with the body"
 
       assert ResourceStore.processed?(key, "v1"),
              "the processed mark must survive the sweep, or the poller republishes"
 
       assert ResourceStore.change_validator(key) == ~s("v1"),
              "the ETag must survive the sweep, or the next read pays full price"
+    end
 
-      assert [{^key, _kept}] = :ets.lookup(ResourceStore.Table, key),
-             "the entry itself must survive; only the body goes"
+    # The nil/absent edge of pass 2. `body_expired?/2` reads a missing
+    # `fetched_at_ms` as the epoch (`|| 0`), and pass 2's key collection must
+    # agree with that predicate — otherwise a body the read declines is never
+    # swept, "stale" forever. The match spec has explicit arms for the nil and
+    # absent shapes, because Erlang's term order sorts atoms after numbers, so
+    # `nil < cutoff` is `false` and a plain `:<` guard skips them.
+    test "the sweep drops a body whose fetched_at_ms is nil or absent" do
+      ResourceStore.reset()
+      store = Process.whereis(ResourceStore)
+
+      nil_key = {:issue_comment, "owner", "repo", "9102"}
+      absent_key = {:issue_comment, "owner", "repo", "9103"}
+
+      :ets.insert(ResourceStore.Table, {nil_key, %{data: %{"body" => "nil age"}, fetched_at_ms: nil}})
+      :ets.insert(ResourceStore.Table, {absent_key, %{data: %{"body" => "no age"}}})
+
+      send(store, :sweep)
+      _state = :sys.get_state(store)
+
+      assert [{^nil_key, nil_kept}] = :ets.lookup(ResourceStore.Table, nil_key),
+             "the nil-aged entry must survive; only its body goes"
+
+      refute Map.has_key?(nil_kept, :data),
+             "a body with a nil fetched_at_ms must be dropped by the sweep, matching body_expired?/2"
+
+      assert [{^absent_key, absent_kept}] = :ets.lookup(ResourceStore.Table, absent_key),
+             "the absent-aged entry must survive; only its body goes"
+
+      refute Map.has_key?(absent_kept, :data),
+             "a body with an absent fetched_at_ms must be dropped by the sweep, matching body_expired?/2"
     end
 
     # The hard backstop. Asserted as "evicts down to exactly the ceiling", which
