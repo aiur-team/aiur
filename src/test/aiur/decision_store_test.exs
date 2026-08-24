@@ -2264,17 +2264,17 @@ defmodule Aiur.DecisionStoreTest do
     end
   end
 
-  test "fails an Executor answer closed when the Command declares no delegable policy", %{dir: dir} do
+  test "fails an Executor answer closed only when the Command declares a non-delegable policy", %{dir: dir} do
     pid = start_store!(dir, dispatch_delay_ms: 60_000)
 
-    # No authority or reversibility supplied: the request defaults are
-    # human_required/irreversible, so an absent declaration must refuse rather
-    # than fall through to the permissive branch.
+    # An omitted authority/reversibility now defaults to the Executor-answerable
+    # pair, so an absent declaration no longer strands the agent. The floor
+    # still refuses an explicitly non-delegable declaration.
     assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Undeclared policy?", "blocking" => true})
-    assert decision.authority == :human_required
-    assert decision.reversibility == :irreversible
+    assert decision.authority == :supervisor_allowed
+    assert decision.reversibility == :reversible
 
-    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+    assert {:ok, %{status: :accepted}} =
              DecisionStore.answer(
                decision.decision_id,
                %{
@@ -2285,6 +2285,127 @@ defmodule Aiur.DecisionStoreTest do
                [actor: %{kind: :executor, id: "executor-1"}],
                pid
              )
+
+    assert {:ok, %{decision: refused}} =
+             request(pid, %{
+               "question" => "Explicitly operator-scoped?",
+               "blocking" => true,
+               "authority" => "human_required",
+               "reversibility" => "irreversible"
+             })
+
+    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+             DecisionStore.answer(
+               refused.decision_id,
+               %{
+                 "idempotency_key" => "executor-explicitly-refused",
+                 "expected_version" => 1,
+                 "custom_response" => "Looks obvious to me."
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+  end
+
+  test "a re-review request Command is Executor-answerable and releases the agent", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    # The issue's most common Command shape: completed rework is green but
+    # reviewDecision is stuck on a stale review. It classifies
+    # supervisor_preferred + reversible, so the Executor answers directly and
+    # the requesting agent resumes without an operator.
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Rework is complete and CI is green, but reviewDecision is stuck on a stale review — please re-review to release it.",
+               "blocking" => true,
+               "kind" => "rework_review"
+             })
+
+    assert decision.authority == :supervisor_preferred
+    assert decision.reversibility == :reversible
+
+    assert {:ok, %{status: :accepted, action: answer}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "executor-re-review",
+                 "expected_version" => 1,
+                 "custom_response" => "Re-reviewing now."
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert {:ok, %Decision{answer: %{actor: %{kind: :executor}}, decision_status: status}} = DecisionStore.get(decision.decision_id, pid)
+    assert status in [:acknowledged, :resolved, :decided]
+  end
+
+  test "a sequencing Command is Executor-answerable and releases the agent", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Reconcile the precedence overlap: strip and stack, or keep and close?",
+               "blocking" => true,
+               "kind" => "sequencing"
+             })
+
+    assert decision.authority == :supervisor_allowed
+    assert decision.reversibility == :reversible
+
+    assert {:ok, %{status: :accepted, action: answer}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "executor-sequencing",
+                 "expected_version" => 1,
+                 "custom_response" => "Keep and close: strip the overlap onto #2438 and stack."
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+  end
+
+  test "a known-irreversible Command still refuses the Executor and still escalates", %{dir: dir} do
+    opener = fn _decision, _executor_id, _reason -> {:ok, :opened} end
+    pid = start_store!(dir, executor_attention_opener: opener, dispatch_delay_ms: 60_000)
+
+    # Genuinely irreversible / spend / product-direction Commands stay outside
+    # the Executor floor: this is the guard that keeps the classification fix
+    # from becoming a blanket widening.
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Spend on the paid provider to unblock the build?",
+               "blocking" => true,
+               "authority" => "human_required",
+               "reversibility" => "irreversible",
+               "kind" => "spend"
+             })
+
+    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "executor-irreversible", "expected_version" => 1, "custom_response" => "Go."},
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    # Refused, not recorded: the Command stays open for the operator.
+    assert {:ok, %Decision{decision_status: :open, answer: nil}} = DecisionStore.get(decision.decision_id, pid)
+
+    # The Executor's remaining option is escalation, which still notifies the
+    # operator and leaves the Command answerable.
+    assert {:ok, %{status: :opened}} =
+             DecisionStore.escalate_executor_command(
+               decision.decision_id,
+               %{expected_version: 1, executor_id: "executor-1", reason: "This involves spend and is not reversible."},
+               pid
+             )
+
+    assert {:ok, %Decision{decision_status: :open, answer: nil}} = DecisionStore.get(decision.decision_id, pid)
   end
 
   test "an Executor answer never opens an operator attention", %{dir: dir} do
