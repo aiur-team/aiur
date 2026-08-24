@@ -129,12 +129,15 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  @spec broker_path() :: Path.t()
-  def broker_path do
-    :aiur
-    |> :code.priv_dir()
-    |> to_string()
-    |> Path.join("github_budget.py")
+  @spec broker_path(keyword()) :: Path.t()
+  def broker_path(opts \\ []) do
+    case Keyword.get(opts, :broker_path) do
+      path when is_binary(path) and path != "" -> path
+      # Tests inject a broker variant (e.g. one without the `reconcile`
+      # subcommand) through the `:broker_path` option; production always uses
+      # the broker shipped in `priv/`.
+      _missing -> :aiur |> :code.priv_dir() |> to_string() |> Path.join("github_budget.py")
+    end
   end
 
   @doc "Configuration exported to the agent-side `gh` wrapper."
@@ -199,7 +202,16 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(%{id: id, token_key: key}, {:ok, %{status: 304}}, opts)
        when is_binary(id) and is_binary(key) do
-    _ = command(["reconcile", "--lease-id", id, "--status", "304"], key, opts)
+    case command(["reconcile", "--lease-id", id, "--status", "304"], key, opts) do
+      {:ok, _output} -> :ok
+      # `command` already logs the broker failure generically; this names the
+      # reconcile specifically so a stale broker (one without the `reconcile`
+      # subcommand) or a broken reconcile is visible in the daemon log instead
+      # of reading as "reconciliation did not fire".
+      {:error, reason} -> Logger.warning("github_budget_reconcile_failed lease_id=#{id} reason=#{inspect(reason)}")
+      :bypass -> :ok
+    end
+
     :ok
   end
 
@@ -456,7 +468,7 @@ defmodule Aiur.GitHub.Budget do
           _missing -> []
         end
 
-      command_args = [broker_path() | args] ++ token_args ++ identity_args
+      command_args = [broker_path(opts) | args] ++ token_args ++ identity_args
 
       case port_command(python, command_args, command_deadline(opts)) do
         {:ok, output, 0} -> {:ok, output}
@@ -788,15 +800,20 @@ defmodule Aiur.GitHub.Budget do
       cooldown_until_ms: cooldown,
       inflight: inflight,
       admissions:
-        Enum.map(
-          admissions,
-          &%{
-            endpoint_family: &1["endpoint_family"],
-            resource: &1["resource"],
-            admitted_at_ms: &1["admitted_at_ms"],
-            billable: &1["billable"]
+        Enum.map(admissions, fn admission ->
+          %{
+            endpoint_family: admission["endpoint_family"],
+            resource: admission["resource"],
+            admitted_at_ms: admission["admitted_at_ms"],
+            # `billable = false` is a reconciled `304`; `billable_reason`
+            # records why the broker stopped billing the row (`"304"`) so the
+            # running system can verify reconciliation happened and tell it
+            # apart from any other unbilled state instead of reading a bare
+            # flag.
+            billable: Map.get(admission, "billable", true),
+            billable_reason: Map.get(admission, "billable_reason")
           }
-        )
+        end)
     }
   end
 
