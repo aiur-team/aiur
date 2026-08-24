@@ -120,7 +120,6 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 | `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. The open-backlog and ad-hoc-overlay sources are event-sourced and not swept at all; the sweep reconciles the daemon-owned Build Order pack-status projection (which writes `status.json` on disk and stays on this cadence until it is moved to the event stream too) and runs the issue-family divergence watermark — a single bounded `updated_at`-ordered head page that keeps webhook loss detectable and re-converges a dropped delivery. |
-| `polling.cache_demo_marker` | integer | 7 | #2454 demonstration field, reverted before merge. Documents that the quarantine job's `_build` cache recompiles first-party code even when `mix.lock`/`mix.exs` are untouched. |
 
 Freshness thresholds follow this cadence. You do not set them separately.
 
