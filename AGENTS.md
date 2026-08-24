@@ -10,11 +10,10 @@ live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 ## Orientation
 
 Aiur's intended operating modes are documented in
-[README.md § Who drives Aiur?](README.md#who-drives-aiur). In short: every run has an
-**Executor** — the operator of the run — and that is either the human driving the CLI
-directly, or the human's coding agent operating Aiur on their behalf while they stay in
-conversation with it. Both are first-class. `README.md § What Aiur is not` records the
-misreadings this distinction commonly produces.
+[`src/README.md § Who operates a run`](src/README.md#who-operates-a-run). In short: every
+run has an **Executor** — the operator of the run — and that is either the human driving the
+CLI directly, or the human's coding agent operating Aiur on their behalf while they stay in
+conversation with it. Both are first-class.
 
 The Executor skills live at [`.claude/skills/aiur-run`](.claude/skills/aiur-run/SKILL.md)
 (operate a run end to end) and
