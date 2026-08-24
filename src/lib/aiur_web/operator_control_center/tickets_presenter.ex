@@ -130,8 +130,9 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPresenter do
   @doc "The visually hidden result announcement, so filtering is audible to a screen reader."
   @spec search_announcement(map()) :: String.t()
   # An idle panel says nothing. This region sits beside the fleet's own status
-  # region, and the open-ticket poll runs every couple of minutes: announcing
-  # the unfiltered total would make an untouched dashboard talk to itself.
+  # region, and the open-ticket projection refreshes from webhook deliveries
+  # (not a cadence): announcing the unfiltered total would make an untouched
+  # dashboard talk to itself.
   def search_announcement(%{search_status: :no_matches} = view), do: view.search_message || ""
 
   def search_announcement(%{search_status: :matched, match_count: matches, total_count: total}),

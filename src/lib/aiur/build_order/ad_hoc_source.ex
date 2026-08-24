@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.AdHocSource do
   @moduledoc """
-  Supervised, in-memory poller for the derived **Ad Hoc** Build Order epic.
+  Event-sourced projection of the derived **Ad Hoc** Build Order epic.
 
   The Ad Hoc epic is a runtime overlay of issues carrying the live
   `build-lane:adhoc` label — tickets created or promoted during a Build Order
@@ -8,29 +8,37 @@ defmodule Aiur.BuildOrder.AdHocSource do
   planning provider only fetches `build-order`-labelled roots and their graph
   members, so these issues never appear there.
 
-  This source lists `build-lane:adhoc` issues (including closed
-  ones, so merged/deferred/duplicate tickets stay visible), normalizes them to
-  a compact snapshot, and broadcasts changes. It keeps the last successful
-  snapshot as last-known-good and reports a named stale/unavailable status on
-  failure — never an empty healthy overlay presented as fresh truth.
+  ## Where the overlay comes from now
+
+  The source used to poll GitHub for the labelled listing on a timer. Every
+  issue's state and label set is now already deposited in
+  `Aiur.GitHub.ResourceStore` by the `issues` webhook delivery (`labeled`,
+  `unlabeled`, `opened`, `closed`, `reopened`, `edited`, `deleted`,
+  `transferred`) **before** the event is published — see
+  `Aiur.Events.GithubWebhook.Deposit` — and Aiur's own label mutations write
+  through the same store. So this source subscribes to `:issue` and
+  `:issue_labels` store changes and maintains the overlay from that event
+  stream, no listing required in steady state.
+
+  **Keep exactly one listing per boot**: a bootstrap read (labelled issues,
+  open *and* closed, so merged/deferred/duplicate tickets stay visible)
+  establishes the baseline the event stream then maintains. Re-listing also
+  happens when `Aiur.Webhooks.ModeRegistry` reports the repository `degraded`
+  — the one case where deliveries are known to be dropped — when it reports
+  `recovered` (the trailing edge, where the gap's dropped deliveries are
+  re-read), and on an explicit `refresh/1`. That is gap-based re-convergence,
+  never a clock.
+
+  It holds **no timer** and performs **no GitHub reads** in steady state.
+  `Aiur.GitHub.ViewStateSweep` does not sweep it; the event stream is the
+  refresh. The one steady-state read left anywhere is the low-frequency
+  divergence watermark `Aiur.GitHub.ViewStateSweep` runs — a single cheap
+  `updated_at`-ordered head page that records poller corroboration for the
+  issue family (so webhook loss can still degrade the repo) and re-lists the
+  sources when GitHub is ahead of the store.
 
   The overlay is rendered separately and never contributes to the core
   completion denominator, complexity total, critical path, or feature ETA.
-
-  It holds **no timer**. `Aiur.GitHub.ViewStateSweep` is the single view-state
-  cadence and asks this source to reconcile only while a LiveView is watching
-  it — the sweep skips any source with no demander, so an idle daemon with no
-  Build Order page open makes no request from here at all. `refresh/1` covers
-  a real demand in between.
-
-  Demand is registered by `subscribe/0`: every Build Order LiveView that shows
-  the overlay already subscribes, and the first subscriber also buys one
-  immediate refresh, so opening the page renders the held snapshot and then the
-  fresh overlay. A monitor releases the demand when the session dies, so closing
-  the last tab returns the source to the sweep's skip list.
-
-  It does not yet read the store, so the sweep is currently the only thing that
-  refreshes it.
   """
 
   use GenServer
@@ -38,18 +46,12 @@ defmodule Aiur.BuildOrder.AdHocSource do
   require Logger
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot
-  alias Aiur.GitHub.{Config, Issues, Transport, ViewStateDemand}
+  alias Aiur.GitHub.{Config, Issues, ResourceStore, Transport, ViewStateSweep}
   alias Aiur.Issue
+  alias Aiur.Webhooks.ModeRegistry
 
   @topic "build_order:adhoc:changed"
   @label "build-lane:adhoc"
-  # A reconnect buys no second full listing within this floor of the last
-  # successful read: the held snapshot is at most `@courtesy_refresh_floor_ms`
-  # old, younger than the ReadCache TTL the sweep is sized against. Without the
-  # floor a flaky connection would re-buy the whole labelled listing on every
-  # 0->1 demander transition — strictly worse than the 900s sweep it replaces
-  # (review finding 2).
-  @courtesy_refresh_floor_ms :timer.seconds(30)
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -63,74 +65,18 @@ defmodule Aiur.BuildOrder.AdHocSource do
   @spec snapshot(GenServer.server()) :: Snapshot.t()
   def snapshot(server \\ __MODULE__), do: GenServer.call(server, :snapshot)
 
-  @doc """
-  Subscribes the caller to Ad Hoc overlay change broadcasts and registers it as
-  a demander.
-
-  The demand half is what keeps the sweep's reconcile honest: with no demander
-  the sweep skips this source entirely, so an idle daemon costs nothing.
-  Registering the **first** demander triggers one refresh, so an opening page
-  renders its held snapshot first and then receives the fresh overlay.
-  """
-  @spec subscribe(GenServer.server()) :: :ok | {:error, term()}
-  def subscribe(server \\ __MODULE__) do
-    case Phoenix.PubSub.subscribe(Aiur.PubSub, @topic) do
-      :ok ->
-        GenServer.cast(server, {:demand, self()})
-        :ok
-
-      error ->
-        error
-    end
-  end
+  @doc "Subscribes the caller to Ad Hoc overlay change broadcasts."
+  @spec subscribe() :: :ok | {:error, term()}
+  def subscribe, do: Phoenix.PubSub.subscribe(Aiur.PubSub, @topic)
 
   @spec topic() :: String.t()
   def topic, do: @topic
 
-  @doc "Whether any LiveView session is currently watching this source."
-  @spec demanded?(GenServer.server()) :: boolean()
-  def demanded?(server \\ __MODULE__) do
-    GenServer.call(server, :demanded?)
-  catch
-    # A busy or wedged source that blows the call timeout must not report
-    # "nobody is watching": the sweep's reconcile is exactly the recovery that
-    # should still run when a source is unhealthy, so an unknown answer
-    # defaults to "sweep it". `demander_count/1` keeps answering 0 in that
-    # case — a count no one can read is unknowable (review finding 4).
-    :exit, _reason -> true
-  end
-
-  @doc "The number of LiveView sessions currently watching this source."
-  @spec demander_count(GenServer.server()) :: non_neg_integer()
-  def demander_count(server \\ __MODULE__) do
-    GenServer.call(server, :demander_count)
-  catch
-    :exit, _reason -> 0
-  end
-
-  @doc "Explicitly releases the caller's demand on this source."
-  @spec undemand(GenServer.server()) :: :ok
-  def undemand(server \\ __MODULE__), do: GenServer.cast(server, {:undemand, self()})
-
-  @doc """
-  Re-registers demand from the source's PubSub subscribers after a restart.
-
-  The demander set lives in this GenServer, so a supervisor restart empties it
-  while the LiveViews that watch the source are still alive and still subscribed
-  to `#{inspect(@topic)}`. `Aiur.GitHub.ViewStateSweep` calls this before every
-  reconcile; a source with no demanders re-registers its current subscribers,
-  which is what lets the sweep keep recovering a page that stays open across a
-  source crash. Idempotent — a pid that already holds demand is a no-op, and a
-  source that still has demanders is left alone (review finding 3).
-  """
-  @spec reseed_demand(GenServer.server()) :: :ok
-  def reseed_demand(server \\ __MODULE__), do: GenServer.cast(server, :reseed_demand)
-
-  @doc "Requests an out-of-band refresh (async)."
+  @doc "Requests an out-of-band re-list (async)."
   @spec refresh(GenServer.server()) :: :ok
   def refresh(server \\ __MODULE__), do: GenServer.cast(server, :refresh)
 
-  @doc "Synchronously refreshes and returns the resulting snapshot (test/support)."
+  @doc "Synchronously re-lists and returns the resulting snapshot (test/support)."
   @spec refresh_sync(GenServer.server()) :: Snapshot.t()
   def refresh_sync(server \\ __MODULE__), do: GenServer.call(server, :refresh_sync)
 
@@ -140,21 +86,15 @@ defmodule Aiur.BuildOrder.AdHocSource do
 
     state = %{
       snapshot: %Snapshot{},
-      # The first-page validator for the adhoc listing. Held here (not in the
-      # store) because the listing is a repo collection with no single resource
-      # identity, and because this GenServer owns the last-known-good snapshot a
-      # `304` serves back.
-      etag: nil,
-      # Whether the held snapshot came from a single listing page. A page-1
-      # `304` only vouches for the whole listing when it did: GitHub sorts
-      # `issues` `created`-desc, so page 1 is the newest issues and freezes once
-      # no new adhoc issue is filed, while label changes on older issues land on
-      # later pages a page-1 `304` cannot see (#2298 rework B2).
-      single_page?: false,
-      inflight: nil,
-      demanders: MapSet.new(),
-      demand_monitors: %{},
-      task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
+      # The projection: issue number (string) => member. The event stream
+      # reconciles one entry at a time; the snapshot is derived from this map.
+      members: %{},
+      # Whether a bootstrap listing has ever succeeded. Only a successful listing
+      # establishes that the projection is complete; until one lands — or after
+      # one fails — the projection may be missing events the stream never carried,
+      # and a store event must not upgrade it back to `:available`.
+      baseline_ok?: false,
+      repo: nil,
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       repo_fun: Keyword.get(opts, :repo_fun, &Transport.parse_repo/0),
       token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
@@ -162,6 +102,8 @@ defmodule Aiur.BuildOrder.AdHocSource do
       label_prefix: Keyword.get(opts, :label_prefix, safe_label_prefix())
     }
 
+    state = %{state | repo: resolve_repo(state.repo_fun)}
+    subscribe_to_events()
     if Keyword.get(opts, :poll_on_start, true), do: send(self(), :poll)
     {:ok, state}
   end
@@ -169,191 +111,185 @@ defmodule Aiur.BuildOrder.AdHocSource do
   @impl true
   def handle_call(:snapshot, _from, state), do: {:reply, state.snapshot, state}
 
-  def handle_call(:demanded?, _from, state), do: {:reply, ViewStateDemand.demanded?(state), state}
-
-  def handle_call(:demander_count, _from, state), do: {:reply, ViewStateDemand.count(state), state}
-
   def handle_call(:refresh_sync, _from, state) do
-    state = apply_and_broadcast(state, fetch(state))
+    state = apply_result(state, fetch(state))
     {:reply, state.snapshot, state}
   end
 
   @impl true
-  def handle_cast({:demand, pid}, state) do
-    {state, first?} = ViewStateDemand.demand(state, pid)
-    # The first demander is the page opening: render held state, then buy the
-    # fresh overlay once — unless a recent read already covers it. Later
-    # sessions coalesce on the in-flight guard, and the sweep's cadence keeps
-    # the source current while it stays demanded.
-    state = if first? and courtesy_refresh_due?(state), do: ensure_fetch(state), else: state
-    {:noreply, state}
+  # A demand re-list. Applied synchronously in this process, so a store event
+  # that arrives while the listing is in flight is queued behind it and applied
+  # after — a listing is a GitHub snapshot taken before the event, so the event
+  # must win. An async task would let the listing's stale full-set overwrite a
+  # newer event, which is the exact divergence this design exists to prevent.
+  def handle_cast(:refresh, state) do
+    {:noreply, apply_result(state, fetch(state))}
   end
-
-  def handle_cast({:undemand, pid}, state), do: {:noreply, ViewStateDemand.undemand(state, pid)}
-
-  # Recovery for a source that restarted under open pages: the old process took
-  # its demander set with it, so re-register every current subscriber of the
-  # topic (the still-open LiveViews) as a demander. Direct `ViewStateDemand`
-  # rather than the `{:demand, pid}` cast so re-seeding never buys a courtesy
-  # refresh of its own — the sweep's own `refresh/1` reconciles the same tick.
-  def handle_cast(:reseed_demand, state) do
-    state =
-      if ViewStateDemand.count(state) == 0 and Process.whereis(Aiur.PubSub) do
-        Enum.reduce(Registry.lookup(Aiur.PubSub, @topic), state, fn {pid, _metadata}, acc ->
-          {acc, _first?} = ViewStateDemand.demand(acc, pid)
-          acc
-        end)
-      else
-        state
-      end
-
-    {:noreply, state}
-  end
-
-  def handle_cast(:refresh, state), do: {:noreply, ensure_fetch(state)}
 
   @impl true
-  # No cadence of its own. `Aiur.GitHub.ViewStateSweep` is the only timer that
-  # asks this source to reconcile.
-  def handle_info(:poll, state), do: {:noreply, ensure_fetch(state)}
-
-  def handle_info({ref, result}, %{inflight: ref} = state) when is_reference(ref) do
-    Process.demonitor(ref, [:flush])
-    {:noreply, apply_and_broadcast(%{state | inflight: nil}, result)}
+  # The boot fill, applied synchronously for the same reason as `refresh/1`:
+  # the one listing per boot is the baseline, and the event stream maintains
+  # it. `ViewStateSweep` no longer sweeps this source.
+  def handle_info(:poll, state) do
+    {:noreply, apply_result(state, fetch(state))}
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{inflight: ref} = state) do
-    {:noreply, apply_and_broadcast(%{state | inflight: nil}, {:error, :task_down})}
-  end
+  # The gap-based re-convergence: deliveries are known to be dropped while the
+  # repo is degraded, so re-list to re-establish the baseline. ModeRegistry
+  # re-publishes this on every sweep while the repo stays degraded, so the
+  # re-list is a coarse cadence that only runs during the outage itself.
+  def handle_info({:webhook_degraded, repo}, state), do: {:noreply, maybe_relist(state, repo)}
 
-  # A demander's session process died: release its demand. Clauses above match
-  # the in-flight task's own reference first; anything else reaching here that is
-  # not a demander monitor is returned untouched by `handle_down/2`.
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, state) do
-    {:noreply, ViewStateDemand.handle_down(state, ref)}
+  # The trailing edge: a resumed delivery proves the gap has closed, so re-list
+  # once to recover everything that changed during the degraded window.
+  def handle_info({:webhook_recovered, repo}, state), do: {:noreply, maybe_relist(state, repo)}
+
+  # The divergence watermark (Aiur.GitHub.ViewStateSweep): a low-frequency head
+  # check observed GitHub state newer than what the store holds, so a delivery
+  # was dropped and the projection must re-list to re-converge.
+  def handle_info({:view_state_diverged, repo}, state), do: {:noreply, maybe_relist(state, repo)}
+
+  # A store change for the source's repository. Every `issues` delivery
+  # deposits the issue body before publishing, so the current body is already
+  # in local memory when this runs — reconcile exactly that issue, no listing.
+  def handle_info({:github_resource_changed, %{key: {type, owner, repo, id}} = change}, state)
+      when type in [:issue, :issue_labels] do
+    {:noreply, reconcile_issue(state, owner, repo, id, change)}
   end
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp ensure_fetch(%{inflight: ref} = state) when is_reference(ref), do: state
+  # -- event-stream projection ---------------------------------------------
 
-  defp ensure_fetch(state) do
-    task = Task.Supervisor.async_nolink(state.task_supervisor, fn -> fetch(state) end)
-    %{state | inflight: task.ref}
+  # The `:issue` and `:issue_labels` type subscriptions are repo-wide, so a
+  # multi-repo fleet delivers other repos' issues here; only the source's own
+  # repository is reconciled.
+  defp reconcile_issue(%{repo: {owner, repo}} = state, owner, repo, id, change) do
+    case change do
+      # A deleted issue drops both its issue body and its label set; nothing
+      # else publishes a change with no body held. The store's own retention
+      # eviction is silent and never reaches here.
+      %{data?: false} ->
+        remove_member(state, id)
+
+      _change ->
+        case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+          # A labels-only mutation on an issue the store never held. The
+          # projection still holds the member, so reconcile it from the label
+          # set alone rather than dropping it because the store lacks a body it
+          # may never have had.
+          nil -> update_held_member(state, id)
+          _gh_issue -> apply_issue_change(state, id)
+        end
+    end
   end
 
-  @spec fetch(map()) ::
-          {:ok, [Snapshot.member()], String.t() | nil, boolean()}
-          | {:not_modified, String.t() | nil}
-          | {:error, term()}
+  defp reconcile_issue(state, _owner, _repo, _id, _change), do: state
+
+  defp apply_issue_change(%{repo: {owner, repo}} = state, id) do
+    case ResourceStore.data(ResourceStore.key(:issue, owner, repo, id)) do
+      nil ->
+        remove_member(state, id)
+
+      gh_issue ->
+        issue = Issues.normalize_issue(gh_issue, owner, repo, state.label_prefix)
+
+        if adhoc?(issue) do
+          upsert_member(state, issue)
+        else
+          remove_member(state, id)
+        end
+    end
+  end
+
+  # The `:issue_labels` body is GitHub's own labels array. Membership is
+  # label-defined, so a held member can be reconciled from the label set alone
+  # even when the store holds no issue body for it.
+  defp update_held_member(%{repo: {owner, repo}} = state, id) do
+    case Map.fetch(state.members, id) do
+      {:ok, member} ->
+        labels = label_names(ResourceStore.data(ResourceStore.key(:issue_labels, owner, repo, id)))
+
+        if @label in labels do
+          %{state | members: Map.put(state.members, id, %{member | labels: labels})}
+          |> apply_members()
+        else
+          remove_member(state, id)
+        end
+
+      :error ->
+        state
+    end
+  end
+
+  defp label_names(labels) when is_list(labels) do
+    Enum.map(labels, &String.downcase(Map.get(&1, "name") || ""))
+  end
+
+  defp label_names(_labels), do: []
+
+  defp upsert_member(state, %Issue{} = issue) do
+    member = member(issue)
+
+    %{state | members: Map.put(state.members, member.identifier, member)}
+    |> apply_members()
+  end
+
+  defp remove_member(state, id) do
+    if Map.has_key?(state.members, id) do
+      %{state | members: Map.delete(state.members, id)}
+      |> apply_members()
+    else
+      state
+    end
+  end
+
+  # Rebuild the snapshot from the projection map. A store event that does not
+  # change the projected content (an `:issue_labels` wake arriving after the
+  # same delivery's `:issue` wake already applied it) neither bumps the
+  # generation nor wakes subscribers.
+  defp apply_members(state) do
+    previous = state.snapshot
+    state = rebuild_snapshot(state)
+    if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
+    state
+  end
+
+  # -- bootstrap listing ----------------------------------------------------
+
+  @spec fetch(map()) :: {:ok, [Snapshot.member()]} | {:error, term()}
   defp fetch(state) do
     with {:ok, {owner, repo}} <- state.repo_fun.(),
          {:ok, token} <- state.token_fun.() do
       url =
         "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues?labels=#{URI.encode(@label)}&state=all&per_page=100"
 
-      case fetch_pages(state.request_fun, url, token, owner, repo, state.label_prefix, state.etag, state.single_page?) do
-        {:ok, issues, etag, single_page?} ->
-          {:ok, issues |> Enum.map(&member/1) |> Enum.filter(&adhoc?/1), etag, single_page?}
-
-        {:not_modified, etag} ->
-          {:not_modified, etag}
-
-        {:error, _reason} = error ->
-          error
+      case fetch_pages(state.request_fun, url, token, owner, repo, state.label_prefix, []) do
+        {:ok, issues} -> {:ok, issues |> Enum.filter(&adhoc?/1) |> Enum.map(&member/1)}
+        {:error, _reason} = error -> error
       end
     end
   end
 
-  # The first page carries the only validator we hold. A `304` reuses the held
-  # snapshot only when that snapshot was a *single page* AND GitHub does not
-  # report a new page on the `304`: the listing is `created`-desc, so page 1 is
-  # the newest issues and freezes once no new adhoc issue is filed, while label
-  # changes on older issues land on later pages a page-1 `304` cannot vouch for.
-  # A multi-page held listing is refetched unconditionally every poll — its
-  # validator belongs to a page that cannot move, so it can never buy an answer.
-  # #2298 item 6.
-  defp fetch_pages(request_fun, url, token, owner, repo, prefix, etag, single_page?) do
-    request_etag = if single_page?, do: etag, else: nil
-
-    case request_fun.(adhoc_request(url, token, request_etag)) do
-      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
-        adhoc_page(request_fun, token, owner, repo, prefix, [], response)
-
-      {:ok, %{status: 304} = response} ->
-        case listing_status(etag, request_etag, response) do
-          {:reuse, etag} -> {:not_modified, etag}
-          :refetch -> fetch_pages(request_fun, url, token, owner, repo, prefix, nil, false)
-          {:error, reason} -> {:error, reason}
-        end
-
-      other ->
-        adhoc_fetch_error(other)
-    end
-  end
-
-  # Decides what a page-1 `304` is allowed to mean. With no validator sent it is
-  # a proxy answering an unconditional request — not a page. With a new `next`
-  # link it means the listing grew a page the held single page cannot see (or
-  # the held listing spanned pages whose newer content page 1 cannot vouch for),
-  # so it must be refetched. Only a single-page listing with no new page may be
-  # served from the held snapshot.
-  defp listing_status(_etag, nil, _response), do: {:error, :unexpected_304}
-
-  defp listing_status(etag, _request_etag, response) do
-    if next_page?(response) do
-      :refetch
-    else
-      {:reuse, etag}
-    end
-  end
-
-  defp adhoc_fetch_error({:ok, %{status: status}}) do
-    Logger.warning("Ad Hoc overlay fetch failed status=#{status}")
-    {:error, {:github_status, status}}
-  end
-
-  defp adhoc_fetch_error({:error, reason}) do
-    Logger.warning("Ad Hoc overlay fetch failed: #{inspect(reason)}")
-    {:error, reason}
-  end
-
-  defp adhoc_request(url, token, etag) do
-    request = %{method: :get, url: url, token: token, caller: "adhoc_source"}
-    if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
-  end
-
-  defp adhoc_page(request_fun, token, owner, repo, prefix, acc, response) do
-    issues = Enum.map(response.body, &Issues.normalize_issue(&1, owner, repo, prefix))
-    first_etag = Transport.header(Map.get(response, :headers, []), "etag")
-
-    case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-      nil -> {:ok, acc ++ issues, first_etag, true}
-      next_url -> fetch_pages_unconditional(request_fun, next_url, token, owner, repo, prefix, first_etag, acc ++ issues)
-    end
-  end
-
-  defp fetch_pages_unconditional(request_fun, url, token, owner, repo, prefix, first_etag, acc) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "adhoc_source"}) do
+  defp fetch_pages(request_fun, url, token, owner, repo, prefix, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         issues = Enum.map(body, &Issues.normalize_issue(&1, owner, repo, prefix))
 
         case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, acc ++ issues, first_etag, false}
-          next_url -> fetch_pages_unconditional(request_fun, next_url, token, owner, repo, prefix, first_etag, acc ++ issues)
+          nil -> {:ok, acc ++ issues}
+          next_url -> fetch_pages(request_fun, next_url, token, owner, repo, prefix, acc ++ issues)
         end
 
-      {:ok, %{status: 304}} ->
-        # Later pages are unconditional, so a `304` here is a proxy answering a
-        # request that carried no validator — not a page.
-        {:error, :unexpected_304}
+      {:ok, %{status: status}} ->
+        Logger.warning("Ad Hoc overlay fetch failed status=#{status}")
+        {:error, {:github_status, status}}
 
-      other ->
-        adhoc_fetch_error(other)
+      {:error, reason} ->
+        Logger.warning("Ad Hoc overlay fetch failed: #{inspect(reason)}")
+        {:error, reason}
     end
   end
-
-  defp next_page?(response), do: not is_nil(Transport.parse_next_page_url(Map.get(response, :headers, [])))
 
   defp member(%Issue{} = issue) do
     %{
@@ -369,49 +305,63 @@ defmodule Aiur.BuildOrder.AdHocSource do
   defp lifecycle("Closed"), do: :closed
   defp lifecycle(_state), do: :open
 
-  defp adhoc?(%{identity: nil}), do: false
-  defp adhoc?(%{labels: labels}), do: @label in labels
+  # A member whose `tracker_identity` is nil must never enter the overlay: the
+  # downstream projection joins members to execution/progress/activity by
+  # identity, and a nil one is unjoinable. This clause is defense-in-depth
+  # matching the pre-#2325 contract — `Issues.normalize_issue/4` always assigns
+  # a joinable or unjoinable struct, so a nil identity cannot reach the listing
+  # or the event path today, but a future construction that skips normalization
+  # must not silently enter the overlay.
+  defp adhoc?(%Issue{tracker_identity: nil}), do: false
+  defp adhoc?(%Issue{labels: labels}), do: @label in List.wrap(labels)
 
-  defp apply_result(state, {:ok, members, etag, single_page?}) do
-    generation = (state.snapshot.generation || 0) + 1
+  # -- snapshot plumbing ----------------------------------------------------
 
-    snapshot = %Snapshot{
-      status: :available,
-      generation: generation,
-      observed_at: now(state),
-      members: Enum.sort_by(members, & &1.identifier)
-    }
-
-    %{state | snapshot: snapshot, etag: etag, single_page?: single_page?}
-  end
-
-  defp apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:not_modified, etag})
-       when is_integer(generation) do
-    # A trusted (single-page) `304`: the listing is confirmed unchanged. Keep the
-    # held snapshot, but advance the generation so a reader can tell the overlay
-    # is live — checked and confirmed — rather than frozen at an old revision.
-    %{state | snapshot: %{previous | status: :available, generation: generation + 1}, etag: etag}
-  end
-
-  # Unreachable with a validator held (a 304 implies a prior 200), but fail
-  # closed rather than raise if it ever arrives.
-  defp apply_result(state, {:not_modified, _etag}), do: %{state | snapshot: %Snapshot{status: :unavailable}}
-
-  defp apply_result(%{snapshot: %Snapshot{generation: generation} = previous} = state, {:error, _reason})
-       when is_integer(generation) do
-    %{state | snapshot: %{previous | status: :stale}}
-  end
-
-  defp apply_result(state, {:error, _reason}) do
-    %{state | snapshot: %Snapshot{status: :unavailable}}
-  end
-
-  defp apply_and_broadcast(state, result) do
+  defp apply_result(state, result) do
     previous = state.snapshot
-    state = apply_result(state, result)
+    state = do_apply_result(state, result)
     if meaningful(previous) != meaningful(state.snapshot), do: broadcast(state)
     state
   end
+
+  defp do_apply_result(state, {:ok, members}) do
+    %{state | members: Map.new(members, &{&1.identifier, &1}), baseline_ok?: true}
+    |> rebuild_snapshot()
+  end
+
+  # A failed listing drops the baseline flag. The projection may now be missing
+  # events the stream did not carry, so no subsequent store event may claim
+  # `:available` again. Last-known-good content is retained and reported
+  # `:stale` rather than being dressed up as current.
+  defp do_apply_result(state, {:error, _reason}) do
+    %{state | baseline_ok?: false}
+    |> rebuild_snapshot()
+  end
+
+  # The projection map -> a snapshot. Status is decided by `snapshot_status/1`:
+  # the map is maintained from the event stream, but only a successful listing
+  # proves the map is complete, so a projection whose baseline has never landed
+  # (or whose re-list failed) stays `:stale`/`:unavailable` no matter how many
+  # store events arrive.
+  defp rebuild_snapshot(state) do
+    %{
+      state
+      | snapshot: %Snapshot{
+          status: snapshot_status(state),
+          generation: (state.snapshot.generation || 0) + 1,
+          observed_at: now(state),
+          members: state.members |> Map.values() |> Enum.sort_by(& &1.identifier)
+        }
+    }
+  end
+
+  # Only a successful listing establishes that the projection is complete.
+  # Until one lands — or after one fails — the projection may be missing events
+  # the stream never carried, so it reports `:stale` while it holds content and
+  # `:unavailable` while it holds none.
+  defp snapshot_status(%{baseline_ok?: true}), do: :available
+  defp snapshot_status(%{baseline_ok?: false, members: members}) when map_size(members) > 0, do: :stale
+  defp snapshot_status(_state), do: :unavailable
 
   # Ignore observed_at/generation churn: only status or membership changes warrant
   # waking subscribed LiveViews to reload.
@@ -425,23 +375,37 @@ defmodule Aiur.BuildOrder.AdHocSource do
     :ok
   end
 
-  # A snapshot with a recent `observed_at` means the opening page is a reconnect
-  # within the floor — it renders the held state and buys nothing more. An
-  # absent or older `observed_at` means this really is the first look in a
-  # while, so the first demander buys the one immediate refresh.
-  defp courtesy_refresh_due?(state) do
-    case state.snapshot.observed_at do
-      %DateTime{} = observed_at ->
-        DateTime.diff(now(state), observed_at, :millisecond) >= @courtesy_refresh_floor_ms
-
-      _other ->
-        true
-    end
-  end
-
   defp now(state) do
     case state.now_fun.() do
       %DateTime{} = datetime -> datetime
+      _other -> nil
+    end
+  end
+
+  # -- subscriptions and delivery mode --------------------------------------
+
+  defp subscribe_to_events do
+    ResourceStore.subscribe(:issue)
+    ResourceStore.subscribe(:issue_labels)
+    ModeRegistry.subscribe()
+    ModeRegistry.subscribe_recovered()
+    ViewStateSweep.subscribe_diverged()
+    :ok
+  end
+
+  defp maybe_relist(%{repo: {owner, repo}} = state, degraded_repo) do
+    if String.downcase(degraded_repo) == "#{owner}/#{repo}" do
+      apply_result(state, fetch(state))
+    else
+      state
+    end
+  end
+
+  defp maybe_relist(state, _degraded_repo), do: state
+
+  defp resolve_repo(repo_fun) do
+    case repo_fun.() do
+      {:ok, {owner, repo}} when is_binary(owner) and is_binary(repo) -> {String.downcase(owner), String.downcase(repo)}
       _other -> nil
     end
   end

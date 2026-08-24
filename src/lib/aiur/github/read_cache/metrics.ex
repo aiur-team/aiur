@@ -63,15 +63,34 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
 
   @doc "Records a served-from-cache read."
   @spec hit(atom(), String.t() | nil) :: :ok
-  def hit(class, caller), do: bump({:class, class, :hit}, {:caller, caller, :hit})
+  def hit(class, caller), do: bump([{:class, class, :hit}, {:caller, caller, :hit}])
 
   @doc "Records a cacheable read the cache could not answer."
   @spec miss(atom(), String.t() | nil) :: :ok
-  def miss(class, caller), do: bump({:class, class, :miss}, {:caller, caller, :miss})
+  def miss(class, caller), do: bump([{:class, class, :miss}, {:caller, caller, :miss}])
 
   @doc "Records a response written into the cache."
   @spec deposit(atom(), String.t() | nil) :: :ok
-  def deposit(class, caller), do: bump({:class, class, :deposit}, {:caller, caller, :deposit})
+  def deposit(class, caller), do: bump([{:class, class, :deposit}, {:caller, caller, :deposit}])
+
+  @doc """
+  Records a cacheable response that was not written into the cache, and why.
+
+  This is the gap between a miss and a deposit, and it is the figure that makes
+  a TTL change evaluable: if misses and deposits diverge, the difference is here
+  and it is attributable. Two reasons exist, and they ask different questions:
+
+    * `:unsuccessful` — the response failed (`success?/1` refused it), which
+      for batched GraphQL means any `errors` key. Common on graph queries, and
+      not a cache problem.
+    * `:no_room` — the response was good but the entry ceiling was reached.
+      `room?/0` refuses new deposits at the ceiling rather than evicting, so
+      this is the backstop answering "the cache could not hold it".
+  """
+  @spec not_deposited(atom(), atom(), String.t() | nil) :: :ok
+  def not_deposited(reason, class, caller) when reason in [:unsuccessful, :no_room] do
+    bump([{:not_deposited, reason}, {:class, class, :not_deposited}, {:caller, caller, :not_deposited}])
+  end
 
   @doc """
   Records a read the policy declined to cache, with the reason.
@@ -81,7 +100,7 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
   would make an unsafe kind look like a tuning problem.
   """
   @spec refused(atom(), String.t() | nil) :: :ok
-  def refused(reason, caller), do: bump({:refused, reason}, {:caller, caller, :refused})
+  def refused(reason, caller), do: bump([{:refused, reason}, {:caller, caller, :refused}])
 
   @doc """
   Records a REST refusal keyed on the request's path template, not the URL.
@@ -108,7 +127,7 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
         @overflow
       end
 
-    bump({:refused_shapes, bucket}, {:caller, caller, :refused})
+    bump([{:refused_shapes, bucket}, {:caller, caller, :refused}])
   end
 
   defp member?(key) do
@@ -158,6 +177,7 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
           callers: %{},
           refused: %{},
           refused_shapes: %{},
+          not_deposited: %{},
           invalidations: %{},
           totals: empty_totals()
         }
@@ -171,6 +191,7 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
           callers: group(entries, :caller),
           refused: refusals(entries),
           refused_shapes: refused_shapes(entries),
+          not_deposited: reasons(entries, :not_deposited),
           invalidations: %{
             marks: value(entries, {:invalidations, :marks}),
             events: value(entries, {:invalidations, :events})
@@ -212,9 +233,8 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
     end
   end
 
-  defp bump(class_key, caller_key) do
-    increment(class_key, 1)
-    increment(caller_key, 1)
+  defp bump(keys) do
+    Enum.each(keys, &increment(&1, 1))
   end
 
   defp increment(key, amount) do
@@ -233,10 +253,17 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
     |> Map.new(fn {name, events} -> {name, Map.merge(empty_totals(), Map.new(events))} end)
   end
 
-  defp refusals(entries) do
+  defp refusals(entries), do: reasons(entries, :refused)
+
+  # The reason split of a class of skip. `not_deposited` counts the reasons a
+  # good-or-bad response was not written (`:unsuccessful`, `:no_room`);
+  # `refused` counts the reasons the policy declined to cache a read at all.
+  # Both are global — a skip has a class for `not_deposited`, but the *reason*
+  # is the question an operator asks.
+  defp reasons(entries, scope) do
     entries
-    |> Enum.filter(&match?({{:refused, _reason}, _count}, &1))
-    |> Map.new(fn {{:refused, reason}, count} -> {reason, count} end)
+    |> Enum.filter(&match?({{^scope, _reason}, _count}, &1))
+    |> Map.new(fn {{^scope, reason}, count} -> {reason, count} end)
   end
 
   defp refused_shapes(entries) do
@@ -245,12 +272,13 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
     |> Map.new(fn {{:refused_shapes, shape}, count} -> {shape, count} end)
   end
 
-  # Hits, misses and deposits total across classes; refusals total across
-  # reasons, because a refusal has no class — it is a read the policy declined
-  # to classify as cacheable. Summing them from the class rows would leave
-  # `refused` permanently at zero, which reads as "nothing was refused" rather
-  # than "refusals are not counted here". Shape-keyed REST refusals count toward
-  # the same total as the by-reason ones.
+  # Hits, misses, deposits and not-deposits total across classes; refusals total
+  # across reasons, because a refusal has no class — it is a read the policy
+  # declined to classify as cacheable. Summing them from the class rows would
+  # leave `refused` permanently at zero, which reads as "nothing was refused"
+  # rather than "refusals are not counted here". Shape-keyed REST refusals count
+  # toward the same total as the by-reason ones; `not_deposited` totals from the
+  # class rows, because it is counted per class like the misses it follows.
   defp totals(entries) do
     counted =
       entries
@@ -272,5 +300,5 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
     end
   end
 
-  defp empty_totals, do: %{hit: 0, miss: 0, deposit: 0, refused: 0}
+  defp empty_totals, do: %{hit: 0, miss: 0, deposit: 0, not_deposited: 0, refused: 0}
 end

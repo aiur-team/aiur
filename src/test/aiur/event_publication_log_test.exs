@@ -4,7 +4,7 @@ defmodule Aiur.EventPublicationLogTest do
   alias Aiur.EventPublicationLog
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-publication-log-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-publication-log")
     publication_file = Path.join(root, "trusted/log/event-publications.ndjson")
 
     on_exit(fn ->

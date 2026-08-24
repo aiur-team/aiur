@@ -759,17 +759,9 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
   end
 
   test "session startup rejects the workspace root, outside paths, and symlink escapes" do
-    root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-openai-root-#{System.unique_integer([:positive])}"
-      )
+    root = Aiur.TestSupport.tmp_root!("aiur-openai-root")
 
-    outside =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-openai-outside-#{System.unique_integer([:positive])}"
-      )
+    outside = Aiur.TestSupport.tmp_root!("aiur-openai-outside")
 
     File.mkdir_p!(root)
     File.mkdir_p!(outside)

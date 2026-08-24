@@ -71,7 +71,7 @@ defmodule Aiur.GitHub.AppCredentialsTest do
   end
 
   test "private_key_pem/0 prefers GITHUB_APP_PRIVATE_KEY_PATH over the inline value" do
-    path = Path.join(System.tmp_dir!(), "aiur-app-key-#{System.unique_integer([:positive])}.pem")
+    path = Aiur.TestSupport.tmp_root!("aiur-app-key") <> ".pem"
     pem = real_pem()
     File.write!(path, pem)
 
@@ -111,7 +111,7 @@ defmodule Aiur.GitHub.AppCredentialsTest do
   # request — so it must decide from the environment alone and never read the
   # key file.
   test "configured?/0 does not read the private key file" do
-    path = Path.join(System.tmp_dir!(), "aiur-app-key-#{System.unique_integer([:positive])}.pem")
+    path = Aiur.TestSupport.tmp_root!("aiur-app-key") <> ".pem"
     File.write!(path, real_pem())
     on_exit(fn -> File.rm(path) end)
 

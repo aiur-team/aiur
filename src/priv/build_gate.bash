@@ -1692,6 +1692,101 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     return 127
   }
 
+  # ExUnit forces `max_cases: 1` whenever `--trace` is present, silently
+  # overriding an explicit `--max-cases N` on the same command line. Strip
+  # `--trace` from a mix-level argument list when the two conflict (N > 1):
+  # the agent asked for parallelism explicitly and `--trace` is a debugging
+  # aid for a single test (#2311). Sets `aiur_build_gate_normalized_args` to
+  # the rewritten list; a non-conflicting command is copied verbatim.
+  aiur_build_gate_mix_args_without_trace_conflict() {
+    aiur_build_gate_normalized_args=()
+    local -a args=("$@")
+    local i n arg has_trace=0 max_cases=""
+    n=${#args[@]}
+
+    for ((i = 0; i < n; i++)); do
+      arg=${args[i]}
+
+      if [[ $arg == --max-cases ]]; then
+        ((i + 1 < n)) && max_cases=${args[i + 1]}
+      elif [[ $arg == --max-cases=* ]]; then
+        max_cases=${arg#--max-cases=}
+      elif [[ $arg == --trace ]]; then
+        has_trace=1
+      fi
+    done
+
+    if [[ $has_trace == 1 && $max_cases =~ ^[1-9][0-9]*$ && $max_cases -gt 1 ]]; then
+      for ((i = 0; i < n; i++)); do
+        arg=${args[i]}
+        [[ $arg == --trace ]] || aiur_build_gate_normalized_args+=("$arg")
+      done
+      aiur_build_gate_log "trace_stripped reason=conflict_with_max_cases max_cases=$max_cases"
+    else
+      aiur_build_gate_normalized_args=("${args[@]}")
+    fi
+  }
+
+  # Normalize `elixir -S mix ...` arguments, rewriting only the mix-level
+  # flags after the `mix` token (mirrors aiur_build_gate_elixir_mix_phase).
+  # Initialized verbatim so every early return leaves a non-mix elixir
+  # invocation untouched.
+  aiur_build_gate_normalize_elixir_args() {
+    aiur_build_gate_normalized_args=("$@")
+    local -a args=("$@")
+    local i n arg
+    n=${#args[@]}
+
+    for ((i = 0; i < n; i++)); do
+      arg=${args[i]}
+
+      case $arg in
+        -S)
+          if ((i + 1 < n)) && [[ ${args[i + 1]} == mix ]]; then
+            aiur_build_gate_mix_args_without_trace_conflict "${args[@]:i+2}"
+            aiur_build_gate_normalized_args=("${args[@]:0:i}" -S mix "${aiur_build_gate_normalized_args[@]}")
+          fi
+          return 0
+          ;;
+        -e | -r | -pr | -pa | -pz | --app | --erl | --cookie)
+          ((i + 1 < n)) || return 0
+          i=$((i + 1))
+          ;;
+        --) return 0 ;;
+        -*) ;;
+        *) return 0 ;;
+      esac
+    done
+
+    return 0
+  }
+
+  # Normalize `mise exec -- mix ...` arguments, rewriting only the mix-level
+  # flags after `--` (mirrors aiur_build_gate_mise_phase's structural form).
+  # `-c`/`--command` strings need no rewrite here: the nested `mix` invocation
+  # they produce is normalized by the hook's `mix()` entry point. Initialized
+  # verbatim so a non-mix `--` payload is passed through untouched.
+  aiur_build_gate_normalize_mise_args() {
+    aiur_build_gate_normalized_args=("$@")
+    local -a args=("$@")
+    local i n arg
+    n=${#args[@]}
+
+    for ((i = 0; i < n; i++)); do
+      arg=${args[i]}
+
+      if [[ $arg == -- ]]; then
+        if ((i + 1 < n)) && aiur_build_gate_is_mix_command "${args[i + 1]}"; then
+          aiur_build_gate_mix_args_without_trace_conflict "${args[@]:i+2}"
+          aiur_build_gate_normalized_args=("${args[@]:0:i}" -- "${args[i + 1]}" "${aiur_build_gate_normalized_args[@]}")
+        fi
+        return 0
+      fi
+    done
+
+    return 0
+  }
+
   elixir() {
     local elixir_binary phase real_path classification
     elixir_binary=$(aiur_build_gate_real_command elixir)
@@ -1700,6 +1795,9 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       aiur_build_gate_command_unavailable elixir
       return $?
     fi
+
+    aiur_build_gate_normalize_elixir_args "$@"
+    set -- "${aiur_build_gate_normalized_args[@]}"
 
     if phase=$(aiur_build_gate_elixir_mix_phase "$@"); then
       classification=0
@@ -1733,6 +1831,9 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       return $?
     fi
 
+    aiur_build_gate_mix_args_without_trace_conflict "$@"
+    set -- "${aiur_build_gate_normalized_args[@]}"
+
     if phase=$(aiur_build_gate_mix_phase "$@"); then
       classification=0
     else
@@ -1754,6 +1855,9 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       aiur_build_gate_command_unavailable mise
       return $?
     fi
+
+    aiur_build_gate_normalize_mise_args "$@"
+    set -- "${aiur_build_gate_normalized_args[@]}"
 
     if phase=$(aiur_build_gate_mise_phase "$@"); then
       classification=0

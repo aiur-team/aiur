@@ -351,6 +351,7 @@ defmodule Aiur.GitHubCostCLI do
     )
 
     print_refusals(cache["refused"], cache["refused_shapes"])
+    print_not_deposited(cache["not_deposited"])
   end
 
   defp print_cache(_cache), do: IO.puts("\nread cache: not running (no measurement)")
@@ -374,6 +375,17 @@ defmodule Aiur.GitHubCostCLI do
   end
 
   defp print_refusal_line(_label, _map), do: :ok
+
+  # The accounting remainder: every miss either deposited or did not, and the
+  # not-deposited side is split by why. Without it, `misses` minus `deposits`
+  # is a silent subtraction an operator cannot tell apart from the cache being
+  # short of work.
+  defp print_not_deposited(not_deposited) when is_map(not_deposited) and map_size(not_deposited) > 0 do
+    line = Enum.map_join(not_deposited, ", ", fn {reason, count} -> "#{reason} #{count}" end)
+    IO.puts("read cache not deposited: #{line}")
+  end
+
+  defp print_not_deposited(_not_deposited), do: :ok
 
   defp print_rows(rows, format) do
     cells = Enum.map(rows, &row_cells/1)

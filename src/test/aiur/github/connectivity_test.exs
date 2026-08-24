@@ -184,6 +184,27 @@ defmodule Aiur.GitHub.ConnectivityTest do
     test "auth escalates immediately rather than backing off and retrying" do
       assert Connectivity.backoff_ms(:auth, 5, %{}) == :escalate
     end
+
+    test "local_hold backs off only until the hold's reset_at, never escalating" do
+      now = ~U[2026-08-09 21:00:00Z]
+      hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(now, 30, :second)}
+
+      # A seconds-long hold waits seconds even at a huge streak count — never the
+      # capped-exponential network curve (#2429).
+      assert Connectivity.backoff_ms(:local_hold, 50, %{hold: hold, now: now}) == 30_000
+      assert Connectivity.backoff_ms(:local_hold, 50, %{hold: hold, now: now}) < Connectivity.max_backoff_ms()
+
+      # A hold whose reset already passed waits nothing, so polling resumes at once.
+      passed = %{hold: %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(now, -5, :second)}, now: now}
+      assert Connectivity.backoff_ms(:local_hold, 1, passed) == 0
+
+      # A hold with no reset_at falls back to the base backoff, never exponential.
+      assert Connectivity.backoff_ms(:local_hold, 50, %{}) == Connectivity.backoff_ms(:dns, 1, %{})
+    end
+
+    test "unclassified backs off conservatively at the base interval" do
+      assert Connectivity.backoff_ms(:unclassified, 50, %{}) == Connectivity.backoff_ms(:dns, 1, %{})
+    end
   end
 
   describe "record_failure/5" do
@@ -245,6 +266,40 @@ defmodule Aiur.GitHub.ConnectivityTest do
         Connectivity.record_failure(%{}, :ls_remote, :auth, 30_000, emit_fun: emit_fun)
 
       assert delay_ms == Connectivity.max_backoff_ms()
+    end
+
+    # #2429 acceptance: a local budget hold must never raise the
+    # `system.github.connectivity_lost` blocker, no matter how many times it
+    # fires — it is a local counter trip with its own reset, not lost
+    # connectivity. The same holds for an unclassified reason, which must not be
+    # silently treated as transport.
+    test "local_hold and unclassified never emit system.github.connectivity_lost" do
+      emit_fun = fn name, message, opts ->
+        send(self(), {:alert, name, message, opts})
+      end
+
+      now = ~U[2026-08-09 21:00:00Z]
+      hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(now, 30, :second)}
+
+      {streaks, delay_ms} =
+        Connectivity.record_failure(%{}, :firehose, :local_hold, 30_000,
+          emit_fun: emit_fun,
+          detail: %{hold: hold, now: now}
+        )
+
+      assert delay_ms == 30_000
+
+      {streaks, _delay_ms} =
+        Connectivity.record_failure(streaks, :firehose, :local_hold, 30_000,
+          emit_fun: emit_fun,
+          detail: %{hold: hold, now: now}
+        )
+
+      {_streaks, delay_ms} =
+        Connectivity.record_failure(streaks, :firehose, :unclassified, 30_000, emit_fun: emit_fun)
+
+      assert delay_ms == 1_000
+      refute_receive {:alert, _, _, _}, 100
     end
   end
 

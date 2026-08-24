@@ -10,6 +10,7 @@ defmodule Aiur.AgentGitHubGuard do
   require Logger
 
   alias Aiur.AgentCommandInstaller
+  alias Aiur.GitHub.Budget
 
   @gh_script_path Path.expand("../../priv/github_quota_guard.sh", __DIR__)
   @git_script_path Path.expand("../../priv/github_push_guard.sh", __DIR__)
@@ -25,12 +26,108 @@ defmodule Aiur.AgentGitHubGuard do
   @relative_gh_config_dir ".aiur-runtime/gh"
   @broker_relative_path ".aiur-runtime/bin/aiur-github-budget"
   @legacy_host_guard_path Path.join(System.user_home!(), ".aiur/github-budget/bin/gh")
+  # #2356: the credential file the `gh` guard reads. It lives beside the shared
+  # budget database — the same host-wide directory every agent on a host
+  # already shares — so the wrapper can authenticate a governed call without a
+  # raw token ever appearing in an agent's environment.
+  @agent_token_filename "agent-token"
 
   @spec bin_dir(Path.t()) :: Path.t()
   def bin_dir(workspace), do: AgentCommandInstaller.bin_dir(workspace, @relative_bin_dir)
 
   @spec budget_broker_path(Path.t()) :: Path.t()
   def budget_broker_path(workspace), do: Path.join(workspace, @broker_relative_path)
+
+  @doc """
+  The path to the credential file the `gh` guard reads for governed agent
+  calls. The file lives in the shared budget root so the wrapper on every
+  workspace resolves the same host credential without a token in any
+  environment.
+  """
+  @spec agent_token_path() :: Path.t()
+  def agent_token_path, do: Path.join(Budget.state_dir(), @agent_token_filename)
+
+  @doc """
+  Writes the bot PAT to the guard's credential file, or deletes a stale file
+  when no credential is available.
+
+  Agents used to inherit the raw `GITHUB_TOKEN`/`GH_TOKEN` from the daemon
+  environment; anything that spoke HTTP directly — curl, Req, a Python script,
+  a Node fetch — was authenticated, unmetered and untraced (#2356). The daemon
+  now keeps the credential off the agent environment entirely and writes it to
+  this file instead; `Aiur.AgentEnvironment` scrubs the env vars and exports
+  `AIUR_GITHUB_CREDENTIAL_FILE` so the `gh` guard can inject the credential only for
+  the duration of a governed call.
+
+  The credential written is the daemon's own inherited `GITHUB_TOKEN`/`GH_TOKEN`
+  (the bot PAT agents legitimately publish as) — deliberately NOT
+  `Aiur.GitHub.Config.token/0`, which under App auth resolves the daemon's
+  installation token. The App installation token is the branch-protection
+  bypass actor and a different budget pool; it must never reach agents.
+
+  This is a policy boundary, not a capability boundary: agents run as the same
+  OS user as the daemon, so an agent that knows the path can read the file —
+  exactly as it could already read the shared budget database and the operator
+  keyring. What the file removes is the raw token from the *environment* of
+  every agent process, where any dependency's build script or a bare `curl`
+  picks it up without even looking.
+  """
+  @spec ensure_agent_token_file(keyword()) :: :ok | :no_credential | {:error, term()}
+  def ensure_agent_token_file(opts \\ []) do
+    path = Keyword.get(opts, :path, agent_token_path())
+
+    token =
+      case Keyword.fetch(opts, :token) do
+        {:ok, token} -> token
+        :error -> System.get_env("GITHUB_TOKEN") || System.get_env("GH_TOKEN")
+      end
+
+    case token do
+      token when is_binary(token) and token != "" ->
+        with :ok <- ensure_token_parent(path, opts) do
+          write_agent_token_file(path, token)
+        end
+
+      _no_credential ->
+        delete_agent_token_file(path)
+    end
+  end
+
+  defp ensure_token_parent(path, opts) do
+    if path == agent_token_path() do
+      Budget.ensure_state_dir(Keyword.drop(opts, [:path, :token]))
+    else
+      case File.mkdir_p(Path.dirname(path)) do
+        :ok -> :ok
+        {:error, reason} -> {:error, {:agent_token_dir_unavailable, Path.dirname(path), reason}}
+      end
+    end
+  end
+
+  defp write_agent_token_file(path, token) do
+    temporary = path <> ".#{System.unique_integer([:positive])}.tmp"
+
+    with {:ok, file} <- File.open(temporary, [:write, :binary, :exclusive]),
+         :ok <- IO.binwrite(file, token),
+         :ok <- IO.binwrite(file, "\n"),
+         :ok <- File.close(file),
+         :ok <- File.chmod(temporary, 0o600),
+         :ok <- File.rename(temporary, path) do
+      :ok
+    else
+      {:error, reason} ->
+        _ = File.rm(temporary)
+        {:error, {:agent_token_file_write_failed, path, reason}}
+    end
+  end
+
+  defp delete_agent_token_file(path) do
+    case File.rm(path) do
+      :ok -> :no_credential
+      {:error, :enoent} -> :no_credential
+      {:error, reason} -> {:error, {:agent_token_file_unavailable, path, reason}}
+    end
+  end
 
   @doc """
   The agent-private `GH_CONFIG_DIR`.
@@ -132,8 +229,8 @@ defmodule Aiur.AgentGitHubGuard do
 
   def install(_workspace), do: :ok
 
-  @spec remote_install_script(Path.t()) :: String.t()
-  def remote_install_script(workspace) when is_binary(workspace) do
+  @spec remote_install_script(Path.t(), keyword()) :: String.t()
+  def remote_install_script(workspace, opts \\ []) when is_binary(workspace) do
     scripts =
       Enum.map_join(@scripts, "\n", fn {name, script} ->
         AgentCommandInstaller.remote_install_script(workspace, @relative_bin_dir, [name], script)
@@ -146,11 +243,42 @@ defmodule Aiur.AgentGitHubGuard do
     # and the launch fails loudly rather than exporting a variable that points
     # somewhere the agent controls.
     config_dir = Aiur.Shell.escape(gh_config_dir(workspace))
+    token_file = remote_agent_token_script(opts)
 
     scripts <>
       "\nif [ -L #{config_dir} ] || { [ -e #{config_dir} ] && [ ! -d #{config_dir} ]; }; then\n" <>
       "  echo 'unsafe agent gh config dir' >&2\n  exit 73\nfi\n" <>
-      "mkdir -p #{config_dir} || { echo 'agent gh config dir is unavailable' >&2; exit 73; }\n"
+      "mkdir -p #{config_dir} || { echo 'agent gh config dir is unavailable' >&2; exit 73; }\n" <>
+      token_file
+  end
+
+  # Remote workers get the same #2356 credential file the local `gh` guard
+  # reads (`~/.aiur/github-budget/agent-token`), written from the daemon's own
+  # inherited bot PAT. The token travels inside the install script the daemon
+  # already ships over SSH — the same trust boundary as the guard payload
+  # itself — and is deleted when no credential is available so a stale install
+  # cannot leave a dead token authenticating the next agent.
+  defp remote_agent_token_script(opts) do
+    token =
+      case Keyword.fetch(opts, :token) do
+        {:ok, token} -> token
+        :error -> System.get_env("GITHUB_TOKEN") || System.get_env("GH_TOKEN")
+      end
+
+    case token do
+      token when is_binary(token) and token != "" ->
+        token = Aiur.Shell.escape(token)
+
+        [
+          "mkdir -p \"$HOME/.aiur/github-budget\"",
+          "printf '%s\\n' #{token} > \"$HOME/.aiur/github-budget/agent-token\"",
+          "chmod 600 \"$HOME/.aiur/github-budget/agent-token\""
+        ]
+        |> Enum.join("\n")
+
+      _no_credential ->
+        "rm -f \"$HOME/.aiur/github-budget/agent-token\" 2>/dev/null || true\n"
+    end
   end
 
   # SECURITY INVARIANT — the agent owns its workspace, so it can create
