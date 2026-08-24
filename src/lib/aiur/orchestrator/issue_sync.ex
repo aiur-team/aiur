@@ -1612,7 +1612,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   # silence its starvation alert.
   defp fleet_capacity_starvation_alert_after_ms(%State{effective_poll_interval_ms: effective_ms})
        when is_integer(effective_ms) and effective_ms > 0 do
-    PollCadence.effective_interval_ms(effective_interval_ms: effective_ms)
+    PollCadence.effective_interval_ms(class: :dispatch, effective_interval_ms: effective_ms)
   end
 
   defp fleet_capacity_starvation_alert_after_ms(%State{poll_interval_ms: poll_interval_ms})

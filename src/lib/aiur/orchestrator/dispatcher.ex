@@ -15,7 +15,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DecisionStore,
     DispatchBudgetStore,
     Issue,
-    PollCadence,
     RepoBase,
     SystemCpu,
     Tracker
@@ -69,10 +68,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
 
     # Every freshness threshold is a multiple of the cadence actually in force,
-    # so the scheduled delay — idle backoff, webhook widening and GitHub's own
-    # floors already composed in — is published where any reader can derive
-    # from it. See `Aiur.PollCadence`.
-    :ok = PollCadence.publish_effective_interval_ms(schedule.delay_ms)
+    # so each class's effective interval — idle backoff, webhook widening and
+    # GitHub's own floors already composed in — is published where any reader
+    # can derive from it. See `Aiur.PollCadence` and
+    # `TrackerHealth.publish_poll_cadence/2` (#2309).
+    :ok = TrackerHealth.publish_poll_cadence(state, schedule)
 
     state = %{state | poll_check_in_progress: false}
 
