@@ -52,9 +52,16 @@ defmodule Aiur.Orchestrator.AutoResume do
   Tracker errors follow `Aiur.GitHub.Errors`'s taxonomy (including the
   secondary-rate-limit 403 whose body names a rate limit); provider timeouts
   are recognized as bare or wrapped `:timeout` / transport terms.
+
+  A raw `Req.TransportError`/`Mint.TransportError` (the shape the transport
+  error funnel surfaces) is normalised through the shared taxonomy before
+  classifying, so "suppressed as transient" in `RetryEngine` and "scheduled
+  for auto-resume" here are the same predicate by construction (#2427 review).
   """
   @spec classify(term()) :: cause() | nil
   def classify(reason) do
+    reason = normalise_transport_error(reason)
+
     cond do
       local_budget_hold?(reason) -> :local_budget_hold
       tracker_rate_limited?(reason) -> :rate_limit
@@ -63,6 +70,21 @@ defmodule Aiur.Orchestrator.AutoResume do
       true -> nil
     end
   end
+
+  # A raw `%Req.TransportError{}`/`%Mint.TransportError{}` (as `transport.ex`'s
+  # error funnel surfaces) is normalised through `Errors.classify_error/1`
+  # before classifying, exactly as `RetryEngine.transient_exhaustion_reason?/1`
+  # does, so a reason the shared classifier calls transient (DNS, timeout, TLS,
+  # connection closed) always schedules a re-claim. Without this, a DNS failure
+  # (`:nxdomain`) — transient to the shared classifier, absent from the
+  # provider-timeout whitelist — released a claim with no re-claim scheduled:
+  # strictly worse than the `agent:error` it used to get (#2427 review).
+  defp normalise_transport_error(%{__struct__: struct} = reason)
+       when struct in [Req.TransportError, Mint.TransportError] do
+    Errors.classify_error({:error, reason})
+  end
+
+  defp normalise_transport_error(reason), do: reason
 
   defp tracker_rate_limited?({:github, :rate_limited, _detail}), do: true
   defp tracker_rate_limited?(_reason), do: false
@@ -85,11 +107,9 @@ defmodule Aiur.Orchestrator.AutoResume do
   defp provider_timeout?({:error, :timeout}), do: true
   defp provider_timeout?({:timeout, _detail}), do: true
 
-  defp provider_timeout?(%{__struct__: struct, reason: reason})
-       when struct in [Req.TransportError, Mint.TransportError] do
-    reason in [:timeout, :closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset]
-  end
-
+  # Bare transport terms from a provider (not a `Req.TransportError` struct —
+  # those are normalised through the shared taxonomy in `classify/1` before
+  # reaching here).
   defp provider_timeout?(reason)
        when reason in [:timeout, :closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset],
        do: true

@@ -2270,6 +2270,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   @doc false
+  # The lifetime dispatch latch is deliberately terminal and deliberately does
+  # not route through `Errors.retryable_github_error?/1` (#2427). It is a
+  # count, not a transport fault: it trips after `agent_max_dispatches_per_ticket`
+  # sessions that survived provisioning and started real work (#1453), so there
+  # is no error reason to classify at this site, and the auto-resume path
+  # refuses latched tickets by design — `agent:error` is the Executor-visible
+  # state that signals "this ticket needs `aiurdev reset-budget` or a
+  # documented reset path". The #2427 fix closes the *single-fault* route
+  # (a transport failure no longer exhausts into `agent:error` or releases a
+  # claim with no re-claim); a *sustained* outage that re-dispatches a ticket
+  # until it exhausts the lifetime budget remains a structural-stuck breaker,
+  # out of scope for the error-classification split this ticket is about.
   @spec persist_lifetime_trip(State.t(), Issue.t(), (String.t(), String.t() -> :ok | {:error, term()})) ::
           State.t()
   def persist_lifetime_trip(%State{} = state, %Issue{} = issue, update_state_fun)
