@@ -283,14 +283,18 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   end
 
   # ---------------------------------------------------------------------------
-  # issues labeled / unlabeled / closed -> issue-state reconcile
+  # issues labeled / unlabeled / closed / reopened / opened -> issue-state
+  # reconcile
   #
   # The polling path does not publish these through Publisher: IssueSync diffs
   # the observed label set and emits `ticket.<id>.issue.label.added.agent.<state>`
   # from that diff, and the same diff drives dispatch. GitHub does not order
   # deliveries, so an `unlabeled` can arrive before the `labeled` it followed —
   # another reason to treat the delivery as "state changed, go look" rather than
-  # as an ordered instruction.
+  # as an ordered instruction. A freshly `opened` ticket reconciles the same way
+  # so a new issue that already carries an active state label does not wait out
+  # the poll interval (#2365); whether the opened issue implies work is decided
+  # by the delivery tail, not here, so this module stays pure.
   # ---------------------------------------------------------------------------
 
   defp normalize_event("issues", payload, _repo) when is_map(payload) do
@@ -298,7 +302,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
     issue = Map.get(payload, "issue")
 
     cond do
-      action not in ["labeled", "unlabeled", "closed", "reopened"] ->
+      action not in ["labeled", "unlabeled", "closed", "reopened", "opened"] ->
         {:drop, {:uninteresting_action, "issues", action}}
 
       not is_map(issue) ->
