@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Alerts, Config, RunTelemetry}
+  alias Aiur.{AlertFeed, Alerts, Config, PollCadence, RunTelemetry}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
@@ -269,9 +269,11 @@ defmodule Aiur.Orchestrator.CommentPolling do
   def start_async(%State{} = state, opts \\ []) do
     now_ms = System.monotonic_time(:millisecond)
 
-    if tracker_kind(opts) == "github",
-      do: maybe_spawn_comment_poll(state, opts, now_ms),
-      else: state
+    cond do
+      tracker_kind(opts) != "github" -> state
+      within_review_cadence?(state, now_ms) -> state
+      true -> maybe_spawn_comment_poll(state, opts, now_ms)
+    end
   end
 
   defp maybe_spawn_comment_poll(state, opts, now_ms) do
@@ -301,6 +303,24 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   def request_reconcile(%State{} = state, _hint, _opts), do: state
+
+  # Throttles the comment poll to the `:review` class cadence (#2309). See
+  # `PollCadence.within_class_cadence?/3` for the two limits that keep this a
+  # no-op where it must be (never fired, or nothing published yet). The class
+  # cadence is the safety-net price for a review poll that no longer runs at the
+  # dispatch rate once an operator sets `intervals.review` wider — the tradeoff
+  # #2309 exists to make, and webhooks cover the arrival of a comment in the
+  # meantime.
+  #
+  # The divergence is *enforced*, not asserted: `TrackerHealth` publishes a
+  # `:review` cadence wider than the dispatch tick only when the repo is proven
+  # webhook-backed, so on a polling repo the published `:review` value equals
+  # the dispatch cadence and this gate never binds — the safety net stays at the
+  # dispatch rate. This is the "no webhook installed: nothing is ever
+  # suppressed" contract (see `apis/github.md`).
+  defp within_review_cadence?(state, now_ms) do
+    PollCadence.within_class_cadence?(state.last_comment_poll_started_at_ms, now_ms, :review)
+  end
 
   @doc """
   Folds a completed asynchronous comment poll into the current state.
@@ -452,7 +472,8 @@ defmodule Aiur.Orchestrator.CommentPolling do
     %{
       state
       | github_comment_poll: poll,
-        github_comment_reconcile_targets: MapSet.difference(state.github_comment_reconcile_targets, reconcile_targets)
+        github_comment_reconcile_targets: MapSet.difference(state.github_comment_reconcile_targets, reconcile_targets),
+        last_comment_poll_started_at_ms: now_ms
     }
   end
 

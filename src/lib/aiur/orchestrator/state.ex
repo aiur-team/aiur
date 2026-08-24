@@ -132,6 +132,13 @@ defmodule Aiur.Orchestrator.State do
           github_comment_poll: map() | nil,
           github_comment_reconcile_targets: MapSet.t(String.t()),
           github_comment_reconcile_timer: map() | nil,
+          # Monotonic time the asynchronous comment poll last started, used to
+          # throttle it to the `:review` class cadence (#2309). `nil` until the
+          # first start.
+          last_comment_poll_started_at_ms: integer() | nil,
+          # Monotonic time the CI poll last ran, used to throttle it to the
+          # `:ci` class cadence (#2309). `nil` until the first run.
+          last_ci_poll_started_at_ms: integer() | nil,
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
@@ -273,6 +280,8 @@ defmodule Aiur.Orchestrator.State do
     # At most one delayed reconcile wake is live. Its token fences stale timer
     # messages after a later GitHub backoff extends the due time.
     github_comment_reconcile_timer: nil,
+    last_comment_poll_started_at_ms: nil,
+    last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},

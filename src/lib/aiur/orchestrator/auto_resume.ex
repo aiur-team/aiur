@@ -50,11 +50,22 @@ defmodule Aiur.Orchestrator.AutoResume do
   automatic re-dispatch. Returns `nil` for terminal/operator causes.
 
   Tracker errors follow `Aiur.GitHub.Errors`'s taxonomy (including the
-  secondary-rate-limit 403 whose body names a rate limit); provider timeouts
-  are recognized as bare or wrapped `:timeout` / transport terms.
+  secondary-rate-limit 403 whose body names a rate limit and the
+  auth-preflight transport shape the claim-release path surfaces — both go
+  through `Aiur.GitHub.Errors.transient_github_error?/1`, the same shared
+  classifier `Aiur.Orchestrator.HumanReview` uses to defer rather than
+  terminate); provider timeouts are recognized as bare or wrapped `:timeout` /
+  transport terms.
+
+  A raw `Req.TransportError`/`Mint.TransportError` (the shape the transport
+  error funnel surfaces) is normalised through the shared taxonomy before
+  classifying, so "suppressed as transient" in `RetryEngine` and "scheduled
+  for auto-resume" here are the same predicate by construction (#2427 review).
   """
   @spec classify(term()) :: cause() | nil
   def classify(reason) do
+    reason = normalise_transport_error(reason)
+
     cond do
       local_budget_hold?(reason) -> :local_budget_hold
       tracker_rate_limited?(reason) -> :rate_limit
@@ -63,6 +74,21 @@ defmodule Aiur.Orchestrator.AutoResume do
       true -> nil
     end
   end
+
+  # A raw `%Req.TransportError{}`/`%Mint.TransportError{}` (as `transport.ex`'s
+  # error funnel surfaces) is normalised through `Errors.classify_error/1`
+  # before classifying, exactly as `RetryEngine.transient_exhaustion_reason?/1`
+  # does, so a reason the shared classifier calls transient (DNS, timeout, TLS,
+  # connection closed) always schedules a re-claim. Without this, a DNS failure
+  # (`:nxdomain`) — transient to the shared classifier, absent from the
+  # provider-timeout whitelist — released a claim with no re-claim scheduled:
+  # strictly worse than the `agent:error` it used to get (#2427 review).
+  defp normalise_transport_error(%{__struct__: struct} = reason)
+       when struct in [Req.TransportError, Mint.TransportError] do
+    Errors.classify_error({:error, reason})
+  end
+
+  defp normalise_transport_error(reason), do: reason
 
   defp tracker_rate_limited?({:github, :rate_limited, _detail}), do: true
   defp tracker_rate_limited?(_reason), do: false
@@ -88,10 +114,18 @@ defmodule Aiur.Orchestrator.AutoResume do
   defp local_budget_hold?({:github_auth_preflight_failed, %{classification: :local_hold}}), do: true
   defp local_budget_hold?(_reason), do: false
 
+  # The shared transient classifier (taxonomy + 408/429/5xx + the auth-preflight
+  # transport diagnostic) so the claim-release path and retry exhaustion treat
+  # a TransportError as a transient fault that schedules a re-claim rather than
+  # parking the ticket with no recovery (#2361, #2420). A workspace connectivity
+  # failure wraps the inner tracker/preflight reason, and a raw `:nxdomain`
+  # DNS failure bypasses the classifier's structured tuple, so both are
+  # unwrapped/recognized here so the taxonomy and the exhaustion-classification
+  # boundary agree everywhere (#2429 / #2427).
   defp tracker_transient?(reason) do
     reason
     |> unwrap_workspace_connectivity()
-    |> then(fn inner -> Errors.retryable_github_error?(inner) or dns_failure?(inner) end)
+    |> then(fn inner -> Errors.transient_github_error?(inner) or dns_failure?(inner) end)
   end
 
   # A workspace connectivity failure wraps the inner tracker/preflight reason;
@@ -123,11 +157,9 @@ defmodule Aiur.Orchestrator.AutoResume do
   defp provider_timeout?({:error, :timeout}), do: true
   defp provider_timeout?({:timeout, _detail}), do: true
 
-  defp provider_timeout?(%{__struct__: struct, reason: reason})
-       when struct in [Req.TransportError, Mint.TransportError] do
-    reason in [:timeout, :closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset]
-  end
-
+  # Bare transport terms from a provider (not a `Req.TransportError` struct —
+  # those are normalised through the shared taxonomy in `classify/1` before
+  # reaching here).
   defp provider_timeout?(reason)
        when reason in [:timeout, :closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset],
        do: true

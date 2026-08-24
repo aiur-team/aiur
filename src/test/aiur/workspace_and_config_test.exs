@@ -2550,6 +2550,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert settings.agent.target_load_average == 1.0
     assert settings.agent.load_ramp_step == 1
     assert settings.agent.load_cooldown_seconds == 60
+    assert settings.agent.capacity_starvation_alert_after_seconds == 60
 
     assert {:ok, settings} =
              Schema.parse(%{
@@ -2557,7 +2558,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
                "agent" => %{
                  "target_load_average" => nil,
                  "load_ramp_step" => 3,
-                 "load_cooldown_seconds" => 0
+                 "load_cooldown_seconds" => 0,
+                 "capacity_starvation_alert_after_seconds" => 300
                }
              })
 
@@ -2565,13 +2567,16 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert settings.agent.max_load_average == 1.5
     assert settings.agent.load_ramp_step == 3
     assert settings.agent.load_cooldown_seconds == 0
+    assert settings.agent.capacity_starvation_alert_after_seconds == 300
 
     for invalid_agent <- [
           %{target_load_average: 0},
           %{target_load_average: -1},
           %{load_ramp_step: 0},
           %{load_ramp_step: -1},
-          %{load_cooldown_seconds: -1}
+          %{load_cooldown_seconds: -1},
+          %{capacity_starvation_alert_after_seconds: 0},
+          %{capacity_starvation_alert_after_seconds: -1}
         ] do
       assert {:error, {:invalid_workflow_config, _}} =
                Schema.parse(%{tracker: %{kind: "memory"}, agent: invalid_agent})

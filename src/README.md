@@ -371,10 +371,12 @@ or starts the local agent. If the tracker refuses that removal, the command exit
 non-zero and explains that the resume will not hold; it does not report a plain
 success. A fleet-wide `aiurdev resume` still preserves per-ticket pause labels.
 
-When `server.host` is absent, the engine supplies a lower-precedence dashboard
-default: an authenticated Tailscale IPv4 when available, otherwise `127.0.0.1`.
-Configured `server.host` wins over that default, and explicit `--host` wins over
-both. Startup output reports the usable URL and effective bind host and port.
+When `server.host` is absent, the dashboard binds `127.0.0.1` by default (or
+the `AIUR_DEFAULT_DASHBOARD_HOST` override). There is no automatic Tailscale
+detection — set `server.host` explicitly to serve the dashboard beyond the
+machine. Configured `server.host` wins over that default, and explicit `--host`
+wins over both. Startup output reports the usable URL and effective bind host
+and port.
 
 Background mode is headless at the terminal layer: it skips the interactive
 agent-list and chat/prewarm panes while serving the web dashboard at the

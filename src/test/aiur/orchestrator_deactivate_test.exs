@@ -1503,8 +1503,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "human-review with a non-transient GraphQL verification error reverts to rework" do
-      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-human-review-graphql-permanent")
+    test "human-review with a non-verdict GraphQL verification error is left for a later poll" do
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-human-review-graphql-nonverdict")
 
       issue_id = "62"
       previous_github_client = Application.get_env(:aiur, :github_client_module)
@@ -1532,6 +1532,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Application.put_env(:aiur, :github_client_module, HumanReviewGuardGitHubClient)
         Application.put_env(:aiur, :human_review_guard_recipient, self())
 
+        # A FORBIDDEN threads read is an authorization/operational fault, not a
+        # reviewer verdict: it says nothing about whether the reviewer's findings
+        # were addressed (#2400). The ticket must rest in `human-review` and
+        # re-verify on the next poll, never revert to `rework` (a state whose
+        # turn has nothing to fix).
         Application.put_env(
           :aiur,
           :human_review_ready_result,
@@ -1544,12 +1549,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         receive_barrier({:human_review_verify, ^issue_id})
-        receive_barrier({:human_review_update, ^issue_id, "rework"})
+        refute_received {:human_review_update, ^issue_id, "rework"}
         assert Process.alive?(agent_pid)
 
         entry = Map.fetch!(updated_state.running, issue_id)
         assert entry.pid == agent_pid
-        assert entry.issue.state == "rework"
+        assert entry.issue.state == "in-progress"
         assert get_in(entry, [:control, :status]) == :working
       after
         if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)

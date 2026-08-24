@@ -708,6 +708,32 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert TrackerHealth.next_poll_delay_ms(state, repo: nil) == 25_000
   end
 
+  test "the candidate poll wires the stranded-ticket reconciliation pass after dispatch" do
+    parent = self()
+
+    # A non-dispatchable ticket (no agent work in `merging`) that the poll
+    # still hands to the reconciliation pass; the sweep normally re-queues a
+    # released-claim ticket from here (#2361, #2420).
+    stranded = %{issue("wired-strand") | state: "merging", state_labels: ["merging"]}
+
+    next =
+      Dispatcher.dispatch_candidate_poll(
+        %State{released_claims: %{stranded.id => %{cause: :tracker_retry_exhausted}}},
+        fetch_candidate_issues_fun: fn current_state ->
+          Dispatcher.fetch_candidate_issues(current_state,
+            fetch_fun: fn _cache -> {:ok, [stranded], %{}} end
+          )
+        end,
+        stranded_reconciliation_fun: fn state, issues ->
+          send(parent, {:stranded_reconciliation_called, Enum.map(issues, & &1.id)})
+          state
+        end
+      )
+
+    assert_receive {:stranded_reconciliation_called, ["wired-strand"]}
+    assert next.released_claims == %{"wired-strand" => %{cause: :tracker_retry_exhausted}}
+  end
+
   test "a global pause stops candidate authorization while monitoring continues" do
     parent = self()
     state = %State{globally_paused: true, candidate_snapshot_fresh?: true}
@@ -1433,6 +1459,89 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert "build-queue" in alerted.capacity_starvation.alerted
       assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
       assert event["reason"] =~ "build-queue gate"
+    end
+
+    # #2447: a daemon restart deliberately starts the dispatch envelope at one
+    # slot and widens it per below-target sample. The below-target ramp must
+    # never record a `:load_envelope` constraint or raise either capacity
+    # starvation alert; the fleet filling to its widening envelope is the
+    # intended behavior, not starvation.
+    test "restart ramp produces no capacity-starvation alerts" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+      :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      ready = for id <- 1..8, do: issue("ramp-restart-#{id}")
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 4_000,
+          memory_threshold_mb: 2_048,
+          fd_sample: :available,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 0.7,
+          load_threshold: 1.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          github_quota: :available,
+          cpu_snapshot: %{total: 1_000, idle: 700, nice: 100, runnable: 20},
+          target: 1.0
+        }
+      end
+
+      cpu_baseline = %{total: 1_000, idle: 700, nice: 100, runnable: 20}
+
+      sample = fn state ->
+        state
+        |> Map.put(:dispatch_capacity_constraints, [])
+        |> Dispatcher.maybe_choose_under_load(
+          ready,
+          &consume_available_slots/2,
+          admission_probes_fun: admission_probes
+        )
+      end
+
+      starting = %State{
+        max_concurrent_agents: 16,
+        effective_concurrent_agents: 1,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: cpu_baseline, bootstrap_complete?: false}
+      }
+
+      first =
+        starting
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert(ready, 1_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+
+      refute Enum.any?(first.dispatch_capacity_constraints, &(&1.kind == :load_envelope))
+
+      second =
+        %{first | effective_concurrent_agents: first.effective_concurrent_agents + 1}
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert(ready, 61_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+      refute Enum.any?(second.dispatch_capacity_constraints, &(&1.kind == :load_envelope))
+
+      third =
+        %{second | effective_concurrent_agents: second.effective_concurrent_agents + 1}
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert(ready, 121_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert(ready, 121_000)
+
+      refute Enum.any?(third.dispatch_capacity_constraints, &(&1.kind == :load_envelope))
+      refute third.capacity_starvation.alert_active
+      refute third.fleet_capacity_starvation.alert_active
+
+      refute_received {:event, %{topic: "system.dispatch.capacity_starved"}}
+      refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
     end
   end
 
@@ -2480,9 +2589,93 @@ defmodule Aiur.Orchestrator.DispatcherTest do
                Dispatcher.revalidate_issue_for_dispatch(issue, fetcher, terminal_states)
     end
 
+    # #2444: a short, self-clearing local budget hold on the issue refresh is
+    # waited out and the revalidation succeeds, so dispatch never declines with
+    # `tracker_revalidation_failed` for a hold that would have cleared in
+    # seconds (#2311, #2393, #2420). The sleep is injected; the assertion is on
+    # the revalidation succeeding (a `{:ok, issue}`), not on a log line.
+    test "waits out a short local hold and the revalidation succeeds" do
+      issue = %Issue{id: "id-1", identifier: "repo#1", title: "Work", state: "todo"}
+      terminal_states = MapSet.new(["done"])
+      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      fetcher = fn _ids ->
+        attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+        if attempt == 1, do: {:error, {:github, :local_hold, detail}}, else: {:ok, [issue]}
+      end
+
+      assert {:ok, ^issue} =
+               Dispatcher.revalidate_issue_for_dispatch(issue, fetcher, terminal_states, local_hold_sleep_fun: fn _ms -> :ok end)
+
+      # One held fetch, then a successful retry.
+      assert Agent.get(counter, & &1) == 2
+    end
+
+    # #2444 mutation guard at this site: a hold whose `reset_at` is beyond the
+    # ceiling is a genuine capacity problem and must still fail revalidation —
+    # without this bound, waiting would be indistinguishable from swallowing
+    # the error.
+    test "a local hold beyond the ceiling still fails revalidation" do
+      issue = %Issue{id: "id-1", identifier: "repo#1", title: "Work", state: "todo"}
+      terminal_states = MapSet.new(["done"])
+      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+      error = {:github, :local_hold, detail}
+
+      assert {:error, ^error} =
+               Dispatcher.revalidate_issue_for_dispatch(issue, fn _ids -> {:error, error} end, terminal_states, local_hold_sleep_fun: fn _ -> flunk("must not sleep for a beyond-ceiling hold") end)
+    end
+
     test "passes through non-Issue values unchanged" do
       assert {:ok, :not_an_issue} =
                Dispatcher.revalidate_issue_for_dispatch(:not_an_issue, nil, nil)
+    end
+  end
+
+  # #2444 acceptance at the dispatch boundary: a short local budget hold on the
+  # post-selection revalidation is waited out, so the ticket is dispatched
+  # instead of declining with `tracker_revalidation_failed` (the decline that
+  # showed up on #2311, #2393 and #2420 after a restart burst).
+  describe "dispatch revalidation local-hold wait-out (#2444)" do
+    test "a short hold on the issue refresh is waited out and the dispatch proceeds" do
+      test_pid = self()
+      candidate = %{issue("hold-refresh") | selected_backend: "codex"}
+      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      runner = fn dispatched, _recipient, _opts ->
+        send(test_pid, {:agent_runner_run, dispatched.id})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.dispatch_issue(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] ->
+            attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+            if attempt == 1 do
+              {:error, {:github, :local_hold, detail}}
+            else
+              {:ok, [%{candidate | id: id}]}
+            end
+          end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          local_hold_sleep_fun: fn _ms -> :ok end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched_id}
+      assert dispatched_id == candidate.id
+      assert Map.has_key?(next_state.running, candidate.id)
+      # No `tracker_revalidation_failed` decline was recorded.
+      refute Map.has_key?(next_state.dispatch_declines, candidate.id)
+      assert Agent.get(counter, & &1) == 2
     end
   end
 end

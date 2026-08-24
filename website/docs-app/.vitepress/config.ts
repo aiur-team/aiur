@@ -85,7 +85,8 @@ export default withMermaid(defineConfig({
       {
         text: 'Reference',
         items: [
-          { text: 'Configuration', link: '/reference/configuration' }
+          { text: 'Configuration', link: '/reference/configuration' },
+          { text: 'Optional Optimizations', link: '/reference/optional-optimizations' }
         ]
       }
     ],
