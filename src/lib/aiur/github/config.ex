@@ -109,18 +109,51 @@ defmodule Aiur.GitHub.Config do
     keyring = Keyword.get(opts, :keyring_fun, &keyring_token/0)
     env = normalize_secret(System.get_env("GITHUB_TOKEN"))
 
-    resolved =
+    {resolved, source} =
       cond do
-        is_binary(env) and validate.(env) -> env
-        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> kt
-        true -> env
+        is_binary(env) and validate.(env) -> {env, :env}
+        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> {kt, :keyring}
+        true -> {env, if(is_binary(env), do: :env, else: :none)}
       end
 
     # Only cache a real token; caching nil would shadow a later GITHUB_TOKEN
     # (e.g. per-test env), since token/0 treats a cached nil as resolved.
-    if is_binary(resolved), do: :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+    if is_binary(resolved) do
+      :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+      :persistent_term.put({__MODULE__, :resolved_token_source}, source)
+    end
+
     resolved
   end
+
+  @doc """
+  The source the currently-resolved GitHub token was obtained from:
+  `:github_app` (App installation token), `:env` (`GITHUB_TOKEN`), `:keyring`
+  (the `gh` keyring from `gh auth login`), or `:none`.
+
+  The env var is always the source of truth for a token read straight from
+  `GITHUB_TOKEN` before `resolve_token/1` runs; once a token has been resolved
+  this reports where that resolution actually found a usable credential.
+  """
+  @spec token_source() :: :github_app | :env | :keyring | :none
+  def token_source do
+    cond do
+      AppCredentials.configured?() ->
+        :github_app
+
+      (source = :persistent_term.get({__MODULE__, :resolved_token_source}, nil)) in [:env, :keyring] ->
+        source
+
+      nonblank_token?(System.get_env("GITHUB_TOKEN")) ->
+        :env
+
+      true ->
+        :none
+    end
+  end
+
+  defp nonblank_token?(value) when is_binary(value), do: String.trim(value) != ""
+  defp nonblank_token?(_value), do: false
 
   @spec label_prefix() :: String.t()
   def label_prefix do

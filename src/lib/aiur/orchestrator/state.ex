@@ -159,6 +159,12 @@ defmodule Aiur.Orchestrator.State do
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           merged_ticket_reconciliations: MapSet.t(),
           merged_ticket_reconciliation_failures: MapSet.t(),
+          # `{issue_id, head_sha}` -> count of times that head SHA has been
+          # routed into `agent:rework`, and the `{issue_id, head_sha}`
+          # signatures already alerted on. The bound turns a same-head rework
+          # loop into a single attention (#2422); see `ReworkGate`.
+          rework_attempts: %{{String.t(), String.t()} => pos_integer()},
+          rework_attempt_alerted: MapSet.t(),
           orphaned_agent_reap_count: non_neg_integer(),
           control_lifecycle: ControlLifecycle.t(),
           # Consecutive poll ticks the prewarm gate has held dispatch for a
@@ -290,6 +296,8 @@ defmodule Aiur.Orchestrator.State do
     # alerted on, so a permanently failing transition raises its attention
     # once instead of once per poll.
     merged_ticket_reconciliation_failures: MapSet.new(),
+    rework_attempts: %{},
+    rework_attempt_alerted: MapSet.new(),
     snapshot_ready?: false,
     candidate_snapshot_fresh?: true,
     # Full poll cycles completed since this daemon started. The idle poll
@@ -884,4 +892,72 @@ defmodule Aiur.Orchestrator.State do
   end
 
   def effective_runtime_seconds(_entry, _now), do: 0
+
+  # --- Rework-attempt bound (#2422) ------------------------------------------
+  #
+  # The same head SHA must not re-enter `agent:rework` more than
+  # `rework_attempt_limit/0` times: when rework completes and the gating signal
+  # has not moved, the next routing is a stuck condition, and the bound raises
+  # a single attention instead of looping. A new head SHA starts a fresh count,
+  # so a genuine rework push is never affected. All helpers are nil-safe on the
+  # head SHA — when the head cannot be read the bound is skipped rather than
+  # refusing a rework the writer cannot key.
+
+  @rework_attempt_limit 3
+
+  @doc false
+  @spec rework_attempt_limit() :: pos_integer()
+  def rework_attempt_limit do
+    case Application.get_env(:aiur, :rework_attempt_limit) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> @rework_attempt_limit
+    end
+  end
+
+  @doc false
+  @spec rework_attempt_count(t(), String.t(), String.t() | nil) :: non_neg_integer()
+  def rework_attempt_count(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) do
+    if is_binary(head_sha) do
+      Map.get(state.rework_attempts, {issue_id, head_sha}, 0)
+    else
+      0
+    end
+  end
+
+  @doc false
+  @spec rework_attempt_limit_reached?(t(), String.t(), String.t() | nil) :: boolean()
+  def rework_attempt_limit_reached?(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) do
+    rework_attempt_count(state, issue_id, head_sha) >= rework_attempt_limit()
+  end
+
+  @doc false
+  # Records that the ticket was routed to rework for `head_sha`. Called by the
+  # rework writers only after the `rework` write actually succeeded, so a failed
+  # tracker write never consumes the bound.
+  @spec bump_rework_attempt(t(), String.t(), String.t() | nil) :: t()
+  def bump_rework_attempt(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) do
+    if is_binary(head_sha) do
+      count = rework_attempt_count(state, issue_id, head_sha)
+      %{state | rework_attempts: Map.put(state.rework_attempts, {issue_id, head_sha}, count + 1)}
+    else
+      state
+    end
+  end
+
+  @doc false
+  @spec rework_attempt_alerted?(t(), String.t(), String.t()) :: boolean()
+  def rework_attempt_alerted?(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) and is_binary(head_sha) do
+    MapSet.member?(state.rework_attempt_alerted, {issue_id, head_sha})
+  end
+
+  @doc false
+  @spec mark_rework_attempt_alerted(t(), String.t(), String.t()) :: t()
+  def mark_rework_attempt_alerted(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) and is_binary(head_sha) do
+    %{state | rework_attempt_alerted: MapSet.put(state.rework_attempt_alerted, {issue_id, head_sha})}
+  end
 end

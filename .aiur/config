@@ -67,7 +67,11 @@ agent:
   # Bound every agent-launched Mix VM (and ExUnit's default max_cases) to four schedulers.
   mix_scheduler_cap: 4
   # Fleet cap for agent-launched mix compile/test verification. 0 disables it.
-  max_concurrent_builds: 2
+  # Re-derived from the measured load curve (issue #2311): at observed load
+  # 3.77 vs threshold 24.0 on 16 schedulers with mix_scheduler_cap: 4, four
+  # concurrent builds (~16 schedulers) stay far below the hard gate; raised
+  # from 2 on the next restart.
+  max_concurrent_builds: 4
   # Offset admitted mix compile/test starts so fleet CPU ramps do not synchronize.
   build_start_stagger_seconds: 5
   # CPU load gate (#465): hold new dispatch while 1-min load > value * schedulers

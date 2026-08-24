@@ -137,6 +137,11 @@ defmodule Aiur.Env.Schema do
      group: :required,
      purpose: "Fallback GitHub credential; ignored when the GitHub App vars below are set.",
      fetch: "github.com/settings/tokens -> Generate -> repo scope"},
+    {"GH_TOKEN",
+     type: :secret,
+     group: :required,
+     purpose: "Alternative GitHub credential name the guard reads when GITHUB_TOKEN is unset; never required.",
+     fetch: "same token as GITHUB_TOKEN, exported under gh's preferred name"},
 
     # --- GitHub App auth ---
     {"GITHUB_APP_ID", type: :string, group: :github_app, purpose: "GitHub App numeric id; preferred auth, short-lived installation tokens.", fetch: "App settings page, top of page"},
@@ -157,8 +162,8 @@ defmodule Aiur.Env.Schema do
     {"ELEVENLABS_API_KEY", type: :secret, group: :voice, purpose: "Speech-to-text for dashboard and Stream Deck mics.", fetch: "elevenlabs.io -> Profile -> API Keys"},
 
     # --- Dashboard ---
-    {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/executor-control-center"},
-    {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/executor-control-center"},
+    {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/gui"},
+    {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/gui"},
 
     # --- Supervisor Decision API ---
     {"AIUR_SUPERVISOR_TOKEN",

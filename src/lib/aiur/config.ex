@@ -975,6 +975,18 @@ defmodule Aiur.Config do
     settings!().agent.load_cooldown_seconds
   end
 
+  @doc """
+  Minimum seconds a ready-work capacity-starvation condition must persist before
+  `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise
+  (#2447). The dwell is data, not a magic number, so the below-target ramp
+  (which clears itself within a few poll cycles) can be filtered without
+  hard-coding the bound in the alert path.
+  """
+  @spec capacity_starvation_alert_after_seconds() :: pos_integer()
+  def capacity_starvation_alert_after_seconds do
+    settings!().agent.capacity_starvation_alert_after_seconds
+  end
+
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
   def codex_turn_sandbox_policy(workspace \\ nil) do
     case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do

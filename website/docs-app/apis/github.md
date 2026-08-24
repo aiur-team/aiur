@@ -542,6 +542,38 @@ or the next poll and retires the affected answers then.
 
 That gap is the exposure, and it is why a verdict is never kept at all.
 
+## What the agent guard governs
+
+Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon
+scrubs them from every agent environment and instead writes the bot PAT to a
+credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
+reads.
+
+The wrapper injects the credential only into the real `gh` process it spawns
+for a governed call, for the duration of that call — never into the agent's
+environment and never into the sibling processes the wrapper launches.
+
+So `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent shell returns
+nothing, and a bare `curl` to `api.github.com` from an agent workspace is
+unauthenticated.
+
+This is a **policy boundary, not a capability boundary.** Agents run as the
+same OS user as the daemon, so an agent that deliberately goes looking can read
+the credential file, the shared budget database, or the operator keyring.
+
+What the file removes is the raw token from the *environment* of every agent
+process — where a dependency's build script, a `curl` one-liner, or a Node
+fetch would inherit it — and the broker ledger counts the governed calls, not
+every request a determined agent could make.
+
+| Path | Governed by the guard |
+| --- | --- |
+| `gh` on the agent's PATH (the wrapper in the workspace `.aiur-runtime/bin`) | Yes — rate-limited, metered, and recorded in the broker ledger. |
+| `git` on the agent's PATH (the wrapper in the workspace `.aiur-runtime/bin`) | Yes — destructive-command protection, not quota. |
+| `gh`/`git` invoked by absolute path (`/usr/bin/gh`), or after a `PATH` reset | No — but unauthenticated, because the environment carries no token and the agent's `GH_CONFIG_DIR` is empty. |
+| Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
+| The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
+
 ## Changes Aiur makes itself
 
 There is a third path, and it is the cheapest one: a change Aiur makes.
@@ -574,10 +606,12 @@ The webhook shortens reaction time for repository events while polling continues
 
 | Setting | Value |
 | --- | --- |
-| Payload URL | `https://hooks.aiur.dev/api/v1/github/webhook` |
+| Payload URL | `https://<your-host>/api/v1/github/webhook` |
 | Content type | `application/json` |
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
+
+The hostname is yours to choose — `hooks.aiur.dev` is this operator's setup, not a requirement. Without a domain, a quick tunnel (`cloudflared tunnel --url`) exposes the daemon on a temporary public URL, fine for a single session.
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
 
@@ -609,8 +643,8 @@ Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
 
 | Boundary | Operator requirement |
 | --- | --- |
-| Origin | Route the tunnel to the Aiur daemon at `127.0.0.1:4000`. |
-| Public host | Serve the webhook at `hooks.aiur.dev`. |
+| Origin | Point the tunnel at whatever address the daemon actually bound: `127.0.0.1` on the pinned `server.port` by default, or the `server.host` address if you pinned one. Pin `server.port` to a fixed value first — the default `0` binds a fresh OS port each boot. A `502` means the tunnel aims somewhere the daemon is not listening. |
+| Public host | Serve the webhook at a hostname you control (`hooks.aiur.dev` here); without one, a quick tunnel (`cloudflared tunnel --url`) works for a single session. |
 | Reachable path | Route only `/api/v1/github/webhook`; finish the ingress list with a catch-all `404`. |
 | Network | No inbound firewall rule is needed or wanted because `cloudflared` dials out. |
 
@@ -618,7 +652,7 @@ The path scope and webhook signature are independent locks:
 
 | Lock | Protects against |
 | --- | --- |
-| Path-only tunnel routing | Public access to the dashboard and every other route on `127.0.0.1:4000`. |
+| Path-only tunnel routing | Public access to the dashboard and every other route served on the daemon's bound address. |
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.

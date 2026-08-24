@@ -15,7 +15,7 @@ Environment variables are declared once in the env schema (`Aiur.Env.Schema`), w
 - **All-or-nothing credential groups.** A partially configured group (one dashboard credential without the other, or some but not all GitHub App credentials) fails at startup naming the missing members; a fully absent group is a supported setup.
 - **Type validation.** Values that fail their declared type (for example `AIUR_OPENCODE_BRIDGE_PORT=banana`) abort the boot naming the variable and what was expected, instead of failing at first use hours later.
 - **Secrets never leak.** Secrets render as an empty placeholder in `.env.example` and are excluded from error text and startup warnings. No real value from any `.env` file reaches the generated example, logs, or error output.
-- **Dashboard credentials** (`AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`) are values an operator chooses and types into a browser; see [Executor control center](/guide/executor-control-center) for choosing and setting them. Without them the dashboard refuses all requests (fails closed); the CLI and TUI are unaffected.
+- **Dashboard credentials** (`AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`) are values an operator chooses and types into a browser; see [GUI](/guide/gui) for choosing and setting them. Without them the dashboard refuses all requests (fails closed); the CLI and TUI are unaffected.
 
 The generated `.env.example` groups variables under `## Required`, `## Optional - ...` (one section per integration), `## Runtime - launcher-managed`, and `## Development and debugging` headers, with a one-line purpose above each key and a terse right-hand "how to fetch" note aligned to a common column.
 
@@ -201,7 +201,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
-| `agent.max_concurrent_builds` | integer | 2 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). |
+| `agent.max_concurrent_builds` | integer | 4 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). Re-derived from a measured load curve (see ticket #2311): with `agent.mix_scheduler_cap` at 4 on a 16-scheduler host and the hard load gate at 24.0, four concurrent builds (~16 schedulers) stay far below the ceiling, so the default rose from 2. |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.build_gate_max_hold_seconds` | integer | 3600 | Absolute wall-clock cap on how long one build-gate slot may be held. The lease holder releases the slot at the cap and the daemon raises a needs-attention alert naming the command; `0` disables the backstop. |
@@ -223,6 +223,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it. When enabled, `procs_running` above `run_queue_threshold × schedulers` holds only when the same CPU sample shows less than 60% reclaimable capacity, catching real short bursts without treating niced work as contention (`run_queue` capacity hold). |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
+| `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
 | `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
 | `agent.rate_limit_primary` | string | default backend | Deprecated primary backend watched for automatic rate-limit recovery; derived from `agent.priority` when set. |
@@ -630,9 +631,9 @@ These policy keys never grant transport access by themselves. The supervisor API
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
-| `server.host` | string | launcher-selected | HTTP bind address. An explicit value wins over the launcher's authenticated Tailscale-or-loopback default. |
+| `server.host` | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
 
-When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscale IPv4 if dashboard credentials are configured and otherwise uses `127.0.0.1`. A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
+When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
 
 ## opencode
 

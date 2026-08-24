@@ -864,7 +864,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         probes.cpu_snapshot,
         queued_demand?
       )
-      |> maybe_record_load_envelope_constraint()
+      |> maybe_record_load_envelope_constraint(probes.load, probes.target, probes.schedulers)
 
     # Sample every failing gate before applying admission priority. A memory or
     # FD hold must not erase the age of an independently persistent load hold;
@@ -2142,16 +2142,31 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if Slots.available_slots(state) > 0, do: choose_issues(state, issues), else: state
   end
 
-  defp maybe_record_load_envelope_constraint(%State{} = state) do
+  # Records the load envelope as a capacity constraint only when it is a genuine
+  # hold: load above target with effective capacity backed off below the ceiling.
+  # The below-target ramp — the envelope deliberately starting small on daemon
+  # start and widening per below-target sample — is the intended ramp, not
+  # starvation, so it must never surface a `:load_envelope` constraint that the
+  # capacity-starvation alerts would report (#2447).
+  defp maybe_record_load_envelope_constraint(%State{} = state, load, target, schedulers) do
     configured = Slots.max_concurrent_agent_limit(state)
     effective = Slots.effective_concurrent_agent_limit(state)
 
-    if effective < configured do
+    if effective < configured and load_above_target?(load, target, schedulers) do
       record_capacity_constraint(state, :load_envelope, "effective_cap=#{effective} configured_cap=#{configured}")
     else
       state
     end
   end
+
+  defp load_above_target?(_load, target, _schedulers) when not is_number(target), do: false
+
+  defp load_above_target?(load, target, schedulers)
+       when is_number(load) and is_number(target) and target > 0 and is_integer(schedulers) and schedulers > 0 do
+    load > target * schedulers
+  end
+
+  defp load_above_target?(_load, _target, _schedulers), do: false
 
   defp record_capacity_constraint(%State{} = state, kind, detail) when is_atom(kind) and is_binary(detail) do
     constraint = %{kind: kind, detail: detail}
@@ -2292,6 +2307,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   @doc false
+  # The lifetime dispatch latch is deliberately terminal and deliberately does
+  # not route through `Errors.retryable_github_error?/1` (#2427). It is a
+  # count, not a transport fault: it trips after `agent_max_dispatches_per_ticket`
+  # sessions that survived provisioning and started real work (#1453), so there
+  # is no error reason to classify at this site, and the auto-resume path
+  # refuses latched tickets by design — `agent:error` is the Executor-visible
+  # state that signals "this ticket needs `aiurdev reset-budget` or a
+  # documented reset path". The #2427 fix closes the *single-fault* route
+  # (a transport failure no longer exhausts into `agent:error` or releases a
+  # claim with no re-claim); a *sustained* outage that re-dispatches a ticket
+  # until it exhausts the lifetime budget remains a structural-stuck breaker,
+  # out of scope for the error-classification split this ticket is about.
   @spec persist_lifetime_trip(State.t(), Issue.t(), (String.t(), String.t() -> :ok | {:error, term()})) ::
           State.t()
   def persist_lifetime_trip(%State{} = state, %Issue{} = issue, update_state_fun)

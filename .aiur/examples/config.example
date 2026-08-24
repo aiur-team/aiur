@@ -35,7 +35,7 @@ agent:
   # pricing_policy:
   #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
-  # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 disables only this cap
+  # max_concurrent_builds: 4             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
   # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
   # min_free_memory_mb: 4096             # hold new dispatch + local mix compile/test below this MemAvailable floor
@@ -80,6 +80,7 @@ agent:
   # target_load_average: 1.0             # per-scheduler adaptive target; set null to disable envelope
   # load_ramp_step: 1                    # slots added per below-target poll
   # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
+  # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===
