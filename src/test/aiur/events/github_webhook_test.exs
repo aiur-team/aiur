@@ -463,7 +463,7 @@ defmodule Aiur.Events.GithubWebhookTest do
       refute_receive :request_refresh, 200
     end
 
-    test "no orchestrator running is not an error" do
+    test "a delivery with the default wake never raises, whatever the orchestrator answers" do
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -473,10 +473,133 @@ defmodule Aiur.Events.GithubWebhookTest do
         "issue" => %{"number" => 42}
       }
 
-      # The default `request_refresh_fun` targets `Aiur.Orchestrator`, which is
-      # not running here; `Orchestrator.request_refresh/0` returns `:unavailable`
-      # instead of raising.
+      # The default `request_refresh_fun` is `Orchestrator.request_refresh/0`.
+      # Against the live supervised orchestrator (running in the test app) it
+      # succeeds; had the orchestrator been down it would return `:unavailable`
+      # instead of raising (that unavailable path, and the window release that
+      # goes with it, is pinned by "a wake that fails to land does not consume
+      # the coalesce window"). Either way the delivery must not error.
       assert %{status: :reconciled} = GithubWebhook.handle_delivery("issues", delivery, repo: @repo)
+    end
+
+    # Blocking review finding #1: every other wake test injects
+    # `:request_refresh_fun`, so the production default — the one behaviour that
+    # distinguishes this wake from the raw `:run_poll_cycle` send it replaced —
+    # was never executed by anything, and a mutant reverting the default to the
+    # old `send(Process.whereis(Aiur.Orchestrator), :run_poll_cycle)` survived
+    # the whole suite. This test runs the real default against a stand-in
+    # registered as `Aiur.Orchestrator` (the live supervised orchestrator is
+    # temporarily unregistered and restored on exit, the same swap
+    # `agent_chat_broadcast_test` performs for its fake) and asserts the wake is
+    # a `:request_refresh` GenServer call, not a raw `:run_poll_cycle` message.
+    test "the real default wake is a request_refresh call, never a raw run_poll_cycle send" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      original = Process.whereis(Aiur.Orchestrator)
+      if is_pid(original), do: Process.unregister(Aiur.Orchestrator)
+
+      # `start_link` registers the probe under `Aiur.Orchestrator` now that the
+      # live orchestrator has been unregistered for the duration of this test.
+      {:ok, probe} = Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe.start_link(self())
+      Process.unlink(probe)
+
+      on_exit(fn ->
+        if Process.alive?(probe), do: Process.exit(probe, :normal)
+
+        if is_pid(original) do
+          try do
+            Process.register(original, Aiur.Orchestrator)
+          rescue
+            ArgumentError -> :ok
+          end
+        end
+      end)
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42}
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo)
+
+      assert_receive :request_refresh_called, 500
+      refute_receive :run_poll_cycle_received, 200
+    end
+
+    # Non-blocking review finding #4: the leading-edge coalesce folds every
+    # delivery inside the window into the leading cycle, so state deposited just
+    # after that cycle read would otherwise wait out the full poll interval. A
+    # trailing wake at window close picks it up.
+    test "a delivery folded into the coalesce window still gets a trailing wake" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+      override_reconcile_debounce(200)
+
+      # The trailing wake fires from a spawned process, so the seam must send to
+      # an explicit pid rather than `self()` (which would resolve to the spawned
+      # process and lose the message).
+      parent = self()
+      request_refresh_fun = fn -> send(parent, :request_refresh) end
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+      }
+
+      # Leading edge: the first delivery wakes immediately.
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh, 500
+
+      # A second delivery inside the window deposits its state and is coalesced.
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      refute_receive :request_refresh, 100
+
+      # At window close the trailing wake fires, so the second delivery's
+      # deposit is acted on before the next scheduled tick.
+      assert_receive :request_refresh, 1_000
+    end
+
+    # Non-blocking review finding #4: a wake that fails to land (the orchestrator
+    # is not running) used to consume the coalesce window, so the failure also
+    # suppressed the next window's worth of wakes. Releasing the window on
+    # failure lets the next delivery retry.
+    test "a wake that fails to land does not consume the coalesce window" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+      override_reconcile_debounce(60_000)
+
+      parent = self()
+
+      request_refresh_fun = fn ->
+        send(parent, :request_refresh_attempted)
+        :unavailable
+      end
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42}
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh_attempted, 500
+
+      # With a 60s window a stuck failed claim would coalesce this second
+      # delivery; the release means it claims a fresh leading edge and wakes.
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh_attempted, 500
     end
 
     test "a check suite for an untracked branch is dropped" do
@@ -578,6 +701,23 @@ defmodule Aiur.Events.GithubWebhookTest do
     name
   end
 
+  # Test seam for the coalesce window: the production debounce is sized from
+  # `polling.interval_seconds` (default 120s => 24s), far too long for a test to
+  # wait through. The tail reads an Application override ahead of the computed
+  # value, exactly like the receiver's `:webhook_admission_timeout_ms`.
+  defp override_reconcile_debounce(ms) do
+    previous = Application.get_env(:aiur, :github_webhook_reconcile_debounce_ms)
+    Application.put_env(:aiur, :github_webhook_reconcile_debounce_ms, ms)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :github_webhook_reconcile_debounce_ms)
+      else
+        Application.put_env(:aiur, :github_webhook_reconcile_debounce_ms, previous)
+      end
+    end)
+  end
+
   defp graphql_request(number) do
     %{
       method: :post,
@@ -633,4 +773,44 @@ defmodule Aiur.Events.GithubWebhookTest do
 
     :ok
   end
+end
+
+defmodule Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe do
+  @moduledoc """
+  Stand-in registered as `Aiur.Orchestrator` so the delivery tail's *default*
+  wake (`Orchestrator.request_refresh/0`) has a real process to call. Records a
+  `:request_refresh` GenServer call as `:request_refresh_called` and a raw
+  `:run_poll_cycle` message as `:run_poll_cycle_received`, so a test can tell
+  the two wake shapes apart — the mutant that reverts the default to a raw
+  `:run_poll_cycle` send would fail the `refute_receive`.
+  """
+  use GenServer
+
+  # `start_link/1` is the conventional constructor, not a GenServer callback.
+  def start_link(test) do
+    GenServer.start_link(__MODULE__, test, name: Aiur.Orchestrator)
+  end
+
+  @impl true
+  def init(test), do: {:ok, test}
+
+  @impl true
+  def handle_call(:request_refresh, _from, test) do
+    send(test, :request_refresh_called)
+    {:reply, %{queued: true, coalesced: false, requested_at: DateTime.utc_now(), operations: ["poll", "reconcile"]}, test}
+  end
+
+  # While the probe briefly holds the `Aiur.Orchestrator` name, any unrelated
+  # caller must get a fast reply rather than a 5s GenServer timeout.
+  @impl true
+  def handle_call(_request, _from, test), do: {:reply, :unavailable, test}
+
+  @impl true
+  def handle_info(:run_poll_cycle, test) do
+    send(test, :run_poll_cycle_received)
+    {:noreply, test}
+  end
+
+  @impl true
+  def handle_info(_message, test), do: {:noreply, test}
 end

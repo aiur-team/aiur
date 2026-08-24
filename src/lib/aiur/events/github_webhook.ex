@@ -15,17 +15,22 @@ defmodule Aiur.Events.GithubWebhook do
   event without a poll-interval wait. So do PR state changes (`pr.opened` /
   `pr.merged`) and a newly-opened ticket that already carries an active state
   label — the deliveries that imply new dispatcher work but have no direct bus
-  consumer of their own. Consecutive wakes are coalesced, so a delivery burst
-  produces one cycle, not one per delivery (#2365).
+  consumer of their own. Wakes are coalesced: one leading wake per quiet
+  period sized relative to the poll cadence, so a delivery burst produces one
+  cycle, not one per delivery — and a trailing wake at window close when a
+  delivery was folded in, so state deposited just after the leading cycle still
+  gets acted on before the next scheduled tick (#2365).
 
   The wake is `Aiur.Orchestrator.request_refresh/0` — the SPEC §8.1 coalesced
   immediate tick — not a fetch of its own. It only schedules the cycle that
   acts on the state the delivery already deposited (#2319), so it issues no
-  GitHub request and never re-fetches what the delivery told us. Deliveries
-  that imply no dispatcher work (comments, reviews, unactionable new issues,
-  drops) never wake, so a busy repo's continuous irrelevant traffic cannot pin
-  the dispatcher at its base interval and delete the idle backoff this wake
-  exists to interrupt.
+  GitHub request and never re-fetches what the delivery told us. The cycle it
+  schedules is clamped to the GitHub rate-limit floor, so an externally-triggered
+  wake never forces a full fetch ahead of the floor the orchestrator computed
+  for itself. Deliveries that imply no dispatcher work (comments, reviews,
+  unactionable new issues, drops) never wake, so a busy repo's continuous
+  irrelevant traffic cannot pin the dispatcher at its base interval and delete
+  the idle backoff this wake exists to interrupt.
 
   Every delivery that resolves to a tracked repository is also recorded with
   `Aiur.Webhooks.record_delivery/2` — the seam W-6 (#1683) exposes for exactly
@@ -62,7 +67,7 @@ defmodule Aiur.Events.GithubWebhook do
   alias Aiur.Orchestrator
   alias Aiur.Webhooks
 
-  @reconcile_debounce_ms 2_000
+  @min_reconcile_debounce_ms 2_000
 
   @type outcome :: %{
           required(:status) => :published | :reconciled | :dropped | :error,
@@ -109,7 +114,7 @@ defmodule Aiur.Events.GithubWebhook do
           request_reconcile(hint, opts)
           %{status: :reconciled, hint: hint}
         else
-          %{status: :dropped, reason: {:uninteresting_action, "issues", "opened"}}
+          %{status: :dropped, reason: uninteresting_action_reason(hint)}
         end
 
       {:drop, {:unsupported_event, type} = reason} ->
@@ -246,20 +251,38 @@ defmodule Aiur.Events.GithubWebhook do
 
   # The wake is `Orchestrator.request_refresh/0` — the SPEC §8.1 coalesced
   # immediate tick, not a fetch of its own. `request_refresh_state/1` cancels
-  # the pending (possibly backed-off) timer and arms a 0ms tick, so a long
+  # the pending (possibly backed-off) timer and arms a fresh tick, so a long
   # idle backoff is interrupted within milliseconds instead of at the next
   # scheduled interval — and because it coalesces with a poll already in
   # flight, a wake that lands mid-cycle folds into it rather than queueing a
   # second full poll. The cycle it schedules acts on state the delivery
-  # already deposited (#2319); the wake itself issues no GitHub request.
+  # already deposited (#2319); the wake itself issues no GitHub request, and
+  # the cycle it schedules is clamped to the GitHub rate-limit floor.
+  #
+  # Wakes are coalesced to one leading edge per quiet period (sized relative
+  # to the poll cadence so sustained traffic cannot wake far faster than the
+  # poll rate), plus one trailing wake at window close when a delivery was
+  # folded into the window — so a delivery that landed just after the leading
+  # cycle read still gets acted on before the next scheduled tick. A wake that
+  # fails to land (orchestrator not running) releases the window rather than
+  # suppressing the next period's worth of wakes.
   defp maybe_wake_orchestrator(opts) do
     request_refresh_fun = Keyword.get(opts, :request_refresh_fun, &Orchestrator.request_refresh/0)
 
-    if claim_reconcile_window() do
-      _ = request_refresh_fun.()
-      :woke
-    else
-      :coalesced
+    case claim_reconcile_window() do
+      {:leading, generation} ->
+        case request_refresh_fun.() do
+          :unavailable ->
+            release_reconcile_window()
+            :unavailable
+
+          _ok ->
+            arm_trailing_wake(generation, request_refresh_fun)
+            :woke
+        end
+
+      :coalesced ->
+        :coalesced
     end
   end
 
@@ -280,6 +303,16 @@ defmodule Aiur.Events.GithubWebhook do
   end
 
   defp actionable_reconcile?(_hint, _payload, _opts), do: true
+
+  # The non-actionable drop reason is derived from the hint, not hardcoded to
+  # the one hint that can currently be non-actionable. `actionable_reconcile?/3`
+  # has a generic catch-all (every other hint is actionable), so a second
+  # non-actionable hint added later must not silently report itself as an
+  # `issues.opened` drop (#2365 review).
+  defp uninteresting_action_reason(%{kind: :issue_state, action: action}),
+    do: {:uninteresting_action, "issues", action}
+
+  defp uninteresting_action_reason(hint), do: {:uninteresting_action, hint}
 
   defp default_actionable_label?(label) when is_binary(label) do
     active = active_state_labels()
@@ -312,19 +345,81 @@ defmodule Aiur.Events.GithubWebhook do
   @doc false
   @spec reset_reconcile_window() :: :ok
   def reset_reconcile_window do
-    :persistent_term.erase({__MODULE__, :last_reconcile_ms})
+    :persistent_term.erase({__MODULE__, :reconcile_window})
     :ok
   end
 
+  defp release_reconcile_window, do: reset_reconcile_window()
+
+  # The coalesce window is sized relative to the poll cadence, not a flat 2s:
+  # a sustained stream of actionable deliveries must not be able to wake the
+  # dispatcher far faster than its own poll rate. One leading wake per fifth of
+  # the poll interval (never faster than every 2s) caps the sustained wake
+  # ceiling at a fixed multiple of the poll rate, so a busy repo stays bounded
+  # while a quiet one still gets an immediate leading-edge wake (#2365).
+  defp reconcile_debounce_ms do
+    case Application.get_env(:aiur, :github_webhook_reconcile_debounce_ms) do
+      ms when is_integer(ms) and ms > 0 ->
+        ms
+
+      _default ->
+        case Config.settings() do
+          {:ok, %{polling: %{interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 ->
+            max(div(seconds * 1_000, 5), @min_reconcile_debounce_ms)
+
+          _error ->
+            @min_reconcile_debounce_ms
+        end
+    end
+  end
+
+  # Claims the current coalesce window. `{:leading, generation}` when this
+  # delivery is the first in a new quiet period (it wakes immediately and arms
+  # the trailing wake); `:coalesced` when a leading edge already claimed the
+  # window, in which case the delivery's state is deposited and folded into
+  # that leading cycle. A delivery folded into the window marks it so the
+  # trailing wake knows there is deposited state worth one more cycle.
   defp claim_reconcile_window do
     now = System.monotonic_time(:millisecond)
-    last = :persistent_term.get({__MODULE__, :last_reconcile_ms}, nil)
+    debounce_ms = reconcile_debounce_ms()
 
-    if is_integer(last) and now - last < @reconcile_debounce_ms do
-      false
-    else
-      :persistent_term.put({__MODULE__, :last_reconcile_ms}, now)
-      true
+    case :persistent_term.get({__MODULE__, :reconcile_window}, nil) do
+      {started_at, generation, _coalesced?} when is_integer(started_at) and is_integer(generation) ->
+        if now - started_at < debounce_ms do
+          :persistent_term.put({__MODULE__, :reconcile_window}, {started_at, generation, true})
+          :coalesced
+        else
+          next_generation = generation + 1
+          :persistent_term.put({__MODULE__, :reconcile_window}, {now, next_generation, false})
+          {:leading, next_generation}
+        end
+
+      nil ->
+        :persistent_term.put({__MODULE__, :reconcile_window}, {now, 1, false})
+        {:leading, 1}
+    end
+  end
+
+  # One trailing wake per window that actually folded a delivery in: the
+  # leading edge already acted on the state present at its start, so a delivery
+  # that landed a moment later would otherwise wait out the full poll interval
+  # — precisely the defect being fixed, just narrowed (#2365 review #4). The
+  # generation is captured so a stale timer never fires once a newer window has
+  # claimed.
+  defp arm_trailing_wake(generation, request_refresh_fun) do
+    spawn(fn ->
+      Process.sleep(reconcile_debounce_ms())
+
+      if trailing_pending?(generation) do
+        _ = request_refresh_fun.()
+      end
+    end)
+  end
+
+  defp trailing_pending?(generation) do
+    case :persistent_term.get({__MODULE__, :reconcile_window}, nil) do
+      {_started_at, ^generation, true} -> true
+      _other -> false
     end
   end
 end

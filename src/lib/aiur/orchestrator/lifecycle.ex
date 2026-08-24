@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     State,
     StatusReport,
     TrackedSet,
+    TrackerHealth,
     WorkspaceCleanup
   }
 
@@ -235,7 +236,21 @@ defmodule Aiur.Orchestrator.Lifecycle do
     now_ms = System.monotonic_time(:millisecond)
     already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
     coalesced = state.poll_check_in_progress == true or already_due?
-    state = if coalesced, do: state, else: schedule_tick(state, 0)
+
+    state =
+      if coalesced do
+        state
+      else
+        # A wake interrupts an idle backoff, but never ahead of the GitHub
+        # rate-limit floor: the cycle it schedules fetches from GitHub, so
+        # scheduling it sooner than the floor would let an externally-triggered
+        # wake (a webhook delivery) force a full fetch ahead of the floor the
+        # orchestrator computed for itself (#2365). No floor means an immediate
+        # tick, which is what collapses a long idle backoff to now.
+        floor_ms = TrackerHealth.github_next_poll_delay_ms(state) || 0
+        schedule_tick(state, floor_ms)
+      end
+
     {state, coalesced}
   end
 
