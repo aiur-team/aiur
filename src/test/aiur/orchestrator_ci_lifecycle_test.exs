@@ -367,6 +367,38 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running[identifier].issue.state == "human-review"
     end
 
+    test "a failed stale ci-wait removal leaves the ticket untouched and keeps the poll alive" do
+      identifier = unique_identifier("ci-stale-remove-error")
+      recorder = start_recorder()
+
+      issue = %{issue(identifier, nil) | state_labels: ["ci-wait", "human-review"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      # The stale-label removal is best-effort: a transient GitHub failure must
+      # not take down the poll loop. It logs and leaves the state untouched so
+      # the next terminal observation retries (#2366).
+      RecordingGitHubClient.return({:error, :github_down})
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: "reviewed-head",
+          pr_number: 941
+        })
+
+      sync_recorder(recorder)
+
+      # The poll completed without raising and the review disposition is
+      # retained; no terminal transition happened.
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      assert next.running[identifier].issue.state == "human-review"
+    end
+
     test "passing CI records the head and publishes after the active-state write" do
       identifier = unique_identifier("ci-passed")
       topic = "ticket.#{identifier}.ci.passed"

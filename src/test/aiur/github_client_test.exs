@@ -115,12 +115,14 @@ defmodule Aiur.GitHub.ClientTest do
       # labels resolve to a concrete state so no consumer sees a nil disposition
       # (and a stale `agent:ci-wait` can be cleared), but the pair must never
       # authorize dispatch: the ticket stays visible and undispatchable rather
-      # than silently dropped from the pool as "no work" (#2366).
+      # than silently dropped from the pool as "no work" (#2366). The pair
+      # resolves to the most-outstanding-work label (`rework`), never the
+      # alphabetically-first one.
       request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: [issue.()]}} end
 
       assert {:ok, [candidate]} = Client.fetch_candidate_issues(request_fun: request_fun)
       assert candidate.id == "35"
-      assert candidate.state == "in-progress"
+      assert candidate.state == "rework"
       assert candidate.state_labels == ["in-progress", "rework"]
       assert candidate.dispatch_authorized? == false
     end

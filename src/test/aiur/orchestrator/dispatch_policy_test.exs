@@ -469,17 +469,35 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.resolve_state_labels(["Todo", "Rework"]) == "todo"
     end
 
-    test "resolve_state_labels resolves other pairs deterministically" do
-      # No `todo` present: the alphabetically-first normalized label wins so the
-      # choice is always deterministic.
-      assert DispatchPolicy.resolve_state_labels(["rework", "in-progress"]) == "in-progress"
-      assert DispatchPolicy.resolve_state_labels(["in-progress", "rework"]) == "in-progress"
+    test "resolve_state_labels resolves other pairs by most-outstanding-work precedence" do
+      # No `todo` present: the explicit precedence order decides the winner —
+      # the label with the most outstanding work, not whichever sorts first
+      # alphabetically (#2366). The terminal `done`/`cancelled` never beat an
+      # outstanding disposition: resolving a pair to a terminal state silently
+      # discards the work, where resolving to the outstanding state only costs
+      # one agent look to re-mark it done.
+      assert DispatchPolicy.resolve_state_labels(["rework", "in-progress"]) == "rework"
+      assert DispatchPolicy.resolve_state_labels(["in-progress", "rework"]) == "rework"
+      assert DispatchPolicy.resolve_state_labels(["done", "rework"]) == "rework"
+      assert DispatchPolicy.resolve_state_labels(["rework", "done"]) == "rework"
+      assert DispatchPolicy.resolve_state_labels(["error", "rework"]) == "rework"
+      assert DispatchPolicy.resolve_state_labels(["done", "in-progress"]) == "in-progress"
+      assert DispatchPolicy.resolve_state_labels(["cancelled", "rework"]) == "rework"
+      assert DispatchPolicy.resolve_state_labels(["done", "error"]) == "error"
       # `ci-wait` is a transient sub-state and never wins a resolution (#2366):
       # a `ci-wait`+`rework` ticket is really a rework ticket whose stale
       # `ci-wait` was never cleared, so rework wins.
       assert DispatchPolicy.resolve_state_labels(["rework", "ci-wait"]) == "rework"
       assert DispatchPolicy.resolve_state_labels(["ci-wait", "human-review"]) == "human-review"
       assert DispatchPolicy.resolve_state_labels(["ci-wait"]) == "ci-wait"
+      # Labels outside the precedence list (merging, cancelled, a future state)
+      # lose to every known disposition but still outrank the transient
+      # `ci-wait` — an unknown disposition must never lose to `ci-wait` either,
+      # or the transient marker could win a resolution after all (#2366).
+      assert DispatchPolicy.resolve_state_labels(["merging", "ci-wait"]) == "merging"
+      assert DispatchPolicy.resolve_state_labels(["cancelled", "ci-wait"]) == "cancelled"
+      assert DispatchPolicy.resolve_state_labels(["merging", "done"]) == "done"
+      assert DispatchPolicy.resolve_state_labels(["cancelled", "rework"]) == "rework"
     end
 
     test "resolve_state_labels handles empty, single, and non-list input" do
@@ -515,8 +533,8 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       dual = issue("dual-rework", state: "rework", state_labels: ["in-progress", "rework"])
       state = %State{max_concurrent_agents: 5}
 
-      # No `todo` present, so the alphabetically-first label wins
-      # (`in-progress`), which is an active dispatchable state.
+      # No `todo` present, so the most-outstanding-work label wins (`rework`),
+      # which is an active dispatchable state.
       assert DispatchPolicy.dispatch_candidate?(dual, state)
       assert DispatchPolicy.queued_dispatch_demand?([dual], state)
     end

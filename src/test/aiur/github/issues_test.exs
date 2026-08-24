@@ -658,7 +658,7 @@ defmodule Aiur.GitHub.IssuesTest do
     test "resolves contradictory workflow state labels deterministically" do
       # A ticket carrying two `agent:*` state labels is a broken lifecycle state.
       # `extract_state` resolves it deterministically (todo wins; otherwise the
-      # alphabetically-first non-ci-wait label wins) so no consumer sees a nil
+      # most-outstanding-work non-ci-wait label wins) so no consumer sees a nil
       # state and a stale `agent:ci-wait` can never outlive its CI run (#2366).
       gh = %{
         "number" => 18,
@@ -671,6 +671,30 @@ defmodule Aiur.GitHub.IssuesTest do
 
       assert issue.state == "todo"
       assert issue.state_labels == ["error", "todo"]
+    end
+
+    test "resolves two real dispositions by most-outstanding-work precedence" do
+      # Mirror of `DispatchPolicy.resolve_state_labels/1` (#2366): two labels
+      # that both assert a real disposition resolve by the explicit precedence
+      # order, not alphabetical order — `done` + `rework` is `rework`, never
+      # `done`, so the heal never closes a ticket whose work is outstanding.
+      for {labels, expected} <- [
+            {["done", "rework"], "rework"},
+            {["rework", "done"], "rework"},
+            {["error", "rework"], "rework"},
+            {["done", "in-progress"], "in-progress"},
+            {["rework", "in-progress"], "rework"}
+          ] do
+        gh = %{
+          "number" => 21,
+          "title" => "Real dispositions",
+          "labels" => Enum.map(labels, &%{"name" => "sym:#{&1}"}),
+          "state" => "open"
+        }
+
+        assert Issues.extract_state(gh, Enum.map(labels, &"sym:#{&1}"), "sym") == expected
+        assert Issues.normalize_issue(gh, "owner", "repo", "sym").state == expected
+      end
     end
 
     test "resolves a ci-wait pair to the real disposition, never ci-wait" do

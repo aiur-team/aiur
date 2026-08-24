@@ -17,6 +17,8 @@ defmodule Aiur.GitHub.Issues do
     Transport
   }
 
+  alias Aiur.Orchestrator.DispatchPolicy
+
   @max_issue_response_bytes 65_536
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
@@ -1018,34 +1020,9 @@ defmodule Aiur.GitHub.Issues do
   # pair as permanently undispatchable (#2366). Resolve the pair deterministically
   # so a state-labeled ticket always has a concrete state.
   defp extract_state(_gh_issue, state_labels) when is_list(state_labels) and state_labels != [],
-    do: resolve_state_labels(state_labels)
+    do: DispatchPolicy.resolve_state_labels(state_labels)
 
   defp extract_state(_gh_issue, _state_labels), do: nil
-
-  # `ci-wait` is a transient sub-state and never wins a resolution: any other
-  # state label on the ticket is the real disposition. `todo` wins over
-  # everything (a ticket that is also `todo` has not been worked, so no other
-  # verdict can mean anything about it); otherwise the alphabetically-first
-  # non-`ci-wait` label wins so the choice is always deterministic. This is the
-  # ingestion-side twin of
-  # `Aiur.Orchestrator.DispatchPolicy.resolve_state_labels/1`.
-  defp resolve_state_labels(state_labels) do
-    normalized =
-      state_labels
-      |> Enum.map(&normalize_label_name/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    if "todo" in normalized do
-      "todo"
-    else
-      case Enum.reject(normalized, &(&1 == "ci-wait")) do
-        [other | _] -> other
-        [] -> hd(normalized)
-      end
-    end
-  end
 
   @spec extract_state_labels([String.t()], String.t()) :: [String.t()]
   def extract_state_labels(label_names, prefix) do

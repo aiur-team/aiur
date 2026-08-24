@@ -2115,6 +2115,57 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
                &(&1["topic"] == "system.fleet.contradictory_state_labels.resolved")
              )
     end
+
+    test "heals a done+rework pair to rework so the ticket is not closed" do
+      # #2366 rework: the terminal `done` must never win a contradiction. A
+      # ticket carrying `done` + `rework` heals to `rework` (the outstanding
+      # work), never to `done` — healing to `done` would route the tracker write
+      # into the terminal close path and silently discard the rework.
+      dual = %{issue("dual-done-rework", nil) | state_labels: ["done", "rework"]}
+      parent = self()
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#dual-done-rework", "rework"}
+
+      assert [healed] = healed_issues
+      assert healed.state == "rework"
+      assert healed.state_labels == ["rework"]
+      assert healed_state.last_polled_issues[dual.id].state == "rework"
+    end
+
+    test "does not alert for a pair first seen this poll" do
+      # The fleet alert is debounced: a pair the heal repairs on the same
+      # observation must not alarm. A pair with no prior observation (first seen
+      # this poll) sits below the debounce — it is tracked so a pair that
+      # persists past one cycle still alerts, but the single fleet line must not
+      # fire yet (#2366).
+      dual = %{issue("dual-fresh", nil) | state_labels: ["ci-wait", "rework"]}
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn _id, _target -> :ok end
+        )
+
+      refute healed_state.contradictory_state_label_alert_active
+      assert is_map(healed_state.contradictory_state_label_tickets[dual.id])
+      assert healed_state.contradictory_state_label_tickets[dual.id].since_ms <= System.monotonic_time(:millisecond)
+
+      refute Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels")
+             )
+    end
   end
 
   defp issue(id, state) do
