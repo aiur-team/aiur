@@ -47,7 +47,7 @@ concurrency:
 #   dialyzer                  ~2.7 min             15
 #   browser harness           ~8.1 min             30
 #   streamdeck                ~1.5 min             10
-#   layout release smoke      ~2.5 min             15
+#   layout release smoke      ~2.5 min             20
 #
 # Rule: 3-4x the observed max duration, rounded up to a 5-minute step, with a
 # 5-minute floor. The fastest guard jobs get a 5-minute ceiling (≈12x the
@@ -55,7 +55,10 @@ concurrency:
 # slowest shard (coverage partition 1, ~8 min) and the browser harness (~8
 # min) drive the 30-minute ceiling, which would have killed the observed hang
 # at ~30 minutes instead of the default six hours while leaving 3.7x headroom
-# over the slowest legitimate run.
+# over the slowest legitimate run. layout release smoke gets a wider margin
+# (20 vs its ~2.5-min observed max) because it is the only job that installs
+# Chromium and assembles a production release, so a cold-cache run is
+# legitimately slower than the warm-cache sample above.
 #
 # Re-derive from recent runs if a job's profile changes rather than re-guessing:
 #   gh api "repos/aiur-team/aiur/actions/workflows/ci.yml/runs?per_page=30&status=completed"
@@ -426,7 +429,7 @@ jobs:
   layout-release:
     name: layout release smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
