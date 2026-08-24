@@ -286,13 +286,6 @@ defmodule Aiur.GitHub.ResourceStore do
     :issue,
     :issue_labels,
     :pr_review_thread,
-    # Build Order relationship edges — the `sub_issues` and `issue_dependencies`
-    # webhook deliveries keyed per relationship so an event-sourced catalog can
-    # rebuild its roots' membership from the store instead of polling GitHub.
-    # `:sub_issues` is keyed by the sub-issue number and `:issue_dependencies`
-    # by the dependency relationship id.
-    :sub_issues,
-    :issue_dependencies,
     # Complete selection families shared by the GraphQL pollers and webhook
     # deltas. They deliberately exclude strict review/merge verdict fields.
     :pr_review_threads,
