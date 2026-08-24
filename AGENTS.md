@@ -332,13 +332,13 @@ mutation guard is the last bullet in "Tests must fail without the production
 change they guard" above.) Run them before opening a PR; the review guidance in
 the `aiur-run` skill cross-links here rather than restating them.
 
-2. **If a surface computes an age, it renders the age.** Plumbing a timestamp
+1. **If a surface computes an age, it renders the age.** Plumbing a timestamp
    to a presenter and not displaying it is worse than not having it — it looks
    handled in review while the surface keeps claiming freshness. The CLI emits
    `observed_at`, `age_ms` and `freshness`; a web surface that computes the same
    fields must render them, or the two surfaces the docs call equivalent
    disagree about truth.
-3. **A collapsed cause names the collapse at the source.** Collapse an unknown
+2. **A collapsed cause names the collapse at the source.** Collapse an unknown
    or heterogeneous cause to a cause-neutral atom at the point of collapse
    (`_ -> :unknown`) — never to a specific cause. `_ -> :upstream` is a
    confident lie when the failure is not upstream: the atom flows verbatim into
