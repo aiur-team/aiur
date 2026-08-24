@@ -98,6 +98,12 @@ jobs:
         run: node --test .claude/skills/aiur-meta/scripts/tests/capture-dashboard_test.mjs
       - name: Test hourly retrospective CLI check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
+      # #2461 timeout demonstration: deliberately hang this job past its
+      # 5-minute `timeout-minutes` to prove the timeout kills it and the check
+      # fails instead of sitting `in_progress`. This step is scratch-branch
+      # only; it must never land in the real PR.
+      - name: Deliberately hang to exercise timeout
+        run: sleep 600
 
   merge-ruleset-drift:
     name: merge ruleset drift
