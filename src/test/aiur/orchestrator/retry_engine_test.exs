@@ -8,6 +8,19 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   alias Aiur.Orchestrator.{Dispatcher, RateLimitFallback, RetryEngine, Slots, SnapshotStore, State}
   alias Aiur.Workspace.Ownership
 
+  # Deterministic GitHub-client stubs for the retry-exhaustion error-state write
+  # (#2420): a failing write exercises the `{:error, {:no_state_label_written,
+  # _}}` honesty path, a succeeding one the `:alert_emitted` path.
+  defmodule FailingGitHubClient do
+    def update_issue_state(_issue_id, _state_name), do: {:error, :github_down}
+    def update_issue_state(_issue_id, _state_name, _opts), do: {:error, :github_down}
+  end
+
+  defmodule SucceedingGitHubClient do
+    def update_issue_state(_issue_id, _state_name), do: :ok
+    def update_issue_state(_issue_id, _state_name, _opts), do: :ok
+  end
+
   describe "failure_retry?/1" do
     test "returns false for non-counting delay types" do
       refute RetryEngine.failure_retry?(%{delay_type: :continuation})
@@ -813,6 +826,79 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     end
   end
 
+  describe "exhaustion error-state write (#2420)" do
+    # Switching the active workflow to the GitHub tracker routes
+    # `Tracker.update_issue_state/2` through `:github_client_module`, which each
+    # test pins to a deterministic stub. The default test workflow is the memory
+    # tracker, whose writes always succeed, so it cannot exercise the failure
+    # branch this describe exists to pin.
+    defp with_github_tracker!(test_fn) do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      previous_client = Application.get_env(:aiur, :github_client_module)
+
+      on_exit(fn ->
+        restore_application_env(:github_client_module, previous_client)
+      end)
+
+      test_fn.()
+    end
+
+    test "a failed terminal error-state write is reported, not swallowed as :ok" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.MT-WRITE-FAIL.agent.attention.error-state-write-failed")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      with_github_tracker!(fn ->
+        Application.put_env(:aiur, :github_client_module, FailingGitHubClient)
+
+        # F3 (#2420): a failed terminal write must surface a distinct error, not
+        # a false `:ok` — a swallowed return here would leave the ticket on its
+        # active-state label while the caller records a successful transition.
+        assert {:error, {:no_state_label_written, "MT-WRITE-FAIL"}} =
+                 RetryEngine.move_exhausted_issue_to_error_state(
+                   "issue-write-fail",
+                   "MT-WRITE-FAIL",
+                   "agent exited: boom"
+                 )
+
+        assert_receive {:event, %{topic: "ticket.MT-WRITE-FAIL.agent.attention.error-state-write-failed"}}, 500
+      end)
+    end
+
+    test "a successful terminal error-state write reports :alert_emitted and alerts" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.MT-WRITE-OK.agent.attention.error-retry_exhausted")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      with_github_tracker!(fn ->
+        Application.put_env(:aiur, :github_client_module, SucceedingGitHubClient)
+
+        assert RetryEngine.move_exhausted_issue_to_error_state(
+                 "issue-write-ok",
+                 "MT-WRITE-OK",
+                 "agent exited: boom"
+               ) == :alert_emitted
+
+        assert_receive {:event, %{topic: "ticket.MT-WRITE-OK.agent.attention.error-retry_exhausted"}}, 500
+      end)
+    end
+  end
+
   describe "orphaned shell reaping" do
     test "reaps a tracked headless shell tree when its runner exits" do
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -1555,6 +1641,9 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       refute RetryEngine.prior_work_for_retry?(%{prior_work: true, completed_turn_count: 1}, false)
     end
   end
+
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
 
   defp eventually(fun, attempts)
 

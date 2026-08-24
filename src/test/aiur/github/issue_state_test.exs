@@ -69,7 +69,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}
     end
 
-    test "removes all sym:* labels and adds the single new state label" do
+    test "adds the new state label first, then removes the old one (no zero-label window)" do
       calls = :ets.new(:calls, [:set, :public])
       :ets.insert(calls, {:requests, []})
 
@@ -180,6 +180,105 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert Enum.any?(deleted_urls, &(&1 =~ "sym%3Arework" or &1 =~ "sym:rework"))
     end
 
+    # Acceptance #2420: a swap that fails on the new-label POST must never leave
+    # the ticket with zero state labels. The swap adds first, so a failed POST
+    # short-circuits before any DELETE — the old state label survives and the
+    # ticket stays visible to dispatch. (Remove-then-add would have DELETEd the
+    # old label first and stranded the ticket on the POST failure.)
+    test "a failed new-label POST never leaves the ticket with zero state labels" do
+      test_pid = self()
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn req ->
+        send(test_pid, {:request, req})
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:todo"}]}
+             }}
+
+          {:get, 1} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:todo"}]}
+             }}
+
+          {:post, 2} ->
+            {:ok, %{status: 500, body: %{}, headers: []}}
+
+          _ ->
+            flunk("unexpected request after failed POST: #{inspect(req)}")
+        end
+      end
+
+      assert {:error, _} = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:request, %{method: :get}}
+      assert_receive {:request, %{method: :get}}
+      assert_receive {:request, %{method: :post}}
+      # No DELETE ever fires: the old sym:todo label is never removed, so the
+      # issue never passes through a zero-state-label state.
+      refute_receive {:request, %{method: :delete}}, 100
+    end
+
+    # Acceptance #2420: an idempotent re-stamp — `update_issue_state(id, "rework")`
+    # on a ticket already carrying `sym:rework` — must not delete the only state
+    # label. The swap POSTs the target first (a no-op) and the removal set
+    # excludes the just-added label, so the DELETE must never fire. Without that
+    # exclusion, the swap would POST a no-op and then delete the only state
+    # label — the original remove-then-add strand, reintroduced under the new
+    # ordering.
+    test "a re-stamp of the current state label never deletes it (exclude guard)" do
+      test_pid = self()
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:count, 0})
+
+      request_fun = fn req ->
+        send(test_pid, {:request, req})
+        [{:count, n}] = :ets.lookup(calls, :count)
+        :ets.insert(calls, {:count, n + 1})
+
+        case {req.method, n} do
+          {:get, 0} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+             }}
+
+          {:get, 1} ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{"state" => "open", "labels" => [%{"name" => "sym:rework"}]}
+             }}
+
+          {:post, 2} ->
+            assert req.body == %{"labels" => ["sym:rework"]}
+            {:ok, %{status: 200}}
+
+          _ ->
+            flunk("unexpected request after the target label was already present: #{inspect(req)}")
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
+
+      assert_receive {:request, %{method: :get}}
+      assert_receive {:request, %{method: :get}}
+      assert_receive {:request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}
+      # The just-added (already-present) label is excluded from the removal set,
+      # so no DELETE ever fires and the ticket keeps exactly one state label.
+      refute_receive {:request, %{method: :delete}}, 100
+    end
+
     test "terminal target state closes the issue" do
       calls = :ets.new(:calls, [:set, :public])
       :ets.insert(calls, {:count, 0})
@@ -196,11 +295,11 @@ defmodule Aiur.GitHub.IssueStateTest do
                body: %{"state" => "open", "labels" => [%{"name" => "sym:in-progress"}]}
              }}
 
-          {:delete, 1} ->
+          {:post, 1} ->
+            assert req.body == %{"labels" => ["sym:done"]}
             {:ok, %{status: 200}}
 
-          {:post, 2} ->
-            assert req.body == %{"labels" => ["sym:done"]}
+          {:delete, 2} ->
             {:ok, %{status: 200}}
 
           {:patch, 3} ->
@@ -215,7 +314,7 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert :ok = IssueState.update_issue_state("42", "Done", request_fun: request_fun)
     end
 
-    test "closed-issue active-target branch strips active labels without adding the new one" do
+    test "closed-issue active-target branch strips active labels and reports no state label written" do
       test_pid = self()
 
       request_fun = fn req ->
@@ -241,7 +340,11 @@ defmodule Aiur.GitHub.IssueStateTest do
         end
       end
 
-      assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
+      # The target is an active state on a closed issue, so no active state
+      # label was written — the transition must report that honestly instead
+      # of a false `:ok` (#2420).
+      assert {:error, {:no_state_label_written, _issue}} =
+               IssueState.update_issue_state("42", "rework", request_fun: request_fun)
 
       # Only deletes non-terminal active labels; does not POST a new label or PATCH close
       assert_receive {:request, %{method: :get}}
@@ -271,10 +374,7 @@ defmodule Aiur.GitHub.IssueStateTest do
                }
              }}
 
-          {:delete, 1} ->
-            {:ok, %{status: 200}}
-
-          {:get, 2} ->
+          {:get, 1} ->
             {:ok,
              %{
                status: 200,
@@ -284,7 +384,7 @@ defmodule Aiur.GitHub.IssueStateTest do
                }
              }}
 
-          {:delete, 3} ->
+          {:delete, 2} ->
             {:ok, %{status: 200}}
 
           _ ->
@@ -292,11 +392,14 @@ defmodule Aiur.GitHub.IssueStateTest do
         end
       end
 
-      assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
+      # The active-label add is the first step of the swap; it discovers the
+      # issue is closed, strips the stale active label, and reports that no
+      # state label was written rather than claiming success (#2420).
+      assert {:error, {:no_state_label_written, _issue}} =
+               IssueState.update_issue_state("42", "rework", request_fun: request_fun)
 
-      # Two GETs, two DELETEs, no POST (closed race detected on second GET)
+      # Two GETs, one DELETE (the stale rework label), no POST
       assert_receive {:request, %{method: :get}}
-      assert_receive {:request, %{method: :delete}}
       assert_receive {:request, %{method: :get}}
       assert_receive {:request, %{method: :delete}}
       refute_receive {:request, %{method: :post}}, 100
