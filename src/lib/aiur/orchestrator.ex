@@ -244,6 +244,8 @@ defmodule Aiur.Orchestrator do
   @spec connectivity_detail(term()) :: map()
   def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
 
+  def connectivity_detail({:aiur, :locally_held, hold}) when is_map(hold), do: %{hold: hold}
+
   def connectivity_detail({:github_api_status, status}) when is_integer(status),
     do: %{status: status}
 

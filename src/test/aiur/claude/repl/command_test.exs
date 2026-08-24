@@ -14,11 +14,14 @@ defmodule Aiur.Claude.Repl.CommandTest do
       # families are added, so matching its whole literal makes every future
       # addition look like a regression here.
       assert cmd =~ "*_API_KEY|"
-      assert cmd =~ "GITHUB_APP_*) unset "
+      # #2356: the raw GitHub credential families join the case arm after the
+      # App prefix; assert each arm individually so future families stay covered.
+      assert cmd =~ "GITHUB_APP_*|"
+      assert cmd =~ "GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|MISE_GITHUB_TOKEN) unset "
       assert cmd =~ "export HEX_HOME"
       assert cmd =~ "AIUR_BUILD_GATE_BIN='/ws/foo/.aiur-runtime/build-bin'"
       assert cmd =~ "BASH_ENV="
-      assert cmd =~ "AIUR_BUILD_GATE_SLOTS='2'"
+      assert cmd =~ "AIUR_BUILD_GATE_SLOTS='#{Aiur.Config.max_concurrent_builds()}'"
       assert cmd =~ " && exec claude"
 
       {scrub_pos, _len} = :binary.match(cmd, "unset ")
@@ -66,7 +69,10 @@ defmodule Aiur.Claude.Repl.CommandTest do
       # families are added, so matching its whole literal makes every future
       # addition look like a regression here.
       assert cmd =~ "*_API_KEY|"
-      assert cmd =~ "GITHUB_APP_*) unset "
+      # #2356: the raw GitHub credential families join the case arm after the
+      # App prefix; assert each arm individually so future families stay covered.
+      assert cmd =~ "GITHUB_APP_*|"
+      assert cmd =~ "GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|MISE_GITHUB_TOKEN) unset "
 
       {scrub_pos, _len} = :binary.match(cmd, "unset ")
       {exec_pos, _len} = :binary.match(cmd, "exec claude")

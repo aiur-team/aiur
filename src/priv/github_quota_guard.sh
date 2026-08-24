@@ -79,6 +79,20 @@ case "$budget_requested" in
 esac
 unset budget_requested
 
+# #2356: agents carry no GITHUB_TOKEN/GH_TOKEN (Aiur.AgentEnvironment scrubs
+# them). The credential comes from the file the daemon wrote and is injected
+# only into the real `gh` child of THIS governed call, never the agent env or
+# this wrapper's other children. The env fallback keeps host/Executor working.
+guard_token=
+if [ -n "${AIUR_GITHUB_CREDENTIAL_FILE:-}" ] && [ -f "$AIUR_GITHUB_CREDENTIAL_FILE" ]; then
+  guard_token=$(sed -n '1p' "$AIUR_GITHUB_CREDENTIAL_FILE" 2>/dev/null || true)
+fi
+[ -n "$guard_token" ] || guard_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+run_gh() {
+  if [ -n "${guard_token:-}" ]; then GH_TOKEN="$guard_token" GITHUB_TOKEN= "$real_gh" "$@"
+  else GITHUB_TOKEN= GH_TOKEN= "$real_gh" "$@"; fi
+}
+
 fingerprint_value() {
   if command -v shasum >/dev/null 2>&1; then
     printf '%s' "$1" | shasum -a 256 2>/dev/null | awk '{print $1}'
@@ -161,7 +175,10 @@ budget_derive_identity() {
   esac
   unset budget_cached
 
-  budget_login=$("$real_gh" api user --jq .login 2>/dev/null || true)
+  # Routed through `run_gh` (#2356): agents carry no GITHUB_TOKEN/GH_TOKEN, so a
+  # direct `$real_gh` call here would go out unauthenticated and derive an empty
+  # login, splitting one credential's usage across two identities.
+  budget_login=$(run_gh api user --jq .login 2>/dev/null || true)
   # `Aiur.GitHub.Credential.stable_identity/1` downcases every identity part,
   # so the shell derivation must too, or a login with any uppercase character
   # would hash to a different identity key here than on the daemon side and
@@ -210,9 +227,12 @@ if [ "$budget_required" -eq 1 ]; then
     budget_unavailable_reason='state directory is unavailable'
   else
     if [ -z "$budget_key" ]; then
-      budget_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+      # `guard_token` is the file credential (agents) or the inherited env
+      # token (host/Executor); the keyring read below feeds both too.
+      budget_token=$guard_token
       if [ -z "$budget_token" ]; then
         budget_token=$(GITHUB_TOKEN= GH_TOKEN= "$real_gh" auth token --hostname github.com 2>/dev/null || true)
+        [ -n "$budget_token" ] && guard_token=$budget_token
       fi
 
       if [ -z "$budget_token" ]; then
@@ -2848,14 +2868,14 @@ if [ -n "$error_file" ]; then
     fi
     if [ -n "$cache_conditional_etag" ]; then
       if [ "$api_requested_include" -eq 1 ]; then
-        "$real_gh" "$@" -H "If-None-Match: $cache_conditional_etag" > "$output_file" 2> "$error_file"
+        run_gh "$@" -H "If-None-Match: $cache_conditional_etag" > "$output_file" 2> "$error_file"
       else
-        "$real_gh" "$@" -H "If-None-Match: $cache_conditional_etag" --include > "$output_file" 2> "$error_file"
+        run_gh "$@" -H "If-None-Match: $cache_conditional_etag" --include > "$output_file" 2> "$error_file"
       fi
     elif [ "$api_requested_include" -eq 1 ]; then
-      "$real_gh" "$@" > "$output_file" 2> "$error_file"
+      run_gh "$@" > "$output_file" 2> "$error_file"
     else
-      "$real_gh" "$@" --include > "$output_file" 2> "$error_file"
+      run_gh "$@" --include > "$output_file" 2> "$error_file"
     fi
     status=$?
 
@@ -2878,9 +2898,9 @@ if [ -n "$error_file" ]; then
     fi
   elif [ -n "$cache_stage" ]; then
     if [ "$high_level_debug" -eq 1 ]; then
-      GH_DEBUG=api "$real_gh" "$@" > "$cache_stage" 2> "$error_file"
+      ( GH_DEBUG=api; export GH_DEBUG; run_gh "$@" ) > "$cache_stage" 2> "$error_file"
     else
-      "$real_gh" "$@" > "$cache_stage" 2> "$error_file"
+      run_gh "$@" > "$cache_stage" 2> "$error_file"
     fi
     status=$?
     cat "$cache_stage"
@@ -2890,7 +2910,7 @@ if [ -n "$error_file" ]; then
     # Replaying a buffered copy after exit stalls `gh run watch` progress — an
     # allowlisted read — and swallows interactive prompts. `tee` ends the
     # pipeline, so the real exit status travels via `status_file`.
-    { { "$real_gh" "$@"; printf '%s\n' "$?" > "$status_file"; } 2>&1 1>&3 | tee "$error_file" >&2; } 3>&1
+    { { run_gh "$@"; printf '%s\n' "$?" > "$status_file"; } 2>&1 1>&3 | tee "$error_file" >&2; } 3>&1
     stderr_streamed=1
     # An unreadable or non-numeric status means the real exit code could not be
     # confirmed. Reporting 0 there would turn a failed `gh` into an apparent
@@ -2901,9 +2921,9 @@ if [ -n "$error_file" ]; then
     esac
   else
     if [ "$high_level_debug" -eq 1 ]; then
-      GH_DEBUG=api "$real_gh" "$@" 2> "$error_file"
+      ( GH_DEBUG=api; export GH_DEBUG; run_gh "$@" ) 2> "$error_file"
     else
-      "$real_gh" "$@" 2> "$error_file"
+      run_gh "$@" 2> "$error_file"
     fi
     status=$?
   fi
@@ -2942,7 +2962,7 @@ if [ -n "$error_file" ]; then
     done < "$error_file"
   fi
 else
-  "$real_gh" "$@"
+  run_gh "$@"
   status=$?
 fi
 
@@ -2970,7 +2990,7 @@ probe_rate_limit() {
   budget_ignore_token_cooldown=1
   if budget_acquire; then
     budget_start_renewal
-    rate_limit_observation=$("$real_gh" api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
+    rate_limit_observation=$(run_gh api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
   else
     rate_limit_observation=
   fi

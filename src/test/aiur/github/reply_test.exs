@@ -256,4 +256,15 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
        }
      }}
   end
+
+  # #2429: a local budget hold on a review-thread verification read is transient
+  # and must retry after its reset, exactly as the transport classes do. Before
+  # #2429 the classifier folded a hold into `:transport`, which matched; the new
+  # `:local_hold` classification must match too so a held verification read is
+  # not treated as a terminal failure.
+  test "a local hold is retryable for review-thread verification" do
+    assert Reply.retryable_review_thread_verification_error?({:github, :local_hold, %{}})
+    assert Reply.retryable_review_thread_verification_error?({:github, :transport, %{}})
+    refute Reply.retryable_review_thread_verification_error?({:github, :auth, %{}})
+  end
 end
