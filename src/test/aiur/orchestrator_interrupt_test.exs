@@ -33,7 +33,7 @@ defmodule Aiur.OrchestratorInterruptTest do
   setup do
     pid = Process.whereis(Orchestrator)
     original = :sys.get_state(pid)
-    store_path = Path.join(System.tmp_dir!(), "aiur_interrupt_controls_#{System.unique_integer([:positive])}.json")
+    store_path = Aiur.TestSupport.tmp_root!("aiur_interrupt_controls") <> ".json"
     previous_store_path = Application.get_env(:aiur, :control_lifecycle_store_path)
     Application.put_env(:aiur, :control_lifecycle_store_path, store_path)
     :sys.replace_state(pid, fn state -> %{state | running: %{}} end)

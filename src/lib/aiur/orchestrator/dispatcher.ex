@@ -449,6 +449,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # slow or permanently-stuck base build stays visible in the daemon log.
   @prewarm_hold_log_interval_ticks 30
 
+  # A prewarm hold is only an operator-facing event once it has outlived a
+  # routine refresh. A scheduled freshness probe resolves in seconds, so its
+  # gate hold self-clears within a poll or two and never matters to an operator;
+  # reporting it at `needs_attention` severity on every cycle drowns a real
+  # block in background hum (#2432). This debounce lets the routine hold pass
+  # silently and raises `system.dispatch.prewarm_blocked` only once a hold has
+  # persisted past the bound — a probe that fails or exceeds its own timeout,
+  # a build that genuinely holds the fleet, or a stalled hold the dispatch
+  # watchdog later releases. Kept below `RepoBase`'s 30s remote-probe timeout so
+  # a probe that exceeds its bound is reported while the gate is still held.
+  @prewarm_blocked_alert_after_ms 15_000
+
   # Reads the open-blocking-Command ticket set once per poll cycle into State.
   # The dispatch gate is fail-closed: `:unavailable` (the decision store could
   # not be read) holds every new dispatch, because an open blocking Command is
@@ -559,7 +571,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         maybe_log_base_error(phase)
 
         state
-        |> clear_prewarm_blocked_alert()
+        |> clear_prewarm_blocked_alert(phase)
         |> Map.put(:prewarm_hold_ticks, 0)
         |> maybe_choose_under_load(issues, &maybe_choose/2, admission_probes_fun: admission_probes_fun)
 
@@ -567,7 +579,35 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
         |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun)
         |> log_prewarm_hold(phase, log_fun)
-        |> emit_prewarm_blocked_alert(phase)
+        |> maybe_emit_prewarm_blocked_alert(phase)
+    end
+  end
+
+  # Raises `system.dispatch.prewarm_blocked` only once a prewarm hold has
+  # persisted past `@prewarm_blocked_alert_after_ms`, so a routine refresh probe
+  # that self-clears in seconds is never reported while a genuine block still is
+  # (#2432). The hold start is stamped on the first observed hold tick; a hold
+  # that clears before the bound (the healthy case) emits nothing, and the
+  # debounce is reset by `clear_prewarm_blocked_alert/2` on the dispatch side.
+  # The already-active clause is handled here so a block that has been reported
+  # keeps recording the capacity constraint without re-publishing.
+  @doc false
+  @spec maybe_emit_prewarm_blocked_alert(State.t(), term()) :: State.t()
+  def maybe_emit_prewarm_blocked_alert(%State{} = state, phase),
+    do: maybe_emit_prewarm_blocked_alert(state, phase, fn -> System.monotonic_time(:millisecond) end)
+
+  @doc false
+  @spec maybe_emit_prewarm_blocked_alert(State.t(), term(), (-> non_neg_integer())) :: State.t()
+  def maybe_emit_prewarm_blocked_alert(%State{} = state, phase, now_fun)
+      when is_function(now_fun, 0) do
+    now_ms = now_fun.()
+    since_ms = state.prewarm_hold_since_ms || now_ms
+    state = %{state | prewarm_hold_since_ms: since_ms}
+
+    if state.prewarm_blocked_alert_active or now_ms - since_ms < @prewarm_blocked_alert_after_ms do
+      record_capacity_constraint(state, :build, "prewarm=#{phase}")
+    else
+      emit_prewarm_blocked_alert(state, phase)
     end
   end
 
@@ -595,9 +635,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     do: record_capacity_constraint(state, :build, "prewarm=#{phase}")
 
   def emit_prewarm_blocked_alert(%State{} = state, phase) do
-    reason =
-      "Prewarm is #{phase}; fleet dispatch is paused until the shared base becomes ready. " <>
-        "This condition is expected to clear automatically."
+    reason = prewarm_blocked_reason(phase)
 
     state = record_capacity_constraint(state, :build, "prewarm=#{phase}")
 
@@ -616,27 +654,57 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @doc false
   @spec clear_prewarm_blocked_alert(State.t()) :: State.t()
-  def clear_prewarm_blocked_alert(%State{prewarm_blocked_alert_resolution_emitted: true} = state),
-    do: %{state | prewarm_blocked_alert_active: false}
+  @spec clear_prewarm_blocked_alert(State.t(), term()) :: State.t()
+  def clear_prewarm_blocked_alert(state, phase \\ :ready)
 
-  def clear_prewarm_blocked_alert(%State{} = state) do
+  def clear_prewarm_blocked_alert(%State{prewarm_blocked_alert_resolution_emitted: true} = state, _phase),
+    do: %{state | prewarm_blocked_alert_active: false, prewarm_hold_since_ms: nil}
+
+  def clear_prewarm_blocked_alert(%State{} = state, phase) do
     active? =
       state.prewarm_blocked_alert_active or
         AlertFeed.active_system_attention?("system.dispatch.prewarm_blocked")
 
     if active? do
       case Alerts.emit_system("system.dispatch.prewarm_blocked.resolved",
-             reason: "Shared prewarm is ready; fleet dispatch may resume.",
+             reason: prewarm_resolution_reason(phase),
              needs_attention: false,
              severity: "info"
            ) do
-        :ok -> %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
-        {:error, _reason} -> state
+        :ok ->
+          %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true, prewarm_hold_since_ms: nil}
+
+        {:error, _reason} ->
+          state
       end
     else
-      %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
+      %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true, prewarm_hold_since_ms: nil}
     end
   end
+
+  defp prewarm_blocked_reason(:building) do
+    "Prewarm build is running; fleet dispatch is paused until the shared base becomes ready. " <>
+      "The monitored build is expected to clear this condition automatically."
+  end
+
+  defp prewarm_blocked_reason(:checking) do
+    "Prewarm remote freshness probe is running; fleet dispatch is paused until it completes. " <>
+      "A bounded dispatch watchdog will release the gate for cold-clone fallback if the probe stalls."
+  end
+
+  defp prewarm_blocked_reason(phase) do
+    "Prewarm is #{phase}; fleet dispatch is paused until the shared base becomes ready or the bounded dispatch watchdog releases the gate."
+  end
+
+  defp prewarm_resolution_reason({:error, {:repo_base_dispatch_hold_stalled, phase}}) do
+    "Prewarm #{phase} stalled; the bounded watchdog released the fleet dispatch gate for cold-clone fallback."
+  end
+
+  defp prewarm_resolution_reason({:error, reason}) do
+    "Prewarm failed (#{inspect(reason)}); the fleet dispatch gate was released for cold-clone fallback."
+  end
+
+  defp prewarm_resolution_reason(_phase), do: "Shared prewarm is ready; fleet dispatch may resume."
 
   @doc false
   @spec emit_tracker_preflight_alert(State.t(), term()) :: State.t()

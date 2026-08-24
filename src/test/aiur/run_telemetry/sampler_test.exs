@@ -3,6 +3,222 @@ defmodule Aiur.RunTelemetry.SamplerTest do
 
   alias Aiur.RunTelemetry.Sampler
 
+  test "samples current fleet and healthy build pressure once onto the daemon record" do
+    test_pid = self()
+
+    result =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:ok, process_table(), []} end,
+        measure_fun: measure_from(metrics(0)),
+        entries_fun: &reaper_entries/0,
+        daemon_pid: 1,
+        operator_pid: 30,
+        monotonic_ms: 1_000,
+        clock_ticks_per_second: 100,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> System.unique_integer([:positive, :monotonic]) end,
+        fleet_snapshot_fun: fn ->
+          send(test_pid, :fleet_read)
+
+          {:current,
+           %{
+             capacity: %{
+               occupied: 13,
+               configured: 16,
+               max: 12,
+               effective: 10,
+               capacity_hold: %{signal: :build, measured: %{active: 2, queued: 8}, threshold: 2},
+               load: 3.77,
+               load_threshold: 24,
+               schedulers: 16
+             }
+           }, %{status: :current, age_ms: 0, observed_at: "1970-01-01T00:00:00.001Z"}}
+        end,
+        build_status_fun: fn ->
+          send(test_pid, :build_read)
+
+          %{
+            enabled?: true,
+            capacity: 2,
+            active: 2,
+            queued: 8,
+            oldest_wait_seconds: 189,
+            holders: []
+          }
+        end
+      )
+
+    assert_receive :fleet_read
+    refute_receive :fleet_read
+    assert_receive :build_read
+    refute_receive :build_read
+
+    daemon = by_actor(result.records)["_daemon"]
+    assert daemon.fleet_capacity_status == "current"
+    assert daemon.fleet_agents_occupied == 13
+    assert daemon.fleet_agents_configured == 16
+    assert daemon.fleet_agents_max == 12
+    assert daemon.fleet_agents_effective == 10
+    # The binding admission signal and host load let an operator tell a
+    # build-gate-saturated fleet (queue growing, load far below threshold)
+    # from a host-saturated one (load gate holding dispatch).
+    assert daemon.fleet_admission_signal == "build"
+    assert daemon.fleet_load == 3.77
+    assert daemon.fleet_load_threshold == 24
+    assert daemon.fleet_schedulers == 16
+    assert daemon.build_gate_status == "measured"
+    assert daemon.build_gate_enabled == true
+    assert daemon.build_gate_capacity == 2
+    assert daemon.build_gate_active == 2
+    assert daemon.build_gate_queued == 8
+    assert daemon.build_queue_oldest_wait_seconds == 189
+    assert daemon.fleet_capacity_observed_at_ms < daemon.build_gate_observed_at_ms
+    refute :fleet_agents_occupied in daemon.partial_fields
+    refute :build_gate_queued in daemon.partial_fields
+    refute :fleet_load in daemon.partial_fields
+  end
+
+  test "keeps fleet and build source availability independent of procfs" do
+    result =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:error, {:procfs_unavailable, :enoent}} end,
+        entries_fun: &reaper_entries/0,
+        daemon_pid: 1,
+        operator_pid: nil,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> 42 end,
+        fleet_snapshot_fun: fn ->
+          {:stale, %{capacity: %{occupied: 9, configured: 16, max: 16, effective: 8}}, %{age_ms: 6_000}}
+        end,
+        build_status_fun: fn ->
+          %{enabled?: true, capacity: 2, active: 0, queued: 0, oldest_wait_seconds: 0, holders: []}
+        end
+      )
+
+    daemon = by_actor(result.records)["_daemon"]
+    assert daemon.availability == "unavailable"
+    assert daemon.fleet_capacity_status == "stale"
+    assert daemon.fleet_capacity_age_ms == 6_000
+    assert daemon.fleet_capacity_observed_at_ms == nil
+    assert daemon.fleet_agents_occupied == nil
+    assert daemon.fleet_agents_configured == nil
+    assert daemon.fleet_agents_max == nil
+    assert daemon.fleet_agents_effective == nil
+    assert daemon.build_gate_status == "measured"
+    assert daemon.build_gate_active == 0
+    assert daemon.build_gate_queued == 0
+    assert daemon.build_queue_oldest_wait_seconds == 0
+    assert :fleet_agents_occupied in daemon.partial_fields
+  end
+
+  test "degraded build status remains unavailable while current fleet values survive" do
+    result =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:error, :reader_failed} end,
+        entries_fun: fn -> [] end,
+        daemon_pid: nil,
+        operator_pid: nil,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> 42 end,
+        fleet_snapshot_fun: fn ->
+          {:current, %{capacity: %{occupied: 3, configured: 4, max: 4, effective: 3}}, %{age_ms: 0}}
+        end,
+        build_status_fun: fn ->
+          %{enabled?: true, capacity: 2, active: 0, queued: 0, holders: [], degraded?: true, issues: [%{}]}
+        end
+      )
+
+    daemon = by_actor(result.records)["_daemon"]
+    assert daemon.fleet_agents_occupied == 3
+    assert daemon.build_gate_status == "degraded"
+    assert daemon.build_gate_observed_at_ms == nil
+    assert daemon.build_gate_enabled == nil
+    assert daemon.build_gate_capacity == nil
+    assert daemon.build_gate_active == nil
+    assert daemon.build_gate_queued == nil
+    assert daemon.build_queue_oldest_wait_seconds == nil
+    assert :build_gate_capacity in daemon.partial_fields
+  end
+
+  test "a probe that exceeds its timeout records an explicit warning instead of silently censoring" do
+    result =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:error, :reader_failed} end,
+        entries_fun: fn -> [] end,
+        daemon_pid: nil,
+        operator_pid: nil,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> 42 end,
+        pressure_probe_timeout_ms: 20,
+        fleet_snapshot_fun: fn ->
+          Process.sleep(200)
+          {:current, %{capacity: %{occupied: 3, configured: 4, max: 4, effective: 3}}, %{age_ms: 0}}
+        end,
+        build_status_fun: fn -> %{enabled?: true, capacity: 2, active: 0, queued: 0, oldest_wait_seconds: 0} end
+      )
+
+    assert Enum.any?(result.warnings, &(&1.event == :pressure_probe_timeout and &1.source == :fleet))
+    daemon = by_actor(result.records)["_daemon"]
+    assert daemon.fleet_capacity_status == "unavailable"
+    # The build source stayed healthy: only the timed-out probe degrades.
+    assert daemon.build_gate_status == "measured"
+  end
+
+  test "an off-cadence build tick carries the last observation forward instead of dropping it" do
+    test_pid = self()
+    observed_at = 100
+
+    first =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> {:error, :reader_failed} end,
+        entries_fun: fn -> [] end,
+        daemon_pid: nil,
+        operator_pid: nil,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> observed_at end,
+        build_probe_tick: 0,
+        build_probe_cadence: 2,
+        fleet_snapshot_fun: fn -> {:stale, %{capacity: %{}}, %{age_ms: 6_000}} end,
+        build_status_fun: fn ->
+          send(test_pid, :build_probed)
+          %{enabled?: true, capacity: 2, active: 1, queued: 3, oldest_wait_seconds: 15}
+        end
+      )
+
+    assert_receive :build_probed
+    first_daemon = by_actor(first.records)["_daemon"]
+    assert first_daemon.build_gate_active == 1
+    assert first_daemon.build_gate_observed_at_ms == observed_at
+
+    # Tick 1 is off-cadence: the build probe must NOT run and the previous
+    # observation is carried forward with its original observed-at timestamp.
+    second =
+      Sampler.sample_once(first.previous,
+        process_table_fun: fn -> {:error, :reader_failed} end,
+        entries_fun: fn -> [] end,
+        daemon_pid: nil,
+        operator_pid: nil,
+        fd_headroom_fun: fn -> :unavailable end,
+        system_ms_fun: fn -> observed_at + 5_000 end,
+        build_probe_tick: 1,
+        build_probe_cadence: 2,
+        last_build_pressure: first.build_pressure,
+        fleet_snapshot_fun: fn -> {:stale, %{capacity: %{}}, %{age_ms: 11_000}} end,
+        build_status_fun: fn ->
+          send(test_pid, :build_probed_again)
+          %{enabled?: true, capacity: 2, active: 9, queued: 9, oldest_wait_seconds: 9}
+        end
+      )
+
+    refute_receive :build_probed_again, 50
+    second_daemon = by_actor(second.records)["_daemon"]
+    assert second_daemon.build_gate_active == 1
+    # The carried-forward observation keeps the original probe timestamp, so a
+    # reduced cadence never renders as an availability gap or a fresh read.
+    assert second_daemon.build_gate_observed_at_ms == observed_at
+    assert second_daemon.fleet_capacity_status == "stale"
+  end
+
   test "sample_once/2 attributes mutually exclusive actor trees and real FD headroom" do
     table = process_table()
     first_metrics = metrics(0)

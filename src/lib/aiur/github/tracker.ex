@@ -152,6 +152,12 @@ defmodule Aiur.GitHub.Tracker do
     client_module().fetch_open_pull_request_for_branch(issue_id)
   end
 
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_for_branch(issue_id) do
+    client_module().fetch_open_pull_requests_for_branch(issue_id)
+  end
+
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do

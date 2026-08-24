@@ -19,7 +19,7 @@ defmodule Aiur.Codex.AppServerPortTest do
 
     test "rejects paths outside the workspace root and symlink escapes" do
       root = Config.workspace_root()
-      outside = Path.join(System.tmp_dir!(), "aiur-outside-#{System.unique_integer([:positive])}")
+      outside = Aiur.TestSupport.tmp_root!("aiur-outside")
       linked = Path.join(root, "linked-out")
 
       File.mkdir_p!(root)
