@@ -321,14 +321,17 @@ is fail-closed by construction: `normalize_policy/1` defaults to
 Classification is consequence-based and defaults delegable. A request that
 omits `authority`/`reversibility` is normalized to `supervisor_allowed` +
 `reversible` (`src/lib/aiur/decision_validation.ex`), so reversible
-engineering calls — a re-review request, a PR/ticket sequencing question — land
-inside the Executor floor instead of stranding the agent. Known Command types
-carry an explicit policy in `src/lib/aiur/decision_command_type.ex` (re-review
-`kind: "rework_review"` → `supervisor_preferred`; sequencing `kind:
-"sequencing"` → `supervisor_allowed`; pre-OCC `legacy_attention` stays
-`human_required`). Because omission defaults to the floor, a Command that is
-genuinely irreversible, involves spend, or changes product direction must
-declare `authority: human_required` explicitly or it will be Executor-answerable.
+engineering calls land inside the Executor floor instead of stranding the
+agent.
+
+Known Command types carry an explicit policy in
+`src/lib/aiur/decision_command_type.ex` (re-review `kind: "rework_review"` →
+`supervisor_preferred`; sequencing `kind: "sequencing"` →
+`supervisor_allowed`; pre-OCC `legacy_attention` stays `human_required`).
+
+Because omission defaults to the floor, a Command that is genuinely
+irreversible, involves spend, or changes product direction must declare
+`authority: human_required` explicitly or it will be Executor-answerable.
 
 The parallel `supervisor` path additionally requires the answer's declared
 `policy_basis` to match the Decision's own authority/kind/reversibility, or it
