@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   alias Aiur.{AgentQueueStore, AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
   alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
-  alias Aiur.Orchestrator.{AutoSubscriptions, IssueSync, PushRouting, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, IssueSync, PushRouting, State}
 
   test "ignores a non-list poll result" do
     state = %State{last_polled_issues: %{"42" => %{id: "42"}}}
@@ -2117,10 +2117,12 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     end
 
     test "heals a done+rework pair to rework so the ticket is not closed" do
-      # #2366 rework: the terminal `done` must never win a contradiction. A
-      # ticket carrying `done` + `rework` heals to `rework` (the outstanding
-      # work), never to `done` — healing to `done` would route the tracker write
-      # into the terminal close path and silently discard the rework.
+      # #2437: the terminal `done` must never win a contradiction. A ticket
+      # carrying `done` + `rework` heals to `rework` (the outstanding work),
+      # never to `done` — healing to `done` would route the tracker write into
+      # the terminal close path (`swap_and_maybe_close_issue/4`) and silently
+      # discard the rework. `rework` is non-terminal, so the write only swaps
+      # the label and the ticket stays open.
       dual = %{issue("dual-done-rework", nil) | state_labels: ["done", "rework"]}
       parent = self()
 
@@ -2136,10 +2138,15 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
       assert_receive {:heal, "its-everdred/aiur#dual-done-rework", "rework"}
 
+      # Assert the healed issue state, not just the label set: the winner is
+      # written through the tracker, and a non-terminal target is what keeps
+      # the ticket from being closed.
       assert [healed] = healed_issues
       assert healed.state == "rework"
       assert healed.state_labels == ["rework"]
       assert healed_state.last_polled_issues[dual.id].state == "rework"
+
+      refute DispatchPolicy.terminal_issue_state?("rework", DispatchPolicy.terminal_state_set())
     end
 
     test "does not alert for a pair first seen this poll" do

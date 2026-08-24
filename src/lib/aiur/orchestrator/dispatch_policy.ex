@@ -1049,7 +1049,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def state_slug(_state_name), do: nil
 
-  # Explicit state precedence for contradictory-label resolution (#2366): the
+  # Explicit state precedence for contradictory-label resolution (#2437): the
   # label with the most outstanding work wins. The terminal `done` must never
   # beat `rework`/`in-progress`/`human-review`/`error` — resolving a done+rework
   # pair to `done` silently discards the outstanding work and the heal would
@@ -1072,22 +1072,21 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   stamped alongside it is the artifact of a broken writer, and "pick this up
   again" (`todo`) is the honest fallback — never a review verdict.
 
-  `ci-wait` is a transient sub-state and never wins a resolution: it means "the
-  agent is paused waiting for CI", so any other state label on the ticket is the
-  real disposition and takes precedence (a `ci-wait`+`rework` ticket is really a
-  rework ticket whose stale `ci-wait` was never cleared — #2366).
-
   Among labels that both assert a real disposition, the winner is the one with
   the most outstanding work, in the explicit precedence order `rework` >
-  `in-progress` > `human-review` > `error` > `done` > `ci-wait`. Resolving the
-  terminal `done` over an outstanding disposition would silently discard the
-  work — nothing reopens the ticket and the heal would report the pair as
-  healed exactly when the work is lost — so the order deliberately favors
-  re-opening over closing. Labels outside the precedence list (`merging`,
-  `cancelled`, a mistyped or future state) lose to every known disposition but
-  still outrank the transient `ci-wait`, so `ci-wait` can never win a
-  resolution; ties among equally-ranked labels resolve by the order the labels
-  arrived. Empty input resolves to `nil`.
+  `in-progress` > `human-review` > `error` > `done`. Resolving the terminal
+  `done` over an outstanding disposition would silently discard the work —
+  nothing reopens the ticket and the heal would report the pair as healed
+  exactly when the work is lost — so the order deliberately favors re-opening
+  over closing (#2437). `ci-wait` is a transient sub-state and never wins a
+  resolution: it means "the agent is paused waiting for CI", so any other state
+  label on the ticket is the real disposition and takes precedence (a
+  `ci-wait`+`rework` ticket is really a rework ticket whose stale `ci-wait` was
+  never cleared). Labels outside the precedence list (`merging`, `cancelled`, a
+  mistyped or future state) lose to every known disposition but still outrank
+  the transient `ci-wait`, so `ci-wait` can never win a resolution; ties among
+  equally-ranked labels resolve by the order the labels arrived. Empty input
+  resolves to `nil`.
   """
   @spec resolve_state_labels([String.t()]) :: String.t() | nil
   def resolve_state_labels(state_labels) when is_list(state_labels) do
