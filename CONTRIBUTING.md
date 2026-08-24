@@ -62,6 +62,15 @@ not fail a build on line count alone.
   and selector are independent of the full suite.
 - **A test encodes WHY behavior matters, not just what it does.** A test that
   cannot fail when the business logic changes is not pulling its weight.
+- **A test that passes with its production change reverted is not coverage.**
+  Before opening a PR, revert the hunk each new test guards, run the test, and
+  confirm it fails; restore the hunk and confirm it passes again. Name the
+  result in the PR body (one line per new test). A test that survives its own
+  revert — a `%{} = actual` pattern matching any map, an assertion pinned to a
+  constant the change never touches, `f(x) == f(x)` — asserts pre-existing
+  behaviour and will pass on a trivially wrong implementation. (AGENTS.md
+  "Tests must fail without the production change they guard" carries the same
+  rule for agents; the `aiur-run` skill carries the reviewer-side check.)
 - **Flaky tests are fixed or deleted — never retried, never ignored.** Wall-clock
   waits are not synchronization primitives: do not use finite `Process.sleep`
   calls or explicit timeouts on `assert_receive` / `refute_receive` to wait for

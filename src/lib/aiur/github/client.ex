@@ -221,6 +221,11 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_requests_by_label(label, opts \\ []),
     do: PullRequests.fetch_open_pull_requests_by_label(label, opts)
 
+  @spec fetch_open_pull_requests(keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests(opts \\ []),
+    do: PullRequests.fetch_open_pull_requests(opts)
+
   @spec fetch_recent_repo_review_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_review_comments(opts \\ []), do: Comments.fetch_recent_repo_review_comments(opts)
@@ -254,6 +259,11 @@ defmodule Aiur.GitHub.Client do
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request(pr_number, opts \\ []),
     do: PullRequests.fetch_open_pull_request(pr_number, opts)
+
+  @spec fetch_compare_files(String.t(), String.t(), keyword()) ::
+          {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def fetch_compare_files(base_sha, head_sha, opts \\ []),
+    do: PullRequests.fetch_compare_files(base_sha, head_sha, opts)
 
   @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}
