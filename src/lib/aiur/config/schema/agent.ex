@@ -109,7 +109,7 @@ defmodule Aiur.Config.Schema.Agent do
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
-    field(:max_concurrent_builds, :integer, default: 2)
+    field(:max_concurrent_builds, :integer, default: 4)
     # Minimum spacing between local Mix compile/test starts when more than one
     # build may run concurrently. 0 disables start pacing.
     field(:build_start_stagger_seconds, :integer, default: 0)
