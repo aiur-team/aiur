@@ -94,7 +94,7 @@ defmodule Aiur.AgentLogTest do
     end
 
     test "returns read error details for other file errors" do
-      path = Path.join(System.tmp_dir!(), "agent_log_test_dir_#{System.unique_integer([:positive])}")
+      path = Aiur.TestSupport.tmp_root!("agent_log_test_dir")
       File.mkdir_p!(path)
 
       try do
@@ -105,7 +105,7 @@ defmodule Aiur.AgentLogTest do
     end
 
     test "returns placeholder for empty file" do
-      path = Path.join(System.tmp_dir!(), "agent_log_test_empty_#{System.unique_integer([:positive])}.md")
+      path = Aiur.TestSupport.tmp_root!("agent_log_test_empty") <> ".md"
       File.write!(path, "")
 
       try do
@@ -116,7 +116,7 @@ defmodule Aiur.AgentLogTest do
     end
 
     test "returns file content when readable" do
-      path = Path.join(System.tmp_dir!(), "agent_log_test_content_#{System.unique_integer([:positive])}.md")
+      path = Aiur.TestSupport.tmp_root!("agent_log_test_content") <> ".md"
       File.write!(path, "hello world")
 
       try do
@@ -745,7 +745,7 @@ defmodule Aiur.AgentLogTest do
   defp ndjson(payload), do: Jason.encode!(payload) <> "\n"
 
   defp tmp_workspace do
-    path = Path.join(System.tmp_dir!(), "aiur-agent-log-#{System.unique_integer([:positive])}")
+    path = Aiur.TestSupport.tmp_root!("aiur-agent-log")
     File.mkdir_p!(path)
     on_exit(fn -> File.rm_rf!(path) end)
     path

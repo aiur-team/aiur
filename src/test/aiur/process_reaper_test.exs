@@ -204,7 +204,7 @@ defmodule Aiur.ProcessReaperTest do
 
   describe "AIUR_AGENT_TMPFILE pidfile (launcher-side crash reaper feed)" do
     setup do
-      path = Path.join(System.tmp_dir!(), "aiur-agents-#{System.unique_integer([:positive])}")
+      path = Aiur.TestSupport.tmp_root!("aiur-agents")
       File.write!(path, "")
       System.put_env("AIUR_AGENT_TMPFILE", path)
 

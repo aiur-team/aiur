@@ -6,7 +6,7 @@ defmodule Aiur.Executor.HandoffTest do
   alias Aiur.RepoBase
 
   setup do
-    tmp = Path.join(System.tmp_dir!(), "aiur-executor-handoff-#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("aiur-executor-handoff")
     state_root = Path.join(tmp, "state")
     previous_root = Application.get_env(:aiur, :repo_base_root)
     Application.put_env(:aiur, :repo_base_root, state_root)

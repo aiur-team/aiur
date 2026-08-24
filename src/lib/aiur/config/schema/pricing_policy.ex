@@ -3,20 +3,21 @@ defmodule Aiur.Config.Schema.PricingPolicy do
   Cost-aware dispatch policy — the knobs that decide whether spend influences
   which `agent.priority` route is chosen.
 
-  Landed here as **shape only**: the fields are validated, defaulted and
-  documented, and nothing reads them yet. The time-of-day behaviour itself is
-  #1456. Fixing the config surface now means #1456 becomes purely behaviour
-  rather than another round of shape review.
+  Landed here as **shape first**, then wired: the fields are validated,
+  defaulted and documented, and `Aiur.CodingAgent`'s peak-pricing route policy
+  now reads `avoid_peak_pricing` at dispatch time (see the policy's failure
+  direction below).
 
   ## `avoid_peak_pricing`
 
   Some providers charge a deliberately different rate inside a window of the
   day (DeepSeek's peak/off-peak schedule is the live case). The price table
-  already knows about this: #1935 and #1978 made price revisions
-  effective-dated and self-describing via their `tag`, so a peak rate is
-  reported correctly today. What is missing is *acting* on it — skipping a
-  peak-priced route at selection time and falling through to the next entry in
-  `agent.priority`.
+  prices a call at the rate actually in force — revisions are effective-dated
+  and self-describing via their `window` tag (peak/off-peak), resolved from the
+  occurrence time against a hand-maintained schedule. `avoid_peak_pricing`
+  *acts* on the same window at selection time: a route whose billing provider
+  is currently peak-priced is skipped and the next `agent.priority` entry is
+  used.
 
   Default `true`: routing away from a peak window is the product default,
   because the operator writing an ordered fallback list has already said what

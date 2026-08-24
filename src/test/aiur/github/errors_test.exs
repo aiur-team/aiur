@@ -16,6 +16,18 @@ defmodule Aiur.GitHub.ErrorsTest do
              {:github, :transport, %{reason: :github_budget_broker_unavailable}}
   end
 
+  # #2429: a local GitHub budget hold is not a network failure. `Errors`
+  # classifying it as `:transport` is what turned a seconds-long local counter
+  # trip into "lost GitHub connectivity" and a minutes-long backoff. It gets its
+  # own `:local_hold` classification carrying both the raw tuple (for
+  # visibility) and the hold map (for `reset_at`-bounded backoff).
+  test "classifies a local budget hold as :local_hold, never :transport" do
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.utc_now()}
+
+    assert Errors.classify_error({:error, {:aiur, :locally_held, hold}}) ==
+             {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}
+  end
+
   test "classifies HTTP auth, rate-limit, and generic statuses" do
     assert Errors.classify_error(%{status: 401, body: %{"message" => "Bad credentials"}}) ==
              {:github, :auth, %{status: 401, message: "Bad credentials"}}
@@ -96,7 +108,29 @@ defmodule Aiur.GitHub.ErrorsTest do
   test "identifies retryable GitHub errors" do
     assert Errors.retryable_github_error?({:github, :dns, %{}})
     assert Errors.retryable_github_error?({:github, :rate_limited, %{}})
+    assert Errors.retryable_github_error?({:github, :local_hold, %{}})
     refute Errors.retryable_github_error?({:github, :auth, %{}})
     refute Errors.retryable_github_error?(:other)
+  end
+
+  test "classifies transient GitHub errors including auth-preflight shapes" do
+    # The shared taxonomy (same set `retryable_github_error?/1` covers).
+    assert Errors.transient_github_error?({:github, :timeout, %{reason: :closed}})
+    assert Errors.transient_github_error?({:github, :transport, %{reason: :econnrefused}})
+    assert Errors.transient_github_error?({:github, :http, %{status: 500}})
+    refute Errors.transient_github_error?({:github, :auth, %{status: 401}})
+    refute Errors.transient_github_error?({:github, :http, %{status: 403}})
+
+    # Bare 408/429/5xx statuses.
+    assert Errors.transient_github_error?({:github_api_status, 429})
+    assert Errors.transient_github_error?({:github_api_status, 502})
+    refute Errors.transient_github_error?({:github_api_status, 401})
+
+    # The auth-preflight diagnostic the claim-release path surfaces on a
+    # transport fault (#2361): the taxonomy is embedded in `detail`, or the
+    # diagnostic carries its own transient status.
+    assert Errors.transient_github_error?({:github_auth_preflight_failed, %{detail: {:github, :timeout, %{reason: :closed}}}})
+    assert Errors.transient_github_error?({:github_auth_preflight_failed, %{reason: :http_status, status: 502}})
+    refute Errors.transient_github_error?({:github_auth_preflight_failed, %{reason: :invalid_or_expired_token, status: 401}})
   end
 end
