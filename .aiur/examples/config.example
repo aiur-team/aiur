@@ -105,15 +105,17 @@ polling:
   #   dispatch stays at the tracker cadence (cheap ETag'd REST, urgent),
   #   review widens only while a webhook proves comment coverage (the poll is a
   #   safety net; on a polling repo it stays at the dispatch rate), and planning
-  #   and firehose are on-demand (0 = no timer, refresh when a consumer asks).
-  # The `ci` class is deliberately NOT listed: CI is demand-scoped and its only
-  # effect is to *slow* CI detection when set wider than the tick, which is an
-  # agent-visible problem — keep it at the fallback.
+  #   is on-demand (0 = no timer, refresh when a consumer asks).
+  # The `ci` and `firehose` classes are deliberately NOT listed: CI is
+  # demand-scoped and its only effect is to *slow* CI detection when set wider
+  # than the tick (an agent-visible problem), and the firehose loop is not gated
+  # on a class cadence — it rides the dispatch tick and is already self-
+  # regulating via GitHub's X-Poll-Interval — so an entry would be a dead knob.
+  # Both stay at the fallback.
   intervals:
     dispatch: 120      # tracker poll (open issues / agent:* labels); must be > 0
     review: 300        # comments and review threads (webhook-proven repos only)
     planning: 0        # Build Order catalog: demand-driven, no timer
-    firehose: 0        # repo events (self-regulating via X-Poll-Interval)
 max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 

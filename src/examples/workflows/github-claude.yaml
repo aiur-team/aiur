@@ -74,12 +74,13 @@ polling:
   # Per-class cadences override interval_seconds for one class (#2309). The
   # `ci` class is deliberately not listed — it only ever slows CI detection, so
   # keep it at the fallback. `review` widens only while a webhook proves
-  # comment coverage; `planning` and `firehose` are on-demand (0 = no timer).
+  # comment coverage; `planning` is on-demand (0 = no timer). `firehose` is also
+  # not listed: its loop rides the dispatch tick and is self-regulating via
+  # X-Poll-Interval, so an entry would be a dead knob.
   intervals:
     dispatch: 120
     review: 300
     planning: 0        # on-demand: no timer
-    firehose: 0        # self-regulating via X-Poll-Interval
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

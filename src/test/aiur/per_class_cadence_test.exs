@@ -369,14 +369,16 @@ defmodule Aiur.PerClassCadenceTest do
   # Acceptance: "a measurement before and after, using the same one-hour ledger
   # window, showing where the GraphQL points went." The #2309 ledger table
   # measured per-call GraphQL costs (CI 92/46 = 2, comment poll 77/14 = 5.5,
-  # review threads 61/61 = 1, Build Order catalog 27/2 = 13.5). This projects a
-  # one-hour window before (every class at the dispatch cadence) and after (the
-  # cadences the shipped `polling.intervals` example recommends), resolving the
-  # cadences through `PollCadence.base_interval_ms/1` from the config map itself
-  # so the projection measures what the shipped configuration produces, not
-  # hand-published constants. A live one-hour ledger run against a real
-  # repository is the operator's operational confirmation; this is the model the
-  # PR ships against.
+  # review threads 61/61 = 1, Build Order catalog 27/2 = 13.5). This is a
+  # *projection* — arithmetic over those measured per-call costs against the
+  # shipped `polling.intervals` example — not a live measurement: nothing here
+  # observes real traffic or a rate-limit counter diff. It projects a one-hour
+  # window before (every class at the dispatch cadence) and after (the cadences
+  # the shipped example recommends), resolving the cadences through
+  # `PollCadence.base_interval_ms/1` from the config map itself so the numbers
+  # come from the shipped configuration, not hand-published constants. A live
+  # one-hour ledger run against a real repository is the operator's operational
+  # confirmation; this projection is the model the PR ships against.
   #
   # The figure is deliberately the *opt-in ceiling*: it is computed at the base
   # cadences, so the idle/webhook widen factors (which only lengthen intervals)
@@ -384,7 +386,7 @@ defmodule Aiur.PerClassCadenceTest do
   # below it. For any config that leaves `polling.intervals` unset — every
   # class falls back to `interval_seconds`, so no gate ever binds — the
   # merge-time delta is exactly zero.
-  describe "one-hour GraphQL ledger measurement (before/after)" do
+  describe "one-hour GraphQL ledger projection (before/after)" do
     @hour_ms 3_600_000
 
     # Points per call, measured in the #2309 ledger table.
