@@ -994,8 +994,8 @@ defmodule Aiur.AgentControlCLI do
 
   defp reset_budget_one(target) do
     case Orchestrator.reset_dispatch_budget(target) do
-      {:ok, :queued} ->
-        IO.puts("aiur: queued lifetime dispatch budget reset for ##{target}")
+      {:ok, :reset} ->
+        IO.puts("aiur: lifetime dispatch budget reset for ##{target}")
         :ok
 
       {:error, reason} ->
@@ -2928,6 +2928,12 @@ defmodule Aiur.AgentControlCLI do
 
   defp format_reason({:tracker_refresh_failed, reason}),
     do: "tracker refresh failed: #{format_reason(reason)}"
+
+  defp format_reason({:budget_reset_failed, reason}),
+    do: "durable budget reset failed: #{format_reason(reason)}"
+
+  defp format_reason({:state_restore_failed, reason}),
+    do: "tracker state restore failed: #{format_reason(reason)}"
 
   defp format_reason({:state_concurrency_limit_reached, state}),
     do: "state concurrency limit reached for #{state}"
