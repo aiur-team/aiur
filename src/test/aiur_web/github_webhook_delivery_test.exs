@@ -346,7 +346,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   # again inside a test that deliberately replays one underlying event through
   # two independent deliveries.
   defp fresh_admission_store! do
-    dir = Path.join(System.tmp_dir!(), "aiur-webhook-delivery-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-webhook-delivery")
     name = :"delivery_test_log_#{System.unique_integer([:positive])}"
     log = start_supervised!({DeliveryLog, name: name, state_dir: dir}, id: name)
 

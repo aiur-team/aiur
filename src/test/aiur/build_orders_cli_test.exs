@@ -59,6 +59,10 @@ defmodule Aiur.BuildOrdersCLITest do
   end
 
   test "lists the dashboard catalog with source freshness and no fabricated progress" do
+    snapshot = Process.get(:build_orders_catalog)
+    catalog = Catalog.put_count_resolution_failure(snapshot.data, :budget)
+    Process.put(:build_orders_catalog, %{snapshot | data: catalog})
+
     assert {:ok, envelope} = BuildOrdersCLI.build(source: Source, now: @captured_at)
 
     assert envelope["schema_version"] == 2
@@ -78,6 +82,29 @@ defmodule Aiur.BuildOrdersCLITest do
     assert root["title"] == "Build Order"
     assert root["progress"] == nil
     assert root["progress_resolution"] == "unknown"
+    # The CLI reports the same unresolved counts the dashboard does, so it must
+    # report the same cause. A null epic count with no reason is the exact
+    # ambiguity this work removes.
+    assert envelope["data"]["catalog"]["count_resolution_failure"] == "budget"
+  end
+
+  test "carries the count-resolution cause and its reset horizon into the JSON contract" do
+    snapshot = Process.get(:build_orders_catalog)
+    catalog = Catalog.put_count_resolution_failure(snapshot.data, :budget, reset_at: ~U[2026-08-09 13:00:00Z])
+    Process.put(:build_orders_catalog, %{snapshot | data: catalog})
+
+    assert {:ok, envelope} = BuildOrdersCLI.build(source: Source, now: @captured_at)
+
+    assert envelope["data"]["catalog"]["count_resolution_failure"] == "budget"
+    assert envelope["data"]["catalog"]["count_resolution_reset_at"] == "2026-08-09T13:00:00Z"
+
+    # A resolved catalog states no cause rather than an empty-string placeholder.
+    resolved = Catalog.put_count_resolution_failure(catalog, nil)
+    Process.put(:build_orders_catalog, %{snapshot | data: resolved})
+
+    assert {:ok, clean} = BuildOrdersCLI.build(source: Source, now: @captured_at)
+    assert clean["data"]["catalog"]["count_resolution_failure"] == nil
+    assert clean["data"]["catalog"]["count_resolution_reset_at"] == nil
   end
 
   test "preserves each catalog completion resolution in JSON and human output" do

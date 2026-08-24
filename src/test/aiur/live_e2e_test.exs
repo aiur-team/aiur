@@ -437,7 +437,7 @@ defmodule Aiur.LiveE2ETest do
 
   defp run_live_issue_flow!(backend) when backend in [:local, :ssh] do
     run_id = "aiur-live-e2e-#{backend}-#{System.unique_integer([:positive])}"
-    test_root = Path.join(System.tmp_dir!(), run_id)
+    test_root = Aiur.TestSupport.tmp_root!("aiur-live-e2e-#{backend}")
     workflow_root = Path.join(test_root, "workflow")
     workflow_file = Path.join(workflow_root, "config.yaml")
     worker_setup = live_worker_setup!(backend, run_id, test_root)

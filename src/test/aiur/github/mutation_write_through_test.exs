@@ -42,7 +42,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: @repo)
 
-    dir = Path.join(System.tmp_dir!(), "aiur-write-through-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-write-through")
     File.mkdir_p!(dir)
 
     on_exit(fn ->

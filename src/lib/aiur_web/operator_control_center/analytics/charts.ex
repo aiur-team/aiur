@@ -9,6 +9,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   @w 760
   @minimum_domain_ms 1_000
 
+  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
+
   @doc "Returns a model cropped to one shared, valid chart-axis domain."
   @spec with_time_domain(map(), term()) :: map()
   def with_time_domain(%{} = model, domain) do
@@ -26,12 +28,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   def with_exact_time_domain(%{window: window} = model, {t0, t1}, opts \\ []) when is_integer(t0) and is_integer(t1) and t0 <= t1 do
     original_start = Map.get(window, :axis_origin_ms, window.start_ms)
     now_ms = Map.get(window, :now_ms, window.end_ms)
+    series = crop_series(model.series, t0, t1, Keyword.get(opts, :boundary_samples, true))
 
     %{
       model
       | window: window |> Map.put(:start_ms, t0) |> Map.put(:end_ms, t1) |> Map.put(:axis_origin_ms, original_start) |> Map.put(:now_ms, now_ms),
-        series: crop_series(model.series, t0, t1, Keyword.get(opts, :boundary_samples, true))
+        series: series
     }
+    |> Map.put(:pressure, Presenter.pressure_summary(series))
   end
 
   # Keeps in-domain samples plus one boundary sample on each side (the last
@@ -134,6 +138,76 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
     time_svg(@w, h, inner, "Concurrency against the cap", {t0, t1, ml, @w - mr, mt, mt + ph})
   end
+
+  @doc "Fleet-wide occupied-agent and build pressure with an aligned oldest-wait lane."
+  @spec fleet_pressure(map()) :: String.t()
+  def fleet_pressure(%{series: series, window: %{start_ms: t0, end_ms: t1} = window}) do
+    h = 330
+    {ml, mr} = {42, 14}
+    top = 18
+    count_bottom = 176
+    wait_top = 218
+    wait_bottom = 292
+    pw = @w - ml - mr
+    xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
+
+    count_values =
+      Enum.flat_map(series, fn sample ->
+        Enum.map(
+          [:fleet_agents_occupied, :fleet_agents_effective, :build_gate_capacity, :build_gate_active, :build_gate_queued],
+          &Map.get(sample, &1)
+        )
+      end)
+      |> Enum.filter(&is_number/1)
+
+    wait_values = series |> Enum.map(&Map.get(&1, :build_queue_oldest_wait_seconds)) |> Enum.filter(&is_number/1)
+    count_max = Enum.max([1 | count_values])
+    wait_max = Enum.max([1 | wait_values])
+    count_y = fn value -> count_bottom - value / count_max * (count_bottom - top) end
+    wait_y = fn value -> wait_bottom - value / wait_max * (wait_bottom - wait_top) end
+
+    lines =
+      pressure_path(series, :fleet_agents_occupied, xf, count_y, "var(--accent)", "occupied agents") <>
+        pressure_path(series, :fleet_agents_effective, xf, count_y, "var(--attention)", "effective capacity") <>
+        pressure_path(series, :build_gate_capacity, xf, count_y, "var(--muted)", "build capacity") <>
+        pressure_path(series, :build_gate_active, xf, count_y, "var(--good)", "active builds") <>
+        pressure_path(series, :build_gate_queued, xf, count_y, "var(--blocking)", "queued builds") <>
+        pressure_path(series, :build_queue_oldest_wait_seconds, xf, wait_y, "var(--blocking)", "oldest live wait")
+
+    strip =
+      Enum.map_join(series, "", fn sample ->
+        width = max(pw / max(length(series), 1), 1)
+        color = pressure_state_color(Map.get(sample, :pressure_state))
+        ~s|<rect x="#{r2(xf.(sample.t_ms) - width / 2)}" y="190" width="#{r2(width)}" height="10" fill="#{color}"><title>#{Map.get(sample, :pressure_state, :empty)}</title></rect>|
+      end)
+
+    inner =
+      y_grid(count_max, count_y, ml, @w - mr, &to_string(round(&1))) <>
+        lines <>
+        strip <>
+        text(ml, 188, "source state", fill: "var(--muted)") <>
+        text(ml, wait_top - 5, "oldest wait (seconds)", fill: "var(--muted)") <>
+        x_axis(t0, t1, xf, ml, @w - mr, wait_bottom, axis_origin(window)) <>
+        now_marker(t0, t1, now_ms(window), xf, top, wait_bottom)
+
+    time_svg(@w, h, inner, "Whole-host fleet-wide occupancy and build pressure", {t0, t1, ml, @w - mr, top, wait_bottom})
+  end
+
+  defp pressure_path(series, key, xf, yf, color, label) do
+    series
+    |> Enum.chunk_by(&is_number(Map.get(&1, key)))
+    |> Enum.filter(fn chunk -> chunk != [] and is_number(Map.get(hd(chunk), key)) end)
+    |> Enum.map_join("", fn chunk ->
+      points = Enum.map(chunk, &{xf.(&1.t_ms), yf.(Map.get(&1, key))})
+      ~s|<path d="#{step_line(points)}" fill="none" stroke="#{color}" stroke-width="1.8"><title>#{label}</title></path>|
+    end)
+  end
+
+  defp pressure_state_color(:measured), do: "var(--good)"
+  defp pressure_state_color(:stale_fleet), do: "var(--attention)"
+  defp pressure_state_color(:degraded_build), do: "var(--blocking)"
+  defp pressure_state_color(:partial), do: "var(--faint)"
+  defp pressure_state_color(_empty), do: "var(--hairline)"
 
   @doc "Aggregate resident memory over the run against the host ceiling."
   @spec memory(map()) :: String.t()

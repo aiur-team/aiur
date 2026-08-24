@@ -827,7 +827,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
 
   defp seed_ledger do
     path =
-      Path.join(System.tmp_dir!(), "aiur-ghc-live-ledger-#{System.unique_integer([:positive])}.sqlite3")
+      Aiur.TestSupport.tmp_root!("aiur-ghc-live-ledger") <> ".sqlite3"
 
     {:ok, conn} = Basic.open(path)
     _ = Basic.exec(conn, @ledger_admissions_schema)
@@ -1095,6 +1095,15 @@ defmodule AiurWeb.GithubCacheLiveTest do
     test "the chart waits for two observed samples and says it is collecting until then" do
       Source.install(entries(2))
       install_graphql_quota()
+
+      # The first half must show the collecting state, which the page reaches
+      # only when its quota-history has fewer than two observed samples. With no
+      # provider installed the page reads the shared app sampler, whose ring
+      # reflects everything observed so far this boot, so whether it has two
+      # samples depends on when this test runs in the partition. Point the page
+      # at a double with a single sample instead, the same seam the sibling
+      # tests use.
+      __MODULE__.QuotaHistoryProvider.install(Enum.take(quota_samples(), 1))
 
       {:ok, _view, collecting} = live(build_conn(), "/github-cache")
       assert collecting |> budget_block() |> Floki.find(~s([data-role="usage-collecting"])) != []
