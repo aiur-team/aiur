@@ -166,6 +166,64 @@ defmodule Aiur.BuildGateTest do
     assert File.read!(context.log_path) == "test\nformat\n"
   end
 
+  test "strips --trace when --max-cases N (N>1) would otherwise silently serialize", context do
+    assert {output, 0} = run_bash("mix test --max-cases 4 --trace", context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases 4\n"
+  end
+
+  test "strips --trace with the --max-cases=N form and leaves non-conflicting flags alone", context do
+    assert {output, 0} = run_bash("mix test --max-cases=4 --trace", context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases=4\n"
+
+    for command <- [
+          "mix test --max-cases 4",
+          "mix test --trace",
+          "mix test --max-cases 1 --trace"
+        ] do
+      assert {command_output, 0} = run_bash(command, context)
+      refute command_output =~ "aiur_build_gate trace_stripped"
+    end
+
+    assert File.read!(context.log_path) ==
+             "test --max-cases=4\ntest --max-cases 4\ntest --trace\ntest --max-cases 1 --trace\n"
+  end
+
+  test "normalizes a mise exec -- mix command combining --trace with --max-cases", context do
+    guarded_context = with_command_wrappers!(context)
+
+    assert {output, 0} = run_sh("mise exec -- mix test --max-cases 4 --trace", guarded_context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases 4\n"
+  end
+
+  test "normalizes an elixir -S mix command combining --trace with --max-cases", context do
+    elixir_bin = Path.join(context.gate_dir, "elixir-bin")
+    File.mkdir_p!(elixir_bin)
+    write_fake_elixir_mix!(Path.join(elixir_bin, "mix"))
+
+    guarded_context =
+      context
+      |> with_command_wrappers!()
+      |> Map.merge(%{
+        bin_dir: elixir_bin,
+        system_path: system_path_without_build_wrapper()
+      })
+
+    assert {output, 0} = run_sh("elixir -S mix test --max-cases 4 --trace", guarded_context)
+    assert output =~ "aiur_build_gate trace_stripped"
+
+    assert context.log_path |> File.read!() |> String.split("\n", trim: true) |> List.last() ==
+             "test --max-cases 4"
+  end
+
+  test "a non-mix elixir eval passes through the gate with its arguments intact", context do
+    assert {output, 0} = run_bash(~s|elixir -e 'IO.puts("ok")'|, context)
+    assert output =~ "ok"
+    refute File.exists?(context.log_path)
+  end
+
   test "queues a contending command until the prior lease releases", context do
     first = Task.async(fn -> run_bash("mix test", Map.put(context, :sleep_seconds, 2)) end)
     wait_for_file!(context.started_path)

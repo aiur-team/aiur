@@ -865,7 +865,7 @@ defmodule Aiur.TestSupport do
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
-          max_concurrent_builds: 2,
+          max_concurrent_builds: 4,
           build_start_stagger_seconds: 0,
           min_free_memory_mb: nil,
           max_turns: 20,
