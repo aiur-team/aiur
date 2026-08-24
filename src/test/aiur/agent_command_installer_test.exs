@@ -63,7 +63,7 @@ defmodule Aiur.AgentCommandInstallerTest do
   # margin) so a loud CI failure is never converted into a silent runtime failure,
   # while a PR that grows the script past the bar still fails loudly here, well
   # before a remote host would. The headroom covers the guard growth queued in
-  # #2353 and #2366.
+  # #2353 and #2366, and the #2356 credential-injection growth (~66-67 KiB).
   test "the remote install script fits in one argument", context do
     script = AgentGitHubGuard.remote_install_script(context.workspace)
 

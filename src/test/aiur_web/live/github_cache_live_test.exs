@@ -1096,6 +1096,15 @@ defmodule AiurWeb.GithubCacheLiveTest do
       Source.install(entries(2))
       install_graphql_quota()
 
+      # The first half must show the collecting state, which the page reaches
+      # only when its quota-history has fewer than two observed samples. With no
+      # provider installed the page reads the shared app sampler, whose ring
+      # reflects everything observed so far this boot, so whether it has two
+      # samples depends on when this test runs in the partition. Point the page
+      # at a double with a single sample instead, the same seam the sibling
+      # tests use.
+      __MODULE__.QuotaHistoryProvider.install(Enum.take(quota_samples(), 1))
+
       {:ok, _view, collecting} = live(build_conn(), "/github-cache")
       assert collecting |> budget_block() |> Floki.find(~s([data-role="usage-collecting"])) != []
       assert collecting |> budget_block() |> Floki.find(~s([data-role="usage-chart"])) == []

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { assertSyntheticContent, assertSyntheticMeters } from '../scripts/dashboard-capture-safety.mjs'
 
 // Each surface's screenshot belongs on the page that explains that surface. The
-// Dashboard guide keeps exactly one, so it stays a short index rather than a
+// GUI guide keeps exactly one, so it stays a short index rather than a
 // duplicate of Concepts.
 const surfacePages = {
   'units': 'docs-app/concepts/units.md',
@@ -43,16 +43,33 @@ test('every dashboard surface screenshot is published on the page that explains 
   }
 })
 
-test('the Dashboard guide keeps exactly one screenshot', async () => {
+test('the GUI guide keeps exactly one screenshot', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
-  const guide = await readFile(path.join(websiteRoot, 'docs-app/guide/executor-control-center.md'), 'utf8')
+  const guide = await readFile(path.join(websiteRoot, 'docs-app/guide/gui.md'), 'utf8')
   const imagePaths = imagePathsIn(guide)
 
-  expect(guide).toContain('# Dashboard')
+  expect(guide).toContain('# GUI')
   expect(imagePaths).toEqual(['/images/dashboard/units-dark.png'])
 
   const bytes = await readFile(path.join(websiteRoot, 'public', imagePaths[0]))
   expect(bytes.byteLength).toBeGreaterThan(1_000)
+})
+
+test('published entry points stay synchronized and portable', async () => {
+  const websiteRoot = path.resolve(import.meta.dirname, '..')
+  const repoRoot = path.resolve(websiteRoot, '..')
+  const [repoReadme, npmReadme, netlify] = await Promise.all([
+    readFile(path.join(repoRoot, 'README.md'), 'utf8'),
+    readFile(path.join(repoRoot, 'packaging/npm/aiur-cli/README.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'netlify.toml'), 'utf8')
+  ])
+
+  expect(npmReadme).toBe(repoReadme)
+  expect(repoReadme).toMatch(/The npm\s+package installs the CLI, not those skills\./)
+  expect(repoReadme).toContain('https://github.com/aiur-team/aiur/blob/main/LICENSE')
+  expect(netlify).toMatch(
+    /\[\[redirects\]\]\s+from = "\/docs\/guide\/executor-control-center"\s+to = "\/docs\/guide\/gui"\s+status = 301/
+  )
 })
 
 test('parity guides are linked and contain their operational contracts', async () => {
@@ -60,7 +77,7 @@ test('parity guides are linked and contain their operational contracts', async (
   const [index, quickStart, dashboard, streamDeck, sidecarRunbook, cli, operating, config] = await Promise.all([
     readFile(path.join(websiteRoot, 'docs-app/index.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/quick-start.md'), 'utf8'),
-    readFile(path.join(websiteRoot, 'docs-app/guide/executor-control-center.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'docs-app/guide/gui.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/stream-deck.md'), 'utf8'),
     readFile(path.join(websiteRoot, '../packages/streamdeck/README.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/reference/cli.md'), 'utf8'),
@@ -69,8 +86,8 @@ test('parity guides are linked and contain their operational contracts', async (
   ])
 
   expect(index).toContain('[Operate the Stream Deck](/guide/stream-deck)')
-  expect(quickStart).toContain('[Dashboard](/guide/executor-control-center)')
-  expect(config).toContain("{ text: 'Dashboard', link: '/guide/executor-control-center' }")
+  expect(quickStart).toContain('[GUI](/guide/gui)')
+  expect(config).toContain("{ text: 'GUI', link: '/guide/gui' }")
   expect(config).toContain("{ text: 'Stream Deck', link: '/guide/stream-deck' }")
   expect(dashboard).toContain('| **Units** | `/`')
   expect(dashboard).toContain('| **Commands** | `/commands`')
@@ -210,9 +227,9 @@ test('docs group operator surfaces and API guidance without dense prose', async 
   const elevenLabs = byRelativePath.get('apis/elevenlabs.md') ?? ''
   const streamDeck = byRelativePath.get('guide/stream-deck.md') ?? ''
 
-  expect(sidebar).toContain("text: 'Usage'")
+  expect(sidebar).toContain("text: 'Interfaces'")
   expect(sidebar).toContain("text: 'APIs'")
-  expect(sidebar).toMatch(/text: 'Usage'[\s\S]*text: 'TUI'[\s\S]*text: 'CLI'[\s\S]*text: 'Dashboard'[\s\S]*text: 'Stream Deck'/)
+  expect(sidebar).toMatch(/text: 'Interfaces'[\s\S]*text: 'TUI'[\s\S]*text: 'CLI'[\s\S]*text: 'GUI'[\s\S]*text: 'Stream Deck'/)
   expect(sidebar).toMatch(/text: 'Concepts'[\s\S]*text: 'Skills'/)
   expect(sidebar).toMatch(/text: 'APIs'[\s\S]*text: 'GitHub'[\s\S]*text: 'ElevenLabs'/)
 

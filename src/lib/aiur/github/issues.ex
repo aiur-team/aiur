@@ -17,6 +17,8 @@ defmodule Aiur.GitHub.Issues do
     Transport
   }
 
+  alias Aiur.Orchestrator.DispatchPolicy
+
   @max_issue_response_bytes 65_536
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
@@ -399,7 +401,7 @@ defmodule Aiur.GitHub.Issues do
       case fetch_label_issue_pages_conditional(ctx, url, cache) do
         {:ok, issues, updated_cache} ->
           candidates =
-            filter_and_authorize_candidates(
+            filter_and_authorize_candidates_with_degenerate(
               issues,
               active_states,
               ctx.request_fun,
@@ -418,14 +420,36 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix) do
-    candidates =
+    dispatchable =
       Enum.filter(issues, fn issue ->
         is_binary(issue.state) and
           MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
       end)
 
-    authorize_dispatches(candidates, request_fun, token, owner, repo, prefix)
+    authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
   end
+
+  # The orchestrator's conditional open-issue poll (`?state=open&per_page=100`
+  # is unfiltered, so this sees every open issue) partitions rather than
+  # discards: zero- and multi-`agent:*`-label tickets are returned alongside
+  # the authorized dispatch candidates so the orchestrator's repair pass can
+  # heal them. Every other non-dispatchable open ticket (terminal/error
+  # labels) is dropped exactly as before (#2420).
+  defp filter_and_authorize_candidates_with_degenerate(issues, active_states, request_fun, token, owner, repo, prefix) do
+    {dispatchable, rest} =
+      Enum.split_with(issues, fn issue ->
+        is_binary(issue.state) and
+          MapSet.member?(active_states, StatePolicy.normalize_state(issue.state))
+      end)
+
+    authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
+    healable = Enum.filter(rest, &degenerate_state_labels?/1)
+    authorized ++ healable
+  end
+
+  defp degenerate_state_labels?(%Issue{state_labels: []}), do: true
+  defp degenerate_state_labels?(%Issue{state_labels: [_, _ | _]}), do: true
+  defp degenerate_state_labels?(_issue), do: false
 
   @spec fetch_issues_for_each_label(
           [String.t()],
@@ -1005,11 +1029,28 @@ defmodule Aiur.GitHub.Issues do
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
   def extract_state(gh_issue, label_names, prefix) do
-    extract_state(gh_issue, extract_state_labels(label_names, prefix))
+    gh_issue
+    |> extract_state(extract_state_labels(label_names, prefix))
   end
 
+  # A zero-label (`[]`) ticket resolves to `nil` here — the `String | nil`
+  # contract for blocker state and expected-state checks — and is told apart
+  # from a multi-label ticket by the candidate filter on the `Issue.state_labels`
+  # list (`degenerate_state_labels?/1`), not on atoms that never escape this
+  # module (#2420). A multi-label (`[_, _ | _]`) ticket is itself resolved
+  # deterministically by the clause below (#2384).
   defp extract_state(%{"state" => "closed"}, _state_labels), do: "Closed"
   defp extract_state(_gh_issue, [state]), do: state
+
+  # A ticket carrying two `agent:*` state labels is a broken lifecycle state.
+  # `extract_state` used to answer `nil` here, which made every consumer see an
+  # "unknown" state — worst of all the CI lifecycle, whose terminal transition
+  # would then be skipped and never clear a stale `agent:ci-wait`, stranding the
+  # pair as permanently undispatchable (#2366). Resolve the pair deterministically
+  # so a state-labeled ticket always has a concrete state.
+  defp extract_state(_gh_issue, state_labels) when is_list(state_labels) and state_labels != [],
+    do: DispatchPolicy.resolve_state_labels(state_labels)
+
   defp extract_state(_gh_issue, _state_labels), do: nil
 
   @spec extract_state_labels([String.t()], String.t()) :: [String.t()]

@@ -11,14 +11,17 @@ defmodule Aiur.DecisionValidationTest do
   end
 
   describe "happy path" do
-    test "a minimal valid payload normalizes with safe defaults" do
+    test "a minimal valid payload normalizes with consequence-based defaults" do
       assert {:ok, decision} = normalize(%{"question" => "Deploy now?", "blocking" => true})
 
       assert decision.question == "Deploy now?"
       assert decision.blocking == true
-      assert decision.authority == :human_required
+      # An omitted authority/reversibility defaults to the Executor-answerable
+      # pair, not to human_required: reversible engineering calls are exactly
+      # what the Executor is positioned to answer.
+      assert decision.authority == :supervisor_allowed
       assert decision.urgency == :normal
-      assert decision.reversibility == :irreversible
+      assert decision.reversibility == :reversible
       assert decision.version == 1
       assert decision.schema_version == 1
       assert decision.options == []
@@ -130,6 +133,54 @@ defmodule Aiur.DecisionValidationTest do
                }
              ) ==
                {:error, {:decision_invalid, {:legacy_attention_slug, :invalid_format}}}
+    end
+  end
+
+  describe "command-type classification" do
+    test "a re-review request classifies supervisor_preferred and reversible" do
+      payload = %{"question" => "Rework is green; reviewDecision is stuck — please re-review?", "blocking" => true, "kind" => "rework_review"}
+
+      assert {:ok, decision} = normalize(payload)
+      assert decision.authority == :supervisor_preferred
+      assert decision.reversibility == :reversible
+    end
+
+    test "a sequencing question classifies supervisor_allowed and reversible" do
+      payload = %{"question" => "Which PR should carry the shared change?", "blocking" => true, "kind" => "sequencing"}
+
+      assert {:ok, decision} = normalize(payload)
+      assert decision.authority == :supervisor_allowed
+      assert decision.reversibility == :reversible
+    end
+
+    test "a legacy attention keeps the fail-closed human_required classification" do
+      payload = %{"question" => "Reclassify #2071?", "blocking" => false, "kind" => "legacy_attention"}
+
+      assert {:ok, decision} = normalize(payload)
+      assert decision.authority == :human_required
+      assert decision.reversibility == :irreversible
+    end
+
+    test "an explicitly declared authority wins over the type classification" do
+      payload = %{
+        "question" => "Sequencing but the operator must decide?",
+        "blocking" => true,
+        "kind" => "sequencing",
+        "authority" => "human_required",
+        "reversibility" => "reversible"
+      }
+
+      assert {:ok, decision} = normalize(payload)
+      assert decision.authority == :human_required
+      assert decision.reversibility == :reversible
+    end
+
+    test "an unclassified kind falls back to the Executor-answerable defaults" do
+      payload = %{"question" => "A novel kind?", "blocking" => true, "kind" => "architecture"}
+
+      assert {:ok, decision} = normalize(payload)
+      assert decision.authority == :supervisor_allowed
+      assert decision.reversibility == :reversible
     end
   end
 

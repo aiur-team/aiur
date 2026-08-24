@@ -502,7 +502,7 @@ defmodule AiurWeb.StreamdeckProjection do
   # The configured value is the floor, not the tolerance: a fixed 15s window
   # against a 120s poll marks a healthy fleet stale for most of every cycle.
   # See `Aiur.PollCadence.snapshot_tolerance_ms/1`.
-  defp snapshot_timeout_ms, do: PollCadence.snapshot_tolerance_ms(endpoint_config(:snapshot_timeout_ms) || 15_000)
+  defp snapshot_timeout_ms, do: PollCadence.snapshot_tolerance_ms(endpoint_config(:snapshot_timeout_ms) || 15_000, class: :dispatch)
 
   defp safe_call(fun, fallback) when is_function(fun, 0) do
     fun.()
