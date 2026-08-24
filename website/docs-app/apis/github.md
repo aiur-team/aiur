@@ -538,6 +538,38 @@ or the next poll and retires the affected answers then.
 
 That gap is the exposure, and it is why a verdict is never kept at all.
 
+## What the agent guard governs
+
+Agent processes do **not** inherit `GITHUB_TOKEN` or `GH_TOKEN`. The daemon
+scrubs them from every agent environment and instead writes the bot PAT to a
+credential file (`~/.aiur/github-budget/agent-token`) that the `gh` guard
+reads.
+
+The wrapper injects the credential only into the real `gh` process it spawns
+for a governed call, for the duration of that call — never into the agent's
+environment and never into the sibling processes the wrapper launches.
+
+So `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent shell returns
+nothing, and a bare `curl` to `api.github.com` from an agent workspace is
+unauthenticated.
+
+This is a **policy boundary, not a capability boundary.** Agents run as the
+same OS user as the daemon, so an agent that deliberately goes looking can read
+the credential file, the shared budget database, or the operator keyring.
+
+What the file removes is the raw token from the *environment* of every agent
+process — where a dependency's build script, a `curl` one-liner, or a Node
+fetch would inherit it — and the broker ledger counts the governed calls, not
+every request a determined agent could make.
+
+| Path | Governed by the guard |
+| --- | --- |
+| `gh` on the agent's PATH (the wrapper in the workspace `.aiur-runtime/bin`) | Yes — rate-limited, metered, and recorded in the broker ledger. |
+| `git` on the agent's PATH (the wrapper in the workspace `.aiur-runtime/bin`) | Yes — destructive-command protection, not quota. |
+| `gh`/`git` invoked by absolute path (`/usr/bin/gh`), or after a `PATH` reset | No — but unauthenticated, because the environment carries no token and the agent's `GH_CONFIG_DIR` is empty. |
+| Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
+| The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
+
 ## Changes Aiur makes itself
 
 There is a third path, and it is the cheapest one: a change Aiur makes.
