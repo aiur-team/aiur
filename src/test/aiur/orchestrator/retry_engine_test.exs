@@ -509,6 +509,42 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       assert final.retry_attempts[issue_id].attempt == 3
     end
 
+    # #2339: `ensure_tracker_preflight` surfaces a held preflight probe as
+    # `{:github_auth_preflight_failed, %{classification: :local_hold, detail:
+    # ...}}`. That shape must also take the non-consuming `:local_budget_hold`
+    # retry, otherwise the follow-up poll after a hold-based agent-exit retry
+    # counts the same hold as a tracker failure and releases the claim.
+    test "the preflight-diagnostic hold shape also preserves the claim and poll-failure budget" do
+      issue_id = "issue-preflight-hold"
+
+      initial = %State{
+        claimed: MapSet.new([issue_id]),
+        released_claims: %{},
+        retry_attempts: %{}
+      }
+
+      hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
+
+      reason =
+        {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{reason: {:aiur, :locally_held, hold}, hold: hold}}}
+
+      final =
+        Enum.reduce(1..3, {initial, seed_metadata()}, fn attempt, {state, metadata} ->
+          next = RetryEngine.handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)
+
+          retry = next.retry_attempts[issue_id]
+          Process.cancel_timer(retry.timer_ref)
+          {next, retry}
+        end)
+        |> elem(0)
+
+      assert MapSet.member?(final.claimed, issue_id)
+      assert final.released_claims == %{}
+      assert final.retry_attempts[issue_id].error =~ "retry poll locally held"
+      assert final.retry_attempts[issue_id].retry_poll_failures == 0
+      assert final.retry_attempts[issue_id].attempt == 3
+    end
+
     test "a genuine tracker failure still counts and releases at exhaustion" do
       issue_id = "issue-tracker-failure"
 
@@ -539,6 +575,113 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
     defp seed_metadata do
       %{identifier: "repo#2278", retry_poll_failures: 0, terminal_membership_pending?: false}
+    end
+  end
+
+  describe "agent exit on a local budget hold (#2339)" do
+    test "a workspace-connectivity hold exit schedules a non-consuming reset_at-bounded retry" do
+      issue_id = "issue-hold-exit"
+      hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
+
+      reason =
+        {:workspace_github_connectivity_failed, "/workspaces/2339", {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{reason: {:aiur, :locally_held, hold}, hold: hold}}}}
+
+      state = %State{
+        running: %{
+          issue_id => %{
+            ref: make_ref(),
+            identifier: "repo#hold-exit",
+            started_at: DateTime.utc_now(),
+            retry_attempt: 1,
+            worker_host: "worker-a",
+            workspace_path: "/workspaces/2339"
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        dispatch_recovery: %{workspace_ownership: %{waits: %{}, ready: %{}}, codex_thrash_budget: %{}}
+      }
+
+      ref = state.running[issue_id].ref
+      assert {:noreply, after_down} = RetryEngine.handle_agent_down(state, ref, reason)
+
+      retry = after_down.retry_attempts[issue_id]
+      # `schedule_issue_retry` persists a fixed key set (delay_type is used only
+      # to compute the delay and decide give-up), so assert the observable
+      # semantics: the retry is scheduled after the hold's own reset_at — not on
+      # the exponential failure curve or at max backoff — and the hold reason is
+      # retained.
+      assert retry.attempt == 2
+      assert retry.error =~ "agent exited"
+      assert retry.transient_reason == reason
+
+      delay = max(0, retry.due_at_ms - System.monotonic_time(:millisecond))
+      assert delay <= 31_000
+      assert delay >= 1_000
+
+      # A local-budget-hold retry is non-consuming, so it can never exhaust the
+      # failure budget into `agent:error`.
+      refute RetryEngine.failure_retry?(%{delay_type: :local_budget_hold})
+      Process.cancel_timer(retry.timer_ref)
+    end
+
+    test "a raw hold exit reason takes the same non-consuming retry" do
+      issue_id = "issue-hold-exit-raw"
+      hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
+      reason = {:aiur, :locally_held, hold}
+
+      state = %State{
+        running: %{
+          issue_id => %{
+            ref: make_ref(),
+            identifier: "repo#hold-exit-raw",
+            started_at: DateTime.utc_now(),
+            retry_attempt: 0,
+            worker_host: nil,
+            workspace_path: "/workspaces/2339"
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        dispatch_recovery: %{workspace_ownership: %{waits: %{}, ready: %{}}, codex_thrash_budget: %{}}
+      }
+
+      ref = state.running[issue_id].ref
+      assert {:noreply, after_down} = RetryEngine.handle_agent_down(state, ref, reason)
+
+      retry = after_down.retry_attempts[issue_id]
+      assert retry.transient_reason == reason
+      assert retry.error =~ "agent exited"
+
+      delay = max(0, retry.due_at_ms - System.monotonic_time(:millisecond))
+      assert delay <= 31_000
+      Process.cancel_timer(retry.timer_ref)
+    end
+
+    test "a local-budget-hold retry past max_retry_attempts never gives up into agent:error" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("ticket.MT-HOLD-EXHAUST.agent.retry_exhausted")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 3_600, :second)}
+
+      next =
+        RetryEngine.schedule_issue_retry(%State{}, "issue-hold-exhaust", Config.max_retry_attempts() + 1, %{
+          identifier: "MT-HOLD-EXHAUST",
+          delay_type: :local_budget_hold,
+          local_budget_hold: hold,
+          error: "agent exited: {:workspace_github_connectivity_failed, ...}"
+        })
+
+      # The retry is still scheduled; the give-up branch (which writes
+      # `agent:error`) is skipped for `:local_budget_hold` because
+      # `failure_retry?/1` is false.
+      assert %{attempt: attempt} = next.retry_attempts["issue-hold-exhaust"]
+      assert attempt == Config.max_retry_attempts() + 1
+      Process.cancel_timer(next.retry_attempts["issue-hold-exhaust"].timer_ref)
+      refute_receive {:event, %{topic: "ticket.MT-HOLD-EXHAUST.agent.retry_exhausted"}}, 200
     end
   end
 

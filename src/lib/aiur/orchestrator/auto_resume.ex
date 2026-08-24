@@ -72,11 +72,20 @@ defmodule Aiur.Orchestrator.AutoResume do
   # a ticket parked in `agent:error` by one must auto-resume once the hold
   # lifts instead of waiting for an operator. Recognized in the raw
   # `{:aiur, :locally_held, hold}` form, the `:local_hold` classification
-  # `Errors.classify_error` now assigns, and the legacy transport-classified
-  # `{:github, :transport, %{reason: ...}}` form (#2409, #2429).
+  # `Errors.classify_error` now assigns, the legacy transport-classified
+  # `{:github, :transport, %{reason: ...}}` form (#2409, #2429), a workspace
+  # preflight failure `{:workspace_github_connectivity_failed, workspace,
+  # inner}` (the shape an agent exits with when its workspace preflight is
+  # held, #2339), and the preflight diagnostic
+  # `{:github_auth_preflight_failed, %{classification: :local_hold}}`.
   defp local_budget_hold?({:aiur, :locally_held, _hold}), do: true
   defp local_budget_hold?({:github, :local_hold, _detail}), do: true
   defp local_budget_hold?({:github, :transport, %{reason: {:aiur, :locally_held, _hold}}}), do: true
+
+  defp local_budget_hold?({:workspace_github_connectivity_failed, _workspace, inner}),
+    do: local_budget_hold?(inner)
+
+  defp local_budget_hold?({:github_auth_preflight_failed, %{classification: :local_hold}}), do: true
   defp local_budget_hold?(_reason), do: false
 
   defp tracker_transient?(reason) do

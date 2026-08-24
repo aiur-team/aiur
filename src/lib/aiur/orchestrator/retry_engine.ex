@@ -117,7 +117,29 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       state
       |> remove_stopped_running_entry(issue_id, running_entry)
-      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), failure_retry_metadata(running_entry, reason))
+      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), exit_retry_metadata(running_entry, reason))
+    end
+  end
+
+  # A local GitHub budget hold in an agent exit reason is definitionally
+  # transient: retrying before its own `reset_at` is guaranteed to fail, so the
+  # retry is scheduled after `reset_at` and must not consume the ticket's
+  # failure retry budget. Without this, a seconds-long hold exhausts
+  # `max_retry_attempts` and stamps the ticket `agent:error` — the #2339
+  # casualty, where a hold with 97% of the real budget free killed the ticket
+  # (#2429). `local_budget_hold_reason/1` is the single extraction used by both
+  # this path and retry-poll deferral, so every shape a hold can arrive in
+  # (raw, `:local_hold`, legacy transport, workspace preflight wrapper, preflight
+  # diagnostic) is treated identically.
+  defp exit_retry_metadata(running_entry, reason) do
+    case local_budget_hold_reason(reason) do
+      %{} = hold ->
+        running_entry
+        |> failure_retry_metadata(reason)
+        |> Map.merge(%{delay_type: :local_budget_hold, local_budget_hold: hold})
+
+      nil ->
+        failure_retry_metadata(running_entry, reason)
     end
   end
 
@@ -856,38 +878,30 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   @doc false
   @spec handle_retry_poll_failure(State.t(), String.t(), integer(), map(), term()) :: State.t()
-  def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, {:aiur, :locally_held, %{} = hold} = reason) do
-    defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
-  end
-
-  # `Errors.classify_error` now classifies a held GitHub request as
-  # `{:github, :local_hold, %{reason: ..., hold: hold}}` (#2429), so that is the
-  # shape a tracker poll sees today. The raw `{:aiur, :locally_held, hold}` form
-  # is matched above; the legacy `{:github, :transport, %{reason: ...}}` wrapper
-  # old classifier versions produced is matched below as a defensive fallback.
-  # All three must take the non-consuming `:local_budget_hold` retry instead of
-  # counting against the retry budget meant for genuine agent failures (#2409).
-  def handle_retry_poll_failure(
-        %State{} = state,
-        issue_id,
-        attempt,
-        metadata,
-        {:github, :local_hold, %{hold: %{} = hold}} = reason
-      ) do
-    defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
-  end
-
-  def handle_retry_poll_failure(
-        %State{} = state,
-        issue_id,
-        attempt,
-        metadata,
-        {:github, :transport, %{reason: {:aiur, :locally_held, %{} = hold}}} = reason
-      ) do
-    defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
-  end
-
+  # A tracker poll failure can be a local GitHub budget hold in several shapes:
+  # raw `{:aiur, :locally_held, hold}`, the `:local_hold` classification
+  # `{:github, :local_hold, %{hold: hold}}` (#2429), the legacy
+  # `{:github, :transport, %{reason: ...}}` wrapper old classifier versions
+  # produced, the `{:github_auth_preflight_failed, %{classification:
+  # :local_hold}}` diagnostic `ensure_tracker_preflight` surfaces when the
+  # preflight probe itself is held, and any of those wrapped in
+  # `{:workspace_github_connectivity_failed, workspace, inner}`. All must take
+  # the non-consuming `:local_budget_hold` retry instead of counting against
+  # the retry budget meant for genuine agent failures (#2409, #2339).
+  # `local_budget_hold_reason/1` is the single extraction shared with agent-exit
+  # retry metadata, so a seconds-long hold can never exhaust a budget or stamp
+  # `agent:error` (#2429).
   def handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
+    case local_budget_hold_reason(reason) do
+      %{} = hold ->
+        defer_retry_poll_for_budget_hold(state, issue_id, attempt, metadata, hold, reason)
+
+      nil ->
+        handle_generic_retry_poll_failure(state, issue_id, attempt, metadata, reason)
+    end
+  end
+
+  defp handle_generic_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
     identifier = metadata[:identifier] || issue_id
     retry_poll_failures = normalize_retry_poll_failures(metadata[:retry_poll_failures]) + 1
 
@@ -943,11 +957,22 @@ defmodule Aiur.Orchestrator.RetryEngine do
     )
   end
 
-  # Unwraps a local GitHub budget hold from its raw `{:aiur, :locally_held,
-  # hold}` shape, the `:local_hold` classification `Errors.classify_error` now
-  # assigns, or the legacy transport-classified `{:github, :transport, %{reason:
-  # ...}}` shape, so `recovery_delay_options/1` can name the hold's own release
-  # time for the automatic resume (#2409, #2429).
+  # Unwraps a local GitHub budget hold from every shape it can arrive in, so
+  # `recovery_delay_options/1` can name the hold's own release time for the
+  # automatic resume and agent-exit retry scheduling can route it to the
+  # non-consuming `:local_budget_hold` retry (#2409, #2429):
+  #
+  #   * raw `{:aiur, :locally_held, hold}`
+  #   * the `:local_hold` classification `Errors.classify_error` now assigns
+  #     (`{:github, :local_hold, %{hold: hold}}`)
+  #   * the legacy transport-classified `{:github, :transport, %{reason: ...}}`
+  #     wrapper older classifier versions produced
+  #   * a workspace preflight failure `{:workspace_github_connectivity_failed,
+  #     workspace, inner}` — the shape an agent exits with when its workspace
+  #     preflight is held (#2339)
+  #   * the preflight diagnostic `{:github_auth_preflight_failed,
+  #     %{classification: :local_hold, detail: ...}}` that `ensure_preflight/1`
+  #     surfaces when the held request is the preflight probe itself.
   defp local_budget_hold_reason({:aiur, :locally_held, hold}) when is_map(hold), do: hold
   defp local_budget_hold_reason({:github, :local_hold, %{hold: hold}}) when is_map(hold), do: hold
 
@@ -955,6 +980,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
     do: hold
 
   defp local_budget_hold_reason({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold), do: hold
+
+  defp local_budget_hold_reason({:workspace_github_connectivity_failed, _workspace, inner}),
+    do: local_budget_hold_reason(inner)
+
+  defp local_budget_hold_reason({:github_auth_preflight_failed, %{classification: :local_hold} = diagnostic}),
+    do: local_budget_hold_reason(Map.get(diagnostic, :detail))
+
+  defp local_budget_hold_reason(%{hold: hold}) when is_map(hold), do: hold
+  defp local_budget_hold_reason(%{reason: {:aiur, :locally_held, hold}}) when is_map(hold), do: hold
   defp local_budget_hold_reason(_reason), do: nil
 
   defp local_budget_reset_delay(hold) do

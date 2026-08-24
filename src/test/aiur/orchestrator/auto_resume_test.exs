@@ -105,14 +105,21 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
     # a ticket parked in `agent:error` by one auto-resumes once the hold lifts
     # instead of waiting for an operator. Recognized in the raw
     # `{:aiur, :locally_held, hold}` shape, the `:local_hold` classification
-    # `Errors.classify_error` now assigns (#2429), and the legacy
-    # transport-classified shape a tracker poll used to see.
+    # `Errors.classify_error` now assigns (#2429), the legacy
+    # transport-classified shape a tracker poll used to see, and the wrapped
+    # shapes an agent exits with when its workspace preflight is held (#2339).
     test "classifies a local GitHub budget hold as transient" do
       hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
 
       assert AutoResume.classify({:aiur, :locally_held, hold}) == :local_budget_hold
       assert AutoResume.classify({:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}) == :local_budget_hold
       assert AutoResume.classify({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) == :local_budget_hold
+
+      assert AutoResume.classify(
+               {:workspace_github_connectivity_failed, "/workspaces/2339", {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{reason: {:aiur, :locally_held, hold}, hold: hold}}}}
+             ) == :local_budget_hold
+
+      assert AutoResume.classify({:workspace_github_connectivity_failed, "/workspaces/2339", {:aiur, :locally_held, hold}}) == :local_budget_hold
     end
 
     test "returns nil for terminal and operator causes" do
