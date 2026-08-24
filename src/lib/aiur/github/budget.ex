@@ -25,27 +25,27 @@ defmodule Aiur.GitHub.Budget do
   @lease_grace_ms 5_000
   @retry_floor_ms 5
   @command_cleanup_ms 25
-  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL
-  # responses one actor (the daemon, or each agent workspace) may consume in a
-  # rolling hour before its own requests hold. A completed `304` is reconciled
-  # as free. These remain request counts, not GraphQL point budgets. `0`
-  # disables a ceiling.
+  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL /
+  # search responses one actor (the daemon, or each agent workspace) may consume
+  # in a rolling hour before its own requests hold. A completed `304` is
+  # reconciled as free. These remain request counts, not GraphQL point budgets.
+  # `0` disables a ceiling.
   #
-  # Re-derived against the corrected bucket counts (#2297): the measured
-  # trailing-hour ledger was 4,198 GraphQL admissions against 305 Core. The
-  # GraphQL windows are now the load-bearing ones — `daemon_graphql` covers the
-  # daemon's dominant share, `agent_graphql` must clear a single agent's normal
-  # loop (which crossed the old 375 and stalled it) — while the Core windows
-  # come down because the volume they were sized against was mostly miscounted
-  # GraphQL.
-  @default_daemon_core_limit_per_hour 1000
-  @default_daemon_graphql_limit_per_hour 3000
+  # The GraphQL defaults were raised in #2299 because the guard now books the
+  # high-level `gh` reads (`pr view|list|status|checks`, `issue view|list`,
+  # `gh api graphql`) to the GraphQL window: the App-token daemon measured
+  # ~3,400-4,300 GraphQL-wire requests/hour, so the pre-fix daemon default of
+  # 2,000 would have stalled the fleet on merge. The agent GraphQL ceiling is
+  # raised too so a single agent's normal loop has headroom under the re-booked
+  # window. These stay request counts, never GraphQL point budgets. `search` is
+  # a third, much lower GitHub window (~30 requests/minute), so it gets its own
+  # ceiling instead of folding into core or graphql.
+  @default_daemon_core_limit_per_hour 3000
+  @default_daemon_graphql_limit_per_hour 4500
+  @default_daemon_search_limit_per_hour 600
   @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 750
-  # GitHub meters `/search/*` against a third pool (~30 req/min), so `search`
-  # has its own per-actor ceilings rather than folding into core (#2297).
-  @default_daemon_search_limit_per_hour 1000
-  @default_agent_search_limit_per_hour 250
+  @default_agent_graphql_limit_per_hour 600
+  @default_agent_search_limit_per_hour 600
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
