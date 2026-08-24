@@ -609,6 +609,11 @@ defmodule Aiur.GitHub.BudgetTest do
     assert :ok = Budget.observe(request, second, {:ok, %{status: 304, headers: [], body: ""}}, opts)
     assert :ok = Budget.release(second, opts)
 
+    # The snapshot says *why* each admission stopped being billable, so a bare
+    # `billable = false` is distinguishable from any other unbilled state.
+    assert %{admissions: [%{billable: false, billable_reason: "304"}, %{billable: false, billable_reason: "304"}]} =
+             Budget.snapshot("shared-token", state_dir: root)
+
     actor =
       opts
       |> Budget.usage()
@@ -616,6 +621,83 @@ defmodule Aiur.GitHub.BudgetTest do
       |> Enum.find(&(&1.consumer_key == Budget.token_key("workspace:/conditional-reader")))
 
     assert actor.core.used == 0
+  end
+
+  test "a reconcile failure against a broker without the reconcile subcommand is logged", %{root: root} do
+    # A pre-#2284 broker copy: it can admit and release, but has no `reconcile`
+    # subcommand, so the daemon's reconcile call on a 304 exits non-zero the
+    # way argparse's "invalid choice" does. The failure must be visible in the
+    # daemon log, not read as "reconciliation did not fire".
+    stale_broker = Path.join(root, "stale-broker.py")
+
+    File.write!(stale_broker, """
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "reconcile":
+        sys.stderr.write("usage: aiur-github-budget ... invalid choice: 'reconcile'\\n")
+        sys.exit(2)
+    sys.exit(0)
+    """)
+
+    File.chmod!(stale_broker, 0o755)
+
+    opts = [state_dir: root, broker_path: stale_broker, stagger_ms: 0]
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+    # A lease the current broker would have granted; only the reconcile call
+    # matters here, and it must fail against the stale broker.
+    lease = %{id: "lease-1", token_key: Budget.token_key("shared-token")}
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = Budget.observe(request, lease, {:ok, %{status: 304, headers: [], body: ""}}, opts)
+      end)
+
+    assert log =~ "github_budget_reconcile_failed"
+  end
+
+  test "a lease-less admission stays billable in the actor ledger", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/lease-less-reader",
+      agent_core_limit_per_hour: 3,
+      agent_graphql_limit_per_hour: 1
+    ]
+
+    request = request("lease-less-token", "/repos/owner/repo/issues/1477")
+
+    # `acquire` writes the actor's policy row (the `usage` inventory) and one
+    # leased, billable admission. Then inject the exact row a pre-#2284 writer
+    # (one that wrote the admission without taking a lease) leaves behind. Its
+    # status is unknown, so it must stay billable and count as spend: GitHub
+    # was charged for it, and no lease means nothing can ever prove it was a
+    # 304.
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    assert :ok = Budget.release(lease, opts)
+
+    db = Budget.database_path(state_dir: root)
+
+    assert :ok =
+             insert_lease_less_admission(
+               db,
+               "lease-less-token",
+               Budget.token_key("workspace:/lease-less-reader"),
+               "issues",
+               1
+             )
+
+    actor =
+      opts
+      |> Budget.usage()
+      |> Map.fetch!(:actors)
+      |> Enum.find(&(&1.consumer_key == Budget.token_key("workspace:/lease-less-reader")))
+
+    # Both the leased admission and the lease-less one count: dropping the
+    # lease-less row from the ledger would report only 1.
+    assert actor.core.used == 2
   end
 
   test "a non-billable rate_limit admission still consumes a rate-per-minute pacing slot", %{root: root} do
@@ -1103,6 +1185,33 @@ defmodule Aiur.GitHub.BudgetTest do
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value\", (sys.argv[2],)); c.commit()"
 
     assert {_output, 0} = System.cmd("python3", ["-c", script, db, Integer.to_string(version)], stderr_to_stdout: true)
+  end
+
+  # The admission a pre-#2284 writer produced: linked to no lease, still flagged
+  # billable. Injected straight into the broker database so the "lease-less rows
+  # stay billable" contract is exercised against real storage.
+  #
+  # The `admissions_require_lease` trigger (#2307) refuses exactly this insert:
+  # that is its job, since a live stale broker must never write a lease-less
+  # row. The row this fixture needs is one written *before* the trigger existed,
+  # so the trigger is dropped for the insert; the next writable broker open
+  # reinstalls it (`_prepare_writable` is `CREATE TRIGGER IF NOT EXISTS`). Both
+  # contracts hold: stale brokers are still refused, and the legacy rows they
+  # left behind are still read as billable spend.
+  defp insert_lease_less_admission(db, token, consumer_key, endpoint_family, billable) do
+    key = Budget.token_key(token)
+    now = System.system_time(:millisecond)
+
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute('DROP TRIGGER IF EXISTS admissions_require_lease'); " <>
+        "c.execute('INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, admitted_at_ms, billable) " <>
+        "VALUES (?,?,NULL,?,?,?)', (sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6]))); c.commit()"
+
+    case System.cmd("python3", ["-c", script, db, key, consumer_key, endpoint_family, Integer.to_string(now), Integer.to_string(billable)], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("could not inject lease-less admission: #{status}: #{output}")
+    end
   end
 
   defp close_port(port) do
