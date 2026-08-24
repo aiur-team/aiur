@@ -313,11 +313,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
         worker_generation: 12
       }
 
-      path =
-        Path.join(
-          System.tmp_dir!(),
-          "session-lifecycle-display-#{System.unique_integer([:positive])}.jsonl"
-        )
+      path = Aiur.TestSupport.tmp_root!("session-lifecycle-display") <> ".jsonl"
 
       old_record = %{
         "uuid" => "old-record",

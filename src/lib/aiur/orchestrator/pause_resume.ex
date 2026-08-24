@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Orchestrator.GithubBudgetPause
   alias Aiur.Orchestrator.Lifecycle, as: OrchestratorLifecycle
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.PushRouting
@@ -56,17 +57,19 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_agent_with_receipt(server, issue_identifier),
     do: control_api_call(server, {:resume_agent_with_receipt, issue_identifier})
 
-  @spec reset_dispatch_budget(String.t()) :: {:ok, :queued} | {:error, term()}
+  # `reset-budget <id>` is the documented exit from the lifetime dispatch
+  # latch. It runs as a synchronous orchestrator call so the CLI reports the
+  # ACTUAL outcome (cleared, or a failure reason) rather than an unverifiable
+  # "queued" at enqueue time. A fire-and-forget cast reported success while the
+  # counter stayed unchanged for tickets the orchestrator could not resolve —
+  # a surface claiming confident success for something that did not happen
+  # (#2435).
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Orchestrator, issue_identifier)
 
-  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :queued} | {:error, term()}
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(server, issue_identifier) when is_binary(issue_identifier) and issue_identifier != "" do
-    if GenServer.whereis(server) do
-      GenServer.cast(server, {:reset_dispatch_budget, issue_identifier})
-      {:ok, :queued}
-    else
-      {:error, :unavailable}
-    end
+    control_api_call(server, {:reset_dispatch_budget, issue_identifier})
   end
 
   def reset_dispatch_budget(_server, _issue_identifier), do: {:error, :invalid_identifier}
@@ -74,14 +77,16 @@ defmodule Aiur.Orchestrator.PauseResume do
   @doc false
   @spec reset_dispatch_budget_call(State.t(), String.t()) :: {:reply, {:ok, :reset} | {:error, term()}, State.t()}
   def reset_dispatch_budget_call(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
-    case find_issue_id_by_identifier(state, issue_identifier) do
-      {:ok, issue_id} ->
-        issue = Map.get(state.last_polled_issues, issue_id)
+    case resolve_reset_issue(state, issue_identifier) do
+      {:ok, issue, state} ->
+        issue_id = issue.id
+        alert_issue_id = if is_binary(issue_id), do: issue_id, else: issue_identifier
         was_latched? = match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue_id))
         {state, reset_result} = Dispatcher.reset_lifetime_budget(state, issue_id)
-        reply_for_reset(state, issue, was_latched?, reset_result, issue_identifier)
+        reply_for_reset(state, issue, alert_issue_id, issue_identifier, was_latched?, reset_result)
 
-      {:error, reason} ->
+      {:error, reason, state} ->
+        emit_reset_failure_alert(reset_alert_issue_id(state, issue_identifier), issue_identifier, reason)
         {:reply, {:error, reason}, state}
     end
   end
@@ -91,37 +96,46 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @doc false
+  # Retained for the async surface (the orchestrator's cast handler). The
+  # apply — including the completion/failure alert, which must fire on apply,
+  # not on enqueue — lives in `reset_dispatch_budget_call/2`, so both the
+  # synchronous CLI path and this cast path acknowledge identically.
   @spec reset_dispatch_budget_cast(State.t(), String.t()) :: State.t()
   def reset_dispatch_budget_cast(%State{} = state, issue_identifier) do
-    alert_issue_id = reset_alert_issue_id(state, issue_identifier)
-
     case reset_dispatch_budget_call(state, issue_identifier) do
-      {:reply, {:ok, :reset}, next_state} ->
-        Alerts.emit_custom(
-          "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset.resolved",
-          "Lifetime dispatch budget reset completed for #{issue_identifier}.",
-          issue: alert_issue_id,
-          reason: "The queued lifetime dispatch budget reset completed.",
-          needs_attention: false,
-          severity: "info",
-          event_source: :system
-        )
+      {:reply, _result, next_state} -> next_state
+    end
+  end
 
-        StatusReport.notify_dashboard(next_state)
-        next_state
+  # Resolves the issue a lifetime-budget reset targets. `reset-budget` must
+  # work even when the latched ticket is not in the polled set: a ticket left
+  # in `agent:error` (a non-active state) is dropped from `last_polled_issues`
+  # by the disappearing-issue reconciliation, so the in-memory lookup alone
+  # would resolve a real latched ticket as `:unknown_issue` and the reset
+  # would silently no-op while the CLI reported success (#2435). Fall back to
+  # a direct tracker fetch so the durable latch is cleared for any open ticket,
+  # whether or not it is currently polled.
+  defp resolve_reset_issue(%State{} = state, issue_identifier) do
+    case find_issue_id_by_identifier(state, issue_identifier) do
+      {:ok, issue_id} ->
+        {:ok, Map.get(state.last_polled_issues, issue_id), state}
 
-      {:reply, {:error, reason}, next_state} ->
-        Alerts.emit_custom(
-          "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset",
-          "Lifetime dispatch budget reset failed for #{issue_identifier}: #{inspect(reason)}.",
-          issue: alert_issue_id,
-          reason: "The queued lifetime dispatch budget reset failed: #{inspect(reason)}",
-          needs_attention: true,
-          severity: "warning",
-          event_source: :system
-        )
+      {:error, :unknown_issue} ->
+        fetch_reset_issue(state, issue_identifier)
+    end
+  end
 
-        next_state
+  defp fetch_reset_issue(%State{} = state, issue_identifier) do
+    case Tracker.fetch_issue_states_by_ids([issue_identifier]) do
+      {:ok, [%Issue{} = issue | _]} ->
+        state = %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, issue)}
+        {:ok, issue, state}
+
+      {:ok, []} ->
+        {:error, :unknown_issue, state}
+
+      {:error, reason} ->
+        {:error, {:tracker_refresh_failed, reason}, state}
     end
   end
 
@@ -132,23 +146,51 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp reply_for_reset(state, issue, was_latched?, :ok, issue_identifier) do
+  defp reply_for_reset(state, issue, alert_issue_id, issue_identifier, was_latched?, :ok) do
     case restore_latched_error_state(state, issue, was_latched?) do
       {:ok, state} ->
         Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue.id}")
+        emit_reset_success_alert(alert_issue_id, issue_identifier)
+        StatusReport.notify_dashboard(state)
         {:reply, {:ok, :reset}, state}
 
       {:error, reason} ->
         Logger.error("Lifetime dispatch budget reset could not restore the ticket to a dispatchable state: issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
 
+        emit_reset_failure_alert(alert_issue_id, issue_identifier, {:state_restore_failed, reason})
         {:reply, {:error, {:state_restore_failed, reason}}, state}
     end
   end
 
-  defp reply_for_reset(state, _issue, _was_latched?, {:error, reason}, issue_identifier) do
+  defp reply_for_reset(state, _issue, alert_issue_id, issue_identifier, _was_latched?, {:error, reason}) do
     Logger.error("Lifetime dispatch budget reset failed (durable store): issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
 
+    emit_reset_failure_alert(alert_issue_id, issue_identifier, {:budget_reset_failed, reason})
     {:reply, {:error, {:budget_reset_failed, reason}}, state}
+  end
+
+  defp emit_reset_success_alert(alert_issue_id, issue_identifier) do
+    Alerts.emit_custom(
+      "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset.resolved",
+      "Lifetime dispatch budget reset completed for #{issue_identifier}.",
+      issue: alert_issue_id,
+      reason: "The lifetime dispatch budget reset completed.",
+      needs_attention: false,
+      severity: "info",
+      event_source: :system
+    )
+  end
+
+  defp emit_reset_failure_alert(alert_issue_id, issue_identifier, reason) do
+    Alerts.emit_custom(
+      "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset",
+      "Lifetime dispatch budget reset failed for #{issue_identifier}: #{inspect(reason)}.",
+      issue: alert_issue_id,
+      reason: "The lifetime dispatch budget reset failed: #{inspect(reason)}",
+      needs_attention: true,
+      severity: "warning",
+      event_source: :system
+    )
   end
 
   # A lifetime-latched ticket is durably moved to `agent:error` when it trips
@@ -806,6 +848,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> maybe_put_worker_pause_reason(status, pause_reason)
       |> maybe_clear_control_owned_pause(request, status)
       |> maybe_clear_pending_pause_reason(request, status)
+      |> maybe_clear_interrupted_turn(status)
 
     maybe_log_worker_pause(status, updated_running_entry, pause_reason)
     record_control_transition(updated_running_entry, previous_status, status, transition_cause)
@@ -827,6 +870,11 @@ defmodule Aiur.Orchestrator.PauseResume do
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end
+
+  defp maybe_clear_interrupted_turn(running_entry, :paused),
+    do: Map.delete(running_entry, :interrupted_turn_observed_at)
+
+  defp maybe_clear_interrupted_turn(running_entry, _status), do: running_entry
 
   defp maybe_wake_after_first_active_resume(next_state, previous_state) do
     if State.active_running_count(previous_state.running) == 0 and
@@ -965,7 +1013,8 @@ defmodule Aiur.Orchestrator.PauseResume do
          :label_override,
          :operator_pause,
          :pause_containment,
-         :blocker_dependency
+         :blocker_dependency,
+         :github_budget_hold
        ] do
       Map.delete(running_entry, :paused_reason)
     else
@@ -1036,12 +1085,12 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp normalize_pause_context(running_entry, :paused) do
-    if Map.get(running_entry, :paused_reason) == :blocker_dependency do
+    if Map.get(running_entry, :paused_reason) in [:blocker_dependency, :github_budget_hold] do
       running_entry
     else
       running_entry
       |> Map.delete(:blocker_pause)
-      |> Map.delete(:pending_auto_resume)
+      |> GithubBudgetPause.clear_context()
     end
   end
 
@@ -1813,7 +1862,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp pending_pause_reason(_running_entry, _request), do: nil
 
   defp pause_requester(:operator_pause), do: :operator
-  defp pause_requester(:agent_pause_request), do: :automatic
+  defp pause_requester(reason) when reason in [:agent_pause_request, :github_budget_hold], do: :automatic
   defp pause_requester(_pause_reason), do: :system
 
   defp issue_id(_running_entry, %Issue{id: issue_id}) when not is_nil(issue_id), do: issue_id
@@ -2138,8 +2187,10 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp control_api_call(server, request) do
+    timeout_ms = Application.get_env(:aiur, :control_api_call_timeout_ms, 5_000)
+
     if GenServer.whereis(server) do
-      GenServer.call(server, request, 5_000)
+      GenServer.call(server, request, timeout_ms)
     else
       {:error, :unavailable}
     end

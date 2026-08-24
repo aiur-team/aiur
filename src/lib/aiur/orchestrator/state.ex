@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.State do
           snapshot_generation: reference() | nil,
           snapshot_ready?: boolean(),
           candidate_snapshot_fresh?: boolean(),
+          poll_cycles_completed: non_neg_integer(),
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -52,6 +53,10 @@ defmodule Aiur.Orchestrator.State do
           tick_timer_ref: reference() | nil,
           tick_token: reference() | nil,
           initial_dispatch_cycle: boolean() | nil,
+          startup_claim_reconciliation_complete?: boolean(),
+          # Per-ticket startup-claim release failures within this boot:
+          # `%{identifier => %{reason: term(), attempts: pos_integer()}}`.
+          startup_claim_reconciliation_failures: map(),
           queue_store: term(),
           last_polled_issues: map(),
           ci_lifecycle: %{
@@ -65,8 +70,6 @@ defmodule Aiur.Orchestrator.State do
           todo_over_capacity_alert_active: boolean(),
           prewarm_blocked_alert_active: boolean(),
           prewarm_blocked_alert_resolution_emitted: boolean(),
-          build_gate_slot_stall_active: boolean(),
-          build_gate_slot_stall_resolution_emitted: boolean(),
           tracker_preflight_alert_signature: String.t() | nil,
           tracker_preflight_alert_resolution_emitted: boolean(),
           capacity_starvation_resolution_emitted: boolean(),
@@ -119,6 +122,9 @@ defmodule Aiur.Orchestrator.State do
           codex_rate_limits: map() | nil,
           events_etag: String.t() | nil,
           events_last_id: String.t() | nil,
+          firehose_partial_streak: non_neg_integer(),
+          firehose_truncation_alert_active: boolean(),
+          firehose_truncation_alert_resolution_emitted: boolean(),
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
@@ -152,7 +158,14 @@ defmodule Aiur.Orchestrator.State do
           # warming base. Drives the at-most-once-per-N-ticks hold log so a
           # slow/stuck base build stays visible in the daemon log without
           # spamming it (see Dispatcher.log_prewarm_hold/2).
-          prewarm_hold_ticks: non_neg_integer()
+          prewarm_hold_ticks: non_neg_integer(),
+          # Monotonic ms when the current consecutive prewarm hold began (nil
+          # when no hold is in progress). The `system.dispatch.prewarm_blocked`
+          # alert is only raised once a hold has persisted past
+          # `Dispatcher.@prewarm_blocked_alert_after_ms`, so a routine refresh
+          # probe — a hold that self-clears in seconds — is never reported while
+          # a genuine block still is (see Dispatcher.maybe_emit_prewarm_blocked_alert/3).
+          prewarm_hold_since_ms: non_neg_integer() | nil
         }
 
   # The Orchestrator is the single owner of the correlated control lifecycle;
@@ -180,6 +193,8 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_retry_at_ms,
     :ci_readiness_scope,
     :ci_readiness_result,
+    startup_claim_reconciliation_complete?: false,
+    startup_claim_reconciliation_failures: %{},
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     dispatch_hold: nil,
@@ -196,8 +211,6 @@ defmodule Aiur.Orchestrator.State do
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
     prewarm_blocked_alert_resolution_emitted: false,
-    build_gate_slot_stall_active: false,
-    build_gate_slot_stall_resolution_emitted: false,
     tracker_preflight_alert_signature: nil,
     tracker_preflight_alert_resolution_emitted: false,
     capacity_starvation_resolution_emitted: false,
@@ -232,6 +245,9 @@ defmodule Aiur.Orchestrator.State do
     codex_rate_limits: nil,
     events_etag: nil,
     events_last_id: nil,
+    firehose_partial_streak: 0,
+    firehose_truncation_alert_active: false,
+    firehose_truncation_alert_resolution_emitted: false,
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
@@ -260,9 +276,15 @@ defmodule Aiur.Orchestrator.State do
     merged_ticket_reconciliation_failures: MapSet.new(),
     snapshot_ready?: false,
     candidate_snapshot_fresh?: true,
+    # Full poll cycles completed since this daemon started. The idle poll
+    # backoff is only permitted once at least one cycle has run, so a freshly
+    # restarted daemon — which has observed no idleness yet — polls at the base
+    # interval first instead of starting already backed off (#2138).
+    poll_cycles_completed: 0,
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
-    prewarm_hold_ticks: 0
+    prewarm_hold_ticks: 0,
+    prewarm_hold_since_ms: nil
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}
@@ -607,10 +629,20 @@ defmodule Aiur.Orchestrator.State do
 
   def paused_running_count(_running), do: 0
 
+  # Paused entries that keep their fleet reservation. A deliberate/Executor
+  # pause holds its slot so the polling loop cannot auto-claim replacement
+  # work. CI-wait, dependency-blocked, and duration-capped pauses are the
+  # exception: the daemon owns that wait (or the agent has simply hit its time
+  # cap and is parked for review), so the parked runner releases normal
+  # dispatch capacity — holding the slot would convert the time cap into a
+  # capacity leak where parked agents accumulate against the fleet limit
+  # (#2329).
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration]
+
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   def reserved_paused_running_count(running) when is_map(running) do
     Enum.count(running, fn
-      {_issue_id, %{paused_reason: reason}} when reason in [:ci_wait, :blocker_dependency] -> false
+      {_issue_id, %{paused_reason: reason}} when reason in @non_reserving_pause_reasons -> false
       {_issue_id, entry} -> paused_running_entry?(entry)
     end)
   end
@@ -620,7 +652,7 @@ defmodule Aiur.Orchestrator.State do
   @spec active_running_entry?(term()) :: boolean()
   def active_running_entry?(entry) when is_map(entry) do
     not (completed_running_entry?(entry) or paused_running_entry?(entry) or
-           deactivated_running_entry?(entry))
+           deactivated_running_entry?(entry) or error_running_entry?(entry))
   end
 
   def active_running_entry?(_entry), do: false
@@ -631,6 +663,13 @@ defmodule Aiur.Orchestrator.State do
   end
 
   def paused_running_entry?(_entry), do: false
+
+  @spec error_running_entry?(term()) :: boolean()
+  def error_running_entry?(entry) when is_map(entry) do
+    (get_in(entry, [:control, :status]) || :working) == :error
+  end
+
+  def error_running_entry?(_entry), do: false
 
   @spec sleeping_running_entry?(term()) :: boolean()
   def sleeping_running_entry?(entry) when is_map(entry) do

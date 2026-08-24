@@ -7,7 +7,7 @@ defmodule Aiur.Executor.RosterTest do
   @stall_after_ms 60_000
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-executor-roster-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-executor-roster")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
     %{path: Path.join(root, "claims.json")}
@@ -54,7 +54,7 @@ defmodule Aiur.Executor.RosterTest do
     # at its bound. Either would promote a wedged consumer on someone else's
     # work, which is the exact failure this roster exists to prevent.
     now = DateTime.utc_now()
-    path = Path.join(System.tmp_dir!(), "aiur-roster-evidence-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-roster-evidence") <> ".json"
     on_exit(fn -> File.rm_rf!(path) end)
 
     {:ok, _owner} = Claims.claim("agent-a", path: path, now: now)

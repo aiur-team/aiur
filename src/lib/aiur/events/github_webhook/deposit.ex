@@ -34,6 +34,14 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   belongs to, because that is the identity the one pull-request consumer reads
   by (#2126).
 
+  Three delivery types carry state the fleet otherwise buys again, and each has
+  its own clause (#2326): `pull_request_review_thread` carries a full pull
+  request (deposited under both PR keys, feeding `DeliveredPullRequest`),
+  `sub_issues` carries the full sub-issue and parent issue (deposited as
+  carried issues), and `issue_dependencies` carries the issue plus the blocker
+  edge (deposited as a carried issue, with the edge merged into the
+  `:issue_blocked_by` list the dependency reader serves).
+
   ## What a deposit never makes servable
 
   **`:pr_review` and `:pr_review_comment` must never gain a cache-serving
@@ -52,11 +60,30 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   free, not a cached one. Holding the body is what permits that, because
   `ResourceStore.etag/1` answers only beside a held body.
 
-  **`:check_run` is not deposited at all** (#2126). No store reader addresses a
-  check run, and it is deliberately excluded from the agent cache on the
-  grounds that a CI verdict must never be served from a cache at any age, so a
-  deposit of one bought nothing. It was removed rather than kept as a dead
-  write.
+  A `check_run` delivery may advance the matching run inside a complete
+  `:ci_contexts` snapshot that a poll already established for the same head.
+  It never invents the rest of the collection from one run, and it never makes
+  review, merge, or CI verdict fields generally cacheable. The CI poller still
+  reads those strict pull-request fields and legacy commit statuses live; it
+  omits only the check-run fields a newer delivery already supplied.
+
+  ## What every deposit also retires
+
+  A delivery is not only a body to hold — it is a fact that the state Aiur was
+  caching has changed. Each deposit therefore retires the `Aiur.GitHub.ReadCache`
+  identities the delivery makes stale: the numbered issue or pull request it
+  carries and, unconditionally, the repository's collections. The collections
+  marker goes on every delivery rather than only on actions that create or
+  destroy a set member, because any change to a numbered resource changes what
+  a list of that repository's tickets answers — a label changes what a
+  `labels: [...]` enumeration answers, an edit changes what a ticket list
+  renders — and the `build_order_catalog` enumeration names no number, so the
+  collections marker is the only thing that retires it. This is
+  `ReadCache.invalidate_number/2`, the same primitive `write_through/3` uses
+  for Aiur's own mutations, wired to the second producer the read cache had no
+  knowledge of; it is what lets the `ReadCache` TTLs rise from seconds to
+  hours, with the delivery rather than the clock as the freshness mechanism and
+  the clock only a backstop against a missed delivery.
 
   ## What this module deliberately does not do
 
@@ -102,7 +129,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   require Logger
 
   alias Aiur.Events.GithubWebhook.Normalizer
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{PollSnapshots, ReadCache, ResourceStore}
   alias Aiur.TicketBranch
 
   @typedoc """
@@ -112,6 +139,9 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   @type work ::
           {ResourceStore.resource_type(), term(), term(), String.t() | nil}
           | {:drop, ResourceStore.resource_type(), term()}
+          | {:invalidate_review_threads, term()}
+          | {:merge_review_thread, term(), map()}
+          | {:merge_check_run, term(), String.t(), map()}
 
   @doc """
   Deposits every body `payload` carries, and returns the keys written.
@@ -122,14 +152,21 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   """
   @spec deposit(term(), term(), term()) :: [ResourceStore.key()]
   def deposit(event_type, payload, repo) when is_binary(event_type) and is_map(payload) and is_binary(repo) do
-    if store_running?() do
-      Enum.flat_map(bodies(event_type, payload), fn
-        {:drop, type, id} -> drop(type, repo, id)
-        {type, id, body, version} -> store(type, repo, id, body, version)
-      end)
-    else
-      []
-    end
+    keys =
+      if store_running?() do
+        Enum.flat_map(bodies(event_type, payload), fn
+          {:drop, type, id} -> drop(type, repo, id)
+          {:invalidate_review_threads, pr_number} -> invalidate_review_threads(repo, pr_number)
+          {:merge_review_thread, pr_number, thread} -> merge_review_thread(repo, pr_number, thread)
+          {:merge_check_run, target, head_sha, check_run} -> merge_check_run(repo, target, head_sha, check_run)
+          {type, id, body, version} -> store(type, repo, id, body, version)
+        end)
+      else
+        []
+      end
+
+    invalidate_read_cache(event_type, payload, repo)
+    keys
   rescue
     error ->
       Logger.warning("GithubWebhook.Deposit skipped type=#{inspect(event_type)} error=#{Exception.message(error)}")
@@ -167,7 +204,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     comment = Map.get(payload, "comment")
     action = Map.get(payload, "action")
 
-    comment_deposits(:pr_review_comment, action, comment) ++
+    review_thread_invalidation(payload) ++
+      comment_deposits(:pr_review_comment, action, comment) ++
       pull_request_deposits(Map.get(payload, "pull_request"))
   end
 
@@ -178,11 +216,230 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     review_deposits(action, review) ++ pull_request_deposits(Map.get(payload, "pull_request"))
   end
 
+  # A `pull_request_review_thread` delivery (resolved/unresolved) carries a full
+  # pull request plus the thread, and both halves are deposited: the PR under
+  # `:pull_request` / `:branch_pull_request` (feeds
+  # `Aiur.GitHub.DeliveredPullRequest`, which decides whether the comment poller
+  # pays for its per-PR `review_threads_unaddressed` fallback on this cycle —
+  # the single most common GraphQL spend the audit found, #2326), and the
+  # thread under the poll snapshot #2276 converges.
+  defp bodies("pull_request_review_thread", %{"action" => "resolved"} = payload) do
+    with %{} = pull_request <- Map.get(payload, "pull_request"),
+         pr_number when not is_nil(pr_number) <- Map.get(pull_request, "number"),
+         %{} = thread <- Map.get(payload, "thread"),
+         %{"id" => id} = normalized when is_binary(id) and id != "" <- normalize_review_thread(thread) do
+      pull_request_deposits(pull_request) ++ [{:merge_review_thread, pr_number, normalized}]
+    else
+      _other -> pull_request_deposits(Map.get(payload, "pull_request")) ++ review_thread_invalidation(payload)
+    end
+  end
+
+  # Every other thread action — `unresolved` above all — is a statement that the
+  # held resolution state is wrong, and none of them carry enough to merge. An
+  # un-resolved thread left webhook-fresh as `isResolved: true` is filtered out
+  # of the unaddressed set, so the reviewer's re-raised objection disappears and
+  # the agent proceeds as though it were answered. Drop the snapshot and let the
+  # next poll pay for the truth. The delivery still deposits the PR half it
+  # carries (see above).
+  defp bodies("pull_request_review_thread", payload) do
+    pull_request_deposits(Map.get(payload, "pull_request")) ++ review_thread_invalidation(payload)
+  end
+
+  defp bodies("check_run", payload) do
+    with %{} = check_run <- Map.get(payload, "check_run"),
+         head_sha when is_binary(head_sha) and head_sha != "" <- Map.get(check_run, "head_sha"),
+         %{"id" => id} = normalized when not is_nil(id) <- normalize_check_run(check_run) do
+      check_run_deposits(check_run, head_sha, normalized)
+    else
+      _other -> []
+    end
+  end
+
   defp bodies("pull_request", payload), do: pull_request_deposits(Map.get(payload, "pull_request"))
 
   defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
+  # A `sub_issues` delivery carries the full sub-issue and its full parent
+  # issue — deposited as carried issues (`:issue` / `:issue_labels`) for the
+  # readers those resources serve (#2326) — plus the parent↔sub-issue edge the
+  # Build Order catalog rebuilds each root's membership from (#2325). The edge
+  # is keyed by the sub-issue's node id and holds the parent relationship the
+  # projection needs to attach it to a root; `sub_issue_removed` drops it.
+  defp bodies("sub_issues", payload) do
+    carried_issue_deposits(Map.get(payload, "sub_issue")) ++
+      carried_issue_deposits(Map.get(payload, "parent_issue")) ++
+      sub_issue_deposits(Map.get(payload, "action"), payload)
+  end
+
+  # An `issue_dependencies` delivery carries the issue whose dependency edge
+  # changed, plus the blocker edge it created or removed, and the action tells
+  # which. The issue is deposited like any carried issue; the edge is then
+  # deposited according to the action — `blocked_by_added` merges it into the
+  # `:issue_blocked_by` list the dependency reader serves (so a delivery that
+  # announces an edge does not make the next `fetch_blocked_by` pay for it
+  # again), `blocked_by_removed` drops the held list entirely (#2326). The edge
+  # is also deposited under its relationship id so the catalog's event-sourced
+  # rebuild can enumerate every edge from the store (#2325).
+  defp bodies("issue_dependencies", payload) do
+    issue = Map.get(payload, "issue")
+
+    carried_issue_deposits(issue) ++
+      blocked_by_edge_deposits(Map.get(payload, "action"), issue, Map.get(payload, "blocked_by_issue")) ++
+      issue_dependency_deposits(Map.get(payload, "action"), Map.get(payload, "dependency"))
+  end
+
   defp bodies(_event_type, _payload), do: []
+
+  defp check_run_deposits(check_run, head_sha, normalized) do
+    # A malformed `pull_requests` element (not a map) must not raise here: it
+    # runs inside `deposit/3`'s `bodies` walk, whose rescue would abort the whole
+    # delivery — including `invalidate_read_cache/3`, silently leaving the cache
+    # stale. Skip the element and still merge the valid runs.
+    check_run
+    |> Map.get("pull_requests", [])
+    |> Enum.flat_map(fn
+      pr when is_map(pr) -> [pr |> get_in(["head", "ref"]) |> TicketBranch.ticket_id()]
+      _not_a_map -> []
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.map(&{:merge_check_run, &1, head_sha, normalized})
+  end
+
+  defp normalize_review_thread(thread) do
+    %{
+      "id" => Map.get(thread, "node_id") || Map.get(thread, "id"),
+      "isResolved" => true,
+      "updatedAt" => Map.get(thread, "updated_at"),
+      "path" => Map.get(thread, "path"),
+      "line" => Map.get(thread, "line")
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  # Paired with `Aiur.GitHub.CIPollBatch.normalize_check_run/1`; see the note
+  # there. The REST `"id"` and the GraphQL `databaseId` are the same number,
+  # which is what lets a delivery merge into a polled baseline at all.
+  defp normalize_check_run(check_run) do
+    %{
+      "id" => Map.get(check_run, "id"),
+      "name" => Map.get(check_run, "name"),
+      "status" => Map.get(check_run, "status"),
+      "conclusion" => Map.get(check_run, "conclusion"),
+      "started_at" => Map.get(check_run, "started_at"),
+      "completed_at" => Map.get(check_run, "completed_at"),
+      "updated_at" => Map.get(check_run, "updated_at"),
+      "check_suite_id" => get_in(check_run, ["check_suite", "id"]),
+      "output" => Map.get(check_run, "output", %{})
+    }
+  end
+
+  # ---------------------------------------------------------------------------
+  # Retiring the daemon read cache
+  # ---------------------------------------------------------------------------
+
+  # A delivery is a fact about GitHub state that arrived for free, and the
+  # `ReadCache` entries about the resources it touches are stale from that
+  # moment — even when `ResourceStore` refuses the body, because the state
+  # changed regardless of whether we could hold it. Retiring those entries is
+  # what lets the `ReadCache` TTLs be measured in hours instead of seconds:
+  # the delivery, not the clock, is the freshness mechanism. This is the same
+  # primitive `write_through/3` already uses for Aiur's own writes, wired to
+  # the second producer that knows about changes made outside this daemon.
+  #
+  # Deliberately runs even when the store is not running: a delivery proves the
+  # change whether or not there is anywhere to hold its body.
+  defp invalidate_read_cache(event_type, payload, repo) do
+    case delivery_numbers(event_type, payload) do
+      [] -> ReadCache.invalidate_repo(repo)
+      numbers -> Enum.each(numbers, &ReadCache.invalidate_number(repo, &1))
+    end
+  end
+
+  # The numbers a delivery names, read from the payload rather than from the
+  # `ResourceStore` keys written: a comment's store key is its comment id, which
+  # is not a `ReadCache` identity. GitHub numbers issues and pull requests from
+  # one sequence, so a delivery about either retires the single shared
+  # `{:number, ...}` identity.
+  #
+  # Retiring goes through `ReadCache.invalidate_number/2`, which marks the
+  # numbered issue-or-pull-request and, unconditionally, the repository's
+  # collections. The collections marker goes on *every* delivery, not only on
+  # actions that create or destroy a set member: a `labeled` delivery changes
+  # what a `labels: [...]` enumeration answers, an edit changes what a ticket
+  # list renders, a comment changes what a list of the repository's tickets
+  # answers — and the `build_order_catalog` enumeration names no numbers, so
+  # the collections identity is the only one that retires it.
+  #
+  # `check_run` and `check_suite` name their pull requests through the
+  # `pull_requests` array; `pull_request_review_thread` through the pull request
+  # it carries. Before #2372, all three fell through to "no nameable number"
+  # and retired the *whole repository* on every delivery — and on a repo with
+  # continuous CI activity that emptied the read cache faster than anything
+  # could be served from it: 0% hits with a full, freshly-deposited table. They
+  # now retire exactly the pull requests they name.
+  #
+  # A delivery with no nameable number (defensive; every handled event carries
+  # one) answers `[]`, and `invalidate_read_cache/3` then falls back to retiring
+  # the whole repository — the only thing known is that something in it changed,
+  # and guessing which read is the failure mode this cache cannot afford.
+  defp delivery_numbers(event_type, payload) do
+    candidates =
+      case event_type do
+        "issue_comment" ->
+          [get_in(payload, ["issue", "number"])]
+
+        event when event in ["pull_request_review_comment", "pull_request_review", "pull_request"] ->
+          [get_in(payload, ["pull_request", "number"])]
+
+        "issues" ->
+          [get_in(payload, ["issue", "number"])]
+
+        event when event in ["check_run", "check_suite"] ->
+          pull_request_numbers(get_in(payload, [event, "pull_requests"]))
+
+        "pull_request_review_thread" ->
+          [get_in(payload, ["pull_request", "number"])]
+
+        _other ->
+          []
+      end
+
+    candidates
+    |> Enum.flat_map(fn number ->
+      case parse_number(number) do
+        parsed when is_integer(parsed) -> [parsed]
+        _unusable -> []
+      end
+    end)
+    |> Enum.uniq()
+  end
+
+  defp pull_request_numbers(nil), do: []
+
+  defp pull_request_numbers(pull_requests) when is_list(pull_requests) do
+    # A malformed element (not a map) must not raise here: `deposit/3`'s rescue
+    # would swallow the whole `invalidate_read_cache/3` call and leave the cache
+    # stale rather than over-retired. Skip the element and still retire the
+    # pull requests the rest of the array names.
+    Enum.flat_map(pull_requests, fn
+      pr when is_map(pr) -> [get_in(pr, ["number"])]
+      _not_a_map -> []
+    end)
+  end
+
+  defp pull_request_numbers(_other), do: []
+
+  defp parse_number(number) when is_integer(number) and number > 0, do: number
+
+  defp parse_number(number) when is_binary(number) do
+    case Integer.parse(number) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _other -> nil
+    end
+  end
+
+  defp parse_number(_number), do: nil
 
   defp comment_deposits(_type, _action, comment) when not is_map(comment), do: []
 
@@ -196,6 +453,13 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # about the comment body, so it deposits nothing rather than re-writing what
   # is already held.
   defp comment_deposits(_type, _action, _comment), do: []
+
+  defp review_thread_invalidation(payload) do
+    case get_in(payload, ["pull_request", "number"]) do
+      pr_number when not is_nil(pr_number) -> [{:invalidate_review_threads, pr_number}]
+      _other -> []
+    end
+  end
 
   defp review_deposits("submitted", review) when is_map(review) do
     [{:pr_review, Map.get(review, "id"), Normalizer.review_shape(review), version(review)}]
@@ -241,6 +505,31 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     [{:issue, number, issue, issue_version}] ++ label_deposits
   end
 
+  # The `issue_dependencies` delivery names one edge, and its `action` tells the
+  # direction. `blocked_by_added` makes `issue` blocked by `edge`; that is a fact
+  # about the blocked issue's dependency list, so it is written into the
+  # `:issue_blocked_by` entry the reader serves (#2326). `blocked_by_removed` is
+  # the death of the edge, and the held list stops naming it by being dropped
+  # wholesale — the next read pays for the truth rather than trusting a merge
+  # against a list that may never have been complete. A delivery about the other
+  # direction (`blocking_issue`) has no stored reader, so it deposits nothing
+  # about the edge.
+  defp blocked_by_edge_deposits("blocked_by_added", issue, edge) when is_map(issue) and is_map(edge) do
+    case Map.get(issue, "number") do
+      number when is_integer(number) -> [{:issue_blocked_by, number, edge, version(edge)}]
+      _other -> []
+    end
+  end
+
+  defp blocked_by_edge_deposits("blocked_by_removed", issue, _edge) when is_map(issue) do
+    case Map.get(issue, "number") do
+      number when is_integer(number) -> [{:drop, :issue_blocked_by, number}]
+      _other -> []
+    end
+  end
+
+  defp blocked_by_edge_deposits(_action, _issue, _edge), do: []
+
   # A pull request is deposited under BOTH keys a consumer can address it by
   # (#2126):
   #
@@ -271,11 +560,145 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
+  # -- Build Order relationship deposits --------------------------------------
+
+  # A `sub_issues` delivery announces one parent↔sub-issue edge. The Build
+  # Order catalog rebuilds each root's membership from the store, so the edge is
+  # keyed by the sub-issue's **node id** — the identity GitHub uses in both the
+  # `sub_issue_added` and `sub_issue_removed` payloads, and the one field that
+  # survives a removal that carries no issue object — with a body holding the
+  # sub-issue object and the parent relationship the projection needs to attach
+  # it to a root. A projection resolves the node id to a held `:issue` number
+  # through the REST bodies' own `node_id`.
+  defp sub_issue_deposits("sub_issue_added", payload) do
+    with sub_issue when is_map(sub_issue) <- Map.get(payload, "sub_issue"),
+         node_id when is_binary(node_id) <- Map.get(sub_issue, "node_id") || Map.get(payload, "sub_issue_id"),
+         parent_id when is_binary(parent_id) <- Map.get(payload, "parent_issue_id") do
+      parent = parent_relationship(Map.get(payload, "parent_issue"), parent_id)
+      [{:sub_issues, node_id, Map.put(sub_issue, "parent", parent), version(sub_issue)}]
+    else
+      _other -> []
+    end
+  end
+
+  defp sub_issue_deposits("sub_issue_removed", payload) do
+    case payload do
+      %{"sub_issue" => %{"node_id" => node_id}} when is_binary(node_id) ->
+        [{:drop, :sub_issues, node_id}]
+
+      %{"sub_issue_id" => node_id} when is_binary(node_id) ->
+        [{:drop, :sub_issues, node_id}]
+
+      _other ->
+        []
+    end
+  end
+
+  defp sub_issue_deposits(_action, _payload), do: []
+
+  # The parent edge as the projection reads it: the parent issue object when the
+  # delivery carried one, else a node-id-only record the projection resolves
+  # against the held `:issue` bodies.
+  defp parent_relationship(%{"number" => number} = parent, _parent_id) when is_integer(number), do: parent
+
+  defp parent_relationship(_parent, parent_id), do: %{"node_id" => parent_id, "number" => nil}
+
+  # An `issue_dependencies` delivery announces one dependency edge; the
+  # `dependency` object carries the relationship id and both issue objects. Keyed
+  # by the relationship id so add/remove map to deposit/drop and a rebuild
+  # enumerates every edge from the store.
+  defp issue_dependency_deposits("created", dependency) when is_map(dependency) do
+    case dependency_id(dependency) do
+      nil -> []
+      id -> [{:issue_dependencies, id, dependency, dependency_version(dependency)}]
+    end
+  end
+
+  defp issue_dependency_deposits("removed", dependency) when is_map(dependency) do
+    case dependency_id(dependency) do
+      nil -> []
+      id -> [{:drop, :issue_dependencies, id}]
+    end
+  end
+
+  defp issue_dependency_deposits(_action, _dependency), do: []
+
+  defp dependency_id(dependency) do
+    case Map.get(dependency, "dependency_id") do
+      id when is_binary(id) and id != "" -> id
+      _other -> nil
+    end
+  end
+
+  # A dependency edge has no `updated_at` of its own; the dependant issue's
+  # marker is the closest ordering claim the delivery carries.
+  defp dependency_version(%{"dependant" => %{"updated_at" => updated_at}})
+       when is_binary(updated_at) and updated_at != "",
+       do: updated_at
+
+  defp dependency_version(_dependency), do: nil
+
   # ---------------------------------------------------------------------------
   # Writing
   # ---------------------------------------------------------------------------
 
+  defp merge_review_thread(repo, pr_number, thread) do
+    key = PollSnapshots.review_threads_key(repo, pr_number)
+
+    case PollSnapshots.merge_review_thread(repo, pr_number, thread) do
+      :ok -> confirm(key)
+      :unchanged -> []
+    end
+  end
+
+  defp merge_check_run(repo, target, head_sha, check_run) do
+    key = PollSnapshots.ci_contexts_key(repo, target)
+
+    case PollSnapshots.merge_check_run(repo, target, head_sha, check_run) do
+      :ok -> confirm(key)
+      :unchanged -> []
+    end
+  end
+
+  defp invalidate_review_threads(repo, pr_number) do
+    PollSnapshots.invalidate_review_threads(repo, pr_number)
+    []
+  end
+
   defp store(_type, _repo, _id, body, _version) when not (is_map(body) or is_list(body)), do: []
+
+  # The `:issue_blocked_by` entry is the reader's answer to
+  # `GET .../dependencies/blocked_by`, so it must hold the full blocker list —
+  # a single webhook edge overwriting a held list would silently forget every
+  # blocker the reader already knew. The edge is therefore merged, inside the
+  # store's compare-and-swap, into the list the entry already holds — and only
+  # into an *existing* list: an absent entry is not a hole to fill with one
+  # edge, it is the store's statement that it has no complete answer, and
+  # fabricating `[edge]` would have `fetch_blocked_by` serve a partial list as
+  # the whole truth for up to the retention window (#2326, review). The write
+  # carries the delivery's own marker and derives a content validator, so the
+  # dispatch gate's later revalidating read sends `If-None-Match` and costs a
+  # free `304` when nothing changed.
+  defp store(:issue_blocked_by, repo, id, blocker, version) when is_map(blocker) do
+    case ResourceStore.key_for_repo(:issue_blocked_by, repo, id) do
+      nil ->
+        []
+
+      key ->
+        case ResourceStore.update_resource(
+               key,
+               &merge_blocked_by_edge(&1, blocker),
+               source: :webhook,
+               version: version,
+               etag: :derive
+             ) do
+          :unchanged -> []
+          :ok -> confirm(key)
+        end
+    end
+  end
+
+  defp store(:issue_blocked_by, _repo, _id, _body, _version), do: []
 
   defp store(type, repo, id, body, version) do
     case ResourceStore.key_for_repo(type, repo, id) do
@@ -289,6 +712,19 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
         end
     end
   end
+
+  # The one edge a delivery names is merged into whatever the entry already
+  # holds, never replacing a fuller list the reader holds. A repeat delivery of
+  # the same edge is declined inside the store's swap. An absent entry is left
+  # alone (answered `:unchanged`) rather than being started from a single edge,
+  # which would serve an incomplete list as the complete answer.
+  defp merge_blocked_by_edge(held, blocker) when is_list(held) do
+    if Enum.any?(held, &(Map.get(&1, "id") == Map.get(blocker, "id"))),
+      do: :unchanged,
+      else: held ++ [blocker]
+  end
+
+  defp merge_blocked_by_edge(_absent, _blocker), do: :unchanged
 
   # The ordering guard runs *inside* the store's compare-and-swap, against the
   # marker the entry holds at the instant of the write. Asking the store first and

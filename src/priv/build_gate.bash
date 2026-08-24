@@ -1179,7 +1179,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       [[ -e $path || -L $path ]] || continue
 
       case $path in
-        *.owner) continue ;;
+        *.owner | *.hold-timeout) continue ;;
       esac
 
       aiur_build_gate_fail "legacy_state_blocked" "$path"
@@ -1565,7 +1565,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
           if ((retained == 1)); then
             aiur_build_gate_log \
-              "lease_retained slot=$slot status=$result holder_pid=$holder_pid command_pgid=$command_pgid"
+              "lease_retained slot=$slot status=$result holder_pid=$holder_pid command_pgid=$command_pgid retain_seconds=${AIUR_BUILD_GATE_RETAIN_SECONDS:-120}"
           else
             wait "$holder_pid" 2>/dev/null || true
             aiur_build_gate_log "released slot=$slot status=$result"

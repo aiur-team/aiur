@@ -87,11 +87,20 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       end
     )
 
+    # The budget-map layer reads the broker ledger; on a live host the default
+    # path points at the operator's real budget.sqlite3. Pointing it at a
+    # nonexistent file keeps this zero-fetch measurement from silently reading
+    # production state (the ledger read is not a GitHub request, but a hermetic
+    # suite should not depend on a host's broker database existing).
+    Application.put_env(:aiur, :github_budget_ledger_path, "/nonexistent/aiur-ghc-zero-fetch.sqlite3")
+
     on_exit(fn ->
       case previous_options do
         nil -> Application.delete_env(:aiur, :github_transport_test_options)
         kept -> Application.put_env(:aiur, :github_transport_test_options, kept)
       end
+
+      Application.delete_env(:aiur, :github_budget_ledger_path)
 
       case previous_endpoint do
         nil -> Application.delete_env(:aiur, Endpoint)
@@ -162,12 +171,20 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       seed()
 
       assert {:ok, view, _html} = live(build_conn(), "/github-cache/issue_comment")
+      view_pid = view.pid
+
+      # `render/1` is sent by the test process, while PubSub delivers from a
+      # different sender, so it is not a mailbox-ordering barrier for the store
+      # event. Trace the LiveView receiving that exact event before rendering.
+      :erlang.trace(view_pid, true, [:receive])
 
       # A writer deposits while somebody is watching. The page re-reads ETS and
       # re-renders; the change event carries no body precisely so that re-read
       # stays free.
       key = ResourceStore.key(:issue_comment, "owner", "repo", 9002)
       :ok = ResourceStore.put_resource(key, %{"body" => "landed"}, source: :webhook, version: "v2")
+
+      receive_barrier({:trace, ^view_pid, :receive, {:github_resource_changed, %{key: ^key}}})
 
       assert render(view) =~ "issue_comment:owner:repo:9002"
 
@@ -182,7 +199,7 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       # Proving the counter still catches it is what makes the zeros above
       # meaningful rather than vacuous.
       _ignored =
-        Issues.fetch_issue_raw(2073,
+        Issues.fetch_issue_raw_conditional(2073,
           repository: {"aiur-team", "aiur"},
           token: "test-token-not-used-the-plug-intercepts"
         )

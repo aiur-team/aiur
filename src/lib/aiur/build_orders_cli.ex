@@ -281,6 +281,15 @@ defmodule Aiur.BuildOrdersCLI do
     |> plain()
   end
 
+  # The CLI reports the same unresolved counts the dashboard does, so it gets
+  # the same cause. Withholding it left `aiur build-orders --json` showing null
+  # epic and wave counts with no way to tell a real gap from a failed read —
+  # the very ambiguity this work exists to remove (#2250). Both keys are
+  # additive to schema version 2, so existing consumers are unaffected.
+  defp plain(%Catalog{} = value) do
+    value |> Map.from_struct() |> plain()
+  end
+
   defp plain(%{__struct__: _} = value), do: value |> Map.from_struct() |> plain()
   defp plain(value) when is_map(value), do: Map.new(value, fn {key, item} -> {key, plain(item)} end)
   defp plain(value) when is_list(value), do: Enum.map(value, &plain/1)

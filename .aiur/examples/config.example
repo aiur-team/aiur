@@ -32,12 +32,17 @@ agent:
   # next one in the list, returning to an earlier one once it recovers.
   priority: {{PRIORITY}}                   # e.g. [deepseek, codex, claude]
   # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
+  # pricing_policy:
+  #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
   # max_concurrent_builds: 4             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
   # build_start_stagger_seconds: 5       # minimum spacing between concurrent mix compile/test starts; 0 = disabled
   # min_free_memory_mb: 4096             # hold new dispatch + local mix compile/test below this MemAvailable floor
-  # build_gate_stall_timeout_ms: 300000  # build-gate slot occupancy watchdog (5 min); 0 = disabled
+  # build_gate_max_hold_seconds: 3600    # absolute wall-clock cap on one build-gate slot; the holder releases
+  #                                      # at the cap and a needs-attention alert names the command; 0 disables
+  # build_gate_retain_seconds: 120       # max post-command courtesy for a still-compiling descendant; the holder
+  #                                      # releases earlier the moment the retained tree goes idle; 0 disables
   # Full emergency opt-out: set both build settings above to 0 and leave min_free_memory_mb omitted.
   max_turns: {{MAX_TURNS}}               # per-issue turn cap (cost guard); `none` = unlimited
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12, 4: 20, 5: 30}  # overrides max_turns for labeled tickets
@@ -58,6 +63,9 @@ agent:
     # thread_sandbox: workspace-write
     # danger-full-access defaults turns to dangerFullAccess unless turn_sandbox_policy is set
     # default workspace-write turns allow network access so local build tools can open loopback sockets
+    # writableRoots entries are existing writable daemon-host extras; Aiur derives the
+    # issue workspace and enabled shared GitHub budget root, and does not send extras to SSH workers
+    # turn_sandbox_policy: {type: workspaceWrite, writableRoots: [/tmp]}
     # read_timeout_ms: 5000
     # thrash_max_per_window: 6
     # thrash_window_seconds: 60
@@ -125,6 +133,23 @@ alerts:
 #   enabled: false           # true = act on comments on watched/commanded PRs repo-wide
 #   watch_label: watch        # label a PR `<label_prefix>:watch` (e.g. agent:watch) to monitor all its code-owner/trusted comments
 #   command_prefix: /aiur     # a trusted comment starting with this (or mentioning github.bot_account) handles that one comment, no label needed
+
+# === PR health scan (opt-in; OFF by default) ===
+# Periodically flags open PRs that stall silently: one authored by a configured
+# human merger (unmergeable by construction — GitHub blocks self-approval), and
+# a non-draft PR older than stale_hours with no review. Both raise
+# needs-attention alerts.
+#
+# Enabling the scan also enables the rework re-queue (#2337): a ticket in
+# agent:rework whose PR's own contribution diff changed since its blocking
+# CHANGES_REQUESTED review is automatically moved to agent:human-review for the
+# second look. A PR whose head only moved via merges of the base branch (own
+# contribution unchanged) is NOT re-queued — it raises
+# system.pr_health.rework_merge_only so the merge-only state is visible.
+# pr_health:
+#   enabled: false            # true = run the scan on interval_seconds
+#   interval_seconds: 1800    # how often the scan lists open PRs
+#   stale_hours: 24           # a non-draft PR older than this with no review is flagged
 
 # === Build Order providers (optional; in-memory only) ===
 # Supervised providers fetch configured-repository detail and retain sanitized typed ticket history.

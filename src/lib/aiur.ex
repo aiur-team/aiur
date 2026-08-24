@@ -50,6 +50,7 @@ defmodule Aiur.Application do
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
+    Budget.warn_metering_unavailable()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
@@ -244,7 +245,9 @@ defmodule Aiur.Application do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.AgentProcessLog,
       Aiur.SaturationSentinel,
+      Aiur.BuildGateHoldMonitor,
       Aiur.AppServer.ToolCallLedger,
       Aiur.Workspace.Ownership.Store,
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
@@ -299,7 +302,7 @@ defmodule Aiur.Application do
       # spending the budget" charts. It reads `Aiur.GitHub.Quota`'s already-held
       # observations — a GenServer call, no client and no transport — so it too
       # changes nothing about the page's zero-fetch property.
-      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory]),
+      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory, Aiur.GitHub.AgentCacheMetrics]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
@@ -309,6 +312,16 @@ defmodule Aiur.Application do
       # Per-repo delivery mode. Starts before anything that polls or receives
       # so a repo always has a mode to read; with no configured repos every
       # lookup answers "polling", which is exactly the pre-webhook behavior.
+      #
+      # `ModeTable` owns the ETS view the read-cache TTL consults on every
+      # cacheable request, and starts first so the registry has somewhere to
+      # publish the moment it records its first mode. The reverse is not
+      # guaranteed: if the registry crashes, its `state.repos` rebuilds as
+      # configured-unproven while the table briefly keeps its old `:webhook`
+      # records, so a repo can hold the long TTL until the next sweep
+      # republishes. Bounded (the TTL is a backstop, never a freshness claim)
+      # and corrected automatically, so it is a note, not a fix.
+      Aiur.Webhooks.ModeTable,
       Aiur.Webhooks.ModeRegistry,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
@@ -358,14 +371,18 @@ defmodule Aiur.Application do
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
-      # The single view-state cadence. Starts after the three sources it sweeps
-      # so its first tick never races their boot fill.
+      # The single view-state cadence, now reconciling only the pack-status
+      # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
+      # timer). Starts after its sources so its first tick never races their
+      # boot fill.
       Aiur.GitHub.ViewStateSweep,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
       maybe_ls_remote_ticker(ls_remote_ticker?),
+      Aiur.Orchestrator.PRHealthScanner,
+      Aiur.Orchestrator.ReworkRequeue,
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,

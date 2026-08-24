@@ -55,7 +55,7 @@ defmodule Aiur.Codeowners.EditTest do
 
   describe "add_login/2" do
     setup do
-      dir = System.tmp_dir!() |> Path.join("edit-test-#{System.unique_integer([:positive])}")
+      dir = Aiur.TestSupport.tmp_root!("edit-test")
       File.mkdir_p!(dir)
       path = Path.join(dir, "CODEOWNERS")
       File.write!(path, "* @existing\n")

@@ -23,6 +23,7 @@ defmodule Aiur.Config.Schema do
     Opencode,
     Polling,
     Prewarm,
+    PrHealth,
     PrWatch,
     Server,
     Tracker,
@@ -60,6 +61,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:events, Events, on_replace: :update, defaults_to_struct: true)
     embeds_one(:prewarm, Prewarm, on_replace: :update, defaults_to_struct: true)
     embeds_one(:alerts, Alerts, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:pr_health, PrHealth, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pr_watch, PrWatch, on_replace: :update, defaults_to_struct: true)
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
@@ -109,6 +111,14 @@ defmodule Aiur.Config.Schema do
     CodexSandboxPolicy.add_runtime_writable_roots(policy, roots)
   end
 
+  @doc false
+  @spec validate_turn_sandbox_policy(%__MODULE__{}) :: :ok | {:error, term()}
+  def validate_turn_sandbox_policy(settings) do
+    settings.agent.codex
+    |> effective_turn_sandbox_policy()
+    |> CodexSandboxPolicy.validate_configured_writable_roots()
+  end
+
   defp effective_turn_sandbox_policy(%Codex{turn_sandbox_policy: nil, thread_sandbox: thread_sandbox})
        when is_binary(thread_sandbox) do
     case String.trim(thread_sandbox) do
@@ -154,6 +164,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:events, with: &Events.changeset/2)
     |> cast_embed(:prewarm, with: &Prewarm.changeset/2)
     |> cast_embed(:alerts, with: &Alerts.changeset/2)
+    |> cast_embed(:pr_health, with: &PrHealth.changeset/2)
     |> cast_embed(:pr_watch, with: &PrWatch.changeset/2)
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)

@@ -128,7 +128,7 @@ defmodule Aiur.Config.PathsTest do
       end)
 
       Application.delete_env(:aiur, :decision_state_dir)
-      root = Path.join(System.tmp_dir!(), "aiur-decision-paths-#{System.unique_integer([:positive])}")
+      root = Aiur.TestSupport.tmp_root!("aiur-decision-paths")
       System.put_env("AIUR_BG_STATE_DIR", root)
 
       %{root: root}

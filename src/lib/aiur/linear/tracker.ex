@@ -27,6 +27,9 @@ defmodule Aiur.Linear.Tracker do
   @state_lookup_query """
   query AiurResolveStateId($issueId: String!, $stateName: String!) {
     issue(id: $issueId) {
+      state {
+        name
+      }
       team {
         states(filter: {name: {eq: $stateName}}, first: 1) {
           nodes {
@@ -94,6 +97,9 @@ defmodule Aiur.Linear.Tracker do
   @spec fetch_open_pull_request_for_branch(String.t() | integer()) :: {:ok, nil}
   def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
 
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer()) :: {:ok, []}
+  def fetch_open_pull_requests_for_branch(_issue_id), do: {:ok, []}
+
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do
@@ -106,6 +112,21 @@ defmodule Aiur.Linear.Tracker do
       false -> {:error, :issue_update_failed}
       {:error, reason} -> {:error, reason}
       _ -> {:error, :issue_update_failed}
+    end
+  end
+
+  @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def update_issue_state(issue_id, state_name, opts)
+      when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
+    case Keyword.fetch(opts, :expected_state) do
+      :error ->
+        update_issue_state(issue_id, state_name)
+
+      {:ok, expected_state} when is_binary(expected_state) ->
+        update_issue_state_if_current(issue_id, state_name, expected_state)
+
+      {:ok, _invalid} ->
+        {:error, :invalid_expected_state}
     end
   end
 
@@ -131,5 +152,46 @@ defmodule Aiur.Linear.Tracker do
       {:error, reason} -> {:error, reason}
       _ -> {:error, :state_not_found}
     end
+  end
+
+  defp update_issue_state_if_current(issue_id, state_name, expected_state) do
+    with {:ok, response} <-
+           client_module().graphql(@state_lookup_query, %{issueId: issue_id, stateName: state_name}),
+         {:ok, state_id, current_state} <- resolved_state(response),
+         :ok <- validate_expected_state(expected_state, current_state),
+         {:ok, response} <-
+           client_module().graphql(@update_state_mutation, %{issueId: issue_id, stateId: state_id}),
+         true <- get_in(response, ["data", "issueUpdate", "success"]) == true do
+      :ok
+    else
+      false -> {:error, :issue_update_failed}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :issue_update_failed}
+    end
+  end
+
+  defp resolved_state(response) do
+    state_id = get_in(response, ["data", "issue", "team", "states", "nodes", Access.at(0), "id"])
+    current_state = get_in(response, ["data", "issue", "state", "name"])
+
+    if is_binary(state_id) and is_binary(current_state) do
+      {:ok, state_id, current_state}
+    else
+      {:error, :state_not_found}
+    end
+  end
+
+  defp validate_expected_state(expected_state, current_state) do
+    expected = normalize_state(expected_state)
+    actual = normalize_state(current_state)
+
+    if actual == expected, do: :ok, else: {:error, {:stale_issue_state, expected, actual}}
+  end
+
+  defp normalize_state(state) do
+    state
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace(~r/[\s_]+/, "-")
   end
 end

@@ -5,6 +5,11 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
   alias Aiur.BuildOrder.GraphProjection.Policy
 
   @defaults [
+    # The catalog's cadence *while a Build Order page is open*: `subscribe_catalog/1`
+    # registers a viewer as a demander, and the cadence is armed only while at
+    # least one demander is present (#2312). With no page open the catalog does
+    # not run at all. The shipped value is a floor; production derives it from
+    # the tracker's effective poll interval (see `Aiur.BuildOrder.Cadence`).
     catalog_refresh_ms: 60_000,
     # The catalog's per-member `labels` connection costs ~26 GraphQL points
     # against the 5,000-points/hour budget versus ~1 without it (#1766), so the
@@ -42,6 +47,11 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       # because a failing labelled read must still back off, but must not make
       # the carried counts look freshly re-read.
       catalog_labels_ok_ms: nil,
+      # Bounded reason the last labelled read could not resolve epic/wave
+      # counts. Cheap catalog reads cannot answer that question, so they retain
+      # this fact until the next labelled success replaces it.
+      catalog_labels_failure: nil,
+      catalog_labels_failure_reset_at: nil,
       catalog_labels_failures: 0,
       catalog_labels_penalty_ms: 0,
       selected: %{},

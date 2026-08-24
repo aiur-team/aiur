@@ -68,6 +68,12 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  def handle_info({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _phase}} = stalled}, state) do
+    {:noreply, Dispatcher.clear_prewarm_blocked_alert(state, stalled)}
+  end
+
+  def handle_info({:prewarm_phase, _phase}, state), do: {:noreply, state}
+
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case CommentPolling.apply_async_down(state, ref) do
       {:handled, next_state} -> {:noreply, next_state}
@@ -198,6 +204,18 @@ defmodule Aiur.Orchestrator do
   # invalidate the persisted admission verdict immediately; otherwise `status`
   # can keep reporting the historical hold until some unrelated poll succeeds.
   def handle_info(:github_quota_recovered, state) do
+    state = PushRouting.recover_github_budget_pauses(state)
+    {:reply, _result, state} = Lifecycle.request_refresh(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:github_budget_pause_expired, identifier, generation}, state)
+      when is_binary(identifier) and is_integer(generation) and generation > 0 do
+    # The per-agent expiry path must also request a poll refresh. A fleet whose
+    # agents are all budget-paused has active_running_count == 0 and is
+    # classified idle under #2160, so without the refresh its poll backs off
+    # and the capacity-deferred pending_auto_resume hint is never drained.
+    state = PushRouting.recover_github_budget_pause(state, identifier, generation)
     {:reply, _result, state} = Lifecycle.request_refresh(state)
     {:noreply, state}
   end
@@ -372,6 +390,9 @@ defmodule Aiur.Orchestrator do
   def reconcile_stalled_running_issues(state),
     do: RuntimeWatchdog.reconcile_stalled_running_issues(state)
 
+  @spec reconcile_runtime_health(State.t()) :: State.t()
+  def reconcile_runtime_health(state), do: RuntimeWatchdog.reconcile_runtime_health(state)
+
   @spec overrunning_entry?(map(), DateTime.t(), non_neg_integer()) :: boolean()
   def overrunning_entry?(entry, now, max_seconds),
     do: RuntimeWatchdog.overrunning_entry?(entry, now, max_seconds)
@@ -468,10 +489,10 @@ defmodule Aiur.Orchestrator do
   latched ticket returns to dispatchable. The supported operator exit from
   the #1453 latch — `aiurdev reset-budget <id>` routes here.
   """
-  @spec reset_dispatch_budget(String.t()) :: {:ok, :queued} | {:error, term()}
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(identifier), do: PauseResume.reset_dispatch_budget(identifier)
 
-  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :queued} | {:error, term()}
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(server, identifier),
     do: PauseResume.reset_dispatch_budget(server, identifier)
 

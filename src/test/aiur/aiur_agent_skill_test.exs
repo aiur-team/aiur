@@ -73,6 +73,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "`reset --hard`"
     assert content =~ "`clean -fd`"
     assert content =~ "`checkout -- .`"
+
     assert content =~ "`worktree remove`"
     assert content =~ "stop rather than fall back to the current directory"
     assert content =~ "This is a cross-skill override"
@@ -81,6 +82,75 @@ defmodule Aiur.AiurAgentSkillTest do
 
     overview = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/overview.md"))
     assert overview =~ "`git -C \"$workspace\" ls-remote`"
+  end
+
+  test "aiur-agent dev loop teaches collision-proof worktree paths and fail-loudly (#2362)" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md"))
+
+    # cross-skill override so the rule applies no matter how a CE skill frames worktrees
+    assert content =~ "## Collision-proof worktrees"
+    assert content =~ "cross-skill override"
+
+    # the PR isolation scheme must carry a per-agent unique component, not just
+    # the PR number, and must route through scripts/agent-worktree when present
+    assert content =~ "a per-agent"
+    assert content =~ "unique component"
+    assert content =~ "pr-<n>-<unique>"
+    assert content =~ "Two agents can legitimately review"
+    assert content =~ "`scripts/agent-worktree create <n>`"
+
+    # naming discipline alone is not the fix: the path is recomputed inline per
+    # command, never persisted in a shared file (that was the rework lesson)
+    assert content =~ "Never persist the worktree path in a file"
+    assert content =~ "Recompute the path inline per command"
+    assert content =~ "`scripts/agent-worktree path <n> --unique <component>`"
+
+    # the worktree HEAD must be asserted before every mutation batch and drift
+    # must abort loudly
+    assert content =~ "Assert the worktree HEAD before every mutation batch"
+    assert content =~ "`scripts/agent-worktree head-check <wt> <sha>`"
+    assert content =~ "aborts loudly on\n  drift"
+
+    # mutation testing requires a worktree, never the live checkout
+    assert content =~ "Mutation testing requires a worktree"
+    assert content =~ "Never run it in the live checkout"
+    assert content =~ "A worktree is required, not optional"
+
+    # an existing path is an error, never a reuse/repoint
+    assert content =~ "An existing path is an error, not a reuse opportunity"
+    assert content =~ "Never `git -C <existing-worktree> checkout <other-branch>`"
+    assert content =~ "fresh unique"
+
+    # stale worktrees must be pruned before creating
+    assert content =~ "Prune stale worktrees before creating"
+    assert content =~ "`git worktree prune`"
+    assert content =~ "Never\n  remove a worktree another live agent is using"
+
+    # the helper script itself carries the same guarantees
+    helper = File.read!(Path.join(@repo_root, "scripts/agent-worktree"))
+    assert helper =~ "#2362"
+    assert helper =~ "refusing create"
+    assert helper =~ "do not reuse or repoint"
+    assert helper =~ "head-check"
+  end
+
+  test "Executor guidance gives review subagents per-agent scratchpads and worktree isolation (#2362)" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+
+    # the class-closing fix: each subagent gets its own scratchpad, mirroring
+    # the already-per-agent tasks/<agentId>.output, and sharing is explicit
+    assert content =~ "Give every review subagent its own scratchpad"
+    assert content =~ "per-agent scratchpad"
+    assert content =~ "`tasks/<agentId>.output`"
+    assert content =~ "`shared/`"
+
+    # the prompt-level mitigations that are necessary but not sufficient
+    assert content =~ "Never persist the worktree path in a file"
+    assert content =~ "recompute the path inline per command"
+    assert content =~ "Assert the worktree HEAD before every mutation batch"
+    assert content =~ "`git -C <wt>\n  rev-parse HEAD`"
+    assert content =~ "head-check <wt> <sha>"
+    assert content =~ "Forbid mutation testing in the live checkout"
   end
 
   test "aiur-agent dev loop audits the complete test tree for renames" do
@@ -254,6 +324,19 @@ defmodule Aiur.AiurAgentSkillTest do
     for name <- ~w(decision.<slug> attention.resolved pause.request custom.<slug>) do
       assert String.contains?(taxonomy, name), "event-taxonomy.md no longer documents #{name}"
     end
+  end
+
+  test "agent guidance distinguishes GitHub budget holds from credential failures" do
+    dev_loop = File.read!(Path.join(@claude_skill, "dev-loop.md"))
+    taxonomy = File.read!(Path.join(@claude_skill, "event-taxonomy.md"))
+
+    for text <- [dev_loop, taxonomy] do
+      assert text =~ "github_budget_hold"
+      assert text =~ "reset_at_ms"
+    end
+
+    assert dev_loop =~ "Do not emit a\n   credential attention"
+    assert dev_loop =~ "resumes that pause automatically"
   end
 
   test "every reference doc SKILL.md routes to exists on disk" do
@@ -642,7 +725,7 @@ defmodule Aiur.AiurAgentSkillTest do
   # Runs the real wrapper the daemon installs on agent PATH, against a stub
   # `gh`, so this asserts the shipped guard rather than a copy of its rules.
   defp run_creation_guard(arguments) do
-    root = Path.join(System.tmp_dir!(), "aiur-skill-guard-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-skill-guard")
     File.mkdir_p!(root)
     stub = Path.join(root, "gh")
     File.write!(stub, "#!/bin/sh\nexit 0\n")

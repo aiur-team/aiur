@@ -45,7 +45,7 @@ When setup finishes, label the issues you want worked `agent:todo` and run
 | Surface | What it gives you | How to open it |
 | --- | --- | --- |
 | **CLI** | Scriptable control of a run from any shell | `aiur status`, `aiur pause 142` |
-| **TUI** | Live agent board plus chat panes, in your terminal | `aiur` (foreground) |
+| **TUI** | Live agent board plus chat panes, in your terminal | `aiur` (start or attach) |
 | **Dashboard** | Browser view of the fleet, decisions, and analytics | `http://127.0.0.1:4000` |
 | **Stream Deck** | Physical keys and dictation for the fleet | Separate sidecar, see below |
 
@@ -54,7 +54,7 @@ When setup finishes, label the issues you want worked `agent:todo` and run
 | Command | What it does |
 | --- | --- |
 | `aiur init` | Interactive setup wizard |
-| `aiur` | Start the run in the foreground with the TUI |
+| `aiur` | Start a foreground TUI, or attach to this directory's live session |
 | `aiur --bg` | Start a detached headless run, dashboard still served |
 | `aiur status` | Daemon state, active agents, and the current concurrency cap |
 | `aiur alerts --needs-attention` | Unresolved items waiting on you |
@@ -68,7 +68,9 @@ Add `--no-dashboard` to either mode to skip the web listener.
 
 ### TUI
 
-The foreground run opens a tmux board with one row per ticket, showing runtime,
+The foreground run opens a tmux board with one row per ticket. A later bare
+`aiur` from the same project attaches to that live directory-scoped session;
+detaching leaves the run healthy. The board shows runtime,
 turn count, backend, pinned model, and a state glyph. Press `enter` on a row to
 open that agent's chat pane beside the board, `space` to pause or resume, `←`
 and `→` to change the concurrency cap, and `?` for the full keymap.

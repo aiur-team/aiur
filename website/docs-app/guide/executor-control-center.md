@@ -8,8 +8,8 @@ The Dashboard is Aiur's browser interface for supervising a run. It combines the
 | --- | --- |
 | Normal foreground or headless run | Listener requested. |
 | `--no-dashboard` | Listener disabled. |
-| Writable mode | Username and password required, including on loopback. |
-| Read-only loopback | Requires credentials for access. Without them the listener may bind, but every request returns `503`. |
+| Writable mode | On loopback it binds without credentials and fails closed; beyond loopback it refuses to start without both credentials. |
+| Read-only loopback | Requires credentials for access. Without them the listener may bind, but every request is refused until both credentials are set. |
 | Host selection | `server.host` wins over authenticated Tailscale or loopback default. |
 
 Startup prints the URL and effective bind only when the listener runs:
@@ -52,8 +52,28 @@ Each page renders a durable concept whose detail lives in Concepts.
 | Units | [Fleet, tickets, and meters](/concepts/units). |
 | Commands | [Issues agents flag for the Executor](/concepts/commands). |
 | Build Order | [Planning packs, phases, lanes, and dependencies](/concepts/build-orders). |
-| Analytics | Lifecycle time, CPU, memory, concurrency, and cost; missing telemetry stays explicit. |
+| Analytics | Lifecycle time, CPU, memory, whole-host fleet/build pressure, concurrency, and cost; missing telemetry stays explicit. |
 | GitHub cache | What the shared GitHub state cache holds right now, and which writer put it there. |
+
+### Read fleet and build pressure
+
+Analytics records fleet and build-gate whole-host sources alongside daemon process
+telemetry. The pressure chart shows occupied agents, configured/max/effective
+agent capacity, active and queued builds, and the oldest live build wait.
+
+Its source state strip and timestamped data table distinguish current, stale,
+degraded, partial, and empty observations. The table additionally reports the
+binding admission signal and the measured load against its threshold, so a growing
+build queue with load far below threshold reads as build-gate-saturated rather
+than host-saturated.
+
+A gap means the source was not current enough to support that value; it is never
+silently plotted as zero. Build-queue wait is the oldest waiter still live at the
+sample time, not a completed-build latency. These measurements expose when the
+build gate is the fleet constraint; they do not automatically change the agent cap.
+
+The build-gate scan runs on a reduced cadence and carries the last observation
+forward, so measuring the gate never perturbs a real build acquisition.
 
 <img src="/images/dashboard/units-dark.png" alt="Desktop Units fleet table with synthetic active, blocked, retrying, and review tickets">
 
@@ -75,17 +95,30 @@ Read the column as follows:
 
 - A positive read count means low spend may be the cache doing its job.
 - **none this boot** means `ReadCache` observed the caller but served no reads.
+- **N reads not deposited** means the caller's reads reached the cache but its
+  responses were not written into it — a failed or partial GraphQL response, or
+  the entry ceiling. The gap between a caller's misses and deposits lives here.
 - A **policy refusal** means the caller reached `ReadCache` but was deliberately not cached.
 - **not observed by ReadCache** means the caller did not reach that store.
 - **cache unavailable** means there is no cache measurement.
 
-None of the four non-count states is rendered as a bare zero.
+None of the non-count states is rendered as a bare zero.
 
 Served-free reads cost no GitHub budget. They are shown alongside the ranking for diagnosis, but are excluded from points, calls, rates, shares, charts, attributed totals and outside-spend figures.
 
 Cache counters do not identify a GitHub budget, so callers seen only by the cache are not assigned to the GraphQL or core table.
 
 Reads served by `ResourceStore` are also outside this column. The header explicitly names `ReadCache`, so absence from one store is not presented as absence from every shared-state path.
+
+The **Agent gh exact-shape hit rate** tile measures the separate cache used by
+agent `gh` subprocesses.
+
+It shows `hits / (hits + misses)` plus the raw counts for the previous 24 hours
+across agent workspaces on the daemon host; remote SSH workers are outside that
+coverage.
+
+Missing counters and a zero denominator read **Not measured**, never `0%`, and
+skipped or malformed sources are labeled as partial coverage.
 
 It updates live. The page subscribes to the store's own change events, so a webhook delivery or an agent mutation landing is visible arriving — the row that changed flashes — without polling anything.
 
@@ -109,6 +142,55 @@ The charts are fed by a sampler that reads the same store the page reads — nev
 The ring starts again at each daemon boot, and the page says so, because drawing a flat zero over a span the sampler never observed would be the same silent-subset lie the rest of the page refuses. When the ring is too new to draw, the page says it is collecting.
 
 Filters are carried in the query string, so a filtered view such as `/github-cache/issue_comment?writer=webhook` can be pasted into a ticket as evidence. A deep link to an entry keeps meaning the same thing after a restart, because the identity is the resource's own `(type, owner, repo, id)` rather than a position in a list.
+
+### The live budget map
+
+Above the spend ranking, the **budget map** answers "who is calling, what stands
+in front of the call, and which pool pays" for the current run.
+
+Every figure comes from local state — the quota meter, per-credential
+`x-ratelimit-*` headers, the broker admission ledger, the read cache, the
+resource store, the webhook registry, and the agents' `agent-cache.tsv` event
+files.
+
+Opening and refreshing the page issues zero GitHub requests, and the admission
+count is unchanged by viewing.
+
+Three **identity meters** show each configured credential's GraphQL and REST-core
+usage against its own limit, with the window reset time. A credential with no
+recent observation renders as **stale with its age**; it is never a zero standing
+in for unknown.
+
+The **caller → cache / store → pool** table draws one edge per attributed caller,
+weighted by live volume and labelled with a verdict:
+
+- **free** — reconciled 304s, git traffic, inbound webhooks.
+- **billed** — metered spend with a reuse path: a stored body, an ETag, or a
+  read-cache hit next cycle.
+- **wasted** — no validator, no stored body, no reuse: the caller pays full price
+  every cycle.
+- **unclassified** — no evidence either way; never guessed.
+
+A caller that consults neither cache layer is therefore visibly distinct from one
+that does, without reading the source.
+
+The **Broker admissions** panel reads the rolling-hour ledger directly (billable
+vs 304-free, by consumer and family). The **ResourceStore** panel shows size,
+retention and per-type entries. The **Webhook delivery** panel shows each repo's
+delivery mode and freshness. The **Agent-side cache** panel shows per-workspace
+`agent-cache.tsv` hit rates.
+
+Two caveats render next to the numbers they qualify.
+
+REST spend cannot be attributed by caller — `caller:` is attached only on the
+GraphQL send path — so the core ranking shows one shared row rather than a
+partial ranking until that changes (#2298).
+
+The broker books GraphQL-on-the-wire `gh` commands into core families, so a
+family split is not a budget split until that changes (#2297).
+
+The section re-reads on the store's existing change channel and the quota
+sampler's cadence — no new timer, and none of it is a fetch.
 
 ### Read "validator only, no body" carefully
 
@@ -150,8 +232,12 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A read-only loopback listener may bind without them, but its authentication plug fails closed and returns `503` for every dashboard request until both credentials are set.
+Aiur refuses to start a dashboard bound beyond loopback without both credentials. A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set.
 
 Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
-The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
+The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Generate one with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` for all projects or the repository `.env` for one project.
+
+An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup, while an absent or empty value leaves the API disabled.
+
+Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.

@@ -372,6 +372,17 @@ defmodule Aiur.ExtensionsTest do
     assert_receive {:memory_tracker_comment, "issue-1", "comment"}
     assert_receive {:memory_tracker_state_update, "issue-1", "Done"}
 
+    assert :ok =
+             Aiur.Tracker.update_issue_state("issue-1", "Todo", expected_state: "in-progress")
+
+    assert_receive {:memory_tracker_state_update, "issue-1", "Todo"}
+    assert [%Issue{state: "Todo"}, %{id: "ignored"}] = Application.fetch_env!(:aiur, :memory_tracker_issues)
+
+    assert {:error, {:stale_issue_state, "in-progress", "todo"}} =
+             Aiur.Tracker.update_issue_state("issue-1", "Done", expected_state: "In Progress")
+
+    refute_receive {:memory_tracker_state_update, "issue-1", "Done"}
+
     Application.delete_env(:aiur, :memory_tracker_recipient)
     assert :ok = Memory.create_comment("issue-1", "quiet")
     assert :ok = Memory.update_issue_state("issue-1", "Quiet")
@@ -492,6 +503,51 @@ defmodule Aiur.ExtensionsTest do
     )
 
     assert {:error, :issue_update_failed} = LinearTracker.update_issue_state("issue-1", "Odd")
+
+    Process.put(
+      {FakeLinearClient, :graphql_results},
+      [
+        {:ok,
+         %{
+           "data" => %{
+             "issue" => %{
+               "state" => %{"name" => "In Progress"},
+               "team" => %{"states" => %{"nodes" => [%{"id" => "state-todo"}]}}
+             }
+           }
+         }},
+        {:ok, %{"data" => %{"issueUpdate" => %{"success" => true}}}}
+      ]
+    )
+
+    assert :ok =
+             LinearTracker.update_issue_state("issue-1", "Todo", expected_state: "in-progress")
+
+    assert_receive {:graphql_called, guarded_lookup_query, %{issueId: "issue-1", stateName: "Todo"}}
+
+    assert guarded_lookup_query =~ "state"
+    assert_receive {:graphql_called, _guarded_update_query, %{issueId: "issue-1", stateId: "state-todo"}}
+
+    Process.put(
+      {FakeLinearClient, :graphql_results},
+      [
+        {:ok,
+         %{
+           "data" => %{
+             "issue" => %{
+               "state" => %{"name" => "Todo"},
+               "team" => %{"states" => %{"nodes" => [%{"id" => "state-done"}]}}
+             }
+           }
+         }}
+      ]
+    )
+
+    assert {:error, {:stale_issue_state, "in-progress", "todo"}} =
+             LinearTracker.update_issue_state("issue-1", "Done", expected_state: "In Progress")
+
+    assert_receive {:graphql_called, _stale_lookup_query, %{issueId: "issue-1", stateName: "Done"}}
+    refute_receive {:graphql_called, _query, %{stateId: "state-done"}}
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do
@@ -1083,7 +1139,7 @@ defmodule Aiur.ExtensionsTest do
 
   test "dashboard liveview renders and refreshes over pubsub" do
     orchestrator_name = Module.concat(__MODULE__, :DashboardOrchestrator)
-    log_root = Path.join(System.tmp_dir!(), "aiur-dashboard-log-#{System.unique_integer([:positive])}")
+    log_root = Aiur.TestSupport.tmp_root!("aiur-dashboard-log")
     log_dir = Path.join(log_root, "logs")
     File.mkdir_p!(log_dir)
 

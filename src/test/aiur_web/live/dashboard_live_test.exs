@@ -202,6 +202,55 @@ defmodule AiurWeb.DashboardLiveTest do
     end
   end
 
+  defmodule StaleCountsStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    @impl true
+    def init(opts), do: {:ok, %{store: Keyword.fetch!(opts, :store)}}
+
+    @impl true
+    def handle_call(:retained_counts, _from, state) do
+      counts = %{total: 0, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+      {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    end
+
+    def handle_call(request, _from, state) do
+      {:reply, GenServer.call(state.store, request), state}
+    end
+  end
+
+  defmodule AvailabilityStore do
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    end
+
+    def set_available(server, available?) do
+      GenServer.call(server, {:set_available, available?})
+    end
+
+    @impl true
+    def init(opts), do: {:ok, %{store: Keyword.fetch!(opts, :store), available?: true}}
+
+    @impl true
+    def handle_call({:set_available, available?}, _from, state) do
+      {:reply, :ok, %{state | available?: available?}}
+    end
+
+    def handle_call(_request, _from, %{available?: false} = state) do
+      {:reply, {:error, :store_unavailable}, state}
+    end
+
+    def handle_call(request, _from, state) do
+      {:reply, GenServer.call(state.store, request), state}
+    end
+  end
+
   defmodule VersionedDetailStore do
     use GenServer
 
@@ -1570,6 +1619,148 @@ defmodule AiurWeb.DashboardLiveTest do
     assert has_element?(view, ".decision-list #decision-#{delegated.decision_id}")
   end
 
+  test "deferred Commands remain visible in open and blocking queue counts" do
+    orchestrator_name = Module.concat(__MODULE__, :DeferredOpenOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeferredOpenDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_079}}}
+      end)
+
+    decision = request_dashboard_decision(store, "deferred-open")
+
+    assert {:ok, %{status: :accepted, decision: %{decision_status: :deferred}}} =
+             DecisionStore.defer(
+               decision.decision_id,
+               [actor: %{kind: :operator, id: "dashboard"}],
+               store
+             )
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/commands")
+
+    assert html =~ ~r/Open\s+<span class="count num">1<\/span>/
+    assert html =~ ~r/Blocking\s+<span class="count num">1<\/span>/
+    assert html =~ ~r/Resolved\s+<span class="count num">0<\/span>/
+    assert html =~ ~r/All\s+<span class="count num">1<\/span>/
+    assert has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+    refute has_element?(view, "#history-#{decision.decision_id}")
+
+    view
+    |> element(~s(button[phx-click="filter-decisions"][phx-value-filter="blocking"]))
+    |> render_click()
+
+    assert_patch(view, "/commands?filter=blocking")
+    assert has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+
+    view
+    |> form("#decision-answer-form-#{decision.decision_id}", %{"answer" => %{"choice" => "option:ship"}})
+    |> render_submit()
+
+    refute has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+    assert has_element?(view, "#history-#{decision.decision_id}")
+
+    transitioned_html = render(view)
+    assert transitioned_html =~ ~r/Open\s+<span class="count num">0<\/span>/
+    assert transitioned_html =~ ~r/Blocking\s+<span class="count num">0<\/span>/
+    assert transitioned_html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
+  end
+
+  test "Command chips use the same retained snapshot as history totals" do
+    orchestrator_name = Module.concat(__MODULE__, :SnapshotCountsOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :SnapshotCountsDecisionStore)
+    stale_counts_store_name = Module.concat(__MODULE__, :StaleSnapshotCountsStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_080}}}
+      end)
+
+    decision = request_dashboard_decision(store, "snapshot-counts", "reversible", blocking: false)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.dismiss(
+               decision.decision_id,
+               [actor: %{kind: :operator, id: "dashboard"}],
+               store
+             )
+
+    start_supervised!({StaleCountsStore, name: stale_counts_store_name, store: store})
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: stale_counts_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, view, html} = live(build_conn(), "/commands")
+
+    assert html =~ ~r/All\s+<span class="count num">1<\/span>/
+    assert html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
+    assert html =~ "1 of 1"
+
+    send(view.pid, :reload_payload)
+    reloaded_html = render(view)
+
+    assert reloaded_html =~ ~r/All\s+<span class="count num">1<\/span>/
+    assert reloaded_html =~ ~r/Resolved\s+<span class="count num">1<\/span>/
+    assert reloaded_html =~ "1 of 1"
+  end
+
+  test "Command chips stop showing retained counts when a reload loses the store" do
+    orchestrator_name = Module.concat(__MODULE__, :UnavailableCountsOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :UnavailableCountsDecisionStore)
+    availability_store_name = Module.concat(__MODULE__, :UnavailableCountsStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_081}}}
+      end)
+
+    decision = request_dashboard_decision(store, "unavailable-counts", "reversible", blocking: false)
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.dismiss(
+               decision.decision_id,
+               [actor: %{kind: :operator, id: "dashboard"}],
+               store
+             )
+
+    start_supervised!({AvailabilityStore, name: availability_store_name, store: store})
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: availability_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, view, html} = live(build_conn(), "/commands")
+
+    assert html =~ ~r/All\s+<span class="count num">1<\/span>/
+    assert :ok = AvailabilityStore.set_available(availability_store_name, false)
+
+    send(view.pid, :reload_payload)
+    reloaded_html = render(view)
+
+    assert reloaded_html =~ ~r/All\s+<span class="count num">—<\/span>/
+    assert reloaded_html =~ ~r/Open\s+<span class="count num">—<\/span>/
+    assert reloaded_html =~ ~r/Blocking\s+<span class="count num">—<\/span>/
+  end
+
   test "All Commands keeps retained search and pagination controls out of the surface" do
     orchestrator_name = Module.concat(__MODULE__, :RetainedPageOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RetainedPageDecisionStore)
@@ -1607,7 +1798,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert Process.alive?(view.pid)
   end
 
-  test "All Commands and the CLI show the same open set" do
+  test "All Commands counts retained history while its cards match the CLI open set" do
     orchestrator_name = Module.concat(__MODULE__, :OpenPageOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :OpenPageDecisionStore)
 
@@ -1646,7 +1837,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, view, html} = live(build_conn(), "/commands")
 
-    assert html =~ ~r/All\s+<span class="count num">2<\/span>/
+    assert html =~ ~r/All\s+<span class="count num">27<\/span>/
+    assert html =~ ~r/Resolved\s+<span class="count num">25<\/span>/
     assert has_element?(view, "#decision-#{Enum.at(decisions, 0).decision_id}")
     assert has_element?(view, "#decision-#{Enum.at(decisions, 1).decision_id}")
 
@@ -2406,6 +2598,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     store = start_decision_store(decision_store_name, dispatcher)
     decision = request_dashboard_decision(store, "dashboard-action")
+    decision_id = decision.decision_id
     start_counting_orchestrator(orchestrator_name)
 
     # The delivery outcome is produced asynchronously: the store dispatches on
@@ -2414,10 +2607,10 @@ defmodule AiurWeb.DashboardLiveTest do
     # reload. The default reload path throttles that reload by
     # @reload_min_interval_ms (400ms), and under load the whole async chain
     # can outrun any wall-clock wait — the flake #1920 observed (fails
-    # ~1-in-10 under load). render/1 already synchronizes with the LiveView
-    # process (a ping that drains its mailbox), so removing the artificial
-    # reload delay here is a real synchronization point: as soon as the store
-    # records the failure, the next render reflects it. This uses the same
+    # ~1-in-10 under load). Removing the artificial reload delay and reloading
+    # explicitly (reload_view/1 below) makes the render deterministic: once the
+    # store records the failure the reload reflects it, with no budget on how
+    # fast the LiveView happened to schedule its own reload. This uses the same
     # control_center_reload_timer hook the burst-throttle test relies on, and
     # changes no production timing.
     reload_timer = fn destination, message, _delay_ms ->
@@ -2430,7 +2623,14 @@ defmodule AiurWeb.DashboardLiveTest do
       snapshot_timeout_ms: 100,
       decision_store: decision_store_name,
       dashboard_writable: true,
-      control_center_reload_timer: reload_timer
+      control_center_reload_timer: reload_timer,
+      # #2343 review: reload_view/1 must read a genuinely fresh payload. The
+      # default cached reload path (PayloadLoader.fetch_cached) may serve a
+      # payload up to @reload_min_interval_ms (400ms) old — captured before the
+      # retry moved the store to :queued — so the explicit reload has to bypass
+      # the cache entirely (cache_server() == false routes to load_uncached/1).
+      # Established hook; see the fresh-filter tests at :818 and :1608.
+      control_center_cache: false
     )
 
     {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
@@ -2450,6 +2650,18 @@ defmodule AiurWeb.DashboardLiveTest do
       "answer" => %{"choice" => "option:ship", "rationale" => "Checks are green"}
     }
 
+    # The store publishes {:decision_changed, ...} synchronously after each
+    # lifecycle append (answer, then delivery failure), so subscribing before
+    # the submit lets the test wait on that message — the delivery-failure
+    # signal — instead of polling the rendered output on a wall-clock deadline
+    # (the #2343 flake). Note the old `eventually(render(view), 100)` was ~100
+    # attempts at 10ms per attempt (a second+), not 100ms: it failed not from
+    # impatience but because PayloadLoader.schedule/2 coalesced a reload while
+    # one was already scheduled, so the dropped reload never recovered no matter
+    # how long the poll ran. Waiting on the broadcast and re-reading the store
+    # (and re-mounting the page below) removes that failure mode entirely.
+    :ok = DecisionPubSub.subscribe()
+
     # render_submit returns the render produced by the submit handler itself,
     # before the async delivery-failure broadcast reaches the LiveView, so the
     # transient "Answer recorded" notice is still visible here. With the
@@ -2459,18 +2671,29 @@ defmodule AiurWeb.DashboardLiveTest do
     html = render_submit(view, "answer-decision", params)
     assert html =~ "Answer recorded"
 
-    assert eventually(fn ->
-             {:ok, current} = DecisionStore.get(decision.decision_id, store)
-             current.delivery_status == :failed
-           end)
+    # The answer append published one broadcast; consume it so the
+    # assert_receive below can only match the delivery-failure broadcast.
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
 
-    # The delivery outcome is produced asynchronously: background dispatch task
-    # -> store records the failure -> {:decision_changed, ...} broadcast. With
-    # the immediate reload timer, render/1 (whose ping drains the LiveView
-    # mailbox) reflects that failure on the next call, so this wait is
-    # deterministic rather than a wall-clock guess at the whole async chain.
-    assert eventually(fn -> render(view) =~ "Delivery failed" end, 100)
-    html = render(view)
+    # The delivery-failure broadcast is published synchronously in
+    # notify_lifecycle after the store appends the failed event, so receiving
+    # it proves the failure is durable — the assert_receive waits out the
+    # background dispatch task, with no wall-clock budget on the store state.
+    #
+    # This supersedes main's #2340 widening of this poll to 300 attempts (~3s):
+    # a longer wall-clock budget on a render poll is the #2337 anti-pattern.
+    # Waiting on the broadcast removes the deadline entirely.
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
+    assert {:ok, %{delivery_status: :failed}} = DecisionStore.get(decision.decision_id, store)
+
+    # Mount the decision page fresh to read the recorded-answer + failed-
+    # delivery UI. The first LiveView's payload updates arrive as async diffs
+    # that race the test proxy's render, so polling its render would recreate
+    # the #2343 seed-7777 flake. A fresh mount's initial render reads the store
+    # synchronously (control_center_cache: false bypasses the 400ms cached-
+    # reload window), which is deterministically :failed here — no deadline, no
+    # render-poll.
+    {:ok, view, html} = live(build_conn(), "/commands/#{decision.decision_id}")
     assert html =~ "Recorded answer"
     assert html =~ "Delivery failed"
     assert html =~ ~s(phx-click="retry-decision")
@@ -2478,12 +2701,20 @@ defmodule AiurWeb.DashboardLiveTest do
     html = view |> element(~s(button[phx-click="retry-decision"])) |> render_click()
     assert html =~ "delivery retry was scheduled"
 
-    assert eventually(fn ->
-             {:ok, current} = DecisionStore.get(decision.decision_id, store)
-             current.delivery_status == :queued
-           end)
+    # The retry's dispatch_queued append publishes a third broadcast; waiting on
+    # it proves the store landed at :queued (same synchronous notify_lifecycle
+    # guarantee), so the retry has no poll budget either.
+    assert_receive {:decision_changed, ^decision_id, 1}, 2_000
+    assert {:ok, %{delivery_status: :queued}} = DecisionStore.get(decision.decision_id, store)
 
-    assert eventually(fn -> not String.contains?(render(view), ~s(phx-click="retry-decision")) end, 100)
+    # The retry affordance must be gone from the rendered page — same reasoning
+    # as the fresh mount above: read the :queued state through a new mount's
+    # synchronous initial render rather than racing the old view's async diff
+    # (also superseding main's #2340 300-attempt widening of this poll).
+    {:ok, _refreshed_view, refreshed_html} =
+      live(build_conn(), "/commands/#{decision.decision_id}")
+
+    refute refreshed_html =~ ~s(phx-click="retry-decision")
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
     assert Enum.count(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1)) == 1
@@ -3649,11 +3880,28 @@ defmodule AiurWeb.DashboardLiveTest do
     assert history_row_count(view) == 10
     assert render(view) =~ "10 of 25"
 
+    newest = request_dashboard_decision(store, "history-26")
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               newest.decision_id,
+               %{
+                 "idempotency_key" => "history-answer-26",
+                 "expected_version" => newest.version,
+                 "option_id" => "ship"
+               },
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
     view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
     assert history_row_count(view) == 20
+    assert render(view) =~ ~r/All\s+<span class="count num">26<\/span>/
+    assert render(view) =~ ~r/Resolved\s+<span class="count num">26<\/span>/
 
     view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
     assert history_row_count(view) == 25
+    assert render(view) =~ "25 of 26"
     refute has_element?(view, ~s(button[phx-click="load-more-history"]))
   end
 
@@ -3891,7 +4139,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert row |> Floki.text() =~ "Expired"
   end
 
-  test "notifying the Executor moves the Command to history without flattening it into an answer" do
+  test "notifying the Executor keeps the Command open without flattening it into an answer" do
     orchestrator_name = Module.concat(__MODULE__, :DeferToHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DeferToHistoryDecisionStore)
 
@@ -3917,12 +4165,12 @@ defmodule AiurWeb.DashboardLiveTest do
     |> element(~s(button[phx-click="defer-decision"][phx-value-decision-id="#{decision.decision_id}"]))
     |> render_click()
 
-    refute has_element?(view, "#decision-#{decision.decision_id}")
-    assert has_element?(view, "#history-#{decision.decision_id}")
+    assert has_element?(view, ".decision-list #decision-#{decision.decision_id}")
+    refute has_element?(view, "#history-#{decision.decision_id}")
 
-    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{decision.decision_id}")
-    assert row |> Floki.text() =~ "Deferred to Executor"
-    refute row |> Floki.text() =~ "Answered"
+    card = view |> render() |> Floki.parse_document!() |> Floki.find("#decision-#{decision.decision_id}")
+    assert card |> Floki.text() =~ "Deferred to Executor"
+    refute card |> Floki.text() =~ "Answered"
   end
 
   defp history_row_count(view) do
@@ -5542,7 +5790,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_dashboard_metrics(name, decision_store, opts \\ []) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-metrics")
     path = Path.join(dir, "decision-latency.ndjson")
     on_exit(fn -> File.rm_rf!(dir) end)
 
@@ -5556,7 +5804,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_restartable_dashboard_metrics(name, decision_store) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-metrics-restart-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-metrics-restart")
     File.mkdir_p!(dir)
 
     restart = fn ->
@@ -5599,7 +5847,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_recent_merge_store(name) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-merges-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-merges")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     start_supervised!({RecentMergeStore, name: name, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
@@ -5688,7 +5936,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp start_decision_store(name, dispatcher, opts \\ []) do
-    dir = Path.join(System.tmp_dir!(), "aiur-dashboard-decisions-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-dashboard-decisions")
     previous = Application.get_env(:aiur, :decision_state_dir)
     Application.put_env(:aiur, :decision_state_dir, dir)
 

@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{GlobalPause, GlobalPauseStore, PauseResume, State}
+  alias Aiur.Orchestrator.{GlobalPause, GlobalPauseStore, PauseResume, State, TrackerHealth}
 
   test "set_global_pause distinguishes a timeout from an unavailable server" do
     server = spawn(fn -> Process.sleep(:infinity) end)
@@ -15,7 +15,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
 
   describe "GlobalPauseStore recovery" do
     test "distinguishes a missing store from an unreadable store" do
-      path = Path.join(System.tmp_dir!(), "global-pause-missing-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("global-pause-missing") <> ".json"
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, path)
 
@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     end
 
     test "rejects a decoded store without a boolean pause flag" do
-      path = Path.join(System.tmp_dir!(), "global-pause-invalid-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("global-pause-invalid") <> ".json"
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, path)
 
@@ -51,9 +51,9 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     end
 
     test "keeps the store stable when the run log root changes" do
-      state_dir = Path.join(System.tmp_dir!(), "global-pause-state-#{System.unique_integer([:positive])}")
-      run_one_root = Path.join(System.tmp_dir!(), "global-pause-run-one-#{System.unique_integer([:positive])}")
-      run_two_root = Path.join(System.tmp_dir!(), "global-pause-run-two-#{System.unique_integer([:positive])}")
+      state_dir = Aiur.TestSupport.tmp_root!("global-pause-state")
+      run_one_root = Aiur.TestSupport.tmp_root!("global-pause-run-one")
+      run_two_root = Aiur.TestSupport.tmp_root!("global-pause-run-two")
       run_one_log = Path.join(run_one_root, "log/aiur.log")
       run_two_log = Path.join(run_two_root, "log/aiur.log")
       previous_store = Application.get_env(:aiur, :global_pause_store_path)
@@ -158,6 +158,56 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       assert applied_state.running[individual].paused_reason == :operator_pause
     end
 
+    # Criterion 1 of #2138: lifting a global pause after a long deliberate pause
+    # (the fleet idle-backed-off at the widened ceiling, next poll many minutes
+    # away) must cancel that timer and schedule a prompt poll, so dispatch
+    # happens within one base interval rather than one backed-off interval. The
+    # immediate `schedule_tick(0)` on unpause is pre-existing
+    # `Lifecycle.request_refresh_state` behaviour; the property this PR actually
+    # adds is that once the woken cycle observes dispatchable work, the NEXT
+    # schedule stays at the base interval instead of re-widening to the backed-
+    # off ceiling it sat at through the pause.
+    test "unpausing a fleet with waiting work keeps the post-wake schedule at the base interval" do
+      issue = %Issue{
+        id: "issue-1",
+        identifier: "owner/repo#1",
+        title: "Work",
+        state: "todo",
+        labels: ["agent:todo"]
+      }
+
+      state =
+        base_state(
+          globally_paused: true,
+          poll_interval_ms: 120_000,
+          poll_cycles_completed: 10,
+          idle_poll_backoff: %{active?: true, factor: 5.0},
+          effective_poll_interval_ms: 600_000,
+          next_poll_due_at_ms: System.monotonic_time(:millisecond) + 590_000
+        )
+
+      {:reply, {:ok, %{globally_paused: false}}, resumed_state} =
+        GlobalPause.set_global_pause_call(state, false)
+
+      refute resumed_state.globally_paused
+      assert is_reference(resumed_state.tick_timer_ref)
+      assert resumed_state.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+
+      # The woken cycle just fetched a board with a claimable ticket: the fleet
+      # is no longer idle-backed-off, so the next schedule is the base interval,
+      # not the 600s ceiling it was sitting at before the unpause (#2138).
+      polled_state = %{
+        resumed_state
+        | running: %{},
+          poll_cycles_completed: 11,
+          last_polled_issues: %{"issue-1" => issue},
+          candidate_snapshot_fresh?: true
+      }
+
+      assert %{delay_ms: 120_000, idle_backoff?: false} =
+               TrackerHealth.poll_schedule(polled_state, idle_widen_factor: 5.0)
+    end
+
     test "preserves a tracker pause added while an agent is globally held" do
       held = unique_id("gp-tracker-held")
 
@@ -250,7 +300,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     end
 
     test "persists the global pause and provenance across orchestrator restart" do
-      path = Path.join(System.tmp_dir!(), "global-pause-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("global-pause") <> ".json"
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, path)
 
@@ -288,7 +338,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     end
 
     test "holds the fleet when persisted pause recovery is corrupt" do
-      path = Path.join(System.tmp_dir!(), "global-pause-corrupt-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("global-pause-corrupt") <> ".json"
       File.write!(path, "corrupt")
       previous = Application.get_env(:aiur, :global_pause_store_path)
       Application.put_env(:aiur, :global_pause_store_path, path)

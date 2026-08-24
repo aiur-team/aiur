@@ -283,7 +283,7 @@ on your `PATH`:
 
 | Command | What it does |
 |---|---|
-| `aiurdev` | Start the workflow in the foreground with a local-only bind |
+| `aiurdev` | Start the workflow in the foreground, or attach to this directory's live interactive session |
 | `aiurdev <config-path>` | Run an explicit YAML config in the foreground |
 | `aiurdev --test` | Reset the first pinned sandbox ticket, then start an interactive smoke run |
 | `aiurdev --test3` | Reset the pinned 3-ticket blocker-chain sandbox, then start an interactive smoke run |
@@ -382,9 +382,13 @@ configured host and port. Detachment and dashboard availability are independent:
 add `--no-dashboard` for the lean background shape, or use `--no-dashboard` in
 foreground mode to keep the terminal UI without an HTTP listener. The launcher
 still uses one detached tmux session to own the BEAM lifetime and cleanup
-watchdog. If that session is already live, `aiurdev --bg` exits successfully
-with an "already running" hint; if the tmux session is stale and the control RPC
-is down, the launcher cleans it up before starting a fresh background run.
+watchdog. If that session is already live, `aiurdev --bg` exits successfully and
+prints `Attach with: aiur`; a bare `aiurdev` or `aiur` from the same project directory
+attaches when the live run has an interactive terminal stack. Plain `--bg` is
+headless, so use `--bg --interactive` when a detached run should remain attachable
+to the terminal UI. The per-project identity keeps concurrent repositories
+separate. If a tmux session is stale and distribution confirms its keyed BEAM is
+down, the launcher cleans it up before starting a fresh background run.
 
 Claude Remote Control lifecycle hooks post to `Aiur.HttpServer`, so a
 no-listener run cannot support configured Remote Control. Startup fails with a
@@ -479,6 +483,10 @@ jittered admission starts. A primary exhaustion holds its resource globally;
 a secondary-limit response or `Retry-After` holds every consumer of that token,
 including separately started daemons and agent `gh` commands.
 
+The broker is an optimization, not a dependency: on a box without `python3` the
+broker cannot run, so metering fails open to unmetered requests (announced once
+at boot) rather than failing every GitHub request.
+
 The defaults are deliberately conservative and can be tuned per workflow:
 
 ```yaml
@@ -506,8 +514,13 @@ workspaces receive the wrapper automatically.
 
 The machine Decision API under `/api/v1/decisions` uses a dedicated bearer
 credential, not dashboard Basic Auth. Set `AIUR_SUPERVISOR_TOKEN` to at least 32
-random bearer-safe bytes. Keep the dashboard on loopback/private tunneling or
-terminate HTTPS before using the credential remotely.
+random bearer-safe bytes. Generate one with `openssl rand -base64 32`, then put
+`AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the
+repository `.env` (project-local); an already-exported value wins, followed by
+the global file and then the repository file. A present non-empty short,
+whitespace-surrounded, or non-bearer-safe value aborts startup, while an absent
+or empty value leaves the API disabled. Keep the dashboard on loopback/private
+tunneling or terminate HTTPS before using the credential remotely.
 
 Supervisor answers and revisions are disabled until their Decision kinds are
 explicitly delegated:
@@ -591,6 +604,20 @@ The Operations Dashboard links to it only when the input exists; debug-off runs
 instead show an explicit analytics-unavailable state. The route accepts no input
 path parameter and is never browser-cacheable.
 
+The daemon aggregate also records whole-host fleet and build-gate pressure on the
+normal sampling cadence: occupied agents, configured/max/effective capacity, active
+and queued builds, and the oldest live queue wait. Fleet and build observations keep
+independent state and observation timestamps, so stale or degraded sources render as
+gaps instead of false zeroes. The binding admission signal (which host-pressure gate
+is holding dispatch) and the measured load against its threshold ride along, so a
+build-queue that is growing while load sits far below its threshold reads as
+build-gate-saturated rather than host-saturated. Because reading the build gate scans
+its lock files, that probe runs on a reduced cadence and carries the last observation
+forward, so telemetry never disturbs a real build acquisition. `/analytics`,
+`aiurdev analytics` (including `--json`), and the self-contained HTML report expose
+the same pressure evidence. This telemetry is measurement-only; it does not adapt
+`max_concurrent_agents` automatically.
+
 ## Configuration notes
 
 - Path values support `~` for the home directory and `$VAR` for environment substitution.
@@ -616,6 +643,10 @@ path parameter and is never browser-cacheable.
   approvals, `thread_sandbox` is `workspace-write`).
 - Setting `agent.codex.thread_sandbox: danger-full-access` also defaults Codex turns to
   `dangerFullAccess` unless `turn_sandbox_policy` is explicitly configured.
+- Local Codex `workspaceWrite` turns derive the current issue workspace and, when
+  enabled, the shared GitHub budget directory. Configured `writableRoots` are
+  daemon-host extras: each must already be a writable directory, and extras are not
+  forwarded to SSH workers, which derive their own remote workspace roots.
 - `agent.max_turns` caps how many back-to-back backend turns Aiur runs in a single
   invocation when a turn completes but the issue is still active. Default: `20`.
 - `agent.max_turns_by_complexity` optionally overrides that cap for tickets with
@@ -709,9 +740,9 @@ path parameter and is never browser-cacheable.
   functions, including aliases of those wrappers, but a command that deliberately
   invokes a separate real executable by absolute, relative, or symlinked path never
   enters those entrypoints and cannot be intercepted.
-  Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` metadata
-  directory to `writableRoots` without replacing configured, workspace, or writable Git
-  roots. Persistent lock inodes live in the host-prepared sibling
+  Local Codex `workspaceWrite` turns also add the canonical `~/.aiur/build-gate` metadata
+  directory to `writableRoots` without replacing configured, workspace, budget, or
+  writable Git roots. Persistent lock inodes live in the host-prepared sibling
   `~/.aiur/build-gate.locks`, which is deliberately excluded from turn-writable roots so
   a sandbox cannot unlink or replace a held slot. Linux admission uses a lock-owning
   subreaper, so sandbox-local PID/PGID values are diagnostic only and detached Mix

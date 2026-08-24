@@ -27,7 +27,7 @@ defmodule Aiur.GitHub.Teams do
   def fetch_member_logins(_request_fun, _token, nil, acc), do: {:ok, acc}
 
   def fetch_member_logins(request_fun, token, url, acc) do
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, caller: "team_members"}) do
       {:ok, %{status: 200, body: body, headers: headers}} when is_list(body) ->
         new_logins = Enum.flat_map(body, &member_login_list/1)
         next = Transport.parse_next_page_url(headers)

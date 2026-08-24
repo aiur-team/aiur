@@ -149,11 +149,12 @@ defmodule AiurEngineTest do
       {out, code} = run_engine([flag], [])
       assert code == 0, "#{flag} should exit 0"
       assert out =~ "Usage: aiur", "#{flag} should print usage"
+      assert out =~ "start or attach", "#{flag} should explain bare attach behavior"
     end
   end
 
   test "run refuses a legacy config before release startup" do
-    root = Path.join(System.tmp_dir!(), "aiur-engine-legacy-config-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-engine-legacy-config")
     home = Path.join(root, "home")
     repo = Path.join(root, "repo")
     File.mkdir_p!(home)
@@ -181,7 +182,7 @@ defmodule AiurEngineTest do
   end
 
   test "legacy preflight checks the global fallback but canonical config wins" do
-    root = Path.join(System.tmp_dir!(), "aiur-engine-global-legacy-config-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-engine-global-legacy-config")
     home = Path.join(root, "home")
     repo = Path.join(home, "repo")
     File.mkdir_p!(repo)
@@ -207,7 +208,7 @@ defmodule AiurEngineTest do
   end
 
   test "run refuses an explicit named legacy config before release startup" do
-    root = Path.join(System.tmp_dir!(), "aiur-engine-explicit-legacy-config-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-engine-explicit-legacy-config")
     home = Path.join(root, "home")
     repo = Path.join(root, "repo")
     legacy = Path.join(repo, "portable.aiurconfig")
@@ -235,7 +236,7 @@ defmodule AiurEngineTest do
   end
 
   test "legacy preflight does not mistake option values for config paths" do
-    root = Path.join(System.tmp_dir!(), "aiur-engine-legacy-option-value-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-engine-legacy-option-value")
     home = Path.join(root, "home")
     repo = Path.join(root, "repo")
     File.mkdir_p!(home)
@@ -262,7 +263,7 @@ defmodule AiurEngineTest do
   end
 
   test "explicit repo root still checks the global legacy fallback" do
-    root = Path.join(System.tmp_dir!(), "aiur-engine-explicit-root-global-legacy-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-engine-explicit-root-global-legacy")
     home = Path.join(root, "home")
     repo = Path.join(root, "repo")
     File.mkdir_p!(home)
@@ -289,7 +290,7 @@ defmodule AiurEngineTest do
   end
 
   test "an explicit canonical config wins over an ambient legacy file" do
-    root = Path.join(System.tmp_dir!(), "aiur-engine-explicit-canonical-config-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-engine-explicit-canonical-config")
     home = Path.join(root, "home")
     repo = Path.join(root, "repo")
     canonical = Path.join(root, "portable.yaml")
@@ -317,7 +318,7 @@ defmodule AiurEngineTest do
   end
 
   test "argument terminator preserves dashed explicit config precedence" do
-    root = Path.join(System.tmp_dir!(), "aiur-engine-dashed-explicit-config-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-engine-dashed-explicit-config")
     home = Path.join(root, "home")
     repo = Path.join(root, "repo")
     File.mkdir_p!(home)
@@ -361,7 +362,7 @@ defmodule AiurEngineTest do
   test "an incomplete dev release returns the retryable control code" do
     rel = fake_release()
     state = tmp_state()
-    signal = Path.join(System.tmp_dir!(), "aiur-control-retry-#{System.unique_integer([:positive])}")
+    signal = Aiur.TestSupport.tmp_root!("aiur-control-retry")
     File.rm!(Path.join([rel, "releases", "0.1.1", "elixir"]))
 
     on_exit(fn ->
@@ -389,7 +390,7 @@ defmodule AiurEngineTest do
   test "an rpc launcher removed by an overwrite returns the retryable control code" do
     rel = fake_release()
     state = tmp_state()
-    signal = Path.join(System.tmp_dir!(), "aiur-control-retry-#{System.unique_integer([:positive])}")
+    signal = Aiur.TestSupport.tmp_root!("aiur-control-retry")
     release_bin = Path.join([rel, "bin", "aiur"])
 
     File.write!(release_bin, "#!/usr/bin/env bash\nrm -f \"$0\" \"#{rel}/releases/0.1.1/elixir\"\nexit 42\n")
@@ -510,7 +511,7 @@ defmodule AiurEngineTest do
   end
 
   test "config startup status replays the exact selected path from boot output" do
-    capture = Path.join(System.tmp_dir!(), "aiur config capture #{System.unique_integer([:positive])}")
+    capture = Aiur.TestSupport.tmp_root!("aiur config capture")
     config = "/tmp/operator config/.aiur/config"
     File.write!(capture, "booting\n__AIUR_CONFIG_PATH__:#{config}\nready\n")
     on_exit(fn -> File.rm(capture) end)
@@ -521,7 +522,7 @@ defmodule AiurEngineTest do
   end
 
   test "config startup status makes a missing selection marker visible" do
-    capture = Path.join(System.tmp_dir!(), "aiur-empty-capture-#{System.unique_integer([:positive])}")
+    capture = Aiur.TestSupport.tmp_root!("aiur-empty-capture")
     File.write!(capture, "booting\n")
     on_exit(fn -> File.rm(capture) end)
 
@@ -543,7 +544,7 @@ defmodule AiurEngineTest do
 
   test "--version is distribution-free so it never collides with a running node" do
     rel = fake_release()
-    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+    state = Aiur.TestSupport.tmp_root!("aiur-st")
     elixir = Path.join([rel, "releases", "0.1.1", "elixir"])
     cli_version = @cli_package |> File.read!() |> Jason.decode!() |> Map.fetch!("version")
 
@@ -609,7 +610,7 @@ defmodule AiurEngineTest do
     esac
     """
 
-    path = Path.join(System.tmp_dir!(), "aiur-reap-#{System.unique_integer([:positive])}.sh")
+    path = Aiur.TestSupport.tmp_root!("aiur-reap") <> ".sh"
     File.write!(path, script)
     on_exit(fn -> File.rm(path) end)
 
@@ -621,9 +622,9 @@ defmodule AiurEngineTest do
 
   test "workspace cwd sweep reaps only descendants of a non-shallow root" do
     if File.dir?("/proc") do
-      root = Path.join(System.tmp_dir!(), "aiur-cwd-reap-#{System.unique_integer([:positive])}")
+      root = Aiur.TestSupport.tmp_root!("aiur-cwd-reap")
       inside = Path.join(root, "repo/468")
-      outside = Path.join(System.tmp_dir!(), "aiur-cwd-spared-#{System.unique_integer([:positive])}")
+      outside = Aiur.TestSupport.tmp_root!("aiur-cwd-spared")
       File.mkdir_p!(inside)
       File.mkdir_p!(outside)
 
@@ -652,14 +653,72 @@ defmodule AiurEngineTest do
     end
   end
 
+  test "canonical_workspace_root expands a leading tilde" do
+    home = Aiur.TestSupport.tmp_root!("aiur-tilde-canon")
+    File.mkdir_p!(home)
+
+    on_exit(fn -> File.rm_rf(home) end)
+
+    {out, 0} =
+      run_sourced_engine(
+        """
+        printf '%s\\n' "$(canonical_workspace_root '~/rel/path')"
+        printf '%s\\n' "$(canonical_workspace_root '~')"
+        printf '%s\\n' "$(canonical_workspace_root '/abs/path')"
+        """,
+        [{"HOME", home}]
+      )
+
+    lines = out |> String.split("\n", trim: true)
+    assert lines == [Path.join(home, "rel/path"), home, "/abs/path"]
+  end
+
+  test "workspace cwd sweep reaps a ~-rooted workspace process (config root handed off verbatim)" do
+    # `Config.workspace_root()` is handed off to the launcher verbatim, so a config
+    # such as `workspace.root: ~/code/aiur-workspaces` reaches the cwd sweep as a
+    # literal `~...` path. The sweep must expand it or it matches no /proc cwd and
+    # silently reaps nothing — the exact gap that let stop orphan workspace-rooted
+    # agents. `run_sourced_engine` overrides HOME so `~` resolves inside the test.
+    if File.dir?("/proc") do
+      home = Aiur.TestSupport.tmp_root!("aiur-tilde-home")
+      root = Path.join(home, "code/aiur-workspaces")
+      inside = Path.join(root, "repo/468")
+      outside = Aiur.TestSupport.tmp_root!("aiur-tilde-spared")
+      File.mkdir_p!(inside)
+      File.mkdir_p!(outside)
+
+      inside_pid = spawn_sleeper(inside)
+      outside_pid = spawn_sleeper(outside)
+
+      on_exit(fn ->
+        kill_pid(inside_pid)
+        kill_pid(outside_pid)
+        File.rm_rf(home)
+        File.rm_rf(outside)
+      end)
+
+      {out, 0} =
+        run_sourced_engine(
+          """
+          AIUR_WORKSPACE_REAP_SWEEPS=2 reap_workspace_cwd_agents '~/code/aiur-workspaces'
+          """,
+          [{"HOME", home}]
+        )
+
+      assert out == ""
+      assert wait_dead(inside_pid), "expected the ~-rooted workspace process to be reaped"
+      assert os_pid_alive?(outside_pid), "expected the out-of-root process to survive"
+    end
+  end
+
   test "workspace root handoff comes from the instance record" do
     script = """
     aiur_instance_record_path() { printf '%s' "$RECORD"; }
     workspace_root_file_from_instance_record
     """
 
-    record = Path.join(System.tmp_dir!(), "aiur-workspace-record-#{System.unique_integer([:positive])}")
-    root_file = Path.join(System.tmp_dir!(), "aiur-workspace-root-#{System.unique_integer([:positive])}")
+    record = Aiur.TestSupport.tmp_root!("aiur-workspace-record")
+    root_file = Aiur.TestSupport.tmp_root!("aiur-workspace-root")
 
     File.write!(
       record,
@@ -680,7 +739,7 @@ defmodule AiurEngineTest do
   end
 
   test "load_dotenv reads ./.env, strips quotes, and lets shell exports win" do
-    dir = Path.join(System.tmp_dir!(), "aiur-env-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-env")
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, ".env"), "# token\nGITHUB_TOKEN=fromfile\nFOO=\"bar baz\"\n")
     on_exit(fn -> File.rm_rf!(dir) end)
@@ -701,7 +760,7 @@ defmodule AiurEngineTest do
   end
 
   test "run-only environment scrub removes the operator readiness token" do
-    dir = Path.join(System.tmp_dir!(), "aiur-readiness-env-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-readiness-env")
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, ".env"), "AIUR_CI_READINESS_TOKEN=operator-only\n")
     on_exit(fn -> File.rm_rf!(dir) end)
@@ -726,7 +785,7 @@ defmodule AiurEngineTest do
 
   test "init intentionally retains the operator readiness token" do
     rel = fake_release()
-    state = Path.join(System.tmp_dir!(), "aiur-init-token-#{System.unique_integer([:positive])}")
+    state = Aiur.TestSupport.tmp_root!("aiur-init-token")
     elixir = Path.join([rel, "releases", "0.1.1", "elixir"])
 
     File.write!(elixir, "#!/usr/bin/env bash\nprintf 'CI_TOKEN=%s\\n' \"${AIUR_CI_READINESS_TOKEN-unset}\"\n")
@@ -754,7 +813,7 @@ defmodule AiurEngineTest do
   end
 
   test "an unknown command diagnoses a dispatcher older than its stamped checkout" do
-    root = Path.join(System.tmp_dir!(), "aiur-stale-cli-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-stale-cli")
     installed_libexec = Path.join([root, "installed", "libexec"])
     checkout_package = Path.join([root, "checkout", "packaging", "npm", "aiur-cli"])
     release = Path.join(root, "release")
@@ -780,7 +839,7 @@ defmodule AiurEngineTest do
   end
 
   test "stale dispatcher diagnosis supports prerelease versions" do
-    root = Path.join(System.tmp_dir!(), "aiur-stale-prerelease-cli-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-stale-prerelease-cli")
     installed_libexec = Path.join([root, "installed", "libexec"])
     checkout_package = Path.join([root, "checkout", "packaging", "npm", "aiur-cli"])
     release = Path.join(root, "release")
@@ -831,7 +890,7 @@ defmodule AiurEngineTest do
 
   test "init boots interactively and distribution-free (no --name/--cookie)" do
     rel = fake_release()
-    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+    state = Aiur.TestSupport.tmp_root!("aiur-st")
 
     {out, _} = run_engine(["init"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
@@ -1243,7 +1302,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "streaming control rpc preserves an unexpected crash marker" do
-    marker = Path.join(System.tmp_dir!(), "aiur-stream-crash-#{System.unique_integer([:positive])}")
+    marker = Aiur.TestSupport.tmp_root!("aiur-stream-crash")
     File.write!(marker, "reason=boom\n")
 
     {out, 1} =
@@ -1259,7 +1318,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "findings boots distribution-free without requiring a running node" do
     rel = fake_release()
-    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+    state = Aiur.TestSupport.tmp_root!("aiur-st")
 
     {out, _} = run_engine(["findings", "--slugs"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
@@ -1271,7 +1330,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "ask boots distribution-free without requiring a running node" do
     rel = fake_release()
-    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+    state = Aiur.TestSupport.tmp_root!("aiur-st")
 
     {out, _} = run_engine(["ask", "Enable CI readiness", "--blocking"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
@@ -1305,7 +1364,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     System.cmd(@engine, args, env: env, stderr_to_stdout: true)
   end
 
-  defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+  defp tmp_state, do: Aiur.TestSupport.tmp_root!("aiur-st")
 
   defp realpath(path) do
     {out, 0} = System.cmd("pwd", ["-P"], cd: path)
@@ -1354,7 +1413,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   defp fake_tmux_script(body) do
-    dir = Path.join(System.tmp_dir!(), "aiur-fake-tmux-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-fake-tmux")
     File.mkdir_p!(dir)
     path = Path.join(dir, "tmux")
     File.write!(path, "#!/usr/bin/env bash\n#{body}\n")
@@ -1433,7 +1492,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "writes an instance record with launch identity metadata" do
     state = tmp_state()
-    launch_root = Path.join(System.tmp_dir!(), "aiur-record-root-#{System.unique_integer([:positive])}")
+    launch_root = Aiur.TestSupport.tmp_root!("aiur-record-root")
     File.mkdir_p!(launch_root)
 
     on_exit(fn ->
@@ -1471,6 +1530,36 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     assert out =~ "AIUR_RECORD_PROJECT_ROOT_SOURCE=cwd"
   end
 
+  test "instance record backfill never overwrites a concurrent launch record" do
+    state = tmp_state()
+    on_exit(fn -> File.rm_rf(state) end)
+
+    script = """
+    AIUR_BG_STATE_DIR="$STATE"
+    AIUR_INSTANCE_KEY=abc123
+    AIUR_RELEASE_NODE=aiur-tester-abc123@127.0.0.1
+    AIUR_PROJECT_ROOT=/original
+    AIUR_PROJECT_ROOT_SOURCE=env
+    AIUR_WORKSPACE_ROOT_FILE=/original/handoff
+    write_aiur_instance_record aiur-tester-abc123-default aiur-tester-abc123
+    AIUR_PROJECT_ROOT=/attacher
+    AIUR_WORKSPACE_ROOT_FILE=
+    write_aiur_instance_record aiur-tester-abc123-default aiur-tester-abc123 if-absent
+    cat "$(aiur_instance_record_path)"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"STATE", state},
+        {"AIUR_RELEASE_NODE", nil},
+        {"AIUR_INSTANCE_KEY", nil}
+      ])
+
+    assert out =~ "AIUR_RECORD_PROJECT_ROOT=/original"
+    assert out =~ "AIUR_RECORD_WORKSPACE_ROOT_FILE=/original/handoff"
+    refute out =~ "/attacher"
+  end
+
   test "global-config control RPC adopts the live launch record from a subdirectory" do
     rel = fake_release()
 
@@ -1481,7 +1570,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     """)
 
     state = tmp_state()
-    base = Path.join(System.tmp_dir!(), "aiur-control-record-#{System.unique_integer([:positive])}")
+    base = Aiur.TestSupport.tmp_root!("aiur-control-record")
     home = Path.join(base, "home")
     launch_root = Path.join(base, "project")
     subdir = Path.join([launch_root, "nested", "dir"])
@@ -1536,10 +1625,10 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "down global-config control RPC prints the stopped-daemon error" do
     state = tmp_state()
-    caller = Path.join(System.tmp_dir!(), "aiur-control-miss-#{System.unique_integer([:positive])}")
+    caller = Aiur.TestSupport.tmp_root!("aiur-control-miss")
     File.mkdir_p!(caller)
 
-    rpc = Path.join(System.tmp_dir!(), "aiur-rpc-down-#{System.unique_integer([:positive])}")
+    rpc = Aiur.TestSupport.tmp_root!("aiur-rpc-down")
     File.write!(rpc, "#!/usr/bin/env bash\necho transport failed >&2\nexit 42\n")
     File.chmod!(rpc, 0o755)
 
@@ -1573,7 +1662,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "down control RPC with crash marker reports orphaned-agent guidance" do
     state = tmp_state()
-    rpc = Path.join(System.tmp_dir!(), "aiur-rpc-fail-#{System.unique_integer([:positive])}")
+    rpc = Aiur.TestSupport.tmp_root!("aiur-rpc-fail")
 
     File.write!(rpc, "#!/usr/bin/env bash\necho transport failed >&2\nexit 42\n")
     File.chmod!(rpc, 0o755)
@@ -1614,8 +1703,8 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "background startup waits until the control plane is ready" do
     tmux = fake_tmux_script("exit 0")
-    capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
-    counter = Path.join(System.tmp_dir!(), "aiur-control-probes-#{System.unique_integer([:positive])}")
+    capture = Aiur.TestSupport.tmp_root!("aiur-startup")
+    counter = Aiur.TestSupport.tmp_root!("aiur-control-probes")
     File.write!(capture, "")
     File.write!(counter, "0")
 
@@ -1649,7 +1738,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "background startup fails when the node never registers" do
     tmux = fake_tmux_script("exit 0")
-    capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
+    capture = Aiur.TestSupport.tmp_root!("aiur-startup")
     File.write!(capture, "node boot log\n")
     on_exit(fn -> File.rm(capture) end)
 
@@ -1678,7 +1767,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "startup wait reports tmux exits with captured output" do
     tmux = fake_tmux_script(~s|case " $* " in *" has-session "*) exit 1 ;; *) exit 0 ;; esac|)
-    capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
+    capture = Aiur.TestSupport.tmp_root!("aiur-startup")
     File.write!(capture, "boot failed\n")
     on_exit(fn -> File.rm(capture) end)
 
@@ -1709,7 +1798,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   # sent debugging after a broken release instead of a short timeout.
   test "startup wait distinguishes a still-booting control plane from a crash" do
     tmux = fake_tmux_script("exit 0")
-    capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
+    capture = Aiur.TestSupport.tmp_root!("aiur-startup")
     File.write!(capture, "")
     on_exit(fn -> File.rm(capture) end)
 
@@ -1748,8 +1837,8 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   test "background startup failure cleans generated tempfiles and reaps session" do
     rel = fake_release()
     state = tmp_state()
-    tmp = Path.join(System.tmp_dir!(), "aiur-bg-fail-#{System.unique_integer([:positive])}")
-    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("aiur-bg-fail")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
     tmux_state = Path.join(tmp, "tmux-session")
     dump = Path.join(tmp, "erl_crash.dump")
     ledger = Path.join(tmp, "alerts.ndjson")
@@ -1842,8 +1931,8 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   test "foreground startup failure before control readiness exits nonzero and preserves output" do
     rel = fake_release()
     state = tmp_state()
-    tmp = Path.join(System.tmp_dir!(), "aiur-fg-fail-#{System.unique_integer([:positive])}")
-    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("aiur-fg-fail")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
     tmux_state = Path.join(tmp, "tmux-session")
     File.mkdir_p!(tmp)
     File.write!(events, "")
@@ -1920,7 +2009,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "seeded BEAM watchdog reaps immediately when the node disappears" do
-    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
     File.write!(events, "")
     on_exit(fn -> File.rm(events) end)
 
@@ -1950,7 +2039,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "crash recording emits a bounded needs-attention alert for a completed dump" do
-    root = Path.join(System.tmp_dir!(), "aiur-crash-alert-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-crash-alert")
     run_log_dir = Path.join(root, "run")
     dump = Path.join(root, "erl_crash.dump")
     marker = Path.join(root, "last-crash")
@@ -1993,7 +2082,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "crash recording does not alert for an incomplete dump" do
-    root = Path.join(System.tmp_dir!(), "aiur-incomplete-dump-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-incomplete-dump")
     run_log_dir = Path.join(root, "run")
     dump = Path.join(root, "erl_crash.dump")
     ledger = Path.join(root, "aiur.alerts.ndjson")
@@ -2017,7 +2106,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "crash recording does not alert when the configured dump is missing" do
-    root = Path.join(System.tmp_dir!(), "aiur-missing-dump-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-missing-dump")
     ledger = Path.join(root, "aiur.alerts.ndjson")
     ledger_path_file = Path.join(root, "alert-ledger-path")
     File.mkdir_p!(root)
@@ -2037,7 +2126,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "crash recording ignores a completed dump unchanged since launch" do
-    root = Path.join(System.tmp_dir!(), "aiur-stale-dump-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-stale-dump")
     run_log_dir = Path.join(root, "run")
     dump = Path.join(root, "erl_crash.dump")
     ledger = Path.join(root, "aiur.alerts.ndjson")
@@ -2064,7 +2153,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "watchdog still reaps when the alert ledger cannot be written" do
-    root = Path.join(System.tmp_dir!(), "aiur-alert-failure-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-alert-failure")
     events = Path.join(root, "events")
     dump = Path.join(root, "erl_crash.dump")
     ledger_path_file = Path.join(root, "alert-ledger-path")
@@ -2101,7 +2190,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "foreground watchdog alerts for a byte-identical replacement and removes handoffs" do
-    root = Path.join(System.tmp_dir!(), "aiur-foreground-crash-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-foreground-crash")
     events = Path.join(root, "events")
     dump = Path.join(root, "erl_crash.dump")
     ledger = Path.join(root, "aiur.alerts.ndjson")
@@ -2153,8 +2242,8 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     rel = fake_release()
     state = tmp_state()
     logs = Path.join(state, "logs")
-    tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
-    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    tmux_state = Aiur.TestSupport.tmp_root!("aiur-tmux-state")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
 
     tmux =
       fake_tmux_script("""
@@ -2221,7 +2310,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     rel = fake_release()
     state = tmp_state()
     logs = Path.join(state, "logs")
-    tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
+    tmux_state = Aiur.TestSupport.tmp_root!("aiur-tmux-state")
 
     tmux =
       fake_tmux_script("""
@@ -2267,12 +2356,370 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     refute out =~ "dashboard listener unavailable"
   end
 
+  test "bare foreground invocation attaches to a live session without taking cleanup ownership" do
+    rel = fake_release()
+    state = tmp_state()
+    tmux_state = Aiur.TestSupport.tmp_root!("aiur-tmux-state")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
+    logs = Aiur.TestSupport.tmp_root!("aiur-logs")
+    File.write!(tmux_state, "")
+    File.write!(events, "")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *" new-session "*) echo "NEW_SESSION:$*" >> "#{events}"; exit 0 ;;
+        *" attach "*) echo "ATTACH:$*" >> "#{events}"; exit 0 ;;
+        *" kill-session "*) echo "KILL_SESSION:$*" >> "#{events}"; exit 0 ;;
+        *" kill-server "*) echo "KILL_SERVER:$*" >> "#{events}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(tmux_state)
+      File.rm(events)
+      File.rm_rf(logs)
+    end)
+
+    script = """
+    probe_control_liveness() { printf up; }
+    start_beam_death_watchdog() { echo "WATCHDOG:$*" >> "$EVENTS"; printf '424242\n'; }
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    run_session foreground --no-dashboard
+    cat "$EVENTS"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_LOGS_ROOT", logs},
+        {"EVENTS", events},
+        {"PATH", path}
+      ])
+
+    assert out =~ "attaching to the running session"
+    assert out =~ "ATTACH:-L"
+    refute out =~ "NEW_SESSION:"
+    refute out =~ "WATCHDOG:"
+    refute out =~ "KILL_SESSION:"
+    refute out =~ "KILL_SERVER:"
+    refute out =~ "REAP:"
+    refute out =~ "KILL_BEAM:"
+    refute out =~ "Dashboard disabled"
+    refute File.exists?(logs)
+  end
+
+  test "existing-session attach failure propagates without teardown or leaked stderr tempfiles" do
+    rel = fake_release()
+    state = tmp_state()
+    tmp = Aiur.TestSupport.tmp_root!("aiur-attach-failure")
+    events = Path.join(tmp, "events")
+    File.mkdir_p!(tmp)
+    File.write!(events, "")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" has-session "*) exit 0 ;;
+        *" attach "*) echo "[server exited]" >&2; echo "attach failed" >&2; exit 23 ;;
+        *" kill-session "*) echo "KILL_SESSION:$*" >> "#{events}"; exit 0 ;;
+        *" kill-server "*) echo "KILL_SERVER:$*" >> "#{events}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(tmp)
+    end)
+
+    script = """
+    probe_control_liveness() { printf up; }
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    set +e
+    run_session foreground --no-dashboard
+    code=$?
+    set -e
+    echo "CODE=$code"
+    cat "$EVENTS"
+    compgen -G "$TMPDIR/aiur-attach-stderr.*" || true
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"EVENTS", events},
+        {"PATH", "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"},
+        {"TMPDIR", tmp}
+      ])
+
+    assert out =~ "CODE=23"
+    assert out =~ "attach failed"
+    refute out =~ "[server exited]"
+    refute out =~ "KILL_SESSION:"
+    refute out =~ "KILL_SERVER:"
+    refute out =~ "REAP:"
+    refute out =~ "KILL_BEAM:"
+    refute out =~ "aiur-attach-stderr."
+  end
+
+  test "bare foreground invocation attaches only to the current project session" do
+    rel = fake_release()
+    state = tmp_state()
+    base = Aiur.TestSupport.tmp_root!("aiur-projects")
+    project_a = Path.join(base, "alpha")
+    project_b = Path.join(base, "beta")
+    events = Path.join(base, "events")
+
+    for project <- [project_a, project_b] do
+      File.mkdir_p!(Path.join(project, ".aiur"))
+      File.write!(Path.join([project, ".aiur", "config"]), "")
+    end
+
+    File.write!(events, "")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" has-session "*) exit 0 ;;
+        *" new-session "*) echo "NEW_SESSION:$*" >> "#{events}"; exit 0 ;;
+        *" attach "*) echo "ATTACH:$*" >> "#{events}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(base)
+    end)
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+    user = System.get_env("USER") || "user"
+
+    script = """
+    probe_control_liveness() { printf up; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    run_session foreground --no-dashboard
+    """
+
+    for project <- [project_a, project_b] do
+      assert {_out, 0} =
+               run_sourced_engine(script, [
+                 {"AIUR_RELEASE_DIR", rel},
+                 {"AIUR_BG_STATE_DIR", state},
+                 {"AIUR_REPO_ROOT", project},
+                 {"AIUR_INSTANCE_KEY", nil},
+                 {"EVENTS", events},
+                 {"USER", user},
+                 {"PATH", path}
+               ])
+    end
+
+    [attach_a, attach_b] =
+      events
+      |> File.read!()
+      |> String.split("\n", trim: true)
+
+    identity_a = identity([{"AIUR_REPO_ROOT", project_a}])
+    identity_b = identity([{"AIUR_REPO_ROOT", project_b}])
+    socket_a = "aiur-#{user}-#{identity_a["AIUR_INSTANCE_KEY"]}"
+    socket_b = "aiur-#{user}-#{identity_b["AIUR_INSTANCE_KEY"]}"
+
+    assert attach_a =~ "-L #{socket_a} "
+    assert attach_a =~ "-t #{socket_a}-default"
+    refute attach_a =~ socket_b
+
+    assert attach_b =~ "-L #{socket_b} "
+    assert attach_b =~ "-t #{socket_b}-default"
+    refute attach_b =~ socket_a
+
+    refute File.read!(events) =~ "NEW_SESSION:"
+  end
+
+  test "directory launch lock prevents stale cleanup from racing a cold startup" do
+    rel = fake_release()
+    state = tmp_state()
+    tmp = Aiur.TestSupport.tmp_root!("aiur-launch-lock")
+    tmux_state = Path.join(tmp, "tmux-session")
+    ready = Path.join(tmp, "ready")
+    events = Path.join(tmp, "events")
+    File.mkdir_p!(tmp)
+    File.write!(events, "")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *" attach "*) echo "ATTACH:$*" >> "#{events}"; exit 0 ;;
+        *" new-session "*) echo "NEW_SESSION:$*" >> "#{events}"; exit 0 ;;
+        *" kill-server "*) echo "KILL_SERVER:$*" >> "#{events}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(tmp)
+    end)
+
+    script = """
+    aiur_resolve_identity
+    lock=$(aiur_launch_lock_path)
+    mkdir -p "$(dirname "$lock")"
+    mkdir "$lock"
+    (
+      sleep 0.2
+      touch "$TMUX_STATE" "$READY"
+      rm -f "$lock/owner"
+      rmdir "$lock"
+    ) &
+    holder=$!
+    printf '%s\n' "$holder" > "$lock/owner"
+    probe_control_liveness() { if [ -f "$READY" ]; then printf up; else printf down; fi; }
+    probe_node_liveness() { printf down; }
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    run_session foreground --no-dashboard
+    wait "$holder"
+    [ -d "$lock" ] && echo LOCK_LEFT
+    cat "$EVENTS"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"EVENTS", events},
+        {"PATH", "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"},
+        {"READY", ready},
+        {"TMUX_STATE", tmux_state}
+      ])
+
+    assert out =~ "ATTACH:-L"
+    refute out =~ "NEW_SESSION:"
+    refute out =~ "KILL_SERVER:"
+    refute out =~ "REAP:"
+    refute out =~ "KILL_BEAM:"
+    refute out =~ "LOCK_LEFT"
+  end
+
+  test "directory launch lock preserves a fresh ownerless acquisition window" do
+    rel = fake_release()
+    state = tmp_state()
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+    end)
+
+    script = """
+    aiur_resolve_identity
+    lock=$(aiur_launch_lock_path)
+    mkdir -p "$(dirname "$lock")"
+    mkdir "$lock"
+    sleep() { :; }
+    set +e
+    AIUR_LAUNCH_LOCK_TICKS=2 acquire_aiur_launch_lock "$lock"
+    code=$?
+    set -e
+    echo "CODE=$code"
+    [ -d "$lock" ] && echo LOCK_PRESERVED
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ "LOCK_PRESERVED"
+  end
+
+  test "bare foreground invocation preserves an existing session while its live node is not control-ready" do
+    rel = fake_release()
+    state = tmp_state()
+    tmux_state = Aiur.TestSupport.tmp_root!("aiur-tmux-state")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
+    File.write!(tmux_state, "")
+    File.write!(events, "")
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" has-session "*) [ -f "#{tmux_state}" ]; exit $? ;;
+        *" new-session "*) echo "NEW_SESSION:$*" >> "#{events}"; exit 0 ;;
+        *" attach "*) echo "ATTACH:$*" >> "#{events}"; exit 0 ;;
+        *" kill-session "*) echo "KILL_SESSION:$*" >> "#{events}"; exit 0 ;;
+        *" kill-server "*) echo "KILL_SERVER:$*" >> "#{events}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm(tmux_state)
+      File.rm(events)
+    end)
+
+    script = """
+    probe_control_liveness() { printf down; }
+    probe_node_liveness() { printf up; }
+    reap_aiur_agents() { echo "REAP:$*" >> "$EVENTS"; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    set +e
+    ( run_session foreground )
+    code=$?
+    set -e
+    echo "CODE=$code"
+    cat "$EVENTS"
+    """
+
+    path = "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"EVENTS", events},
+        {"PATH", path}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ "control plane is not ready"
+    refute out =~ "NEW_SESSION:"
+    refute out =~ "ATTACH:"
+    refute out =~ "KILL_SESSION:"
+    refute out =~ "KILL_SERVER:"
+    refute out =~ "REAP:"
+    refute out =~ "KILL_BEAM:"
+  end
+
   test "foreground attach filters tmux server-exited noise without process substitution" do
     rel = fake_release()
     state = tmp_state()
-    tmux_state = Path.join(System.tmp_dir!(), "aiur-tmux-state-#{System.unique_integer([:positive])}")
-    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
-    dump = Path.join(System.tmp_dir!(), "aiur-dump-#{System.unique_integer([:positive])}")
+    tmux_state = Aiur.TestSupport.tmp_root!("aiur-tmux-state")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
+    dump = Aiur.TestSupport.tmp_root!("aiur-dump")
     File.write!(events, "")
 
     tmux =
@@ -2335,7 +2782,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     File.mkdir_p!(Path.join([rel, "erts-16.4", "bin"]))
 
     state = tmp_state()
-    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
 
     sibling_marker =
       "#{Path.join([rel, "erts-16.4", "bin", "beam.smp"])} -name aiur-sibling-#{System.unique_integer([:positive])}@127.0.0.1"
@@ -2386,10 +2833,10 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "cmd_stop marks a clean stop before killing the BEAM and cwd sweep" do
     state = tmp_state()
-    events = Path.join(System.tmp_dir!(), "aiur-events-#{System.unique_integer([:positive])}")
-    workspace_root = Path.join(System.tmp_dir!(), "aiur-workspaces-#{System.unique_integer([:positive])}")
-    workspace_root_file = Path.join(System.tmp_dir!(), "aiur-workspace-root-#{System.unique_integer([:positive])}")
-    record = Path.join(System.tmp_dir!(), "aiur-stop-record-#{System.unique_integer([:positive])}")
+    events = Aiur.TestSupport.tmp_root!("aiur-events")
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-workspaces")
+    workspace_root_file = Aiur.TestSupport.tmp_root!("aiur-workspace-root")
+    record = Aiur.TestSupport.tmp_root!("aiur-stop-record")
     File.mkdir_p!(workspace_root)
     File.write!(workspace_root_file, workspace_root <> "\n")
 
@@ -2459,7 +2906,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "cmd_stop still tears down the session without a workspace root handoff" do
     state = tmp_state()
-    events = Path.join(System.tmp_dir!(), "aiur-stop-timeout-#{System.unique_integer([:positive])}")
+    events = Aiur.TestSupport.tmp_root!("aiur-stop-timeout")
     File.write!(events, "")
 
     on_exit(fn ->
@@ -2489,11 +2936,93 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     assert out =~ "KILL_BEAM:-name aiur-enginetest-"
   end
 
+  test "cmd_stop gives the BEAM a generous TERM grace so its own agent reap completes" do
+    # The stop path must not SIGKILL the BEAM at the 3s startup-reclaim default:
+    # the BEAM's graceful shutdown (ProcessReaper reaping the agent tree plus the
+    # BEAM-side workspace sweep) takes longer than 3s, and a SIGKILL mid-cleanup is
+    # what orphaned agent processes on `aiur stop` / `aiur restart`. Assert the
+    # stop grace (default 300 ticks = 30s) is passed through to kill_beams_matching.
+    state = tmp_state()
+    events = Aiur.TestSupport.tmp_root!("aiur-stop-grace")
+    File.write!(events, "")
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm(events)
+    end)
+
+    script = """
+    resolve_release() { :; }
+    aiur_resolve_identity() {
+      : "${AIUR_SESSION_PREFIX:=aiur}"
+      : "${AIUR_RELEASE_NODE:=aiur-enginetest@127.0.0.1}"
+    }
+    resolve_control_identity_from_records() { AIUR_CONTROL_ADOPTED_RECORD=0; AIUR_CONTROL_CURRENT_NODE_STATE=up; }
+    workspace_root_file_from_instance_record() { return 1; }
+    kill_beams_matching() { echo "KILL_BEAM:$*" >> "$EVENTS"; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    reap_aiur_agents() { :; }
+    reap_workspace_cwd_agents() { :; }
+    cmd_stop
+    cat "$EVENTS"
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"AIUR_BG_STATE_DIR", state}, {"EVENTS", events}])
+
+    assert out =~ ~r/KILL_BEAM:-name aiur-enginetest-.* 300/
+  end
+
+  test "kill_beams_matching honors a caller-supplied TERM grace" do
+    events = Aiur.TestSupport.tmp_root!("aiur-grace")
+    File.write!(events, "")
+    on_exit(fn -> File.rm(events) end)
+
+    script = """
+    pgrep() { printf '4242\n'; }
+    kill() { printf 'KILL:%s\n' "$*" >> "$EVENTS"; }
+    sleep() { printf 'SLEEP:%s\n' "$*" >> "$EVENTS"; }
+    kill_beams_matching 'aiur-grace' 10
+    cat "$EVENTS"
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"EVENTS", events}])
+
+    assert length(Regex.scan(~r/^SLEEP:0\.1$/m, out)) == 10
+    assert out =~ "KILL:-TERM 4242"
+    assert out =~ "KILL:-KILL 4242"
+  end
+
+  test "kill_beams_matching falls back deterministically for invalid grace values" do
+    events = Aiur.TestSupport.tmp_root!("aiur-invalid-grace")
+    File.write!(events, "")
+    on_exit(fn -> File.rm(events) end)
+
+    script = """
+    pgrep() { printf '4242\n'; }
+    kill() { printf 'KILL:%s\n' "$*" >> "$EVENTS"; }
+    sleep() { printf 'SLEEP:%s\n' "$*" >> "$EVENTS"; }
+    kill_beams_matching 'aiur-grace' -1
+    printf 'NEXT\n' >> "$EVENTS"
+    kill_beams_matching 'aiur-grace' oops
+    printf 'NEXT\n' >> "$EVENTS"
+    kill_beams_matching 'aiur-grace' 999999999999999999999999999999999999
+    cat "$EVENTS"
+    """
+
+    {out, 0} = run_sourced_engine(script, [{"EVENTS", events}])
+
+    assert length(Regex.scan(~r/^SLEEP:0\.1$/m, out)) == 90
+    assert length(Regex.scan(~r/^KILL:-TERM 4242$/m, out)) == 3
+    assert length(Regex.scan(~r/^KILL:-KILL 4242$/m, out)) == 3
+    assert length(Regex.scan(~r/^NEXT$/m, out)) == 2
+  end
+
   test "cmd_stop fails loud instead of no-oping for an unmatched global-config cwd" do
     rel = fake_release()
     state = tmp_state()
-    events = Path.join(System.tmp_dir!(), "aiur-stop-miss-events-#{System.unique_integer([:positive])}")
-    caller = Path.join(System.tmp_dir!(), "aiur-stop-miss-#{System.unique_integer([:positive])}")
+    events = Aiur.TestSupport.tmp_root!("aiur-stop-miss-events")
+    caller = Aiur.TestSupport.tmp_root!("aiur-stop-miss")
     File.mkdir_p!(caller)
     File.write!(events, "")
 
@@ -2777,7 +3306,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   end
 
   test "restart refuses a legacy config before stopping or rebuilding" do
-    root = Path.join(System.tmp_dir!(), "aiur-restart-legacy-config-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-restart-legacy-config")
     File.mkdir_p!(root)
     File.write!(Path.join(root, ".aiurconfig"), "tracker:\n  kind: memory\n")
     on_exit(fn -> File.rm_rf!(root) end)
@@ -3139,7 +3668,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
   # args and rewrites the version file so `cli_package_version` (overridden below)
   # reflects the "after" version. No real network, no real global install.
   defp fake_npm_bin(_tags_file, _version_file) do
-    bin = Path.join(System.tmp_dir!(), "aiur-fake-npm-#{System.unique_integer([:positive])}")
+    bin = Aiur.TestSupport.tmp_root!("aiur-fake-npm")
     File.mkdir_p!(bin)
     npm = Path.join(bin, "npm")
 
@@ -3164,9 +3693,9 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   defp upgrade_env(tags \\ @live_dist_tags, version \\ "0.0.3") do
     state = tmp_state()
-    tags_file = Path.join(System.tmp_dir!(), "aiur-tags-#{System.unique_integer([:positive])}")
-    version_file = Path.join(System.tmp_dir!(), "aiur-ver-#{System.unique_integer([:positive])}")
-    npm_log = Path.join(System.tmp_dir!(), "aiur-npm-#{System.unique_integer([:positive])}")
+    tags_file = Aiur.TestSupport.tmp_root!("aiur-tags")
+    version_file = Aiur.TestSupport.tmp_root!("aiur-ver")
+    npm_log = Aiur.TestSupport.tmp_root!("aiur-npm")
     File.write!(tags_file, tags)
     File.write!(version_file, version)
     File.write!(npm_log, "")
@@ -3367,7 +3896,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     fixture = upgrade_env()
     # Fake npm `view` exits nonzero → cmd_upgrade must abort, not install.
     File.write!(fixture.tags_file, "broken")
-    npm_bin = Path.join(System.tmp_dir!(), "aiur-fake-npm-down-#{System.unique_integer([:positive])}")
+    npm_bin = Aiur.TestSupport.tmp_root!("aiur-fake-npm-down")
     File.mkdir_p!(npm_bin)
     down = Path.join(npm_bin, "npm")
     File.write!(down, "#!/usr/bin/env bash\nif [ \"${1:-}\" = \"view\" ]; then exit 1; fi\n# no install handler\n")
@@ -3537,7 +4066,7 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
   test "upgrade_state_string handles quoted and unquoted JSON scalars" do
     fixture = upgrade_env()
-    file = Path.join(System.tmp_dir!(), "aiur-json-#{System.unique_integer([:positive])}")
+    file = Aiur.TestSupport.tmp_root!("aiur-json")
     File.write!(file, ~s({"latest":"0.0.3","channel_gone":true,"available":null}))
     on_exit(fn -> File.rm(file) end)
 

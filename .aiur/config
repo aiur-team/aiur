@@ -35,6 +35,16 @@ polling:
 webhooks:
   repos:
     - aiur-team/aiur
+# PR-health scan (cause 1 + 3 of #2337): flags a PR authored by the only
+# identity that approves and merges (unmergeable by construction) and a
+# non-draft PR older than stale_hours with no review. Enabled here because the
+# 4-day tail was measured on this repo — the 95h and 76h PRs must not sit
+# unnoticed. One open-PR list read per interval plus a per-candidate reviews
+# read; the open-PR list is a conditional read that costs little.
+pr_health:
+  enabled: true
+  interval_seconds: 1800
+  stale_hours: 24
 max_vertical_panes: 3
 pre_warmed_sessions: 3
 # Cap (MB) on total ~/.aiur/logs size; oldest sessions swept every 5 min once exceeded. See Aiur.Logs.Retention.
@@ -92,11 +102,6 @@ agent:
   # output) is killed after this. Raised from the 5-min default so flake-fix /
   # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
   stall_timeout_ms: 3600000
-  # Build-gate slot occupancy watchdog (default 5 min): a build slot held past
-  # this raises a needs-attention alert naming the command and holder. Bounds
-  # slot occupancy separately from the turn-silence watchdog above, which never
-  # fires on a long serial `--trace` run.
-  build_gate_stall_timeout_ms: 300000
   # Complexity routing is left unset for this run: every complexity level falls
   # back to `priority`, so DeepSeek is the default backend for the remaining
   # Build Order #1567 work with codex/claude as fallback.
@@ -113,12 +118,8 @@ agent:
     turn_sandbox_policy:
       type: workspaceWrite
       writableRoots:
-        # Was /home/orangekid/code/aiur-workspaces — a stale path for another user,
-        # so no agent workspace was actually writable here. The shared GitHub budget
-        # root was missing entirely, which made every coordinated GitHub operation
-        # fail closed (`github-budget-root-readonly`) and paused agents mid-turn.
-        - /home/everdred/code/aiur-workspaces
-        - /home/everdred/.aiur/github-budget
+        # Optional local extras must already exist and be writable. Aiur derives
+        # the issue workspace and enabled shared GitHub budget root at dispatch.
         - /tmp
       networkAccess: true
 opencode:
@@ -132,11 +133,10 @@ prompt_file: prompt.md
 # The build command lives in a sibling `.aiur/prewarm` script (path relative to
 # this config), keeping the multi-line shell out of the main config.
 prewarm:
-  # Disabled 2026-08-21 to unblock dispatch: #2237 — RepoBase's `:checking` phase is
-  # absorbing, so a lost `git ls-remote` probe holds the dispatch gate forever and no
-  # refresh can start a new probe (repo_base.ex:335). Two consecutive daemon starts
-  # stalled with 31 ready tickets and 0 agents. Cold-clone workspaces are slower but
-  # they dispatch. Re-enable once #2237 lands.
-  enabled: false
+  enabled: true
   base_build_file: prewarm
+  # Periodic refresh is an independent recovery path alongside the dispatch
+  # watchdog: #2237 showed a single probe can be lost, so polling stays enabled
+  # even though dispatch-time freshness checks and the idle watchdog cover the
+  # hold on their own.
   poll_seconds: 30

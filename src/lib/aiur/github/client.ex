@@ -16,8 +16,11 @@ defmodule Aiur.GitHub.Client do
     IssueState,
     PullRequests,
     RepoEvents,
+    ResourceFetch,
+    ResourceStore,
     ReviewThreads,
-    Teams
+    Teams,
+    Transport
   }
 
   alias Aiur.GitHub.CiReadiness
@@ -129,8 +132,10 @@ defmodule Aiur.GitHub.Client do
   def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ []),
     do: DependenciesApi.remove_dependency(blocked_issue_number, blocker_issue_id, opts)
 
-  @spec fetch_issue_raw(integer() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def fetch_issue_raw(issue_number, opts \\ []), do: Issues.fetch_issue_raw(issue_number, opts)
+  @spec fetch_issue_raw_conditional(integer() | String.t(), keyword()) ::
+          {:ok, map(), :fresh | :not_modified | :fetched} | {:error, term()}
+  def fetch_issue_raw_conditional(issue_number, opts \\ []),
+    do: Issues.fetch_issue_raw_conditional(issue_number, opts)
 
   @spec fetch_team_members(String.t(), String.t(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
@@ -146,11 +151,6 @@ defmodule Aiur.GitHub.Client do
   def fetch_pull_request_review_comments(pr_number, opts \\ []),
     do: PullRequests.fetch_pull_request_review_comments(pr_number, opts)
 
-  @spec fetch_pull_request_reviews(String.t() | integer(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def fetch_pull_request_reviews(pr_number, opts \\ []),
-    do: PullRequests.fetch_pull_request_reviews(pr_number, opts)
-
   @spec fetch_pull_request_reviews_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_pull_request_reviews_conditional(pr_number, opts \\ []),
@@ -158,11 +158,64 @@ defmodule Aiur.GitHub.Client do
 
   @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
-  def fetch_open_pull_request_for_branch(issue_number, opts \\ []),
-    do:
-      CycleFetchCache.fetch({:open_pull_request_for_branch, to_string(issue_number)}, fn ->
-        PullRequests.fetch_open_pull_request_for_branch(issue_number, opts)
-      end)
+  def fetch_open_pull_request_for_branch(issue_number, opts \\ []) do
+    CycleFetchCache.fetch({:open_pull_request_for_branch, to_string(issue_number)}, fn ->
+      fetch_open_pull_request_for_branch_stored(issue_number, opts)
+    end)
+  end
+
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_for_branch(issue_number, opts \\ []) do
+    CycleFetchCache.fetch({:open_pull_requests_for_branch, to_string(issue_number)}, fn ->
+      PullRequests.fetch_open_pull_requests_for_branch(issue_number, opts)
+    end)
+  end
+
+  # The busiest REST call site in the daemon (#2265): the three per-cycle
+  # pollers each ask "is there an open pull request for this ticket's branch"
+  # once per ticket. Routing through `ResourceFetch` under the dedicated
+  # `:branch_pull_request_listing` key makes every repeat read a conditional
+  # revalidate — a `304` GitHub does not bill — instead of a full-price listing.
+  # The key is deliberately NOT `:branch_pull_request`: that key is the *pull
+  # request* resource, written by the webhook deposit and the human-review gate,
+  # whose validators describe the PR body (a derived hash, or none) and would
+  # clobber or be clobbered by the listing validator those three writers share
+  # (#2126). The listing gets its own key so its page-1 validator survives
+  # contact. The held result (the found PR, or nil) is served back on `304`,
+  # which is the same page-one contract
+  # `fetch_open_pull_request_for_branch_conditional/2` documents.
+  defp fetch_open_pull_request_for_branch_stored(issue_number, opts) do
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo_full_name(opts), issue_number)
+
+    fetcher = fn fetch_opts ->
+      PullRequests.fetch_open_pull_request_for_branch_conditional(
+        issue_number,
+        Keyword.merge(opts,
+          etag: Keyword.get(fetch_opts, :etag),
+          caller: "open_pull_request_for_branch"
+        )
+      )
+    end
+
+    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "open pull request for branch") do
+      {:ok, pull_request, _meta} -> {:ok, pull_request}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp repo_full_name(opts) do
+    case Keyword.get(opts, :repo) do
+      repo when is_binary(repo) and repo != "" ->
+        repo
+
+      _other ->
+        case Transport.parse_repo() do
+          {:ok, {owner, repo}} -> "#{owner}/#{repo}"
+          _other -> nil
+        end
+    end
+  end
 
   @spec fetch_commit_ci_status(String.t(), keyword()) ::
           {:ok, %{check_runs: [map()], commit_status: map()}} | {:error, term()}
@@ -176,10 +229,10 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_requests_by_label(label, opts \\ []),
     do: PullRequests.fetch_open_pull_requests_by_label(label, opts)
 
-  @spec fetch_open_pull_requests_by_label_conditional(String.t(), keyword()) ::
-          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
-  def fetch_open_pull_requests_by_label_conditional(label, opts \\ []),
-    do: PullRequests.fetch_open_pull_requests_by_label_conditional(label, opts)
+  @spec fetch_open_pull_requests(keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests(opts \\ []),
+    do: PullRequests.fetch_open_pull_requests(opts)
 
   @spec fetch_recent_repo_review_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
@@ -196,14 +249,6 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_recent_repo_issue_comments_conditional(keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
   def fetch_recent_repo_issue_comments_conditional(opts \\ []), do: Comments.fetch_recent_repo_issue_comments_conditional(opts)
-
-  @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
-          {:ok, [map()]} | {:error, term()}
-  def fetch_issue_comments(issue_number, opts \\ []) do
-    CycleFetchCache.fetch({:issue_comments, to_string(issue_number), comment_cursor_key(opts)}, fn ->
-      Comments.fetch_issue_comments(issue_number, opts)
-    end)
-  end
 
   @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
@@ -222,6 +267,11 @@ defmodule Aiur.GitHub.Client do
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request(pr_number, opts \\ []),
     do: PullRequests.fetch_open_pull_request(pr_number, opts)
+
+  @spec fetch_compare_files(String.t(), String.t(), keyword()) ::
+          {:ok, [{String.t(), String.t()}]} | {:error, term()}
+  def fetch_compare_files(base_sha, head_sha, opts \\ []),
+    do: PullRequests.fetch_compare_files(base_sha, head_sha, opts)
 
   @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
           {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}

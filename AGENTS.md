@@ -119,7 +119,7 @@ there is.
 hand unless something is broken.
 
 ```text
-aiurdev                       # foreground run, local-only bind (full interactive UI)
+aiurdev                       # start foreground, or attach to this checkout's live session
 aiurdev --bg                  # detached headless run (no panes; dashboard remains available)
 aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard listener
 aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener
@@ -213,7 +213,12 @@ The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
 from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
 credential precedence is: an already-exported environment value, then
 `~/.aiur/.env`, then `./.env` in the current repository. Each dotenv file only
-fills unset names. Provider keys use `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
+fills unset names. The Supervisor Decision API uses `AIUR_SUPERVISOR_TOKEN`;
+generate one with `openssl rand -base64 32`. The value must be at least 32
+bearer-safe bytes with no surrounding whitespace. An absent or empty value
+disables the API, while a present non-empty unusable value aborts startup.
+Provider keys use
+`MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
 `OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
 Keep the global per-user file outside Git trees and never commit either dotenv
 file. `aiur init` also reads `.env` for the GitHub token during setup.
@@ -261,6 +266,56 @@ Do not commit:
 - secrets, tokens, or basic-auth credentials
 - per-machine paths, Tailscale IPs, or hostnames in this file
 - credentials embedded in YAML or log output
+
+## Tests must fail without the production change they guard
+
+**A test that passes with your production change reverted is not coverage.**
+It asserts behavior that was already true, so it passes against the trivially
+wrong implementation and reports nothing. Before opening a PR, for each test
+you added: undo the production hunk it is meant to guard, run that test, and
+confirm it **fails**; restore the hunk and re-run — it must pass. If it still
+passes with the change reverted, the test is asserting something the code
+already did — fix it to assert the specific behavior the change adds, or
+delete it. If you cannot revert cleanly, say so in the PR body rather than
+skipping the check.
+
+Name the result in the PR body: one line per new test ("`sweep_once` test
+fails with the production hunk reverted") or an explicit statement of why the
+check could not be run.
+
+When you revert for this check, the tree must be dirty **only** in the
+intended way: `git diff` shows the production hunk you meant to remove and
+nothing else. Run it in a worktree, never the live checkout, and before the
+run assert no *unintended* modifications are present (`git status --porcelain`
+must show exactly the revert you made and no stray files) — a dirty tree from
+another process is the wrong-checkout signature #2362 is about, and HEAD alone
+does not catch it. Report the exact command you ran in the PR body so a
+reviewer can see what actually executed.
+
+Recurring shapes to avoid — each has shipped and cost a review round:
+
+- `assert %{} = …` and other patterns that match anything. `%{}` matches any
+  map, `_` matches anything, `is_binary(x)` proves nothing about a value whose
+  *content* is the point, and `f(x) == f(x)` self-comparisons can never fail.
+- Asserting a constant the change introduced (`assert {:cache, :issue_graph,
+  3_600_000} = ...`) instead of the behavior that produces it — a cache hit,
+  a reordered ranking, a persisted effect.
+- Asserting a rendered string without asserting the value behind it.
+- Fixtures built to avoid the failure mode. If the fixture cannot reach the
+  bug, the test cannot either — a broker double that delegates every command
+  but the one under test exercises a configuration that cannot exist.
+- Reading real state. Any test that touches `~/.aiur`, the live ledger, or a
+  shared global path must point at a temp path explicitly. Green in CI and red
+  on a live host is worse than red everywhere.
+
+Keeping a test that already passes on `main` is fine when it is deliberately a
+guard against a *future* regression — but say so in the test name or a
+comment, and do not count it toward covering this change.
+
+The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
+discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
+author-side rule so the check happens before review, not for the first time in
+review.
 
 ## Manual testing — the only definition
 

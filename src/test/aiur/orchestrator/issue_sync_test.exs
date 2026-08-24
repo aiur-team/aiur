@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   alias Aiur.{AgentQueueStore, AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
   alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
-  alias Aiur.Orchestrator.{AutoSubscriptions, IssueSync, PushRouting, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, IssueSync, PushRouting, State}
 
   test "ignores a non-list poll result" do
     state = %State{last_polled_issues: %{"42" => %{id: "42"}}}
@@ -870,6 +870,35 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
   end
 
+  test "reports a zero-agent ready fleet after one poll interval with no identified binding constraint" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = [issue("orphan-released", "todo")]
+
+    state = %State{
+      max_concurrent_agents: 16,
+      effective_concurrent_agents: 16,
+      poll_interval_ms: 30_000,
+      running: %{},
+      dispatch_capacity_sample: %{load: 8.0, target: 1.0, schedulers: 16}
+    }
+
+    waiting = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 1_000)
+    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+
+    _alerted = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 31_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert event["reason"] =~ "Ready tickets=1, live agents=0"
+    assert event["reason"] =~ "binding constraint=no binding constraint identified"
+  end
+
   test "reports a static load envelope as the binding constraint" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")
@@ -1354,7 +1383,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     issue = issue("latched-error-store-failure", "rework")
     topic = "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch"
     resolved_topic = "#{topic}.resolved"
-    store_path = Path.join(System.tmp_dir!(), "dispatch-budget-invalid-#{System.unique_integer([:positive])}.json")
+    store_path = Aiur.TestSupport.tmp_root!("dispatch-budget-invalid") <> ".json"
     previous_store_path = Application.get_env(:aiur, :dispatch_budget_store_path)
     Application.put_env(:aiur, :dispatch_budget_store_path, store_path)
     File.write!(store_path, "not json")
@@ -2029,6 +2058,39 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       # A failed heal write must not strand the ticket this cycle: it stays
       # dispatchable on the resolved state and the next poll retries the heal.
       assert healed_state.last_polled_issues == %{}
+    end
+
+    test "heals a done+rework pair to rework so the ticket is not closed" do
+      # #2437: the terminal `done` must never win a contradiction. A ticket
+      # carrying `done` + `rework` heals to `rework` (the outstanding work),
+      # never to `done` — healing to `done` would route the tracker write into
+      # the terminal close path (`swap_and_maybe_close_issue/4`) and silently
+      # discard the rework. `rework` is non-terminal, so the write only swaps
+      # the label and the ticket stays open.
+      dual = %{issue("dual-done-rework", nil) | state_labels: ["done", "rework"]}
+      parent = self()
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#dual-done-rework", "rework"}
+
+      # Assert the healed issue state, not just the label set: the winner is
+      # written through the tracker, and a non-terminal target is what keeps
+      # the ticket from being closed.
+      assert [healed] = healed_issues
+      assert healed.state == "rework"
+      assert healed.state_labels == ["rework"]
+      assert healed_state.last_polled_issues[dual.id].state == "rework"
+
+      refute DispatchPolicy.terminal_issue_state?("rework", DispatchPolicy.terminal_state_set())
     end
   end
 

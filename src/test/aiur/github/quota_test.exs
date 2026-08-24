@@ -446,7 +446,7 @@ defmodule Aiur.GitHub.QuotaTest do
   end
 
   test "includes recent agent-shell attribution and ignores stale or malformed rows" do
-    path = Path.join(System.tmp_dir!(), "aiur-gh-quota-#{System.unique_integer([:positive])}.tsv")
+    path = Aiur.TestSupport.tmp_root!("aiur-gh-quota") <> ".tsv"
     now_unix = DateTime.to_unix(@now)
 
     File.write!(
@@ -465,6 +465,26 @@ defmodule Aiur.GitHub.QuotaTest do
              # Rows written before the resource column are still counted, against core.
              %{consumer: "ticket:1672", reads: 1, writes: 0, total: 1, cost: 1, costs: %{"core" => 1}, estimated?: false}
            ] = Quota.snapshot(quota).attribution
+  end
+
+  # The wrapper now appends a credential fingerprint and its own pid to each
+  # agent request row (#2255), so the daemon can attribute a call to the ticket
+  # AND the credential pool AND the exact subprocess. Rows written before the
+  # columns carried them must keep parsing (the existing test above), and rows
+  # carrying them must flow through.
+  test "reads the credential fingerprint and wrapper pid from agent request rows" do
+    now_unix = DateTime.to_unix(@now)
+
+    assert %{consumer: "ticket:1670", resource: "core", token_key: "abc123", pid: 4242} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\tabc123\t4242")
+
+    assert %{consumer: "ticket:1671", resource: "graphql", token_key: nil, pid: nil} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1671\twrite\tgraphql")
+
+    assert %{consumer: "ticket:1670", token_key: nil, pid: nil} =
+             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\t\tbad-pid")
+
+    assert Quota.parse_shell_observation("malformed") == nil
   end
 
   # Agent-shell attribution never reached the panel: the log lives under each
@@ -490,7 +510,7 @@ defmodule Aiur.GitHub.QuotaTest do
   end
 
   test "publishes and clears resource-specific shell holds" do
-    hold_dir = Path.join(System.tmp_dir!(), "aiur-gh-holds-#{System.unique_integer([:positive])}")
+    hold_dir = Aiur.TestSupport.tmp_root!("aiur-gh-holds")
     on_exit(fn -> File.rm_rf(hold_dir) end)
     quota = start_quota(hold_dir: hold_dir)
 
@@ -545,7 +565,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
   test "a secondary limit alerts, keeps dispatch available, publishes a shell hold, and resolves on expiry" do
     parent = self()
-    hold_dir = Path.join(System.tmp_dir!(), "aiur-gh-secondary-#{System.unique_integer([:positive])}")
+    hold_dir = Aiur.TestSupport.tmp_root!("aiur-gh-secondary")
     on_exit(fn -> File.rm_rf(hold_dir) end)
     {:ok, clock} = Agent.start_link(fn -> @now end)
 
@@ -747,7 +767,10 @@ defmodule Aiur.GitHub.QuotaTest do
   end
 
   defp start_quota(opts \\ []) do
-    start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil], opts)})
+    # Request logging is disabled here unless a test opts in; otherwise the
+    # resolved default path would point at this checkout's repo state and every
+    # observe would write a stray file.
+    start_supervised!({Quota, Keyword.merge([name: nil, clock: fn -> @now end, hold_dir: nil, request_log_path: nil], opts)})
   end
 
   defp eventually(fun, attempts \\ 50)

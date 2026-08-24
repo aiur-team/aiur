@@ -14,7 +14,7 @@ defmodule Aiur.WorkflowTest do
       end
     end)
 
-    dir = Path.join(System.tmp_dir!(), "aiur-workflow-test-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-workflow-test")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
 
@@ -369,6 +369,50 @@ defmodule Aiur.WorkflowTest do
       after
         if previous_home, do: System.put_env("HOME", previous_home), else: System.delete_env("HOME")
       end
+    end
+  end
+
+  describe "per-process workflow path override" do
+    test "a pinned path shadows the global env and survives a concurrent clobber", %{dir: dir} do
+      global = Path.join(dir, "global-config.yaml")
+      local = Path.join(dir, "local-config.yaml")
+      File.write!(global, "tracker:\n  kind: memory\n")
+      File.write!(local, "tracker:\n  kind: memory\n")
+      Application.put_env(:aiur, :workflow_file_path, global)
+
+      Workflow.set_workflow_file_path(local)
+      assert Workflow.workflow_file_path() == local
+
+      # A sibling clobbers the VM-global path — the exact #2287 race. This
+      # process's own pin is unaffected.
+      Application.put_env(:aiur, :workflow_file_path, Path.join(dir, "sibling-config.yaml"))
+      assert Workflow.workflow_file_path() == local
+
+      # clear drops the pin and the app env (the historical contract).
+      Workflow.clear_workflow_file_path()
+      refute Application.get_env(:aiur, :workflow_file_path)
+    end
+
+    test "a pinned path is scoped to the calling process and does not leak to children", %{dir: dir} do
+      global = Path.join(dir, "global-config.yaml")
+      local = Path.join(dir, "local-config.yaml")
+      File.write!(global, "tracker:\n  kind: memory\n")
+      File.write!(local, "tracker:\n  kind: memory\n")
+      Application.put_env(:aiur, :workflow_file_path, global)
+
+      Workflow.set_workflow_file_path(local)
+      assert Workflow.workflow_file_path() == local
+
+      # A sibling clobbers the global env back to `global`. This process's pin
+      # is untouched...
+      Application.put_env(:aiur, :workflow_file_path, global)
+      assert Workflow.workflow_file_path() == local
+
+      # ...but a freshly spawned process resolves the global app env, never the
+      # pin. Background workers and teardown processes therefore never read a
+      # dying test's pinned path.
+      child = Task.async(fn -> Workflow.workflow_file_path() end) |> Task.await()
+      assert child == global
     end
   end
 end
