@@ -65,6 +65,12 @@ Aiur.GitHub.BotIdentityTest :: falls back from config bot account to authenticat
 Aiur.DecisionApiIntegrationTest :: authenticated enrichment and delegated answer share one durable lifecycle
 Aiur.DecisionApiIntegrationTest :: authenticated revision uses OCC-8 persistence, correlation, and trusted supervisor basis
 
+# Unticketed, observed 2026-08-24 run 32786514956 coverage (4/4); previously
+# blocked PRs #2279, #2430, #2336 (its-everdred). Wall-clock-deadline class:
+# asserts an elapsed-time bound instead of gating on the lease-release signal;
+# the code is unchanged by this PR (fully green on head 1ff0f23aa).
+Aiur.Regression.OrchestratorBlockingHttpTest :: locked lease release stays inside the orchestrator request deadline
+
 # Unticketed, observed 2026-08-24 run 32785954406 coverage (3/4). Same code was
 # fully green on head 1ff0f23aa (run 32780225293). Restart-fencing/concurrency
 # shape in the Orchestrator family.
