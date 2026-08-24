@@ -164,6 +164,14 @@ defmodule Aiur.GitHub.Client do
     end)
   end
 
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_for_branch(issue_number, opts \\ []) do
+    CycleFetchCache.fetch({:open_pull_requests_for_branch, to_string(issue_number)}, fn ->
+      PullRequests.fetch_open_pull_requests_for_branch(issue_number, opts)
+    end)
+  end
+
   # The busiest REST call site in the daemon (#2265): the three per-cycle
   # pollers each ask "is there an open pull request for this ticket's branch"
   # once per ticket. Routing through `ResourceFetch` under the dedicated
