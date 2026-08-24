@@ -92,7 +92,9 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 The cadence is per-state-class since #2309: each poll loop resolves its interval
 by naming the class it serves, and `polling.intervals` overrides
 `polling.interval_seconds` for one class while every unlisted class falls back
-to the scalar. Poll spend still scales inversely with a class's interval, so
+to the scalar.
+
+Poll spend still scales inversely with a class's interval, so
 `polling.interval_seconds` defaults to 120 — and the class that moves the most
 GraphQL spend is the one to widen, not the cheap tracker poll.
 
@@ -160,11 +162,12 @@ GraphQL is now used only to resolve which pull request belongs to a ticket, and 
 The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
 
 Spend scales with target count, not with comment volume. The table below is for
-the **dispatch-class** cadence — the tick every poll loop rides. A per-class
-entry in `polling.intervals` scales the same way for that class: halving a
-class's interval doubles its own spend, and the GraphQL pollers are the classes
-worth widening (CI, comments/review threads, and previously the Build Order
-catalog, now event-sourced).
+the **dispatch-class** cadence — the tick every poll loop rides.
+
+A per-class entry in `polling.intervals` scales the same way for that class:
+halving a class's interval doubles its own spend, and the GraphQL pollers are
+the classes worth widening (CI, comments/review threads, and previously the
+Build Order catalog, now event-sourced).
 
 | `interval_seconds` | Approximate GraphQL spend | Worst-case wake latency |
 | --- | --- | --- |
@@ -186,8 +189,9 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 
 Dashboard state derives its staleness from the `dispatch` class (the cadence of
 the orchestrator snapshot it renders), and the Build Order catalog is
-event-sourced — its staleness and refresh bounds follow the `planning` class,
-which is recommended as `0` (on-demand) so the most expensive query in the
+event-sourced — its staleness and refresh bounds follow the `planning` class.
+
+`planning` is recommended as `0` (on-demand), so the most expensive query in the
 system runs only when a page opens or a degradation needs a re-list.
 
 | View state | Behaviour |
