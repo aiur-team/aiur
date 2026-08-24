@@ -261,7 +261,8 @@ defmodule Aiur.EnvTest do
           assert elapsed < 5_000
           assert error.message =~ "keyring"
           assert error.message =~ "gh auth login"
-        end
+        end,
+        assert_reaped: true
       )
     end
 
@@ -476,12 +477,31 @@ defmodule Aiur.EnvTest do
   # through: the helper appends a pass-through to the real `gh` (located before
   # PATH changed) for every other invocation, so a concurrent test that shells
   # out to `gh` still reaches the real binary instead of a stub.
-  defp with_fake_gh_on_path(token_script, fun) do
+  #
+  # `assert_reaped: true` makes the fake `gh` record its OS pid and registers an
+  # `on_exit` that fails the test if that pid is still live after the test
+  # completes — the CI-hang guard from the review. A leaked never-returning
+  # fake `gh` surfaces as a fast assertion failure instead of a stalled ExUnit
+  # shard holding a pipe open.
+  defp with_fake_gh_on_path(token_script, fun, opts \\ []) do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "aiur-env-fake-gh-#{unique}")
     bin_dir = Path.join(root, "bin")
     File.mkdir_p!(bin_dir)
     fake_gh = Path.join(bin_dir, "gh")
+
+    pidfile =
+      if Keyword.get(opts, :assert_reaped, false) do
+        pid_root = Path.join(System.tmp_dir!(), "aiur-env-keyring-reap-#{unique}")
+        File.mkdir_p!(pid_root)
+        Path.join(pid_root, "gh.pid")
+      end
+
+    script =
+      case pidfile do
+        nil -> token_script
+        path -> "echo $$ > #{path}\n" <> token_script
+      end
 
     pass_through =
       case System.find_executable("gh") do
@@ -489,11 +509,13 @@ defmodule Aiur.EnvTest do
         path -> "exec #{path} \"$@\"\n"
       end
 
-    File.write!(fake_gh, "#!/bin/sh\n" <> token_script <> "\n" <> pass_through)
+    File.write!(fake_gh, "#!/bin/sh\n" <> script <> "\n" <> pass_through)
     File.chmod!(fake_gh, 0o755)
 
     original_path = System.get_env("PATH")
     System.put_env("PATH", bin_dir <> ":" <> (original_path || ""))
+
+    if pidfile, do: assert_reaped_on_exit(pidfile, "fake gh")
 
     try do
       fun.()
@@ -505,6 +527,47 @@ defmodule Aiur.EnvTest do
 
       File.rm_rf!(root)
     end
+  end
+
+  # Fails the test if the OS pid recorded at `pidfile` is still live when the
+  # test completes, then removes the recording directory. The pidfile lives
+  # outside the fake-gh root because that root is removed when the helper's
+  # `after` runs, before `on_exit`.
+  defp assert_reaped_on_exit(pidfile, label) do
+    on_exit(fn ->
+      try do
+        case File.read(pidfile) do
+          {:ok, contents} ->
+            pid = contents |> String.trim() |> String.to_integer()
+            refute live_process?(pid), "#{label} pid #{pid} survived the test (leaked process)"
+
+          _ ->
+            :ok
+        end
+      after
+        File.rm_rf!(Path.dirname(pidfile))
+      end
+    end)
+  end
+
+  # True when `pid` names a live (non-zombie) process. A process killed by
+  # SIGKILL either disappears or lingers as a zombie (`ps` stat "Z") until its
+  # parent reaps it; neither is a live process, so only an empty/absent stat or
+  # a "Z" stat counts as dead.
+  defp live_process?(pid) when is_integer(pid) and pid > 0 do
+    case System.cmd("sh", ["-c", "ps -o stat= -p #{pid} 2>/dev/null"]) do
+      {out, 0} ->
+        case String.trim(out) do
+          "" -> false
+          "Z" <> _ -> false
+          _ -> true
+        end
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
   end
 
   # Sets PATH to a directory with no executables, so `gh` is genuinely absent

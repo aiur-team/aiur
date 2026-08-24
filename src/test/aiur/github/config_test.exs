@@ -173,7 +173,8 @@ defmodule Aiur.GitHub.ConfigTest do
 
           # Completed promptly and treated the stall as "no keyring credential".
           assert elapsed < 5_000
-        end
+        end,
+        assert_reaped: true
       )
     end
 
@@ -209,7 +210,8 @@ defmodule Aiur.GitHub.ConfigTest do
             """,
             fn ->
               assert Config.keyring_token(timeout_ms: 200) == nil
-            end
+            end,
+            assert_reaped: true
           )
         end)
 
@@ -450,12 +452,31 @@ defmodule Aiur.GitHub.ConfigTest do
   # through: the helper appends a pass-through to the real `gh` (located before
   # PATH changed) for every other invocation, so a concurrent test that shells
   # out to `gh` still reaches the real binary instead of a stub.
-  defp with_fake_gh_on_path(token_script, fun) do
+  #
+  # `assert_reaped: true` makes the fake `gh` record its OS pid and registers an
+  # `on_exit` that fails the test if that pid is still live after the test
+  # completes — the CI-hang guard from the review. A leaked never-returning
+  # fake `gh` (the very process this ticket bounds) surfaces as a fast
+  # assertion failure instead of a stalled ExUnit shard holding a pipe open.
+  defp with_fake_gh_on_path(token_script, fun, opts \\ []) do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "aiur-config-fake-gh-#{unique}")
     bin_dir = Path.join(root, "bin")
     File.mkdir_p!(bin_dir)
     fake_gh = Path.join(bin_dir, "gh")
+
+    pidfile =
+      if Keyword.get(opts, :assert_reaped, false) do
+        pid_root = Path.join(System.tmp_dir!(), "aiur-config-keyring-reap-#{unique}")
+        File.mkdir_p!(pid_root)
+        Path.join(pid_root, "gh.pid")
+      end
+
+    script =
+      case pidfile do
+        nil -> token_script
+        path -> "echo $$ > #{path}\n" <> token_script
+      end
 
     pass_through =
       case System.find_executable("gh") do
@@ -463,11 +484,13 @@ defmodule Aiur.GitHub.ConfigTest do
         path -> "exec #{path} \"$@\"\n"
       end
 
-    File.write!(fake_gh, "#!/bin/sh\n" <> token_script <> "\n" <> pass_through)
+    File.write!(fake_gh, "#!/bin/sh\n" <> script <> "\n" <> pass_through)
     File.chmod!(fake_gh, 0o755)
 
     original_path = System.get_env("PATH")
     System.put_env("PATH", bin_dir <> ":" <> (original_path || ""))
+
+    if pidfile, do: assert_reaped_on_exit(pidfile, "fake gh")
 
     try do
       fun.()
@@ -479,6 +502,30 @@ defmodule Aiur.GitHub.ConfigTest do
 
       File.rm_rf!(root)
     end
+  end
+
+  # Fails the test if the OS pid recorded at `pidfile` is still live when the
+  # test completes, then removes the recording directory. Registered by
+  # `with_fake_gh_on_path/3` with `assert_reaped: true` so a leaked
+  # never-returning fake `gh` — the orphan a failed timeout-kill would leave
+  # behind — is caught deterministically after the test body runs rather than
+  # stalling the CI shard. The pidfile lives outside the fake-gh root because
+  # that root is removed when the helper's `after` runs, before `on_exit`.
+  defp assert_reaped_on_exit(pidfile, label) do
+    on_exit(fn ->
+      try do
+        case File.read(pidfile) do
+          {:ok, contents} ->
+            pid = contents |> String.trim() |> String.to_integer()
+            refute live_process?(pid), "#{label} pid #{pid} survived the test (leaked process)"
+
+          _ ->
+            :ok
+        end
+      after
+        File.rm_rf!(Path.dirname(pidfile))
+      end
+    end)
   end
 
   defp authorization_token(opts) do
