@@ -42,9 +42,13 @@ process_start_identity() {
   printf 'ps:%s\n' "$identity"
 }
 
-if AIUR_EXECUTOR_STATE_DIR="$state_root" "$script" due >/dev/null 2>&1; then
+if AIUR_EXECUTOR_STATE_DIR="$state_root" "$script" due >"$state_root/missing-run.out" 2> "$state_root/missing-run.err"; then
   fail "missing run ID was accepted"
+else
+  missing_run_status=$?
 fi
+[ "$missing_run_status" -eq 68 ] || fail "missing run ID did not return its distinct precondition status (got $missing_run_status)"
+grep -q 'AIUR_EXECUTOR_RUN_ID is required' "$state_root/missing-run.err" || fail "missing run ID did not print the stderr precondition line"
 
 mkdir -p "$state_root/invalid-run-id"
 for invalid_run_id in . ..; do
@@ -220,6 +224,8 @@ AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RETRO_FILE="$visual_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
   AIUR_DASHBOARD_URL="http://127.0.0.1:4017" \
+  AIUR_DASHBOARD_USERNAME="test-user" \
+  AIUR_DASHBOARD_PASSWORD="test-password" \
   AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=1 \
   "$script" record "visual check" unchanged > "$state_root/visual.out"
 jq -e '.type == "hourly_retrospective"' "$state_root/visual.out" >/dev/null || fail "record did not preserve its hourly report"
@@ -239,10 +245,12 @@ AIUR_EXECUTOR_STATE_DIR="$state_root" \
   "$script" record "missing capture" unchanged > "$missing_capture_out"
 jq -e '.type == "hourly_retrospective"' "$missing_capture_out" >/dev/null || fail "record lost its hourly report when the capture helper was missing"
 
-# A missing daemon-published URL is recorded as an explicit attention verdict;
-# the runner must never fall back to a guessed port. Every discovery rung has
-# to read a URL that Aiur itself published, so that a host with an unrelated
-# listener still reports "could not discover" rather than auditing a stranger.
+# A missing daemon-published URL is a precondition failure: it must exit with
+# its own code (67), print a one-line stderr that names the variable to set,
+# and write a "did not run" verdict — never an "attention" one that an empty
+# log could be mistaken for a healthy capture. Every discovery rung reads a
+# URL that Aiur itself published, so a host with an unrelated listener still
+# reports "could not discover" rather than auditing a stranger.
 # AIUR_TMUX_SOCKET_DIR keeps the socket sweep off the developer's real sockets
 # so the assertion means the same thing on a laptop running a live daemon as
 # it does on a bare CI runner.
@@ -255,14 +263,77 @@ AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
   AIUR_TMUX_SOCKET="no-such-aiur-tmux-socket" \
   AIUR_TMUX_SOCKET_DIR="$empty_socket_dir" \
-  "$script" visual-check >/dev/null 2>&1 &
+  "$script" visual-check > "$state_root/url-missing.out" 2> "$state_root/url-missing.err" &
 url_missing_pid=$!
 set +e
 wait "$url_missing_pid"
 url_missing_status=$?
 set -e
 [ "$url_missing_status" -eq 67 ] || fail "missing dashboard URL did not return its explicit failure status"
-grep -q 'could not discover the daemon dashboard URL' "$url_missing_retro" || fail "missing dashboard URL did not produce explicit attention evidence"
+grep -q 'could not discover the daemon dashboard URL' "$url_missing_retro" || fail "missing dashboard URL did not produce explicit evidence"
+grep -q 'did not run' "$url_missing_retro" || fail "missing dashboard URL verdict did not say did-not-run"
+grep -qiE 'attention|healthy' "$url_missing_retro" && fail "missing dashboard URL verdict must say neither attention nor healthy"
+grep -q 'AIUR_DASHBOARD_URL is required' "$state_root/url-missing.err" || fail "missing dashboard URL did not print the stderr precondition line"
+[ -s "$state_root/url-missing.out" ] && fail "missing dashboard URL must not print a capture report on stdout"
+url_missing_report="$(find "$state_root/url-missing-retrospective.md.d" -name report.json -print -quit)"
+[ -n "$url_missing_report" ] || fail "missing dashboard URL did not write a did-not-run report.json"
+jq -e '.verdict == "did-not-run" and (.pages | length) == 0 and (.precondition | contains("AIUR_DASHBOARD_URL"))' "$url_missing_report" >/dev/null ||
+  fail "missing dashboard URL report.json did not say did-not-run"
+
+# The missing password is the third precondition, with its own code (69), its
+# own stderr line, and a did-not-run verdict — distinct from a missing URL (67)
+# or a missing run ID (68). Without the daemon environment fallback it is a
+# hard failure: a capture that cannot authenticate must never look like one
+# that ran.
+password_missing_retro="$state_root/password-missing-retrospective.md"
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=password-missing \
+  AIUR_EXECUTOR_RETRO_FILE="$password_missing_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_DASHBOARD_URL="http://127.0.0.1:4019" \
+  AIUR_DASHBOARD_USERNAME="test-user" \
+  AIUR_TMUX_SOCKET_DIR="$empty_socket_dir" \
+  "$script" visual-check > "$state_root/password-missing.out" 2> "$state_root/password-missing.err"
+password_missing_status=$?
+set -e
+[ "$password_missing_status" -eq 69 ] || fail "missing dashboard password did not return its explicit failure status"
+grep -q 'did not run' "$password_missing_retro" || fail "missing dashboard password verdict did not say did-not-run"
+grep -qiE 'attention|healthy' "$password_missing_retro" && fail "missing dashboard password verdict must say neither attention nor healthy"
+grep -q 'AIUR_DASHBOARD_PASSWORD is required' "$state_root/password-missing.err" || fail "missing dashboard password did not print the stderr precondition line"
+password_missing_report="$(find "$state_root/password-missing-retrospective.md.d" -name report.json -print -quit)"
+[ -n "$password_missing_report" ] || fail "missing dashboard password did not write a did-not-run report.json"
+jq -e '.verdict == "did-not-run" and (.pages | length) == 0 and (.precondition | contains("AIUR_DASHBOARD_PASSWORD"))' "$password_missing_report" >/dev/null ||
+  fail "missing dashboard password report.json did not say did-not-run"
+[ -e "$state_root/password-missing-retrospective.md.d" ] && \
+  find "$state_root/password-missing-retrospective.md.d" -name build-orders.png -print -quit | grep -q . \
+  && fail "password-missing run must not invoke the capture"
+
+# The hourly `record` path must not swallow the precondition line the way a
+# wrapper redirecting stdout+stderr to a log does. record still completes and
+# still writes the did-not-run narrative, but it forwards one stderr line
+# naming the failing precondition (its status plus the variable to set), so a
+# redirected log is never silently empty next to a bare exit code.
+record_precondition_retro="$state_root/record-precondition-retrospective.md"
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=record-precondition \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
+  AIUR_EXECUTOR_RETRO_FILE="$record_precondition_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_TMUX_SOCKET="no-such-aiur-tmux-socket" \
+  AIUR_TMUX_SOCKET_DIR="$empty_socket_dir" \
+  AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=1 \
+  "$script" record "visual check" unchanged > "$state_root/record-precondition.out" 2> "$state_root/record-precondition.err"
+record_precondition_status=$?
+set -e
+[ "$record_precondition_status" -eq 0 ] || fail "record exited $record_precondition_status when the visual-check precondition failed"
+jq -e '.type == "hourly_retrospective"' "$state_root/record-precondition.out" >/dev/null ||
+  fail "record did not emit its hourly report when the visual-check precondition failed"
+grep -q 'visual check did not run (status 67)' "$state_root/record-precondition.err" ||
+  fail "record did not forward the visual-check precondition line to its stderr"
+grep -q 'AIUR_DASHBOARD_URL is required' "$state_root/record-precondition.err" ||
+  fail "record did not forward the failing variable name to its stderr"
 
 # The no-guessed-port invariant above is only as strong as the script's
 # refusal to hardcode one. This is the regression that shipped once already:
@@ -279,9 +350,13 @@ tmux_shim_dir="$state_root/bin"
 mkdir -p "$tmux_shim_dir"
 cat > "$tmux_shim_dir/tmux" <<'EOF'
 #!/usr/bin/env bash
-# Stand-in for tmux show-options. FAKE_TMUX_URLS maps socket name to the
-# published control URL, one "socket=url" pair per line. A socket with no
-# entry answers empty, exactly as a server that never bound a dashboard does.
+# Stand-in for tmux show-options/list-panes. FAKE_TMUX_URLS maps socket name
+# to the published control URL, one "socket=url" pair per line. A socket with
+# no entry answers empty, exactly as a server that never bound a dashboard
+# does. FAKE_TMUX_PANE_PID is the newline-separated pane PID list list-panes
+# reports, so the daemon-environment fallback reads exactly the process(es)
+# the test chooses — including an inert first pane to prove the fallback does
+# not stop at the first candidate.
 socket=""
 if [ "${1:-}" = "-L" ]; then
   socket="$2"
@@ -299,6 +374,10 @@ case "${1:-}" in
     done <<< "${FAKE_TMUX_URLS:-}"
     exit 0
     ;;
+  list-panes)
+    printf '%s\n' "${FAKE_TMUX_PANE_PID:-1}"
+    exit 0
+    ;;
 esac
 exit 0
 EOF
@@ -310,9 +389,9 @@ s = socket.socket(socket.AF_UNIX)
 s.bind(sys.argv[1])' "$1"
 }
 
-sweep_socket_dir="$state_root/sweep-sockets"
+sweep_socket_dir="$state_root/socks"
 mkdir -p "$sweep_socket_dir"
-make_socket "$sweep_socket_dir/aiur-run-alpha"
+make_socket "$sweep_socket_dir/aiur-alpha"
 make_socket "$sweep_socket_dir/aiur-quiet"
 
 # A live aiur-* server that publishes a URL is discovered even though the
@@ -321,11 +400,13 @@ make_socket "$sweep_socket_dir/aiur-quiet"
 sweep_retro="$state_root/sweep-retrospective.md"
 set +e
 PATH="$tmux_shim_dir:$PATH" \
-  FAKE_TMUX_URLS="aiur-run-alpha=http://127.0.0.1:4021" \
+  FAKE_TMUX_URLS="aiur-alpha=http://127.0.0.1:4021" \
   AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=sweep \
   AIUR_EXECUTOR_RETRO_FILE="$sweep_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_DASHBOARD_USERNAME="test-user" \
+  AIUR_DASHBOARD_PASSWORD="test-password" \
   AIUR_TMUX_SOCKET_DIR="$sweep_socket_dir" \
   "$script" visual-check >/dev/null 2>&1
 sweep_status=$?
@@ -336,12 +417,12 @@ grep -q 'metric-column-missing' "$sweep_retro" || fail "socket sweep did not app
 # Two live daemons publishing different dashboards is ambiguous. Picking by
 # glob order would silently audit the wrong fleet, so discovery must refuse
 # and send the operator to AIUR_TMUX_SOCKET.
-make_socket "$sweep_socket_dir/aiur-run-beta"
+make_socket "$sweep_socket_dir/aiur-beta"
 ambiguous_retro="$state_root/ambiguous-retrospective.md"
 set +e
 PATH="$tmux_shim_dir:$PATH" \
-  FAKE_TMUX_URLS="aiur-run-alpha=http://127.0.0.1:4021
-aiur-run-beta=http://127.0.0.1:4022" \
+  FAKE_TMUX_URLS="aiur-alpha=http://127.0.0.1:4021
+aiur-beta=http://127.0.0.1:4022" \
   AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=ambiguous \
   AIUR_EXECUTOR_RETRO_FILE="$ambiguous_retro" \
@@ -355,22 +436,94 @@ grep -q 'could not discover the daemon dashboard URL' "$ambiguous_retro" || fail
 
 # A socket naming this run resolves the same ambiguity in the Executor's
 # favour rather than failing.
-make_socket "$sweep_socket_dir/aiur-run-gamma"
+make_socket "$sweep_socket_dir/aiur-gamma"
 run_id_retro="$state_root/run-id-retrospective.md"
 set +e
 PATH="$tmux_shim_dir:$PATH" \
-  FAKE_TMUX_URLS="aiur-run-alpha=http://127.0.0.1:4021
-aiur-run-beta=http://127.0.0.1:4022
-aiur-run-gamma=http://127.0.0.1:4023" \
+  FAKE_TMUX_URLS="aiur-alpha=http://127.0.0.1:4021
+aiur-beta=http://127.0.0.1:4022
+aiur-gamma=http://127.0.0.1:4023" \
   AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=gamma \
   AIUR_EXECUTOR_RETRO_FILE="$run_id_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_DASHBOARD_USERNAME="test-user" \
+  AIUR_DASHBOARD_PASSWORD="test-password" \
   AIUR_TMUX_SOCKET_DIR="$sweep_socket_dir" \
   "$script" visual-check >/dev/null 2>&1
 run_id_status=$?
 set -e
 [ "$run_id_status" -eq 0 ] || fail "run-id-named socket did not win the sweep"
+
+# The daemon-environment credential fallback. When the wrapper carries no
+# credentials but the daemon's BEAM does, visual-check must read them from the
+# running daemon's /proc/<beam>/environ instead of failing — that is the "run
+# standalone with nothing set up by hand" path. The fake daemon keeps the
+# credentials off the pane shell's own environment (so the pane-env fallback
+# cannot satisfy the read) and puts them only on a beam.smp-named child, the
+# shape the real launcher chain produces when the BEAM loads .env itself.
+daemon_env_socket_dir="$state_root/denv"
+mkdir -p "$daemon_env_socket_dir"
+make_socket "$daemon_env_socket_dir/aiur-d"
+daemon_beam_pidfile="$state_root/daemon-beam.pid"
+cat > "$state_root/fake-daemon.sh" <<'EOF'
+#!/usr/bin/env bash
+# Stands in for the daemon's tmux pane. The shell itself does not carry the
+# dashboard credentials; the beam.smp child does, as when the BEAM loaded .env.
+AIUR_DASHBOARD_USERNAME=daemon-user AIUR_DASHBOARD_PASSWORD=daemon-secret \
+  bash -c 'exec -a beam.smp sleep 300' &
+echo $! > "$FAKE_DAEMON_BEAM_PIDFILE"
+exec sleep 300
+EOF
+chmod +x "$state_root/fake-daemon.sh"
+FAKE_DAEMON_BEAM_PIDFILE="$daemon_beam_pidfile" "$state_root/fake-daemon.sh" &
+fake_daemon_pid=$!
+daemon_beam_pid=""
+attempt=0
+while [ ! -s "$daemon_beam_pidfile" ] && [ "$attempt" -lt 100 ]; do
+  sleep 0.01
+  attempt=$((attempt + 1))
+done
+daemon_beam_pid="$(cat "$daemon_beam_pidfile" 2>/dev/null || true)"
+
+env_dump_capture="$state_root/env-dump-capture.mjs"
+cat > "$env_dump_capture" <<'EOF'
+import { writeFileSync } from 'node:fs'
+const out = process.argv[2]
+writeFileSync(`${out}/env.json`, JSON.stringify({
+  username: process.env.AIUR_DASHBOARD_USERNAME,
+  password: process.env.AIUR_DASHBOARD_PASSWORD
+}))
+writeFileSync(`${out}/report.json`, '{"verdict":"healthy","pages":[]}\n')
+writeFileSync(`${out}/verdict.md`, '# Dashboard visual check\n\n- capture: **healthy**\n\nOverall: **healthy**.\n')
+EOF
+
+daemon_env_retro="$state_root/daemon-env-retrospective.md"
+set +e
+PATH="$tmux_shim_dir:$PATH" \
+  FAKE_TMUX_URLS="aiur-d=http://127.0.0.1:4024" \
+  FAKE_TMUX_PANE_PID=$'999999\n'"$fake_daemon_pid" \
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=daemonenv \
+  AIUR_EXECUTOR_RETRO_FILE="$daemon_env_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$env_dump_capture" \
+  AIUR_TMUX_SOCKET_DIR="$daemon_env_socket_dir" \
+  "$script" visual-check >/dev/null 2>&1
+daemon_env_status=$?
+set -e
+[ "$daemon_env_status" -eq 0 ] || fail "daemon-environment credential fallback failed with status $daemon_env_status"
+daemon_env_evidence="$(find "$daemon_env_retro.d" -name env.json -print -quit)"
+[ -n "$daemon_env_evidence" ] || fail "daemon-environment fallback did not invoke the capture"
+jq -e '.username == "daemon-user" and .password == "daemon-secret"' "$daemon_env_evidence" >/dev/null ||
+  fail "daemon-environment credentials did not reach the capture"
+
+# The pane-env fallback must not masquerade as the beam read: the pane shell
+# has no credentials here, so if the capture received them it can only have
+# come from the daemon BEAM's environment. And because the pane list put an
+# inert PID first, reaching the daemon proves the fallback walks every pane
+# rather than stopping at the first candidate.
+[ -n "$fake_daemon_pid" ] && kill "$fake_daemon_pid" 2>/dev/null || true
+[ -n "$daemon_beam_pid" ] && kill "$daemon_beam_pid" 2>/dev/null || true
 
 # The documented URL override works as an argument, not only as an env var.
 # The dispatcher never shifts, so "$@" still carries the subcommand word and
@@ -381,6 +534,8 @@ AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RUN_ID=arg-override \
   AIUR_EXECUTOR_RETRO_FILE="$arg_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_DASHBOARD_USERNAME="test-user" \
+  AIUR_DASHBOARD_PASSWORD="test-password" \
   AIUR_TMUX_SOCKET_DIR="$empty_socket_dir" \
   "$script" visual-check "http://127.0.0.1:4018" >/dev/null 2>&1
 arg_status=$?
