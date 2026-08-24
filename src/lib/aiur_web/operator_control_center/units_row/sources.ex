@@ -123,6 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
   @spec fleet_stale_after_seconds() :: pos_integer()
   def fleet_stale_after_seconds do
     PollCadence.stale_after_seconds(@fleet_stale_after_intervals,
+      class: :dispatch,
       floor_ms: @fleet_stale_after_seconds_floor * 1_000
     )
   end

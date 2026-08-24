@@ -83,6 +83,26 @@ a PR draft, retrying CI, and recording an operational fact are reversible; do
 not classify them as human-only merely because their surrounding topic sounds
 sensitive.
 
+**Two Command types are explicitly Executor-answerable, and omitting their
+classification is enough.** A Command that omits `authority`/`reversibility`
+defaults to `supervisor_allowed` + `reversible`, so the Executor can answer it
+directly and the requesting agent resumes without an operator:
+
+- **A re-review request** ("rework is green, CI is clean, `reviewDecision` is
+  stuck on a stale review — please re-review to release it") should use
+  `kind: "rework_review"`, `authority: supervisor_preferred`, and
+  `reversibility: reversible`. The Executor is its intended audience and is
+  expected to answer, not escalate.
+- **A PR/ticket sequencing question** (how to split work, which PR carries a
+  shared change, what to rebase onto) should use `kind: "sequencing"`,
+  `authority: supervisor_allowed`, and `reversibility: reversible`.
+
+Because omission now defaults to Executor-answerable, the burden is inverted:
+a Command that is genuinely irreversible, involves spend or external
+publication, or changes product direction **must** explicitly declare
+`authority: human_required` (and the matching `reversibility`), or it will be
+within the Executor floor.
+
 Aiur surfaces `human_required + reversible + all-low-risk` Commands as a
 classification warning. The store does not silently override the declared
 authority: correct it with a newer request version. The Executor floor remains

@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
   @now ~U[2026-07-13 12:00:00Z]
 
   setup do
-    path = Path.join(System.tmp_dir!(), "aiur-control-lifecycle-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-control-lifecycle") <> ".json"
     previous = Application.get_env(:aiur, :control_lifecycle_store_path)
     Application.put_env(:aiur, :control_lifecycle_store_path, path)
 
