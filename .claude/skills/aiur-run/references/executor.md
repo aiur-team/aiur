@@ -383,7 +383,11 @@ instead of issuing the same directive indefinitely. Once all conditions hold:
    are `f(x) === f(x)` assertions, a test hand-poking the same
    `:persistent_term` the broken wiring should have set, and tests asserting
    against an inlined *copy* of the code under test that stayed green after the
-   real code was deleted;
+   real code was deleted. On the same principle, the author-side rules that move
+   these checks before review — the unknown-path, computed-age and collapsed-cause
+   rules — live in the repo's `AGENTS.md` (`Tests must fail without the
+   production change they guard` and `Computed ages and collapsed causes`);
+   cross-reference those sections rather than restating them;
 4. use `ce-code-review` when Compound Engineering is available, adding the
    relevant security, data, frontend, backend, or design lens for the change;
 5. reconcile duplicates and contradictions, classifying each finding under the
