@@ -157,29 +157,11 @@ defmodule Aiur.Orchestrator.HumanReview do
     # restore is `todo` (make it dispatchable again, no verdict).
     case ReworkGate.open_pr(issue_key, rework_opts) do
       {:ok, %{} = pr} ->
-        head_sha = ReworkGate.head_sha(pr)
-
         # #2422 bound: the same head must not be reverted into `agent:rework`
         # indefinitely. A human-review revert already means unresolved review
         # threads (that is the gate that failed), so a reverted head that never
         # moves is a stuck condition — raise attention once and stop looping.
-        case ReworkGate.verify_rework_attempt(
-               state,
-               to_string(issue_key),
-               head_sha,
-               rework_attempt_alert_opts(rework_opts)
-             ) do
-          {:ok, state} ->
-            state
-            |> revert_human_review_state(issue, issue_key, "rework", "reverting to rework", fn reverted ->
-              State.bump_rework_attempt(reverted, to_string(issue_key), head_sha)
-            end)
-
-          {:skip, bound_reason, state} ->
-            Logger.warning("human-review rework revert stopped by rework-attempt bound: #{State.issue_context(issue)} reason=#{inspect(bound_reason)}")
-
-            state
-        end
+        revert_to_rework_with_bound(state, issue, issue_key, pr, rework_opts)
 
       {:skip, :no_open_pr} ->
         Logger.warning("human-review transition rejected for a ticket with no open PR; reverting to todo: #{State.issue_context(issue)} reason=#{inspect(reason)}")
@@ -188,6 +170,32 @@ defmodule Aiur.Orchestrator.HumanReview do
 
       {:error, pr_reason} ->
         Logger.warning("human-review rework revert deferred; open-PR check failed: #{State.issue_context(issue)} reason=#{inspect(pr_reason)}")
+
+        state
+    end
+  end
+
+  # Reverts a human-review ticket to `rework` while holding the #2422
+  # rework-attempt bound: an open-PR head that keeps being rejected without
+  # moving is a stuck condition, so once the same head has hit the bound the
+  # revert is refused and a one-time attention is raised instead of looping.
+  defp revert_to_rework_with_bound(%State{} = state, %Issue{} = issue, issue_key, pr, rework_opts) do
+    head_sha = ReworkGate.head_sha(pr)
+
+    case ReworkGate.verify_rework_attempt(
+           state,
+           to_string(issue_key),
+           head_sha,
+           rework_attempt_alert_opts(rework_opts)
+         ) do
+      {:ok, state} ->
+        state
+        |> revert_human_review_state(issue, issue_key, "rework", "reverting to rework", fn reverted ->
+          State.bump_rework_attempt(reverted, to_string(issue_key), head_sha)
+        end)
+
+      {:skip, bound_reason, state} ->
+        Logger.warning("human-review rework revert stopped by rework-attempt bound: #{State.issue_context(issue)} reason=#{inspect(bound_reason)}")
 
         state
     end
