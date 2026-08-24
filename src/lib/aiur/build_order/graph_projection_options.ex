@@ -95,7 +95,10 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
   @spec policy_options(keyword()) :: map()
   def policy_options(opts) do
-    catalog = positive(opts, :catalog_refresh_ms, @defaults[:catalog_refresh_ms], @maxima.catalog_refresh_ms)
+    # `catalog_refresh_ms` may be `0`: on-demand planning (#2309) means the
+    # catalog has no timer, and `0` is the sentinel that tells `GraphProjection`
+    # to refresh only on demand. Every other option stays strictly positive.
+    catalog = catalog_refresh_ms(opts)
 
     catalog_labels =
       positive(opts, :catalog_labels_refresh_ms, @defaults[:catalog_labels_refresh_ms], @maxima.catalog_labels_refresh_ms)
@@ -108,12 +111,22 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       # The labelled read must never be more frequent than the catalog poll it
       # rides on: a shorter interval would make every poll buy the expensive
       # query, which is the regression #1766 exists to prevent. Clamping here
-      # means no configuration can reinstate it.
+      # means no configuration can reinstate it. An on-demand catalog (0) has no
+      # cadence at all, so the labelled read's own interval is the floor.
       catalog_labels_refresh_ms: max(catalog_labels, catalog),
       refresh_timeout_ms: timeout,
       max_selected_roots: roots,
       max_inflight: positive(opts, :max_inflight, @defaults[:max_inflight], @maxima.max_inflight)
     }
+  end
+
+  # `0` (on-demand) is deliberate and preserved; only negatives and out-of-range
+  # values fall back.
+  defp catalog_refresh_ms(opts) do
+    case Keyword.get(opts, :catalog_refresh_ms, @defaults[:catalog_refresh_ms]) do
+      value when is_integer(value) and value >= 0 and value <= @maxima.catalog_refresh_ms -> value
+      _ -> @defaults[:catalog_refresh_ms]
+    end
   end
 
   defp runtime_options(opts) do

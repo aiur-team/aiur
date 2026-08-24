@@ -899,7 +899,37 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "binding constraint=no binding constraint identified"
   end
 
-  test "reports a static load envelope as the binding constraint" do
+  test "does not alert while a fleet sits at its envelope during a below-target ramp" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("envelope-ramp-#{id}", "todo")
+
+    # A fleet at 2 of 16 with an envelope of 2 is at capacity, not starved:
+    # the below-target envelope is mid-ramp and widens on the next sample, so
+    # the fleet filling to its envelope is the intended ramp (#2447).
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 3,
+      running: running_agents(3),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 121_000)
+
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
+  end
+
+  test "reports a load envelope holding under load as the binding constraint" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")
 
@@ -910,11 +940,13 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     ready = for id <- 1..8, do: issue("envelope-#{id}", "todo")
 
+    # Above-target load means the envelope is not ramping — it is the binding
+    # constraint holding capacity below the ceiling while ready work queues.
     state = %State{
       max_concurrent_agents: 20,
       effective_concurrent_agents: 3,
       running: running_agents(3),
-      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+      dispatch_capacity_sample: %{load: 17.0, target: 1.0, schedulers: 16}
     }
 
     state
@@ -1105,6 +1137,77 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     _ = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 61_000)
     mailbox_barrier()
     refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
+  end
+
+  test "does not report capacity starvation when every awaiting-dispatch ticket is blocked on an operator decision" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..3, do: issue("decision-#{id}", "todo")
+    blocked = MapSet.new(Enum.map(ready, & &1.id))
+
+    # Fully ramped and at the ceiling with a load gate, which would normally be
+    # reported as starvation — but every awaiting-dispatch ticket is blocked on
+    # an open operator Command, and no amount of capacity can start it (#2447).
+    state = %State{
+      max_concurrent_agents: 16,
+      effective_concurrent_agents: 16,
+      running: running_agents(16),
+      blocked_ticket_ids: blocked,
+      dispatch_capacity_constraints: [%{kind: :load, detail: "load=24.0 threshold=1.0 schedulers=8"}],
+      dispatch_capacity_sample: %{load: 17.0, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_capacity_starvation_alert(ready, 1_000)
+    |> IssueSync.sync_capacity_starvation_alert(ready, 61_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
+    refute_received {:event, %{topic: "system.dispatch.capacity_starved"}}
+  end
+
+  test "still alerts when a load gate holds while dispatchable unblocked work is queued" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("genuine-#{id}", "todo")
+
+    # The guard against blanket suppression: a resource gate holding while
+    # dispatchable, unblocked work is queued must still raise both alerts.
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 4,
+      running: running_agents(4),
+      capacity_hold: %{signal: :load},
+      dispatch_capacity_constraints: [%{kind: :load, detail: "load=24.0 threshold=1.0 schedulers=8"}],
+      dispatch_capacity_sample: %{load: 17.0, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_capacity_starvation_alert(ready, 1_000)
+    |> IssueSync.sync_capacity_starvation_alert(ready, 61_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = dispatch_event}
+    assert dispatch_event["reason"] =~ "load gate"
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = fleet_event}
+    assert fleet_event["reason"] =~ "binding constraint=load gate"
   end
 
   test "purges released claims once the ticket is confirmed terminal or gone (#1475)" do

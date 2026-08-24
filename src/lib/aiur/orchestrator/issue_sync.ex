@@ -15,7 +15,6 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   @idle_terminal_verification_batch_size 25
   @capacity_starvation_alert_after_ms 60_000
-  @fleet_capacity_low_load_ratio 0.5
   # A contradictory-label pair must persist this long (about one poll cycle)
   # before the single fleet alert fires, so a pair the heal repairs on the same
   # observation never alarms.
@@ -1466,6 +1465,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       load: Map.get(sample, :load),
       target: Map.get(sample, :target),
       schedulers: Map.get(sample, :schedulers),
+      constraints: Enum.map(constraint_entries, & &1.identity),
       binding_constraint: selected_binding_constraint(state, constraint_entries, ready_issues)
     }
   end
@@ -1561,24 +1561,51 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp dependency_circular_wait_topic(identifier),
     do: "ticket.#{identifier}.agent.attention.dependency-circular-wait"
 
+  # The fleet is starved only when ready work is queued AND dispatch is
+  # genuinely held: a hard capacity gate is binding, or the fleet is at its
+  # dispatch envelope (no free admission slots) while the envelope is not
+  # mid-ramp, or the fleet is below a fully-ramped envelope that should already
+  # have been filled. The below-target dispatch ramp — a fleet below or at a
+  # widening envelope with agents still starting — is the intended behavior,
+  # not starvation (#2447).
   defp fleet_capacity_starved?(context) do
     not context.state.globally_paused and context.ready_count > 0 and
-      (free_admission_capacity?(context) or
-         (context.ready_count > context.live_count and low_load?(context)))
+      (hard_capacity_gate?(context) or fleet_at_capacity_bound?(context))
   end
 
-  # This check runs after Dispatcher.dispatch_or_hold/2. Any issue admitted in
-  # the current poll is already present in running/claimed and therefore absent
-  # from ready_count; ready work plus a still-free slot means the poll made no
-  # usable dispatch progress.
-  defp free_admission_capacity?(context),
-    do: context.occupied_slots < context.effective_cap
+  # A resource or load gate holding dispatch while ready work queues. These are
+  # the genuine-starvation cases (acceptance #2): load, memory, FD, build,
+  # run-queue, provider, budget, per-state, worker, or model-fallback limits.
+  defp hard_capacity_gate?(context) do
+    is_binary(context.binding_constraint) or context.constraints != []
+  end
 
-  defp low_load?(%{load: load, target: target, schedulers: schedulers})
+  # The fleet has no free admission slots within the current dispatch envelope
+  # (the envelope is the binding constraint) and the envelope is not widening,
+  # or the fleet is below a fully-ramped envelope that should have been filled.
+  # A below-envelope fleet during a below-target ramp is the intended ramp.
+  defp fleet_at_capacity_bound?(context) do
+    cond do
+      context.occupied_slots >= context.effective_cap -> not envelope_ramping?(context)
+      context.effective_cap >= context.configured_cap -> true
+      true -> false
+    end
+  end
+
+  # The adaptive envelope widens while load stays at/below target and effective
+  # capacity is still below the ceiling; that below-target state is the ramp.
+  defp envelope_ramping?(%{effective_cap: effective, configured_cap: configured} = context)
+       when is_integer(effective) and effective > 0 and is_integer(configured) and configured > 0 do
+    effective < configured and load_below_or_at_target?(context)
+  end
+
+  defp envelope_ramping?(_context), do: false
+
+  defp load_below_or_at_target?(%{load: load, target: target, schedulers: schedulers})
        when is_number(load) and is_number(target) and target > 0 and is_integer(schedulers) and schedulers > 0,
-       do: load < target * schedulers * @fleet_capacity_low_load_ratio
+       do: load <= target * schedulers
 
-  defp low_load?(_context), do: false
+  defp load_below_or_at_target?(_context), do: false
 
   defp sync_fleet_capacity_starvation(state, context, now_ms) do
     starvation = state.fleet_capacity_starvation
@@ -1612,14 +1639,15 @@ defmodule Aiur.Orchestrator.IssueSync do
   # silence its starvation alert.
   defp fleet_capacity_starvation_alert_after_ms(%State{effective_poll_interval_ms: effective_ms})
        when is_integer(effective_ms) and effective_ms > 0 do
-    PollCadence.effective_interval_ms(effective_interval_ms: effective_ms)
+    PollCadence.effective_interval_ms(class: :dispatch, effective_interval_ms: effective_ms)
   end
 
   defp fleet_capacity_starvation_alert_after_ms(%State{poll_interval_ms: poll_interval_ms})
        when is_integer(poll_interval_ms) and poll_interval_ms > 0,
        do: poll_interval_ms
 
-  defp fleet_capacity_starvation_alert_after_ms(_state), do: @capacity_starvation_alert_after_ms
+  defp fleet_capacity_starvation_alert_after_ms(_state),
+    do: Config.capacity_starvation_alert_after_seconds() * 1_000
 
   defp emit_fleet_capacity_starvation(state, context, since_ms) do
     case Alerts.emit_system("system.fleet.capacity.starved",
@@ -1790,10 +1818,15 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp due_capacity_identities(since_by_identity, alerted_identities, now_ms) do
     since_by_identity
     |> Enum.filter(fn {identity, since_ms} ->
-      now_ms - since_ms >= @capacity_starvation_alert_after_ms and not MapSet.member?(alerted_identities, identity)
+      now_ms - since_ms >= capacity_starvation_dwell_ms() and not MapSet.member?(alerted_identities, identity)
     end)
     |> Enum.map(&elem(&1, 0))
   end
+
+  # The capacity-starvation dwell is data (#2447): `agent.capacity_starvation_
+  # alert_after_seconds`, so the below-target ramp (which clears itself within
+  # the bound) is filtered without hard-coding the threshold in this branch.
+  defp capacity_starvation_dwell_ms, do: Config.capacity_starvation_alert_after_seconds() * 1_000
 
   defp emit_capacity_starvation_alert(context, since_by_identity, alerted_identities, due_identities) do
     next_alerted_identities = MapSet.union(alerted_identities, MapSet.new(due_identities))
@@ -1878,8 +1911,14 @@ defmodule Aiur.Orchestrator.IssueSync do
 
     issues
     |> Enum.filter(fn issue ->
+      # A ticket waiting on an open operator Command is not capacity-blocked:
+      # no amount of fleet capacity can start it. Counting it as ready makes a
+      # decision-blocked fleet look capacity-starved (#2447). Dispatch already
+      # skips these via `dispatch_state_decision`; keep the alert's "ready"
+      # set aligned with what dispatch can actually admit.
       DispatchPolicy.candidate_issue?(issue, active_states, terminal_states) and
-        !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+        !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
+        !DispatchPolicy.blocked_on_decision?(issue, state.blocked_ticket_ids)
     end)
     |> Enum.reject(fn issue ->
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) or

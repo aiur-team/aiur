@@ -2707,6 +2707,17 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_receive {:decision_changed, ^decision_id, 1}, 2_000
     assert {:ok, %{delivery_status: :queued}} = DecisionStore.get(decision.decision_id, store)
 
+    # The retry affordance must be gone from the already-mounted view that
+    # served the click. This is the assertion a fresh mount cannot make: a
+    # fresh mount renders from scratch with no prior assigns, so it never
+    # exercises LiveView change tracking. Re-rendering `view` here requires
+    # the expanded history row to notice that the record behind it moved from
+    # :failed to :queued. The component only re-renders when the dependency on
+    # @expanded_decision is visible at the call site; an `assign(:decision, ...)`
+    # inside the component would hide that dependency and keep the cached
+    # "Delivery failed" row — and its retry button — on screen.
+    refute render(view) =~ ~s(phx-click="retry-decision")
+
     # The retry affordance must be gone from the rendered page — same reasoning
     # as the fresh mount above: read the :queued state through a new mount's
     # synchronous initial render rather than racing the old view's async diff

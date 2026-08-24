@@ -61,6 +61,7 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   alias Aiur.{Alerts, Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.Tracker, as: GitHubTracker
 
   @default_interval_ms 30 * 60 * 1_000
@@ -95,6 +96,11 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
       # Re-queue write failures already alerted once (the thread-clearance gate
       # refused the human-review write); pruned when they leave rework.
       requeue_failed_alerted: MapSet.new(),
+      # `local_hold_*` options threaded into `Aiur.GitHub.LocalHold.run/2`
+      # around the re-queue state write, so a short self-clearing local budget
+      # hold is waited out instead of refusing the write (#2444). Defaults to
+      # the real sleep; tests inject a no-op.
+      local_hold_opts: Keyword.get(opts, :local_hold_opts, []),
       start_paused?: Keyword.get(opts, :start_paused?, false)
     }
 
@@ -260,7 +266,16 @@ defmodule Aiur.Orchestrator.ReworkRequeue do
   defp apply_finding({issue, :addressed, _pr, head_sha}, state) do
     key = issue_key(issue)
 
-    case state.state_writer.(to_string(key), "human-review") do
+    # The human-review write is a GitHub call, and a short self-clearing local
+    # budget hold used to refuse it outright — the `rework_requeue_failed`
+    # alert that stranded a CI-green rework ticket in `agent:rework` (#2444).
+    # The shared helper waits the hold out and retries the write, so the ticket
+    # completes the transition to `agent:human-review`; a hold beyond the
+    # ceiling or past the cap still falls through to the alert below.
+    case LocalHold.run(
+           fn -> state.state_writer.(to_string(key), "human-review") end,
+           LocalHold.caller_opts(state.local_hold_opts)
+         ) do
       :ok ->
         Logger.info("ReworkRequeue re-queued reworked PR for review: issue=#{key} -> agent:human-review")
 

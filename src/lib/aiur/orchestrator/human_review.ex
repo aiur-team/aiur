@@ -7,7 +7,6 @@ defmodule Aiur.Orchestrator.HumanReview do
   require Logger
 
   alias Aiur.GitHub.Client, as: GitHubClient
-  alias Aiur.GitHub.Errors
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.{Issue, Tracker}
   alias Aiur.Orchestrator.{AgentTeardown, DispatchPolicy, Reconciler, ReworkGate, State}
@@ -43,12 +42,23 @@ defmodule Aiur.Orchestrator.HumanReview do
 
         AgentTeardown.deactivate_running_issue(state, issue.id)
 
+      # The only reviewer verdict the gate can report is unaddressed
+      # review-thread comments. `rework` means "work exists and was rejected"
+      # (#2075), so only a verdict like this may move the ticket there.
+      {:error, {:unverified_review_threads, _detail} = reason} ->
+        reject_human_review_transition(state, issue, reason, opts)
+
+      # Everything else the gate can return is an infrastructure or operational
+      # fault, not a reviewer verdict: the open-PR search or viewer-login fetch
+      # failed (rate limit, 5xx, timeout, auth), or the threads read could not
+      # be classified. Reverting to `rework` on any of these strands a healthy
+      # PR in a state whose rework turn has nothing to fix — the addressed
+      # stale-CHANGES_REQUESTED loop #1756 keeps re-raising (#2400). Defer
+      # instead: the ticket stays in `human-review` and the next poll
+      # re-verifies, which is the same treatment a transient budget hold gets
+      # (#2409).
       {:error, reason} ->
-        if transient_human_review_verification_error?(reason) do
-          defer_human_review_transition(state, issue, reason)
-        else
-          reject_human_review_transition(state, issue, reason, opts)
-        end
+        defer_human_review_transition(state, issue, reason)
     end
   end
 
@@ -63,16 +73,6 @@ defmodule Aiur.Orchestrator.HumanReview do
   end
 
   defp verify_human_review_ready(_issue), do: :ok
-
-  # The transient/permanent split for the ready-verification lives in
-  # `Aiur.GitHub.Errors.retryable_github_error?/1`, the single shared classifier
-  # every retry/defer decision routes through (#2427). DNS, timeout, TLS,
-  # connection closed, rate limit, 5xx, and a local budget hold all defer (the
-  # ticket stays in `human-review` and the next poll re-verifies); anything
-  # permanent reverts — reverting a healthy PR to `rework` over a transient
-  # fault is what stranded #2409.
-  defp transient_human_review_verification_error?(reason),
-    do: Errors.retryable_github_error?(reason)
 
   defp defer_human_review_transition(%State{} = state, %Issue{} = issue, reason) do
     Logger.warning("human-review transition verification deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
