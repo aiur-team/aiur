@@ -82,6 +82,25 @@ defmodule Aiur.GitHub.ReadCacheTest do
       end
     end
 
+    test "the cached single-pull-request body is a routing source, never a merge verdict source" do
+      # Row 5 of #2352 gives `/pulls/{n}` a body cache, and that body carries
+      # merge-gating fields (`mergeable`, `mergeable_state`, `merged`,
+      # `requested_reviewers`, `auto_merge`) that the safety section refuses on
+      # content. The cache exists for the routing decision — "is there an open
+      # PR, what is its head ref/title/body" — and the `:pull` moduledoc names
+      # the fields a reader must not take from it. This pins the policy
+      # boundary: the parent stays cacheable for routing while every REST
+      # endpoint that answers the verdict fields stays refused, so a call site
+      # cannot reach a merge verdict through the REST family either.
+      assert {:cache, :pull, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073"))
+
+      for path <- ["/pulls/2073/merge", "/pulls/2073/requested_reviewers", "/pulls/2073/reviews"] do
+        assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur#{path}")),
+               "#{path} must not acquire a cacheable TTL"
+      end
+    end
+
     test "does not cache a read it has no classification for" do
       request = graphql("an_unheard_of_caller", safe_document(2073))
 
@@ -815,10 +834,25 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:cache, :pull, _ttl} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073"))
 
-      # The tail row (repository configuration) is cacheable too, for any
-      # /contents path — not only `.github/workflows`.
+      # Repository configuration is cacheable only in its anchored forms —
+      # `.github/workflows` contents, branch protection, rulesets — never a
+      # bare `/contents/{path}` or `/branches` list. The tail row was narrowed
+      # to the forms anyone actually reads (review #2360), so an arbitrary
+      # `/contents/{path}` read stays unclassified.
       assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/.github/workflows"))
+
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches/main"))
+
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/rulesets"))
+
+      assert {:no_cache, {:unclassified, :unclassified}} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/foo/bar"))
+
+      assert {:no_cache, {:unclassified, :unclassified}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches"))
 
       for {url, shape} <- [
             {"/issues?labels=build-order&state=open", :issue_list},

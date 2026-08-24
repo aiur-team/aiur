@@ -263,13 +263,19 @@ defmodule Aiur.GitHub.Client do
 
   # Row 5 of #2352: the `/pulls/{n}` read was unconditional, with no validator
   # at all, so every repeat was pure waste rather than a cheap revalidation.
-  # Routing it through `ResourceFetch` under the `:pull_request` key makes it a
-  # conditional revalidate — a `304` GitHub does not bill — in steady state,
-  # while the read cache's `:pull` TTL absorbs the repeat reads that fall inside
-  # one window. The strict tolerance keeps the routing decision (PR-anchored vs
-  # legacy, takeover snapshots) fresh: the store is never read for the answer,
-  # upstream is always asked with `If-None-Match`, and an unchanged PR costs a
-  # `304`.
+  # The transport read cache's `:pull` TTL owns the within-window repeats: the
+  # cache key is `{method, url, body}` and does not include the validator, so
+  # while a `:pull` entry is live a repeat is served the held body and
+  # `If-None-Match` is *not* sent — that is the cache hit row 5's TTL exists to
+  # produce. Once the entry expires, the conditional read sends the held
+  # validator and GitHub's `304` is the free post-expiry backstop. On a
+  # webhook-backed repo the window is bounded by the delivery, not the clock: a
+  # `pull_request` delivery retires the `:pull` entry immediately, so the
+  # routing decision (PR-anchored vs legacy, takeover snapshots) is stale only
+  # for a missed delivery, never for one that arrived. `:strict` on the
+  # `ResourceFetch` store means the store itself is never read for the answer —
+  # it only holds the validator for the post-expiry read (see the `:pull`
+  # moduledoc paragraph in `ReadCache.Policy`).
   defp fetch_open_pull_request_stored(pr_number, opts) do
     key = ResourceStore.key_for_repo(:pull_request, repo_full_name(opts), pr_number)
 

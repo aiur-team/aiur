@@ -467,7 +467,9 @@ defmodule Aiur.GitHub.PullRequests do
   every repeat was pure waste rather than a cheap revalidation. `Client`
   routes through it under `ResourceFetch`, so a read GitHub confirms unchanged
   answers `304` — a request it does not bill against the primary REST limit —
-  instead of a full-price re-read.
+  instead of a full-price re-read. Inside the transport cache's `:pull` TTL the
+  held body is served as a cache hit and no request is sent; the `304` is the
+  post-expiry backstop, not the steady-state path.
 
   A `304` against the held validator reuses the held pull request, exactly the
   page-one contract the other conditional reads trust. A `404` (the number is a

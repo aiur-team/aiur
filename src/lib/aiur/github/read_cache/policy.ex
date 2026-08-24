@@ -50,7 +50,31 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   | `:repo_config` | 5 min | 1 h | Repository configuration, not a verdict: default-branch existence, branch protection, workflow list/state/file contents, rulesets (`Aiur.GitHub.CiReadiness`). Repo config changes rarely and never gates a merge on its own, so a five-minute polling body cache costs little; every webhook delivery retires it via the collections marker, which is what lets it ride the same long bucket as the other classes. |
   | `:issue_timeline` | 30 s | 1 h | An issue's timeline (`/issues/{n}/timeline`, `Aiur.GitHub.DispatchAuthorization`). The single largest REST family measured in #2352 (1,000–1,800 reads/hr); a timeline answered up to one poll cycle late costs a dispatch decision latency, never a wrong verdict. |
   | `:issue` | 30 s | 1 h | A single issue (`/issues/{n}`). Mixed call sites — some already conditional, some unconditional reads — so the body cache absorbs the unconditional spend. |
-  | `:pull` | 30 s | 1 h | A single pull request (`/pulls/{n}`). Row 5 of #2352 was the strongest single candidate: it was read **unconditionally with no validator**, so every repeat was pure waste rather than a cheap revalidation. |
+  | `:pull` | 30 s | 1 h | A single pull request (`/pulls/{n}`). Row 5 of #2352 was the strongest single candidate: it was read **unconditionally with no validator**, so every repeat was pure waste rather than a cheap revalidation. The body is a *routing* source, never a merge-verdict source — see below. |
+
+  ## The `:pull` body is a routing source, not a verdict source
+
+  `GET /pulls/{n}` returns merge-gating state in the same body it returns the
+  routing fields: `mergeable`, `mergeable_state`, `merged`, `merged_at`,
+  `requested_reviewers` and `auto_merge`. The "What must never be cached"
+  section refuses those on content for a reason, and that refusal does not stop
+  at the parent resource. A reader of a cached `:pull` body must never take a
+  merge decision from it: a verdict is answered only by the GraphQL selections
+  `@unsafe_selections` refuses, or by the dedicated REST verdict endpoints
+  (`/reviews`, `/requested_reviewers`, `/merge`) which `@unsafe_rest` refuses
+  on content. The `:pull` body answers "is there an open PR, and how do I reach
+  it" — the head ref, title and body that route a PR-anchored comment — and
+  nothing else. The row-5 TTL is a *cost* decision; the safety decision is this
+  paragraph.
+
+  The ETag path row 5 also gained is the post-expiry backstop, not the primary
+  mechanism. The read-cache key is `{method, url, body}` and carries no
+  validator, so inside the TTL window a repeat is served the held body (a cache
+  hit) and `If-None-Match` is not sent; once the entry expires, the conditional
+  read sends the validator and GitHub's `304` is the free revalidation. On a
+  webhook-backed repo the window is bounded by the delivery, not the clock: a
+  `pull_request` delivery retires the `:pull` entry immediately, so the routing
+  decision is stale only for a missed delivery, never for one that arrived.
 
   ## The conditional rows stay refused on purpose
 
@@ -326,11 +350,12 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   @repo_config_rest ~r{/repos/[^/?#]+/[^/?#]+(?:/branches/[^/?#]+(?:/protection)?|/contents/\.github/workflows(?:/[^/?#]+)?|/actions/workflows|/rulesets(?:/[^/?#]+)?)(?:\?[^#]*)?$}
 
   # The ranked REST shapes (#2352), in the order they are matched, mapping a URL
-  # to the call family it belongs to. The tail `(?:contents|branches|rulesets)`
-  # row names the general repository-configuration reads — `/contents/{path}`
-  # for any path, not only `.github/workflows` — while `@repo_config_rest`
-  # above carries the anchored CIReadiness forms (`/actions/workflows`,
-  # branch protection, rulesets) and the query-string boundary.
+  # to the call family it belongs to. Repository configuration is classified
+  # only by the anchored `@repo_config_rest` row at the end — branch protection,
+  # `.github/workflows` contents, workflow lists and rulesets — never by a bare
+  # `/contents/{path}` or `/branches` list. The anchored forms are the only
+  # ones anyone reads, so widening to the bare prefixes would hand an hour-long
+  # TTL to paths no caller owns (review #2360).
   @rest_shapes [
     # Row 1 — issue timeline (cacheable).
     {~r{/repos/[^/?#]+/[^/?#]+/issues/\d+/timeline}, :issue_timeline},
@@ -352,8 +377,6 @@ defmodule Aiur.GitHub.ReadCache.Policy do
     # so a push changes the response while the cache key does not; nothing is
     # cached that the URL cannot pin to an immutable object — #2332).
     {~r{/repos/[^/?#]+/[^/?#]+/pulls/\d+/files}, :pull_files},
-    # Tail — repository configuration (cacheable): /contents, /branches, /rulesets.
-    {~r{/repos/[^/?#]+/[^/?#]+/(?:contents|branches|rulesets)}, :repo_config},
     # Numbered comment reads (cacheable): /issues/{n}/comments, /pulls/{n}/comments.
     {~r{/repos/[^/?#]+/[^/?#]+/(?:issues|pulls)/\d+/comments}, :comments},
     # A bare commit read (`/commits/:sha`) is immutable per sha — a commit's
