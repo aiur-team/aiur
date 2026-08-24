@@ -1,6 +1,9 @@
 defmodule Aiur.Orchestrator.TrackerHealthTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
+  alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
   alias Aiur.Orchestrator.{State, TrackerHealth}
   alias Aiur.Webhooks.ModeRegistry
 
@@ -188,6 +191,70 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
   # proving is that the orchestrator's own tick reads the registry the silence
   # sweep writes to — a stubbed transport would pass against a `next_poll_delay_ms`
   # that never consults it.
+  describe "note_github_connectivity_failure/3 classification" do
+    # #2429 acceptance: a local budget hold is not connectivity. It must
+    # classify as `:local_hold`, back off only until its own `reset_at` (never
+    # the exponential escalation curve), and emit no `connectivity_lost` blocker.
+    test "a raw local budget hold is :local_hold and backs off to its reset_at" do
+      reset_at = DateTime.add(DateTime.utc_now(), 30, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, github_connectivity: %{}}
+
+      state = TrackerHealth.note_github_connectivity_failure(state, :candidates, {:aiur, :locally_held, hold})
+
+      assert state.github_connectivity[:candidates] == {:local_hold, 1}
+
+      delay = state.github_poll_delays[:candidates]
+      assert_in_delta 30_000, delay, 1_000
+      refute delay == GitHubConnectivity.max_backoff_ms()
+    end
+
+    test "the Errors.classify_error :local_hold shape is :local_hold and backs off to its reset_at" do
+      reset_at = DateTime.add(DateTime.utc_now(), 30, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      reason = {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, github_connectivity: %{}}
+
+      state = TrackerHealth.note_github_connectivity_failure(state, :candidates, reason)
+
+      assert state.github_connectivity[:candidates] == {:local_hold, 1}
+      assert_in_delta 30_000, state.github_poll_delays[:candidates], 1_000
+    end
+
+    test "a locally_held reason wrapped by the legacy transport classifier is still :local_hold" do
+      hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, github_connectivity: %{}}
+
+      state =
+        TrackerHealth.note_github_connectivity_failure(
+          state,
+          :candidates,
+          {:github, :transport, %{reason: {:aiur, :locally_held, hold}}}
+        )
+
+      assert state.github_connectivity[:candidates] == {:local_hold, 1}
+    end
+
+    # #2429 F2: an unclassified reason must not silently become `:transport`. It
+    # is surfaced with its raw term and backed off conservatively at the base
+    # interval, never escalated as lost connectivity.
+    test "an unclassified reason logs its raw term instead of becoming transport" do
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}, github_connectivity: %{}}
+
+      log =
+        capture_log(fn ->
+          state =
+            TrackerHealth.note_github_connectivity_failure(state, :candidates, {:unknown, :reason})
+
+          assert state.github_connectivity[:candidates] == {:unclassified, 1}
+          assert state.github_poll_delays[:candidates] == 1_000
+        end)
+
+      assert log =~ "github_connectivity_unclassified"
+      assert log =~ "{:unknown, :reason}"
+    end
+  end
+
   describe "webhook-backed widening and automatic restore" do
     @repo "aiur-team/webhook-cutover"
 

@@ -101,16 +101,62 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       assert AutoResume.classify({:timeout, %{url: "x"}}) == :provider_timeout
     end
 
+    # #2429 / #2427: a DNS transport failure (`:nxdomain`) is transient, but the
+    # raw shapes bypass `Errors.retryable_github_error?/1` (which only recognizes
+    # the classified `{:github, kind, _}` tuple). A retry-exhausted ticket must
+    # auto-resume once DNS recovers instead of parking in `agent:error` — closing
+    # the `AutoResume.classify/1` vs `Errors`/`HumanReview` taxonomy disagreement
+    # the project owner flagged on #2431.
+    test "classifies a DNS transport failure as transient" do
+      assert AutoResume.classify(:nxdomain) == :transient_tracker
+      assert AutoResume.classify({:error, :nxdomain}) == :transient_tracker
+      assert AutoResume.classify({:error, %Req.TransportError{reason: :nxdomain}}) == :transient_tracker
+      assert AutoResume.classify(%Req.TransportError{reason: :nxdomain}) == :transient_tracker
+      assert AutoResume.classify({:github, :dns, %{reason: :nxdomain}}) == :transient_tracker
+
+      assert AutoResume.classify({:workspace_github_connectivity_failed, "/workspaces/123", {:github, :dns, %{reason: :nxdomain}}}) == :transient_tracker
+
+      assert AutoResume.classify({:workspace_github_connectivity_failed, "/workspaces/123", {:error, %Req.TransportError{reason: :nxdomain}}}) == :transient_tracker
+    end
+
     # #2409: a local GitHub budget hold is a transient infrastructure fault, so
     # a ticket parked in `agent:error` by one auto-resumes once the hold lifts
-    # instead of waiting for an operator. Recognized in both the raw
-    # `{:aiur, :locally_held, hold}` shape and the transport-classified shape a
-    # tracker poll actually sees (`Errors.classify_error` wraps it).
+    # instead of waiting for an operator. Recognized in the raw
+    # `{:aiur, :locally_held, hold}` shape, the `:local_hold` classification
+    # `Errors.classify_error` now assigns (#2429), the legacy
+    # transport-classified shape a tracker poll used to see, and the wrapped
+    # shapes an agent exits with when its workspace preflight is held (#2339).
     test "classifies a local GitHub budget hold as transient" do
       hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
 
       assert AutoResume.classify({:aiur, :locally_held, hold}) == :local_budget_hold
+      assert AutoResume.classify({:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}) == :local_budget_hold
       assert AutoResume.classify({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) == :local_budget_hold
+
+      assert AutoResume.classify(
+               {:workspace_github_connectivity_failed, "/workspaces/2339", {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{reason: {:aiur, :locally_held, hold}, hold: hold}}}}
+             ) == :local_budget_hold
+
+      assert AutoResume.classify({:workspace_github_connectivity_failed, "/workspaces/2339", {:aiur, :locally_held, hold}}) == :local_budget_hold
+    end
+
+    # #2361: a preflight that dies on a transport fault surfaces as
+    # `{:github_auth_preflight_failed, diagnostic}` with the taxonomy embedded
+    # in `detail` (or a raw 408/429/5xx `status`). The claim-release path feeds
+    # this reason to `classify/1`, and it must auto-resume on it rather than
+    # treat the ticket as a genuine agent failure parked with no scheduled
+    # re-claim.
+    test "classifies an auth-preflight transport failure as transient" do
+      assert AutoResume.classify({:github_auth_preflight_failed, %{detail: {:github, :timeout, %{reason: :closed}}}}) ==
+               :transient_tracker
+
+      assert AutoResume.classify({:github_auth_preflight_failed, %{detail: {:github, :transport, %{reason: :econnrefused}}}}) ==
+               :transient_tracker
+
+      assert AutoResume.classify({:github_auth_preflight_failed, %{reason: :http_status, status: 502}}) == :transient_tracker
+      assert AutoResume.classify({:github_auth_preflight_failed, %{reason: :http_status, status: 500}}) == :transient_tracker
+
+      assert AutoResume.classify({:github_auth_preflight_failed, %{reason: :invalid_or_expired_token, status: 401}}) == nil
     end
 
     test "returns nil for terminal and operator causes" do
@@ -448,6 +494,20 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
         RetryEngine.maybe_schedule_transient_auto_resume(%State{}, @issue_id, {:github, :auth, %{status: 401}})
 
       refute Map.has_key?(state.auto_resume, @issue_id)
+    end
+
+    # A DNS transport failure reaching the retry-exhaustion path schedules the
+    # same transient auto-resume as a classified tracker fault (#2429 / #2427).
+    @tag config: @enabled
+    test "maybe_schedule_transient_auto_resume schedules a DNS failure" do
+      state =
+        RetryEngine.maybe_schedule_transient_auto_resume(
+          %State{},
+          @issue_id,
+          {:error, %Req.TransportError{reason: :nxdomain}}
+        )
+
+      assert %{attempt: 1, cause: :transient_tracker} = state.auto_resume[@issue_id]
     end
   end
 end

@@ -184,8 +184,12 @@ This judgement sits on top of a floor the store enforces, not in place of it.
 `DecisionStore` refuses an Executor-attributed answer unless the Command itself
 declares `authority: supervisor_allowed | supervisor_preferred` **and**
 `reversibility: reversible`; anything else — `human_required`, irreversible or
-partially reversible work, or an absent declaration — is rejected with
-`{:executor_scope, …}` and must be escalated. Treat that rejection as the
+partially reversible work — is rejected with
+`{:executor_scope, …}` and must be escalated. (A request that omits those
+fields is normalized to `supervisor_allowed` + `reversible`, so an omitted
+declaration lands inside the floor rather than being refused; a genuinely
+irreversible or operator-scoped Command carries its `human_required` /
+non-reversible declaration explicitly.) Treat that rejection as the
 Command telling you it was always the operator's. Escalations are appended to
 the Decision's durable event log as an attributed `executor_escalated` event,
 so "the Executor deferred to the human" is as recoverable later as "the

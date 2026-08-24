@@ -233,6 +233,13 @@ GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
 will run the agent.
 
+Agent processes do **not** inherit `GITHUB_TOKEN`/`GH_TOKEN`: the daemon
+scrubs them from every agent environment and the `gh` guard injects the
+credential from a file only for the duration of a governed call (#2356). A
+raw `curl` from an agent workspace is unauthenticated, so anything that
+speaks HTTP directly is metered by GitHub's anonymous limit, not by Aiur's
+guard — the ledger counts governed `gh`/`git` calls, and only those.
+
 **Before changing anything that talks to GitHub — polling, budgets, the read
 cache, webhooks, credentials — read
 [`website/docs-app/apis/github.md`](website/docs-app/apis/github.md).** It is

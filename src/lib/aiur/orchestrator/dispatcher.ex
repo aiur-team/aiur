@@ -15,13 +15,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DecisionStore,
     DispatchBudgetStore,
     Issue,
-    PollCadence,
     RepoBase,
     SystemCpu,
     Tracker
   }
 
-  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
+  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
 
@@ -69,10 +68,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
 
     # Every freshness threshold is a multiple of the cadence actually in force,
-    # so the scheduled delay — idle backoff, webhook widening and GitHub's own
-    # floors already composed in — is published where any reader can derive
-    # from it. See `Aiur.PollCadence`.
-    :ok = PollCadence.publish_effective_interval_ms(schedule.delay_ms)
+    # so each class's effective interval — idle backoff, webhook widening and
+    # GitHub's own floors already composed in — is published where any reader
+    # can derive from it. See `Aiur.PollCadence` and
+    # `TrackerHealth.publish_poll_cadence/2` (#2309).
+    :ok = TrackerHealth.publish_poll_cadence(state, schedule)
 
     state = %{state | poll_check_in_progress: false}
 
@@ -145,6 +145,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
     fetch_candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &fetch_candidate_issues/1)
     monitor_without_candidates = Keyword.get(opts, :monitor_without_candidates_fun, &monitor_without_candidates/1)
+    stranded_reconciliation = Keyword.get(opts, :stranded_reconciliation_fun, &IssueSync.sync_stranded_ticket_reconciliation/2)
 
     case fetch_candidates.(state) do
       {:paused, state} ->
@@ -195,6 +196,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
           |> IssueSync.sync_fleet_capacity_starved_alert(issues)
+          # After dispatch has had its chance to claim every eligible ticket,
+          # re-queue open non-terminal tickets that still have no live owner and
+          # no scheduled claim (a released claim with no recovery, or a
+          # degenerate zero-label ticket) so a strand never sits unowned and
+          # invisible to the label checks (#2361, #2420).
+          |> stranded_reconciliation.(issues)
 
         %{state | initial_dispatch_cycle: false}
 
@@ -857,7 +864,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         probes.cpu_snapshot,
         queued_demand?
       )
-      |> maybe_record_load_envelope_constraint()
+      |> maybe_record_load_envelope_constraint(probes.load, probes.target, probes.schedulers)
 
     # Sample every failing gate before applying admission priority. A memory or
     # FD hold must not erase the age of an independently persistent load hold;
@@ -1041,7 +1048,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       when is_list(opts) do
     issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set()) do
+    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set(), opts) do
       {:ok, %Issue{} = refreshed_issue} ->
         state
         |> clear_dispatch_decline(refreshed_issue)
@@ -1760,11 +1767,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end)
   end
 
-  @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t()) ::
+  @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t(), keyword()) ::
           {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
-  def revalidate_issue_for_dispatch(%Issue{id: issue_id}, issue_fetcher, terminal_states)
-      when is_binary(issue_id) and is_function(issue_fetcher, 1) do
-    case issue_fetcher.([issue_id]) do
+  def revalidate_issue_for_dispatch(issue, issue_fetcher, terminal_states, opts \\ [])
+
+  def revalidate_issue_for_dispatch(%Issue{id: issue_id}, issue_fetcher, terminal_states, opts)
+      when is_binary(issue_id) and is_function(issue_fetcher, 1) and is_list(opts) do
+    # A dispatch-time revalidation is exactly the "GitHub call that gives up on
+    # a self-clearing hold" #2444 is about: the issue refresh is held by the
+    # local budget guard seconds before its own `reset_at`, and declining the
+    # dispatch on it turned a four-second hold into a `tracker_revalidation_failed`
+    # decline (#2311, #2393, #2420). The shared helper waits the short hold out
+    # and retries the fetch; a hold beyond the ceiling or past the cap still
+    # fails, so real starvation is not masked.
+    result =
+      LocalHold.run(
+        fn -> issue_fetcher.([issue_id]) end,
+        LocalHold.caller_opts(opts)
+      )
+
+    case result do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
         if Orchestrator.retry_candidate_issue?(refreshed_issue, terminal_states) do
           {:ok, refreshed_issue}
@@ -1780,7 +1802,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  def revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states), do: {:ok, issue}
+  def revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states, _opts), do: {:ok, issue}
 
   @spec retry_dispatch_ready?(Issue.t(), State.t(), String.t() | nil) :: boolean()
   def retry_dispatch_ready?(%Issue{} = issue, %State{} = state, worker_host) do
@@ -2120,16 +2142,31 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if Slots.available_slots(state) > 0, do: choose_issues(state, issues), else: state
   end
 
-  defp maybe_record_load_envelope_constraint(%State{} = state) do
+  # Records the load envelope as a capacity constraint only when it is a genuine
+  # hold: load above target with effective capacity backed off below the ceiling.
+  # The below-target ramp — the envelope deliberately starting small on daemon
+  # start and widening per below-target sample — is the intended ramp, not
+  # starvation, so it must never surface a `:load_envelope` constraint that the
+  # capacity-starvation alerts would report (#2447).
+  defp maybe_record_load_envelope_constraint(%State{} = state, load, target, schedulers) do
     configured = Slots.max_concurrent_agent_limit(state)
     effective = Slots.effective_concurrent_agent_limit(state)
 
-    if effective < configured do
+    if effective < configured and load_above_target?(load, target, schedulers) do
       record_capacity_constraint(state, :load_envelope, "effective_cap=#{effective} configured_cap=#{configured}")
     else
       state
     end
   end
+
+  defp load_above_target?(_load, target, _schedulers) when not is_number(target), do: false
+
+  defp load_above_target?(load, target, schedulers)
+       when is_number(load) and is_number(target) and target > 0 and is_integer(schedulers) and schedulers > 0 do
+    load > target * schedulers
+  end
+
+  defp load_above_target?(_load, _target, _schedulers), do: false
 
   defp record_capacity_constraint(%State{} = state, kind, detail) when is_atom(kind) and is_binary(detail) do
     constraint = %{kind: kind, detail: detail}
@@ -2279,40 +2316,62 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if entry[:tripped] == :lifetime and entry[:durable_latch_applied] != true and
          is_binary(issue.identifier) do
       case update_state_fun.(issue.identifier, "error") do
-        :ok ->
-          lifetime = Map.get(entry, :lifetime, 0)
-          maximum = Config.agent_max_dispatches_per_ticket()
-
-          Alerts.emit_custom(
-            "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
-            "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
-            issue: issue.identifier,
-            reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
-            needs_attention: true,
-            severity: "warning",
-            # IssueSync reconstructs the persisted error cause after a restart
-            # from the central feed only, so this attention must land there or
-            # it can never be resolved or rearmed.
-            central: true
-          )
-
-          updated_entry = Map.put(entry, :durable_latch_applied, true)
-          state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
-
-          %{
-            state
-            | claimed: MapSet.delete(state.claimed, issue.id),
-              observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id),
-              observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue.id, :lifetime_latch)
-          }
-
-        {:error, reason} ->
-          Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
-
-          state
+        :ok -> apply_lifetime_latch_error_write(state, issue, entry)
+        {:error, reason} -> handle_lifetime_latch_write_failure(state, issue, entry, reason)
       end
     else
       state
+    end
+  end
+
+  defp apply_lifetime_latch_error_write(%State{} = state, %Issue{} = issue, entry) do
+    lifetime = Map.get(entry, :lifetime, 0)
+    maximum = Config.agent_max_dispatches_per_ticket()
+
+    Alerts.emit_custom(
+      "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
+      "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+      issue: issue.identifier,
+      reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+      needs_attention: true,
+      severity: "warning",
+      # IssueSync reconstructs the persisted error cause after a restart
+      # from the central feed only, so this attention must land there or
+      # it can never be resolved or rearmed.
+      central: true
+    )
+
+    updated_entry = Map.put(entry, :durable_latch_applied, true)
+    state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
+
+    %{
+      state
+      | claimed: MapSet.delete(state.claimed, issue.id),
+        observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue.id, :lifetime_latch)
+    }
+  end
+
+  defp handle_lifetime_latch_write_failure(%State{} = state, %Issue{} = issue, entry, reason) do
+    Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+
+    # The terminal `error` write that would park the ticket never landed,
+    # so it keeps its active-state label; alert (once) rather than only
+    # logging so the Executor sees a stranded ticket (#2420).
+    if entry[:latch_alert_emitted] do
+      state
+    else
+      Alerts.emit_custom(
+        "ticket.#{issue.identifier}.agent.attention.lifetime_latch_write_failed",
+        "Lifetime dispatch latch could not be persisted as error (#{inspect(reason)}); the ticket keeps its active-state label.",
+        issue: issue.identifier,
+        reason: "The lifetime-latch error-state write failed (#{inspect(reason)}); the ticket was not parked in error and may be re-dispatched.",
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
+
+      put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, Map.put(entry, :latch_alert_emitted, true)))
     end
   end
 
