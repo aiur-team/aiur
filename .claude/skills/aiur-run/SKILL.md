@@ -908,6 +908,21 @@ What a review agent needs in its prompt, every time:
   must not violate — on this repo, the `@unsafe_selections` refusals in
   `read_cache/policy.ex` are correct and a PR that "improves the cache hit rate"
   by caching verdict state is a reject, not a nitpick.
+- **Saving claims are measured, not estimated.** A PR claiming a quota, latency,
+  or cost saving must carry the four items AGENTS.md requires ("A claimed saving
+  must be measured"): a number with units and a baseline (`X → Y pts/hr`), a
+  measurement against the running system or a census of real data — never
+  derived from the code; `aiur github-cost` gives per-caller points, calls, and
+  rate, and the local ledger plus the App-token `/rate_limit` give the
+  credential-side view — what must be true at merge for the saving to occur, and
+  a test asserting the claimed figure. Then **check the population, not the
+  mechanism**: before judging whether a cache/classifier/cadence change is
+  correct, count what it will actually see in production. #2360's classification
+  was observability as first reviewed (it saves reads only since a later
+  revision added TTLs), #2399's shipped configs left every `polling.intervals` gate
+  commented out, and #2417's validator never fired because zero of the cached
+  bodies have its shape — all three passed a mechanism-only review and measured
+  zero.
 - **Mutation-testing discipline, explicitly.** Require the agent to check whether
   each new test still passes with the production change reverted, and to **name
   any test that does**. This is what separates a review from a summary. It has
