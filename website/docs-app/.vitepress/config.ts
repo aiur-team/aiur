@@ -54,11 +54,11 @@ export default withMermaid(defineConfig({
         ]
       },
       {
-        text: 'Usage',
+        text: 'Interfaces',
         items: [
           { text: 'TUI', link: '/guide/tui' },
           { text: 'CLI', link: '/reference/cli' },
-          { text: 'Dashboard', link: '/guide/executor-control-center' },
+          { text: 'GUI', link: '/guide/gui' },
           { text: 'Stream Deck', link: '/guide/stream-deck' }
         ]
       },
