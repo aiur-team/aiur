@@ -831,7 +831,11 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
                  "review_decision" => "CHANGES_REQUESTED"
                }
              ]}
-          end
+          end,
+          # #2450: a CHANGES_REQUESTED verdict alone is not a rework signal —
+          # the remaining PR must also carry genuinely unresolved review threads
+          # for the ticket to land in rework.
+          unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
         )
 
       assert_receive {:transition, "2307", "rework"}
