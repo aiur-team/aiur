@@ -441,12 +441,15 @@ defmodule Aiur.Orchestrator.SnapshotStore do
         ceiling_ms
 
       _unset_or_invalid ->
-        PollCadence.stale_after_ms(@stale_age_ceiling_intervals, floor_ms: @stale_age_ceiling_floor_ms)
+        PollCadence.stale_after_ms(@stale_age_ceiling_intervals,
+          class: :dispatch,
+          floor_ms: @stale_age_ceiling_floor_ms
+        )
     end
   end
 
   defp stale_window_ceiling_ms do
-    PollCadence.stale_after_ms(@stale_window_intervals, floor_ms: @stale_window_ceiling_floor_ms)
+    PollCadence.stale_after_ms(@stale_window_intervals, class: :dispatch, floor_ms: @stale_window_ceiling_floor_ms)
   end
 
   # The caller's tolerance is honoured exactly: `read/3` never widens a window

@@ -93,7 +93,32 @@ See `docs/security/daemon-token-posture.md` in this repository for the full setu
 
 ## Poll cadence
 
-Poll spend still scales inversely with the interval, so `polling.interval_seconds` defaults to 120.
+The cadence is per-state-class since #2309: each poll loop resolves its interval
+by naming the class it serves, and `polling.intervals` overrides
+`polling.interval_seconds` for one class while every unlisted class falls back
+to the scalar.
+
+Poll spend still scales inversely with a class's interval, so
+`polling.interval_seconds` defaults to 120 — and the class that moves the most
+GraphQL spend is the one to widen, not the cheap tracker poll.
+
+- **`dispatch`** — the tracker poll (open issues, `agent:*` labels). Cheap
+  conditional REST (mostly free `304`s) and the dispatch trigger, so it stays at
+  the base cadence and is the default for every unlisted class.
+- **`ci`** — check state on a pull request with work in flight. Expensive
+  GraphQL, but demand-scoped (only read while a PR is in flight) and deliberately
+  left at the fallback: a wider `ci` would slow CI detection, which has
+  agent-visible consequences.
+- **`review`** — comments and review threads. Expensive GraphQL; webhooks cover
+  comment *arrival*, so the poll is a safety net and minutes is defensible. The
+  widening is enforced: a repo not proven webhook-backed keeps `review` at the
+  dispatch rate (see below).
+- **`planning`** — Build Order catalog and ticket history. The most expensive
+  reads and the least urgent; recommended `0` (on-demand, no timer).
+- **`firehose`** — repo events. Already self-regulating via GitHub's
+  `X-Poll-Interval`; the class exists so `aiur status` can show its configured
+  cadence, not to change its loop. Its loop is not gated on a class cadence — it
+  rides the dispatch tick — so it stays at the fallback (`interval_seconds`).
 
 The GitHub auth check runs once per credential, not once per sweep. It is re-run when the token or repository changes, and when a GitHub call answers `401` with the credential it proved — so a revoked token still produces the usual auth diagnostic rather than a raw failure downstream.
 
@@ -141,7 +166,13 @@ GraphQL is now used only to resolve which pull request belongs to a ticket, and 
 
 The old query attached full comment and review-thread selections to every speculative branch candidate, so identifying one pull request paid for the contents of up to ten. Measured against the live API with `rateLimit { cost }`, ten targets now cost **11 points** where that shape cost **114**.
 
-Spend scales with target count, not with comment volume.
+Spend scales with target count, not with comment volume. The table below is for
+the **dispatch-class** cadence — the tick every poll loop rides.
+
+A per-class entry in `polling.intervals` scales the same way for that class:
+halving a class's interval doubles its own spend, and the GraphQL pollers are
+the classes worth widening (CI, comments/review threads, and previously the
+Build Order catalog, now event-sourced).
 
 | `interval_seconds` | Approximate GraphQL spend | Worst-case wake latency |
 | --- | --- | --- |
@@ -161,7 +192,12 @@ GitHub also sends a 60-second `X-Poll-Interval` floor on the repo-events endpoin
 | Both active | Compose to `120s × 2 × 5 = 1,200s`; a wider GitHub rate-limit or connectivity floor still wins. |
 | `aiur status` | Prints `POLL idle backoff active` with the base, effective interval, factor, and next sweep countdown. |
 
-Dashboard and Build Order state is not on this cadence.
+Dashboard state derives its staleness from the `dispatch` class (the cadence of
+the orchestrator snapshot it renders), and the Build Order catalog is
+event-sourced — its staleness and refresh bounds follow the `planning` class.
+
+`planning` is recommended as `0` (on-demand), so the most expensive query in the
+system runs only when a page opens or a degradation needs a re-list.
 
 | View state | Behaviour |
 | --- | --- |

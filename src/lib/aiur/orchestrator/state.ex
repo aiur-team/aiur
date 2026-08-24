@@ -130,6 +130,13 @@ defmodule Aiur.Orchestrator.State do
           github_comment_issue_updated_at: map(),
           github_comment_issue_list_cache: map(),
           github_comment_poll: map() | nil,
+          # Monotonic time the asynchronous comment poll last started, used to
+          # throttle it to the `:review` class cadence (#2309). `nil` until the
+          # first start.
+          last_comment_poll_started_at_ms: integer() | nil,
+          # Monotonic time the CI poll last ran, used to throttle it to the
+          # `:ci` class cadence (#2309). `nil` until the first run.
+          last_ci_poll_started_at_ms: integer() | nil,
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
@@ -265,6 +272,8 @@ defmodule Aiur.Orchestrator.State do
     # In-flight marker for the asynchronous comment poll. The pid and monitor
     # let lifecycle shutdown reap the poll and its owned descendants.
     github_comment_poll: nil,
+    last_comment_poll_started_at_ms: nil,
+    last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},

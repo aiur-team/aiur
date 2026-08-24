@@ -15,13 +15,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DecisionStore,
     DispatchBudgetStore,
     Issue,
-    PollCadence,
     RepoBase,
     SystemCpu,
     Tracker
   }
 
-  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
+  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
 
@@ -69,10 +68,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
 
     # Every freshness threshold is a multiple of the cadence actually in force,
-    # so the scheduled delay — idle backoff, webhook widening and GitHub's own
-    # floors already composed in — is published where any reader can derive
-    # from it. See `Aiur.PollCadence`.
-    :ok = PollCadence.publish_effective_interval_ms(schedule.delay_ms)
+    # so each class's effective interval — idle backoff, webhook widening and
+    # GitHub's own floors already composed in — is published where any reader
+    # can derive from it. See `Aiur.PollCadence` and
+    # `TrackerHealth.publish_poll_cadence/2` (#2309).
+    :ok = TrackerHealth.publish_poll_cadence(state, schedule)
 
     state = %{state | poll_check_in_progress: false}
 
@@ -1048,7 +1048,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       when is_list(opts) do
     issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set()) do
+    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set(), opts) do
       {:ok, %Issue{} = refreshed_issue} ->
         state
         |> clear_dispatch_decline(refreshed_issue)
@@ -1767,11 +1767,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end)
   end
 
-  @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t()) ::
+  @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t(), keyword()) ::
           {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
-  def revalidate_issue_for_dispatch(%Issue{id: issue_id}, issue_fetcher, terminal_states)
-      when is_binary(issue_id) and is_function(issue_fetcher, 1) do
-    case issue_fetcher.([issue_id]) do
+  def revalidate_issue_for_dispatch(issue, issue_fetcher, terminal_states, opts \\ [])
+
+  def revalidate_issue_for_dispatch(%Issue{id: issue_id}, issue_fetcher, terminal_states, opts)
+      when is_binary(issue_id) and is_function(issue_fetcher, 1) and is_list(opts) do
+    # A dispatch-time revalidation is exactly the "GitHub call that gives up on
+    # a self-clearing hold" #2444 is about: the issue refresh is held by the
+    # local budget guard seconds before its own `reset_at`, and declining the
+    # dispatch on it turned a four-second hold into a `tracker_revalidation_failed`
+    # decline (#2311, #2393, #2420). The shared helper waits the short hold out
+    # and retries the fetch; a hold beyond the ceiling or past the cap still
+    # fails, so real starvation is not masked.
+    result =
+      LocalHold.run(
+        fn -> issue_fetcher.([issue_id]) end,
+        LocalHold.caller_opts(opts)
+      )
+
+    case result do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
         if Orchestrator.retry_candidate_issue?(refreshed_issue, terminal_states) do
           {:ok, refreshed_issue}
@@ -1787,7 +1802,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  def revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states), do: {:ok, issue}
+  def revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states, _opts), do: {:ok, issue}
 
   @spec retry_dispatch_ready?(Issue.t(), State.t(), String.t() | nil) :: boolean()
   def retry_dispatch_ready?(%Issue{} = issue, %State{} = state, worker_host) do
