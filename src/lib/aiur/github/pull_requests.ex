@@ -183,6 +183,61 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   @doc """
+  Fetches every open pull request whose head branch belongs to `issue_number`.
+
+  The singular `fetch_open_pull_request_for_branch/2` answers "does this ticket
+  have an open PR?" with the newest match and is the right shape for a gate that
+  needs one canonical PR. A ticket can legitimately have more than one open PR —
+  two `aiur/<ticket>-<slug>` branches worked in parallel, where a merge of the
+  first must not let the second be abandoned. This plural form lists them all,
+  reusing the same paginated open-pull-request listing and the same
+  `TicketBranch.ticket_branch?/2` head-branch filter, so callers that must
+  consider every open PR (the merged-ticket reconciler) do not reimplement the
+  lookup.
+  """
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_open_pull_requests_for_branch(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      query = URI.encode_query(%{"state" => "open", "per_page" => "100"})
+
+      fetch_open_ticket_pull_requests(
+        request_fun,
+        token,
+        "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls?#{query}",
+        issue_number,
+        []
+      )
+    end
+  end
+
+  defp fetch_open_ticket_pull_requests(_request_fun, _token, nil, _issue_number, acc), do: {:ok, acc}
+
+  defp fetch_open_ticket_pull_requests(request_fun, token, url, issue_number, acc) do
+    case request_fun.(%{method: :get, url: url, token: token}) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        headers = Map.get(response, :headers, [])
+        matched = Enum.filter(body, &ticket_pull_request?(&1, issue_number))
+
+        fetch_open_ticket_pull_requests(
+          request_fun,
+          token,
+          Transport.parse_next_page_url(headers),
+          issue_number,
+          acc ++ matched
+        )
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  @doc """
   Fetches the open pull request for a ticket's head branch with `If-None-Match`
   support.
 
