@@ -40,6 +40,13 @@ defmodule Aiur.RepoBase do
   # on the second of two hosts sharing one state root.
   @migration_lock_timeout_ms 300_000
   @remote_probe_timeout_ms 30_000
+  # The probe owns its 30-second timeout, so a *live* probe self-resolves. This
+  # watchdog instead bounds *idle* dispatch holds: it re-arms while the hold's
+  # worker (probe or build) is alive, and fires only once the worker has been
+  # dead for a full interval — releasing the gate for cold-clone fallback. A
+  # slow-but-progressing cold build (deps + compile + dialyzer PLT) is never
+  # killed by it; only a hold whose completion signal was lost is.
+  @dispatch_hold_timeout_ms 600_000
 
   ## ---- Public API ----
 
@@ -251,9 +258,21 @@ defmodule Aiur.RepoBase do
   ## ---- GenServer ----
 
   @impl true
-  def init(_opts) do
+  def init(opts) do
     schedule_poll()
-    {:ok, %{phase: :idle, base_path: nil, build: nil, probe: nil, ready_head: nil, freshness: :unknown}}
+
+    {:ok,
+     %{
+       phase: :idle,
+       base_path: nil,
+       build: nil,
+       probe: nil,
+       ready_head: nil,
+       freshness: :unknown,
+       remote_head_fun: Keyword.get(opts, :remote_head_fun, &remote_head/1),
+       dispatch_hold_timeout_ms: Keyword.get(opts, :dispatch_hold_timeout_ms, @dispatch_hold_timeout_ms),
+       dispatch_watchdog: nil
+     }}
   end
 
   @impl true
@@ -291,8 +310,11 @@ defmodule Aiur.RepoBase do
     state = %{state | build: nil}
 
     case result do
-      {:ok, base} -> {:noreply, %{state | phase: :ready, base_path: base, ready_head: head, freshness: :unknown}}
-      {:error, reason} -> {:noreply, %{state | phase: {:error, reason}}}
+      {:ok, base} ->
+        {:noreply, state |> Map.merge(%{phase: :ready, base_path: base, ready_head: head, freshness: :unknown}) |> clear_released_watchdog()}
+
+      {:error, reason} ->
+        {:noreply, state |> Map.put(:phase, {:error, reason}) |> clear_dispatch_watchdog()}
     end
   end
 
@@ -301,21 +323,53 @@ defmodule Aiur.RepoBase do
   # The build worker crashed without a clean :build_done.
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{build: %{ref: ref}} = state) do
     log_and_emit_error({:build_crashed, reason})
-    {:noreply, %{state | build: nil, phase: {:error, {:build_crashed, reason}}}}
+
+    {:noreply,
+     state
+     |> Map.merge(%{build: nil, phase: {:error, {:build_crashed, reason}}})
+     |> clear_dispatch_watchdog()}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{probe: %{ref: ref}} = state) do
-    {:noreply, state |> clear_probe() |> probe_failed({:probe_crashed, reason})}
+    {:noreply, state |> clear_probe() |> probe_failed({:probe_crashed, reason}) |> clear_released_watchdog()}
   end
 
   def handle_info({:remote_head, pid, result}, %{probe: %{pid: pid}} = state) do
-    {:noreply, state |> clear_probe() |> on_remote_head(result)}
+    {:noreply, state |> clear_probe() |> on_remote_head(result) |> clear_released_watchdog()}
   end
 
   def handle_info({:probe_timeout, ref}, %{probe: %{ref: ref, pid: pid}} = state) do
     Process.demonitor(ref, [:flush])
     Process.exit(pid, :kill)
-    {:noreply, state |> clear_probe() |> probe_failed(:timeout)}
+    {:noreply, state |> clear_probe() |> probe_failed(:timeout) |> clear_released_watchdog()}
+  end
+
+  def handle_info({:dispatch_hold_timeout, watchdog_ref}, %{dispatch_watchdog: %{ref: watchdog_ref}} = state) do
+    if hold_phase?(state.phase) do
+      if hold_progress?(state) do
+        # The hold's worker is still alive, so the operation is progressing (a
+        # live probe self-resolves via its own 30-second timeout; a live build
+        # is a real process that may legitimately run for many minutes). Re-arm
+        # the idle watchdog instead of tearing the work down.
+        {:noreply, rearm_dispatch_watchdog(state)}
+      else
+        # The worker is dead with no completion signal in flight — the absorbing
+        # hold from #2237. Abort any residue and release the dispatch gate.
+        stalled_phase = state.phase
+        reason = {:repo_base_dispatch_hold_stalled, stalled_phase}
+        log_and_emit_error(reason)
+
+        {:noreply,
+         state
+         |> abort_probe()
+         |> abort_build()
+         |> clear_dispatch_watchdog()
+         |> Map.merge(%{phase: {:error, reason}, freshness: :unknown})}
+      end
+    else
+      # The hold ended while this timer was in flight (e.g. a build completed).
+      {:noreply, clear_dispatch_watchdog(state)}
+    end
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -325,14 +379,14 @@ defmodule Aiur.RepoBase do
   defp do_refresh_async(state) do
     case resolve() do
       :disabled ->
-        %{state | phase: :idle}
+        disable_prewarm(state)
 
       {:ok, repo_url, base, command} ->
         state = %{state | base_path: base}
 
         cond do
           state.build != nil -> ensure_probe(state, repo_url)
-          state.phase == :checking -> state
+          state.phase == :checking -> ensure_probe(state, repo_url)
           state.phase == :ready -> probe_freshness(state, repo_url)
           true -> start_build(state, base, repo_url, command)
         end
@@ -346,17 +400,20 @@ defmodule Aiur.RepoBase do
   defp do_refresh_for_dispatch(state) do
     case resolve() do
       :disabled ->
-        %{state | phase: :idle}
+        disable_prewarm(state)
 
       {:ok, repo_url, base, command} ->
-        dispatch_refresh_state(%{state | base_path: base}, repo_url, base, command)
+        state
+        |> Map.put(:base_path, base)
+        |> dispatch_refresh_state(repo_url, base, command)
+        |> sync_dispatch_watchdog()
     end
   end
 
   defp dispatch_refresh_state(state, repo_url, base, command) do
     cond do
       state.build != nil -> ensure_probe(state, repo_url)
-      state.phase == :checking -> state
+      state.phase == :checking -> ensure_probe(state, repo_url)
       match?({:error, _}, state.phase) -> state
       state.phase == :ready and state.freshness == :fresh -> %{state | freshness: :unknown}
       state.phase == :ready -> probe_freshness(state, repo_url)
@@ -366,16 +423,20 @@ defmodule Aiur.RepoBase do
 
   # An ls-remote probe answers "did the base branch advance?" without touching the base
   # working tree, so it is safe to run alongside an in-flight build.
-  defp ensure_probe(%{probe: nil} = state, repo_url) do
+  defp ensure_probe(%{probe: nil, remote_head_fun: remote_head_fun} = state, repo_url) do
     parent = self()
 
     {pid, ref} =
       spawn_monitor(fn ->
-        send(parent, {:remote_head, self(), remote_head(repo_url)})
+        send(parent, {:remote_head, self(), remote_head_fun.(repo_url)})
       end)
 
     timer = Process.send_after(self(), {:probe_timeout, ref}, @remote_probe_timeout_ms)
     %{state | probe: %{pid: pid, ref: ref, timer: timer}}
+  end
+
+  defp ensure_probe(%{probe: %{pid: pid}} = state, repo_url) do
+    if Process.alive?(pid), do: state, else: state |> clear_probe() |> ensure_probe(repo_url)
   end
 
   defp ensure_probe(state, _repo_url), do: state
@@ -422,7 +483,7 @@ defmodule Aiur.RepoBase do
   defp trigger_build(state) do
     case resolve() do
       {:ok, repo_url, base, command} -> start_build(state, base, repo_url, command)
-      :disabled -> %{state | phase: :idle}
+      :disabled -> disable_prewarm(state)
     end
   end
 
@@ -433,6 +494,77 @@ defmodule Aiur.RepoBase do
     {pid, ref} = spawn_monitor(fn -> build_worker(parent, base, repo_url, command) end)
 
     %{state | phase: :building, base_path: base, build: %{pid: pid, ref: ref, head: nil}, freshness: :unknown}
+  end
+
+  defp sync_dispatch_watchdog(%{phase: phase} = state) when phase in [:cloning, :fetching, :building, :checking],
+    do: ensure_dispatch_watchdog(state)
+
+  defp sync_dispatch_watchdog(state), do: clear_dispatch_watchdog(state)
+
+  defp ensure_dispatch_watchdog(%{dispatch_watchdog: nil} = state) do
+    ref = make_ref()
+    timer = Process.send_after(self(), {:dispatch_hold_timeout, ref}, state.dispatch_hold_timeout_ms)
+    %{state | dispatch_watchdog: %{ref: ref, timer: timer}}
+  end
+
+  defp ensure_dispatch_watchdog(state), do: state
+
+  # A hold is "progressing" while its worker is alive. There is no continuous
+  # deadline across phases: any successful transition is itself progress, so
+  # leaving a hold clears the watchdog and a fresh hold arms a fresh one.
+  defp clear_released_watchdog(%{phase: phase} = state) when phase in [:cloning, :fetching, :building, :checking],
+    do: state
+
+  defp clear_released_watchdog(state), do: clear_dispatch_watchdog(state)
+
+  # Restart the idle clock for a hold whose worker is still alive: cancel the
+  # fired timer and arm a fresh interval. A fresh ref keeps a stale in-flight
+  # message from matching the new record.
+  defp rearm_dispatch_watchdog(%{dispatch_watchdog: %{timer: timer}} = state) do
+    if is_reference(timer), do: Process.cancel_timer(timer)
+    ensure_dispatch_watchdog(%{state | dispatch_watchdog: nil})
+  end
+
+  defp rearm_dispatch_watchdog(state), do: state
+
+  defp hold_phase?(phase), do: phase in [:cloning, :fetching, :building, :checking]
+
+  defp hold_progress?(%{phase: phase, build: %{pid: pid}})
+       when phase in [:building, :cloning, :fetching] and is_pid(pid),
+       do: Process.alive?(pid)
+
+  defp hold_progress?(%{phase: :checking, probe: %{pid: pid}}) when is_pid(pid),
+    do: Process.alive?(pid)
+
+  defp hold_progress?(_state), do: false
+
+  defp clear_dispatch_watchdog(%{dispatch_watchdog: %{timer: timer}} = state) do
+    if is_reference(timer), do: Process.cancel_timer(timer)
+    %{state | dispatch_watchdog: nil}
+  end
+
+  defp clear_dispatch_watchdog(state), do: state
+
+  defp abort_probe(%{probe: %{pid: pid}} = state) do
+    Process.exit(pid, :kill)
+    clear_probe(state)
+  end
+
+  defp abort_probe(state), do: state
+
+  defp abort_build(%{build: %{}} = state) do
+    kill_build(state)
+    %{state | build: nil}
+  end
+
+  defp abort_build(state), do: state
+
+  defp disable_prewarm(state) do
+    state
+    |> abort_probe()
+    |> abort_build()
+    |> clear_dispatch_watchdog()
+    |> Map.merge(%{phase: :idle, freshness: :unknown})
   end
 
   defp kill_build(%{build: %{pid: pid, ref: ref}}) do
@@ -536,7 +668,7 @@ defmodule Aiur.RepoBase do
     # both `latest` and the agent-writable sidecars, so materialized workspaces
     # inherit only the repository tree and prewarm never executes agent-controlled
     # package cache content.
-    scrubbed = AgentEnvironment.scrub_shell_command(command)
+    scrubbed = AgentEnvironment.scrub_shell_command(command, github_credential: false)
 
     {out, status} =
       System.cmd("sh", ["-c", scrubbed],

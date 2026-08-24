@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     previous_store = Application.get_env(:aiur, :dispatch_budget_store_path)
     previous_state_dir = Application.get_env(:aiur, :decision_state_dir)
     previous_log_file = Application.get_env(:aiur, :log_file)
-    dir = Path.join(System.tmp_dir!(), "aiur-lifetime-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-lifetime")
     File.mkdir_p!(dir)
     path = Path.join(dir, "config.yaml")
     File.write!(path, config)
@@ -248,7 +248,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   test "a daemon restart does not refund persisted lifetime dispatches" do
     _state = dispatch_n(%Orchestrator.State{}, 10)
     stable_path = DispatchBudgetStore.path_for()
-    Application.put_env(:aiur, :log_file, Path.join([System.tmp_dir!(), "session-two", "aiur.log"]))
+    Application.put_env(:aiur, :log_file, Path.join(Aiur.TestSupport.tmp_root!("aiur-lifetime-restart"), "aiur.log"))
 
     assert DispatchBudgetStore.path_for() == stable_path
     assert {:trip, restarted_state} = run(%Orchestrator.State{}, 11 * (@window_ms + 1))
@@ -374,12 +374,59 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
-  test "public reset queues while the orchestrator mailbox is unresponsive" do
+  test "reset resolves a latched ticket pruned from the polled set via a tracker fetch" do
+    # #2435: a latched ticket left in `agent:error` (a non-active state) is
+    # dropped from `last_polled_issues` by the disappearing-issue
+    # reconciliation, so the in-memory lookup alone resolves it as
+    # `:unknown_issue` and `reset-budget` reports success while the durable
+    # latch stays in place. `reset_dispatch_budget_call` must fall back to a
+    # direct tracker fetch so the ticket is actually cleared and restored to a
+    # dispatchable state.
+    issue = %Issue{id: "pruned-lifetime", identifier: "repo#pruned-lifetime", title: "Latched", state: "error"}
+    previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    on_exit(fn ->
+      if is_nil(previous_issues) do
+        Application.delete_env(:aiur, :memory_tracker_issues)
+      else
+        Application.put_env(:aiur, :memory_tracker_issues, previous_issues)
+      end
+    end)
+
+    :ok = DispatchBudgetStore.put_lifetime("pruned-lifetime", 10)
+
+    # The polled set is empty — the ticket is gone from the poll exactly like
+    # an `agent:error` ticket that the active-state candidate poll drops.
+    state = %Orchestrator.State{last_polled_issues: %{}}
+
+    assert {:reply, {:ok, :reset}, reset_state} =
+             PauseResume.reset_dispatch_budget_call(state, "pruned-lifetime")
+
+    assert :none = Dispatcher.dispatch_latch_status(reset_state, "pruned-lifetime")
+    assert {:ok, 0} = DispatchBudgetStore.lifetime("pruned-lifetime")
+    assert %Issue{state: "todo"} = reset_state.last_polled_issues["pruned-lifetime"]
+    assert DispatchPolicy.should_dispatch_issue?(reset_state.last_polled_issues["pruned-lifetime"], reset_state)
+  end
+
+  @tag config: @enabled
+  test "public reset fails loudly, not silently, when the orchestrator mailbox is unresponsive" do
+    # #2435: `reset-budget` used to fire-and-forget a cast and report "queued"
+    # even when the orchestrator could not act, leaving a latched ticket
+    # untouched behind a success message. The public path is now a synchronous
+    # call: when the orchestrator cannot answer it returns the timeout so the
+    # CLI fails loudly instead of claiming the reset was accepted.
     name = Module.concat(__MODULE__, :SuspendedResetOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
     :sys.suspend(pid)
 
+    previous_timeout = Application.get_env(:aiur, :control_api_call_timeout_ms)
+    Application.put_env(:aiur, :control_api_call_timeout_ms, 100)
+
     on_exit(fn ->
+      Application.delete_env(:aiur, :control_api_call_timeout_ms)
+      if previous_timeout, do: Application.put_env(:aiur, :control_api_call_timeout_ms, previous_timeout)
+
       if Process.alive?(pid) do
         try do
           :sys.resume(pid)
@@ -390,7 +437,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
       end
     end)
 
-    assert {:ok, :queued} = PauseResume.reset_dispatch_budget(name, "repo#lifetime")
+    assert {:error, :timeout} = PauseResume.reset_dispatch_budget(name, "repo#lifetime")
   end
 
   @tag config: @enabled

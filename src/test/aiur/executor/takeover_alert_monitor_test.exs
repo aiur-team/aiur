@@ -435,7 +435,7 @@ defmodule Aiur.Executor.TakeoverAlert.MonitorTest do
   end
 
   defp tmp_state_dir do
-    dir = Path.join(System.tmp_dir!(), "takeover_monitor_#{System.unique_integer([:positive, :monotonic])}")
+    dir = Aiur.TestSupport.tmp_root!("takeover_monitor")
     File.mkdir_p!(dir)
     # unique_integer values are reused across VM boots (see test_helper.exs), so
     # a leaked dir from a previous run can collide with a fresh one and the store

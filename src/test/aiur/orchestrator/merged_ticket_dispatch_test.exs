@@ -18,7 +18,7 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
   # one, and writing into the supervised one would leak merge records into
   # every later test that reads it.
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-merged-dispatch-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-merged-dispatch")
     on_exit(fn -> File.rm_rf!(dir) end)
 
     store =
@@ -43,7 +43,8 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
           :ok
         end,
         resume_blockees_fun: fn state, _identifier -> state end,
-        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
     assert candidates == [open]

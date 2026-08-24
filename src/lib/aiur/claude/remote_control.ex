@@ -14,7 +14,8 @@ defmodule Aiur.Claude.RemoteControl do
       session's `.jsonl` transcript so a re-dispatched agent resumes by cwd,
     * `graceful_kill/1` / `graceful_kill_tree/1` — SIGTERM→SIGKILL a tracked
       OS pid (and, for the headless `bash -c` wrapper, its orphaned subtree),
-    * `reap_orphaned_servers/0` — sweep RC debug files left by a crashed aiur.
+    * `reap_orphaned_servers/0` — sweep RC debug files left by a crashed aiur
+      (or `reap_orphaned_servers/1` against a caller-supplied debug dir),
 
   ## Workspace trust
 
@@ -559,9 +560,19 @@ defmodule Aiur.Claude.RemoteControl do
   never touched. Stray debug files for dead owners are swept too.
   """
   @spec reap_orphaned_servers() :: :ok
-  def reap_orphaned_servers do
-    dir = debug_dir()
+  def reap_orphaned_servers, do: reap_orphaned_servers(debug_dir())
 
+  @doc """
+  Same as `reap_orphaned_servers/0`, sweeping a caller-supplied debug
+  directory instead of the daemon's fixed `aiur-rc` root.
+
+  `reap_orphaned_servers/0` scans the stable per-daemon directory, which is
+  shared by nothing else in production. Tests pass a per-VM-unique root (see
+  `Aiur.TestSupport.tmp_root!/1`) so two concurrent `mix test` VMs never reap
+  each other's debug files.
+  """
+  @spec reap_orphaned_servers(Path.t()) :: :ok
+  def reap_orphaned_servers(dir) when is_binary(dir) do
     case File.ls(dir) do
       {:ok, entries} ->
         entries

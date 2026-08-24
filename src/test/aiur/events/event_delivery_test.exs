@@ -13,7 +13,7 @@ defmodule Aiur.Events.EventDeliveryTest do
   alias Aiur.Events.{Publisher, SubscriptionStore}
 
   setup do
-    tmp_dir = Path.join(System.tmp_dir!(), "aiur_delivery_test_#{System.unique_integer([:positive])}")
+    tmp_dir = Aiur.TestSupport.tmp_root!("aiur_delivery_test")
     File.mkdir_p!(tmp_dir)
     original = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))

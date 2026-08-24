@@ -66,7 +66,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "uses an operator assessment only for its exact repository, base, and config fingerprint" do
-    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
 
@@ -84,7 +84,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "dispatch consumes a persisted operator assessment without elevated daemon access" do
-    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
     original_token = System.get_env(CiReadiness.operator_token_env())
@@ -109,7 +109,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "expires an unchanged-config assessment and detects a removed pull request gate" do
-    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     now = DateTime.utc_now()
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path, now: now]
@@ -135,7 +135,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "a newer persisted operator assessment replaces the live memory result" do
-    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     now = DateTime.utc_now()
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path, now: now]
@@ -1152,7 +1152,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "persists and reloads an assessment carrying every issue shape" do
-    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
 
     readiness = %{
       ready?: false,
@@ -1181,7 +1181,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "ignores a persisted assessment whose result cannot be decoded" do
-    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
 
     on_exit(fn ->
@@ -1299,7 +1299,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "round-trips an unavailable operator assessment through persistence" do
-    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     readiness = CiReadiness.unavailable("develop", :ci_readiness_operator_token_required)
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
 
@@ -1424,7 +1424,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "reports an unknown persisted issue instead of silently dropping the assessment" do
-    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
 
     on_exit(fn ->

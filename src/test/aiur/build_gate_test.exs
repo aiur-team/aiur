@@ -166,6 +166,64 @@ defmodule Aiur.BuildGateTest do
     assert File.read!(context.log_path) == "test\nformat\n"
   end
 
+  test "strips --trace when --max-cases N (N>1) would otherwise silently serialize", context do
+    assert {output, 0} = run_bash("mix test --max-cases 4 --trace", context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases 4\n"
+  end
+
+  test "strips --trace with the --max-cases=N form and leaves non-conflicting flags alone", context do
+    assert {output, 0} = run_bash("mix test --max-cases=4 --trace", context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases=4\n"
+
+    for command <- [
+          "mix test --max-cases 4",
+          "mix test --trace",
+          "mix test --max-cases 1 --trace"
+        ] do
+      assert {command_output, 0} = run_bash(command, context)
+      refute command_output =~ "aiur_build_gate trace_stripped"
+    end
+
+    assert File.read!(context.log_path) ==
+             "test --max-cases=4\ntest --max-cases 4\ntest --trace\ntest --max-cases 1 --trace\n"
+  end
+
+  test "normalizes a mise exec -- mix command combining --trace with --max-cases", context do
+    guarded_context = with_command_wrappers!(context)
+
+    assert {output, 0} = run_sh("mise exec -- mix test --max-cases 4 --trace", guarded_context)
+    assert output =~ "aiur_build_gate trace_stripped"
+    assert File.read!(context.log_path) == "test --max-cases 4\n"
+  end
+
+  test "normalizes an elixir -S mix command combining --trace with --max-cases", context do
+    elixir_bin = Path.join(context.gate_dir, "elixir-bin")
+    File.mkdir_p!(elixir_bin)
+    write_fake_elixir_mix!(Path.join(elixir_bin, "mix"))
+
+    guarded_context =
+      context
+      |> with_command_wrappers!()
+      |> Map.merge(%{
+        bin_dir: elixir_bin,
+        system_path: system_path_without_build_wrapper()
+      })
+
+    assert {output, 0} = run_sh("elixir -S mix test --max-cases 4 --trace", guarded_context)
+    assert output =~ "aiur_build_gate trace_stripped"
+
+    assert context.log_path |> File.read!() |> String.split("\n", trim: true) |> List.last() ==
+             "test --max-cases 4"
+  end
+
+  test "a non-mix elixir eval passes through the gate with its arguments intact", context do
+    assert {output, 0} = run_bash(~s|elixir -e 'IO.puts("ok")'|, context)
+    assert output =~ "ok"
+    refute File.exists?(context.log_path)
+  end
+
   test "queues a contending command until the prior lease releases", context do
     first = Task.async(fn -> run_bash("mix test", Map.put(context, :sleep_seconds, 2)) end)
     wait_for_file!(context.started_path)
@@ -745,6 +803,82 @@ defmodule Aiur.BuildGateTest do
 
     assert pid == self_pid
     assert held >= 29
+  end
+
+  test "status reports the oldest live queue wait and zero for an empty queue", %{gate_dir: gate_dir} do
+    assert %{oldest_wait_seconds: 0} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    queue_dir = Path.join(gate_dir, "queue")
+    File.mkdir_p!(queue_dir)
+    self_pid = String.to_integer(System.pid())
+    now = System.os_time(:second)
+
+    File.write!(Path.join(queue_dir, "lease-v2-newer"), "pid=#{self_pid}\nstarted_at=#{now - 20}\n")
+    File.write!(Path.join(queue_dir, "lease-v2-oldest"), "pid=#{self_pid}\nstarted_at=#{now - 190}\n")
+
+    assert %{queued: 2, oldest_wait_seconds: wait} =
+             build_gate_status(gate_dir: gate_dir, capacity: 1, strategy: :pid)
+
+    assert wait >= 189
+  end
+
+  test "disabled status reports a measured empty wait" do
+    assert %{enabled?: false, active: 0, queued: 0, oldest_wait_seconds: 0} =
+             BuildGate.status(capacity: 0, stagger_seconds: 0, min_free_memory_mb: nil)
+  end
+
+  @tag @linux_only
+  test "Linux status scans two active and eight queued holders in one bounded pass", context do
+    release_path = Path.join(context.gate_dir, "scan.release")
+    bash = System.find_executable("bash") || flunk("bash is required")
+
+    holder =
+      Port.open({:spawn_executable, String.to_charlist(bash)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        args: [
+          "-c",
+          ~S"""
+          now=$(date +%s)
+          for slot in 1 2; do
+            path="$2/slot-$slot.lock"
+            exec {fd}<>"$path"
+            flock "$fd"
+            printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - slot))" > "$1/slot-$slot.owner"
+          done
+          mkdir -p "$1/queue"
+          for queue in $(seq 1 8); do
+            path="$1/queue/lease-v2-$queue"
+            printf 'version=2\npid=%s\nstarted_at=%s\n' "$$" "$((now - queue * 10))" > "$path"
+            exec {fd}<>"$path"
+            flock "$fd"
+          done
+          printf 'ready\n'
+          while [[ ! -e $3 ]]; do sleep 0.05; done
+          """,
+          "build-gate-saturated-holder",
+          context.gate_dir,
+          context.lock_dir,
+          release_path
+        ]
+      ])
+
+    assert_receive {^holder, {:data, "ready\n"}}, 2_000
+
+    on_exit(fn ->
+      File.touch!(release_path)
+      if Port.info(holder), do: Port.close(holder)
+    end)
+
+    started_ms = System.monotonic_time(:millisecond)
+    status = build_gate_status(gate_dir: context.gate_dir, capacity: 2, strategy: :linux_lock)
+    elapsed_ms = System.monotonic_time(:millisecond) - started_ms
+
+    assert %{active: 2, queued: 8, oldest_wait_seconds: wait, degraded?: nil} = Map.put_new(status, :degraded?, nil)
+    assert wait >= 79
+    assert elapsed_ms < 5_000
   end
 
   @tag @linux_only

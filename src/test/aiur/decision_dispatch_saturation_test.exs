@@ -7,7 +7,7 @@ defmodule Aiur.DecisionDispatchSaturationTest do
 
   test "default notifier persists one global saturation and recovery transition" do
     name = unique_name(__MODULE__, "GlobalAlert")
-    log_root = Path.join(System.tmp_dir!(), "aiur-decision-dispatch-saturation-#{System.unique_integer([:positive])}")
+    log_root = Aiur.TestSupport.tmp_root!("aiur-decision-dispatch-saturation")
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
 
