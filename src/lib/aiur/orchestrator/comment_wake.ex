@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
@@ -80,21 +80,48 @@ defmodule Aiur.Orchestrator.CommentWake do
     Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
 
     terminal_state =
-      case update_issue_state_fun.(to_string(identifier), "done") do
-        :ok ->
-          state
-          |> complete_merged_issue(
-            identifier,
-            clear_session_handle_fun,
-            observe_membership_fun,
-            terminate_running_issue_fun,
-            mark_reconciled_fun,
-            set_terminal_verification_pending_fun
-          )
-          |> resume_blockees_fun.(to_string(identifier))
+      case merged_issue_target_state(identifier, opts) do
+        "done" ->
+          case update_issue_state_fun.(to_string(identifier), "done") do
+            :ok ->
+              state
+              |> complete_merged_issue(
+                identifier,
+                clear_session_handle_fun,
+                observe_membership_fun,
+                terminate_running_issue_fun,
+                mark_reconciled_fun,
+                set_terminal_verification_pending_fun
+              )
+              |> resume_blockees_fun.(to_string(identifier))
+
+            {:error, reason} ->
+              Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+
+              state
+          end
+
+        target when target in ["rework", "human-review"] ->
+          # A merged PR does not close a ticket that still has other open PRs:
+          # the ticket must stay active so the remaining PR's review findings
+          # stay dispatchable. No terminal teardown runs — the ticket is not
+          # done, so dependents stay blocked on it and no session handle is
+          # cleared. The merged PR's own reconciliation is not marked here; the
+          # poll-cycle reconciler consumes the merge and records it.
+          case update_issue_state_fun.(to_string(identifier), target) do
+            :ok ->
+              Logger.info("PR merge left ticket open with remaining PRs: issue_identifier=#{identifier} target=#{target}")
+
+              state
+
+            {:error, reason} ->
+              Logger.warning("PR merge remaining-open transition skipped: issue_identifier=#{identifier} target=#{target} reason=#{inspect(reason)}")
+
+              state
+          end
 
         {:error, reason} ->
-          Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")
+          Logger.warning("PR merge target could not be determined; ticket left unchanged: issue_identifier=#{identifier} reason=#{inspect(reason)}")
 
           # A merged PR whose ticket could not be transitioned to `done` is a
           # stranded ticket; alert rather than only log so the Executor sees it
@@ -112,6 +139,25 @@ defmodule Aiur.Orchestrator.CommentWake do
     )
 
     terminal_state
+  end
+
+  # The state a merged-PR ticket should land in. Callers that already ran
+  # `MergedTicketReconciler.merged_ticket_target/2` pass the decided
+  # `:target_state` (the reconciler does, so its terminal path does not
+  # re-enumerate the open-PR listing); everyone else — the live webhook route —
+  # computes it here so no path can write `done` without checking the ticket's
+  # other open PRs first.
+  defp merged_issue_target_state(identifier, opts) do
+    case Keyword.get(opts, :target_state) do
+      target when target in ["done", "rework", "human-review"] ->
+        target
+
+      _other ->
+        case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
+          {:ok, target} -> target
+          {:error, _reason} = error -> error
+        end
+    end
   end
 
   defp emit_merge_alert(name, opts) do

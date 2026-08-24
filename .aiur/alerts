@@ -112,6 +112,20 @@ alerts:
     sound:
       - "~/alerts/advisor/advisor-your-will.wav"
 
+  # ---------- PR health (age / unmergeable-author scan) -------------------
+  "system.pr_health.unmergeable_author":
+    message: PR authored by the merge identity cannot merge
+    sound:
+      - "~/alerts/advisor/advisor-under-attack.wav"
+  "system.pr_health.stale_unreviewed":
+    message: Open PR is ageing with no review
+    sound:
+      - "~/alerts/advisor/advisor-under-attack.wav"
+  "system.pr_health.rework_merge_only":
+    message: Rework push was only a base merge — still not addressed
+    sound:
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
+
   # ---------- Agent state -------------------------------------------------
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens

@@ -489,10 +489,10 @@ defmodule Aiur.Orchestrator do
   latched ticket returns to dispatchable. The supported operator exit from
   the #1453 latch — `aiurdev reset-budget <id>` routes here.
   """
-  @spec reset_dispatch_budget(String.t()) :: {:ok, :queued} | {:error, term()}
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(identifier), do: PauseResume.reset_dispatch_budget(identifier)
 
-  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :queued} | {:error, term()}
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(server, identifier),
     do: PauseResume.reset_dispatch_budget(server, identifier)
 
