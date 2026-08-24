@@ -56,6 +56,9 @@ defmodule Aiur.Config.Schema.Polling do
     field(:intervals, {:map, :integer}, default: %{})
     # A per-class interval of `0` means the class has no timer — it is
     # on-demand, refreshed only when a consumer explicitly asks (#2309).
+    # #2454 demonstration: a compile-time-visible schema field whose stale
+    # beams a whole-_build cache could serve. Reverted before merge.
+    field(:cache_demo_marker, :integer, default: 7)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
