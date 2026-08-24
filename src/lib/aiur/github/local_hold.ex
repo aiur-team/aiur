@@ -175,7 +175,7 @@ defmodule Aiur.GitHub.LocalHold do
         hold_plan(detail, max_wait_ms)
 
       {:backoff, detail} ->
-        if Errors.retryable_github_error?({:github, :timeout, %{reason: :github_budget_broker_timeout}}) do
+        if Errors.retryable_github_error?({:github, :timeout, detail}) do
           {:wait, backoff_ms(detail, max_wait_ms, retries), detail}
         else
           :keep
