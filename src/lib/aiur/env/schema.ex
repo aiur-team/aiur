@@ -162,8 +162,8 @@ defmodule Aiur.Env.Schema do
     {"ELEVENLABS_API_KEY", type: :secret, group: :voice, purpose: "Speech-to-text for dashboard and Stream Deck mics.", fetch: "elevenlabs.io -> Profile -> API Keys"},
 
     # --- Dashboard ---
-    {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/executor-control-center"},
-    {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/executor-control-center"},
+    {"AIUR_DASHBOARD_USERNAME", type: :string, group: :dashboard, purpose: "Dashboard Basic Auth user; both credentials together.", fetch: "see guide/gui"},
+    {"AIUR_DASHBOARD_PASSWORD", type: :secret, group: :dashboard, purpose: "Dashboard Basic Auth password; unset makes the dashboard refuse all requests.", fetch: "see guide/gui"},
 
     # --- Supervisor Decision API ---
     {"AIUR_SUPERVISOR_TOKEN",
