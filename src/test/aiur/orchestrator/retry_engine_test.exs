@@ -817,9 +817,13 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
               issue_id,
               attempt,
               metadata,
-              # `Errors.classify_error` wraps a closed socket into exactly this
-              # shape for a tracker poll.
-              {:github, :timeout, %{reason: :closed}}
+              # A raw `%Req.TransportError{}` DNS failure, exactly as the
+              # transport error funnel (`transport.ex`) surfaces it to the
+              # tracker poll. `:nxdomain` is deliberately the reason: it is
+              # transient to the shared classifier but was never in the
+              # provider-timeout whitelist, so without the AutoResume
+              # normalisation this test fails (no re-claim scheduled).
+              %Req.TransportError{reason: :nxdomain}
             )
 
           case next.retry_attempts[issue_id] do
@@ -834,8 +838,10 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
         |> elem(0)
 
       # The claim is released at poll exhaustion, but never *without* a
-      # scheduled re-claim: a closed socket is transient, so an automatic
-      # re-claim is queued instead of demanding operator recovery.
+      # scheduled re-claim: a DNS failure is transient, so an automatic
+      # re-claim is queued instead of demanding operator recovery. The cause is
+      # pinned to the shared classifier's verdict (`:transient_tracker`), not
+      # the provider-timeout whitelist (#2427 review finding 4).
       refute MapSet.member?(final.claimed, issue_id)
       assert Map.has_key?(final.released_claims, issue_id)
       assert %{cause: :transient_tracker} = final.auto_resume[issue_id]
@@ -953,30 +959,41 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     end
 
     test "a transient exhaustion reason never stamps agent:error and schedules a re-claim" do
-      issue_id = "issue-transient-2427"
-      identifier = "MT-TRANSIENT"
       memory_tracker_for_retry()
 
-      final =
-        RetryEngine.schedule_issue_retry(%State{}, issue_id, Config.max_retry_attempts() + 1, %{
-          identifier: identifier,
-          # Mirrors what handle_agent_down/3 records when the run exits on a
-          # closed socket: the structured transient reason rides alongside the
-          # formatted error string.
-          error: "agent exited: %Req.TransportError{reason: :closed}",
-          transient_reason: %Req.TransportError{reason: :closed},
-          delay_type: :failure
-        })
+      # A closed socket and a DNS failure (the first cause the ticket names)
+      # are both transient infrastructure faults. `:nxdomain` is the case that
+      # actually fails without the AutoResume normalisation (#2427 review): it
+      # is not in the provider-timeout whitelist, so the raw struct used to
+      # classify as `nil` (claim released, no re-claim) even though the
+      # terminal write was already suppressed.
+      for reason <- [%Req.TransportError{reason: :closed}, %Req.TransportError{reason: :nxdomain}] do
+        issue_id = "issue-transient-2427-#{inspect(reason.reason)}"
+        identifier = "MT-TRANSIENT-#{inspect(reason.reason)}"
 
-      # A closed socket is a transient infrastructure fault: the terminal
-      # `agent:error` write must never reach the tracker.
-      refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 200
+        final =
+          RetryEngine.schedule_issue_retry(%State{}, issue_id, Config.max_retry_attempts() + 1, %{
+            identifier: identifier,
+            # Mirrors what handle_agent_down/3 records when the run exits on a
+            # transport fault: the structured transient reason rides alongside
+            # the formatted error string.
+            error: "agent exited: #{inspect(reason)}",
+            transient_reason: reason,
+            delay_type: :failure
+          })
 
-      # The claim is released (give-up), but a bounded automatic re-claim is
-      # scheduled so the ticket recovers once the cause clears.
-      assert Map.has_key?(final.released_claims, issue_id)
-      assert %{cause: cause} = final.auto_resume[issue_id]
-      assert cause in [:provider_timeout, :transient_tracker]
+        # A transient infrastructure fault: the terminal `agent:error` write
+        # must never reach the tracker.
+        refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 200
+
+        # The claim is released (give-up), but a bounded automatic re-claim is
+        # scheduled so the ticket recovers once the cause clears. The cause is
+        # pinned: the raw transport struct is normalised through the shared
+        # classifier, so it is `:transient_tracker`, not the provider-timeout
+        # whitelist (#2427 review finding 4).
+        assert Map.has_key?(final.released_claims, issue_id)
+        assert %{cause: :transient_tracker} = final.auto_resume[issue_id]
+      end
     end
 
     test "a permanent exhaustion reason still stamps agent:error" do
