@@ -45,7 +45,7 @@ The bare `aiur` command discovers `.aiur/config`, starts a foreground run when t
 | Read-only | `observability.dashboard_writable: false`; both credentials are still required to view the dashboard. |
 | Listener disabled | `--no-dashboard`; no URL is printed. |
 
-Continue with the [Dashboard](/guide/executor-control-center) guide.
+Continue with the [GUI](/guide/gui) guide.
 
 ## Core subcommands
 
