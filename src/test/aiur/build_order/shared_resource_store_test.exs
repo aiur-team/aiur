@@ -12,7 +12,7 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
   use Aiur.TestSupport
 
   alias Aiur.BuildOrder.TicketDetail
-  alias Aiur.GitHub.{Issues, ResourceStore}
+  alias Aiur.GitHub.{AgentCache, Issues, ResourceStore}
   alias Aiur.TrackerIdentity
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -120,6 +120,159 @@ defmodule Aiur.BuildOrder.SharedResourceStoreTest do
       assert {:ok, _body, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
 
       assert count(recorder) == 2
+    end
+  end
+
+  describe "criterion 1a — an agent-fetched issue is not re-fetched by the daemon (#2413)" do
+    setup do
+      AgentCache.reset_daemon_served_reads()
+      :ok
+    end
+
+    # A raw `gh api repos/owner/repo/issues/N` read: the wrapper's stdout is the
+    # full REST issue object including the API `url` and `state` that
+    # `AgentCache.read_body/2` validates against. `issue_body/1` alone lacks
+    # both, so a projection-shaped body is never confused with the real thing.
+    defp agent_issue_body(number) do
+      issue_body(number)
+      |> Map.merge(%{
+        "url" => "https://api.github.com/repos/owner/repo/issues/#{number}",
+        "state" => "open"
+      })
+      |> Jason.encode!()
+    end
+
+    defp write_agent_entry!(root, number, body, fetched_at_s \\ System.os_time(:second)) do
+      dir = Path.join([root, "state-cache", "v1", "owner", "repo", "issue", to_string(number)])
+      File.mkdir_p!(dir)
+      File.write!(Path.join(dir, "raw.body"), body)
+      File.write!(Path.join(dir, "raw.meta"), "#{fetched_at_s}\n")
+      dir
+    end
+
+    defp agent_cache_root! do
+      root = Aiur.TestSupport.tmp_root!("agent-cache-test")
+      on_exit(fn -> File.rm_rf(root) end)
+      root
+    end
+
+    test "the Build Order ticket-detail read serves an agent-fetched issue with zero upstream requests" do
+      agent_root = agent_cache_root!()
+      write_agent_entry!(agent_root, 7, agent_issue_body(7))
+
+      recorder = start_recorder()
+      request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
+      opts = [repository: @repository, request_fun: request_fun, freshness_ms: @tolerance_ms, state_dir: agent_root]
+
+      # The shared store is cold (reset in setup), so without the agent store
+      # this would spend a full-price `200`. It issues nothing instead.
+      assert {:ok, %{"number" => 7}, :fresh} = Issues.fetch_issue_raw_conditional(7, opts)
+      assert issue_count(recorder) == 0
+      assert AgentCache.daemon_served_reads() == 1
+
+      # The body was deposited, so the next read is served from the shared store.
+      assert {:ok, %{"number" => 7}, :fresh} = Issues.fetch_issue_raw_conditional(7, opts)
+      assert issue_count(recorder) == 0
+      assert AgentCache.daemon_served_reads() == 1
+    end
+
+    test "a stale agent entry falls through to the normal fetch" do
+      agent_root = agent_cache_root!()
+      # Older than the backstop window: `read_body/2` declines it.
+      write_agent_entry!(agent_root, 7, agent_issue_body(7), System.os_time(:second) - 120)
+
+      recorder = start_recorder()
+      request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
+      opts = [repository: @repository, request_fun: request_fun, freshness_ms: @tolerance_ms, state_dir: agent_root]
+
+      assert {:ok, %{"number" => 7}, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
+      assert issue_count(recorder) == 1
+      assert AgentCache.daemon_served_reads() == 0
+    end
+
+    test "an explicit revalidate bypasses the agent cache exactly as it bypasses the store" do
+      agent_root = agent_cache_root!()
+      write_agent_entry!(agent_root, 7, agent_issue_body(7))
+
+      recorder = start_recorder()
+      request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
+      opts = [repository: @repository, request_fun: request_fun, freshness_ms: @tolerance_ms, state_dir: agent_root, revalidate: true]
+
+      assert {:ok, %{"number" => 7}, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
+      assert issue_count(recorder) == 1
+      assert AgentCache.daemon_served_reads() == 0
+    end
+
+    test "a projected gh --json shape in the agent store never satisfies the daemon read" do
+      agent_root = agent_cache_root!()
+      write_agent_entry!(agent_root, 7, ~s({"body": "hello", "title": "x"}))
+
+      recorder = start_recorder()
+      request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
+      opts = [repository: @repository, request_fun: request_fun, freshness_ms: @tolerance_ms, state_dir: agent_root]
+
+      assert {:ok, %{"number" => 7}, :fetched} = Issues.fetch_issue_raw_conditional(7, opts)
+      assert issue_count(recorder) == 1
+      assert AgentCache.daemon_served_reads() == 0
+    end
+
+    test "the daemon poll serves an agent-fetched issue with zero upstream requests when the store is cold" do
+      agent_root = agent_cache_root!()
+      write_agent_entry!(agent_root, 7, agent_issue_body(7))
+
+      recorder = start_recorder()
+      request_fun = recording_fun(recorder, fn _request -> ok_issue(7) end)
+
+      # The per-issue reconciliation poll with an empty cache and a cold store:
+      # without the agent store this is a full-price unconditional `200`.
+      assert {:ok, [issue], _cache} =
+               Issues.fetch_issue_states_by_ids_conditional(["7"], %{}, request_fun: request_fun, state_dir: agent_root)
+
+      assert issue.id == "7"
+      assert issue_count(recorder) == 0
+      assert AgentCache.daemon_served_reads() == 1
+
+      # The body was deposited, so Build Order now asks for the same ticket free.
+      assert {:ok, %{"number" => 7}, :fresh} =
+               Issues.fetch_issue_raw_conditional(7,
+                 repository: @repository,
+                 request_fun: request_fun,
+                 freshness_ms: @tolerance_ms
+               )
+
+      assert issue_count(recorder) == 0
+    end
+
+    test "the daemon poll does not consult the agent store when a validator makes the read free" do
+      agent_root = agent_cache_root!()
+      write_agent_entry!(agent_root, 7, agent_issue_body(7))
+
+      recorder = start_recorder()
+
+      request_fun =
+        recording_fun(recorder, fn request ->
+          case Map.get(request, :etag) do
+            nil -> {:ok, %{status: 200, headers: [{"etag", "\"v1\""}], body: issue_body(7)}}
+            "\"v1\"" -> {:ok, %{status: 304, headers: [{"etag", "\"v1\""}]}}
+          end
+        end)
+
+      # Build Order pays once; the store now holds the body and its validator.
+      assert {:ok, _body, :fetched} =
+               Issues.fetch_issue_raw_conditional(7,
+                 repository: @repository,
+                 request_fun: request_fun,
+                 revalidate: true
+               )
+
+      # The poll borrows the store's validator and revalidates for free — the
+      # agent store is not consulted because the read is already a free `304`.
+      assert {:ok, [issue], _cache} =
+               Issues.fetch_issue_states_by_ids_conditional(["7"], %{}, request_fun: request_fun, state_dir: agent_root)
+
+      assert issue.id == "7"
+      assert issue_count(recorder) == 2
+      assert AgentCache.daemon_served_reads() == 0
     end
   end
 

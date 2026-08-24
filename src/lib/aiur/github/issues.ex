@@ -7,6 +7,7 @@ defmodule Aiur.GitHub.Issues do
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
 
   alias Aiur.GitHub.{
+    AgentCache,
     CycleFetchCache,
     DependenciesApi,
     DispatchAuthorization,
@@ -153,7 +154,51 @@ defmodule Aiur.GitHub.Issues do
           {:ok, body, :fresh}
 
         nil ->
-          revalidate_raw_issue(issue_number, owner, repo, token, key, opts, false)
+          fetch_issue_from_agent_or_upstream(issue_number, owner, repo, token, key, opts)
+      end
+    end
+  end
+
+  # The store is cold; the daemon's read half of the two-store sync (#2413) gets
+  # one look at the agents' store before spending a request. `agent_cached_issue/2`
+  # serves only a body that parses and validates as the full REST issue for this
+  # number, so a projected `gh --json` shape is never mistaken for the resource;
+  # a `:miss` costs the caller the fetch it would have made anyway.
+  defp fetch_issue_from_agent_or_upstream(issue_number, owner, repo, token, key, opts) do
+    case agent_cached_issue(key, opts) do
+      {:ok, body} -> {:ok, body, :fresh}
+      :miss -> revalidate_raw_issue(issue_number, owner, repo, token, key, opts, false)
+    end
+  end
+
+  # The daemon's read half of the two-store sync (#2413): when the shared store
+  # cannot answer and an agent's raw `gh api` read of this same issue is still
+  # fresh and un-retired on disk, serve it instead of paying for a duplicate
+  # fetch. `AgentCache.read_body/2` only serves a body that parses and validates
+  # as the full REST issue for this number, so a projected `gh --json` shape is
+  # never mistaken for the resource. The body is deposited through the same
+  # `put_issue_resource/4` guard as any other read, so a newer webhook body
+  # already in the store still wins, and an explicit `:revalidate` bypasses the
+  # agent cache exactly as it bypasses the store.
+  defp agent_cached_issue(key, opts) do
+    if Keyword.get(opts, :revalidate, false) do
+      :miss
+    else
+      agent_opts =
+        [
+          state_dir: Keyword.get(opts, :state_dir),
+          freshness_ms: Keyword.get(opts, :freshness_ms)
+        ]
+        |> Enum.reject(fn {_name, value} -> is_nil(value) end)
+
+      case AgentCache.read_body(key, agent_opts) do
+        {:ok, body} ->
+          put_issue_resource(key, body, nil, :agent)
+          AgentCache.record_served_read()
+          {:ok, body}
+
+        :miss ->
+          :miss
       end
     end
   end
@@ -612,7 +657,8 @@ defmodule Aiur.GitHub.Issues do
         owner: owner,
         repo: repo,
         prefix: GitHub.Config.label_prefix(),
-        caller: "issue_by_id_conditional"
+        caller: "issue_by_id_conditional",
+        state_dir: Keyword.get(opts, :state_dir)
       }
 
       stable_ids = Enum.map(issue_ids, &to_string/1)
@@ -727,7 +773,6 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp fetch_conditional_issue(ctx, issue_id, issues, cache, retried_without_cache?) do
-    url = "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/issues/#{issue_id}"
     cached_entry = Map.get(cache, issue_id, %{})
     store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
 
@@ -736,6 +781,62 @@ defmodule Aiur.GitHub.Issues do
     # where the poll had nothing and would otherwise have spent a full read —
     # which is the case where some other reader of this same issue, typically the
     # Build Order page, has already paid for it.
+    etag = Map.get(cached_entry, :etag) || store_validator(store_key, retried_without_cache?)
+
+    # #2413: when the poll had nothing and the store offers no validator, the
+    # read would be a full-price unconditional 200. If an agent's raw `gh api`
+    # fetch of this same issue is still fresh and un-retired on disk, serve it
+    # instead — a duplicate fetch that was already paid for. With a validator
+    # present the read is a free `304`, so the agent store is not consulted at
+    # all, and a retry keeps its existing unconditional re-fetch.
+    case agent_cached_poll_issue(ctx, issue_id, cache, store_key, etag, retried_without_cache?) do
+      {:ok, issue, updated_cache} ->
+        {:cont, {:ok, [issue | issues], updated_cache}}
+
+      :miss ->
+        poll_issue_from_upstream(ctx, issue_id, issues, cache, retried_without_cache?)
+    end
+  end
+
+  # The cold-case agent-store consult. Serves only when the poll had nothing,
+  # the store offers no validator, and this is not a retry — the exact shape
+  # that would otherwise spend a full `200`. The body is validated by
+  # `AgentCache.read_body/2` and deposited through the same
+  # `put_issue_resource/4` guard as the poll's own reads, so a newer webhook
+  # body still wins.
+  defp agent_cached_poll_issue(ctx, issue_id, cache, store_key, etag, retried_without_cache?) do
+    if is_nil(etag) and not retried_without_cache? do
+      case AgentCache.read_body(store_key, state_dir: ctx.state_dir) do
+        {:ok, body} ->
+          put_issue_resource(store_key, body, nil, :agent)
+          AgentCache.record_served_read()
+
+          issue =
+            body
+            |> normalize_issue(ctx.owner, ctx.repo, ctx.prefix, nil)
+            |> authorize_issue(ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix)
+
+          entry = %{etag: nil, issue: issue}
+          {:ok, issue, Map.put(cache, issue_id, entry)}
+
+        :miss ->
+          :miss
+      end
+    else
+      :miss
+    end
+  end
+
+  # The ordinary upstream read, reached only when the agent store had nothing to
+  # serve. Everything it needs is re-derived from `ctx`/`issue_id`/`cache` so the
+  # arity stays small: `url`, `cached_entry`, `store_key` and `etag` are pure
+  # functions of those three, and recomputing them here cannot disagree with the
+  # values `fetch_conditional_issue` already used, because they are the same
+  # expressions.
+  defp poll_issue_from_upstream(ctx, issue_id, issues, cache, retried_without_cache?) do
+    url = "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/issues/#{issue_id}"
+    cached_entry = Map.get(cache, issue_id, %{})
+    store_key = ResourceStore.key(:issue, ctx.owner, ctx.repo, issue_id)
     etag = Map.get(cached_entry, :etag) || store_validator(store_key, retried_without_cache?)
 
     case conditional_get(ctx, url, etag) do
