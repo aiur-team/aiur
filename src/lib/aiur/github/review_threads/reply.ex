@@ -269,7 +269,7 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
 
   @spec retryable_review_thread_verification_error?(term()) :: boolean()
   def retryable_review_thread_verification_error?({:github, kind, _detail})
-      when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
+      when kind in [:dns, :timeout, :tls, :transport, :rate_limited, :local_hold],
       do: true
 
   def retryable_review_thread_verification_error?({:review_thread_latest_comment_author_mismatch, _}),

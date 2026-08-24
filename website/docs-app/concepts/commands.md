@@ -31,6 +31,23 @@ actions, spend, external publication, and product direction remain
 `human_required`. The Executor can answer only a Command that declares
 `supervisor_allowed` or `supervisor_preferred` together with `reversible`.
 
+Classification is consequence-based and defaults delegable: a Command that
+omits `authority`/`reversibility` is treated as `supervisor_allowed` +
+`reversible`, so reversible engineering calls reach the Executor instead of
+parking an agent until an operator appears.
+
+Known Command types carry an explicit policy
+(`src/lib/aiur/decision_command_type.ex`): a **re-review request**
+(`kind: "rework_review"`) classifies `supervisor_preferred` + `reversible`, a
+**PR/ticket sequencing** question (`kind: "sequencing"`) classifies
+`supervisor_allowed` + `reversible`, and pre-OCC `legacy_attention` projections
+stay `human_required`.
+
+Because omission defaults to the Executor floor, a Command that is genuinely
+irreversible, involves spend or external publication, or changes product
+direction must declare `authority: human_required` (and the matching
+`reversibility`) explicitly.
+
 Aiur warns when a human-required Command is reversible and all of its
 options are low-risk. It also raises attention when a blocking Command remains
 unanswered for a day, or when an Executor-unanswerable Command expires without a
