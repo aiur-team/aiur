@@ -579,6 +579,66 @@ defmodule Aiur.Events.GithubWebhookTest do
       assert_receive :request_refresh, 1_000
     end
 
+    # Blocking review finding #3, second half: the coalesce window is sized from
+    # the poll cadence (`interval_seconds / 5`, floored at 2s) rather than being
+    # a flat 2s, which is what bounds sustained webhook traffic to a fixed
+    # multiple of the poll rate instead of a 60x amplification. Every other wake
+    # test either injects the Application override or runs inside a single
+    # window, so a mutant collapsing the sizing back to the flat floor survived
+    # them all. This test reads the *computed* window: with a 15s poll interval
+    # the window is 3s, so a delivery at 2.4s — past the flat floor, inside the
+    # sized window — must still coalesce.
+    test "the coalesce window is sized from the poll interval, not a flat floor" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      # No Application override: this test must exercise the computed branch.
+      previous = Application.get_env(:aiur, :github_webhook_reconcile_debounce_ms)
+      Application.delete_env(:aiur, :github_webhook_reconcile_debounce_ms)
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:aiur, :github_webhook_reconcile_debounce_ms)
+        else
+          Application.put_env(:aiur, :github_webhook_reconcile_debounce_ms, previous)
+        end
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: @repo,
+        tracker_label_prefix: "aiur",
+        poll_interval_seconds: 15
+      )
+
+      assert Aiur.Config.settings!().polling.interval_seconds == 15
+
+      # The trailing wake fires from a spawned process, so the seam must send to
+      # an explicit pid rather than `self()`.
+      parent = self()
+      request_refresh_fun = fn -> send(parent, :request_refresh) end
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh, 500
+
+      # Past a flat 2s floor, still inside the 3s window the 15s poll interval
+      # implies. A flat-floor mutant claims a fresh leading edge here and wakes.
+      Process.sleep(2_400)
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      refute_receive :request_refresh, 300
+    end
+
     # Non-blocking review finding #4: a wake that fails to land (the orchestrator
     # is not running) used to consume the coalesce window, so the failure also
     # suppressed the next window's worth of wakes. Releasing the window on
