@@ -125,13 +125,16 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
     vmax = points |> Enum.map(&stack_total(&1, bands)) |> Enum.max() |> max(1)
     xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end
     yf = fn v -> mt + ph - v / vmax * ph end
+    boundary = window_boundary(series, t0, t1)
 
     inner =
-      y_grid(vmax, yf, ml, @w - mr, &to_string(round(&1))) <>
-        spend_bands(points, bands, xf, yf) <>
+      pre_window_shade(boundary, xf, ml, mt, ph) <>
+        y_grid(vmax, yf, ml, @w - mr, &to_string(round(&1))) <>
+        spend_bands(points, bands, xf, yf, boundary) <>
+        current_window_guide(boundary, xf, mt, ph) <>
         x_axis(t0, t1, xf, ml, @w - mr, mt + ph)
 
-    svg(h, inner, chart_label(series))
+    svg(h, inner, chart_label(series, boundary))
   end
 
   def spend_over_time(_series), do: ""
@@ -152,10 +155,18 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
 
   # The scope is in the label, never only in the caption: an attributed-only
   # chart read as the whole bill is the mistake this page exists to prevent.
-  defp chart_label(%{scope: :attributed, budget: budget}),
-    do: "#{budget} spend issued by this daemon over time, by caller — not the whole bill"
+  defp chart_label(%{scope: :attributed, budget: budget}, boundary),
+    do: "#{budget} spend issued by this daemon over time, by caller — not the whole bill#{window_label(boundary)}"
 
-  defp chart_label(%{budget: budget}), do: "#{budget} spend over time, by caller"
+  defp chart_label(%{budget: budget}, boundary), do: "#{budget} spend over time, by caller#{window_label(boundary)}"
+
+  # The aria-label suffix is the only non-visual cue that part of the plot is a
+  # prior window — the shade and dashed rule are purely visual — so it tracks
+  # the *effective* boundary, the same value that decides whether the shade is
+  # drawn, never the raw `current_window_started_at_ms`, which can sit outside
+  # the retained span (a boundary past the last sample shades nothing).
+  defp window_label(nil), do: ""
+  defp window_label(_boundary), do: ", with earlier-window history shaded"
 
   defp stack_total(point, bands), do: Enum.reduce(bands, 0, &(Map.get(point.values, &1.key, 0) + &2))
 
@@ -167,26 +178,93 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.Charts do
 
   # A 2px surface gap between segments, so two adjacent bands never read as one
   # continuous region when their hues are close.
-  defp spend_bands(points, bands, xf, yf) do
-    zero = Map.new(points, &{&1.t_ms, 0})
+  defp spend_bands(points, bands, xf, yf, boundary) do
+    segments = spend_segments(points, boundary)
+    latest = List.last(points)
 
-    {_cum, out} =
-      Enum.reduce(bands, {zero, []}, fn band, {cum, acc} ->
-        next = Map.new(points, fn p -> {p.t_ms, Map.get(cum, p.t_ms) + Map.get(p.values, band.key, 0)} end)
-        top = Enum.map(points, fn p -> {xf.(p.t_ms), yf.(Map.get(next, p.t_ms))} end)
-        bot = points |> Enum.map(fn p -> {xf.(p.t_ms), yf.(Map.get(cum, p.t_ms))} end) |> Enum.reverse()
-        total = Map.get(next, List.last(points).t_ms) - Map.get(cum, List.last(points).t_ms)
+    bands
+    |> Enum.with_index()
+    |> Enum.map_join(fn {band, index} ->
+      lower_bands = Enum.take(bands, index)
+      total = Map.get(latest.values, band.key, 0)
+      paths = band_paths(segments, band, lower_bands, xf, yf)
 
-        path =
-          ~s|<g><title>#{escape(band.label)}: #{total} points now</title>| <>
-            ~s|<path d="#{poly(top ++ bot)}" fill="#{band_color(band)}" fill-opacity="#{band_opacity(band)}" | <>
-            ~s|stroke="var(--surface)" stroke-width="2"/></g>|
-
-        {next, [path | acc]}
-      end)
-
-    out |> Enum.reverse() |> Enum.join()
+      ~s|<g><title>#{escape(band.label)}: #{total} points now</title>#{paths}</g>|
+    end)
   end
+
+  defp band_paths(segments, band, lower_bands, xf, yf) do
+    Enum.map_join(segments, fn {window, segment} ->
+      top = band_edge(segment, band, lower_bands, xf, yf)
+      bot = segment |> band_edge(nil, lower_bands, xf, yf) |> Enum.reverse()
+
+      ~s|<path data-window="#{window}" d="#{poly(top ++ bot)}" fill="#{band_color(band)}" fill-opacity="#{band_opacity(band)}" | <>
+        ~s|stroke="var(--surface)" stroke-width="2"/>|
+    end)
+  end
+
+  defp band_edge(segment, band, lower_bands, xf, yf) do
+    Enum.map(segment, fn point ->
+      band_value = if band, do: Map.get(point.values, band.key, 0), else: 0
+      {xf.(point.t_ms), yf.(stack_total(point, lower_bands) + band_value)}
+    end)
+  end
+
+  defp spend_segments(points, nil), do: [{:current, points}]
+
+  # The boundary is drawn only when it falls strictly inside the retained span
+  # (`window_boundary/3`), which keeps both sides non-empty. A degenerate domain
+  # can still hand this a split with an empty side — `spend_domain/2` returns
+  # `{first, first + 1}` when every point shares a `t_ms`, so a boundary of
+  # `first + 1` passes the guard and puts every point on one side — so render a
+  # one-sided split as a single band rather than crashing on a missing anchor.
+  defp spend_segments(points, boundary) do
+    {previous, current} = Enum.split_while(points, &(&1.t_ms < boundary))
+
+    case {previous, current} do
+      {[_ | _], [_ | _]} ->
+        previous = previous ++ [%{List.last(previous) | t_ms: boundary}]
+        current = if hd(current).t_ms == boundary, do: current, else: [%{hd(current) | t_ms: boundary} | current]
+        [{:previous, previous}, {:current, current}]
+
+      _one_sided ->
+        [{:current, points}]
+    end
+  end
+
+  defp pre_window_shade(boundary, xf, x0, y0, height) do
+    case boundary do
+      nil ->
+        ""
+
+      boundary ->
+        width = max(xf.(boundary) - x0, 0)
+
+        ~s|<g data-role="pre-window-history"><title>History before current window</title>| <>
+          ~s|<rect x="#{x0}" y="#{y0}" width="#{r2(width)}" height="#{height}" fill="var(--faint)" fill-opacity="0.12"/></g>|
+    end
+  end
+
+  defp current_window_guide(boundary, xf, y0, height) do
+    case boundary do
+      nil ->
+        ""
+
+      boundary ->
+        x = r2(xf.(boundary))
+        {label_x, anchor} = if x > @w - 80, do: {x - 4, "end"}, else: {x + 4, "start"}
+
+        ~s|<g data-role="current-window-boundary"><title>Current window begins</title>| <>
+          ~s|<line x1="#{x}" x2="#{x}" y1="#{y0}" y2="#{y0 + height}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 3"/>| <>
+          text(label_x, y0 + 10, "current window", anchor: anchor) <> "</g>"
+    end
+  end
+
+  defp window_boundary(%{current_window_started_at_ms: boundary} = series, t0, t1) when is_integer(boundary) and boundary > t0 and boundary <= t1 do
+    if QuotaUsage.spans_previous_window?(series), do: boundary
+  end
+
+  defp window_boundary(_series, _t0, _t1), do: nil
 
   # The remainder sits behind the callers rather than shouting over them: it is
   # the largest band by far on a shared installation, and at full strength it
