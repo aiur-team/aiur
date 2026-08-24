@@ -7,6 +7,7 @@ defmodule Aiur.Events.GithubWebhookTest do
   alias Aiur.Webhooks
   alias Aiur.Webhooks.ModeRegistry
   alias Aiur.Workflow
+  alias Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe
 
   @repo "owner/repo"
   @dedup_table Aiur.Events.Publisher.Dedup
@@ -501,7 +502,7 @@ defmodule Aiur.Events.GithubWebhookTest do
 
       # `start_link` registers the probe under `Aiur.Orchestrator` now that the
       # live orchestrator has been unregistered for the duration of this test.
-      {:ok, probe} = Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe.start_link(self())
+      {:ok, probe} = OrchestratorWakeProbe.start_link(self())
       Process.unlink(probe)
 
       on_exit(fn ->
