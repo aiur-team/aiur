@@ -60,7 +60,9 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 
 The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
 
-The keyring lookup (`gh auth token`) is bounded at boot so a `gh` that stalls — a locked keyring prompting for a passphrase, a slow or unreachable host, a credential helper waiting on a missing GUI agent — cannot hang the daemon with no log line. The lookup logs before the shell-out, treats an unanswered lookup as "no keyring credential" (never a fatal error), and names `gh auth login` on timeout. The default bound is 5 seconds; set `AIUR_GH_KEYRING_TIMEOUT_MS` to a larger positive integer when a slow-but-succeeding unlock legitimately needs more time, or a smaller one to fail faster.
+The keyring lookup (`gh auth token`) is bounded at boot, so a `gh` that stalls — a locked keyring prompting for a passphrase, a slow host, or a missing GUI credential agent — cannot hang the daemon with no log line.
+
+The lookup logs before the shell-out and treats an unanswered lookup as "no keyring credential" (never a fatal error), naming `gh auth login` on timeout. The default bound is 5 seconds; set `AIUR_GH_KEYRING_TIMEOUT_MS` to a larger positive integer when a slow-but-succeeding unlock legitimately needs more time, or a smaller one to fail faster.
 
 ### Token lifecycle
 
