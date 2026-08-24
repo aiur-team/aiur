@@ -110,6 +110,78 @@ defmodule Aiur.Workspace.HooksTest do
     assert :ok = Hooks.run_github_preflight(workspace, issue_context, nil)
   end
 
+  # #2444 acceptance 1 at the run boundary: a correctly-classified, short,
+  # self-clearing local budget hold during the workspace preflight is waited
+  # out by `AuthPreflight` (first attempt held, `reset_at` a couple of seconds
+  # out), so `run_github_preflight` returns `:ok` instead of the
+  # `{:workspace_github_connectivity_failed, ...}` that would terminate the
+  # agent run. The sleep is injected so the test asserts on the run surviving
+  # (a `:ok`, not a failure tuple), not merely on a log line or a real 2s wait.
+  test "run_github_preflight waits out a short local hold so the run is not terminated", %{workspace: workspace} do
+    token_cache_key = {Aiur.GitHub.Config, :resolved_token}
+    prev_token = System.get_env("GITHUB_TOKEN")
+    prev_cached_token = :persistent_term.get(token_cache_key, :unset)
+    prev_enabled = Application.get_env(:aiur, :workspace_github_preflight_enabled)
+    prev_fun = Application.get_env(:aiur, :workspace_github_preflight_fun)
+    parent = self()
+
+    :persistent_term.erase(token_cache_key)
+    System.put_env("GITHUB_TOKEN", "preflight-token")
+
+    on_exit(fn ->
+      case prev_enabled do
+        nil -> Application.delete_env(:aiur, :workspace_github_preflight_enabled)
+        v -> Application.put_env(:aiur, :workspace_github_preflight_enabled, v)
+      end
+
+      case prev_fun do
+        nil -> Application.delete_env(:aiur, :workspace_github_preflight_fun)
+        v -> Application.put_env(:aiur, :workspace_github_preflight_fun, v)
+      end
+
+      restore_env("GITHUB_TOKEN", prev_token)
+
+      case prev_cached_token do
+        :unset -> :persistent_term.erase(token_cache_key)
+        token -> :persistent_term.put(token_cache_key, token)
+      end
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
+    Application.put_env(:aiur, :workspace_github_preflight_enabled, true)
+
+    Application.put_env(:aiur, :workspace_github_preflight_fun, fn _workspace, _worker_host ->
+      send(parent, :workspace_preflight)
+
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+
+      Aiur.GitHub.AuthPreflight.preflight_auth(
+        request_fun: fn _request ->
+          attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+          if attempt == 1 do
+            {:error, {:aiur, :locally_held, hold}}
+          else
+            {:ok, %{status: 200, headers: [{"x-ratelimit-remaining", "42"}], body: %{}}}
+          end
+        end,
+        gh_auth_status_fun: fn -> {:ok, :not_installed} end,
+        local_hold_sleep_fun: fn _ms -> :ok end
+      )
+    end)
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    assert :ok = Hooks.run_github_preflight(workspace, issue_context, nil)
+    assert_receive :workspace_preflight
+  end
+
   test "run_hook/5 local applies env scrub to release launcher variables", %{workspace: workspace} do
     release_root = Path.join(workspace, "release")
     release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
