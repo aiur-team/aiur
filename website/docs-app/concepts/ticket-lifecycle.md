@@ -97,13 +97,18 @@ end
 
 The consequence: a stale or hand-edited label set carrying **two state labels
 at once** denies dispatch. A poll-time repair heals the pair to its winner
-(`agent:todo` wins); a **zero**-label ticket is repaired only when there is
-evidence it was in the agent workflow — its last known state is restored, or
-`agent:todo` when only a released claim survives — while deliberately parked
-tickets (`needs-triage`, `human:todo`, `Epic:`) and untriaged tickets with no
-workflow record are left alone and surfaced with an alert instead of being
-silently re-dispatched. An open ticket with no live agent and no scheduled
-claim is re-queued and alerted.
+(`agent:todo` wins).
+
+A **zero**-label ticket is repaired only when there is evidence it was in the
+agent workflow — its last known state is restored, or `agent:todo` when only a
+released claim survives.
+
+Deliberately parked tickets (`needs-triage`, `human:todo`, `Epic:`) and
+untriaged tickets with no workflow record are left alone and surfaced with an
+alert instead of being silently re-dispatched.
+
+An open ticket with no live agent and no scheduled claim is re-queued and
+alerted.
 
 Markers sit *beside* the single state label, which is why they are kept out of
 `@state_suffixes` in the first place.

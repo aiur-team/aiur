@@ -309,23 +309,19 @@ defmodule Aiur.Orchestrator.IssueSync do
   # entry is authoritative; the previous poll is the fallback so a swap that
   # removed the label between polls still restores the pre-transition state.
   defp prior_workflow_state(%Issue{id: issue_id}, %State{} = state) do
-    case Map.get(state.running, issue_id) do
-      %{issue: %Issue{state: state_name}} when is_binary(state_name) and state_name != "" ->
-        state_name
-
-      %{issue: %{state: state_name}} when is_binary(state_name) and state_name != "" ->
-        state_name
-
-      _ ->
-        case Map.get(state.last_polled_issues, issue_id) do
-          %Issue{state: state_name} when is_binary(state_name) and state_name != "" -> state_name
-          %{state: state_name} when is_binary(state_name) and state_name != "" -> state_name
-          _ -> nil
-        end
-    end
+    workflow_state_from(Map.get(state.running, issue_id)) ||
+      workflow_state_from(Map.get(state.last_polled_issues, issue_id))
   end
 
   defp prior_workflow_state(_issue, _state), do: nil
+
+  # A non-empty state name from a running entry (`%{issue: %Issue{}}` or
+  # `%{issue: %{}}`) or a prior polled copy (`%Issue{}` or `%{}`). Running
+  # entries wrap the issue under `:issue`; a polled copy is the issue itself.
+  defp workflow_state_from(%{issue: issue}) when is_map(issue), do: workflow_state_from(issue)
+  defp workflow_state_from(%Issue{state: state_name}) when is_binary(state_name) and state_name != "", do: state_name
+  defp workflow_state_from(%{state: state_name}) when is_binary(state_name) and state_name != "", do: state_name
+  defp workflow_state_from(_entry), do: nil
 
   # The state to restore a stranded ticket to. Only a non-terminal state is a
   # safe restore target; a terminal prior state (or no prior state at all)
@@ -356,19 +352,15 @@ defmodule Aiur.Orchestrator.IssueSync do
       is_binary(prior_workflow_state(issue, state))
   end
 
-  defp workflow_evidence?(_state, _issue), do: false
-
   # Deliberately parked work carries a non-state marker instead of an `agent:*`
   # state label — `needs-triage`, `human:todo`, or an `Epic:` container (the
   # explicit `agent:parked` marker is surfaced separately as `Issue.parked?`).
   # Such tickets must never be rewritten to `agent:todo`: that would silently
   # reverse deliberate parking and make `human:todo` tickets dispatchable, the
   # exact boundary that label protects (#2420).
-  defp parked_marker?(%Issue{labels: labels}) when is_list(labels) do
+  defp parked_marker?(%Issue{labels: labels}) do
     Enum.any?(labels, &parked_marker_label?/1)
   end
-
-  defp parked_marker?(_issue), do: false
 
   defp parked_marker_label?(label) when is_binary(label) do
     label = label |> String.trim() |> String.downcase()
