@@ -808,7 +808,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
   # failed tracker write must not crash the orchestrator.
-  defp move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
+  #
+  # Exposed (`@doc false`) as a test seam: the distinct `{:error,
+  # {:no_state_label_written, _}}` return is the F3 "do not report success for a
+  # write that did not happen" contract, and the tests pin it so a regression to
+  # `:ok` cannot pass the suite unnoticed (#2420).
+  @doc false
+  @spec move_exhausted_issue_to_error_state(String.t(), String.t(), term()) ::
+          :ok | :alert_emitted | {:error, {:no_state_label_written, String.t()}}
+  def move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
     Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
     case Tracker.update_issue_state(identifier, "error") do
@@ -832,11 +840,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
       {:error, reason} ->
         Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
 
-        :ok
+        # The terminal `error` write did not happen, so report it honestly
+        # instead of a false `:ok`, and alert rather than only logging (#2420):
+        # a swallowed write here would leave the ticket with its active-state
+        # label and no signal to the Executor that exhaustion never parked it.
+        Alerts.emit_custom(
+          "ticket.#{identifier}.agent.attention.error-state-write-failed",
+          "Agent entered retry exhaustion but the ticket could not be moved to error (#{inspect(reason)}); it keeps its active-state label and may be re-dispatched.",
+          issue: identifier,
+          reason: "Exhausted retry budget, but the terminal error-state write failed (#{inspect(reason)}); the ticket was not parked in error.",
+          needs_attention: true,
+          severity: "warning",
+          central: true
+        )
+
+        {:error, {:no_state_label_written, identifier}}
     end
   end
 
-  defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
+  def move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
 
   defp maybe_mark_observed_error_alert(state, issue_id, true) do
     %{

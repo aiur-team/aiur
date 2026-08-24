@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
   alias Aiur.PollCadence
@@ -70,6 +71,17 @@ defmodule Aiur.Orchestrator.IssueSync do
             {healed_issue, state_acc} = heal_contradictory_state(issue, winner_for(state_labels), state_acc, update_state_fun)
             {[healed_issue | acc], state_acc}
 
+          # `state_labels == []` is the GitHub normalizer's zero-label signal
+          # (state is nil alongside it); `state_labels == nil` with no state is
+          # the not-normalized equivalent. An issue that carries a real state
+          # without a populated labels list (e.g. non-GitHub tracker fixtures)
+          # is not a stranded zero-label ticket and is left untouched, and a
+          # closed issue needs no state label at all (#2420).
+          %Issue{state_labels: state_labels, state: state} = issue
+          when (state_labels == [] or (state_labels == nil and is_nil(state))) and state != "Closed" ->
+            {healed_issue, state_acc} = heal_or_leave_missing_state_label(issue, state_acc, update_state_fun)
+            {[healed_issue | acc], state_acc}
+
           _issue ->
             {[issue | acc], state_acc}
         end
@@ -83,7 +95,327 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   def reconcile_contradictory_state_labels(%State{} = state, _issues, _update_state_fun), do: {state, []}
 
+  @doc """
+  Re-queues open non-terminal tickets that have neither a live owner nor a
+  scheduled claim (#2420, #2361).
+
+  A label-integrity sweep cannot see the stranding shape behind #2361: a ticket
+  carrying one perfectly valid `agent:*` state label, open, not contradictory,
+  with no running agent and nothing scheduled to give it one. Its claim was
+  released on a transient tracker fault and no recovery was ever scheduled, so
+  it sits in `state.running`-less limbo while GitHub and `aiur status` read it
+  as healthy work in progress.
+
+  Runs after `dispatch_or_hold/2` so a ticket legitimately queued for a free
+  slot is never mistaken for a strand. A ticket is stranded when it is open and
+  non-terminal and has no live owner (`running`), no in-flight claim
+  (`claimed`), no pending retry (`retry_attempts`), no scheduled transient
+  resume (`auto_resume`), and no legitimate reason to be unowned (operator
+  pause, an explicit `needs-triage`/`human:todo`/`Epic:`/`parked` marker,
+  dependency block, an external wait such as CI/review/error, or a `todo`
+  ticket waiting for capacity) — while its claim has been explicitly released
+  (`released_claims`) or it is a degenerate zero-label ticket dispatch cannot
+  claim. The repair is evidence-gated, never shape-gated: a ticket that has
+  never entered the agent workflow (no running entry, no released claim, no
+  prior polled state) is untriaged parking and is left alone (#2420).
+
+  Re-queuing restores the ticket to its last known running state (falling back
+  to `agent:todo`, matching the zero-label heal), writes it through the tracker,
+  drops the released-claim record so the strand is not re-flagged every poll,
+  and raises a needs-attention alert. The dispatch pass then claims the ticket
+  like any other fresh work.
+  """
+  @spec sync_stranded_ticket_reconciliation(State.t(), list()) :: State.t()
+  def sync_stranded_ticket_reconciliation(%State{} = state, issues) when is_list(issues) do
+    sync_stranded_ticket_reconciliation(state, issues, &Tracker.update_issue_state/2)
+  end
+
+  @doc false
+  @spec sync_stranded_ticket_reconciliation(State.t(), list(), (String.t(), String.t() -> :ok | {:error, term()})) ::
+          State.t()
+  def sync_stranded_ticket_reconciliation(%State{} = state, issues, update_state_fun)
+      when is_list(issues) and is_function(update_state_fun, 2) do
+    Enum.reduce(issues, state, fn issue, state_acc ->
+      if stranded_ticket?(state_acc, issue) do
+        requeue_stranded_ticket(state_acc, issue, update_state_fun)
+      else
+        state_acc
+      end
+    end)
+  end
+
+  def sync_stranded_ticket_reconciliation(%State{} = state, _issues, _update_state_fun), do: state
+
+  defp stranded_ticket?(%State{} = state, %Issue{id: issue_id} = issue) do
+    cond do
+      owned_or_scheduled?(state, issue_id) ->
+        false
+
+      legitimately_unowned?(issue) ->
+        false
+
+      # A ticket that has never entered the agent workflow (no running entry,
+      # no released claim, no prior polled state) is untriaged parking, not a
+      # strand: nothing removed its label, it just never had one. The repair
+      # must be evidence-gated, not shape-gated (#2420).
+      not workflow_evidence?(state, issue) ->
+        false
+
+      stranded_by_claim_or_labels?(state, issue) ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp stranded_ticket?(_state, _issue), do: false
+
+  # A live owner, an in-flight claim, a pending retry, or a scheduled transient
+  # resume means the ticket has someone (or something) responsible for it, so a
+  # missing live agent is not a strand.
+  defp owned_or_scheduled?(%State{} = state, issue_id) do
+    Map.has_key?(state.running, issue_id) or
+      MapSet.member?(state.claimed, issue_id) or
+      Map.has_key?(state.retry_attempts, issue_id) or
+      Map.has_key?(state.auto_resume, issue_id)
+  end
+
+  # States where an open ticket is deliberately unowned need no claim: an
+  # operator park or pause marker, a dependency or capacity wait, an external
+  # wait (CI/review/error), or a `todo` ticket waiting for a free slot. A
+  # ticket carrying `needs-triage`/`human:todo`/`Epic:` is deliberate parking,
+  # never a strand, so it is covered here too (#2420).
+  defp legitimately_unowned?(%Issue{} = issue) do
+    Issue.paused?(issue) or
+      Issue.parked?(issue) or
+      parked_marker?(issue) or
+      DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()) or
+      external_wait_state?(issue.state) or
+      DispatchPolicy.normalize_issue_state(issue.state) == "todo"
+  end
+
+  # The two strand shapes label checks cannot see. A released claim with no
+  # recovery scheduled is a valid state label, no owner, and nothing scheduled
+  # to give it one (#2361); a dispatch latch or thrash hold on the same ticket
+  # still leaves the released claim unresolved, so re-queueing remains correct.
+  # An open ticket with no derivable state at all (zero state labels) is
+  # invisible to dispatch and has no legitimate wait reason; the zero-label
+  # heal normally restores it earlier in the poll, and this is the sweep's own
+  # fallback so the invariant holds even if that write fails. Both shapes only
+  # reach this predicate after `stranded_ticket?/2`'s evidence gate, so an
+  # unprovenanced zero-label ticket is never re-queued (#2420).
+  defp stranded_by_claim_or_labels?(%State{} = state, %Issue{} = issue) do
+    Map.has_key?(state.released_claims, issue.id) or
+      DispatchPolicy.normalize_issue_state(issue.state) == ""
+  end
+
+  # A stranded ticket's owner evaporated without a scheduled replacement, so the
+  # work is stale: restore it to a dispatchable state (its last known running
+  # state, else `agent:todo`) exactly like the zero-label heal, so the next
+  # dispatch pass claims it as fresh work. A failed restore keeps the
+  # released-claim record so the strand stays visible to the operator.
+  defp requeue_stranded_ticket(%State{} = state, %Issue{} = issue, update_state_fun) do
+    restored = restore_state_for(issue, state)
+
+    case update_state_fun.(issue.identifier, restored) do
+      :ok ->
+        alert_stranded_ticket_requeued(state, issue, restored)
+
+        Logger.warning("Re-queueing stranded ticket #{State.issue_context(issue)} -> #{restored}")
+
+        %{state | released_claims: Map.delete(state.released_claims, issue.id)}
+
+      {:error, reason} ->
+        Logger.warning("Stranded ticket re-queue failed for #{State.issue_context(issue)}: #{inspect(reason)}")
+
+        state
+    end
+  end
+
+  # A stranded ticket is surfaced with a needs-attention alert; the check
+  # against the already-active attention set keeps a ticket that fails its
+  # restore from alerting on every poll.
+  defp alert_stranded_ticket_requeued(%State{} = state, %Issue{} = issue, restored) do
+    topic = "ticket.#{issue.identifier}.agent.attention.stranded-requeued"
+
+    unless active_attention?(state, topic) do
+      Alerts.emit_system(topic,
+        issue: issue.identifier,
+        message: "Ticket #{issue.identifier} was open with no live agent and no scheduled claim; re-queued to #{restored}.",
+        reason:
+          "Ticket #{issue.identifier} had no live owner and no scheduled claim (a released claim or degenerate label set); " <>
+            "restored #{restored} so dispatch can claim it again.",
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
+    end
+
+    state
+  end
+
+  # States where an open ticket is deliberately waiting on something external
+  # (CI, human review, or an operator/error recovery) need no agent claim, so a
+  # lack of one is not a strand.
+  defp external_wait_state?(state_name) do
+    DispatchPolicy.normalize_issue_state(state_name) in ["ci-wait", "human-review", "error"]
+  end
+
   defp winner_for(state_labels), do: DispatchPolicy.resolve_state_labels(state_labels)
+
+  # A ticket observed with zero `agent:*` state labels is invisible to dispatch
+  # (#2420): every reconciler consumes either the filtered candidate list or
+  # `state.running`, and a zero-label ticket is in neither, so nothing would
+  # ever repair a genuine strand. But zero labels is *also* a documented,
+  # intentional state — deliberately parked work carries `needs-triage`,
+  # `human:todo`, or an `Epic:` marker with no state label, and a fresh issue
+  # nobody has triaged has neither — so the repair must be evidence-gated, not
+  # shape-gated: never touch a parked-marker ticket, restore the last known
+  # state only when a prior running/last-polled entry carries one, and when
+  # there is no evidence at all alert without writing and leave the labels
+  # alone (#2420).
+  defp heal_or_leave_missing_state_label(%Issue{} = issue, state, update_state_fun) do
+    cond do
+      Issue.parked?(issue) or parked_marker?(issue) ->
+        {issue, state}
+
+      restore_target_for(issue, state) == nil and not workflow_evidence?(state, issue) ->
+        alert_missing_state_label_no_evidence(issue, state)
+        {issue, state}
+
+      restore_target_for(issue, state) == nil ->
+        # Evidence of workflow membership exists (e.g. a released claim) but
+        # there is no non-terminal state to restore; leave the ticket for the
+        # sweep, whose re-queue falls back to `agent:todo`.
+        {issue, state}
+
+      true ->
+        heal_missing_state_label(issue, state, update_state_fun)
+    end
+  end
+
+  defp heal_missing_state_label(%Issue{} = issue, state, update_state_fun) do
+    restored = restore_target_for(issue, state) || "todo"
+    healed_issue = %{issue | state: restored, state_labels: [restored]}
+
+    case update_state_fun.(issue.identifier, restored) do
+      :ok ->
+        alert_missing_state_label_repaired(issue, restored)
+
+        Logger.warning("Healing missing state label for #{State.issue_context(issue)} -> #{restored}")
+
+        {healed_issue, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, healed_issue)}}
+
+      {:error, reason} ->
+        Logger.warning("Missing state label heal failed for #{State.issue_context(issue)}: #{inspect(reason)}; dispatching on restored state")
+
+        {healed_issue, state}
+    end
+  end
+
+  # The last known state comes from the running entry's issue (the state its
+  # agent was last dispatched under) or the previous polled copy. A running
+  # entry is authoritative; the previous poll is the fallback so a swap that
+  # removed the label between polls still restores the pre-transition state.
+  defp prior_workflow_state(%Issue{id: issue_id}, %State{} = state) do
+    workflow_state_from(Map.get(state.running, issue_id)) ||
+      workflow_state_from(Map.get(state.last_polled_issues, issue_id))
+  end
+
+  defp prior_workflow_state(_issue, _state), do: nil
+
+  # A non-empty state name from a running entry (`%{issue: %Issue{}}` or
+  # `%{issue: %{}}`) or a prior polled copy (`%Issue{}` or `%{}`). Running
+  # entries wrap the issue under `:issue`; a polled copy is the issue itself.
+  defp workflow_state_from(%{issue: issue}) when is_map(issue), do: workflow_state_from(issue)
+  defp workflow_state_from(%Issue{state: state_name}) when is_binary(state_name) and state_name != "", do: state_name
+  defp workflow_state_from(%{state: state_name}) when is_binary(state_name) and state_name != "", do: state_name
+  defp workflow_state_from(_entry), do: nil
+
+  # The state to restore a stranded ticket to. Only a non-terminal state is a
+  # safe restore target; a terminal prior state (or no prior state at all)
+  # yields nil so the caller alerts without writing rather than guessing.
+  defp restore_target_for(%Issue{} = issue, %State{} = state) do
+    case prior_workflow_state(issue, state) do
+      nil -> nil
+      state_name -> if StatePolicy.terminal_state_name?(state_name), do: nil, else: state_name
+    end
+  end
+
+  # The sweep's restore target: a non-terminal prior state when one exists,
+  # else `agent:todo`. The sweep only re-queues a ticket after its own
+  # evidence gate (`workflow_evidence?/2`) has passed, so `todo` here is a
+  # documented fallback for a ticket whose workflow record is a released claim
+  # rather than a running/last-polled state (#2420).
+  defp restore_state_for(%Issue{} = issue, %State{} = state) do
+    restore_target_for(issue, state) || "todo"
+  end
+
+  # Positive evidence the ticket was in the agent workflow: a live running
+  # entry, a released claim (a claim was dropped), or a prior polled copy
+  # carrying a state. A ticket with none of these has never entered the
+  # workflow and is untriaged parking, not a strand (#2420).
+  defp workflow_evidence?(%State{} = state, %Issue{id: issue_id} = issue) do
+    Map.has_key?(state.running, issue_id) or
+      Map.has_key?(state.released_claims, issue_id) or
+      is_binary(prior_workflow_state(issue, state))
+  end
+
+  # Deliberately parked work carries a non-state marker instead of an `agent:*`
+  # state label — `needs-triage`, `human:todo`, or an `Epic:` container (the
+  # explicit `agent:parked` marker is surfaced separately as `Issue.parked?`).
+  # Such tickets must never be rewritten to `agent:todo`: that would silently
+  # reverse deliberate parking and make `human:todo` tickets dispatchable, the
+  # exact boundary that label protects (#2420).
+  defp parked_marker?(%Issue{labels: labels}) do
+    Enum.any?(labels, &parked_marker_label?/1)
+  end
+
+  defp parked_marker_label?(label) when is_binary(label) do
+    label = label |> String.trim() |> String.downcase()
+    label in ["needs-triage", "human:todo"] or String.starts_with?(label, "epic:")
+  end
+
+  defp parked_marker_label?(_label), do: false
+
+  # A zero-label ticket with no prior workflow record is surfaced with a
+  # needs-attention alert but NOT rewritten: stamping `agent:todo` on a ticket
+  # whose history shows no prior state is a guess that would reverse deliberate
+  # parking (#2420). The active-attention check keeps the alert to one per
+  # ticket instead of one per poll.
+  defp alert_missing_state_label_no_evidence(%Issue{} = issue, %State{} = state) do
+    topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
+
+    unless active_attention?(state, topic) do
+      Alerts.emit_system(topic,
+        issue: issue.identifier,
+        message:
+          "Ticket #{issue.identifier} has no agent state label and no record of prior agent workflow membership; " <>
+            "left as-is pending triage.",
+        reason:
+          "Ticket #{issue.identifier} carries zero agent:* state labels with no prior running/last-known state and no " <>
+            "parking marker; left as-is pending triage — alerting without writing agent:todo so deliberate parking is not " <>
+            "reversed (#2420).",
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
+    end
+  end
+
+  defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",
+      issue: issue.identifier,
+      message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
+      reason:
+        "Ticket #{issue.identifier} carried zero agent:* state labels (a broken remove-then-add swap left it stranded); " <>
+          "restored #{restored} so dispatch can see it again.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
+  end
 
   # Collects the polled tickets that carry more than one `agent:*` state label —
   # the fleet that dispatch authorization denies as ambiguous (#2366). `since_ms`

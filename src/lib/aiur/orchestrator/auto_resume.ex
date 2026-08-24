@@ -50,8 +50,12 @@ defmodule Aiur.Orchestrator.AutoResume do
   automatic re-dispatch. Returns `nil` for terminal/operator causes.
 
   Tracker errors follow `Aiur.GitHub.Errors`'s taxonomy (including the
-  secondary-rate-limit 403 whose body names a rate limit); provider timeouts
-  are recognized as bare or wrapped `:timeout` / transport terms.
+  secondary-rate-limit 403 whose body names a rate limit and the
+  auth-preflight transport shape the claim-release path surfaces — both go
+  through `Aiur.GitHub.Errors.transient_github_error?/1`, the same shared
+  classifier `Aiur.Orchestrator.HumanReview` uses to defer rather than
+  terminate); provider timeouts are recognized as bare or wrapped `:timeout` /
+  transport terms.
   """
   @spec classify(term()) :: cause() | nil
   def classify(reason) do
@@ -88,10 +92,18 @@ defmodule Aiur.Orchestrator.AutoResume do
   defp local_budget_hold?({:github_auth_preflight_failed, %{classification: :local_hold}}), do: true
   defp local_budget_hold?(_reason), do: false
 
+  # The shared transient classifier (taxonomy + 408/429/5xx + the auth-preflight
+  # transport diagnostic) so the claim-release path and retry exhaustion treat
+  # a TransportError as a transient fault that schedules a re-claim rather than
+  # parking the ticket with no recovery (#2361, #2420). A workspace connectivity
+  # failure wraps the inner tracker/preflight reason, and a raw `:nxdomain`
+  # DNS failure bypasses the classifier's structured tuple, so both are
+  # unwrapped/recognized here so the taxonomy and the exhaustion-classification
+  # boundary agree everywhere (#2429 / #2427).
   defp tracker_transient?(reason) do
     reason
     |> unwrap_workspace_connectivity()
-    |> then(fn inner -> Errors.retryable_github_error?(inner) or dns_failure?(inner) end)
+    |> then(fn inner -> Errors.transient_github_error?(inner) or dns_failure?(inner) end)
   end
 
   # A workspace connectivity failure wraps the inner tracker/preflight reason;
