@@ -227,6 +227,13 @@ defmodule Aiur.Orchestrator.State do
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
     dependency_circular_wait: %{},
+    # Fleet aggregate for tickets carrying more than one `agent:*` state label
+    # (`contradictory_state_label_tickets` maps issue id -> %{identifier, labels,
+    # since_ms}; `contradictory_state_label_alert_active` latches the single
+    # fleet alert until the set clears). Kept on State so the orchestrator is the
+    # single writer and `aiur alerts`/`aiur status` can read it back (#2366).
+    contradictory_state_label_tickets: %{},
+    contradictory_state_label_alert_active: false,
     running: %{},
     running_issue_cache: %{},
     completed: MapSet.new(),

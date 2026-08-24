@@ -17,6 +17,8 @@ defmodule Aiur.GitHub.Issues do
     Transport
   }
 
+  alias Aiur.Orchestrator.DispatchPolicy
+
   @max_issue_response_bytes 65_536
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
@@ -1010,6 +1012,16 @@ defmodule Aiur.GitHub.Issues do
 
   defp extract_state(%{"state" => "closed"}, _state_labels), do: "Closed"
   defp extract_state(_gh_issue, [state]), do: state
+
+  # A ticket carrying two `agent:*` state labels is a broken lifecycle state.
+  # `extract_state` used to answer `nil` here, which made every consumer see an
+  # "unknown" state — worst of all the CI lifecycle, whose terminal transition
+  # would then be skipped and never clear a stale `agent:ci-wait`, stranding the
+  # pair as permanently undispatchable (#2366). Resolve the pair deterministically
+  # so a state-labeled ticket always has a concrete state.
+  defp extract_state(_gh_issue, state_labels) when is_list(state_labels) and state_labels != [],
+    do: DispatchPolicy.resolve_state_labels(state_labels)
+
   defp extract_state(_gh_issue, _state_labels), do: nil
 
   @spec extract_state_labels([String.t()], String.t()) :: [String.t()]

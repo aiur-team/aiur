@@ -90,7 +90,7 @@ defmodule Aiur.GitHub.ClientTest do
       refute_received :candidate_request
     end
 
-    test "rejects an issue carrying contradictory active-state labels" do
+    test "surfaces an issue carrying contradictory active-state labels as undispatchable" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -111,11 +111,20 @@ defmodule Aiur.GitHub.ClientTest do
         }
       end
 
-      # The all-open snapshot returns each issue once. Multiple active-state
-      # labels are contradictory tracker truth and must not authorize dispatch.
+      # The all-open snapshot returns each issue once. Contradictory state
+      # labels resolve to a concrete state so no consumer sees a nil disposition
+      # (and a stale `agent:ci-wait` can be cleared), but the pair must never
+      # authorize dispatch: the ticket stays visible and undispatchable rather
+      # than silently dropped from the pool as "no work" (#2366). The pair
+      # resolves to the most-outstanding-work label (`rework`), never the
+      # alphabetically-first one.
       request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: [issue.()]}} end
 
-      assert {:ok, []} = Client.fetch_candidate_issues(request_fun: request_fun)
+      assert {:ok, [candidate]} = Client.fetch_candidate_issues(request_fun: request_fun)
+      assert candidate.id == "35"
+      assert candidate.state == "rework"
+      assert candidate.state_labels == ["in-progress", "rework"]
+      assert candidate.dispatch_authorized? == false
     end
 
     test "returns normalized issues from GitHub API" do
