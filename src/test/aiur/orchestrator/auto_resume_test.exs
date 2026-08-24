@@ -101,6 +101,24 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       assert AutoResume.classify({:timeout, %{url: "x"}}) == :provider_timeout
     end
 
+    # #2429 / #2427: a DNS transport failure (`:nxdomain`) is transient, but the
+    # raw shapes bypass `Errors.retryable_github_error?/1` (which only recognizes
+    # the classified `{:github, kind, _}` tuple). A retry-exhausted ticket must
+    # auto-resume once DNS recovers instead of parking in `agent:error` — closing
+    # the `AutoResume.classify/1` vs `Errors`/`HumanReview` taxonomy disagreement
+    # the project owner flagged on #2431.
+    test "classifies a DNS transport failure as transient" do
+      assert AutoResume.classify(:nxdomain) == :transient_tracker
+      assert AutoResume.classify({:error, :nxdomain}) == :transient_tracker
+      assert AutoResume.classify({:error, %Req.TransportError{reason: :nxdomain}}) == :transient_tracker
+      assert AutoResume.classify(%Req.TransportError{reason: :nxdomain}) == :transient_tracker
+      assert AutoResume.classify({:github, :dns, %{reason: :nxdomain}}) == :transient_tracker
+
+      assert AutoResume.classify({:workspace_github_connectivity_failed, "/workspaces/123", {:github, :dns, %{reason: :nxdomain}}}) == :transient_tracker
+
+      assert AutoResume.classify({:workspace_github_connectivity_failed, "/workspaces/123", {:error, %Req.TransportError{reason: :nxdomain}}}) == :transient_tracker
+    end
+
     # #2409: a local GitHub budget hold is a transient infrastructure fault, so
     # a ticket parked in `agent:error` by one auto-resumes once the hold lifts
     # instead of waiting for an operator. Recognized in the raw
@@ -457,6 +475,20 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
         RetryEngine.maybe_schedule_transient_auto_resume(%State{}, @issue_id, {:github, :auth, %{status: 401}})
 
       refute Map.has_key?(state.auto_resume, @issue_id)
+    end
+
+    # A DNS transport failure reaching the retry-exhaustion path schedules the
+    # same transient auto-resume as a classified tracker fault (#2429 / #2427).
+    @tag config: @enabled
+    test "maybe_schedule_transient_auto_resume schedules a DNS failure" do
+      state =
+        RetryEngine.maybe_schedule_transient_auto_resume(
+          %State{},
+          @issue_id,
+          {:error, %Req.TransportError{reason: :nxdomain}}
+        )
+
+      assert %{attempt: 1, cause: :transient_tracker} = state.auto_resume[@issue_id]
     end
   end
 end

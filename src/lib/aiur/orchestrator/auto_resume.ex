@@ -89,8 +89,35 @@ defmodule Aiur.Orchestrator.AutoResume do
   defp local_budget_hold?(_reason), do: false
 
   defp tracker_transient?(reason) do
-    Errors.retryable_github_error?(reason)
+    reason
+    |> unwrap_workspace_connectivity()
+    |> then(fn inner -> Errors.retryable_github_error?(inner) or dns_failure?(inner) end)
   end
+
+  # A workspace connectivity failure wraps the inner tracker/preflight reason;
+  # unwrap it so the transient classification applies to what is actually
+  # failing rather than the wrapper (#2429 / #2427).
+  defp unwrap_workspace_connectivity({:workspace_github_connectivity_failed, _workspace, inner}),
+    do: inner
+
+  defp unwrap_workspace_connectivity(reason), do: reason
+
+  # A DNS transport failure (`:nxdomain`) is a transient infrastructure fault,
+  # but `Errors.retryable_github_error?/1` only recognizes the already-classified
+  # `{:github, kind, _}` tuple. A raw `:nxdomain` — bare, `{:error, ...}`-wrapped,
+  # or inside a `Req.TransportError`/`Mint.TransportError` — bypasses the
+  # classifier and would otherwise park a retry-exhausted ticket in `agent:error`
+  # instead of auto-resuming once DNS recovers (#2429 / #2427). `Errors` already
+  # maps `:nxdomain` → `:dns`; this closes the gap at the exhaustion-classification
+  # boundary so the classifier and the taxonomy agree everywhere.
+  defp dns_failure?({:error, reason}), do: dns_failure?(reason)
+
+  defp dns_failure?(%{__struct__: struct, reason: reason})
+       when struct in [Req.TransportError, Mint.TransportError],
+       do: dns_failure?(reason)
+
+  defp dns_failure?(:nxdomain), do: true
+  defp dns_failure?(_reason), do: false
 
   defp provider_timeout?(:timeout), do: true
   defp provider_timeout?({:error, :timeout}), do: true
