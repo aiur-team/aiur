@@ -116,25 +116,55 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
+| `polling.intervals` | map of class → integer | `%{}` | Per-class poll cadences in seconds. Each key names a poll class — `dispatch`, `ci`, `review`, `planning`, `firehose` — and overrides `interval_seconds` for that class only. A class with no entry falls back to `interval_seconds`, so an unset map keeps today's single-interval behaviour exactly. `0` means the class is on-demand — no timer, refreshed only when a consumer explicitly asks — which is the recommended value for `planning`. (`firehose` is not recommended at any value: its loop rides the dispatch tick and is not gated, so an entry would be a dead knob.) `dispatch` must be a positive integer: the dispatch tick always runs, so `dispatch: 0` is rejected. `review` only diverges on a repo proven webhook-backed — on a polling repo its safety net stays at the dispatch rate. An unknown class key or a negative value is rejected. |
 | `polling.idle_widen_factor` | float | 5.0 | Multiplier applied while no agents are actively running. Must be between 1.0 and 100.0. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 | `polling.view_state_sweep_seconds` | integer | 900 | Seconds between runs of the view-state reconciliation sweep. It exists only to recover a webhook delivery that was lost, so it is a recovery bound rather than a refresh interval — a delivery that arrives updates the dashboard immediately and for free, and shortening this makes nothing fresher. The open-backlog and ad-hoc-overlay sources are event-sourced and not swept at all; the sweep reconciles the daemon-owned Build Order pack-status projection (which writes `status.json` on disk and stays on this cadence until it is moved to the event stream too) and runs the issue-family divergence watermark — a single bounded `updated_at`-ordered head page that keeps webhook loss detectable and re-converges a dropped delivery. |
 
 Freshness thresholds follow this cadence. You do not set them separately.
 
-- The **effective** interval is `interval_seconds` after `idle_widen_factor`,
+- The **effective** interval is a class's interval after `idle_widen_factor`,
   `webhooks.poll_widen_factor` and GitHub's poll floors are applied.
+- Since #2309 each poll loop resolves its interval by naming the class it
+  serves, and `polling.intervals` lets those classes diverge. The classes:
+
+  | Class | Polls | Why it gets its own cadence |
+  | --- | --- | --- |
+  | `dispatch` | open issues and `agent:*` labels (the dispatch trigger) | Cheap (conditional REST, usually `304`) and urgent. The default for every unlisted class and for un-named `PollCadence` reads. |
+  | `ci` | check state on a pull request with work in flight | Expensive GraphQL and urgent, but only while a PR is actually in flight (the loop is demand-scoped). `intervals.ci` is deliberately not recommended: the loop rides the dispatch tick, so a value below `dispatch` is inert (the loop can never fire more often than the tick) and one above it *slows* CI detection — a stale CI read has agent-visible consequences. Leave it unset to inherit `interval_seconds`. |
+  | `review` | comments and review threads | Expensive GraphQL, moderately urgent, and webhook-covered for comment *arrival* — the poll is a safety net, so minutes is defensible. The divergence is enforced, not asserted: on a repo not proven webhook-backed the class resolves to the dispatch cadence, so the safety net never silently slows on a polling repo. |
+  | `planning` | Build Order catalog, pack status, ad-hoc listings | The most expensive reads and the least urgent. Recommended value `0` (on-demand): the catalog's only consumers are web pages and it is demand-gated, so it needs no timer. |
+  | `firehose` | repo events | Already self-regulating via GitHub's `X-Poll-Interval`; the class exists so status can show its configured cadence, not to change its loop. The firehose loop is **not gated** on a class cadence — it rides the dispatch tick — so no value is recommended: leave it unset to inherit `interval_seconds`. An entry would be a dead knob. |
+
 - The dashboard, the Units catalog and Build Order ticket history all judge
-  staleness against that effective interval.
+- The dashboard, the Units catalog and Build Order ticket history all judge
+  staleness against the effective interval of the class they mean: the
+  orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
+  ticket history from `planning`.
 - Build Order's remaining `graph_catalog_refresh_ms` — the failure-backoff base
-  for the catalog scope and the floor the labelled-read cadence rides on — is
-  derived from it too, so an idle fleet widens the Build Order backoff exactly
-  as it widens the tracker poll. The catalog itself is event-sourced (#2313):
-  there is no recurring sweep — the page renders the store projection and the
-  only GitHub reads are the rare reconciliation.
-- So a change to `interval_seconds` needs no matching threshold edit.
-- `aiur status` prints the effective value, for example
-  `POLL idle backoff active: interval=1200s base=120s factor=5.0x`.
+  for the catalog scope, the window after which the catalog snapshot is shown
+  as ageing, and the floor the labelled-read cadence rides on — is derived from
+  the effective `planning` interval, so an idle fleet widens the Build Order
+  backoff exactly as it widens the tracker poll.
+- The catalog itself is event-sourced (#2313): the page renders the store
+  projection, there is no recurring sweep, and the only GitHub reads are the
+  rare reconciliation (daemon boot and degraded webhook delivery). It is not
+  demand-gated by who is looking — the reconciliation is the daemon-owned
+  writer that re-converges the store — and it needs no timer. A selected root's
+  staleness window and failure backoff are therefore re-based on delivery
+  latency (`webhooks.silence_threshold_seconds`), the gap after which
+  degradation triggers the reconciliation, rather than on a poll cadence.
+- So a change to an interval needs no matching threshold edit.
+- `aiur status` prints the effective value and the live interval per class, for
+  example:
+  ```
+  POLL idle backoff active: interval=1200s base=120s factor=5.0x
+  POLL class intervals: ci=120s dispatch=120s firehose=120s planning=0s review=300s
+  ```
+  `0s` means the class is on-demand: no timer, refreshed only when a consumer
+  asks. `ci` sits at the dispatch cadence because the loop rides the tick and is
+  deliberately not given its own interval; `review` shows its configured value
+  only while the repo is proven webhook-backed.
 - The idle widening only applies once the daemon has observed an idle cycle:
   a freshly restarted fleet starts at the base interval, and a live fleet with
   dispatchable tickets keeps the base interval so work is not left waiting
@@ -171,7 +201,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `agent.priority` | array | `[]` | Ordered dispatch preference, as **routes** (`backend` or `backend:model`); see [Routes in `agent.priority`](#routes-in-agent-priority). Presence makes a backend dispatchable, the first available entry is the default, and limits advance to the next entry until recovery. A non-empty list replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and `backend_configs.<b>.enabled`. |
-| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. Shape only today; time-of-day routing lands later. |
+| `agent.pricing_policy.avoid_peak_pricing` | boolean | `true` | Routes around peak-pricing windows through `agent.priority`; `false` follows the list exactly and never changes spend reporting. When the window cannot be determined, routing never moves work (it fails toward not rerouting). Inspect the current window and next boundary with `mix aiur.pricing_window`. |
 | `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
@@ -471,6 +501,15 @@ for 10 minutes.
 flight. A build that is still progressing — however slow a cold `deps` +
 `compile` + `dialyzer` run may be — is never killed by the watchdog.
 
+The `system.dispatch.prewarm_blocked` alert is not raised for a routine refresh:
+a freshness probe that self-clears in seconds holds dispatch too briefly to
+matter to an operator.
+
+The alert fires only once a hold has persisted past the routine bound: a probe
+that fails or exceeds its own timeout, a build that genuinely holds the fleet,
+or a stalled hold the watchdog releases. Its `.resolved` fires when the gate
+clears.
+
 ## pr_watch
 
 | Key | Type | Default | Controls |
@@ -478,6 +517,40 @@ flight. A build that is still progressing — however slow a cold `deps` +
 | `pr_watch.enabled` | boolean | false | Enables trusted PR comment watching. |
 | `pr_watch.watch_label` | string | `watch` | Label suffix enrolling a PR for watching. |
 | `pr_watch.command_prefix` | string | `/aiur` | One-off trusted comment command prefix. |
+
+## pr_health
+
+Periodic scan of open pull requests for conditions that stall PRs silently: a
+PR authored by a configured human merger (unmergeable by construction, since
+GitHub blocks self-approval), a non-draft PR older than `stale_hours` with no
+review, and a rework ticket whose PR's own contribution has genuinely changed
+since its blocking review.
+
+Findings raise needs-attention alerts in the Executor's alert feed
+(`system.pr_health.unmergeable_author` / `system.pr_health.stale_unreviewed` /
+`system.pr_health.rework_merge_only`).
+
+Enabling the scan enables the **rework re-queue**: a ticket in
+`agent:rework` whose PR's own contribution diff (`merge-base..head`) changed
+since the blocking `CHANGES_REQUESTED` review is moved to `agent:human-review`
+for the second look — GitHub keeps `reviewDecision = CHANGES_REQUESTED` until
+a brand-new review, so nothing else re-queues it.
+
+A PR whose head only moved via merges of the base branch (own contribution
+unchanged) is NOT re-queued; it raises `system.pr_health.rework_merge_only` so
+the merge-only state is visible distinctly from genuine rework.
+
+A re-queue that the thread-clearance gate refuses (the reworked PR still has
+unresolved review threads — the normal state of a rework ticket) raises
+`system.pr_health.rework_requeue_failed`; the head is not throttled on a failed
+write, so the re-queue retries on the next tick instead of silently stranding
+the ticket in rework.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `pr_health.enabled` | boolean | false | Enables the PR-health scan and the rework re-queue. |
+| `pr_health.interval_seconds` | integer | 1800 | How often the scan lists open PRs. |
+| `pr_health.stale_hours` | integer | 24 | A non-draft PR older than this with no review is flagged. |
 
 ## events
 

@@ -5,7 +5,7 @@ defmodule Aiur.ModelAvailabilityTest do
   alias Aiur.ModelAvailability
 
   setup do
-    path = Path.join(System.tmp_dir!(), "aiur-model-usage-#{System.unique_integer([:positive])}.json")
+    path = Aiur.TestSupport.tmp_root!("aiur-model-usage") <> ".json"
     on_exit(fn -> File.rm(path) end)
     %{path: path}
   end

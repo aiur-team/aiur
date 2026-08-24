@@ -4,7 +4,7 @@ defmodule Aiur.Logs.RetentionTest do
   alias Aiur.Logs.Retention
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-retention-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-retention")
     File.mkdir_p!(root)
     on_exit(fn -> File.rm_rf!(root) end)
     %{root: root}

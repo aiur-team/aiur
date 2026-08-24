@@ -16,7 +16,7 @@ defmodule Aiur.DogfoodHooksTest do
   @external_resource @contributing_path
 
   setup do
-    test_root = Path.join(System.tmp_dir!(), "aiur-dogfood-hooks-#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("aiur-dogfood-hooks")
     File.mkdir_p!(test_root)
     on_exit(fn -> File.rm_rf!(test_root) end)
 

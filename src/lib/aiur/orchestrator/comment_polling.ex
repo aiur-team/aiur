@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   require Logger
 
-  alias Aiur.{AlertFeed, Alerts, Config, RunTelemetry}
+  alias Aiur.{AlertFeed, Alerts, Config, PollCadence, RunTelemetry}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
@@ -271,11 +271,30 @@ defmodule Aiur.Orchestrator.CommentPolling do
     cond do
       tracker_kind(opts) != "github" -> state
       comment_poll_in_flight?(state, now_ms) -> state
+      within_review_cadence?(state, now_ms) -> state
       true -> spawn_comment_poll(state, opts, now_ms)
     end
   end
 
   defp tracker_kind(opts), do: Keyword.get_lazy(opts, :tracker_kind, &Config.tracker_kind/0)
+
+  # Throttles the comment poll to the `:review` class cadence (#2309). See
+  # `PollCadence.within_class_cadence?/3` for the two limits that keep this a
+  # no-op where it must be (never fired, or nothing published yet). The class
+  # cadence is the safety-net price for a review poll that no longer runs at the
+  # dispatch rate once an operator sets `intervals.review` wider — the tradeoff
+  # #2309 exists to make, and webhooks cover the arrival of a comment in the
+  # meantime.
+  #
+  # The divergence is *enforced*, not asserted: `TrackerHealth` publishes a
+  # `:review` cadence wider than the dispatch tick only when the repo is proven
+  # webhook-backed, so on a polling repo the published `:review` value equals
+  # the dispatch cadence and this gate never binds — the safety net stays at the
+  # dispatch rate. This is the "no webhook installed: nothing is ever
+  # suppressed" contract (see `apis/github.md`).
+  defp within_review_cadence?(state, now_ms) do
+    PollCadence.within_class_cadence?(state.last_comment_poll_started_at_ms, now_ms, :review)
+  end
 
   @doc """
   Folds a completed asynchronous comment poll into the current state.
@@ -379,7 +398,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
     abandon_after_ms = comment_poll_abandon_after_ms(state, opts)
 
     poll = %{ref: ref, owner: owner, owner_monitor_ref: owner_monitor_ref, started_at_ms: now_ms, abandon_after_ms: abandon_after_ms}
-    %{state | github_comment_poll: poll}
+    %{state | github_comment_poll: poll, last_comment_poll_started_at_ms: now_ms}
   end
 
   defp comment_poll_abandon_after_ms(state, opts) do

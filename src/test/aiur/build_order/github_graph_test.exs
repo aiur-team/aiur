@@ -1323,15 +1323,19 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
         end,
         {:github, :rate_limited, %{status: 200, remaining: 0, reset_at: "1970-01-01T00:00:01Z"}}
       },
-      {fn _ -> {:error, :timeout} end, {:github, :timeout, %{}}},
-      {fn _ -> {:error, :nxdomain} end, {:github, :dns, %{}}}
+      # The transport `:reason` is retained: it is the only thing separating a
+      # genuine timeout from a refused connection, which `Errors` also tags
+      # `:timeout` (#2250). It is a bounded atom, never a payload.
+      {fn _ -> {:error, :timeout} end, {:github, :timeout, %{reason: :timeout}}},
+      {fn _ -> {:error, :econnrefused} end, {:github, :timeout, %{reason: :econnrefused}}},
+      {fn _ -> {:error, :nxdomain} end, {:github, :dns, %{reason: :nxdomain}}}
     ]
 
     for {request_fun, error} <- failures do
       assert {:error, %{error: ^error, calls: 1, pages: 0} = result} =
                GitHubGraph.fetch_catalog(base_opts(request_fun))
 
-      assert result.rate_limit == Map.drop(elem(error, 2), [:status])
+      assert result.rate_limit == Map.drop(elem(error, 2), [:status, :reason])
     end
 
     root = root(1)

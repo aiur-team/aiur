@@ -15,13 +15,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DecisionStore,
     DispatchBudgetStore,
     Issue,
-    PollCadence,
     RepoBase,
     SystemCpu,
     Tracker
   }
 
-  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
+  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
 
@@ -69,10 +68,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
 
     # Every freshness threshold is a multiple of the cadence actually in force,
-    # so the scheduled delay — idle backoff, webhook widening and GitHub's own
-    # floors already composed in — is published where any reader can derive
-    # from it. See `Aiur.PollCadence`.
-    :ok = PollCadence.publish_effective_interval_ms(schedule.delay_ms)
+    # so each class's effective interval — idle backoff, webhook widening and
+    # GitHub's own floors already composed in — is published where any reader
+    # can derive from it. See `Aiur.PollCadence` and
+    # `TrackerHealth.publish_poll_cadence/2` (#2309).
+    :ok = TrackerHealth.publish_poll_cadence(state, schedule)
 
     state = %{state | poll_check_in_progress: false}
 
@@ -145,6 +145,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def dispatch_candidate_poll(%State{} = state, opts \\ []) when is_list(opts) do
     fetch_candidates = Keyword.get(opts, :fetch_candidate_issues_fun, &fetch_candidate_issues/1)
     monitor_without_candidates = Keyword.get(opts, :monitor_without_candidates_fun, &monitor_without_candidates/1)
+    stranded_reconciliation = Keyword.get(opts, :stranded_reconciliation_fun, &IssueSync.sync_stranded_ticket_reconciliation/2)
 
     case fetch_candidates.(state) do
       {:paused, state} ->
@@ -195,6 +196,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
           |> IssueSync.sync_fleet_capacity_starved_alert(issues)
+          # After dispatch has had its chance to claim every eligible ticket,
+          # re-queue open non-terminal tickets that still have no live owner and
+          # no scheduled claim (a released claim with no recovery, or a
+          # degenerate zero-label ticket) so a strand never sits unowned and
+          # invisible to the label checks (#2361, #2420).
+          |> stranded_reconciliation.(issues)
 
         %{state | initial_dispatch_cycle: false}
 
@@ -449,6 +456,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # slow or permanently-stuck base build stays visible in the daemon log.
   @prewarm_hold_log_interval_ticks 30
 
+  # A prewarm hold is only an operator-facing event once it has outlived a
+  # routine refresh. A scheduled freshness probe resolves in seconds, so its
+  # gate hold self-clears within a poll or two and never matters to an operator;
+  # reporting it at `needs_attention` severity on every cycle drowns a real
+  # block in background hum (#2432). This debounce lets the routine hold pass
+  # silently and raises `system.dispatch.prewarm_blocked` only once a hold has
+  # persisted past the bound — a probe that fails or exceeds its own timeout,
+  # a build that genuinely holds the fleet, or a stalled hold the dispatch
+  # watchdog later releases. Kept below `RepoBase`'s 30s remote-probe timeout so
+  # a probe that exceeds its bound is reported while the gate is still held.
+  @prewarm_blocked_alert_after_ms 15_000
+
   # Reads the open-blocking-Command ticket set once per poll cycle into State.
   # The dispatch gate is fail-closed: `:unavailable` (the decision store could
   # not be read) holds every new dispatch, because an open blocking Command is
@@ -567,7 +586,35 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
         |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun)
         |> log_prewarm_hold(phase, log_fun)
-        |> emit_prewarm_blocked_alert(phase)
+        |> maybe_emit_prewarm_blocked_alert(phase)
+    end
+  end
+
+  # Raises `system.dispatch.prewarm_blocked` only once a prewarm hold has
+  # persisted past `@prewarm_blocked_alert_after_ms`, so a routine refresh probe
+  # that self-clears in seconds is never reported while a genuine block still is
+  # (#2432). The hold start is stamped on the first observed hold tick; a hold
+  # that clears before the bound (the healthy case) emits nothing, and the
+  # debounce is reset by `clear_prewarm_blocked_alert/2` on the dispatch side.
+  # The already-active clause is handled here so a block that has been reported
+  # keeps recording the capacity constraint without re-publishing.
+  @doc false
+  @spec maybe_emit_prewarm_blocked_alert(State.t(), term()) :: State.t()
+  def maybe_emit_prewarm_blocked_alert(%State{} = state, phase),
+    do: maybe_emit_prewarm_blocked_alert(state, phase, fn -> System.monotonic_time(:millisecond) end)
+
+  @doc false
+  @spec maybe_emit_prewarm_blocked_alert(State.t(), term(), (-> non_neg_integer())) :: State.t()
+  def maybe_emit_prewarm_blocked_alert(%State{} = state, phase, now_fun)
+      when is_function(now_fun, 0) do
+    now_ms = now_fun.()
+    since_ms = state.prewarm_hold_since_ms || now_ms
+    state = %{state | prewarm_hold_since_ms: since_ms}
+
+    if state.prewarm_blocked_alert_active or now_ms - since_ms < @prewarm_blocked_alert_after_ms do
+      record_capacity_constraint(state, :build, "prewarm=#{phase}")
+    else
+      emit_prewarm_blocked_alert(state, phase)
     end
   end
 
@@ -618,7 +665,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def clear_prewarm_blocked_alert(state, phase \\ :ready)
 
   def clear_prewarm_blocked_alert(%State{prewarm_blocked_alert_resolution_emitted: true} = state, _phase),
-    do: %{state | prewarm_blocked_alert_active: false}
+    do: %{state | prewarm_blocked_alert_active: false, prewarm_hold_since_ms: nil}
 
   def clear_prewarm_blocked_alert(%State{} = state, phase) do
     active? =
@@ -631,11 +678,14 @@ defmodule Aiur.Orchestrator.Dispatcher do
              needs_attention: false,
              severity: "info"
            ) do
-        :ok -> %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
-        {:error, _reason} -> state
+        :ok ->
+          %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true, prewarm_hold_since_ms: nil}
+
+        {:error, _reason} ->
+          state
       end
     else
-      %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
+      %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true, prewarm_hold_since_ms: nil}
     end
   end
 
@@ -998,7 +1048,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       when is_list(opts) do
     issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
-    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set()) do
+    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set(), opts) do
       {:ok, %Issue{} = refreshed_issue} ->
         state
         |> clear_dispatch_decline(refreshed_issue)
@@ -1717,11 +1767,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end)
   end
 
-  @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t()) ::
+  @spec revalidate_issue_for_dispatch(Issue.t(), function(), MapSet.t(), keyword()) ::
           {:ok, Issue.t()} | {:skip, Issue.t() | :missing} | {:error, term()}
-  def revalidate_issue_for_dispatch(%Issue{id: issue_id}, issue_fetcher, terminal_states)
-      when is_binary(issue_id) and is_function(issue_fetcher, 1) do
-    case issue_fetcher.([issue_id]) do
+  def revalidate_issue_for_dispatch(issue, issue_fetcher, terminal_states, opts \\ [])
+
+  def revalidate_issue_for_dispatch(%Issue{id: issue_id}, issue_fetcher, terminal_states, opts)
+      when is_binary(issue_id) and is_function(issue_fetcher, 1) and is_list(opts) do
+    # A dispatch-time revalidation is exactly the "GitHub call that gives up on
+    # a self-clearing hold" #2444 is about: the issue refresh is held by the
+    # local budget guard seconds before its own `reset_at`, and declining the
+    # dispatch on it turned a four-second hold into a `tracker_revalidation_failed`
+    # decline (#2311, #2393, #2420). The shared helper waits the short hold out
+    # and retries the fetch; a hold beyond the ceiling or past the cap still
+    # fails, so real starvation is not masked.
+    result =
+      LocalHold.run(
+        fn -> issue_fetcher.([issue_id]) end,
+        LocalHold.caller_opts(opts)
+      )
+
+    case result do
       {:ok, [%Issue{} = refreshed_issue | _]} ->
         if Orchestrator.retry_candidate_issue?(refreshed_issue, terminal_states) do
           {:ok, refreshed_issue}
@@ -1737,7 +1802,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  def revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states), do: {:ok, issue}
+  def revalidate_issue_for_dispatch(issue, _issue_fetcher, _terminal_states, _opts), do: {:ok, issue}
 
   @spec retry_dispatch_ready?(Issue.t(), State.t(), String.t() | nil) :: boolean()
   def retry_dispatch_ready?(%Issue{} = issue, %State{} = state, worker_host) do
@@ -2236,40 +2301,62 @@ defmodule Aiur.Orchestrator.Dispatcher do
     if entry[:tripped] == :lifetime and entry[:durable_latch_applied] != true and
          is_binary(issue.identifier) do
       case update_state_fun.(issue.identifier, "error") do
-        :ok ->
-          lifetime = Map.get(entry, :lifetime, 0)
-          maximum = Config.agent_max_dispatches_per_ticket()
-
-          Alerts.emit_custom(
-            "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
-            "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
-            issue: issue.identifier,
-            reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
-            needs_attention: true,
-            severity: "warning",
-            # IssueSync reconstructs the persisted error cause after a restart
-            # from the central feed only, so this attention must land there or
-            # it can never be resolved or rearmed.
-            central: true
-          )
-
-          updated_entry = Map.put(entry, :durable_latch_applied, true)
-          state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
-
-          %{
-            state
-            | claimed: MapSet.delete(state.claimed, issue.id),
-              observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id),
-              observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue.id, :lifetime_latch)
-          }
-
-        {:error, reason} ->
-          Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
-
-          state
+        :ok -> apply_lifetime_latch_error_write(state, issue, entry)
+        {:error, reason} -> handle_lifetime_latch_write_failure(state, issue, entry, reason)
       end
     else
       state
+    end
+  end
+
+  defp apply_lifetime_latch_error_write(%State{} = state, %Issue{} = issue, entry) do
+    lifetime = Map.get(entry, :lifetime, 0)
+    maximum = Config.agent_max_dispatches_per_ticket()
+
+    Alerts.emit_custom(
+      "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
+      "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+      issue: issue.identifier,
+      reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+      needs_attention: true,
+      severity: "warning",
+      # IssueSync reconstructs the persisted error cause after a restart
+      # from the central feed only, so this attention must land there or
+      # it can never be resolved or rearmed.
+      central: true
+    )
+
+    updated_entry = Map.put(entry, :durable_latch_applied, true)
+    state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
+
+    %{
+      state
+      | claimed: MapSet.delete(state.claimed, issue.id),
+        observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue.id, :lifetime_latch)
+    }
+  end
+
+  defp handle_lifetime_latch_write_failure(%State{} = state, %Issue{} = issue, entry, reason) do
+    Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
+
+    # The terminal `error` write that would park the ticket never landed,
+    # so it keeps its active-state label; alert (once) rather than only
+    # logging so the Executor sees a stranded ticket (#2420).
+    if entry[:latch_alert_emitted] do
+      state
+    else
+      Alerts.emit_custom(
+        "ticket.#{issue.identifier}.agent.attention.lifetime_latch_write_failed",
+        "Lifetime dispatch latch could not be persisted as error (#{inspect(reason)}); the ticket keeps its active-state label.",
+        issue: issue.identifier,
+        reason: "The lifetime-latch error-state write failed (#{inspect(reason)}); the ticket was not parked in error and may be re-dispatched.",
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
+
+      put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, Map.put(entry, :latch_alert_emitted, true)))
     end
   end
 

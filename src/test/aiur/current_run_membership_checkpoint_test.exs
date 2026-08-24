@@ -21,7 +21,7 @@ defmodule Aiur.CurrentRunMembership.CheckpointTest do
 
   test "refuses an oversized checkpoint before it can replace replayable recovery data" do
     oversized = %{"members" => [String.duplicate("x", Codec.max_checkpoint_bytes())]}
-    path = Path.join(System.tmp_dir!(), "aiur-oversized-checkpoint-#{System.unique_integer([:positive])}")
+    path = Aiur.TestSupport.tmp_root!("aiur-oversized-checkpoint")
 
     assert {:error, :record_too_large} = Codec.validate_checkpoint_record_size(oversized)
     assert {:error, :record_too_large} = FileOps.write_checkpoint(path, oversized)

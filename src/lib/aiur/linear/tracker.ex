@@ -97,6 +97,9 @@ defmodule Aiur.Linear.Tracker do
   @spec fetch_open_pull_request_for_branch(String.t() | integer()) :: {:ok, nil}
   def fetch_open_pull_request_for_branch(_issue_id), do: {:ok, nil}
 
+  @spec fetch_open_pull_requests_for_branch(String.t() | integer()) :: {:ok, []}
+  def fetch_open_pull_requests_for_branch(_issue_id), do: {:ok, []}
+
   @spec update_issue_state(String.t(), String.t()) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do

@@ -109,7 +109,7 @@ defmodule Aiur.BuildOrder.Cadence do
   @max_detail_freshness_ms 300_000
 
   @type t :: %{
-          graph_catalog_refresh_ms: pos_integer(),
+          graph_catalog_refresh_ms: non_neg_integer(),
           graph_catalog_labels_refresh_ms: pos_integer(),
           ticket_detail_freshness_ms: pos_integer()
         }
@@ -138,6 +138,19 @@ defmodule Aiur.BuildOrder.Cadence do
   interval by exactly the widening factors the dispatcher applied — at the
   shipped defaults, a factor of 5 while the fleet is idle.
 
+  The catalog is a `:planning`-class read: its cadence resolves from the
+  planning interval (`polling.intervals.planning`, falling back to
+  `polling.interval_seconds`) rather than the bare global interval, so an
+  operator can run the expensive Build Order reads at 10 minutes while dispatch
+  stays at 2 (#2309).
+
+  When the planning class is **on-demand** (`polling.intervals.planning: 0`,
+  the recommended value), the catalog has *no timer*: `graph_catalog_refresh_ms`
+  is `0`, which `GraphProjection` reads as "refresh only on demand" — a page
+  mount or an explicit `refresh`, never a cadence. The labelled-read and
+  ticket-detail values still need a non-zero base (they are display budgets,
+  not timers), so they derive from the fallback interval.
+
   Before the dispatcher has published anything — which is every boot, since
   `:persistent_term` does not survive a VM restart, and `GraphProjection` starts
   ahead of the `Orchestrator` — this falls back to the **base** interval rather
@@ -150,14 +163,34 @@ defmodule Aiur.BuildOrder.Cadence do
   """
   @spec effective(keyword()) :: t()
   def effective(opts \\ []) do
-    opts |> effective_interval_ms() |> derive_ms()
+    case effective_interval_ms(opts) do
+      # On-demand planning: no timer. The labels and ticket-detail values still
+      # need a base, so they derive from the fallback while the catalog cadence
+      # is the on-demand sentinel `0` (#2309).
+      0 -> on_demand()
+      interval_ms -> derive_ms(interval_ms)
+    end
   end
 
   defp effective_interval_ms(opts) do
     case Keyword.get(opts, :effective_interval_ms) do
       ms when is_integer(ms) and ms > 0 -> ms
-      _unset -> PollCadence.published_effective_interval_ms() || PollCadence.base_interval_ms(opts)
+      _unset -> PollCadence.published_effective_interval_ms(class: :planning) || PollCadence.base_interval_ms(Keyword.put(opts, :class, :planning))
     end
+  end
+
+  # On-demand planning: the catalog has no timer — `graph_catalog_refresh_ms`
+  # is the `0` sentinel that `GraphProjection` reads as "no cadence, refresh on
+  # demand only". The two values that are display budgets rather than timers
+  # still derive from a real interval so they never become zero-width (#2309).
+  defp on_demand do
+    fallback = derive_ms(@fallback_interval_ms)
+
+    %{
+      graph_catalog_refresh_ms: 0,
+      graph_catalog_labels_refresh_ms: fallback.graph_catalog_labels_refresh_ms,
+      ticket_detail_freshness_ms: fallback.ticket_detail_freshness_ms
+    }
   end
 
   @doc """
