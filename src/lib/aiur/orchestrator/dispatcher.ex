@@ -196,6 +196,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
           |> IssueSync.sync_fleet_capacity_starved_alert(issues)
+          |> IssueSync.sync_decision_store_unavailable_alert(issues)
           # After dispatch has had its chance to claim every eligible ticket,
           # re-queue open non-terminal tickets that still have no live owner and
           # no scheduled claim (a released claim with no recovery, or a

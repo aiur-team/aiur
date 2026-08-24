@@ -93,6 +93,14 @@ defmodule Aiur.Orchestrator.State do
             alerted: [String.t()]
           },
           fleet_capacity_starvation: %{since_ms: integer() | nil, alert_active: boolean(), effective_cap: pos_integer() | nil},
+          # Monotonic ms when the DecisionStore first read as `:unavailable`
+          # while dispatchable work was queued (nil when no such hold is in
+          # progress). The `system.dispatch.decision_store_unavailable` alert is
+          # only raised once the outage has persisted past the capacity-
+          # starvation dwell, so a momentary blip raises nothing (#2453).
+          decision_store_unavailable_since_ms: integer() | nil,
+          decision_store_unavailable_alert_active: boolean(),
+          decision_store_unavailable_alert_resolution_emitted: boolean(),
           dependency_circular_wait: %{
             optional(String.t()) => %{identifier: String.t(), waiting_count: pos_integer(), since_ms: integer(), alerted?: boolean()}
           },
@@ -231,6 +239,9 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
+    decision_store_unavailable_since_ms: nil,
+    decision_store_unavailable_alert_active: false,
+    decision_store_unavailable_alert_resolution_emitted: false,
     dependency_circular_wait: %{},
     # Fleet aggregate for tickets carrying more than one `agent:*` state label
     # (`contradictory_state_label_tickets` maps issue id -> %{identifier, labels,
