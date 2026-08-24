@@ -43,7 +43,11 @@ defmodule Aiur.Application do
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     :ok = log_base_branch(settings)
     :ok = log_route_credentials(settings)
-    log_process_identity()
+    # Durable daemon-lifecycle journal: record this boot's start (and its
+    # invoking process) before any child can fail, so an incident's journal
+    # always names the instance that started. Best-effort — a journal write
+    # failure must never crash boot.
+    record_daemon_start()
     Aiur.Shutdown.record_workspace_root()
     Aiur.Shutdown.record_alert_ledger_path()
     install_signal_handlers()
@@ -454,6 +458,23 @@ defmodule Aiur.Application do
     :ok
   end
 
+  @doc false
+  @spec record_daemon_start() :: :ok
+  def record_daemon_start do
+    process_identity = Aiur.DaemonLifecycle.process_identity()
+    log_process_identity(process_identity)
+    Aiur.DaemonLifecycle.record_start(Map.to_list(process_identity))
+  rescue
+    error ->
+      # Best-effort by contract: identity resolution and the journal write both
+      # sit on the boot path. `process_identity/0` builds its record from a hard
+      # hostname match and `Boot.run_id/0`, and `record_start/1` takes the
+      # journal lock — none of that may take the application down, so the whole
+      # call is wrapped here, not just the write.
+      Logger.warning("aiur_boot phase=daemon_start_failed error=#{inspect(error)}")
+      :ok
+  end
+
   @doc """
   Run the distribution bring-up step and log the outcome. Public so
   tests can inject a stub `distribution_module` and exercise both
@@ -511,31 +532,11 @@ defmodule Aiur.Application do
   # so when the wrapper trap fires and writes `wrapper_pid=N` to
   # `/tmp/aiur-trap.N.log`, the pair tells you which wrapper invocation
   # owned which BEAM. Without this, post-mortems have to guess.
-  defp log_process_identity do
-    os_pid = System.pid()
-    {ppid, ppid_comm} = read_parent_identity()
+  defp log_process_identity(identity) do
+    os_pid = identity.os_pid
+    ppid = identity.ppid || "unknown"
+    ppid_comm = identity.ppid_comm || "unknown"
     Logger.info("aiur_boot phase=pids os_pid=#{os_pid} ppid=#{ppid} ppid_comm=#{ppid_comm}")
-  end
-
-  defp read_parent_identity do
-    ppid =
-      case File.read("/proc/self/status") do
-        {:ok, contents} ->
-          case Regex.run(~r/^PPid:\s+(\d+)/m, contents) do
-            [_, pid_str] -> pid_str
-            _ -> "unknown"
-          end
-
-        _ ->
-          "unknown"
-      end
-
-    ppid_comm =
-      case File.read("/proc/#{ppid}/comm") do
-        {:ok, comm} -> String.trim(comm)
-        _ -> "unknown"
-      end
-
-    {ppid, ppid_comm}
+    :ok
   end
 end
