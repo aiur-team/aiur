@@ -394,6 +394,19 @@ defmodule Aiur.AiurAgentSkillTest do
     assert is_binary(payload["recommendation"]["option_id"])
   end
 
+  test "Command authoring names the Executor-answerable Command types and the inverted burden" do
+    relay = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
+    normalized = one_line(relay)
+
+    assert normalized =~ "Two Command types are explicitly Executor-answerable"
+    assert normalized =~ ~s(kind: "rework_review")
+    assert normalized =~ "authority: supervisor_preferred"
+    assert normalized =~ ~s(kind: "sequencing")
+    assert normalized =~ "explicitly declare `authority: human_required`"
+    assert normalized =~ "omission now defaults to Executor-answerable"
+    assert normalized =~ "within the Executor floor"
+  end
+
   test "blocker guidance keeps unblocked work moving" do
     shared_prompt = File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
     repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
@@ -711,7 +724,7 @@ defmodule Aiur.AiurAgentSkillTest do
   # Runs the real wrapper the daemon installs on agent PATH, against a stub
   # `gh`, so this asserts the shipped guard rather than a copy of its rules.
   defp run_creation_guard(arguments) do
-    root = Path.join(System.tmp_dir!(), "aiur-skill-guard-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-skill-guard")
     File.mkdir_p!(root)
     stub = Path.join(root, "gh")
     File.write!(stub, "#!/bin/sh\nexit 0\n")

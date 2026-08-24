@@ -260,7 +260,7 @@ defmodule Aiur.GitHub.CIPollBatch do
               pageInfo { hasNextPage endCursor }
               nodes {
                 __typename
-                ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt }
+                ... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { id } }
                 ... on StatusContext { context state targetUrl createdAt description }
               }
             }
@@ -458,6 +458,7 @@ defmodule Aiur.GitHub.CIPollBatch do
       "conclusion" => check_run |> Map.get("conclusion") |> normalize_optional_string(),
       "started_at" => Map.get(check_run, "startedAt"),
       "completed_at" => Map.get(check_run, "completedAt"),
+      "check_suite_id" => get_in(check_run, ["checkSuite", "id"]),
       "output" => Map.get(check_run, "output", %{})
     }
   end

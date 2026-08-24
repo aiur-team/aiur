@@ -73,6 +73,14 @@ defmodule Aiur.GitHub.DeliveredPullRequestTest do
     assert DeliveredPullRequest.number_for_target("42", "owner", "repo") == 77
   end
 
+  # #2327 item 7. A delivered pull request number does not change while its
+  # body stays open, and the body is re-delivered on every event for the head
+  # branch, so the bound is a day rather than a few hours. Pinned here so a
+  # future widening of it has to say so.
+  test "the delivered-identity freshness bound is one day" do
+    assert DeliveredPullRequest.max_age_ms() == 24 * 60 * 60 * 1000
+  end
+
   test "a caller can opt out entirely without unwiring the module" do
     put(42, delivered_pull_request(), :webhook)
 

@@ -32,6 +32,25 @@ defmodule Aiur.GitHub.CommentPollBatch do
       through a branch alias omits the key entirely so the poller falls back to
       a per-pull-request read rather than mistaking "not asked for" for "none".
 
+  Every batch call reports its document, variables, estimated shape cost and
+  measured `rateLimit { cost }` at debug level, so a connection-size change is
+  observable per call (see `report_batch_cost/3`). Measured against real GitHub
+  on a 33-target batch of this repository's open pull requests, `last: 20` and
+  `last: 1` on the nested comment connections bill identically (35 points
+  either way): GitHub prices requested connection capacity, and the comment
+  connections resolve under empty thread pages. The lever that moves the bill
+  is the thread page itself — `reviewThreads(first: 100)` billed 35 points
+  where `first: 20` bills 8 (#2355).
+
+  On "does it run against every target every tick": yes, and it must. A target
+  whose thread state no free source holds — no delivery-fresh webhook snapshot,
+  no direct PR identity — has to be asked, because omitting the question reads
+  as "no unresolved threads" to the poller. What already gates it is the
+  `cached_threads` skip (a delivery-fresh snapshot drops the thread-bearing
+  aliases for that target, leaving identity only) and the identity-only branch
+  aliases; the thread-bearing aliases are exactly the gap no free source
+  covers, and per-call cost is the lever this module can move.
+
   ## A free side effect: the comment→thread map
 
   Every thread this document parses also deposits its comment→thread mapping
@@ -45,7 +64,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.{DeliveredPullRequest, PollSnapshots, ResourceStore, ReviewThreads, Transport}
+  alias Aiur.GitHub.{DeliveredPullRequest, GraphQLCost, PollSnapshots, ResourceStore, ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
   # Each target contributes an issueOrPullRequest alias plus up to two
@@ -68,12 +87,25 @@ defmodule Aiur.GitHub.CommentPollBatch do
   #
   # That case is rare enough here to accept, but do not read this as free.
   #
-  # `reviewThreads(first: 100) { comments(last: 20) }` is deliberately NOT
-  # reduced. Measured against GitHub's own reported `rateLimit { cost }` this
-  # document costs **10-11 points per call**, not the ~660 a naive nodes/100
-  # estimate predicts, and a smaller thread page would push every busy pull
-  # request onto the paginated fallback each cycle. There is no budget worth
-  # buying with review-comment risk.
+  # The thread page is `first: 20`, and that is the measured cost lever. GitHub
+  # prices requested thread-page capacity: over a 33-target batch of this
+  # repository's open pull requests, `reviewThreads(first: 100)` billed **35
+  # points** per call against real `rateLimit { cost }`, and `first: 20` bills
+  # **8** (#2355). The repository's open pull requests currently carry **zero**
+  # review threads (measured via `reviewThreads { totalCount }`), so `first: 20`
+  # keeps twenty times the headroom the busiest pull request needs; a pull
+  # request that genuinely exceeds twenty threads overflows
+  # `review_threads_overflow?/1` and falls back to the complete paginated
+  # per-pull-request read (`ReviewThreads`, `after: $cursor`) — correct, at the
+  # cost of that target taking the 1-point-floor fallback for the cycle.
+  #
+  # The comment page is `comments(last: 1)` because the only consumer of these
+  # threads — `ReviewThreads.unaddressed_thread_comments` — reads the last
+  # comment of unresolved threads and nothing else. Measured against GitHub's
+  # own reported `rateLimit { cost }`, `last: 20` and `last: 1` bill identically
+  # (35 points on the same 33-target batch), so the cut buys payload and
+  # node-limit headroom, not points; it is kept because it is exactly what the
+  # consumer reads.
   #
   # A target whose pull request a **webhook delivery already identified**
   # (`Aiur.GitHub.DeliveredPullRequest`) skips the speculation entirely: it
@@ -204,6 +236,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
     case Transport.github_graphql(request_fun, token, query, variables, caller: :comment_poll_batch) do
       {:ok, body} ->
+        report_batch_cost(query, variables, body)
+
         case get_in(body, ["data", "repository"]) do
           %{} = repository ->
             deposit_comment_thread_map(owner, repo, repository)
@@ -216,6 +250,25 @@ defmodule Aiur.GitHub.CommentPollBatch do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # One debug line per call, so the before/after of any connection-size change
+  # is observable without reading the quota ledger. The estimate is the shape
+  # cost computed before sending (`GraphQLCost.estimate/1`); the measured cost
+  # is GitHub's own `rateLimit { cost }` from the response, which the transport
+  # injects on every document. A batch call is one document over up to 33
+  # targets, so this fires at most once per poll cycle per chunk — not per
+  # target, and not per comment.
+  defp report_batch_cost(query, variables, body) do
+    estimate = GraphQLCost.estimate(query)
+    measured = GraphQLCost.reported(%{body: body})
+
+    Logger.debug(fn ->
+      "comment_poll_batch cost report " <>
+        "estimated_points=#{estimate.points} estimated_nodes=#{estimate.nodes} " <>
+        "measured_points=#{inspect(measured && measured[:cost])} " <>
+        "variables=#{inspect(variables)} document=#{query}"
+    end)
   end
 
   # This document parses `reviewThreads { comments { databaseId } }` on every
@@ -333,9 +386,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_fields(_entry) do
     """
     #{pull_request_identity_fields()}
-    reviewThreads(first: 100) {
+    reviewThreads(first: 20) {
       pageInfo { hasNextPage endCursor }
-      nodes { id isResolved path line comments(last: 20) { nodes { #{thread_comment_fields()} } } }
+      nodes { id isResolved path line comments(last: 1) { nodes { #{thread_comment_fields()} } } }
     }
     """
   end

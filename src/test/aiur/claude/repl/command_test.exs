@@ -14,7 +14,10 @@ defmodule Aiur.Claude.Repl.CommandTest do
       # families are added, so matching its whole literal makes every future
       # addition look like a regression here.
       assert cmd =~ "*_API_KEY|"
-      assert cmd =~ "GITHUB_APP_*) unset "
+      # #2356: the raw GitHub credential families join the case arm after the
+      # App prefix; assert each arm individually so future families stay covered.
+      assert cmd =~ "GITHUB_APP_*|"
+      assert cmd =~ "GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|MISE_GITHUB_TOKEN) unset "
       assert cmd =~ "export HEX_HOME"
       assert cmd =~ "AIUR_BUILD_GATE_BIN='/ws/foo/.aiur-runtime/build-bin'"
       assert cmd =~ "BASH_ENV="
@@ -27,7 +30,7 @@ defmodule Aiur.Claude.Repl.CommandTest do
     end
 
     test "a failed workspace cd cannot launch Claude or retain the operator token" do
-      root = Path.join(System.tmp_dir!(), "aiur-claude-command-#{System.unique_integer([:positive])}")
+      root = Aiur.TestSupport.tmp_root!("aiur-claude-command")
       bin = Path.join(root, "bin")
       missing_workspace = Path.join(root, "missing")
       File.mkdir_p!(bin)
@@ -66,7 +69,10 @@ defmodule Aiur.Claude.Repl.CommandTest do
       # families are added, so matching its whole literal makes every future
       # addition look like a regression here.
       assert cmd =~ "*_API_KEY|"
-      assert cmd =~ "GITHUB_APP_*) unset "
+      # #2356: the raw GitHub credential families join the case arm after the
+      # App prefix; assert each arm individually so future families stay covered.
+      assert cmd =~ "GITHUB_APP_*|"
+      assert cmd =~ "GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|MISE_GITHUB_TOKEN) unset "
 
       {scrub_pos, _len} = :binary.match(cmd, "unset ")
       {exec_pos, _len} = :binary.match(cmd, "exec claude")
@@ -125,7 +131,7 @@ defmodule Aiur.Claude.Repl.CommandTest do
 
   describe "resume_session_id/2" do
     setup do
-      dir = Path.join(System.tmp_dir!(), "cmd-resume-#{System.unique_integer([:positive])}")
+      dir = Aiur.TestSupport.tmp_root!("cmd-resume")
       on_exit(fn -> File.rm_rf(dir) end)
       %{projects_dir: dir, workspace: "/ws/aiur/613"}
     end

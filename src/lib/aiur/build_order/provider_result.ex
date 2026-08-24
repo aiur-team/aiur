@@ -73,8 +73,18 @@ defmodule Aiur.BuildOrder.ProviderResult do
     end
   end
 
+  # `:reason` is retained because it is the only thing that separates a genuine
+  # timeout from a refused or unreachable connection: `Errors` tags both
+  # `:timeout`. It is a bounded atom the transport layer chose, never a payload.
   defp safe_error({:github, classification, detail}) when is_atom(classification) and is_map(detail) do
-    {:github, classification, Map.take(detail, [:status, :remaining, :reset_at, :retry_after, :poll_interval])}
+    {:github, classification, Map.take(detail, [:status, :reason, :remaining, :reset_at, :retry_after, :poll_interval])}
+  end
+
+  # Both hold shapes: `Budget.acquire/2` stamps `:reason`, the `Quota` preflight
+  # hold carries only the observed window. Taking a fixed key set keeps either
+  # one bounded without requiring both to look alike.
+  defp safe_error({:aiur, :locally_held, %{resource: resource} = detail}) when is_binary(resource) do
+    {:aiur, :locally_held, Map.take(detail, [:reason, :resource, :reset_at, :remaining, :limit])}
   end
 
   defp safe_error(:graphql_partial), do: :graphql_partial

@@ -32,6 +32,8 @@ agent:
   # next one in the list, returning to an earlier one once it recovers.
   priority: {{PRIORITY}}                   # e.g. [deepseek, codex, claude]
   # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
+  # pricing_policy:
+  #   avoid_peak_pricing: true             # skip peak-priced routes (DeepSeek) via agent.priority; false = follow the list exactly
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
   # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
@@ -78,6 +80,7 @@ agent:
   # target_load_average: 1.0             # per-scheduler adaptive target; set null to disable envelope
   # load_ramp_step: 1                    # slots added per below-target poll
   # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
+  # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===
@@ -97,6 +100,23 @@ polling:
   interval_seconds: {{POLLING}}
   idle_widen_factor: 5.0                 # multiply the interval while no agents are active; operator/webhook wakes remain immediate
   view_state_sweep_seconds: 900          # the single view-state reconciliation sweep; recovers lost webhook deliveries, not a freshness knob
+  # Per-class poll cadences in seconds (#2309); a class with no entry falls back
+  # to interval_seconds. Optional — an unset map keeps the single-interval
+  # behaviour exactly. Recommended shape for a quota-conscious fleet:
+  #   dispatch stays at the tracker cadence (cheap ETag'd REST, urgent),
+  #   review widens only while a webhook proves comment coverage (the poll is a
+  #   safety net; on a polling repo it stays at the dispatch rate), and planning
+  #   is on-demand (0 = no timer, refresh when a consumer asks).
+  # The `ci` and `firehose` classes are deliberately NOT listed: CI is
+  # demand-scoped and its only effect is to *slow* CI detection when set wider
+  # than the tick (an agent-visible problem), and the firehose loop is not gated
+  # on a class cadence — it rides the dispatch tick and is already self-
+  # regulating via GitHub's X-Poll-Interval — so an entry would be a dead knob.
+  # Both stay at the fallback.
+  intervals:
+    dispatch: 120      # tracker poll (open issues / agent:* labels); must be > 0
+    review: 300        # comments and review threads (webhook-proven repos only)
+    planning: 0        # Build Order catalog: demand-driven, no timer
 max_vertical_panes: 3                    # max agent chat panes shown at once
 pre_warmed_sessions: {{PRE_WARMED}}      # opencode sessions pre-booted for fast open
 
@@ -131,6 +151,23 @@ alerts:
 #   enabled: false           # true = act on comments on watched/commanded PRs repo-wide
 #   watch_label: watch        # label a PR `<label_prefix>:watch` (e.g. agent:watch) to monitor all its code-owner/trusted comments
 #   command_prefix: /aiur     # a trusted comment starting with this (or mentioning github.bot_account) handles that one comment, no label needed
+
+# === PR health scan (opt-in; OFF by default) ===
+# Periodically flags open PRs that stall silently: one authored by a configured
+# human merger (unmergeable by construction — GitHub blocks self-approval), and
+# a non-draft PR older than stale_hours with no review. Both raise
+# needs-attention alerts.
+#
+# Enabling the scan also enables the rework re-queue (#2337): a ticket in
+# agent:rework whose PR's own contribution diff changed since its blocking
+# CHANGES_REQUESTED review is automatically moved to agent:human-review for the
+# second look. A PR whose head only moved via merges of the base branch (own
+# contribution unchanged) is NOT re-queued — it raises
+# system.pr_health.rework_merge_only so the merge-only state is visible.
+# pr_health:
+#   enabled: false            # true = run the scan on interval_seconds
+#   interval_seconds: 1800    # how often the scan lists open PRs
+#   stale_hours: 24           # a non-draft PR older than this with no review is flagged
 
 # === Build Order providers (optional; in-memory only) ===
 # Supervised providers fetch configured-repository detail and retain sanitized typed ticket history.

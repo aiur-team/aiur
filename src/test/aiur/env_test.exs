@@ -361,8 +361,8 @@ defmodule Aiur.EnvTest do
 
   describe "precedence conflicts — ~/.aiur/.env vs ./.env" do
     setup do
-      home_env = Path.join(System.tmp_dir!(), "aiur-env-test-home-#{System.unique_integer([:positive])}.env")
-      repo_env = Path.join(System.tmp_dir!(), "aiur-env-test-repo-#{System.unique_integer([:positive])}.env")
+      home_env = Aiur.TestSupport.tmp_root!("aiur-env-test-home") <> ".env"
+      repo_env = Aiur.TestSupport.tmp_root!("aiur-env-test-repo") <> ".env"
 
       on_exit(fn ->
         File.rm(home_env)
