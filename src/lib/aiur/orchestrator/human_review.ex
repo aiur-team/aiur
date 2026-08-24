@@ -75,7 +75,8 @@ defmodule Aiur.Orchestrator.HumanReview do
   # is throttling a resource for a bounded window, not reporting a provenance
   # problem. The transport layer returns it in the raw `{:aiur, :locally_held,
   # hold}` shape (`Transport.uncached_quota_request`), and `Errors.classify_error`
-  # additionally wraps it as `{:github, :transport, %{reason: ...}}`; both must
+  # wraps it as `{:github, :local_hold, %{reason: ..., hold: ...}}` (#2429).
+  # Both, plus the legacy `{:github, :transport, %{reason: ...}}` wrapper, must
   # defer the human-review transition (the ticket stays in `human-review` and the
   # next poll re-verifies) rather than reverting it to `rework`, which strands a
   # healthy PR in a state whose rework turn has nothing to fix (#2409).
@@ -85,7 +86,7 @@ defmodule Aiur.Orchestrator.HumanReview do
     do: true
 
   defp transient_human_review_verification_error?({:github, kind, _detail})
-       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
+       when kind in [:dns, :timeout, :tls, :transport, :rate_limited, :local_hold],
        do: true
 
   defp transient_human_review_verification_error?({:github_api_status, status})

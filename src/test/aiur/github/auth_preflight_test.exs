@@ -117,6 +117,43 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     assert AuthPreflight.format_auth_preflight_error(:missing_github_token) == ":missing_github_token"
   end
 
+  # #2429 F3 acceptance: a local budget hold during the preflight is a local
+  # counter trip, not an App or credential problem. The message must name the
+  # hold and point at the budget config — and must not emit the generic
+  # recovery guidance (App reinstallation / GITHUB_TOKEN rotation), which could
+  # never fix a local hold. `local_hold_message` short-circuits before the
+  # token-source branch, so this holds for both GITHUB_APP and GITHUB_TOKEN
+  # sources; pre-fix this diagnostic classified as `:transport` and carried the
+  # wrong recovery text.
+  test "a local budget hold during preflight names the local hold, never App or token recovery" do
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
+    request_fun = fn _request -> {:error, {:aiur, :locally_held, hold}} end
+
+    assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+             AuthPreflight.preflight_auth(
+               request_fun: request_fun,
+               gh_auth_status_fun: fn -> {:ok, :available} end
+             )
+
+    assert diagnostic.classification == :local_hold
+    assert diagnostic.message =~ "local budget hold"
+    assert diagnostic.message =~ "tracker.github.*_limit_per_hour"
+    refute diagnostic.message =~ "verify the App is installed"
+    refute diagnostic.message =~ "re-acquires a fresh installation token"
+    refute diagnostic.message =~ "Recovery: refresh or unset GITHUB_TOKEN"
+    refute diagnostic.message =~ "the request failed before GitHub returned a status"
+  end
+
+  test "local_hold_reason?/1 recognizes a held preflight but not other failures" do
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.utc_now()}
+    diagnostic = %{classification: :local_hold, endpoint: :rate_limit, repo: "owner/repo", token_source: "GITHUB_APP"}
+
+    assert AuthPreflight.local_hold_reason?({:github_auth_preflight_failed, diagnostic})
+    assert AuthPreflight.local_hold_reason?({:aiur, :locally_held, hold})
+    refute AuthPreflight.local_hold_reason?({:github_auth_preflight_failed, %{classification: :dns}})
+    refute AuthPreflight.local_hold_reason?(:missing_github_token)
+  end
+
   describe "ensure_preflight/1 — what an idle hour costs" do
     test "six idle poll cycles spend three requests in total, not eighteen" do
       counter = start_counter()
