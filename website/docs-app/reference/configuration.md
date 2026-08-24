@@ -140,14 +140,19 @@ Freshness thresholds follow this cadence. You do not set them separately.
   staleness against the effective interval of the class they mean: the
   orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
   ticket history from `planning`.
-- Build Order's own refresh cadences follow the `planning` class, so an operator
-  can run the expensive Build Order reads on demand while dispatch stays at 2.
-  The catalog itself is event-sourced (#2325) and demand-gated (#2312): there
-  is no recurring sweep — reads happen when a page opens or a degradation needs
-  a re-list — and the `planning` cadence remains the base for its boot/mount/
-  degraded reads and its staleness window. With `planning: 0` the class has no
-  timer at all: a page mount or an explicit refresh is the only thing that
-  reads it.
+- Build Order's remaining `graph_catalog_refresh_ms` — the failure-backoff base
+  for the catalog scope, the window after which the catalog snapshot is shown
+  as ageing, and the floor the labelled-read cadence rides on — is derived from
+  the effective `planning` interval, so an idle fleet widens the Build Order
+  backoff exactly as it widens the tracker poll.
+- The catalog itself is event-sourced (#2313): the page renders the store
+  projection, there is no recurring sweep, and the only GitHub reads are the
+  rare reconciliation (daemon boot and degraded webhook delivery). It is not
+  demand-gated by who is looking — the reconciliation is the daemon-owned
+  writer that re-converges the store — and it needs no timer. A selected root's
+  staleness window and failure backoff are therefore re-based on delivery
+  latency (`webhooks.silence_threshold_seconds`), the gap after which
+  degradation triggers the reconciliation, rather than on a poll cadence.
 - So a change to an interval needs no matching threshold edit.
 - `aiur status` prints the effective value and the live interval per class, for
   example:

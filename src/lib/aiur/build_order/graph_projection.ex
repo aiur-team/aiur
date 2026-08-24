@@ -1224,10 +1224,13 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp successor_allowed?(state, :catalog), do: not catalog_on_demand?(state)
   defp successor_allowed?(_state, {:selected, _identity}), do: true
 
-  # The retry base for a failed read. Both scopes use the catalog bound: the
-  # catalog's own cadence when it exists, the tracker's base poll interval when
-  # the catalog is on-demand (#2309).
-  defp retry_base_ms(state, _scope), do: catalog_bound_ms(state)
+  # The retry base for a failed read. The catalog's own read keeps the planning
+  # cadence (or its on-demand fallback) as its base; a selected root's retry is
+  # re-based on delivery latency (#2313), because the event-sourced catalog no
+  # longer polls on a clock — delivery latency is what bounds how stale the root
+  # can be before the reconciliation re-reads it.
+  defp retry_base_ms(state, :catalog), do: catalog_bound_ms(state)
+  defp retry_base_ms(state, {:selected, _identity}), do: state.policy.delivery_staleness_ms
 
   defp scope_entry(state, :catalog), do: state.catalog
 
