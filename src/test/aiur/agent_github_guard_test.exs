@@ -700,7 +700,8 @@ defmodule Aiur.AgentGitHubGuardTest do
     # The agent request record carries the credential fingerprint (never the
     # token), so the admission is attributable to the file-backed credential.
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tread\tcore\t#{key}\t"
+    # The call site sits between the resource and the fingerprint (#2299).
+    assert events =~ "\tread\tcore\tapi\t#{key}\t"
   end
 
   # Retention (#2255): the agent request record keeps the previous two
