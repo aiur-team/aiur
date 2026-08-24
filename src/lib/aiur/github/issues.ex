@@ -17,6 +17,8 @@ defmodule Aiur.GitHub.Issues do
     Transport
   }
 
+  alias Aiur.Orchestrator.DispatchPolicy
+
   @max_issue_response_bytes 65_536
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
@@ -1031,14 +1033,24 @@ defmodule Aiur.GitHub.Issues do
     |> extract_state(extract_state_labels(label_names, prefix))
   end
 
-  # Zero-label (`[]`) and contradictory-label (`[_, _ | _]`) tickets both
-  # resolve to `nil` here: the `String | nil` contract for blocker state and
-  # expected-state checks. Keeping the two apart is the candidate filter's job,
-  # and it does so on the `Issue.state_labels` list
-  # (`degenerate_state_labels?/1`), not on atoms that never escape this
-  # module (#2420).
+  # A zero-label (`[]`) ticket resolves to `nil` here — the `String | nil`
+  # contract for blocker state and expected-state checks — and is told apart
+  # from a multi-label ticket by the candidate filter on the `Issue.state_labels`
+  # list (`degenerate_state_labels?/1`), not on atoms that never escape this
+  # module (#2420). A multi-label (`[_, _ | _]`) ticket is itself resolved
+  # deterministically by the clause below (#2384).
   defp extract_state(%{"state" => "closed"}, _state_labels), do: "Closed"
   defp extract_state(_gh_issue, [state]), do: state
+
+  # A ticket carrying two `agent:*` state labels is a broken lifecycle state.
+  # `extract_state` used to answer `nil` here, which made every consumer see an
+  # "unknown" state — worst of all the CI lifecycle, whose terminal transition
+  # would then be skipped and never clear a stale `agent:ci-wait`, stranding the
+  # pair as permanently undispatchable (#2366). Resolve the pair deterministically
+  # so a state-labeled ticket always has a concrete state.
+  defp extract_state(_gh_issue, state_labels) when is_list(state_labels) and state_labels != [],
+    do: DispatchPolicy.resolve_state_labels(state_labels)
+
   defp extract_state(_gh_issue, _state_labels), do: nil
 
   @spec extract_state_labels([String.t()], String.t()) :: [String.t()]

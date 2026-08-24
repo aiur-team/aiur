@@ -71,14 +71,20 @@ defmodule Aiur.GitHub.IssueStateTest do
 
     test "adds the new state label first, then removes the old one (no zero-label window)" do
       calls = :ets.new(:calls, [:set, :public])
-      :ets.insert(calls, {:count, 0})
+      :ets.insert(calls, {:requests, []})
 
       request_fun = fn req ->
-        [{:count, n}] = :ets.lookup(calls, :count)
-        :ets.insert(calls, {:count, n + 1})
+        [{:requests, seen}] = :ets.lookup(calls, :requests)
+        :ets.insert(calls, {:requests, [req | seen]})
 
-        case {req.method, n} do
-          {:get, 0} ->
+        # Responses are keyed by method + URL, not call ordinal: #2426 reorders
+        # the swap to add-first, so a test that dispatches on the call index
+        # silently falls through to a catch-all and asserts nothing. The two
+        # GETs (initial read and the active-label re-check) both serve the
+        # pre-swap label set; the transition removes the prefixed label(s) and
+        # adds the target regardless of which order the POST/DELETEs land in.
+        case req.method do
+          :get ->
             {:ok,
              %{
                status: 200,
@@ -88,30 +94,90 @@ defmodule Aiur.GitHub.IssueStateTest do
                }
              }}
 
-          {:get, 1} ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "state" => "open",
-                 "labels" => [%{"name" => "sym:todo"}, %{"name" => "other"}]
-               }
-             }}
-
-          {:post, 2} ->
-            assert req.body == %{"labels" => ["sym:rework"]}
-            {:ok, %{status: 200}}
-
-          {:delete, 3} ->
+          :delete ->
             assert req.url =~ "sym%3Atodo" or req.url =~ "sym:todo"
             {:ok, %{status: 200}}
 
-          _ ->
+          :post ->
+            assert req.body == %{"labels" => ["sym:rework"]}
             {:ok, %{status: 200}}
+
+          :patch ->
+            flunk("non-terminal state must not close the issue")
+
+          _other ->
+            flunk("unexpected request: #{inspect(req)}")
         end
       end
 
       assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
+
+      # Assert the resulting call *set*, not the ordinals: one initial read, one
+      # active-label re-check, one removal of the old state label, one add of
+      # the target — and no close (#2366, #2426).
+      [{:requests, seen}] = :ets.lookup(calls, :requests)
+      methods = Enum.map(seen, & &1.method)
+
+      assert Enum.count(methods, &(&1 == :get)) == 2
+      assert Enum.count(methods, &(&1 == :delete)) == 1
+      assert Enum.count(methods, &(&1 == :post)) == 1
+      refute :patch in methods
+    end
+
+    test "a second state label replaces the first rather than both persisting" do
+      # #2366 acceptance: a state label set is an enum, not a set. A ticket
+      # already carrying two `agent:*` state labels (here the stale ci-wait that
+      # was never cleared plus rework) must end with exactly one label when a
+      # transition applies the next one — both old labels are removed and only
+      # the target is added.
+      calls = :ets.new(:calls, [:set, :public])
+      :ets.insert(calls, {:requests, []})
+
+      request_fun = fn req ->
+        [{:requests, seen}] = :ets.lookup(calls, :requests)
+        :ets.insert(calls, {:requests, [req | seen]})
+
+        case req.method do
+          :get ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "state" => "open",
+                 "labels" => [%{"name" => "sym:ci-wait"}, %{"name" => "sym:rework"}]
+               }
+             }}
+
+          :delete ->
+            {:ok, %{status: 200}}
+
+          :post ->
+            assert req.body == %{"labels" => ["sym:in-progress"]}
+            {:ok, %{status: 200}}
+
+          :patch ->
+            flunk("non-terminal state must not close the issue")
+
+          _other ->
+            flunk("unexpected request: #{inspect(req)}")
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
+
+      # Both old state labels were removed and the target added — asserted as a
+      # call set so the swap order (#2426 add-first) cannot silently unset them.
+      [{:requests, seen}] = :ets.lookup(calls, :requests)
+      methods = Enum.map(seen, & &1.method)
+      deleted_urls = Enum.map(Enum.filter(seen, &(&1.method == :delete)), & &1.url)
+
+      assert Enum.count(methods, &(&1 == :get)) == 2
+      assert Enum.count(methods, &(&1 == :delete)) == 2
+      assert Enum.count(methods, &(&1 == :post)) == 1
+      refute :patch in methods
+
+      assert Enum.any?(deleted_urls, &(&1 =~ "sym%3Aci-wait" or &1 =~ "sym:ci-wait"))
+      assert Enum.any?(deleted_urls, &(&1 =~ "sym%3Arework" or &1 =~ "sym:rework"))
     end
 
     # Acceptance #2420: a swap that fails on the new-label POST must never leave

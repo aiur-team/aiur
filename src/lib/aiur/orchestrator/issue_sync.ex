@@ -16,6 +16,10 @@ defmodule Aiur.Orchestrator.IssueSync do
   @idle_terminal_verification_batch_size 25
   @capacity_starvation_alert_after_ms 60_000
   @fleet_capacity_low_load_ratio 0.5
+  # A contradictory-label pair must persist this long (about one poll cycle)
+  # before the single fleet alert fires, so a pair the heal repairs on the same
+  # observation never alarms.
+  @contradictory_label_alert_after_ms 60_000
 
   @spec sync_polled_issue_state(State.t(), list()) :: State.t()
   def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
@@ -57,6 +61,9 @@ defmodule Aiur.Orchestrator.IssueSync do
           {State.t(), list()}
   def reconcile_contradictory_state_labels(%State{} = state, issues, update_state_fun)
       when is_list(issues) and is_function(update_state_fun, 2) do
+    previous_tickets = state.contradictory_state_label_tickets
+    now_ms = System.monotonic_time(:millisecond)
+
     {healed_issues, state} =
       Enum.reduce(issues, {[], state}, fn issue, {acc, state_acc} ->
         case issue do
@@ -79,6 +86,9 @@ defmodule Aiur.Orchestrator.IssueSync do
             {[issue | acc], state_acc}
         end
       end)
+
+    tickets = contradictory_state_label_tickets(issues, previous_tickets, now_ms)
+    state = sync_contradictory_state_label_alert(state, tickets, now_ms)
 
     {state, Enum.reverse(healed_issues)}
   end
@@ -405,6 +415,82 @@ defmodule Aiur.Orchestrator.IssueSync do
       severity: "warning",
       central: true
     )
+  end
+
+  # Collects the polled tickets that carry more than one `agent:*` state label —
+  # the fleet that dispatch authorization denies as ambiguous (#2366). `since_ms`
+  # carries over from the previous poll so the fleet alert only fires once a pair
+  # has persisted past the debounce, and only while it is still undispatchable.
+  defp contradictory_state_label_tickets(issues, previous, now_ms) do
+    Enum.reduce(issues, %{}, fn
+      %Issue{id: id, identifier: identifier, state_labels: [_, _ | _] = labels}, acc
+      when is_binary(id) and is_binary(identifier) ->
+        previous_entry = Map.get(previous, id)
+        since_ms = if is_map(previous_entry) and is_integer(previous_entry.since_ms), do: previous_entry.since_ms, else: now_ms
+
+        Map.put(acc, id, %{identifier: identifier, labels: labels, since_ms: since_ms})
+
+      _issue, acc ->
+        acc
+    end)
+  end
+
+  # One fleet-level line instead of one buried warning per ticket: a ticket whose
+  # contradictory labels make it undispatchable is exactly the silent-by-
+  # construction failure that needs needs-attention prominence (#2366). Emitted
+  # once the same pair has persisted past the debounce; resolved when the set
+  # clears (healed, or transitioned to a single label).
+  defp sync_contradictory_state_label_alert(%State{} = state, tickets, now_ms) do
+    persisted? =
+      Enum.any?(tickets, fn {_id, entry} -> now_ms - entry.since_ms >= @contradictory_label_alert_after_ms end)
+
+    cond do
+      map_size(tickets) > 0 and not state.contradictory_state_label_alert_active and persisted? ->
+        emit_contradictory_state_label_alert(state, tickets)
+
+      map_size(tickets) == 0 and state.contradictory_state_label_alert_active ->
+        resolve_contradictory_state_label_alert(state)
+
+      true ->
+        %{state | contradictory_state_label_tickets: tickets}
+    end
+  end
+
+  defp emit_contradictory_state_label_alert(%State{} = state, tickets) do
+    identifiers = tickets |> Map.values() |> Enum.map(& &1.identifier) |> Enum.sort()
+
+    message =
+      "#{length(identifiers)} ticket#{if length(identifiers) == 1, do: "", else: "s"} undispatchable due to contradictory labels: " <>
+        Enum.join(identifiers, ", ")
+
+    case Alerts.emit_system("system.fleet.contradictory_state_labels",
+           message: message,
+           reason:
+             message <>
+               ". A ticket carrying more than one agent:* state label cannot be dispatched; the next state transition replaces the set. Run the audit from #2366 and clear the extra label if the heal did not.",
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok ->
+        %{state | contradictory_state_label_tickets: tickets, contradictory_state_label_alert_active: true}
+
+      {:error, reason} ->
+        Logger.warning("Contradictory state label alert emission failed: reason=#{inspect(reason)}")
+        %{state | contradictory_state_label_tickets: tickets}
+    end
+  end
+
+  defp resolve_contradictory_state_label_alert(%State{} = state) do
+    message = "No tickets undispatchable due to contradictory labels"
+
+    Alerts.emit_system("system.fleet.contradictory_state_labels.resolved",
+      message: message,
+      reason: message <> ". Every ticket now carries exactly one agent:* state label.",
+      needs_attention: false,
+      severity: "info"
+    )
+
+    %{state | contradictory_state_label_tickets: %{}, contradictory_state_label_alert_active: false}
   end
 
   defp heal_contradictory_state(%Issue{} = issue, winner, state, update_state_fun) do
