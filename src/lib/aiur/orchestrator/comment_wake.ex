@@ -11,7 +11,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Alerts
   alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
-  alias Aiur.GitHub.Config
+  alias Aiur.GitHub.{Config, LocalHold}
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
@@ -79,10 +79,30 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
 
+    # The merged-PR terminal path is the fourth site of the hold-is-fatal
+    # defect: a short self-clearing local budget hold on the open-PR lookup
+    # that decides the post-merge target — or on the `done` write itself — used
+    # to fire the merge-terminal-write alert and leave the ticket stranded on
+    # its active-state label with its work complete (#2467). The shared helper
+    # waits the hold out and retries, so the ticket closes; a hold beyond the
+    # ceiling or past the cap still fails closed and the alert below still
+    # fires.
+    target_state =
+      LocalHold.run(
+        fn -> merged_issue_target_state(identifier, opts) end,
+        LocalHold.caller_opts(opts)
+      )
+
     terminal_state =
-      case merged_issue_target_state(identifier, opts) do
+      case target_state do
         "done" ->
-          case update_issue_state_fun.(to_string(identifier), "done") do
+          result =
+            LocalHold.run(
+              fn -> update_issue_state_fun.(to_string(identifier), "done") end,
+              LocalHold.caller_opts(opts)
+            )
+
+          case result do
             :ok ->
               state
               |> complete_merged_issue(
