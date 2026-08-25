@@ -197,18 +197,30 @@ defmodule Aiur.GitHub.BrokerTimeout do
     state = prune_events(state, now_ms)
 
     if degraded?(state) do
-      since_ms = state.since_ms || now_ms
-
-      if not state.alert_active and now_ms - since_ms >= dwell_ms() do
-        safe_emit(fn -> emit_degraded(state, since_ms, now_ms) end)
-        %{state | since_ms: since_ms, alert_active: true}
-      else
-        %{state | since_ms: since_ms}
-      end
+      evaluate_degraded(state, now_ms)
     else
-      if state.alert_active, do: safe_emit(fn -> emit_resolved(state) end)
-      %{state | since_ms: nil, alert_active: false}
+      evaluate_recovered(state)
     end
+  end
+
+  # Degraded: stamp the dwell start on the first elevated check; once the rate
+  # has stayed elevated for the dwell, emit exactly one alert and latch.
+  defp evaluate_degraded(state, now_ms) do
+    since_ms = state.since_ms || now_ms
+
+    if not state.alert_active and now_ms - since_ms >= dwell_ms() do
+      safe_emit(fn -> emit_degraded(state, since_ms, now_ms) end)
+      %{state | since_ms: since_ms, alert_active: true}
+    else
+      %{state | since_ms: since_ms}
+    end
+  end
+
+  # Recovered: emit the resolution (when an alert was live) and clear the latch
+  # so a later episode re-arms it.
+  defp evaluate_recovered(state) do
+    if state.alert_active, do: safe_emit(fn -> emit_resolved(state) end)
+    %{state | since_ms: nil, alert_active: false}
   end
 
   # `state.events` is already pruned to the window by `prune_events/2`.
