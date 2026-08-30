@@ -1,6 +1,6 @@
-# AIUR
+# Aiur
 
-Oversee a fleet of coding agents that coordinate via events.
+AI Unit Runtime: Oversee a fleet of coding agents that coordinate via events.
 
 ## Install
 
