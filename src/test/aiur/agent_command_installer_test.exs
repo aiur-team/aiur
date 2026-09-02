@@ -11,11 +11,20 @@ defmodule Aiur.AgentCommandInstallerTest do
     {:ok, root: root, workspace: workspace}
   end
 
+  # Every `run_install_script/2` below runs the *remote* install script on this
+  # machine (see the helper at the bottom of this module), so
+  # `HOME` is pinned to the test root. Left unset it is the operator's own home,
+  # and the script's host-credential branch then acted on the live shared
+  # `~/.aiur/github-budget/agent-token` that the whole local fleet authenticates
+  # with — deleting it once per run, silently, with the suite still green
+  # (#2478). The production fix scopes that branch to genuinely remote installs;
+  # this keeps the tests from writing outside their own sandbox regardless.
   test "remote installation rejects a directory at a command target", context do
     target = Path.join(AgentGitHubGuard.bin_dir(context.workspace), "gh")
     File.mkdir_p!(target)
 
-    assert {output, 73} = run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
+    assert {output, 73} =
+             run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
 
     assert output =~ "unsafe agent command target"
     assert File.dir?(target)
@@ -23,7 +32,8 @@ defmodule Aiur.AgentCommandInstallerTest do
   end
 
   test "remote installation writes executable command guards idempotently", context do
-    assert {"", 0} = run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
+    assert {"", 0} =
+             run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
 
     bin_dir = AgentGitHubGuard.bin_dir(context.workspace)
     gh_wrapper = Path.join(bin_dir, "gh")
@@ -37,7 +47,8 @@ defmodule Aiur.AgentCommandInstallerTest do
 
     inodes = {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode}
 
-    assert {"", 0} = run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
+    assert {"", 0} =
+             run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
 
     assert {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode} == inodes
   end
@@ -77,7 +88,7 @@ defmodule Aiur.AgentCommandInstallerTest do
   defp run_install_script(context, script) do
     path = Path.join(context.root, "install-#{System.unique_integer([:positive])}.sh")
     File.write!(path, script)
-    System.cmd("sh", [path], stderr_to_stdout: true)
+    System.cmd("sh", [path], stderr_to_stdout: true, env: [{"HOME", context.root}])
   end
 end
 
