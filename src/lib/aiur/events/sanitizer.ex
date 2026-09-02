@@ -136,6 +136,7 @@ defmodule Aiur.Events.Sanitizer do
   def github_payload(payload, actor) when is_map(payload) do
     payload
     |> Map.put(:source, :github)
+    |> stamp_aiur_authorship()
     |> scrub()
     |> stamp_author_trust(actor: actor)
     |> put_comment_message()
