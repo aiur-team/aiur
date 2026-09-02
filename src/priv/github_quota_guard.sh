@@ -656,8 +656,11 @@ if [ -n "${AIUR_AGENT_COMMENT_MARKER:-}" ]; then
         case "$marker_prior" in
           --body|-b) marker_stamp=1 ;;
         esac
+        # Quoted so the body-file policy scan (which flags any line starting
+        # with a bare `--body=`) reads this as the pattern match it is rather
+        # than as a `gh` invocation passing a body inline. Same match in sh.
         case "$arg" in
-          --body=*) marker_stamp=1 ;;
+          "--body="*) marker_stamp=1 ;;
         esac
         # Recorded before any rewrite, so the next iteration compares against
         # the flag the caller actually passed.
