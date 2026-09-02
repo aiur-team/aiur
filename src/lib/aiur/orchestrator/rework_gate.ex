@@ -9,16 +9,17 @@ defmodule Aiur.Orchestrator.ReworkGate do
   (#1844), and the flip can transiently leave the ticket carrying two state
   labels, silently undispatchable (#2075).
 
-  Since #2422 the gate also requires — when it can prove it — that the open
-  pull request still has at least one **unresolved review thread**. GitHub's
-  `reviewDecision` is sticky by design: a `CHANGES_REQUESTED` verdict never
-  clears when findings are addressed, so it cannot distinguish "has outstanding
-  findings" from "was once told to change something". Unresolved review threads
-  answer the real question, and routing `rework` off the sticky verdict alone is
-  what makes a completed rework re-enter `agent:rework` forever (#2422).
-
-  This module is the single place that verifies these preconditions. Each
-  rework writer calls it before writing `rework`, and each names the
+  Since #2422 / #2450 the gate also decides *whether a reviewer is currently
+  asking for a change*: routing on unresolved review threads, not on GitHub's
+  sticky `reviewDecision`. A `CHANGES_REQUESTED` verdict never clears when
+  findings are addressed, so it cannot distinguish "outstanding findings" from
+  "was once told to change something" — routing rework on it re-enters
+  `agent:rework` forever. Both rework writers route through this module's
+  unresolved-thread check: the comment-wake path (#2422) via
+  `verify_unresolved_review_threads/2` and the merged-ticket reconciler (#2450)
+  via `open_pull_request_rework_verdict/2`, so the rule lives in exactly one
+  place. This module is the single place that verifies these preconditions.
+  Each rework writer calls it before writing `rework`, and each names the
   precondition in a test so a future writer cannot be added without stating
   one.
   """
@@ -73,6 +74,51 @@ defmodule Aiur.Orchestrator.ReworkGate do
   end
 
   @doc """
+  Decides whether an open pull request is currently a rework target.
+
+  `rework` means "a reviewer is currently asking for a change", and the only
+  signal that reliably answers that is unresolved review threads: GitHub's
+  `reviewDecision` is sticky by design — a `CHANGES_REQUESTED` verdict never
+  clears when findings are addressed — so it cannot distinguish "outstanding
+  findings" from "was once told to change something" (#2422, #2450). A pull
+  request whose review threads are all resolved (or that has none) is not a
+  rework target, whatever its verdict says.
+
+  This is the per-PR form of the rule, for callers that already hold the
+  open-PR listing (e.g. `MergedTicketReconciler`). It shares the same default
+  thread read as `verify_unresolved_review_threads/2` — the rule lives here,
+  not in a second copy — and the read is injectable via
+  `:unresolved_threads_fetcher` for tests.
+
+  Returns:
+    * `{:ok, :rework}` — the PR has unresolved review threads, so routing it to
+      rework is justified;
+    * `{:skip, :no_unresolved_review_threads}` — the PR's threads are all
+      resolved (or it has none); the reviewer is not currently asking for a
+      change, so rework must be refused;
+    * `{:error, reason}` — the thread read failed transiently; callers decide
+      whether to retry or park.
+  """
+  @spec open_pull_request_rework_verdict(map(), keyword()) ::
+          {:ok, :rework} | {:skip, :no_unresolved_review_threads} | {:error, term()}
+  def open_pull_request_rework_verdict(pull_request, opts \\ []) do
+    threads_fetcher = Keyword.get(opts, :unresolved_threads_fetcher, &default_threads_fetcher/1)
+
+    case pull_request do
+      %{} ->
+        case threads_fetcher.(pull_request) do
+          {:ok, comments} when is_list(comments) and comments != [] -> {:ok, :rework}
+          {:ok, _no_unresolved_threads} -> {:skip, :no_unresolved_review_threads}
+          {:error, reason} -> {:error, reason}
+        end
+
+      # A PR that is not a map has nothing a reviewer could have rejected.
+      _non_map ->
+        {:skip, :no_unresolved_review_threads}
+    end
+  end
+
+  @doc """
   Verifies that the rework target has an open pull request with at least one
   unresolved review thread.
 
@@ -83,6 +129,12 @@ defmodule Aiur.Orchestrator.ReworkGate do
   "was once told to change something" (#2422). A pull request whose review
   threads are all resolved (or that has none) is not a rework target, whatever
   its verdict says.
+
+  This is the ticket-key form of the rule, for callers that hold only the issue
+  key (e.g. `CommentWake`). It shares the same default thread read as
+  `open_pull_request_rework_verdict/2` — the rule lives here, not in a second
+  copy — and the read is injectable via `:unresolved_threads_fetcher` for
+  tests.
 
   Returns:
     * `{:ok, pr}` — an open PR exists with unresolved review threads, so

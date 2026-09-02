@@ -59,9 +59,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ScopeResolver do
   def telemetry_opts(:unavailable), do: [tickets: []]
 
   @spec usage_scope(resolved_scope()) :: {:ok, Scope.t()} | {:error, :unavailable}
-  def usage_scope(%{kind: :build_order, usage_scope: scope}), do: {:ok, scope}
-  def usage_scope(:session), do: Scope.this_run(RunTelemetry.boot_id())
-  def usage_scope(:unavailable), do: {:error, :unavailable}
+  def usage_scope(scope), do: usage_scope(scope, RunTelemetry.boot_id())
+
+  @spec usage_scope(resolved_scope(), String.t() | nil) :: {:ok, Scope.t()} | {:error, :unavailable | :invalid_run_identity}
+  def usage_scope(%{kind: :build_order, usage_scope: %Scope{} = scope}, run_id)
+      when is_binary(run_id) and run_id != "",
+      do: {:ok, %Scope{scope | run_id: run_id}}
+
+  def usage_scope(:session, run_id), do: Scope.this_run(run_id)
+  def usage_scope(_scope, _run_id), do: {:error, :unavailable}
 
   defp member_identities(members) do
     Enum.flat_map(members, fn

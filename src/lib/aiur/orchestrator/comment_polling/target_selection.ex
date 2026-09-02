@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
 
   @human_review_comment_targets_per_poll 25
   @watch_comment_targets_per_poll 25
+  @reconcile_targets_per_poll 25
   @human_review_state "human-review"
   @merging_state "merging"
   @comment_poll_review_states [@human_review_state, @merging_state]
@@ -21,41 +22,86 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   @doc false
   @spec max_comment_poll_target_count(State.t(), keyword()) :: non_neg_integer()
   def max_comment_poll_target_count(%State{} = state, opts) do
-    map_size(state.running) + human_review_comment_target_limit(opts) + watch_comment_target_limit(opts)
+    if reconcile_only?(opts) do
+      state |> reconcile_targets_for_poll(opts) |> MapSet.size()
+    else
+      map_size(state.running) +
+        human_review_comment_target_limit(opts) +
+        watch_comment_target_limit(opts) +
+        (state |> reconcile_targets_for_poll(opts) |> MapSet.size())
+    end
+  end
+
+  @doc false
+  @spec reconcile_targets_for_poll(State.t(), keyword()) :: MapSet.t(String.t())
+  def reconcile_targets_for_poll(%State{github_comment_reconcile_targets: targets}, opts) do
+    targets
+    |> MapSet.to_list()
+    |> normalize_comment_targets()
+    |> Enum.sort()
+    |> Enum.take(reconcile_target_limit(opts))
+    |> MapSet.new()
   end
 
   @spec github_comment_poll_targets(State.t(), keyword()) ::
           {:ok, [String.t()], [map()], [map()]} | {:error, term()}
   def github_comment_poll_targets(%State{} = state, opts) do
-    with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts),
-         {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
-      running_targets = running_comment_poll_targets(state)
+    if reconcile_only?(opts) do
+      {:ok, forced_reconcile_targets(state, opts), [], []}
+    else
+      with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts),
+           {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
+        running_targets = running_comment_poll_targets(state)
 
-      targets =
-        running_targets
-        |> Kernel.++(Enum.map(human_review_targets, & &1.target))
-        |> Kernel.++(Enum.map(watch_targets, & &1.target))
-        |> Enum.uniq()
+        targets =
+          running_targets
+          |> Kernel.++(Enum.map(human_review_targets, & &1.target))
+          |> Kernel.++(Enum.map(watch_targets, & &1.target))
+          |> Kernel.++(forced_reconcile_targets(state, opts))
+          |> Enum.uniq()
 
-      {:ok, targets, human_review_targets, watch_targets}
+        {:ok, targets, human_review_targets, watch_targets}
+      end
     end
   end
 
   @spec github_comment_poll_targets_with_cache(State.t(), keyword()) ::
           {:ok, [String.t()], [map()], [map()], map()} | {:error, term()}
   def github_comment_poll_targets_with_cache(%State{} = state, opts) do
-    with {:ok, human_review_targets, cache} <-
-           human_review_comment_poll_targets_with_cache(state, opts),
-         {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
-      running_targets = running_comment_poll_targets(state)
+    if reconcile_only?(opts) do
+      {:ok, forced_reconcile_targets(state, opts), [], [], state.github_comment_issue_list_cache}
+    else
+      with {:ok, human_review_targets, cache} <-
+             human_review_comment_poll_targets_with_cache(state, opts),
+           {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
+        running_targets = running_comment_poll_targets(state)
 
-      targets =
-        running_targets
-        |> Kernel.++(Enum.map(human_review_targets, & &1.target))
-        |> Kernel.++(Enum.map(watch_targets, & &1.target))
-        |> Enum.uniq()
+        targets =
+          running_targets
+          |> Kernel.++(Enum.map(human_review_targets, & &1.target))
+          |> Kernel.++(Enum.map(watch_targets, & &1.target))
+          |> Kernel.++(forced_reconcile_targets(state, opts))
+          |> Enum.uniq()
 
-      {:ok, targets, human_review_targets, watch_targets, cache}
+        {:ok, targets, human_review_targets, watch_targets, cache}
+      end
+    end
+  end
+
+  defp reconcile_only?(opts), do: Keyword.get(opts, :reconcile_only, false) == true
+
+  defp forced_reconcile_targets(%State{} = state, opts) do
+    state
+    |> reconcile_targets_for_poll(opts)
+    |> MapSet.to_list()
+  end
+
+  @doc false
+  @spec reconcile_target_limit(keyword()) :: pos_integer()
+  def reconcile_target_limit(opts) do
+    case Keyword.get(opts, :reconcile_target_limit, @reconcile_targets_per_poll) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _other -> @reconcile_targets_per_poll
     end
   end
 

@@ -374,11 +374,19 @@ defmodule Aiur.GitHub.ResourceStore do
   # too, and the merge writes carry the delivery's own marker. `:check_run` was
   # removed from the store entirely when its deposit was ceased (#2126); a CI
   # verdict is never cached.
+  #
+  # `:pr_review_thread` is deliberately *not* order-sensitive at the entry
+  # level: its webhook transition marker carries its own ordering clock
+  # (`Deposit.accept_thread_transition/6` compares the incoming transition's
+  # `updated_at` against the held marker's `"updated_at"` field), and the
+  # comment pipe writes the same key's processed-mark version. Both writers
+  # legitimately store bodies with no entry-level `data_version`, so warning
+  # about the version-less deposit would be noise about a guard that no longer
+  # lives here.
   @order_sensitive_types [
     :issue,
     :issue_labels,
     :pull_request,
-    :pr_review_thread,
     :branch_pull_request,
     :issue_blocked_by
   ]
