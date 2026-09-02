@@ -104,7 +104,7 @@ defmodule AiurWeb.VoiceChannelTest do
     if is_nil(Process.whereis(Aiur.PubSub)), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
 
     if is_nil(Process.whereis(Endpoint)) do
-      start_supervised!({Endpoint, []})
+      Aiur.TestSupport.start_owned_endpoint!()
     else
       Endpoint.config_change([{Endpoint, config}], [])
     end
