@@ -1,6 +1,8 @@
 defmodule AiurWeb.VoiceChannelTest do
   use ExUnit.Case, async: false
 
+  setup {AiurWeb.DashboardCredentialSupport, :isolate}
+
   import Phoenix.ChannelTest
   import Plug.Conn, only: [get_session: 2, put_req_header: 3, send_resp: 3]
   import Plug.Test

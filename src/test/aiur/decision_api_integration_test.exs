@@ -1,6 +1,8 @@
 defmodule Aiur.DecisionApiIntegrationTest do
   use ExUnit.Case, async: false
 
+  setup {AiurWeb.DashboardCredentialSupport, :isolate}
+
   import Plug.Conn
   import Plug.Test
 

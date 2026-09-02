@@ -27,6 +27,8 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
 
   use Aiur.TestSupport
 
+  setup {AiurWeb.DashboardCredentialSupport, :isolate}
+
   import Plug.Conn
   import Plug.Test
 

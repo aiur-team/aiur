@@ -1,6 +1,8 @@
 defmodule AiurWeb.FinancialDataTest do
   use ExUnit.Case, async: false
 
+  setup {AiurWeb.DashboardCredentialSupport, :isolate}
+
   import ExUnit.CaptureLog
   import Plug.Conn
   import Plug.Test

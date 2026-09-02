@@ -1,5 +1,7 @@
 defmodule AiurWeb.StreamdeckChannelTest do
   use ExUnit.Case, async: false
+
+  setup {AiurWeb.DashboardCredentialSupport, :isolate}
   import Phoenix.ChannelTest
 
   import Plug.Conn, only: [put_req_header: 3]
@@ -106,11 +108,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     Application.put_env(:aiur, Endpoint, config)
 
-    if is_nil(Process.whereis(Endpoint)) do
-      start_supervised!({Endpoint, []})
-    else
-      Endpoint.config_change(config, [])
-    end
+    configure_endpoint(config)
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, original_config)
@@ -119,6 +117,23 @@ defmodule AiurWeb.StreamdeckChannelTest do
     end)
 
     :ok
+  end
+
+  defp configure_endpoint(config) do
+    case Process.whereis(Endpoint) do
+      nil ->
+        start_supervised!({Endpoint, []})
+
+      _pid ->
+        Endpoint.config_change(config, [])
+        Process.sleep(20)
+
+        if is_nil(Process.whereis(Endpoint)) do
+          start_supervised!({Endpoint, []})
+        else
+          Endpoint.config_change(config, [])
+        end
+    end
   end
 
   test "only a socket authenticated by dashboard credentials can join" do
