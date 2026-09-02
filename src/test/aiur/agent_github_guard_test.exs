@@ -664,10 +664,8 @@ defmodule Aiur.AgentGitHubGuardTest do
       File.write!(body_file, "Please approve.\n")
 
       for {args, expected_status, expected_message} <- [
-            {["pr", "review", "1670", "--approve", "--body-file", body_file], 77,
-             "agents cannot approve or merge pull requests"},
-            {["pr", "comment", "1670", "--body-file", body_file], 75,
-             "GitHub shared budget unavailable"}
+            {["pr", "review", "1670", "--approve", "--body-file", body_file], 77, "agents cannot approve or merge pull requests"},
+            {["pr", "comment", "1670", "--body-file", body_file], 75, "GitHub shared budget unavailable"}
           ] do
         tmp = Path.join(context.workspace, "tmpdir-#{System.unique_integer([:positive])}")
         File.mkdir_p!(tmp)
