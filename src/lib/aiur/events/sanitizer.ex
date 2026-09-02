@@ -1,4 +1,5 @@
 defmodule Aiur.Events.Sanitizer do
+  alias Aiur.GitHub.AgentMarker
   alias Aiur.GitHub.CodeOwners
   alias Aiur.SecretRedactor
 
@@ -120,10 +121,16 @@ defmodule Aiur.Events.Sanitizer do
   Prepare a GitHub-sourced payload for `Aiur.Events.Publisher.publish/3`.
 
   Applies the full external-content pipeline in this exact order
-  (FI-GH-039): stamp `source: :github`, `scrub/1`,
-  `stamp_author_trust(actor: actor)`, `put_comment_message/1`. Every
-  GitHub event producer must publish through this single entry point so
+  (FI-GH-039): stamp `source: :github`, `stamp_aiur_authorship/1`,
+  `scrub/1`, `stamp_author_trust(actor: actor)`, `put_comment_message/1`.
+  Every GitHub event producer must publish through this single entry point so
   no call site can skip or reorder the injection-safety steps.
+
+  `stamp_aiur_authorship/1` is deliberately ahead of `scrub/1` and must stay
+  there: it reads the raw body for a provenance marker that `scrub/1` then
+  removes as a hidden-instruction carrier. It only adds a boolean key and
+  never alters content, so it changes nothing about the injection-safety
+  steps that follow it (#2501).
   """
   @spec github_payload(map(), String.t() | nil) :: map()
   def github_payload(payload, actor) when is_map(payload) do
@@ -133,6 +140,34 @@ defmodule Aiur.Events.Sanitizer do
     |> stamp_author_trust(actor: actor)
     |> put_comment_message()
   end
+
+  @doc """
+  Record whether the comment body carried `Aiur.GitHub.AgentMarker`'s
+  provenance marker, **before** `scrub/1` removes it.
+
+  This must run first, and it exists because two correct behaviours collide.
+  `strip_instruction_carriers/1` deletes HTML comments as hidden-instruction
+  carriers and `truncate/2` caps a comment body at #{@comment_body_max}
+  characters — so by the time `Aiur.Events.Publisher` asks "did Aiur write
+  this?", the marker it would look for has been erased by Aiur's own safety
+  pass. Without this, an agent's own `/aiur` comment arrives unmarked on the
+  `Aiur.Orchestrator.CommandScan` path, reads as human, and republishes with
+  `bypass_contamination: true` — the self-loop the marker exists to prevent.
+
+  The flag is an atom key, so it cannot arrive from GitHub: every externally
+  sourced payload is decoded JSON with string keys. It is set only from the raw
+  body, only here.
+
+  Payloads with no readable comment body are left untouched rather than flagged
+  `false`, so the publisher still distinguishes "no comment on this event" from
+  "a comment I could not read".
+  """
+  @spec stamp_aiur_authorship(map()) :: map()
+  def stamp_aiur_authorship(%{comment: %{"body" => body}} = payload) when is_binary(body) do
+    Map.put(payload, :aiur_authored?, AgentMarker.marked?(body))
+  end
+
+  def stamp_aiur_authorship(payload), do: payload
 
   @doc """
   Promote a sanitized GitHub comment body to the top-level `message`

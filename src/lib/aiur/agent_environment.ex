@@ -297,7 +297,7 @@ defmodule Aiur.AgentEnvironment do
         # from ones the operator typed under the same login. `false` (unset) on
         # a separate-account install, where the author login already answers it
         # and the guard must not touch any body.
-        {~c"AIUR_AGENT_COMMENT_MARKER", agent_comment_marker()},
+        {String.to_charlist(AgentMarker.env_var()), agent_comment_marker()},
         # The repository the agent was dispatched against, so the `gh` guard can
         # file a cached response under a resource identity (#2073 U6). `gh`
         # resolves the repo from the working directory, so the guard only trusts
@@ -586,8 +586,11 @@ defmodule Aiur.AgentEnvironment do
 
   defp agent_comment_marker_export do
     case agent_comment_marker() do
-      false -> "unset AIUR_AGENT_COMMENT_MARKER\n"
-      marker -> "export AIUR_AGENT_COMMENT_MARKER=#{Aiur.Shell.escape(List.to_string(marker))}\n"
+      false ->
+        "unset #{AgentMarker.env_var()}\n"
+
+      marker ->
+        "export #{AgentMarker.env_var()}=#{Aiur.Shell.escape(List.to_string(marker))}\n"
     end
   end
 

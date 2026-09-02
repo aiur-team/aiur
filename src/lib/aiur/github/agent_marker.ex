@@ -71,10 +71,37 @@ defmodule Aiur.GitHub.AgentMarker do
   end
 
   @doc """
-  Whether a comment body carries the marker. `false` for anything that is not a
-  binary — an unreadable body is a body that cannot prove Aiur wrote it.
+  Whether a comment body carries the marker *as its own trailing line*.
+  `false` for anything that is not a binary — an unreadable body is a body that
+  cannot prove Aiur wrote it.
+
+  Position matters, and an unscoped `String.contains?/2` is wrong here.
+  GitHub's "Quote reply" copies the quoted comment verbatim, HTML comments
+  included, so a human quoting an agent in order to correct it would inherit
+  the agent's marker and have their correction read as Aiur's own — a swallowed
+  instruction, and quoting to disagree is the ordinary review gesture.
+
+  Two rules close that, matching how `stamp/1` writes the marker:
+
+    * Blockquote lines are dropped first, so a marker that arrived inside a
+      `>` quotation never counts.
+    * The marker must then be the last thing in the body. A human writing below
+      a quotation therefore reads as human, which is the whole point.
+
+  Both rules only ever move a body from "ours" to "human", so the safe failure
+  direction is preserved.
   """
   @spec marked?(term()) :: boolean()
-  def marked?(body) when is_binary(body), do: String.contains?(body, @marker)
+  def marked?(body) when is_binary(body) do
+    body
+    |> String.split("\n")
+    |> Enum.reject(&quoted_line?/1)
+    |> Enum.join("\n")
+    |> String.trim_trailing()
+    |> String.ends_with?(@marker)
+  end
+
   def marked?(_body), do: false
+
+  defp quoted_line?(line), do: line |> String.trim_leading() |> String.starts_with?(">")
 end

@@ -139,21 +139,41 @@ In `single_account` the author login proves nothing, so provenance moves into
 the comment body. Aiur appends `Aiur.GitHub.AgentMarker`'s HTML-comment marker
 to every comment it writes — daemon-side in `Aiur.GitHub.Comments`, agent-side
 in the `gh` wrapper, which is the only point an agent's own body passes
-through. `Aiur.Events.Publisher` then suppresses a comment from the shared login
-only when that marker is present.
+through. The wrapper covers both `--body` and `--body-file` (the latter is what
+Aiur's own skills tell agents to use, since the inline-body policy forbids the
+former); a body piped in on stdin cannot be rewritten and stays unmarked.
+`Aiur.Events.Publisher` then suppresses a comment from the shared login only
+when that marker is present.
 
 The failure direction is deliberate. Authorship is decided by the **presence**
 of the marker, never its absence, so anything unmarked — a comment posted before
-this existed, one written with `--body-file`, one whose body could not be read —
+this existed, one piped in on stdin, one whose body could not be read —
 is treated as **human**. The cost of being wrong is one redundant agent wake.
 The opposite default would silently swallow an operator's instruction.
 
-Two consequences worth knowing:
+Three things it deliberately does *not* treat as Aiur's own:
 
-- Comments that predate the marker read as human. An agent re-woken by its own
-  old comment is expected and self-clears once it replies with a marked one.
-- `separate_account` installs are untouched: no body is rewritten, the wrapper
-  leaves argv alone, and the gate behaves exactly as it did before.
+- **A quoted marker.** GitHub's "Quote reply" copies the body verbatim, HTML
+  comments included, so `AgentMarker.marked?/1` drops blockquote lines and
+  requires the marker to be the last thing in the body. Quoting an agent to
+  disagree with it is the ordinary review gesture and must reach the agent.
+- **A comment whose body is unreadable.** A CHANGES_REQUESTED review with
+  inline-only comments has a `null` body, and since #2473 it is the
+  load-bearing rework signal when there are no threads. "No comment on this
+  event" and "a comment I could not read" are different facts and are kept
+  apart.
+- **Anything that predates the marker.** An agent re-woken by its own old
+  comment is expected and self-clears once it replies with a marked one.
+
+One collision worth knowing about: `Aiur.Events.Sanitizer` strips HTML comments
+as hidden-instruction carriers and caps bodies at 500 characters, so on paths
+that sanitize before publishing it would destroy the marker before the gate
+sees it. `stamp_aiur_authorship/1` therefore records what the raw body carried
+*before* the scrub, and the publisher consults that record first. Its absence
+proves nothing and falls back to the body, which in turn fails to human.
+
+`separate_account` installs are untouched throughout: no body is rewritten, the
+wrapper leaves argv alone, and the gate behaves exactly as it did before.
 
 One asymmetry is expected and is not a misconfiguration: **git commits keep
 their configured author** (the installation token is used only as the HTTPS

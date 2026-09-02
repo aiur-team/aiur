@@ -10,7 +10,7 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
   """
   use Aiur.TestSupport
 
-  alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.Events.{Exchange, Publisher, Sanitizer}
   alias Aiur.GitHub.AgentMarker
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Workflow
@@ -118,6 +118,105 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
                  comment("I saw an `<!-- aiur:agent` fragment in the diff — is that intended?"),
                  issue_number: "42",
                  actor: @bot
+               )
+
+      assert_receive {:event, _}, 500
+    end
+
+    test "a CHANGES_REQUESTED review with a null body reads as human, not as ours" do
+      # Reachable, not hypothetical. `GithubCommentsPoller.publish_pr_review_submission/5`
+      # puts the raw REST review object under `:comment`, and `actionable_review?/1`
+      # passes CHANGES_REQUESTED without inspecting the body — which GitHub returns
+      # as null when the reviewer left only inline comments. Since #2473 this is the
+      # load-bearing rework signal when there are no threads, so treating it as ours
+      # swallows an operator's request for changes outright.
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+      review = %{"state" => "CHANGES_REQUESTED", "body" => nil, "user" => %{"login" => @bot}}
+
+      assert {:ok, _id, _count} =
+               Publisher.publish(
+                 "ticket.42.pr.review_comment",
+                 %{issue_number: "42", comment: review},
+                 issue_number: "42",
+                 actor: @bot
+               )
+
+      assert_receive {:event, _}, 500
+    end
+
+    test "a comment key whose body is missing entirely reads as human" do
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
+
+      assert {:ok, _id, _count} =
+               Publisher.publish(
+                 "ticket.42.issue.commented",
+                 %{issue_number: "42", comment: %{"user" => %{"login" => @bot}}},
+                 issue_number: "42",
+                 actor: @bot
+               )
+
+      assert_receive {:event, _}, 500
+    end
+
+    test "a quote-reply that inherits the agent's marker reads as human" do
+      # GitHub's "Quote reply" copies the body verbatim, HTML comments included.
+      # Quoting an agent to disagree with it is the ordinary review gesture, and
+      # must not be read as the agent talking to itself.
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
+
+      quoted = """
+      > Rework applied, pushed as 1a2b3c4.
+      >
+      > #{AgentMarker.marker()}
+
+      That is not what I asked for — revert it.
+      """
+
+      assert {:ok, _id, _count} =
+               Publisher.publish("ticket.42.issue.commented", comment(quoted),
+                 issue_number: "42",
+                 actor: @bot
+               )
+
+      assert_receive {:event, _}, 500
+    end
+
+    test "the sanitizer's authorship record survives its own HTML-comment stripping" do
+      # `Sanitizer.github_payload/2` deletes HTML comments as hidden-instruction
+      # carriers, so on the CommandScan path the marker is gone from the body by
+      # the time the gate runs. The pre-strip record is what keeps the self-loop
+      # closed there.
+      body = "/aiur rerun the failing job\n\n" <> AgentMarker.marker()
+      payload = Sanitizer.github_payload(%{issue_number: "42", comment: %{"body" => body}}, @bot)
+
+      refute payload.comment["body"] =~ "aiur:agent-authored"
+      assert payload.aiur_authored? == true
+
+      assert :filtered =
+               Publisher.publish("ticket.42.pr.review_comment", payload,
+                 issue_number: "42",
+                 actor: @bot,
+                 bypass_contamination: true
+               )
+    end
+
+    test "a sanitized human comment still reaches the agent" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+      payload =
+        Sanitizer.github_payload(
+          %{issue_number: "42", comment: %{"body" => "/aiur rerun the failing job"}},
+          @bot
+        )
+
+      assert payload.aiur_authored? == false
+
+      assert {:ok, _id, _count} =
+               Publisher.publish("ticket.42.pr.review_comment", payload,
+                 issue_number: "42",
+                 actor: @bot,
+                 bypass_contamination: true
                )
 
       assert_receive {:event, _}, 500

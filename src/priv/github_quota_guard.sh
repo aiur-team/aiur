@@ -640,6 +640,7 @@ command_key="$command_name $subcommand_name"
 # on, which is a wider blast radius than the marker is worth. An unstamped
 # comment is read as human by `Aiur.Events.Publisher`, so the cost of skipping
 # them is a redundant agent wake, never a swallowed instruction.
+marker_tmp_files=
 if [ -n "${AIUR_AGENT_COMMENT_MARKER:-}" ]; then
   case "$command_key" in
     "issue comment"|"pr comment"|"pr review")
@@ -653,14 +654,17 @@ if [ -n "${AIUR_AGENT_COMMENT_MARKER:-}" ]; then
         arg=$1
         shift
         marker_stamp=0
+        marker_stamp_file=0
         case "$marker_prior" in
           --body|-b) marker_stamp=1 ;;
+          --body-file|-F) marker_stamp_file=1 ;;
         esac
         # Quoted so the body-file policy scan (which flags any line starting
         # with a bare `--body=`) reads this as the pattern match it is rather
         # than as a `gh` invocation passing a body inline. Same match in sh.
         case "$arg" in
           "--body="*) marker_stamp=1 ;;
+          "--body-file="*) marker_stamp_file=1 ;;
         esac
         # Recorded before any rewrite, so the next iteration compares against
         # the flag the caller actually passed.
@@ -675,6 +679,37 @@ if [ -n "${AIUR_AGENT_COMMENT_MARKER:-}" ]; then
 
 $AIUR_AGENT_COMMENT_MARKER" ;;
           esac
+        fi
+        # `--body-file` is the spelling Aiur's own skills tell agents to use
+        # (the inline-body policy in `Aiur.GitHubBodyFilePolicyTest` requires
+        # it), so leaving it unstamped would mean the common agent comment is
+        # never marked and every agent wakes on its own reply. The file is
+        # copied — never edited in place — because it belongs to the agent and
+        # may be read again after the call.
+        if [ "$marker_stamp_file" -eq 1 ]; then
+          marker_src=$arg
+          case "$arg" in
+            "--body-file="*) marker_src=${arg#--body-file=} ;;
+          esac
+          # `-` is stdin, which cannot be rewritten without buffering an
+          # unbounded stream; it stays unstamped and reads as human.
+          if [ "$marker_src" != "-" ] && [ -f "$marker_src" ] &&
+             ! grep -qF "$AIUR_AGENT_COMMENT_MARKER" "$marker_src" 2>/dev/null; then
+            marker_tmp=${TMPDIR:-/tmp}/aiur-marked-body.$$.$marker_index
+            if cat "$marker_src" > "$marker_tmp" 2>/dev/null &&
+               printf '\n\n%s\n' "$AIUR_AGENT_COMMENT_MARKER" >> "$marker_tmp" 2>/dev/null; then
+              marker_tmp_files="$marker_tmp_files $marker_tmp"
+              case "$arg" in
+                "--body-file="*) arg="--body-file=$marker_tmp" ;;
+                *) arg=$marker_tmp ;;
+              esac
+            else
+              # A copy that did not complete must not be passed to `gh`: a
+              # truncated body is worse than an unstamped one.
+              rm -f "$marker_tmp" 2>/dev/null || true
+            fi
+          fi
+          unset marker_src marker_tmp
         fi
         set -- "$@" "$arg"
         marker_index=$((marker_index + 1))
@@ -2709,8 +2744,17 @@ if slurp:
 PY
 }
 
-trap 'budget_release; exit 143' HUP INT TERM
-trap 'budget_release' 0
+# Marked copies of an agent's `--body-file` (#2501) live only for the duration
+# of the call that sends them. Cleared alongside the budget lease so no exit
+# path leaks them, and `rm -f` on an unset/empty list is a no-op.
+marker_cleanup() {
+  [ -n "${marker_tmp_files:-}" ] || return 0
+  rm -f $marker_tmp_files 2>/dev/null || true
+  marker_tmp_files=
+}
+
+trap 'marker_cleanup; budget_release; exit 143' HUP INT TERM
+trap 'marker_cleanup; budget_release' 0
 
 secondary_delay_ms() {
   retry_after=

@@ -434,24 +434,65 @@ defmodule Aiur.Events.Publisher do
   #
   # Note the direction. This never suppresses on the *absence* of a human
   # signal; it suppresses only on the *presence* of Aiur's own. So a comment
-  # posted before the marker existed — or by a path that could not stamp it,
-  # such as `--body-file` — reads as human, not as ours.
+  # posted before the marker existed reads as human, not as ours.
   #
-  # Events with no comment body (pushes, label changes, CI) keep login-based
-  # suppression in both modes: a human cannot hand-author them into the daemon's
-  # own event stream, so there is no ambiguity for a marker to resolve, and
-  # requiring one would republish every self-emitted event on a single-account
-  # install.
+  # THREE cases, not two. "This event carries no comment at all" and "this
+  # event carries a comment whose body I could not read" are different facts
+  # and must not collapse into one:
+  #
+  #   * `:no_comment` — a push, a label change, a CI result. Login-based
+  #     suppression in both modes: a human cannot hand-author these into the
+  #     daemon's own event stream, so there is no ambiguity for a marker to
+  #     resolve, and demanding one would republish every self-emitted event on
+  #     a single-account install.
+  #   * `{:body, text}` — decide from the marker.
+  #   * `:unreadable` — a comment key is present but its body is not a string.
+  #     This is REACHABLE, not defensive: `GithubCommentsPoller`'s
+  #     `publish_pr_review_submission/5` puts the raw REST review object under
+  #     `:comment`, and `actionable_review?/1` passes a CHANGES_REQUESTED
+  #     review without inspecting its body, which GitHub returns as `null` when
+  #     the reviewer left only inline comments. Treating that as ours swallowed
+  #     an operator's request for changes — and since #2473 the body-only
+  #     CHANGES_REQUESTED review is the load-bearing rework signal when there
+  #     are no threads, so nothing downstream would have caught it. Unreadable
+  #     means human.
   defp ours_by_provenance?(payload) do
-    case comment_body(payload) do
-      nil -> true
-      body -> not GitHubConfig.single_account?() or AgentMarker.marked?(body)
+    case comment_provenance(payload) do
+      :no_comment -> true
+      :unreadable -> not GitHubConfig.single_account?()
+      {:body, body} -> not GitHubConfig.single_account?() or AgentMarker.marked?(body)
     end
   end
 
-  defp comment_body(%{comment: %{"body" => body}}) when is_binary(body), do: body
-  defp comment_body(%{"comment" => %{"body" => body}}) when is_binary(body), do: body
-  defp comment_body(_payload), do: nil
+  # `Aiur.Events.Sanitizer` deletes HTML comments as hidden-instruction
+  # carriers, so on any path that sanitizes before publishing (notably
+  # `Aiur.Orchestrator.CommandScan`) the marker is already gone from the body by
+  # the time this runs. The sanitizer therefore records what it saw *before*
+  # stripping, and that record is consulted first. Its absence proves nothing
+  # and falls through to the body, which in turn fails to human.
+  defp comment_provenance(payload) do
+    case aiur_authored_flag(payload) do
+      true -> {:body, AgentMarker.marker()}
+      false -> :unreadable
+      nil -> comment_body_provenance(payload)
+    end
+  end
+
+  defp aiur_authored_flag(%{aiur_authored?: flag}) when is_boolean(flag), do: flag
+  defp aiur_authored_flag(_payload), do: nil
+
+  defp comment_body_provenance(%{comment: comment}), do: body_provenance(comment)
+  defp comment_body_provenance(%{"comment" => comment}), do: body_provenance(comment)
+  defp comment_body_provenance(_payload), do: :no_comment
+
+  defp body_provenance(comment) when is_map(comment) do
+    case Map.get(comment, "body") do
+      body when is_binary(body) -> {:body, body}
+      _unreadable -> :unreadable
+    end
+  end
+
+  defp body_provenance(_comment), do: :unreadable
 
   defp tracked?(nil), do: true
 
