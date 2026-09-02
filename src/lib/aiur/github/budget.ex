@@ -50,6 +50,14 @@ defmodule Aiur.GitHub.Budget do
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
 
+  @type release_outcome ::
+          :released
+          | :deadline_exceeded
+          | :github_budget_broker_unavailable
+          | :bypass
+
+  @release_topic "github:budget:lease_release"
+
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) do
     Keyword.get(opts, :enabled?, Application.get_env(:aiur, :github_budget_enabled?, true))
@@ -170,15 +178,63 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
+  @doc """
+  PubSub topic carrying a completion signal for every lease release.
+
+  Subscribers receive `{:github_budget_lease_released, %{lease_id: id,
+  token_key: key, budget_ms: non_neg_integer(), outcome: release_outcome()}}`,
+  where `budget_ms` is the time the release granted itself before running and
+  `outcome` is how it ended.
+  """
+  @spec release_topic() :: String.t()
+  def release_topic, do: @release_topic
+
   @spec release(lease(), keyword()) :: :ok
   def release(lease, opts \\ [])
 
   def release(%{id: id, token_key: key}, opts) when is_binary(id) and is_binary(key) do
-    _ = command(["release", "--lease-id", id], key, opts)
+    budget_ms = max(command_deadline(opts) - System.monotonic_time(:millisecond), 0)
+    publish_release(id, key, budget_ms, command(["release", "--lease-id", id], key, opts))
     :ok
   end
 
   def release(_lease, _opts), do: :ok
+
+  # `release/2` runs in the request's `after` block and is charged to the same
+  # absolute deadline as the request it closes, so it can be abandoned before
+  # the broker acknowledges it. That distinction is operationally real: an
+  # abandoned release leaves the lease inflight, holding shared budget headroom
+  # until the broker expires it on its own, while an acknowledged one returns
+  # the headroom immediately. Until now the broker result was discarded
+  # outright, so the only way to tell the two apart — in production or in a
+  # test — was to time the call and guess from elapsed wall-clock, which is a
+  # function of machine load rather than of the behaviour. Naming the outcome
+  # makes it assertable directly.
+  # `budget_ms` travels with the outcome because the two answer different
+  # questions. The outcome says whether the broker acknowledged the release;
+  # `budget_ms` says how long the release was ever *willing* to wait, which is
+  # decided by the caller's deadline and not by how loaded the machine is. A
+  # release that grants itself more than the request deadline is the bug — it
+  # parks the caller on the broker's SQLite lock — and that is visible in
+  # `budget_ms` alone, without timing anything.
+  defp publish_release(lease_id, token_key, budget_ms, result) do
+    event = %{lease_id: lease_id, token_key: token_key, budget_ms: budget_ms, outcome: release_outcome(result)}
+
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @release_topic, {:github_budget_lease_released, event})
+    end
+
+    :ok
+  rescue
+    error -> Logger.warning("github_budget_release_publish_failed #{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("github_budget_release_publish_exited #{inspect(reason)}")
+  end
+
+  defp release_outcome({:ok, _output}), do: :released
+  defp release_outcome({:error, :github_budget_broker_timeout}), do: :deadline_exceeded
+  defp release_outcome({:error, reason}), do: reason
+  defp release_outcome(:bypass), do: :bypass
 
   @doc "Observes a response before releasing its lease so accounting and rejections are global immediately."
   @spec observe(map(), lease(), {:ok, map()} | {:error, term()}, keyword()) :: :ok

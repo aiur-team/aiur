@@ -74,6 +74,20 @@ defmodule Aiur.Events.GithubKeys do
 
   def review_thread_dedup_key(_repo, _pr_number, _thread_id), do: nil
 
+  @doc "Returns the review-thread dedup key for one resolution generation."
+  @spec review_thread_dedup_key(term(), term(), term(), term()) ::
+          {String.t(), String.t(), String.t()} | nil
+  def review_thread_dedup_key(repo, pr_number, thread_id, generation)
+      when is_binary(generation) and generation != "" do
+    case review_thread_dedup_key(repo, pr_number, thread_id) do
+      {owner_repo, kind, id} -> {owner_repo, kind, id <> ":" <> generation}
+      nil -> nil
+    end
+  end
+
+  def review_thread_dedup_key(repo, pr_number, thread_id, _generation),
+    do: review_thread_dedup_key(repo, pr_number, thread_id)
+
   @doc """
   Returns the Publisher dedup key for PR review submission events.
 
