@@ -58,6 +58,14 @@ Aiur.Opencode.SlotTest :: PubSub event topology all attach/visible events broadc
 Aiur.GitHub.BotIdentityTest :: daemon_account/3 under a split identity resolves the daemon App bot, not the account agents publish as
 Aiur.GitHub.BotIdentityTest :: falls back from config bot account to authenticated viewer login
 
+# Observed on docs-only PR #2342, run referenced on #2397 (2026-08-24).
+Aiur.GitHub.BotIdentityTest :: classifies both split identities as Aiur's own from config alone
+
+# Unticketed, reported on PR #2451 (2026-08-24) as a load-dependent allowlist
+# failure in coverage (3/4). The exact name is pinned to the test definition so
+# the reporter keeps its full-line matching contract.
+Aiur.GitHub.CodeOwnersTest :: user tokens become allowlist entries
+
 # Unticketed, observed 2026-08-24 run 32784032689 coverage (1/4). Same code was
 # fully green on head 1ff0f23aa (run 32780225293). Residual members of the
 # #2288 endpoint teardown/startup class (shared AiurWeb.Endpoint): the owned
