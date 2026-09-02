@@ -244,19 +244,107 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.mkdir_p!(context.state_path)
     File.write!(token_file, "stale-token\n")
 
-    assert :no_credential = AgentGitHubGuard.ensure_agent_token_file(token: nil, path: token_file)
+    assert :no_credential = AgentGitHubGuard.ensure_agent_token_file(token: :none, path: token_file)
     refute File.exists?(token_file)
   end
 
   test "remote install writes the guard credential file for SSH workers", _context do
-    script = AgentGitHubGuard.remote_install_script("/work/aiur/remote", token: "remote-bot-pat")
+    script =
+      AgentGitHubGuard.remote_install_script("/work/aiur/remote",
+        token: "remote-bot-pat",
+        remote_host: "worker-1"
+      )
+
     assert script =~ "agent-token"
     assert script =~ "remote-bot-pat"
     assert script =~ "chmod 600"
 
-    script = AgentGitHubGuard.remote_install_script("/work/aiur/remote", token: nil)
+    script =
+      AgentGitHubGuard.remote_install_script("/work/aiur/remote",
+        token: :none,
+        remote_host: "worker-1"
+      )
+
     assert script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
     refute script =~ "remote-bot-pat"
+  end
+
+  # #2478 — no fleet agent could push because the shared credential file was
+  # deleted seconds after every restore. Two defects compounded, and this pins
+  # both.
+  #
+  # `Keyword.fetch(opts, :token)` returned `{:ok, nil}` for an explicit
+  # `token: nil`, so the `GITHUB_TOKEN` fallback was skipped and `nil` reached
+  # the no-credential branch — a daemon that provably held the token still
+  # resolved "no credential". That branch then emitted an unconditional
+  # `rm -f "$HOME/.aiur/github-budget/agent-token"`, and `$HOME` is the
+  # operator's own home whenever this script is generated or run locally.
+  test "an explicit nil token falls back to the environment and writes rather than deletes" do
+    env = fn
+      "GITHUB_TOKEN" -> "env-bot-pat"
+      _other -> nil
+    end
+
+    script =
+      AgentGitHubGuard.remote_install_script("/work/aiur/remote",
+        token: nil,
+        remote_host: "worker-1",
+        env_reader: env
+      )
+
+    assert script =~ "env-bot-pat"
+    assert script =~ "chmod 600 \"$HOME/.aiur/github-budget/agent-token\""
+    refute script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
+  end
+
+  # The destructive cleanup is only correct on a host the daemon is installing
+  # onto over SSH. Generated without a remote host — the installer tests, any
+  # local execution — it must never delete the shared operator-owned path.
+  test "a local install never emits the host credential deletion" do
+    script =
+      AgentGitHubGuard.remote_install_script("/work/aiur/remote",
+        token: nil,
+        env_reader: fn _name -> nil end
+      )
+
+    refute script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
+  end
+
+  # The boot path (`Aiur.start/2`) calls this with no options. Under a scrubbed
+  # environment — which #2356 makes the normal case for anything an agent runs,
+  # including `mix test` — it must not delete the credential the real daemon
+  # wrote. Only an explicit `token: :none` may remove it.
+  test "an unresolvable credential leaves an existing file in place", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "live-bot-pat\n")
+
+    assert :no_credential =
+             AgentGitHubGuard.ensure_agent_token_file(
+               path: token_file,
+               env_reader: fn _name -> nil end
+             )
+
+    assert File.read!(token_file) == "live-bot-pat\n"
+  end
+
+  test "ensure_agent_token_file treats an explicit nil token as not supplied", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+
+    env = fn
+      "GITHUB_TOKEN" -> "env-bot-pat"
+      _other -> nil
+    end
+
+    assert :ok =
+             AgentGitHubGuard.ensure_agent_token_file(
+               token: nil,
+               path: token_file,
+               env_reader: env
+             )
+
+    assert File.read!(token_file) == "env-bot-pat\n"
   end
 
   test "keeps the Executor wrapper outside the budget state directory" do
