@@ -328,13 +328,29 @@ defmodule Aiur.BuildGateTest do
     File.mkdir_p!(real_bin)
     File.cp!(Path.join(context.bin_dir, "mix"), Path.join(real_bin, "mix"))
 
+    # An *empty file with a recognised extension*, not `/dev/null`. This test
+    # only needs mise to load no tool configuration, and `/dev/null` used to be
+    # an accepted way to say that. It is not a supported value: mise infers the
+    # config format from the file name, and since 2026.9.0 it rejects one it
+    # cannot classify —
+    #
+    #   mise ERROR error parsing config file: /dev/null
+    #   mise ERROR unknown config file type: /dev/null
+    #
+    # — exiting 1 before it ever runs the command. Because CI installs the
+    # latest mise rather than the version pinned in `mise.toml`, that release
+    # turned this test red on unmodified `main`, with no commit involved. An
+    # empty `mise.toml` states the same intent in a form every version parses.
+    empty_mise_config = Path.join(context.gate_dir, "empty-mise.toml")
+    File.write!(empty_mise_config, "")
+
     guarded_context =
       context
       |> with_command_wrappers!()
       |> Map.merge(%{
         bin_dir: real_bin,
         system_path: Path.dirname(real_mise) <> ":/usr/bin:/bin",
-        extra_env: [{"MISE_CONFIG_FILE", "/dev/null"}],
+        extra_env: [{"MISE_CONFIG_FILE", empty_mise_config}],
         lease_strategy: "pid"
       })
 
@@ -345,8 +361,20 @@ defmodule Aiur.BuildGateTest do
           "mise exec -C / -c '#{fake_mix} test'",
           "mise x -C / --command '#{fake_mix} do compile + test'"
         ] do
-      assert {_shell_output, 0} =
-               run_sh("#{command} > '#{capture_path}' 2>&1", guarded_context)
+      # The command's own output is redirected into `capture_path`, so a
+      # non-zero exit leaves the assertion with nothing but `{"", 1}` unless the
+      # captured file is read back into the failure message. Three CI runs
+      # failed here and named no cause for exactly that reason; the tool's error
+      # was sitting in a file nobody printed.
+      {shell_output, status} = run_sh("#{command} > '#{capture_path}' 2>&1", guarded_context)
+
+      assert status == 0,
+             """
+             #{command} exited #{status}
+             shell output: #{inspect(shell_output)}
+             captured output:
+             #{File.read(capture_path) |> elem(1)}
+             """
 
       output = File.read!(capture_path)
       assert length(Regex.scan(~r/aiur_build_gate acquired/, output)) == 1
