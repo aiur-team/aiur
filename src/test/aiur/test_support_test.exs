@@ -2,6 +2,9 @@ defmodule Aiur.TestSupportTest do
   use Aiur.TestSupport
 
   alias Aiur.CurrentRunMembership
+  alias Aiur.Events.SubscriptionStore
+  alias Aiur.Events.SubscriptionStoreRegistry
+  alias Aiur.Events.SubscriptionStoreSupervisor
   alias Aiur.GitHub.ReadCache
 
   test "receive_barrier selectively receives and exports bindings without a clock" do
@@ -150,23 +153,21 @@ defmodule Aiur.TestSupportTest do
   test "ensure_subscription_store_supervisor_running restores the stopped dynamic supervisor" do
     identifier = "test-support-subscription-store-#{System.unique_integer([:positive])}"
     on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
-    on_exit(fn -> Aiur.Events.SubscriptionStore.stop(identifier) end)
+    on_exit(fn -> SubscriptionStore.stop(identifier) end)
 
-    assert is_pid(Process.whereis(Aiur.Events.SubscriptionStoreSupervisor))
+    assert is_pid(Process.whereis(SubscriptionStoreSupervisor))
 
-    assert :ok =
-             Supervisor.terminate_child(
-               Aiur.Supervisor,
-               Aiur.Events.SubscriptionStoreSupervisor
-             )
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, SubscriptionStoreSupervisor)
 
-    refute Process.whereis(Aiur.Events.SubscriptionStoreSupervisor)
+    refute Process.whereis(SubscriptionStoreSupervisor)
 
     assert :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
-    assert is_pid(Process.whereis(Aiur.Events.SubscriptionStoreSupervisor))
-    assert :ok = Aiur.Events.SubscriptionStore.attach(identifier)
-    assert [{store, _value}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, identifier)
+    assert is_pid(Process.whereis(SubscriptionStoreSupervisor))
+    assert :ok = SubscriptionStore.attach(identifier)
+    assert [{store, _value}] = Registry.lookup(SubscriptionStoreRegistry, identifier)
     assert is_pid(store)
-    assert %{subscribed_to: [], last_seen_event_id: nil, open_attentions: []} = Aiur.Events.SubscriptionStore.snapshot(identifier)
+
+    assert %{subscribed_to: [], last_seen_event_id: nil, open_attentions: []} =
+             SubscriptionStore.snapshot(identifier)
   end
 end

@@ -100,3 +100,12 @@ Aiur.AgentGitHubGuardTest :: agent reads through the shared state cache simultan
 # fully green on head 1ff0f23aa (run 32780225293); passes locally in isolation.
 # Timing-shaped (socket token expiry delivery).
 AiurWeb.StreamdeckChannelTest :: a joined channel closes when its socket token expires
+
+# Unticketed, observed 2026-09-02 run 33585045973 coverage (1/4), the first run
+# where the step-level timeout let a partition actually report its failures.
+# Passes locally in isolation on the same head (113 tests, 0 failures). The
+# assertion is on a real shelled-out `mise`/Mix build under a build-gate lease
+# and it failed as {"", 1} -- exit 1 with EMPTY output, i.e. the command never
+# produced anything, which is a saturated-runner signature rather than a lease
+# defect. Cannot be reached by this PR's diff.
+Aiur.BuildGateTest :: real mise command strings acquire one lease for the whole Mix build
