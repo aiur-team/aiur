@@ -1081,12 +1081,20 @@ defmodule Aiur.Orchestrator.CommentWake do
   # opens no review thread, so #2422's unresolved-thread read reports nothing
   # and the ticket never leaves `agent:human-review` (#2473). The review
   # submission *is* the outstanding finding, so it is handed to the gate as an
-  # equivalent signal.
+  # equivalent signal. What stops that from re-entering #2422's rework loop is
+  # that a review submission is delivered once — `Aiur.Events.Publisher` drops
+  # a redelivery on the durable `{:pr_review, …}` resource identity before it
+  # ever reaches the gate — NOT `ReviewFreshness`, whose staleness half is
+  # inert on webhook deliveries. `ReworkGate`'s `no_thread_verdict/1` carries
+  # the full argument; read it there before changing this.
   #
   # Both publishers put the review under `comment` with an upper-cased `state`
-  # — `GithubCommentsPoller.publish_pr_review_submission/5` and the webhook
-  # pipe's `Normalizer.review_submission_triple/3` — so one derivation covers
-  # the delivery path and its polling backstop.
+  # — `GithubCommentsPoller.publish_pr_review_submission/5` reads REST
+  # `/reviews`, which reports upper case, and the webhook pipe's
+  # `Normalizer.review_submission_triple/3` applies `upcase_review_state/1` to
+  # a delivery's lower-cased state — so one derivation covers the delivery path
+  # and its polling backstop. The fold below is what makes that agreement a
+  # property of this function rather than of its two producers.
   #
   # Event payloads reach the orchestrator with atom keys from an in-process
   # publish and string keys after a JSON round trip through the event store,

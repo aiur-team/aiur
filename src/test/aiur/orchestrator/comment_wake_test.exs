@@ -461,6 +461,40 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert log =~ "rework transition skipped"
     end
 
+    # The two tests above read the write through a log proxy, because the
+    # tracker adapter is global config and this module is `async: true`, so it
+    # cannot be swapped for a recording fake without serialising the file. This
+    # one asserts *positively* that control reached the rework write stage: the
+    # rework-attempt bound runs immediately before the write and its alert
+    # emitter is injectable, so a head already at the limit produces a message
+    # that no earlier skip could produce.
+    test "a body-only CHANGES_REQUESTED review reaches the rework write stage" do
+      test_pid = self()
+
+      state =
+        Enum.reduce(1..State.rework_attempt_limit(), base_state(), fn _i, acc ->
+          State.bump_rework_attempt(acc, "2473", "abc123")
+        end)
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "This needs changes.", "state" => "CHANGES_REQUESTED"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+        emit_alert_fun: fn topic, opts -> send(test_pid, {:alert, topic, opts}) end
+      }
+
+      capture_log(fn ->
+        CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+      end)
+
+      # The bound is only consulted after the thread gate has already allowed
+      # the rework write, so receiving this proves the body-only review was
+      # accepted as a rework signal.
+      assert_receive {:alert, "ticket.2473.agent.attention.rework_attempt_limit", _opts}
+    end
+
     # The lower-cased `state` a `pull_request_review` delivery carries must
     # route identically to the upper-cased one the poller reads, so the
     # webhook path and its polling backstop cannot disagree (#2473).
