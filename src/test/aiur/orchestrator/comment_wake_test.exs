@@ -428,6 +428,121 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert state.comment_rework_retries == %{}
     end
 
+    # #2473 acceptance: a `CHANGES_REQUESTED` review submitted with a body and
+    # no inline comments opens NO review thread, so #2422's unresolved-thread
+    # read reports zero threads and the ticket never leaves
+    # `agent:human-review` — the reviewer's verdict is silently dropped, with
+    # no label write at all on the timeline. The review submission is itself
+    # the outstanding finding and must route to rework.
+    test "routes a body-only CHANGES_REQUESTED review submission to rework with zero review threads" do
+      state = base_state()
+
+      event = %{
+        author_trusted?: true,
+        comment: %{
+          "body" => "This needs changes before it can merge.",
+          "state" => "CHANGES_REQUESTED",
+          "submitted_at" => "2026-09-01T02:03:20Z"
+        },
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      }
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+        end)
+
+      # The gate must be passed, not skipped: the unset tracker then fails the
+      # write, which proves the `rework` write was actually attempted.
+      refute log =~ ":no_unresolved_review_threads"
+      refute log =~ "ignored for idle issue"
+      assert log =~ "rework transition skipped"
+    end
+
+    # The two tests above read the write through a log proxy, because the
+    # tracker adapter is global config and this module is `async: true`, so it
+    # cannot be swapped for a recording fake without serialising the file. This
+    # one asserts *positively* that control reached the rework write stage: the
+    # rework-attempt bound runs immediately before the write and its alert
+    # emitter is injectable, so a head already at the limit produces a message
+    # that no earlier skip could produce.
+    test "a body-only CHANGES_REQUESTED review reaches the rework write stage" do
+      test_pid = self()
+
+      state =
+        Enum.reduce(1..State.rework_attempt_limit(), base_state(), fn _i, acc ->
+          State.bump_rework_attempt(acc, "2473", "abc123")
+        end)
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "This needs changes.", "state" => "CHANGES_REQUESTED"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+        emit_alert_fun: fn topic, opts -> send(test_pid, {:alert, topic, opts}) end
+      }
+
+      capture_log(fn ->
+        CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+      end)
+
+      # The bound is only consulted after the thread gate has already allowed
+      # the rework write, so receiving this proves the body-only review was
+      # accepted as a rework signal.
+      assert_receive {:alert, "ticket.2473.agent.attention.rework_attempt_limit", _opts}
+    end
+
+    # The lower-cased `state` a `pull_request_review` delivery carries must
+    # route identically to the upper-cased one the poller reads, so the
+    # webhook path and its polling backstop cannot disagree (#2473).
+    test "routes a lower-cased changes_requested review state to rework as well" do
+      state = base_state()
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "please fix", "state" => "changes_requested"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      }
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+        end)
+
+      refute log =~ ":no_unresolved_review_threads"
+      assert log =~ "rework transition skipped"
+    end
+
+    # The #2473 signal is scoped to a changes-requested review. An APPROVED or
+    # COMMENTED review with no unresolved threads keeps #2422's refusal, so the
+    # fix cannot reopen the rework loop it closed.
+    test "keeps refusing rework for a non-changes-requested review with zero review threads" do
+      state = base_state()
+
+      for review_state <- ["APPROVED", "COMMENTED", "DISMISSED"] do
+        event = %{
+          author_trusted?: true,
+          comment: %{"body" => "looks good", "state" => review_state},
+          issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+          open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        }
+
+        {result, log} =
+          with_log(fn ->
+            CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+          end)
+
+        assert log =~ ":no_unresolved_review_threads", "expected #{review_state} to keep the #2422 refusal"
+        assert result == state
+      end
+    end
+
     test "a CHANGES_REQUESTED PR with unresolved review threads still routes to rework" do
       # #2422 acceptance, control: unresolved threads mean the reviewer is still
       # asking for a change, so the routing decision is unchanged from before.
