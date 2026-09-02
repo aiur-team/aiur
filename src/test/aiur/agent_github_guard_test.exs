@@ -499,6 +499,78 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert File.read!(context.calls) =~ "pr view"
   end
 
+  # #2501 — single-account provenance marker.
+  #
+  # The agent composes its comment body inside its own process and posts it with
+  # `gh`, so the wrapper is the only place the daemon can attach provenance to
+  # it. Without the marker, a single-account install cannot tell that comment
+  # from one the operator typed under the same login.
+  describe "single-account comment marker" do
+    @marker "<!-- aiur:agent-authored -->"
+
+    defp forwarded_args(context, args, extra_env) do
+      recorded = Path.join(context.workspace, "forwarded-args-#{System.unique_integer([:positive])}")
+      {_output, 0} = run_guard(context, args, [{:FAKE_GH_ARGS, recorded}] ++ extra_env)
+      File.read!(recorded)
+    end
+
+    test "appends the marker to an agent's issue comment body", context do
+      forwarded =
+        forwarded_args(context, ["issue", "comment", "1670", "--body", "Rework applied."], AIUR_AGENT_COMMENT_MARKER: @marker)
+
+      assert forwarded =~ "Rework applied."
+      assert forwarded =~ @marker
+    end
+
+    test "covers pr comment and pr review, and the --body= and -b spellings", context do
+      for args <- [
+            ["pr", "comment", "1670", "--body", "Pushed the fix."],
+            ["pr", "comment", "1670", "--body=Pushed the fix."],
+            ["pr", "review", "1670", "--comment", "-b", "Pushed the fix."]
+          ] do
+        forwarded = forwarded_args(context, args, AIUR_AGENT_COMMENT_MARKER: @marker)
+
+        assert forwarded =~ "Pushed the fix.", "no body forwarded for #{inspect(args)}"
+        assert forwarded =~ @marker, "no marker appended for #{inspect(args)}"
+      end
+    end
+
+    test "leaves the rest of argv, and its order, alone", context do
+      forwarded =
+        forwarded_args(
+          context,
+          ["pr", "review", "1670", "-R", "owner/aiur", "--comment", "--body", "fine"],
+          AIUR_AGENT_COMMENT_MARKER: @marker
+        )
+
+      assert forwarded =~ "pr review 1670 -R owner/aiur --comment --body fine"
+    end
+
+    test "does not stamp twice when the body already carries the marker", context do
+      forwarded =
+        forwarded_args(context, ["issue", "comment", "1670", "--body", "Done.\n\n" <> @marker], AIUR_AGENT_COMMENT_MARKER: @marker)
+
+      assert forwarded |> String.split(@marker) |> length() == 2
+    end
+
+    test "separate-account mode leaves the body untouched", context do
+      # The variable is exported only on a single-account install, so an
+      # unset one must change nothing at all.
+      forwarded = forwarded_args(context, ["issue", "comment", "1670", "--body", "Rework applied."], [])
+
+      assert forwarded =~ "Rework applied."
+      refute forwarded =~ @marker
+      refute forwarded =~ "aiur:agent"
+    end
+
+    test "a command that is not a comment write is never rewritten", context do
+      forwarded =
+        forwarded_args(context, ["issue", "view", "1670", "--json", "body"], AIUR_AGENT_COMMENT_MARKER: @marker)
+
+      refute forwarded =~ @marker
+    end
+  end
+
   test "allows a comment review whose body text looks like an approve flag", context do
     # `--approve` here is the VALUE of `--body`, not a flag. Refusing it would
     # make the guard unusable for the reviews an agent is supposed to leave.

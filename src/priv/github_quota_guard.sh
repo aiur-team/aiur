@@ -622,6 +622,65 @@ done
 unset positional_count
 command_key="$command_name $subcommand_name"
 
+# Single-account provenance marker (#2501).
+#
+# When agents and the human operator share one GitHub login, the author of a
+# comment no longer says who wrote it, so the daemon reads authorship from a
+# marker in the body instead. This is the only place that marker can be applied
+# to an agent's comment: the body is composed inside the agent process and
+# reaches GitHub through `gh` without ever passing through the daemon.
+#
+# `AIUR_AGENT_COMMENT_MARKER` is exported only on a single-account install, so
+# an unset variable — a separate-account install, an older workspace, a `gh`
+# invoked outside an agent environment — leaves argv untouched byte for byte.
+#
+# Only the inline `--body`/`-b` forms are rewritten. `--body-file` and stdin are
+# deliberately left alone rather than rewritten through a temp file: the guard
+# would have to copy agent-controlled content to a new path and pass that path
+# on, which is a wider blast radius than the marker is worth. An unstamped
+# comment is read as human by `Aiur.Events.Publisher`, so the cost of skipping
+# them is a redundant agent wake, never a swallowed instruction.
+if [ -n "${AIUR_AGENT_COMMENT_MARKER:-}" ]; then
+  case "$command_key" in
+    "issue comment"|"pr comment"|"pr review")
+      # Rotate argv exactly $# times: shift each argument off the front and
+      # append it (rewritten or not) to the back, leaving "$@" in its original
+      # order with the body value replaced in place.
+      marker_count=$#
+      marker_index=0
+      marker_prior=
+      while [ "$marker_index" -lt "$marker_count" ]; do
+        arg=$1
+        shift
+        marker_stamp=0
+        case "$marker_prior" in
+          --body|-b) marker_stamp=1 ;;
+        esac
+        case "$arg" in
+          --body=*) marker_stamp=1 ;;
+        esac
+        # Recorded before any rewrite, so the next iteration compares against
+        # the flag the caller actually passed.
+        marker_prior=$arg
+        if [ "$marker_stamp" -eq 1 ]; then
+          # Idempotent: a body that already carries the marker is passed through
+          # untouched, so a re-run or an agent that stamped its own body does not
+          # accumulate copies.
+          case "$arg" in
+            *"$AIUR_AGENT_COMMENT_MARKER"*) ;;
+            *) arg="$arg
+
+$AIUR_AGENT_COMMENT_MARKER" ;;
+          esac
+        fi
+        set -- "$@" "$arg"
+        marker_index=$((marker_index + 1))
+      done
+      unset marker_count marker_index marker_prior marker_stamp
+      ;;
+  esac
+fi
+
 if [ "$command_key" = "issue create" ]; then
   disposition=0
   prior=

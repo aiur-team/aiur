@@ -848,6 +848,9 @@ defmodule Aiur.TestSupport do
           tracker_repo: nil,
           tracker_label_prefix: nil,
           tracker_bot_account: nil,
+          # Left nil so the default fixture renders no `identity_mode` key at
+          # all, exercising the schema default an existing install is on.
+          tracker_identity_mode: nil,
           tracker_github_app_account: nil,
           tracker_trusted_accounts: [],
           tracker_planning_root_limit: 100,
@@ -1065,10 +1068,16 @@ defmodule Aiur.TestSupport do
 
   defp tracker_linear_yaml(_kind, _config), do: nil
 
+  # A key that only means anything under a GitHub tracker: nil for any other
+  # kind, so the caller renders no line for it at all.
+  defp github_only("github", config, key), do: Keyword.get(config, key)
+  defp github_only(_kind, _config, _key), do: nil
+
   defp tracker_github_yaml(tracker_kind, config) do
-    repo = if tracker_kind == "github", do: Keyword.get(config, :tracker_repo)
-    label_prefix = if tracker_kind == "github", do: Keyword.get(config, :tracker_label_prefix)
-    bot_account = if tracker_kind == "github", do: Keyword.get(config, :tracker_bot_account)
+    repo = github_only(tracker_kind, config, :tracker_repo)
+    label_prefix = github_only(tracker_kind, config, :tracker_label_prefix)
+    bot_account = github_only(tracker_kind, config, :tracker_bot_account)
+    identity_mode = github_only(tracker_kind, config, :tracker_identity_mode)
     trusted_accounts = if tracker_kind == "github", do: Keyword.get(config, :tracker_trusted_accounts, []), else: []
     root_limit = Keyword.fetch!(config, :tracker_planning_root_limit)
     page_budget = Keyword.fetch!(config, :tracker_planning_page_budget)
@@ -1079,6 +1088,7 @@ defmodule Aiur.TestSupport do
       repo && "    repo: #{yaml_value(repo)}",
       label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
       bot_account && "    bot_account: #{yaml_value(bot_account)}",
+      identity_mode && "    identity_mode: #{yaml_value(identity_mode)}",
       tracker_github_app_yaml(tracker_kind, config),
       trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}",
       "    planning_root_limit: #{yaml_value(root_limit)}",

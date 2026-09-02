@@ -28,6 +28,20 @@ defmodule Aiur.Config.Schema.Github do
     # opens pull requests. Separate from the daemon's App identity below — see
     # `Aiur.Config.Schema.GithubApp`.
     field(:bot_account, :string)
+    # Which identity arrangement this install runs, stated rather than guessed.
+    #
+    #   * `"separate_account"` (default) — agents post as a login no human uses,
+    #     so the author login alone answers "did Aiur write this".
+    #   * `"single_account"` — the operator's own login is also the agents'
+    #     login. Authorship can no longer be read from the author, so it is read
+    #     from `Aiur.GitHub.AgentMarker`'s in-body marker instead.
+    #
+    # Deliberately not inferred from whether `bot_account` equals the token's
+    # viewer login: that comparison is true for an operator who has a dedicated
+    # bot and happens to run the daemon under it, and false for a single-account
+    # operator whose token is a PAT of a machine user. Guessing wrong in either
+    # direction silently changes which comments wake an agent.
+    field(:identity_mode, :string, default: "separate_account")
     field(:trusted_accounts, {:array, :string}, default: [])
     field(:allowed_users, {:array, :string}, default: [])
     field(:human_mergers, {:array, :string}, default: [])
@@ -68,6 +82,7 @@ defmodule Aiur.Config.Schema.Github do
         :repo,
         :label_prefix,
         :bot_account,
+        :identity_mode,
         :trusted_accounts,
         :allowed_users,
         :human_mergers,
@@ -105,6 +120,7 @@ defmodule Aiur.Config.Schema.Github do
     |> cast_embed(:credentials, with: &GithubCredential.changeset/2)
     |> cast_embed(:github_app, with: &GithubApp.changeset/2)
     |> validate_unique_credential_ids()
+    |> validate_inclusion(:identity_mode, ["separate_account", "single_account"], message: "must be \"separate_account\" or \"single_account\"")
     |> validate_login_list(:allowed_users)
     |> validate_login_list(:human_mergers)
     |> validate_number(:planning_root_limit,

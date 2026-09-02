@@ -39,6 +39,7 @@ defmodule Aiur.Events.Publisher do
   require Logger
 
   alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
+  alias Aiur.GitHub.AgentMarker
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketObservation
@@ -192,7 +193,7 @@ defmodule Aiur.Events.Publisher do
       executor_topic_from_github?(topic, payload, opts) ->
         {:error, :executor_namespace_rejects_github_source}
 
-      filtered_bot_self_loop?(topic, Keyword.get(opts, :actor)) ->
+      filtered_bot_self_loop?(topic, Keyword.get(opts, :actor), payload) ->
         :filtered
 
       not Keyword.get(opts, :bypass_contamination, false) and
@@ -415,8 +416,42 @@ defmodule Aiur.Events.Publisher do
 
   defp authoritative_merge_topic?(topic), do: String.ends_with?(topic, ".pr.merged")
 
-  defp filtered_bot_self_loop?(topic, actor),
-    do: bot_self_loop?(actor) and not authoritative_merge_topic?(topic)
+  defp filtered_bot_self_loop?(topic, actor, payload),
+    do:
+      bot_self_loop?(actor) and not authoritative_merge_topic?(topic) and
+        ours_by_provenance?(payload)
+
+  # Separate-account mode: the author login *is* the proof, so nothing further
+  # is asked and every gate decision is byte-for-byte what it was before.
+  #
+  # Single-account mode: the login proves nothing, because the operator holds
+  # it too. For an event that carries a comment body — the only events a human
+  # can author from that login and the only ones this ticket is about — the
+  # proof must come from the body, so suppression requires the marker Aiur
+  # stamps on what it writes. An unmarked body publishes and wakes the agent,
+  # which is the intended cost: a redundant wake is recoverable, while dropping
+  # an operator's instruction is silent.
+  #
+  # Note the direction. This never suppresses on the *absence* of a human
+  # signal; it suppresses only on the *presence* of Aiur's own. So a comment
+  # posted before the marker existed — or by a path that could not stamp it,
+  # such as `--body-file` — reads as human, not as ours.
+  #
+  # Events with no comment body (pushes, label changes, CI) keep login-based
+  # suppression in both modes: a human cannot hand-author them into the daemon's
+  # own event stream, so there is no ambiguity for a marker to resolve, and
+  # requiring one would republish every self-emitted event on a single-account
+  # install.
+  defp ours_by_provenance?(payload) do
+    case comment_body(payload) do
+      nil -> true
+      body -> not GitHubConfig.single_account?() or AgentMarker.marked?(body)
+    end
+  end
+
+  defp comment_body(%{comment: %{"body" => body}}) when is_binary(body), do: body
+  defp comment_body(%{"comment" => %{"body" => body}}) when is_binary(body), do: body
+  defp comment_body(_payload), do: nil
 
   defp tracked?(nil), do: true
 

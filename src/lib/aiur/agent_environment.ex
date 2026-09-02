@@ -4,7 +4,7 @@ defmodule Aiur.AgentEnvironment do
   """
 
   alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
-  alias Aiur.GitHub.{Budget, Credential}
+  alias Aiur.GitHub.{AgentMarker, Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Workspace.Remote
 
@@ -292,6 +292,12 @@ defmodule Aiur.AgentEnvironment do
         {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
+        # Single-account mode only: the marker the `gh` guard appends to comment
+        # bodies the agent writes, so the daemon can later tell those comments
+        # from ones the operator typed under the same login. `false` (unset) on
+        # a separate-account install, where the author login already answers it
+        # and the guard must not touch any body.
+        {~c"AIUR_AGENT_COMMENT_MARKER", agent_comment_marker()},
         # The repository the agent was dispatched against, so the `gh` guard can
         # file a cached response under a resource identity (#2073 U6). `gh`
         # resolves the repo from the working directory, so the guard only trusts
@@ -432,6 +438,7 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
       remote_repo_slug_export() <>
+      agent_comment_marker_export() <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
@@ -570,6 +577,17 @@ defmodule Aiur.AgentEnvironment do
     case configured_repo_slug() do
       false -> "unset AIUR_GITHUB_REPO\n"
       slug -> "export AIUR_GITHUB_REPO=#{Aiur.Shell.escape(List.to_string(slug))}\n"
+    end
+  end
+
+  defp agent_comment_marker do
+    if GitHubConfig.single_account?(), do: String.to_charlist(AgentMarker.marker()), else: false
+  end
+
+  defp agent_comment_marker_export do
+    case agent_comment_marker() do
+      false -> "unset AIUR_AGENT_COMMENT_MARKER\n"
+      marker -> "export AIUR_AGENT_COMMENT_MARKER=#{Aiur.Shell.escape(List.to_string(marker))}\n"
     end
   end
 
