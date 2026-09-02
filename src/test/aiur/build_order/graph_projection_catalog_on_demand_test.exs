@@ -43,7 +43,13 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   # for the catalog returns state unchanged), and an unrelated message must not
   # re-arm it (`no_schedule?/3`'s `catalog_on_demand?` guard).
   test "an on-demand catalog arms no successor timer after a completed read and is not re-armed by a message" do
-    {:ok, projection} = start_projection(catalog_refresh_ms: 0)
+    authority = supervised_agent(authority(catalog_refresh_ms: 0))
+
+    {:ok, projection} =
+      start_projection(
+        catalog_refresh_ms: 0,
+        authority_snapshot: fn -> Agent.get(authority, & &1) end
+      )
 
     reader = await_reader(:catalog)
     finish(reader, {:ok, ProviderResult.complete(catalog([root(identity(1, "I1"))]))})
@@ -51,10 +57,28 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
 
     assert catalog_entry(projection).timer == nil
 
-    # Every message reconciles, and reconciling runs `reschedule_active_scopes/1`.
-    # The on-demand guard must keep the catalog timer nil: a real cadence may
-    # re-arm on a message, an on-demand catalog has none (#2309).
+    # A validated configuration-generation change with the same authority
+    # fingerprint takes the in-place reconcile path, which runs
+    # `reschedule_active_scopes/1`. Trace the guard's result because catalog
+    # success scheduling is independently suppressed under the event-sourced
+    # model; the timer assertion alone cannot distinguish removal of this
+    # on-demand branch.
+    :erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, [{:_, [], [{:return_trace}]}], [:local])
+    :erlang.trace(projection, true, [:call])
+
+    on_exit(fn ->
+      :erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, false, [:local])
+    end)
+
+    Agent.update(authority, &%{&1 | generation: 2})
     assert %Snapshot{data: %Catalog{}} = GraphProjection.catalog(projection)
+
+    assert_receive {:trace, ^projection, :return_from, {GraphProjection, :no_schedule?, 3}, true}
+
+    :erlang.trace(projection, false, [:call])
+    :erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, false, [:local])
+
+    assert :sys.get_state(projection).active_configuration_generation == 2
     assert catalog_entry(projection).timer == nil
   end
 
@@ -89,7 +113,14 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   # if the bound regresses to the catalog cadence.
   test "an on-demand catalog keeps a selected root's staleness bound at delivery latency, not zero" do
     first = identity(1, "I1")
-    {:ok, projection} = start_projection(catalog_refresh_ms: 0, delivery_staleness_ms: @delivery_staleness_ms)
+    clock = supervised_agent(0)
+
+    {:ok, projection} =
+      start_projection(
+        catalog_refresh_ms: 0,
+        delivery_staleness_ms: @delivery_staleness_ms,
+        clock_ms: fn -> Agent.get(clock, & &1) end
+      )
 
     # Demand creates the entry; refresh dispatches the one read.
     assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
@@ -101,12 +132,16 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
     # confirms it) before taking a snapshot.
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
 
-    # The completed read lands and a snapshot is taken: the clock is fixed at 0
-    # and `last_success_ms` is 0, so with the delivery-latency bound the root is
-    # still healthy, and with a zero-width bound (0 - 0 >= 0) it would already
-    # be `:stale`.
+    # Pin both sides of the exact delivery-latency boundary. The on-demand
+    # catalog fallback is shorter, so substituting `catalog_bound_ms(state)`
+    # would make the first assertion stale too early.
+    Agent.update(clock, fn _ -> @delivery_staleness_ms - 1 end)
     assert {:ok, %Snapshot{data: %SelectedRoot{}, health: health}} = GraphProjection.selected(projection, first)
     assert health.state == :healthy
+
+    Agent.update(clock, fn _ -> @delivery_staleness_ms end)
+    assert {:ok, %Snapshot{data: %SelectedRoot{}, health: health}} = GraphProjection.selected(projection, first)
+    assert health.state == :stale
   end
 
   defp start_projection(opts) do
@@ -121,13 +156,13 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
     GraphProjection.start_link(
       name: nil,
       task_supervisor: task_supervisor,
-      authority_snapshot: fn -> authority(opts) end,
+      authority_snapshot: Keyword.get(opts, :authority_snapshot, fn -> authority(opts) end),
       configuration_subscriber: fn _pid -> :ok end,
       reconciliation_fun: fn _opts -> :ok end,
       catalog_reader: fn _reader_opts -> blocking_read(parent, :catalog) end,
       selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
       now: fn -> @now end,
-      clock_ms: fn -> 0 end,
+      clock_ms: Keyword.get(opts, :clock_ms, fn -> 0 end),
       catalog_refresh_ms: Keyword.get(opts, :catalog_refresh_ms, 60_000),
       delivery_staleness_ms: Keyword.get(opts, :delivery_staleness_ms, @delivery_staleness_ms),
       refresh_timeout_ms: 30_000,
@@ -140,7 +175,7 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   defp authority(opts) do
     %{
       repository: @repository,
-      generation: 1,
+      generation: Keyword.get(opts, :generation, 1),
       root_limit: 100,
       page_budget: 4,
       call_budget: 4,
@@ -169,6 +204,10 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
   end
 
   defp finish(reader, result), do: send(reader, {:finish, result})
+
+  defp supervised_agent(initial) do
+    start_supervised!(%{id: make_ref(), start: {Agent, :start_link, [fn -> initial end]}})
+  end
 
   defp catalog(roots), do: Catalog.new(roots, ProviderHealth.new(1, :healthy, true))
 
