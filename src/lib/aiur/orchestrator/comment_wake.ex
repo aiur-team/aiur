@@ -1099,14 +1099,17 @@ defmodule Aiur.Orchestrator.CommentWake do
   # Event payloads reach the orchestrator with atom keys from an in-process
   # publish and string keys after a JSON round trip through the event store,
   # so both shapes are read, exactly as `comment_body/1` does.
-  defp changes_requested_review?(event) when is_map(event) do
+  #
+  # No non-map clause: the caller is what guarantees the map. `rework_threads_opts/1`
+  # pipes the event through `rework_open_pr_opts/1` first, which reads it with
+  # `Map.get/2`, so a non-map event raises there before reaching this function —
+  # the same reason the two sibling helpers below carry no such clause either.
+  defp changes_requested_review?(event) do
     case comment_review_state(event) do
       state when is_binary(state) -> String.upcase(state) == "CHANGES_REQUESTED"
       _other -> false
     end
   end
-
-  defp changes_requested_review?(_event), do: false
 
   defp comment_review_state(event) do
     comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
