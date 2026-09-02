@@ -241,7 +241,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp windows(%ProviderMeterSnapshot{windows: windows}, true) when is_map(windows) and map_size(windows) > 0 do
     windows
     |> Enum.map(fn {limit_id, window} -> window_view(limit_id, window) end)
-    |> Enum.sort_by(&{Map.get(@window_kind_order, &1.kind, 9), &1.name, &1.limit_id})
+    |> Enum.sort_by(&{Map.get(@window_kind_order, &1.kind, 9), &1.priority, &1.name, &1.limit_id})
   end
 
   defp windows(_snapshot, _known?), do: []
@@ -256,6 +256,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
     %{
       limit_id: to_string(limit_id),
       name: Map.get(window, :name, "Meter"),
+      priority: window_priority(window),
       kind: kind,
       kind_label: kind_label(kind),
       coverage: coverage,
@@ -278,6 +279,18 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       source_label: source_label(Map.get(window, :source)),
       meter: meter(coverage, used_percent)
     }
+  end
+
+  # A window may declare where it belongs among its peers of the same kind.
+  # A provider that expresses no preference keeps the previous ordering, which
+  # falls through to name and limit id.
+  @default_window_priority 100
+
+  defp window_priority(window) do
+    case Map.get(window, :priority) do
+      priority when is_integer(priority) -> priority
+      _unset -> @default_window_priority
+    end
   end
 
   # An exact semantic meter value is exposed only for a supported window with a
