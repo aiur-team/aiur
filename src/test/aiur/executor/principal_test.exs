@@ -23,7 +23,10 @@ defmodule Aiur.Executor.PrincipalTest do
     assert first["role"] == "owner"
     assert is_binary(first["last_renewed_at"])
 
-    eventually(fn -> entry(path, "executor-a")["last_renewed_at"] != first["last_renewed_at"] end)
+    renewed = eventually(fn -> renewed_entry(path, "executor-a", first["last_renewed_at"]) end)
+
+    assert renewed["last_acknowledged_at"] == nil
+    assert renewed["acknowledged_count"] == 0
   end
 
   test "registers as an observer when another Executor owns the stream", %{path: path} do
@@ -40,10 +43,35 @@ defmodule Aiur.Executor.PrincipalTest do
     assert owner["role"] == "owner"
     assert observer["role"] == "observer"
     assert is_binary(observer["last_renewed_at"])
+
+    renewed = eventually(fn -> renewed_entry(path, "executor-b", observer["last_renewed_at"]) end)
+
+    assert renewed["role"] == "observer"
+    assert {:ok, %{"id" => "executor-a"}} = Claims.owner(path: path)
+  end
+
+  test "releases the principal when its supervision ends", %{path: path} do
+    name = Module.concat(__MODULE__, Releasing)
+
+    start_supervised!(
+      {Principal, name: name, consumer_id: "executor-a", path: path, renew_interval_ms: 10},
+      id: name
+    )
+
+    assert {:ok, %{"id" => "executor-a"}} = Claims.owner(path: path)
+    assert :ok = stop_supervised(name)
+    assert :none = Claims.owner(path: path)
   end
 
   defp entry(path, id) do
     eventually(fn -> Enum.find(Claims.entries(path: path), &(&1["id"] == id)) end)
+  end
+
+  defp renewed_entry(path, id, previous) do
+    case Enum.find(Claims.entries(path: path), &(&1["id"] == id)) do
+      %{"last_renewed_at" => renewed} = entry when renewed != previous -> entry
+      _not_renewed -> nil
+    end
   end
 
   defp eventually(fun, attempts \\ 100)

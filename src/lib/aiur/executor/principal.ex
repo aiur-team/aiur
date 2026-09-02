@@ -19,6 +19,7 @@ defmodule Aiur.Executor.Principal do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     claims = Keyword.get(opts, :claims, Claims)
 
     state = %{
