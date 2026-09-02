@@ -99,26 +99,71 @@ defmodule Aiur.AgentGitHubGuard do
   def ensure_agent_token_file(opts \\ []) do
     path = Keyword.get(opts, :path, agent_token_path())
 
-    token =
-      case Keyword.fetch(opts, :token) do
-        {:ok, token} -> token
-        :error -> System.get_env("GITHUB_TOKEN") || System.get_env("GH_TOKEN")
-      end
-
-    case token do
+    case resolve_credential(opts) do
       token when is_binary(token) and token != "" ->
         with :ok <- ensure_token_parent(path, opts) do
           write_agent_token_file(path, token)
         end
 
       _no_credential ->
-        delete_agent_token_file(path)
+        # Deleting requires the caller to *declare* there is no credential
+        # (`token: :none`). "This process could not resolve one" is not the same
+        # claim, and on the daemon's own host it is usually false: #2356 scrubs
+        # `GITHUB_TOKEN`/`GH_TOKEN` from every agent environment, so any boot
+        # from a scrubbed shell — notably `mix test`, which starts the
+        # application and reaches this call — resolved no credential and deleted
+        # the live shared file the whole local fleet authenticates with. That
+        # made the credential vanish seconds after each restore, with no restart
+        # and no rebuild (#2478).
+        #
+        # The staleness property #2356 wanted is preserved where it is real: a
+        # daemon that holds a token overwrites the file on every boot, an
+        # explicit `:none` still cleans it, and the remote install script still
+        # clears a stale token on the remote host it installs onto.
+        if Keyword.get(opts, :token) == :none do
+          delete_agent_token_file(path)
+        else
+          Logger.warning("no GitHub credential resolved; leaving the agent credential file untouched path=#{path}")
+
+          :no_credential
+        end
+    end
+  end
+
+  # Resolves the credential to install, from `:token` or the daemon's own
+  # environment.
+  #
+  # `Keyword.fetch/2` used to gate the environment fallback, so a caller that
+  # passed `token: nil` got `{:ok, nil}` and skipped the fallback entirely —
+  # only an *absent* key ever consulted the environment. A daemon that provably
+  # held `GITHUB_TOKEN` therefore still resolved "no credential" and took the
+  # destructive branch (#2478). `nil` and `""` mean "not supplied", the same as
+  # an absent key; a caller that means "there is deliberately no credential"
+  # says so with the explicit `:none` sentinel, which never consults the
+  # environment.
+  #
+  # `:env_reader` exists so the fallback can be exercised deterministically.
+  # Several test modules already mutate `GITHUB_TOKEN` globally under
+  # `async: true`, and the regression that pins this branch must not be
+  # decided by which of them happens to be running. It defaults to the real
+  # process environment.
+  defp resolve_credential(opts) do
+    case Keyword.get(opts, :token) do
+      :none ->
+        nil
+
+      token when is_binary(token) and token != "" ->
+        token
+
+      _absent_or_blank ->
+        read_env = Keyword.get(opts, :env_reader, &System.get_env/1)
+        read_env.("GITHUB_TOKEN") || read_env.("GH_TOKEN")
     end
   end
 
   defp ensure_token_parent(path, opts) do
     if path == agent_token_path() do
-      Budget.ensure_state_dir(Keyword.drop(opts, [:path, :token]))
+      Budget.ensure_state_dir(Keyword.drop(opts, [:path, :token, :env_reader, :remote_host]))
     else
       case File.mkdir_p(Path.dirname(path)) do
         :ok -> :ok
@@ -300,14 +345,27 @@ defmodule Aiur.AgentGitHubGuard do
   # already ships over SSH — the same trust boundary as the guard payload
   # itself — and is deleted when no credential is available so a stale install
   # cannot leave a dead token authenticating the next agent.
+  #
+  # That deletion is scoped to a genuinely remote install (#2478). `$HOME` in
+  # this script is somebody else's home only when the script really runs over
+  # SSH; the string is generated in-process and is executed against the
+  # *operator's own* `$HOME` by anything that runs it locally — the installer
+  # tests do exactly that, four times per suite run. Because #2356 scrubs
+  # `GITHUB_TOKEN`/`GH_TOKEN` from every agent environment, an agent running the
+  # suite resolves no credential, so each run emitted
+  # `rm -f "$HOME/.aiur/github-budget/agent-token"` and destroyed the single
+  # shared credential every local agent authenticates with — while the tests
+  # stayed green.
+  #
+  # Scoping beats namespacing here: the path must stay exactly where the remote
+  # `gh` guard looks for it, so it cannot be made per-worker without changing
+  # the lookup on both sides. The cleanup is meaningful only for an install that
+  # really lands on another host, and only the remote provisioning path knows
+  # that. Making it opt-in via `:remote_host` leaves the destructive branch
+  # unreachable from every caller that generates or executes this script
+  # locally, while preserving the stale-install property where it applies.
   defp remote_agent_token_script(opts) do
-    token =
-      case Keyword.fetch(opts, :token) do
-        {:ok, token} -> token
-        :error -> System.get_env("GITHUB_TOKEN") || System.get_env("GH_TOKEN")
-      end
-
-    case token do
+    case resolve_credential(opts) do
       token when is_binary(token) and token != "" ->
         token = Aiur.Shell.escape(token)
 
@@ -319,7 +377,18 @@ defmodule Aiur.AgentGitHubGuard do
         |> Enum.join("\n")
 
       _no_credential ->
-        "rm -f \"$HOME/.aiur/github-budget/agent-token\" 2>/dev/null || true\n"
+        if remote_install?(opts) do
+          "rm -f \"$HOME/.aiur/github-budget/agent-token\" 2>/dev/null || true\n"
+        else
+          "# no GitHub credential available; leaving the host credential file untouched\n"
+        end
+    end
+  end
+
+  defp remote_install?(opts) do
+    case Keyword.get(opts, :remote_host) do
+      host when is_binary(host) and host != "" -> true
+      _local_or_unknown -> false
     end
   end
 
