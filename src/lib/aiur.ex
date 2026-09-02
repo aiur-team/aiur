@@ -215,7 +215,7 @@ defmodule Aiur.Application do
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
-    _executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
+    executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
 
     # Always true for a real run. The unit-test singleton turns it off so the
@@ -406,6 +406,7 @@ defmodule Aiur.Application do
       # block. `Claims` starts first: it arbitrates who may advance the shared
       # cursor the inbox owns.
       recording_children,
+      if(recording? and executor_mode?, do: Aiur.Executor.Principal),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
