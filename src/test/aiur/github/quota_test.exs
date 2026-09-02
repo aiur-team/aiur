@@ -580,6 +580,57 @@ defmodule Aiur.GitHub.QuotaTest do
     assert [%{consumer: "ticket:1790"}] = Quota.snapshot(quota).attribution
   end
 
+  # The agent `gh` guard writes `broker-reconcile-stale` exactly once per stale
+  # period, when its broker cannot write to the current ledger (schema trigger
+  # or version stamp abort at acquire) or cannot reconcile 304s (#2307). This
+  # process turns that marker into one fleet alert per workspace — latched on
+  # the marker path so a persistent marker does not re-alert on every refresh,
+  # and rearmed once the marker disappears (a refreshed broker has recovered).
+  test "a stale-broker marker raises one fleet alert per workspace and rearms on recovery" do
+    parent = self()
+    root = Path.join(System.tmp_dir!(), "aiur-gh-stale-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    quota_dir = Path.join([root, "ws-2307", ".aiur-runtime", "github-quota"])
+    File.mkdir_p!(quota_dir)
+    marker = Path.join(quota_dir, "broker-reconcile-stale")
+    File.write!(marker, "workspace:/ws-2307\n")
+
+    stale_broker_path = Path.join([root, "*", ".aiur-runtime", "github-quota", "broker-reconcile-stale"])
+
+    quota =
+      start_quota(
+        stale_broker_path: stale_broker_path,
+        emit_fun: fn name, opts ->
+          send(parent, {:alert, name, opts})
+          :ok
+        end
+      )
+
+    _snapshot = Quota.snapshot(quota)
+
+    assert_receive {:alert, "system.github.budget.broker_reconcile_stale", opts}
+    assert opts[:needs_attention]
+    assert opts[:severity] == "warning"
+    assert opts[:message] =~ "ws-2307"
+    assert opts[:message] =~ "workspace:/ws-2307"
+    assert opts[:message] =~ "cannot reconcile 304 responses"
+
+    # A persistent marker latches: the next refresh does not re-alert.
+    _snapshot = Quota.snapshot(quota)
+    refute_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
+
+    # Removing the marker (a refreshed broker recovered) rearms the latch, so a
+    # second stale period alerts again rather than staying permanently silent.
+    File.rm!(marker)
+    _snapshot = Quota.snapshot(quota)
+    refute_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
+
+    File.write!(marker, "workspace:/ws-2307\n")
+    _snapshot = Quota.snapshot(quota)
+    assert_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
+  end
+
   test "publishes and clears resource-specific shell holds" do
     hold_dir = Aiur.TestSupport.tmp_root!("aiur-gh-holds")
     on_exit(fn -> File.rm_rf(hold_dir) end)

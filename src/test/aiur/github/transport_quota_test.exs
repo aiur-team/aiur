@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.TransportQuotaTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.{Budget, Quota, Transport}
+  alias Aiur.GitHub.{Budget, Quota, ReadCache, Transport}
 
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)
@@ -17,6 +17,14 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
     Application.put_env(:aiur, :github_quota_server, quota)
     Application.put_env(:aiur, :github_budget_enabled?, false)
+
+    # These tests drive `Transport.default_request_fun` with `/issues/{n}`
+    # URLs and assert transport-level outcomes. Those reads are now cacheable
+    # (`:issue`, #2352), and the read cache is a shared application child, so a
+    # deposit made by an earlier test in the same partition would be served
+    # instead of reaching the transport. Start each test from an empty cache so
+    # the assertion is about the transport, not about cache state.
+    ReadCache.reset()
 
     on_exit(fn ->
       restore_env(:github_transport_test_options, previous_options)

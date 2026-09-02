@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
   alias Aiur.GitHub.AuthPreflight
   alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.Transport
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -23,6 +24,13 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     )
 
     AuthPreflight.invalidate(:test_setup)
+
+    # A `default_request_fun` probe here asserts the transport outcome (a 401
+    # clearing the memo). `/issues/{n}` reads are now cacheable (`:issue`,
+    # #2352), and the read cache is a shared application child, so clear it so
+    # the probe reaches the transport rather than a deposit from an earlier
+    # test in the same partition.
+    ReadCache.reset()
 
     on_exit(fn ->
       AuthPreflight.invalidate(:test_teardown)
