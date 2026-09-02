@@ -551,8 +551,8 @@ jobs:
                 return 1
               fi
               sleep "$delay"
-              # `[ ... ] && x=y` would be a failing AND-list once the cap is
-              # reached, which `bash -e` treats as fatal. Keep it an if.
+              # Keep the backoff update explicit: the under-30 threshold
+              # doubles 20 to 40, making 40 seconds the terminal delay.
               if [ "$delay" -lt 30 ]; then
                 delay=$((delay * 2))
               fi
