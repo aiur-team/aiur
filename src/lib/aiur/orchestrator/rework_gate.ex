@@ -108,13 +108,31 @@ defmodule Aiur.Orchestrator.ReworkGate do
       %{} ->
         case threads_fetcher.(pull_request) do
           {:ok, comments} when is_list(comments) and comments != [] -> {:ok, :rework}
-          {:ok, _no_unresolved_threads} -> {:skip, :no_unresolved_review_threads}
+          {:ok, _no_unresolved_threads} -> no_thread_verdict(opts)
           {:error, reason} -> {:error, reason}
         end
 
       # A PR that is not a map has nothing a reviewer could have rejected.
       _non_map ->
         {:skip, :no_unresolved_review_threads}
+    end
+  end
+
+  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # opens no review thread at all, so the thread read below reports zero
+  # unresolved threads and #2422's rule alone refuses a verdict a reviewer very
+  # much did make (#2473). Where the caller is routing *that review submission*
+  # itself, the submission is the outstanding finding, and it is a point event
+  # rather than GitHub's sticky `reviewDecision`: `ReviewFreshness` has already
+  # discarded a review that predates the current head, so the signal clears as
+  # soon as the agent pushes, and the rework-attempt bound still applies. The
+  # option defaults to `false`, so every caller that is *not* holding a live
+  # changes-requested review keeps the pre-#2473 behaviour exactly.
+  defp no_thread_verdict(opts) do
+    if Keyword.get(opts, :changes_requested_review?, false) do
+      {:ok, :rework}
+    else
+      {:skip, :no_unresolved_review_threads}
     end
   end
 
@@ -146,6 +164,11 @@ defmodule Aiur.Orchestrator.ReworkGate do
       must not be routed to rework;
     * `{:error, reason}` — the PR or thread lookup failed transiently; callers
       decide whether to retry or park.
+
+  Pass `changes_requested_review?: true` when the caller is routing a live
+  `CHANGES_REQUESTED` review submission. A body-only review opens no review
+  thread, so the thread read cannot see it (#2473); the submission is itself
+  the outstanding finding and stands in for an unresolved thread.
   """
   @spec verify_unresolved_review_threads(String.t() | integer(), keyword()) ::
           {:ok, map()}
@@ -154,11 +177,9 @@ defmodule Aiur.Orchestrator.ReworkGate do
   def verify_unresolved_review_threads(issue_key, opts \\ []) do
     case open_pr(issue_key, opts) do
       {:ok, %{} = pr} ->
-        threads_fetcher = Keyword.get(opts, :unresolved_threads_fetcher, &default_threads_fetcher/1)
-
-        case threads_fetcher.(pr) do
-          {:ok, comments} when is_list(comments) and comments != [] -> {:ok, pr}
-          {:ok, _no_unresolved_threads} -> {:skip, :no_unresolved_review_threads}
+        case open_pull_request_rework_verdict(pr, opts) do
+          {:ok, :rework} -> {:ok, pr}
+          {:skip, reason} -> {:skip, reason}
           {:error, reason} -> {:error, reason}
         end
 

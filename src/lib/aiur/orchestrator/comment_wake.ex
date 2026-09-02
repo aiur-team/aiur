@@ -1074,6 +1074,38 @@ defmodule Aiur.Orchestrator.CommentWake do
     event
     |> rework_open_pr_opts()
     |> maybe_put_threads_fetcher(event)
+    |> Keyword.put(:changes_requested_review?, changes_requested_review?(event))
+  end
+
+  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # opens no review thread, so #2422's unresolved-thread read reports nothing
+  # and the ticket never leaves `agent:human-review` (#2473). The review
+  # submission *is* the outstanding finding, so it is handed to the gate as an
+  # equivalent signal.
+  #
+  # Both publishers put the review under `comment` with an upper-cased `state`
+  # — `GithubCommentsPoller.publish_pr_review_submission/5` and the webhook
+  # pipe's `Normalizer.review_submission_triple/3` — so one derivation covers
+  # the delivery path and its polling backstop.
+  #
+  # Event payloads reach the orchestrator with atom keys from an in-process
+  # publish and string keys after a JSON round trip through the event store,
+  # so both shapes are read, exactly as `comment_body/1` does.
+  defp changes_requested_review?(event) when is_map(event) do
+    case comment_review_state(event) do
+      state when is_binary(state) -> String.upcase(state) == "CHANGES_REQUESTED"
+      _other -> false
+    end
+  end
+
+  defp changes_requested_review?(_event), do: false
+
+  defp comment_review_state(event) do
+    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
+
+    if is_map(comment) do
+      Map.get(comment, :state) || Map.get(comment, "state")
+    end
   end
 
   defp rework_open_pr_opts(event) do
