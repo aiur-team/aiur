@@ -55,7 +55,11 @@ defmodule Aiur.Workspace.Provisioner do
   # the same script executed locally must not touch the operator's own `$HOME`.
   defp remote_agent_support_script(workspace, worker_host) do
     Enum.map_join(@remote_agent_support_modules, "\n", fn module ->
-      if function_exported?(module, :remote_install_script, 2) do
+      # `Code.ensure_loaded?/1` first: on a not-yet-loaded module
+      # `function_exported?/3` answers false, which would silently fall back to
+      # the arity-1 call and drop the remote credential cleanup rather than
+      # failing loudly.
+      if Code.ensure_loaded?(module) and function_exported?(module, :remote_install_script, 2) do
         module.remote_install_script(workspace, remote_host: worker_host)
       else
         module.remote_install_script(workspace)

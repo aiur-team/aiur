@@ -71,8 +71,32 @@ defmodule Aiur.AgentGitHubGuard do
   def agent_token_path, do: Path.join(Budget.state_dir(), @agent_token_filename)
 
   @doc """
-  Writes the bot PAT to the guard's credential file, or deletes a stale file
-  when no credential is available.
+  Writes the bot PAT to the guard's credential file.
+
+  ## Contract
+
+  The credential comes from `:token`, falling back to the daemon's own
+  `GITHUB_TOKEN`/`GH_TOKEN`. `nil` and `""` mean "not supplied" and consult that
+  fallback, exactly as an absent `:token` key does.
+
+  Exactly one input removes the file: the explicit `token: :none` sentinel,
+  which asserts there is deliberately no credential and never consults the
+  environment. It returns `:no_credential` after deleting.
+
+  **Failing to resolve a credential does not delete anything.** It logs a
+  warning, leaves any existing file untouched, and returns `:no_credential`.
+  This is deliberate and is the fix for #2478: #2356 scrubs
+  `GITHUB_TOKEN`/`GH_TOKEN` from every agent environment, so "this process
+  resolved nothing" is the *normal* state for anything an agent runs — including
+  `mix test`, which starts the application and so reaches the boot call in
+  `Aiur.start/2`. Treating that as "no credential exists" deleted the live
+  credential file the whole local fleet authenticates with, once per suite run,
+  silently. A process that cannot see a token has learned nothing about whether
+  one exists, and must not act destructively on that absence.
+
+  Staleness is still handled where it is genuinely knowable: a daemon that holds
+  a token overwrites the file on every boot, and `remote_install_script/2`
+  clears a stale token on a host it installs onto over SSH.
 
   Agents used to inherit the raw `GITHUB_TOKEN`/`GH_TOKEN` from the daemon
   environment; anything that spoke HTTP directly — curl, Req, a Python script,
