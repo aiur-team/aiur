@@ -897,15 +897,22 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp authorize_issue(issue, request_fun, token, owner, repo, prefix) do
-    DispatchAuthorization.authorize(
-      issue,
-      owner,
-      repo,
-      prefix,
-      request_fun: request_fun,
-      token: token
-    )
+  defp authorize_issue(%Issue{} = issue, request_fun, token, owner, repo, prefix) do
+    # Dispatch-time revalidation can observe a ticket that closed after the
+    # open-candidate snapshot. Reject that terminal state before provenance
+    # authorization buys a timeline read and raises an ambiguity alert.
+    if DispatchPolicy.terminal_issue_state?(issue.state, DispatchPolicy.terminal_state_set()) do
+      issue
+    else
+      DispatchAuthorization.authorize(
+        issue,
+        owner,
+        repo,
+        prefix,
+        request_fun: request_fun,
+        token: token
+      )
+    end
   end
 
   @spec normalize_issue(map(), String.t(), String.t(), String.t()) :: Issue.t()
