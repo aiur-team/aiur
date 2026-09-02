@@ -3,14 +3,18 @@ defmodule Aiur.BuildOrder.TicketDetailTest do
 
   alias Aiur.{BuildOrder.TicketDetail, TrackerIdentity}
   alias Aiur.BuildOrder.TicketDetail.{Destinations, Failure, PullRequestDestination, Snapshot}
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.GitHub.{ReadCache, ResourceStore}
 
   # `Aiur.GitHub.ResourceStore` is global by design — the whole point is that a
   # resource fetched by one reader satisfies every other — so without this a body
   # stored for issue 42 by one case is served to the next case instead of its own
-  # stub, and the stub it injected is never called.
+  # stub, and the stub it injected is never called. The read cache is the same
+  # shared app child and now caches `/issues/{n}` reads (`:issue`, #2352), so a
+  # transport-backed case (e.g. the oversized-response abort) must not be served
+  # a body an earlier case deposited.
   setup do
     ResourceStore.reset()
+    ReadCache.reset()
     :ok
   end
 
