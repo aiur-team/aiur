@@ -38,6 +38,7 @@ defmodule Aiur.GitHub.BrokerTimeout do
   use GenServer
 
   alias Aiur.{Alerts, Config}
+  alias Aiur.Config.Schema.Agent, as: AgentConfig
 
   @retry_topic "system.github.budget_broker_retry"
   @degraded_topic "system.github.budget_broker_degraded"
@@ -46,10 +47,6 @@ defmodule Aiur.GitHub.BrokerTimeout do
   # How often the monitor re-evaluates the sliding-window rate and dwell. The
   # dwell itself is config; this is only the granularity at which it is checked.
   @check_interval_ms 30_000
-
-  @default_window_seconds 300
-  @default_threshold 5
-  @default_dwell_seconds 600
 
   defstruct events: [], since_ms: nil, alert_active: false, check_interval_ms: @check_interval_ms, emit_fun: &Alerts.emit_system/2
 
@@ -273,18 +270,26 @@ defmodule Aiur.GitHub.BrokerTimeout do
     :exit, _reason -> :ok
   end
 
-  defp window_ms, do: config_integer(&Config.budget_broker_rate_window_seconds/0, @default_window_seconds) * 1_000
-  defp threshold, do: config_integer(&Config.budget_broker_degraded_retry_threshold/0, @default_threshold)
-  defp dwell_ms, do: config_integer(&Config.budget_broker_degraded_alert_after_seconds/0, @default_dwell_seconds) * 1_000
+  defp window_ms,
+    do: config_integer(&Config.budget_broker_rate_window_seconds/0, :budget_broker_rate_window_seconds) * 1_000
+
+  defp threshold,
+    do: config_integer(&Config.budget_broker_degraded_retry_threshold/0, :budget_broker_degraded_retry_threshold)
+
+  defp dwell_ms,
+    do: config_integer(&Config.budget_broker_degraded_alert_after_seconds/0, :budget_broker_degraded_alert_after_seconds) * 1_000
 
   # Config is the source of truth; a config that cannot be read must degrade to
-  # a sane default rather than crash the monitor that guards the retry signal.
-  defp config_integer(read, default) do
+  # its schema default rather than crash the monitor that guards the retry
+  # signal. Reading that default from the schema keeps one source of truth.
+  defp config_integer(read, field) do
     case read.() do
       value when is_integer(value) and value > 0 -> value
-      _ -> default
+      _ -> schema_default(field)
     end
   rescue
-    _error -> default
+    _error -> schema_default(field)
   end
+
+  defp schema_default(field), do: AgentConfig |> struct!() |> Map.fetch!(field)
 end

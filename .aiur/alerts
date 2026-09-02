@@ -107,6 +107,8 @@ alerts:
     message: GitHub budget broker is degraded
     sound:
       - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+  "system.github.budget_broker_retry":
+    message: GitHub budget broker retry recorded
   "system.github.budget_broker_degraded.resolved":
     message: GitHub budget broker recovered
   "system.tracker.auth_preflight_failed":

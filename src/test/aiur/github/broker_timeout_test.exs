@@ -6,12 +6,10 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
 
   The monitor's own periodic timer is disabled for the test instance
   (`check_interval_ms: 0`); the dwell and window are driven with fake monotonic
-  timestamps against the config defaults (window 300s < dwell 600s, threshold 5
-  retries), so a burst that stops ages out of the window before the dwell
-  completes and raises nothing.
+  timestamps so rate behavior is deterministic.
   """
 
-  use ExUnit.Case, async: false
+  use Aiur.TestSupport
 
   alias Aiur.GitHub.BrokerTimeout
 
@@ -35,6 +33,45 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
 
   defp check(now_ms), do: BrokerTimeout.check(now_ms, name: @name)
   defp count(now_ms), do: BrokerTimeout.count(now_ms, name: @name)
+
+  defp configure_rate_signal!(window_seconds, threshold, dwell_seconds) do
+    path = Workflow.workflow_file_path()
+
+    configured =
+      path
+      |> File.read!()
+      |> String.replace(
+        "agent:\n",
+        """
+        agent:
+          budget_broker_rate_window_seconds: #{window_seconds}
+          budget_broker_degraded_retry_threshold: #{threshold}
+          budget_broker_degraded_alert_after_seconds: #{dwell_seconds}
+        """,
+        global: false
+      )
+
+    Aiur.TestSupport.write_workflow_file_atomic!(path, configured)
+    :ok = WorkflowStore.force_reload()
+  end
+
+  test "configured threshold, window, and dwell control alert behavior" do
+    configure_rate_signal!(10, 2, 3)
+
+    # Two retries cross the configured threshold (but not the default of five),
+    # and the configured three-second dwell raises at t=4_000.
+    record(1_000, 2)
+    check(1_000)
+    check(4_000)
+
+    assert_receive {:emitted, @degraded_topic, opts}
+    assert opts[:needs_attention] == true
+
+    # The same retries leave the configured ten-second window while they would
+    # still be inside the default 300-second window, so the alert resolves.
+    check(11_001)
+    assert_receive {:emitted, @resolved_topic, _}
+  end
 
   test "a sustained broker-timeout rate raises exactly one degraded alert after the dwell" do
     # Degradation starts at t=1_001_000 and the rate is still elevated (≥ the
@@ -66,12 +103,16 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
   end
 
   test "a single isolated timeout raises nothing" do
-    record(1_000, 1)
+    configure_rate_signal!(10, 5, 3)
 
-    # Even far past the dwell (1_000_000 ms in), one retry never crosses the
-    # threshold, so the condition never exists and nothing pages.
-    check(5_000)
-    check(1_000_000)
+    record(1_000, 1)
+    check(1_000)
+
+    # Check after the configured dwell while the retry is demonstrably still in
+    # the configured window. Suppression therefore comes from the threshold,
+    # not expiry or an incomplete dwell.
+    check(4_000)
+    assert count(4_000) == 1
 
     refute_receive {:emitted, @degraded_topic, _}
     refute_receive {:emitted, @resolved_topic, _}
