@@ -48,6 +48,38 @@ defmodule Aiur.ProviderMeterProbeTest do
     def fetch(_opts), do: {:error, :usage_unavailable}
   end
 
+  defmodule MultiWindowUsageApi do
+    @moduledoc false
+    def fetch(_opts) do
+      {:ok,
+       %{
+         used_percent: 21,
+         resets_at: ~U[2026-09-01 18:00:00Z],
+         window: "five_hour",
+         windows: [
+           %{
+             window: "seven_day",
+             label: "Weekly (all models)",
+             scope: :weekly,
+             priority: 0,
+             coverage: :supported,
+             used_percent: 5,
+             resets_at: ~U[2026-09-03 18:00:00Z]
+           },
+           %{
+             window: "five_hour",
+             label: "Session (5-hour)",
+             scope: :session,
+             priority: 3,
+             coverage: :supported,
+             used_percent: 21,
+             resets_at: ~U[2026-09-01 18:00:00Z]
+           }
+         ]
+       }}
+    end
+  end
+
   defmodule ObservingFakeAgent do
     @moduledoc false
 
@@ -214,6 +246,31 @@ defmodule Aiur.ProviderMeterProbeTest do
       end)
 
     refute log =~ "provider meter probe crashed"
+  end
+
+  # A meter that publishes only the worst-consumed window shows whichever
+  # window happens to be highest — usually the five-hour session one, which
+  # resets constantly. Every reported window must be published so the surface
+  # can lead with the weekly standing.
+  test "the usage-api probe publishes every reported window, not only the worst", ctx do
+    :ok = Events.subscribe_observed()
+
+    assert [%{provider: :claude, observed?: true}] =
+             ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: MultiWindowUsageApi))
+
+    assert_receive {:provider_meter_changed, %ProviderMeterSnapshot{provider: :claude, windows: windows}}
+
+    assert Map.keys(windows) |> Enum.sort() == ["five_hour", "seven_day"]
+
+    weekly = windows["seven_day"]
+    assert weekly.used_percent == 5
+    assert weekly.priority == 0
+    assert weekly.limit_id == "seven_day"
+    assert weekly.kind == :rate_limit
+    assert weekly.resets_at == ~U[2026-09-03 18:00:00Z]
+
+    assert windows["five_hour"].used_percent == 21
+    assert windows["five_hour"].priority == 3
   end
 
   test "probing :all covers every registry provider", ctx do
