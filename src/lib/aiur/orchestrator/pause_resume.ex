@@ -1777,9 +1777,16 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp worker_pause_reason(running_entry, pause_payload, request) do
     pending_pause_reason(running_entry, request) ||
       Map.get(running_entry, :paused_reason) ||
+      pending_unclassified_pause_reason(running_entry, pause_payload) ||
       Map.get(pause_payload, :kind) ||
       Map.get(pause_payload, "kind") ||
       request_pause_reason(request, pause_payload)
+  end
+
+  defp pending_unclassified_pause_reason(running_entry, pause_payload) do
+    if (Map.get(pause_payload, :kind) || Map.get(pause_payload, "kind")) in [nil, :worker_pause_unknown, "worker_pause_unknown"] do
+      get_in(running_entry, [:pending_pause_reason, :reason])
+    end
   end
 
   defp request_pause_reason(%{action: :pause, requester: :operator}, _pause_payload), do: :operator_pause
