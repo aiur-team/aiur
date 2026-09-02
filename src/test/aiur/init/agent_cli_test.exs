@@ -34,9 +34,9 @@ defmodule Aiur.Init.AgentCliTest do
     end
   end
 
-  describe "check_claude_version/1" do
+  describe "check_claude_version/2" do
     test "a version below the minimum warns about the missing coordination tools" do
-      assert {:error, message} = AgentCli.check_claude_version({:ok, "1.0.0"})
+      assert {:error, message} = AgentCli.check_claude_version({:ok, "1.0.0"}, :available)
       assert message =~ "aiur-claude 1.0.0 is older than 1.1.0"
       assert message =~ "without Aiur coordination tools"
       assert message =~ "aiur_declare_blocker"
@@ -44,29 +44,34 @@ defmodule Aiur.Init.AgentCliTest do
     end
 
     test "a version at the minimum is silent" do
-      assert AgentCli.check_claude_version({:ok, "1.1.0"}) == :ok
+      assert AgentCli.check_claude_version({:ok, "1.1.0"}, :not_found) == :ok
     end
 
     test "a version above the minimum is silent" do
-      assert AgentCli.check_claude_version({:ok, "2.3.1"}) == :ok
+      assert AgentCli.check_claude_version({:ok, "2.3.1"}, :not_found) == :ok
     end
 
     test "an unparseable version degrades to a hedged warning" do
-      assert {:error, message} = AgentCli.check_claude_version({:ok, "nightly"})
-      assert message =~ "couldn't parse the aiur-claude version (nightly)"
+      assert {:error, message} =
+               AgentCli.check_claude_version({:ok, "nightly"}, {:unknown, :timeout})
+
+      assert message =~ "couldn't determine the aiur-claude version"
       assert message =~ "if it's older than 1.1.0"
       assert message =~ "npm install -g aiur-claude@1.1.0"
     end
 
-    test "an undetectable version degrades to a hedged warning naming the reason" do
-      assert {:error, message} = AgentCli.check_claude_version({:error, "aiur-claude unavailable"})
-      assert message =~ "couldn't check the aiur-claude version (aiur-claude unavailable)"
+    test "an undetectable version degrades without echoing raw diagnostics" do
+      assert {:error, message} =
+               AgentCli.check_claude_version({:error, "token=super-secret"}, {:unknown, :timeout})
+
+      assert message =~ "couldn't determine the aiur-claude version"
       assert message =~ "if it's older than 1.1.0"
       assert message =~ "without Aiur coordination tools"
+      refute message =~ "super-secret"
     end
 
     test "a prerelease of the minimum counts as below it" do
-      assert {:error, message} = AgentCli.check_claude_version({:ok, "1.1.0-rc.1"})
+      assert {:error, message} = AgentCli.check_claude_version({:ok, "1.1.0-rc.1"}, :available)
       assert message =~ "older than 1.1.0"
     end
   end

@@ -205,11 +205,35 @@ CP949), or the issue data contains invalid bytes.
 
 ### Claude Backend
 
-`aiur-claude` must be installed:
+The local headless Claude backend requires `aiur-claude` 1.1.0 or newer.
+When the exact release is available from npm, install it explicitly:
 
 ```bash
-brew install aiur-claude
+npm install -g aiur-claude@1.1.0
 ```
+
+If npm reports that 1.1.0 is missing, or npm availability cannot be verified,
+install the reviewed GitHub release by commit instead:
+
+```bash
+npm install -g github:aiur-team/aiur-claude#3478281243bfec8b9e1719461ff17c836c07c5b8
+```
+
+When replacing an older global installation or switching its source, uninstall
+it first, then run the appropriate exact install command above:
+
+```bash
+npm uninstall -g aiur-claude
+```
+
+Do not use an unversioned `npm install -g aiur-claude`: npm's `latest` release
+may be older than Aiur's required adapter.
+
+Initialization and agent execution remain fail-open if installation, registry,
+or version checks fail. A local headless Claude session observed using an
+adapter older than 1.1.0 still runs, but Aiur records a durable degraded-adapter
+attention because its coordination tools are unavailable. A later healthy
+observation resolves that attention.
 
 `.aiur/config` configuration:
 
