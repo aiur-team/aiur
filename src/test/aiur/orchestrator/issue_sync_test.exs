@@ -796,8 +796,11 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       # on a store outage has no capacity-starvation signal to suppress.
       claimed = %{state | claimed: MapSet.new([ready.id])}
 
-      _no_work = IssueSync.sync_decision_store_unavailable_alert(claimed, [ready], 61_000)
-      refute _no_work.decision_store_unavailable_alert_active
+      waiting = IssueSync.sync_decision_store_unavailable_alert(claimed, [ready], 1_000)
+      no_work = IssueSync.sync_decision_store_unavailable_alert(waiting, [ready], 61_000)
+
+      refute no_work.decision_store_unavailable_alert_active
+      assert is_nil(no_work.decision_store_unavailable_since_ms)
       mailbox_barrier()
       refute_received {:event, %{topic: "system.dispatch.decision_store_unavailable"}}
     end

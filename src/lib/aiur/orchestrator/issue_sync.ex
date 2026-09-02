@@ -1415,6 +1415,12 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   def sync_fleet_capacity_starved_alert(%State{} = state, _issues), do: state
 
+  @spec sync_decision_store_unavailable_alert(State.t(), list()) :: State.t()
+  def sync_decision_store_unavailable_alert(%State{} = state, issues) when is_list(issues),
+    do: sync_decision_store_unavailable_alert(state, issues, System.monotonic_time(:millisecond))
+
+  def sync_decision_store_unavailable_alert(%State{} = state, _issues), do: state
+
   @doc false
   @spec sync_decision_store_unavailable_alert(State.t(), list(), integer()) :: State.t()
   def sync_decision_store_unavailable_alert(%State{} = state, issues, now_ms)
@@ -1427,12 +1433,6 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   def sync_decision_store_unavailable_alert(%State{} = state, _issues, _now_ms), do: state
-
-  @spec sync_decision_store_unavailable_alert(State.t(), list()) :: State.t()
-  def sync_decision_store_unavailable_alert(%State{} = state, issues) when is_list(issues),
-    do: sync_decision_store_unavailable_alert(state, issues, System.monotonic_time(:millisecond))
-
-  def sync_decision_store_unavailable_alert(%State{} = state, _issues), do: state
 
   @doc false
   @spec sync_dependency_circular_wait_alert(State.t(), list(), integer()) :: State.t()
