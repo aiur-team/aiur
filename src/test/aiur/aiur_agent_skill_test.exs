@@ -166,6 +166,20 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "account for every hit"
   end
 
+  test "aiur-agent instructions forbid --trace on a bare file or directory (#2311)" do
+    for path <- [".claude/skills/aiur-agent/dev-loop.md", ".aiur/prompt.md"] do
+      content = File.read!(Path.join(@repo_root, path))
+      normalized = String.replace(content, ~r/\s+/, " ")
+
+      assert Regex.match?(
+               ~r/use `--trace` only with a specific `file:line`, never with a bare file or directory/i,
+               normalized
+             )
+
+      assert normalized =~ "max_cases: 1"
+    end
+  end
+
   test "issue-worker prompts require explicit repository context for git commands" do
     for path <- [".aiur/prompt.md", ".aiur/examples/prompt.md.example"] do
       content = File.read!(Path.join(@repo_root, path))
@@ -392,6 +406,19 @@ defmodule Aiur.AiurAgentSkillTest do
     assert payload["reversibility"] == "reversible"
     assert Enum.all?(payload["options"], &(&1["risk"] == "low"))
     assert is_binary(payload["recommendation"]["option_id"])
+  end
+
+  test "Command authoring names the Executor-answerable Command types and the inverted burden" do
+    relay = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
+    normalized = one_line(relay)
+
+    assert normalized =~ "Two Command types are explicitly Executor-answerable"
+    assert normalized =~ ~s(kind: "rework_review")
+    assert normalized =~ "authority: supervisor_preferred"
+    assert normalized =~ ~s(kind: "sequencing")
+    assert normalized =~ "explicitly declare `authority: human_required`"
+    assert normalized =~ "omission now defaults to Executor-answerable"
+    assert normalized =~ "within the Executor floor"
   end
 
   test "blocker guidance keeps unblocked work moving" do

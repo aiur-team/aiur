@@ -116,7 +116,7 @@ defmodule Aiur.DecisionExpiryTest do
     assert decision_id == stale.decision_id
   end
 
-  test "an expired Executor-unanswerable Command raises an attention" do
+  test "routes an expired Executor-unanswerable Command through the attention sync" do
     test_pid = self()
     command = decision("expired-unanswerable", "DONE-1", DateTime.add(@now, -600, :second), blocking: false)
 

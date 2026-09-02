@@ -69,9 +69,8 @@ defmodule AiurWeb.OperatorControlCenter.History do
             <.history_row
               :for={decision <- @rows}
               id={"history-#{decision.decision_id}"}
-              decision={decision}
+              decision={row_decision(decision, decision.decision_id == @expanded_id, @expanded_decision)}
               expanded={decision.decision_id == @expanded_id}
-              expanded_decision={@expanded_decision}
               history={@history}
               action_state={@action_state}
               writable={@writable}
@@ -98,7 +97,6 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:id, :string, required: true)
   attr(:decision, :map, required: true)
   attr(:expanded, :boolean, required: true)
-  attr(:expanded_decision, :any, required: true)
   attr(:history, :list, required: true)
   attr(:action_state, :map, required: true)
   attr(:writable, :boolean, required: true)
@@ -112,10 +110,6 @@ defmodule AiurWeb.OperatorControlCenter.History do
       |> assign(:detail_id, "history-detail-#{assigns.id}")
       |> assign(:toggle_id, "history-toggle-#{assigns.id}")
       |> assign(:toggle, toggle(assigns))
-      # The open row renders the freshly re-read record rather than the copy the
-      # history page returned: a Command can be revised while it is open, and
-      # the row must not keep asserting the question it was answered under.
-      |> assign(:decision, row_decision(assigns))
 
     ~H"""
     <tr
@@ -195,8 +189,24 @@ defmodule AiurWeb.OperatorControlCenter.History do
     decision.decision_id |> DecisionPath.detail(filter, query) |> JS.patch()
   end
 
-  defp row_decision(%{expanded: true, expanded_decision: %{} = expanded}), do: expanded
-  defp row_decision(%{decision: decision}), do: decision
+  # The open row renders the freshly re-read record rather than the copy the
+  # history page returned: a Command can be revised while it is open, and the
+  # row must not keep asserting the question it was answered under.
+  #
+  # This is resolved here, in the caller, rather than by reassigning `:decision`
+  # inside `history_row/1`. `assign/3` marks an assign changed by comparing the
+  # new value against the one already in the map — for a component that is the
+  # value the caller just passed in, not the value the previous render used. So
+  # `assign(:decision, expanded_decision)` inside the component silently dropped
+  # the change whenever the history page's copy of the row happened to equal the
+  # freshly read record, and every dynamic guarded on `@decision` kept its
+  # previous output. That is how an open row went on rendering "Delivery failed"
+  # and its "Retry delivery" button after the retry had already been queued,
+  # offering the operator a duplicate retry: the row's own chips updated, only
+  # the `:if`-guarded block did not. Passing the resolved record as the attr
+  # keeps the dependency on `@expanded_decision` visible to change tracking.
+  defp row_decision(_decision, true, %{} = expanded), do: expanded
+  defp row_decision(decision, _expanded?, _expanded_decision), do: decision
 
   # A count is only shown when the store reported an exact total. "23 of 91"
   # with an unknown total would be a fabricated denominator.

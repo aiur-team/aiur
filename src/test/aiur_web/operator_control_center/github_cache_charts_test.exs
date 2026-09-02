@@ -110,6 +110,71 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.ChartsTest do
       refute Charts.spend_over_time(series()) =~ "not the whole bill"
     end
 
+    test "shades and labels history from before the current credential window" do
+      series = %{series() | current_window_started_at_ms: @t0 + 60_000}
+      svg = Charts.spend_over_time(series)
+
+      assert svg =~ ~s(data-role="pre-window-history")
+      assert svg =~ ~s(data-role="current-window-boundary")
+      assert svg =~ ~s(<rect x="44" y="14" width="351.0")
+      assert svg =~ ~s(<line x1="395.0" x2="395.0")
+      assert svg =~ "before current window"
+      assert svg =~ "current window"
+      # The suffix on the chart's aria-label is the only non-visual cue that
+      # part of the plot is a prior window — the shade and dashed rule are
+      # purely visual, so a screen-reader user gets the suffix or nothing.
+      assert svg =~ "earlier-window history shaded"
+    end
+
+    test "does not connect stacked bands across a credential-window reset" do
+      points =
+        series().points
+        |> Enum.with_index()
+        |> Enum.map(fn {point, index} ->
+          values = if index < 2, do: %{"comment_poll_batch" => 4_800}, else: %{"comment_poll_batch" => 2}
+          %{point | values: values}
+        end)
+
+      # The reset falls between the second and third retained samples, so both
+      # injected anchor vertices are load-bearing: the previous band's closing
+      # point and the current band's opening point both sit on the boundary x.
+      boundary = @t0 + 45_000
+      svg = Charts.spend_over_time(%{series() | points: points, current_window_started_at_ms: boundary})
+
+      assert length(Regex.scan(~r/<path/, svg)) == 6
+      assert length(Regex.scan(~r/<path[^>]+data-window="previous"/, svg)) == 3
+      assert length(Regex.scan(~r/<path[^>]+data-window="current"/, svg)) == 3
+
+      # Where the split lands is the central claim, and a path count cannot see
+      # it — so pin the geometry: one previous path and one current path must
+      # each carry a vertex at the boundary x. That is what makes the previous
+      # band's right edge and the current band's left edge meet at the reset,
+      # and the shade's right edge (the same x) align to a drawn band.
+      previous_d = Regex.scan(~r/<path data-window="previous" d="([^"]+)"/, svg) |> hd() |> hd()
+      current_d = Regex.scan(~r/<path data-window="current" d="([^"]+)"/, svg) |> hd() |> hd()
+
+      # ml + (boundary - t0) / (t1 - t0) * pw, with the chart's 44/14 margins
+      # and this test's fixed span of 120s between the first and last samples.
+      boundary_x = 44.0 + (boundary - @t0) / 120_000 * (760 - 44 - 14)
+
+      assert previous_d =~ "#{boundary_x},"
+      assert current_d =~ "#{boundary_x},"
+    end
+
+    test "omits window markers when the boundary is outside retained history" do
+      for boundary <- [@t0, @t0 + 150_000, nil] do
+        svg = Charts.spend_over_time(%{series() | current_window_started_at_ms: boundary})
+
+        refute svg =~ ~s(data-role="pre-window-history")
+        refute svg =~ ~s(data-role="current-window-boundary")
+        # The aria-label suffix must track whether a shade is actually drawn: a
+        # boundary past the last retained sample shades nothing, so claiming it
+        # does in the accessible name would be the same mismatch this page
+        # exists to refuse.
+        refute svg =~ "earlier-window history shaded"
+      end
+    end
+
     test "renders nothing rather than an empty axis when there is nothing to draw" do
       assert Charts.spend_over_time(nil) == ""
       assert Charts.spend_over_time(%{series() | points: Enum.take(series().points, 1)}) == ""
@@ -133,6 +198,14 @@ defmodule AiurWeb.OperatorControlCenter.GithubCache.ChartsTest do
         }
       end
 
-    %{budget: "graphql", scope: :bill, bands: bands, points: points, dropped: 0, estimated?: false}
+    %{
+      budget: "graphql",
+      scope: :bill,
+      bands: bands,
+      points: points,
+      dropped: 0,
+      estimated?: false,
+      current_window_started_at_ms: @t0
+    }
   end
 end

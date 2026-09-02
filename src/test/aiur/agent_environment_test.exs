@@ -5,7 +5,7 @@ defmodule Aiur.AgentEnvironmentTest do
   # module's value (#1920).
   use ExUnit.Case, async: false
 
-  alias Aiur.{AgentEnvironment, BuildGate}
+  alias Aiur.{AgentEnvironment, AgentGitHubGuard, BuildGate}
   alias Aiur.GitHub.Budget
 
   test "identifies inherited Erlang distribution environment names" do
@@ -345,9 +345,13 @@ defmodule Aiur.AgentEnvironmentTest do
     assert output == "AIUR_AGENT_WORKSPACE=/work/aiur/697\nAIUR_DEBUG=1\n"
   end
 
-  test "scrub_shell_command clears provider API keys while preserving tracker auth" do
+  # #2356: the raw GitHub credential must not survive into an agent process.
+  # A PAT in the environment authenticates any direct-HTTP process (curl, Req,
+  # python, node) unmetered and untraced; the guard now reads the credential
+  # from a file the daemon writes and injects it only into a governed call.
+  test "scrub_shell_command clears provider API keys and the raw GitHub credential" do
     command =
-      AgentEnvironment.scrub_shell_command("env | grep -E '^(DEEPSEEK_API_KEY|OPENROUTER_API_KEY|OPENROUTER_MANAGEMENT_KEY|GITHUB_TOKEN)=' | sort")
+      AgentEnvironment.scrub_shell_command("env | grep -E '^(DEEPSEEK_API_KEY|OPENROUTER_API_KEY|OPENROUTER_MANAGEMENT_KEY|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN)=' | sort")
 
     {output, 0} =
       System.cmd("bash", ["-lc", command],
@@ -355,11 +359,14 @@ defmodule Aiur.AgentEnvironmentTest do
           {"DEEPSEEK_API_KEY", "deepseek-secret"},
           {"OPENROUTER_API_KEY", "openrouter-secret"},
           {"OPENROUTER_MANAGEMENT_KEY", "management-secret"},
-          {"GITHUB_TOKEN", "tracker-token"}
+          {"GITHUB_TOKEN", "tracker-token"},
+          {"GH_TOKEN", "gh-token"},
+          {"GH_ENTERPRISE_TOKEN", "enterprise-gh-token"},
+          {"GITHUB_ENTERPRISE_TOKEN", "enterprise-github-token"}
         ]
       )
 
-    assert output == "GITHUB_TOKEN=tracker-token\n"
+    assert output == ""
   end
 
   # ELEVENLABS_API_KEY is the Stream Deck voice-input credential the daemon reads.
@@ -378,7 +385,9 @@ defmodule Aiur.AgentEnvironmentTest do
     {output, 0} =
       System.cmd("bash", ["-lc", command], env: [{"ELEVENLABS_API_KEY", "elevenlabs-secret"}, {"GITHUB_TOKEN", "tracker-token"}])
 
-    assert output == "GITHUB_TOKEN=tracker-token\n"
+    # GITHUB_TOKEN is scrubbed alongside the provider key (#2356): the guard
+    # reads the credential from its file, not the environment.
+    assert output == ""
 
     # The SSH-launch path inlines the same scrub prefix, so the remote export
     # block drops it too.
@@ -416,15 +425,20 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {String.to_charlist(name), false} in workspace_env, "#{name} is not unset for the agent process"
     end)
 
-    refute Enum.any?(workspace_env, fn {name, _value} -> name == ~c"GITHUB_TOKEN" end)
+    # The bot PAT the agent legitimately publishes with is now ALSO unset for
+    # the agent process (#2356) — the guard reads it from the credential file
+    # instead of the environment.
+    assert {~c"GITHUB_TOKEN", false} in workspace_env
 
-    # 2. Shell scrub path: run it and read back what actually survives.
+    # 2. Shell scrub path: run it and read back what actually survives. The
+    #    bot PAT agents legitimately publish with is also scrubbed (#2356) —
+    #    the guard reads it from the token file instead of the environment.
     command =
       AgentEnvironment.scrub_shell_command("env | grep -E '^(GITHUB_APP_|GITHUB_TOKEN=)' | sort")
 
     {output, _status} = System.cmd("bash", ["-lc", command], env: app_env ++ [{"GITHUB_TOKEN", "bot-pat"}])
 
-    assert output == "GITHUB_TOKEN=bot-pat\n"
+    assert output == ""
 
     Enum.each(app_env, fn {_name, value} -> refute output =~ value end)
 
@@ -433,6 +447,55 @@ defmodule Aiur.AgentEnvironmentTest do
 
     {remote_output, 0} =
       System.cmd("bash", ["-lc", "#{prefix}; env | grep -c '^GITHUB_APP_' || true"], env: app_env ++ [{"HOME", "/remote-home"}])
+
+    assert String.trim(remote_output) == "0"
+  end
+
+  # #2356 acceptance: `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` in an agent
+  # shell returns nothing, on every launch surface. The agent carries only the
+  # token-file PATH the `gh` guard reads; the raw credential is never in the
+  # environment where a bare curl or a dependency build script could inherit it.
+  test "no raw GitHub credential survives into an agent environment" do
+    credentials = [
+      {"GITHUB_TOKEN", "bot-pat"},
+      {"GH_TOKEN", "gh-pat"},
+      {"GH_ENTERPRISE_TOKEN", "enterprise-gh-token"},
+      {"GITHUB_ENTERPRISE_TOKEN", "enterprise-github-token"}
+    ]
+
+    previous = Enum.map(credentials, fn {name, _value} -> {name, System.get_env(name)} end)
+    Enum.each(credentials, fn {name, value} -> System.put_env(name, value) end)
+    on_exit(fn -> Enum.each(previous, fn {name, value} -> restore_env(name, value) end) end)
+
+    # 1. Port.open launch path: every name is unset for the child, and the
+    #    credential file path the guard reads is exported instead.
+    env = AgentEnvironment.workspace_env("/work/aiur/2356")
+
+    Enum.each(credentials, fn {name, _value} ->
+      assert {String.to_charlist(name), false} in env, "#{name} is not unset for the agent process"
+    end)
+
+    assert {~c"AIUR_GITHUB_CREDENTIAL_FILE", token_file} = List.keyfind(env, ~c"AIUR_GITHUB_CREDENTIAL_FILE", 0)
+    assert List.to_string(token_file) == AgentGitHubGuard.agent_token_path()
+
+    # 2. Shell scrub path: run it and confirm nothing matches the acceptance grep.
+    command = AgentEnvironment.scrub_shell_command("env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN' | sort")
+
+    {output, _status} = System.cmd("bash", ["-lc", command], env: credentials)
+
+    assert output == ""
+
+    # 3. SSH-launch path inlines the same prefix and exports the token-file path.
+    prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/2356", base_branch: "main")
+
+    assert prefix =~ "AIUR_GITHUB_CREDENTIAL_FILE"
+    refute prefix =~ "export GITHUB_TOKEN"
+
+    {remote_output, 0} =
+      System.cmd("bash", ["-lc", "#{prefix}; env | grep -i -c -E 'GITHUB_TOKEN|GH_TOKEN' || true"],
+        env: credentials ++ [{"HOME", "/remote-home"}],
+        stderr_to_stdout: true
+      )
 
     assert String.trim(remote_output) == "0"
   end
@@ -602,8 +665,10 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_BUILD_GATE_BIN", ~c"/work/aiur/440/.aiur-runtime/build-bin"} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_BIN", 0)
 
-      assert {~c"AIUR_BUILD_GATE_SLOTS", ~c"2"} =
+      assert {~c"AIUR_BUILD_GATE_SLOTS", slots_value} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_SLOTS", 0)
+
+      assert to_string(slots_value) == Integer.to_string(Aiur.Config.max_concurrent_builds())
 
       assert {~c"AIUR_BUILD_START_STAGGER_SECONDS", ~c"0"} =
                List.keyfind(env, ~c"AIUR_BUILD_START_STAGGER_SECONDS", 0)
@@ -753,7 +818,7 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert prefix =~ "AIUR_BUILD_GATE_BIN='/work/aiur/440/.aiur-runtime/build-bin'"
       assert prefix =~ "BASH_ENV="
-      assert prefix =~ "AIUR_BUILD_GATE_SLOTS='2'"
+      assert prefix =~ "AIUR_BUILD_GATE_SLOTS='#{Aiur.Config.max_concurrent_builds()}'"
     end
   end
 
@@ -816,6 +881,22 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert resolved == "/tmp"
     end
+  end
+
+  # The prewarm base build is a daemon-owned operation, not an agent scope: the
+  # operator's configured build command (e.g. `mix deps.get`) keeps whatever
+  # auth it already had, so the GitHub credential scrub is opt-out there.
+  test "scrub_shell_command can keep the GitHub credential for daemon-owned builds" do
+    command =
+      AgentEnvironment.scrub_shell_command(
+        "env | grep -E '^(GITHUB_TOKEN|GH_TOKEN)=' | sort",
+        github_credential: false
+      )
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command], env: [{"GITHUB_TOKEN", "tracker-token"}, {"GH_TOKEN", "gh-token"}])
+
+    assert output == "GH_TOKEN=gh-token\nGITHUB_TOKEN=tracker-token\n"
   end
 
   defp restore_env(name, nil), do: System.delete_env(name)

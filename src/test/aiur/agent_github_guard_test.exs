@@ -2,6 +2,8 @@ defmodule Aiur.AgentGitHubGuardTest do
   use ExUnit.Case, async: true
   @moduletag :tmp_dir
 
+  import ExUnit.CaptureLog
+
   alias Aiur.AgentGitHubGuard
   alias Aiur.GitHub.{AgentCache, AgentCacheMetrics, ResourceStore}
   alias Aiur.GitHub.Budget
@@ -199,6 +201,62 @@ defmodule Aiur.AgentGitHubGuardTest do
   test "installs the companion host-budget broker alongside the gh wrapper", context do
     assert File.regular?(AgentGitHubGuard.budget_broker_path(context.workspace))
     assert File.stat!(AgentGitHubGuard.budget_broker_path(context.workspace)).mode |> Bitwise.band(0o111) != 0
+  end
+
+  test "a re-install replaces a stale workspace broker and logs the refresh", context do
+    installed = AgentGitHubGuard.budget_broker_path(context.workspace)
+
+    # The setup install is current; make the workspace's copy stale (a broker
+    # embedded under an older daemon release) before re-installing.
+    File.write!(installed, "#!/usr/bin/env python3\nraise SystemExit('stale')\n")
+    File.chmod!(installed, 0o755)
+
+    log =
+      capture_log(fn ->
+        assert :ok = AgentGitHubGuard.install(context.workspace)
+      end)
+
+    # The one-line evidence the module offers that agent-side 304 reconciliation
+    # was restored, now under test rather than untested observability (#2307
+    # review).
+    assert log =~ "refreshing stale agent budget broker"
+    refute File.read!(installed) =~ "SystemExit('stale')"
+  end
+
+  # #2356: the guard's credential file sits in the shared budget root so every
+  # workspace's wrapper resolves the same host credential without a token in
+  # any environment.
+  test "the guard credential file lives in the shared budget root", _context do
+    assert AgentGitHubGuard.agent_token_path() == Path.join(Budget.state_dir(), "agent-token")
+  end
+
+  test "ensure_agent_token_file writes the credential at mode 0600", context do
+    token_file = Path.join(context.state_path, "agent-token")
+
+    assert :ok = AgentGitHubGuard.ensure_agent_token_file(token: "bot-pat", path: token_file)
+
+    assert File.read!(token_file) == "bot-pat\n"
+    assert Bitwise.band(File.stat!(token_file).mode, 0o077) == 0
+  end
+
+  test "ensure_agent_token_file removes a stale file when no credential is available", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "stale-token\n")
+
+    assert :no_credential = AgentGitHubGuard.ensure_agent_token_file(token: nil, path: token_file)
+    refute File.exists?(token_file)
+  end
+
+  test "remote install writes the guard credential file for SSH workers", _context do
+    script = AgentGitHubGuard.remote_install_script("/work/aiur/remote", token: "remote-bot-pat")
+    assert script =~ "agent-token"
+    assert script =~ "remote-bot-pat"
+    assert script =~ "chmod 600"
+
+    script = AgentGitHubGuard.remote_install_script("/work/aiur/remote", token: nil)
+    assert script =~ "rm -f \"$HOME/.aiur/github-budget/agent-token\""
+    refute script =~ "remote-bot-pat"
   end
 
   test "keeps the Executor wrapper outside the budget state directory" do
@@ -408,12 +466,11 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "secret body"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    # `gh issue view` is GraphQL on the wire, so it must be tracked against the
-    # GraphQL budget; `gh issue edit` is REST and stays on core. The row does
-    # not end at the resource any more — it carries the credential fingerprint
-    # and the wrapper pid after it — so match up to the following separator.
-    assert events =~ "\tticket:1670\tread\tgraphql\t"
-    assert events =~ "\tticket:1670\twrite\tcore\t"
+    # `issue view` is GraphQL on the wire and `issue edit` a core write; the
+    # fifth column names the gh subcommand that made each call. The credential
+    # fingerprint and wrapper pid follow it, so match up to the next tab.
+    assert events =~ "\tticket:1670\tread\tgraphql\tissue view\t"
+    assert events =~ "\tticket:1670\twrite\tcore\tissue edit\t"
     refute events =~ "secret body"
   end
 
@@ -425,23 +482,164 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tread\tgraphql\t"
-    assert events =~ "\tread\tcore\t"
+    # REST `gh api` reads normalise their call site to `api` rather than one
+    # row per endpoint URL. The credential fingerprint and wrapper pid follow
+    # the call site, so match up to the next tab.
+    assert events =~ "\tread\tgraphql\tapi graphql\t"
+    assert events =~ "\tread\tcore\tapi\t"
+  end
+
+  # `gh pr view/list/status/checks` and `gh issue view/list/status` go through
+  # GitHub's GraphQL endpoint on the wire, so they bill the credential's
+  # GraphQL window, not core (#2299). The descriptive family stays
+  # pulls/issues — the broker's lease pool and audit histogram must not collapse
+  # onto `graphql` — while `resource` carries the accounting bucket (#2299
+  # review).
+  test "files GraphQL-on-the-wire gh commands against the GraphQL budget", context do
+    graphql_commands = [
+      ["pr", "view", "1670"],
+      ["pr", "list", "--json", "number"],
+      ["pr", "status"],
+      ["pr", "checks", "1670"],
+      ["issue", "view", "1670"],
+      ["issue", "list", "--json", "number"],
+      ["issue", "status"]
+    ]
+
+    Enum.each(graphql_commands, fn command ->
+      assert {"ok\n", 0} = run_guard(context, command)
+    end)
+
+    assert {"ok\n", 0} = run_guard(context, ["pr", "diff", "1670"])
+    assert {"ok\n", 0} = run_guard(context, ["search", "issues", "repo:owner/repo"])
+    assert {"ok\n", 0} = run_guard(context, ["search", "repos", "owner"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+
+    # Each row names the gh subcommand as its call site; the credential
+    # fingerprint and wrapper pid ride after it, so match up to the next tab.
+    Enum.each(graphql_commands, fn [_name, _sub | _] = command ->
+      call_site = Enum.take(command, 2) |> Enum.join(" ")
+      assert events =~ "\tread\tgraphql\t#{call_site}\t"
+    end)
+
+    # `pr diff` is REST and stays a core pull.
+    assert events =~ "\tread\tcore\tpr diff\t"
+    # `gh search issues` is GraphQL on the wire; `gh search repos` hits the
+    # REST /search/* endpoint and books to the separate `search` pool.
+    assert events =~ "\tread\tgraphql\tsearch issues\t"
+    assert events =~ "\tread\tsearch\tsearch repos\t"
+  end
+
+  # `gh search` is split because its subcommands use different transports and
+  # different GitHub windows: issues/prs are GraphQL, repos/code/commits/users
+  # hit REST /search/* and are metered against the separate ~30/min search pool.
+  # Booking the two to one bucket — core or graphql — would pace nothing against
+  # the pool that actually throttles first (#2299 review).
+  test "splits gh search by subcommand across the graphql and search pools", context do
+    search_commands = [
+      {["search", "issues", "state:open"], "graphql"},
+      {["search", "prs", "state:open"], "graphql"},
+      {["search", "repos", "owner"], "search"},
+      {["search", "code", "query"], "search"},
+      {["search", "commits", "query"], "search"},
+      {["search", "users", "owner"], "search"}
+    ]
+
+    Enum.each(search_commands, fn {command, _resource} ->
+      assert {"ok\n", 0} = run_guard(context, command), "admission failed for #{inspect(command)}"
+    end)
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+
+    Enum.each(search_commands, fn {[name, sub | _], resource} ->
+      assert events =~ "\tread\t#{resource}\t#{name} #{sub}\t"
+    end)
+  end
+
+  # The `pr`/`issue` write subcommands are a GraphQL/REST mix (#2297):
+  # `pr create|merge|review` and `issue create` mutate through GraphQL, while
+  # the rest are REST and keep the pulls/issues families.
+  test "files the GraphQL write subcommands against the GraphQL budget", context do
+    assert {"ok\n", 0} = run_guard(context, ["pr", "create", "--title", "x"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "review", "7", "--comment", "--body", "looks reasonable"])
+    assert {"ok\n", 0} = run_guard(context, ["issue", "create", "--title", "x", "--label", "agent:todo"])
+    assert {"ok\n", 0} = run_guard(context, ["pr", "close", "1670"])
+    assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "x"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+
+    assert events =~ "\twrite\tgraphql\tpr create\t"
+    assert events =~ "\twrite\tgraphql\tpr review\t"
+    assert events =~ "\twrite\tgraphql\tissue create\t"
+    assert events =~ "\twrite\tcore\tpr close\t"
+    assert events =~ "\twrite\tcore\tissue edit\t"
+  end
+
+  # The call-site column must never carry raw argv: a crafted second positional
+  # would otherwise write a second forged spend row into the TSV attributed to
+  # another ticket. Both positionals are bounded to the safe set and the
+  # subcommand is allowlisted, so an injection collapses to the bare command
+  # name and the forged row never appears (#2299 review).
+  test "a crafted call-site argument cannot inject a spend row", context do
+    # `subcommand_name` carries a newline + forged TSV row. If it reached the
+    # file verbatim the guard would write two lines and the forged one would
+    # satisfy the reader's validated fields. Because the forged second
+    # positional is not the literal `view`, the classification falls through to
+    # the generic `pr` write arm — which still must not leak the raw value into
+    # the stored call site.
+    forged = "view\n#{DateTime.to_unix(DateTime.utc_now())}\tticket:9999\tread\tcore\tapi"
+    assert {"ok\n", 0} = run_guard(context, ["pr", forged, "1670"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    rows = events |> String.split("\n", trim: true) |> Enum.map(&String.split(&1, "\t"))
+
+    # The forged row is absent; the real call is recorded once, with the bare
+    # command name (the injected subcommand is not allowlisted) and none of the
+    # forged content on the line. The call site is the fifth column; the
+    # fingerprint and pid follow it.
+    assert length(rows) == 1
+    refute Enum.any?(rows, &match?([_at, "ticket:9999", "read", "core", "api"], &1))
+    refute events =~ "ticket:9999"
+    assert Enum.any?(rows, &match?([_at, _consumer, _direction, _resource, "pr" | _], &1))
+  end
+
+  # A call site the allowlist does not yet enumerate must still be attributed.
+  # gh grows subcommands, and Aiur grows call sites, so the interesting case is
+  # not the ones listed above — it is the next one. The column degrades to the
+  # bare command name rather than to an `unknown` bucket, so a new subcommand
+  # is ranked one level coarser instead of vanishing from the breakdown, and a
+  # brand-new top-level command still names itself (#2299).
+  test "an unrecognised call site degrades to the command name, not an unknown bucket", context do
+    # `pr` is allowlisted but `sync` is not: the call site keeps the command.
+    assert {"ok\n", 0} = run_guard(context, ["pr", "sync", "1670"])
+    # A top-level command the classification does not enumerate at all.
+    assert {"ok\n", 0} = run_guard(context, ["cache", "list"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    call_sites = events |> String.split("\n", trim: true) |> Enum.map(&(String.split(&1, "\t") |> Enum.at(4)))
+
+    assert "pr" in call_sites
+    assert "cache" in call_sites
+    refute "unknown" in call_sites
+    refute Enum.any?(call_sites, &(&1 in ["", nil]))
   end
 
   # The agent-side record now carries the credential fingerprint (never the
   # token) and the wrapper pid, so a request is attributable to its ticket's
   # pool and to the exact subprocess that made it without a live /proc sweep
-  # (#2255).
+  # (#2255). The call-site column sits between the resource and the fingerprint.
   test "records a credential-fingerprint and pid column on every agent request", context do
     assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
     [row | _] = String.split(events, "\n", trim: true)
-    [_unix, "ticket:1670", "read", "graphql", token_key, pid] = String.split(row, "\t")
+    [_unix, "ticket:1670", "read", "graphql", call_site, token_key, pid] = String.split(row, "\t")
 
-    # Budget is disabled in this harness, so the fingerprint column is blank
-    # (never a refused call) while the pid names the wrapper subprocess.
+    # The call site names the subcommand; budget is disabled in this harness, so
+    # the fingerprint column is blank (never a refused call) while the pid names
+    # the wrapper subprocess.
+    assert call_site == "issue view"
     assert token_key == ""
     assert pid =~ ~r/^\d+$/
   end
@@ -450,7 +648,82 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"], AIUR_GITHUB_BUDGET_KEY: "fingerprint-abc")
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tread\tgraphql\tfingerprint-abc\t"
+    assert events =~ "\tread\tgraphql\tissue view\tfingerprint-abc\t"
+  end
+
+  # #2356: the agent environment carries no GITHUB_TOKEN/GH_TOKEN — the guard
+  # reads the credential from the file the daemon wrote and injects it ONLY
+  # into the real `gh` child of the governed call. A bare curl or a dependency
+  # build script never sees it.
+  test "governed gh injects the token-file credential only into the real gh child", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    observed = Path.join(context.state_path, "observed-token-env")
+    custom_gh = Path.join(context.state_path, "custom-gh")
+    File.mkdir_p!(context.state_path)
+
+    File.write!(token_file, "file-credential\n")
+    File.mkdir_p!(Path.dirname(custom_gh))
+
+    File.write!(custom_gh, """
+    #!/bin/sh
+    printf 'GH_TOKEN=%s\\nGITHUB_TOKEN=%s\\n' "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}" > #{observed}
+    printf 'ok\\n'
+    """)
+
+    File.chmod!(custom_gh, 0o755)
+
+    env =
+      Enum.map(guard_env(context), fn
+        {"AIUR_REAL_GH", _} -> {"AIUR_REAL_GH", custom_gh}
+        {"AIUR_GITHUB_CREDENTIAL_FILE", _} -> {"AIUR_GITHUB_CREDENTIAL_FILE", token_file}
+        entry -> entry
+      end)
+
+    assert {"ok\n", 0} = run_agent_guard(context, ["api", "repos/owner/repo/issues/2356"], env)
+    assert File.read!(observed) == "GH_TOKEN=file-credential\nGITHUB_TOKEN=\n"
+  end
+
+  # #2356 acceptance: a governed `gh` call with the credential supplied ONLY
+  # through the token file still succeeds AND records an admission under the
+  # credential's own budget key — no environment token involved.
+  test "a governed call with a token-file-only credential records an admission", context do
+    budget_root = Path.join(context.state_path, "token-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "file-credential\n")
+
+    identity_key = Budget.identity_key("machine_user:primary:aiur-bot")
+    key = Budget.token_key("file-credential")
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/2356"],
+               AIUR_GITHUB_CREDENTIAL_FILE: token_file,
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_BUDGET_IDENTITY_KEY: identity_key,
+               AIUR_GITHUB_STAGGER_MS: "0"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               broker,
+               "snapshot",
+               "--db",
+               Path.join(budget_root, "budget.sqlite3"),
+               "--token-key",
+               key,
+               "--identity-key",
+               identity_key
+             ])
+
+    assert length(Jason.decode!(snapshot)["admissions"]) == 1
+
+    # The agent request record carries the credential fingerprint (never the
+    # token), so the admission is attributable to the file-backed credential.
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    # The call site sits between the resource and the fingerprint (#2299).
+    assert events =~ "\tread\tcore\tapi\t#{key}\t"
   end
 
   # Retention (#2255): the agent request record keeps the previous two
@@ -1997,6 +2270,231 @@ defmodule Aiur.AgentGitHubGuardTest do
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
     assert %{"admissions" => [%{"billable" => false}]} = Jason.decode!(snapshot)
+
+    # A healthy reconcile leaves no stale-broker marker behind.
+    refute File.exists?(Path.join(context.state_path, "github-quota/broker-reconcile-stale"))
+  end
+
+  test "a broker whose reconcile fails structurally raises one alert and leaves the 304 billable", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = stale_broker_path(context)
+    key = "a" <> String.duplicate("0", 63)
+    marker = Path.join(context.state_path, "github-quota/broker-reconcile-stale")
+
+    run_304 = fn ->
+      run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+        AIUR_GITHUB_BUDGET_ROOT: budget_root,
+        AIUR_GITHUB_BUDGET_KEY: key,
+        AIUR_GITHUB_BUDGET_BROKER: broker,
+        # High enough that the second admission (run 2) is admitted: the first
+        # run's 304 stays billable because the broker cannot reconcile, so a
+        # limit of 1 would hold the second run behind the actor ceiling for the
+        # rest of the hour and hang the test (#2307).
+        AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "10",
+        AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+      )
+    end
+
+    assert {output, 0} = run_304.()
+    # The request still succeeds (a failed reconcile is not a request failure),
+    # but the structural failure is surfaced exactly once and the 304 stays
+    # billable.
+    assert output =~ "is stale for this ledger"
+    assert File.exists?(marker)
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [AgentGitHubGuard.budget_broker_path(context.workspace), "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"billable" => true}]} = Jason.decode!(snapshot)
+
+    # A second 304 does not re-write the marker (exactly one alert, not
+    # per-request noise): the sentinel proves the guard never rewrote it. The
+    # reason tag is `reconcile` — this broker acquires fine but cannot
+    # reconcile — so even the second run's successful acquire must NOT clear
+    # it; only a successful reconcile clears a reconcile-reason marker.
+    File.write!(marker, "sentinel\nreconcile\n")
+    assert {"ok\n", 0} = run_304.()
+    assert File.read!(marker) == "sentinel\nreconcile\n"
+  end
+
+  test "a broker that predates the ledger schema fails open at acquire and raises one alert", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    db = Path.join(budget_root, "budget.sqlite3")
+    key = "a" <> String.duplicate("0", 63)
+    stale = pre2284_broker_path(context)
+    marker = Path.join(context.state_path, "github-quota/broker-reconcile-stale")
+
+    # The current broker opens the ledger first — the production sequence for a
+    # daemon that restarts onto the current release — installing the schema
+    # trigger a pre-#2284 broker cannot satisfy (#2307 review: the trigger fires
+    # on exactly this broker population, so the guard must fail OPEN on the
+    # abort rather than returning 75 and turning a billing leak into a total
+    # `gh` outage).
+    assert {_output, 0} =
+             System.cmd("python3", [
+               Budget.broker_path(),
+               "acquire",
+               "--db",
+               db,
+               "--token-key",
+               key,
+               "--resource",
+               "core",
+               "--consumer-key",
+               key,
+               "--endpoint-family",
+               "issues",
+               "--max-inflight",
+               "2",
+               "--max-inflight-per-endpoint",
+               "2",
+               "--requests-per-minute",
+               "20",
+               "--stagger-ms",
+               "0",
+               "--lease-ttl-ms",
+               "35000",
+               "--core-limit",
+               "10",
+               "--graphql-limit",
+               "10"
+             ])
+
+    run = fn ->
+      run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+        AIUR_GITHUB_BUDGET_ROOT: budget_root,
+        AIUR_GITHUB_BUDGET_KEY: key,
+        AIUR_GITHUB_BUDGET_BROKER: stale,
+        AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "10",
+        AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+        FAKE_GH_INCLUDE_HEADERS: "1",
+        FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+      )
+    end
+
+    # Fail open: the gh call still happens and succeeds even though the stale
+    # broker's acquire aborted (no lease, no admission), and the marker is
+    # written exactly once so the daemon raises a fleet alert.
+    assert {output, 0} = run.()
+    assert output =~ "is stale for this ledger"
+    assert File.exists?(marker)
+
+    File.write!(marker, "sentinel\n")
+    assert {"ok\n", 0} = run.()
+    assert File.read!(marker) == "sentinel\n"
+  end
+
+  test "a healthy broker that prints to stderr before granting is still admitted", context do
+    # The acquire's 2>&1 merge exists so a stale-broker abort's trigger/stamp
+    # message is visible to budget_stale_abort, but it also merges a HEALTHY
+    # broker's stderr (a Python DeprecationWarning, a wrapper notice, a locale
+    # complaint) into the parse stream. The guard must take the last non-empty
+    # line — the actual grant — not prefix-match the merged stream, or a
+    # working broker's stderr noise would turn admission into a hard 75 with
+    # gh never called (#2307 review).
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = noisy_broker_path(context)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+  end
+
+  test "a reconcile failure outside the legacy three-literal allowlist still alerts", context do
+    # Regression guard for the widened structural detection (#2307 review): the
+    # old allowlist matched only "invalid choice: 'reconcile'", the stamp, and
+    # the trigger message, and silently swallowed everything else — so a broker
+    # that could not reconcile for any OTHER reason (broken install, unreadable
+    # ledger, missing module) stayed invisible. Every non-transient reconcile
+    # failure must surface one alert; only a transient SQLite lock is exempt.
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = broken_reconcile_broker_path(context)
+    key = "a" <> String.duplicate("0", 63)
+    marker = Path.join(context.state_path, "github-quota/broker-reconcile-stale")
+
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "10",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    assert output =~ "is stale for this ledger"
+    assert File.exists?(marker)
+  end
+
+  test "an interrupted reconcile is not reported as a stale broker", context do
+    # STALE is not SLOW. A `reconcile`-reason marker is cleared by nothing but a
+    # later successful reconcile, so classifying a transient fault as structural
+    # latches a permanent fleet alert on a workspace whose broker is current.
+    # #2457 makes that live: a single daemon restart produced 28 broker timeouts
+    # in ten minutes. Here the reconcile call dies by signal and prints nothing —
+    # the shape of an interrupted broker, never of one that predates the ledger
+    # schema (every structural failure prints argparse usage, the trigger/stamp
+    # refusal, or a traceback). No marker, no alert.
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = killed_reconcile_broker_path(context)
+    key = "a" <> String.duplicate("0", 63)
+    marker = Path.join(context.state_path, "github-quota/broker-reconcile-stale")
+
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "10",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 304\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    refute output =~ "is stale for this ledger"
+    refute File.exists?(marker)
+  end
+
+  test "a successful acquire clears a stale-broker marker left by an earlier structural failure", context do
+    # The marker previously cleared only via the 304/reconcile path, so a
+    # refreshed workspace that never happened to see a 304 kept alerting
+    # forever. A successful acquire is proof the current broker is in charge
+    # and must clear it too (#2307 review). The reason tag is `acquire` — the
+    # broker could not even be admitted before — which is exactly the marker a
+    # successful grant is allowed to clear (a `reconcile`-reason marker is only
+    # cleared by a successful reconcile, so it never re-alerts per 304).
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    marker = Path.join(context.state_path, "github-quota/broker-reconcile-stale")
+    File.mkdir_p!(Path.dirname(marker))
+    File.write!(marker, "sentinel\nacquire\n")
+
+    # A 200 (not 304) so the reconcile path is never consulted: only the
+    # acquire-side clear may remove the marker.
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670/timeline"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               AIUR_GITHUB_CORE_LIMIT_PER_HOUR: "1",
+               AIUR_GITHUB_STATE_CACHE_ENABLED: "0",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Resource: core\nX-RateLimit-Limit: 5000\nX-RateLimit-Remaining: 4999\n\n"
+             )
+
+    refute File.exists?(marker)
   end
 
   test "a high-level pr view 304 is reconciled as unbilled and its transcript is stripped", context do
@@ -2428,7 +2926,13 @@ defmodule Aiur.AgentGitHubGuardTest do
                FAKE_BROKER_RESPONSE: "hold shared admin never\naiur: github budget hold resource=core reset_at_ms=#{reset_at_ms}"
              )
 
-    assert output == "aiur: GitHub budget broker returned an invalid shared hold response\n"
+    # The protocol response is the broker's LAST non-empty line (#2307: a
+    # healthy broker's stderr noise before the grant must not bury it), so the
+    # forged `aiur: github budget hold …` marker is read as the broker response.
+    # It is not a valid protocol line, so it is refused as an invalid admission
+    # response (exit 75, gh never called) — and, the point of this test, the
+    # forged marker is never echoed to the agent's stderr as a trusted hold.
+    assert output == "aiur: GitHub budget broker returned an invalid admission response\n"
     refute output =~ "aiur: github budget hold"
     refute File.exists?(context.calls)
   end
@@ -2626,6 +3130,28 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert output =~ "username=other"
     assert output =~ "password=other-token"
     refute output =~ "agent-token"
+  end
+
+  # #2356: agents carry no GITHUB_TOKEN/GH_TOKEN; the git guard's credential
+  # helper reads the token from the same credential file the `gh` guard uses,
+  # so a governed `git push` still authenticates without a token in the env.
+  test "git authentication reads the token file when the environment carries no token", context do
+    token_file = Path.join(context.state_path, "agent-token")
+    File.mkdir_p!(context.state_path)
+    File.write!(token_file, "file-git-token\n")
+
+    input = "protocol=https\nhost=github.com\n\n"
+
+    assert {output, 0} =
+             run_git_credential(context, input,
+               AIUR_GITHUB_CREDENTIAL_FILE: token_file,
+               GITHUB_TOKEN: nil,
+               GH_TOKEN: nil,
+               HOME: context.workspace
+             )
+
+    assert output =~ "username=x-access-token"
+    assert output =~ "password=file-git-token"
   end
 
   test "git push rejects a credential-bearing GitHub remote", context do
@@ -3533,6 +4059,30 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert reasons == MapSet.new(~w(absent bypassed corrupt torn clock-skewed expired invalidated))
     end
 
+    test "a stale entry's miss is classified as expired rather than absent", context do
+      # A fresh read writes a store row; aging the entry past the window makes
+      # the next read miss because the answer is too old to replay, not because
+      # nothing was ever cached.
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert upstream_calls(context) == 1
+
+      [{_shape, body}] = cached_shapes(context)
+      meta = String.replace_suffix(body, ".body", ".meta")
+      File.write!(meta, "#{DateTime.to_unix(DateTime.utc_now()) - 3600}\n")
+
+      assert {_, 0} = run_cached_guard(context, ["pr", "view", "1670", "--json", "body"])
+      assert upstream_calls(context) == 2
+
+      rows =
+        Path.join([context.state_path, "github-quota", "agent-cache.tsv"])
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.map(&String.split(&1, "\t"))
+
+      assert Enum.any?(rows, &match?([_at, _consumer, "miss", "pr", "1670", "absent"], &1))
+      assert Enum.any?(rows, &match?([_at, _consumer, "miss", "pr", "1670", "expired"], &1))
+    end
+
     # -------------------------------------------------------------------------
     # Coalescing. A stored answer only removes the reads that come AFTER one; it
     # can do nothing about the reads that arrive together, which all miss and all
@@ -4260,6 +4810,138 @@ defmodule Aiur.AgentGitHubGuardTest do
     end
   end
 
+  # A broker that delegates every command to the real broker except `reconcile`,
+  # where it mimics a pre-#2284 broker's argparse failure. This exercises the
+  # reconcile-path structural detection (the code path that surfaces a broker
+  # which can acquire a lease but cannot reconcile 304s) without depending on
+  # argparse's exact error wording, which the guard deliberately does not match
+  # (#2307).
+  defp stale_broker_path(context) do
+    path = Path.join(context.workspace, "stale-broker.py")
+    real = Budget.broker_path()
+
+    File.write!(path, """
+    #!/usr/bin/env python3
+    import subprocess
+    import sys
+    if sys.argv[1] == "reconcile":
+        sys.stderr.write("usage: aiur-github-budget [-h] command ...\\n")
+        sys.stderr.write("aiur-github-budget: error: argument command: invalid choice: 'reconcile' (choose from 'acquire', 'release', 'renew', 'hold')\\n")
+        sys.exit(2)
+    sys.exit(subprocess.call([sys.executable, "#{real}"] + sys.argv[1:]))
+    """)
+
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  # A HEALTHY broker that warns on stderr before delegating — a Python
+  # DeprecationWarning, a wrapper notice, a locale complaint. The acquire
+  # response is still a real grant on stdout; the guard must take the last
+  # non-empty line rather than prefix-match the merged 2>&1 stream, or this
+  # broker's noise would turn admission into a hard 75 (#2307 review).
+  defp noisy_broker_path(context) do
+    path = Path.join(context.workspace, "noisy-broker.py")
+    real = Budget.broker_path()
+
+    File.write!(path, """
+    #!/usr/bin/env python3
+    import subprocess
+    import sys
+    sys.stderr.write("DeprecationWarning: aiur-github-budget: consider --legacy-broker\\n")
+    sys.exit(subprocess.call([sys.executable, "#{real}"] + sys.argv[1:]))
+    """)
+
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  # A broker that delegates every command to the real broker except `reconcile`,
+  # where it fails with a message the pre-#2307 three-literal allowlist would
+  # NOT have matched (a Python runtime error — broken install, unreadable
+  # ledger — not argparse's "invalid choice" and not the ledger's own
+  # trigger/stamp strings). This pins the widened structural detection: any
+  # non-transient reconcile failure must surface one fleet alert, or a silently
+  # broken broker would go undetected (#2307 review).
+  # A broker that is healthy but INTERRUPTED mid-reconcile — killed by a signal,
+  # printing nothing. The daemon-side equivalent is the broker timeout of #2457.
+  # `acquire`/`release` still delegate to the real broker, so the workspace is
+  # provably not stale; only the reconcile call dies.
+  defp killed_reconcile_broker_path(context) do
+    path = Path.join(context.workspace, "killed-reconcile-broker.py")
+    real = Budget.broker_path()
+
+    File.write!(path, """
+    #!/usr/bin/env python3
+    import os
+    import signal
+    import subprocess
+    import sys
+    if sys.argv[1] == "reconcile":
+        os.kill(os.getpid(), signal.SIGKILL)
+    sys.exit(subprocess.call([sys.executable, "#{real}"] + sys.argv[1:]))
+    """)
+
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  defp broken_reconcile_broker_path(context) do
+    path = Path.join(context.workspace, "broken-reconcile-broker.py")
+    real = Budget.broker_path()
+
+    File.write!(path, """
+    #!/usr/bin/env python3
+    import subprocess
+    import sys
+    if sys.argv[1] == "reconcile":
+        raise RuntimeError("aiur-github-budget: reconcile failed: ledger unreadable: permission denied")
+    sys.exit(subprocess.call([sys.executable, "#{real}"] + sys.argv[1:]))
+    """)
+
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  # A faithful pre-#2284 broker: `acquire` writes the old admission INSERT that
+  # names no `lease_id`, exactly like the brokers that are stale in production.
+  # Against a ledger the current broker has opened (its `admissions_require_lease`
+  # trigger installed) that INSERT aborts with the trigger's message and acquire
+  # exits non-zero — the real failure shape the guard must fail OPEN on, not the
+  # hypothetical reconcile-only broker (#2307 review).
+  defp pre2284_broker_path(context) do
+    path = Path.join(context.workspace, "pre2284-broker.py")
+
+    File.write!(path, """
+    #!/usr/bin/env python3
+    import sqlite3
+    import sys
+
+    def arg(name):
+        for index, item in enumerate(sys.argv):
+            if item == name and index + 1 < len(sys.argv):
+                return sys.argv[index + 1]
+        return None
+
+    if sys.argv[1] == "acquire":
+        conn = sqlite3.connect(arg("--db"))
+        try:
+            conn.execute(
+                "INSERT INTO admissions(token_key, consumer_key, endpoint_family, admitted_at_ms) VALUES (?, ?, ?, ?)",
+                (arg("--token-key"), arg("--consumer-key"), arg("--endpoint-family"), 1),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        sys.exit(0)
+    sys.stderr.write("aiur-github-budget: error: argument command: invalid choice: 'reconcile'\\n")
+    sys.exit(2)
+    """)
+
+    File.chmod!(path, 0o755)
+    path
+  end
+
   defp run_guard(context, args, extra_env \\ []) do
     extra_env = Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
 
@@ -4462,6 +5144,10 @@ defmodule Aiur.AgentGitHubGuardTest do
       {"AIUR_AGENT_WORKSPACE", context.workspace},
       {"FAKE_GH_CALLS", context.calls},
       {"GITHUB_TOKEN", ""},
+      # #2356: the guard reads the credential from this file. Pointed at a
+      # path that never exists so the harness never picks up a real host token;
+      # tests that exercise the file supply their own.
+      {"AIUR_GITHUB_CREDENTIAL_FILE", Path.join(context.state_path, "no-agent-token")},
       {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
       {"AIUR_GITHUB_BUDGET_ROOT", ""},
       {"AIUR_GITHUB_BUDGET_KEY", ""},

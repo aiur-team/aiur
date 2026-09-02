@@ -109,6 +109,45 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert token == refreshed.tick_token
   end
 
+  # Acceptance criterion 1 of #2365, measured rather than asserted: a wake
+  # arriving during a long idle backoff must collapse the widened
+  # `next_poll_due_at_ms` to now (an immediate tick), not wait out the rest of
+  # the backoff. No GitHub floor recorded => the wake is immediate.
+  test "a wake interrupts a widened idle backoff by collapsing the next poll to now" do
+    state = %State{
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000,
+      poll_check_in_progress: false,
+      github_poll_delays: %{}
+    }
+
+    {refreshed, coalesced} = Lifecycle.request_refresh_state(state)
+
+    refute coalesced
+    assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+    assert_receive {:tick, token}
+    assert token == refreshed.tick_token
+  end
+
+  # The same wake must never schedule the cycle ahead of the GitHub rate-limit
+  # floor: the cycle it schedules fetches from GitHub, so scheduling it sooner
+  # than the floor would let an externally-triggered wake force a full fetch
+  # outside the floor the orchestrator computed for itself (#2365 review #3).
+  test "a wake never schedules ahead of the GitHub rate-limit floor" do
+    now = System.monotonic_time(:millisecond)
+
+    state = %State{
+      next_poll_due_at_ms: now + 600_000,
+      poll_check_in_progress: false,
+      github_poll_delays: %{poll: 30_000}
+    }
+
+    {refreshed, coalesced} = Lifecycle.request_refresh_state(state)
+
+    refute coalesced
+    assert refreshed.next_poll_due_at_ms >= now + 30_000
+    refute_receive {:tick, _token}, 100
+  end
+
   test "a GitHub quota recovery signal queues an immediate admission poll" do
     state = %State{
       capacity_hold: %{

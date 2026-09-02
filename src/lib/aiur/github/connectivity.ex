@@ -154,10 +154,25 @@ defmodule Aiur.GitHub.Connectivity do
       bounded to one hour.
     * `:dns` / `:timeout` / `:tls` / `:transport` / `:http` — capped exponential
       backoff that grows with `attempt`.
+    * `:local_hold` — the hold carries its own `reset_at`; back off only until
+      it (a bounded window, never the exponential escalation curve). A hold with
+      no `reset_at` falls back to the base backoff.
+    * `:unclassified` — the reason did not match a known shape. Conservative
+      base backoff, no escalation: an unknown reason must not be treated as lost
+      connectivity, which is exactly the misattribution #2429 removes.
     * `:auth` — `:escalate` (don't retry an expired/invalid token).
   """
   @spec backoff_ms(classification(), pos_integer(), map()) :: non_neg_integer() | :escalate
   def backoff_ms(:auth, _attempt, _detail), do: :escalate
+
+  def backoff_ms(:local_hold, _attempt, detail) do
+    case hold_reset_delay_ms(detail) do
+      delay_ms when is_integer(delay_ms) and delay_ms >= 0 -> delay_ms
+      _missing_or_passed -> @base_backoff_ms
+    end
+  end
+
+  def backoff_ms(:unclassified, _attempt, _detail), do: @base_backoff_ms
 
   def backoff_ms(:rate_limited, attempt, detail) do
     cond do
@@ -178,6 +193,22 @@ defmodule Aiur.GitHub.Connectivity do
   def backoff_ms(_classification, attempt, _detail), do: exponential(attempt)
 
   defp cap_backoff(delay_ms), do: min(delay_ms, @max_backoff_ms)
+
+  # A local budget hold names its own release time as a `%DateTime{}` in the
+  # hold map (unlike `:rate_limited`'s ISO-8601 string). The wait is bounded by
+  # that reset: seconds-long holds back off for seconds, and a hold whose
+  # reset already passed (or carried no reset) waits nothing, so polling resumes
+  # immediately instead of riding a network-failure escalation curve (#2429).
+  defp hold_reset_delay_ms(detail) do
+    case get_in(detail, [:hold, :reset_at]) do
+      %DateTime{} = reset_at ->
+        now = Map.get(detail, :now, DateTime.utc_now())
+        max(DateTime.diff(reset_at, now, :millisecond), 0)
+
+      _missing ->
+        nil
+    end
+  end
 
   defp reset_delay_ms(detail) do
     now = Map.get(detail, :now, DateTime.utc_now())

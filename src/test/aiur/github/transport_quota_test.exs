@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.TransportQuotaTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.{Budget, Quota, Transport}
+  alias Aiur.GitHub.{Budget, Quota, ReadCache, Transport}
 
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)
@@ -17,6 +17,14 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
     Application.put_env(:aiur, :github_quota_server, quota)
     Application.put_env(:aiur, :github_budget_enabled?, false)
+
+    # These tests drive `Transport.default_request_fun` with `/issues/{n}`
+    # URLs and assert transport-level outcomes. Those reads are now cacheable
+    # (`:issue`, #2352), and the read cache is a shared application child, so a
+    # deposit made by an earlier test in the same partition would be served
+    # instead of reaching the transport. Start each test from an empty cache so
+    # the assertion is about the transport, not about cache state.
+    ReadCache.reset()
 
     on_exit(fn ->
       restore_env(:github_transport_test_options, previous_options)
@@ -202,6 +210,44 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     assert {:ok, %{status: 200}} = Task.await(first, 1_500)
     assert {:ok, %{status: 200}} = Task.await(second, 1_500)
+  end
+
+  test "a 304 response leaves its admission unbilled end to end", %{budget_dir: budget_dir} do
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_dir)
+
+    Application.put_env(:aiur, :github_budget_settings_override, %{
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      daemon_core_limit_per_hour: 1,
+      daemon_graphql_limit_per_hour: 1
+    })
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("x-ratelimit-resource", "core")
+      |> Plug.Conn.put_resp_header("x-ratelimit-limit", "5000")
+      |> Plug.Conn.put_resp_header("x-ratelimit-remaining", "4999")
+      |> Plug.Conn.put_resp_header("x-ratelimit-reset", Integer.to_string(System.os_time(:second) + 3600))
+      |> Plug.Conn.send_resp(304, "")
+    end)
+
+    # The conditional GET flows through the real transport: admission under a
+    # lease, response observed, lease released — the exact daemon shape. The
+    # 304 must come out of the broker database unbilled, and the snapshot
+    # surface must say so without raw SQL.
+    assert {:ok, %{status: 304}} =
+             Transport.default_request_fun(%{
+               method: :get,
+               url: "https://api.github.com/repos/owner/repo/issues/1477/timeline",
+               token: "conditional-token",
+               etag: "\"old\""
+             })
+
+    assert %{admissions: [%{billable: false, billable_reason: "304", endpoint_family: "issues"}]} =
+             Budget.snapshot("conditional-token", state_dir: budget_dir)
   end
 
   test "starts the HTTP request deadline after local budget admission", %{budget_dir: budget_dir} do

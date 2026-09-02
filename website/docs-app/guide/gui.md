@@ -1,16 +1,16 @@
-# Dashboard
+# GUI
 
-The Dashboard is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
+The GUI is Aiur's browser interface for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics.
 
-## Open the dashboard
+## Open the GUI
 
-| Launch condition | Dashboard result |
+| Launch condition | GUI result |
 | --- | --- |
 | Normal foreground or headless run | Listener requested. |
 | `--no-dashboard` | Listener disabled. |
 | Writable mode | On loopback it binds without credentials and fails closed; beyond loopback it refuses to start without both credentials. |
 | Read-only loopback | Requires credentials for access. Without them the listener may bind, but every request is refused until both credentials are set. |
-| Host selection | `server.host` wins over authenticated Tailscale or loopback default. |
+| Host selection | `server.host` wins over the `127.0.0.1` default. |
 
 Startup prints the URL and effective bind only when the listener runs:
 
@@ -22,12 +22,12 @@ Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
 
 Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
 
-| Dashboard label | Route and purpose | CLI counterpart |
+| GUI label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
 | **Units** | `/` is the Units fleet table and its filters, plus the Tickets panel of every open ticket; [Units](/concepts/units) describes this surface. | `aiur units` |
 | **Commands** | `/commands` is the durable decision inbox and each decision's detail. | `aiur commands` |
 | **Build Order** | `/build-orders` is the Build Order catalog and one root's execution detail. | `aiur build-orders` |
-| **Analytics** | `/analytics` is live-run telemetry and an optional Build Order scope. | `aiur analytics` |
+| **Analytics** | `/analytics` is latest-run telemetry with durable restart fallback and an optional Build Order scope. A source line labels the data as the live boot or a retained prior run and shows how long ago it was observed. | `aiur analytics` |
 | **GitHub cache** | `/github-cache` is a read-only inspector for the shared GitHub state cache. | none |
 | **Streamdeck+** | `/streamdeck` is the browser emulator for the physical Stream Deck + sidecar. | none |
 
@@ -39,7 +39,7 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
-Dashboard data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
+GUI data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
 
 The `sort` query parameter preserves the selected table, column, and direction in copied or refreshed URLs. Paginated and progressively revealed tables sort the displayed rows, then reapply that order when more rows appear.
 
@@ -84,6 +84,8 @@ Aiur reads GitHub state through one shared store. Webhook deliveries, Aiur's own
 The page is strictly view-only. There is no refresh, no invalidate, no eviction and no fetch-now.
 
 That is the store's own rule applied to its inspector: looking at cached state never costs a GitHub call, so a page that could trigger a fetch would break the property it exists to demonstrate.
+
+Truly outdated bodies do not linger: the store's own sweep drops a cached body once it is past the 72-hour retention window, and deletes the whole entry only when the entry itself has had no write in that window — so `expired` rows clear themselves rather than accumulating, while a still-live processed mark or validator survives the body.
 
 Its headline tile, **Fetches caused by viewing**, counts GitHub requests whose request chain began in a LiveView process. Merely opening or navigating the cache inspector leaves it at `0`; operator actions on other pages that intentionally fetch fresh detail can raise it.
 
@@ -211,7 +213,7 @@ Cached bodies are redacted on the way out and collapsed by default. A large stor
 | Fleet | Adjust capacity. |
 | Ticket | Apply routing labels. |
 
-The CLI covers Unit and Fleet controls plus initial Command answers. Command revision and ticket-routing preview remain Dashboard-only today.
+The CLI covers Unit and Fleet controls plus initial Command answers. Command revision and ticket-routing preview remain GUI-only today.
 
 Disable mutations for an observation-only surface:
 

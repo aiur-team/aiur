@@ -485,6 +485,15 @@ The read-only CLI probe runs alongside it with one control-RPC timeout per
 command, so a normal record may spend up to roughly 30 seconds on terminal
 evidence before the browser capture completes.
 
+The visual check's preconditions fail with distinct, non-zero codes so a
+wrapper can tell which one stopped it: 68 when `AIUR_EXECUTOR_RUN_ID` is
+missing, 67 when the dashboard URL cannot be discovered, 69 when
+`AIUR_DASHBOARD_PASSWORD` is missing. Each failure prints a one-line stderr
+naming the variable to set and writes a "did not run" verdict — a skipped
+check must never exit 0 or read as a healthy capture. `record` forwards that
+precondition line to its own stderr, so a log that redirects stdout+stderr
+still shows why the check did not run.
+
 Take the recorded assessment's count language from the atomic
 `summary.count_sentence` that `record` embeds (or the one `summarize` prints in
 the same call), not from an earlier separate poll. `summarize` and `record` each
@@ -900,27 +909,34 @@ What a review agent needs in its prompt, every time:
   `read_cache/policy.ex` are correct and a PR that "improves the cache hit rate"
   by caching verdict state is a reject, not a nitpick.
 - **Saving claims are measured, not estimated.** A PR claiming a quota, latency,
-  or cost saving must carry the four items AGENTS.md requires ("A claimed saving
+  or cost saving must carry the five items AGENTS.md requires ("A claimed saving
   must be measured"): a number with units and a baseline (`X → Y pts/hr`), a
   measurement against the running system or a census of real data — never
   derived from the code; `aiur github-cost` gives per-caller points, calls, and
   rate, and the local ledger plus the App-token `/rate_limit` give the
-  credential-side view — what must be true at merge for the saving to occur, and
-  a test asserting the claimed figure. Then **check the population, not the
-  mechanism**: before judging whether a cache/classifier/cadence change is
-  correct, count what it will actually see in production. #2360's classification
-  was observability, #2399's shipped configs left every `polling.intervals` gate
-  commented out, and #2417's validator never fired because zero of the cached
-  bodies have its shape — all three passed a mechanism-only review and measured
-  zero at merge.
+  credential-side view — what must be true at merge for the saving to occur, a
+  test asserting the claimed figure, and a count of the population the change
+  will meet in production. Verify that last one yourself: **check the
+  population, not the mechanism.** Before judging whether a
+  cache/classifier/cadence change is correct, count what it will actually see in
+  production. #2360's classification was observability as first reviewed (it
+  saves reads only since a later revision added TTLs) and it satisfies the other
+  four items, #2399's shipped configs left every `polling.intervals` gate
+  commented out, and #2417's validator almost never fires — successive censuses
+  found 0 of 462 and 1 of 99 stored bodies with its shape. All three passed a
+  mechanism-only review and measured zero. An instrumentation PR should claim no
+  saving at all; if it does, that is the finding.
 - **Mutation-testing discipline, explicitly.** Require the agent to check whether
   each new test still passes with the production change reverted, and to **name
   any test that does**. This is what separates a review from a summary. It has
   repeatedly found tests that assert pre-existing behaviour: a `%{}` pattern that
   matches any map, a vacuous global-pause test, an assertion pinned to a constant
-  the change never touches. The author-side of this rule is now in `AGENTS.md`
-  ("Tests must fail without the production change they guard") — the reviewer's
-  check should be a formality, not the first time it is performed.
+  the change never touches. The author-side rules that move these checks before
+  review — the unknown-path, computed-age and collapsed-cause rules — live in
+  the repo's `AGENTS.md` (`Tests must fail without the production change they
+  guard` and `Computed ages and collapsed causes`); cross-reference those
+  sections rather than restating them, so the reviewer's check is a formality,
+  not the first time it is performed.
 - **The test-run hazard.** `mix test test/some_dir/` silently excludes
   `test/aiur/*.exs` one level up. Require the exact command run to be reported.
 - **Worktree isolation** (`isolation: "worktree"`) whenever the agent may rebase,

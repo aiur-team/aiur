@@ -25,7 +25,8 @@ defmodule Aiur.Executor.StatePaths do
     cursor: "executor.wakes.cursor.json",
     pending: "executor.wakes.pending.json",
     subscriptions: "executor.subscriptions.json",
-    watermark: "executor.listener.watermark.json"
+    watermark: "executor.listener.watermark.json",
+    control_lifecycle: "control-lifecycle.json"
   }
 
   @doc """
