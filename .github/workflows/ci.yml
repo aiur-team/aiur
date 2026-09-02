@@ -19,10 +19,56 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
 
+# Job timeouts (#2461).
+#
+# Every job declares an explicit `timeout-minutes`. Without one, GitHub's
+# 6-hour default applies and a hung job — e.g. `coverage (3/4)` in run
+# 32778536520 on PR #2459, stuck 49+ minutes on runner congestion with no
+# automatic recovery — blocks its PR indefinitely with no signal beyond the
+# job sitting `in_progress`.
+#
+# Values are per job, not a single global ceiling: a number generous enough
+# for the slowest job would be useless for the fastest. They were derived on
+# 2026-08-24 from the `started_at`→`completed_at` span of 10 successful runs
+# of this workflow (runs 32786021793, 32785247929, 32784244468, 32783855503,
+# 32778536520, 32778181574, 32778043989, 32780961076, 32780225293,
+# 32779697220 on aiur-team/aiur):
+#
+#   job                    observed max   timeout-minutes
+#   workflow security         ~0.4 min              5
+#   merge ruleset drift       ~0.3 min              5
+#   analytics                 ~0.3 min              5
+#   build                     ~2.0 min             10
+#   lint                      ~3.1 min             15
+#   coverage (1/4..4/4)       ~7.9 min (shard 1)   30
+#   coverage (aggregate)      ~3.0 min             15
+#   quarantined tests         ~2.1 min             15
+#   test                      ~0.5 min             10
+#   dialyzer                  ~2.7 min             15
+#   browser harness           ~8.1 min             30
+#   streamdeck                ~1.5 min             10
+#   layout release smoke      ~2.5 min             20
+#
+# Rule: 3-4x the observed max duration, rounded up to a 5-minute step, with a
+# 5-minute floor. The fastest guard jobs get a 5-minute ceiling (≈12x the
+# observed max) so a hang there is caught quickly rather than after hours. The
+# slowest shard (coverage partition 1, ~8 min) and the browser harness (~8
+# min) drive the 30-minute ceiling, which would have killed the observed hang
+# at ~30 minutes instead of the default six hours while leaving 3.7x headroom
+# over the slowest legitimate run. layout release smoke gets a wider margin
+# (20 vs its ~2.5-min observed max) because it is the only job that installs
+# Chromium and assembles a production release, so a cold-cache run is
+# legitimately slower than the warm-cache sample above.
+#
+# Re-derive from recent runs if a job's profile changes rather than re-guessing:
+#   gh api "repos/aiur-team/aiur/actions/workflows/ci.yml/runs?per_page=30&status=completed"
+# then compare each job's `started_at`/`completed_at` span.
+
 jobs:
   workflow-security:
     name: workflow security
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -59,6 +105,7 @@ jobs:
   merge-ruleset-drift:
     name: merge ruleset drift
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -74,6 +121,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: src
@@ -91,6 +139,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: src
@@ -134,6 +183,7 @@ jobs:
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -166,6 +216,7 @@ jobs:
     needs: coverage-partition
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -205,6 +256,7 @@ jobs:
     name: quarantined tests (non-blocking)
     continue-on-error: true
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: src
@@ -233,6 +285,7 @@ jobs:
     needs: coverage
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       actions: read
       contents: read
@@ -262,6 +315,7 @@ jobs:
   analytics:
     name: analytics
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     steps:
@@ -277,6 +331,7 @@ jobs:
 
   dialyzer:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: src
@@ -301,6 +356,7 @@ jobs:
   browser:
     name: browser harness
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -344,6 +400,7 @@ jobs:
   streamdeck:
     name: streamdeck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: packages/streamdeck
@@ -372,6 +429,7 @@ jobs:
   layout-release:
     name: layout release smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
