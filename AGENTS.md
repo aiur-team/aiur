@@ -377,7 +377,20 @@ A PR claiming a quota, latency, or cost saving must state, in the PR body:
 4. **A test asserting the claimed figure**, so the PR body and the test cannot
    diverge. When the figure is a steady-state rate no unit test can assert,
    say so in the PR body and give the measured number instead — but a claim
-   with neither a test nor a measurement is not a saving.
+   with neither a test nor a measurement is not a saving. The escape hatch
+   covers the *test*, never item 5: a rate you cannot assert in a unit test is
+   still a rate you can count the population for.
+5. **The population the change will meet in production, counted.** How many
+   reads does the classifier remove, how many shipped configs have the gate
+   uncommented, how many stored bodies have the validator's shape. This is the
+   item the other four do not catch: a saving can carry a real number, a live
+   measurement, and no config dependency, and still be inert because the
+   mechanism never meets the data. Count it and state the count.
+
+**An instrumentation PR should claim no saving at all.** If the change makes
+cost *visible* rather than smaller, say what it makes visible — the saving it
+enables is a later PR's claim, with its own number. Reframing observability as
+a saving is how a PR gets reviewed as significant and measures zero.
 
 The failure this guards is the *inert* PR, not the broken one: the mechanism
 is usually correct, and still zero is saved because it never meets the
@@ -387,18 +400,23 @@ significant savings and measured zero for exactly that reason:
 - **#2360** claimed the saving from classification alone, which is
   observability — the 5,208 reads/hr were *classified*, not eliminated. It
   only saves reads now because a later revision gave three of the shapes a
-  real TTL.
+  real TTL. Note that it satisfies items 1 through 4: a rate with a baseline,
+  measured live, needing no config at merge, and covered by item 4's
+  steady-state escape hatch. Only item 5 catches it — which is why item 5 is
+  in the list and not a footnote.
 - **#2399** shipped four configs with every `polling.intervals` gate
   commented out, so no gate binds and the cadence never changes.
-- **#2417** never fires its cache validator: zero of the 462 cached bodies
-  have the shape it looks for.
+- **#2417** rarely fires its cache validator: successive censuses of the live
+  store found 0 of 462 and 1 of 99 cached bodies with the shape it looks for —
+  roughly 1%, indistinguishable from zero. The store churns, so the exact
+  count moves while the direction does not; quote a census with its date and
+  size, not a single number as if it were constant.
 
-For reviewers: **check the population, not the mechanism.** Before evaluating
-whether a cache, classifier, or cadence change is correct, count what it will
-actually see in production. That one question settled all three above without
-deep analysis: how many reads does classification remove, how many shipped
-configs have the gate uncommented, how many cached bodies have the validator's
-shape. The reviewer-side check lives in the `aiur-run` skill
+For reviewers: **check the population, not the mechanism** — item 5, verified
+rather than taken on faith. Before evaluating whether a cache, classifier, or
+cadence change is correct, count what it will actually see in production. That
+one question settled all three above without deep analysis. The reviewer-side
+check lives in the `aiur-run` skill
 ("Saving claims are measured, not estimated", `.claude/skills/aiur-run/SKILL.md`);
 this section is the author-side rule so the check happens before review, not
 for the first time in review.
