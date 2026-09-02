@@ -290,7 +290,9 @@ jobs:
         # compile-time-visible source change (a schema field, a struct, a module
         # attribute). Removing it forces Mix to recompile the app fresh; the
         # dependency beams the cache exists to save are left in place.
-        run: rm -rf src/_build/test/lib/aiur
+        # `run` steps inherit the job's `working-directory: src`; action inputs
+        # such as the cache path remain workspace-relative.
+        run: rm -rf _build/test/lib/aiur
       - name: Run quarantined tests
         # `--exclude test` narrows to the tag without failing while the queue
         # is empty; unlike `--only`, that lets this non-blocking job stay green
@@ -300,7 +302,7 @@ jobs:
         # `mix test` recompiles the `aiur` app, so prune it again before the
         # cache post-step saves, keeping the stored cache dependency-only (the
         # path the restore step promises).
-        run: rm -rf src/_build/test/lib/aiur
+        run: rm -rf _build/test/lib/aiur
 
   test:
     needs: coverage

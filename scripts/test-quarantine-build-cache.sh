@@ -41,6 +41,7 @@ violation() {
 check_workflow() {
   local path="$1"
   local quarantine_job
+  local run_defaults
   quarantine_job="$(sed -n '/^  quarantine:$/,/^  test:$/p' "$path")"
 
   if [[ -z "$quarantine_job" ]]; then
@@ -52,7 +53,7 @@ check_workflow() {
     violation "quarantine job must cache only dependency apps (path: src/_build/test/lib)"
     return 1
   fi
-  if grep -Fq 'path: src/_build$' <<<"$quarantine_job"; then
+  if grep -Eq '^[[:space:]]*path:[[:space:]]*src/_build[[:space:]]*$' <<<"$quarantine_job"; then
     violation "quarantine job must not cache the whole _build directory (path: src/_build)"
     return 1
   fi
@@ -64,13 +65,23 @@ check_workflow() {
     violation "quarantine cache key must cover mix.lock and mix.exs"
     return 1
   fi
-  if ! grep -Fq 'rm -rf src/_build/test/lib/aiur' <<<"$quarantine_job"; then
-    violation "quarantine job must prune the first-party aiur app dir so it recompiles fresh"
+  run_defaults="$(sed -n '/^    defaults:$/,/^    steps:$/p' <<<"$quarantine_job")"
+  if ! grep -Eq '^[[:space:]]*working-directory:[[:space:]]*src[[:space:]]*$' <<<"$run_defaults"; then
+    violation "quarantine job must keep run steps rooted at src"
     return 1
   fi
   # Both prunes are load-bearing: the pre-test drop is what forces the fresh
   # first-party compile, and the post-test prune keeps the saved cache
-  # dependency-only.
+  # dependency-only. Because run steps inherit `working-directory: src`, their
+  # paths must be relative to src rather than the repository workspace.
+  if [[ "$(grep -Fc 'run: rm -rf _build/test/lib/aiur' <<<"$quarantine_job")" -ne 2 ]]; then
+    violation "quarantine job must prune _build/test/lib/aiur twice relative to its src working directory"
+    return 1
+  fi
+  if grep -Fq 'rm -rf src/_build/test/lib/aiur' <<<"$quarantine_job"; then
+    violation "quarantine prune must not repeat src under working-directory: src"
+    return 1
+  fi
   grep -Fq 'Drop first-party beams' <<<"$quarantine_job" ||
     { violation "quarantine job must drop the first-party app dir before running tests"; return 1; }
   grep -Fq 'Prune first-party beams before the cache save' <<<"$quarantine_job" ||
@@ -78,7 +89,7 @@ check_workflow() {
 
   # The dialyzer PLT cache (`src/_build/dev/*.plt*`) is a data file, not app
   # beams, and is the only other _build cache in the workflow.
-  if grep -Fq 'path: src/_build$' "$path"; then
+  if grep -Eq '^[[:space:]]*path:[[:space:]]*src/_build[[:space:]]*$' "$path"; then
     violation "no job may cache the whole _build directory; cache dependency apps only"
     return 1
   fi
@@ -110,24 +121,42 @@ make_fixture() {
 expect_rejection() {
   local fixture="$1"
   local reason="$2"
-  if check_workflow "$fixture" >/dev/null 2>&1; then
+  local expected="$3"
+  local output
+  if output="$(check_workflow "$fixture" 2>&1)"; then
     fail "guard accepted a workflow that $reason"
   fi
+  grep -Fq "$expected" <<<"$output" ||
+    fail "guard rejected a workflow that $reason for the wrong reason: $output"
 }
 
 make_fixture "$work/whole-build.yml" \
-  's|path: src/_build/test/lib|path: src/_build|'
-expect_rejection "$work/whole-build.yml" "restores the whole _build directory"
+  '/path: src\/_build\/test\/lib/a\          path: src/_build'
+expect_rejection "$work/whole-build.yml" \
+  "restores the whole _build directory" \
+  "must not cache the whole _build directory"
 
 make_fixture "$work/restore-keys.yml" \
   '/^          key: ${{ runner.os }}-quarantine-build-deps-/i\          restore-keys: ${{ runner.os }}-quarantine-build-'
-expect_rejection "$work/restore-keys.yml" "adds a restore-keys fallback"
+expect_rejection "$work/restore-keys.yml" \
+  "adds a restore-keys fallback" \
+  "must not use restore-keys"
 
 # Replace every first-party prune command with a no-op, so the guard must
 # reject a job that no longer prunes the `aiur` app dir.
 make_fixture "$work/no-prune.yml" \
-  's|run: rm -rf src/_build/test/lib/aiur|run: true|g'
-expect_rejection "$work/no-prune.yml" "drops the first-party prune"
+  's|run: rm -rf _build/test/lib/aiur|run: true|g'
+expect_rejection "$work/no-prune.yml" \
+  "drops the first-party prune" \
+  "must prune _build/test/lib/aiur twice"
+
+# Reproduce the review finding exactly: with `working-directory: src`, a prune
+# beginning with `src/` silently targets the nonexistent `src/src/_build`.
+make_fixture "$work/wrong-working-directory-path.yml" \
+  's|run: rm -rf _build/test/lib/aiur|run: rm -rf src/_build/test/lib/aiur|g'
+expect_rejection "$work/wrong-working-directory-path.yml" \
+  "repeats src in a run-step path" \
+  "must prune _build/test/lib/aiur twice"
 
 # Delete the pre-test "Drop first-party beams" step block entirely.
 cp "$workflow" "$work/no-pre-prune.yml"
@@ -146,6 +175,8 @@ for line in open(path):
         out.append(line)
 open(path, "w").write("".join(out))
 PY
-expect_rejection "$work/no-pre-prune.yml" "drops only the pre-test first-party prune"
+expect_rejection "$work/no-pre-prune.yml" \
+  "drops only the pre-test first-party prune" \
+  "must prune _build/test/lib/aiur twice"
 
 echo "quarantine _build cache guard tests passed"
