@@ -467,22 +467,93 @@ defmodule Aiur.GitHub.QuotaTest do
            ] = Quota.snapshot(quota).attribution
   end
 
-  # The wrapper now appends a credential fingerprint and its own pid to each
-  # agent request row (#2255), so the daemon can attribute a call to the ticket
-  # AND the credential pool AND the exact subprocess. Rows written before the
-  # columns carried them must keep parsing (the existing test above), and rows
-  # carrying them must flow through.
+  # The call-site column lets `github-cost` name the agent-side spend by gh
+  # subcommand instead of folding the whole fleet into one `agent-shell:gh`
+  # row (#2299). A row written before the column existed still parses and keeps
+  # the undifferentiated caller. A `search` row keeps its call site too; Aiur
+  # does not meter a separate search window, so it counts against core like any
+  # other resource the meter does not name.
+  test "names agent-shell callers by gh subcommand from the call-site column" do
+    path = Path.join(System.tmp_dir!(), "aiur-gh-quota-#{System.unique_integer([:positive])}.tsv")
+    now_unix = DateTime.to_unix(@now)
+
+    File.write!(
+      path,
+      "#{now_unix}\tticket:1670\tread\tgraphql\tpr view\n" <>
+        "#{now_unix}\tticket:1671\tread\tgraphql\tissue list\n" <>
+        "#{now_unix}\tticket:1672\tread\tcore\tapi\n" <>
+        "#{now_unix}\tticket:1673\tread\tcore\n" <>
+        "#{now_unix}\tticket:1674\tread\tsearch\tsearch repos\n"
+    )
+
+    on_exit(fn -> File.rm(path) end)
+    quota = start_quota(shell_log_path: path)
+
+    callers = Quota.snapshot(quota).callers
+
+    # Ranked within budget: core rows first, then graphql, each by caller name.
+    # The `search` row counts against core (Aiur does not meter a separate
+    # search window), so it sits with the other core callers.
+    assert Enum.map(callers, & &1.caller) == [
+             "agent-shell:gh",
+             "agent-shell:gh api",
+             "agent-shell:gh search repos",
+             "agent-shell:gh issue list",
+             "agent-shell:gh pr view"
+           ]
+
+    # The ranking still splits by budget: the GraphQL subcommands stay out of
+    # the core list and the REST ones stay out of the GraphQL list.
+    assert [%{caller: "agent-shell:gh pr view", resource: "graphql"}] =
+             Enum.filter(callers, &(&1.caller == "agent-shell:gh pr view"))
+
+    assert [%{caller: "agent-shell:gh api", resource: "core"}] =
+             Enum.filter(callers, &(&1.caller == "agent-shell:gh api"))
+
+    assert [%{caller: "agent-shell:gh search repos", resource: "core"}] =
+             Enum.filter(callers, &(&1.caller == "agent-shell:gh search repos"))
+  end
+
+  # The guard allowlists the call-site column, and the reader re-checks it: a
+  # row whose call site carries a character outside the safe set is not named.
+  # An injected call site must never appear as its own ranked row — the whole
+  # point of the column is to make agent spend attributable, and a forged row
+  # is exactly the surface that trust would be spent on (#2299 review).
+  test "a call site outside the safe character set falls back to the undifferentiated caller" do
+    path = Path.join(System.tmp_dir!(), "aiur-gh-quota-#{System.unique_integer([:positive])}.tsv")
+    now_unix = DateTime.to_unix(@now)
+
+    File.write!(
+      path,
+      "#{now_unix}\tticket:1670\tread\tgraphql\tpr;view\n" <>
+        "#{now_unix}\tticket:1671\tread\tcore\n"
+    )
+
+    on_exit(fn -> File.rm(path) end)
+    quota = start_quota(shell_log_path: path)
+
+    callers = Quota.snapshot(quota).callers
+
+    refute Enum.any?(callers, &(&1.caller == "agent-shell:gh pr;view"))
+    assert Enum.map(callers, & &1.caller) == ["agent-shell:gh", "agent-shell:gh"]
+  end
+
+  # The wrapper appends a credential fingerprint and its own pid to each
+  # agent request row (#2255), after the call-site column, so the daemon can
+  # attribute a call to the ticket AND the credential pool AND the exact
+  # subprocess. Rows written before the columns carried them must keep parsing
+  # (the existing tests above), and rows carrying them must flow through.
   test "reads the credential fingerprint and wrapper pid from agent request rows" do
     now_unix = DateTime.to_unix(@now)
 
     assert %{consumer: "ticket:1670", resource: "core", token_key: "abc123", pid: 4242} =
-             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\tabc123\t4242")
+             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\tapi\tabc123\t4242")
 
     assert %{consumer: "ticket:1671", resource: "graphql", token_key: nil, pid: nil} =
              Quota.parse_shell_observation("#{now_unix}\tticket:1671\twrite\tgraphql")
 
     assert %{consumer: "ticket:1670", token_key: nil, pid: nil} =
-             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\t\tbad-pid")
+             Quota.parse_shell_observation("#{now_unix}\tticket:1670\tread\tcore\tapi\t\tbad-pid")
 
     assert Quota.parse_shell_observation("malformed") == nil
   end
@@ -507,6 +578,57 @@ defmodule Aiur.GitHub.QuotaTest do
     quota = start_quota()
 
     assert [%{consumer: "ticket:1790"}] = Quota.snapshot(quota).attribution
+  end
+
+  # The agent `gh` guard writes `broker-reconcile-stale` exactly once per stale
+  # period, when its broker cannot write to the current ledger (schema trigger
+  # or version stamp abort at acquire) or cannot reconcile 304s (#2307). This
+  # process turns that marker into one fleet alert per workspace — latched on
+  # the marker path so a persistent marker does not re-alert on every refresh,
+  # and rearmed once the marker disappears (a refreshed broker has recovered).
+  test "a stale-broker marker raises one fleet alert per workspace and rearms on recovery" do
+    parent = self()
+    root = Path.join(System.tmp_dir!(), "aiur-gh-stale-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    quota_dir = Path.join([root, "ws-2307", ".aiur-runtime", "github-quota"])
+    File.mkdir_p!(quota_dir)
+    marker = Path.join(quota_dir, "broker-reconcile-stale")
+    File.write!(marker, "workspace:/ws-2307\n")
+
+    stale_broker_path = Path.join([root, "*", ".aiur-runtime", "github-quota", "broker-reconcile-stale"])
+
+    quota =
+      start_quota(
+        stale_broker_path: stale_broker_path,
+        emit_fun: fn name, opts ->
+          send(parent, {:alert, name, opts})
+          :ok
+        end
+      )
+
+    _snapshot = Quota.snapshot(quota)
+
+    assert_receive {:alert, "system.github.budget.broker_reconcile_stale", opts}
+    assert opts[:needs_attention]
+    assert opts[:severity] == "warning"
+    assert opts[:message] =~ "ws-2307"
+    assert opts[:message] =~ "workspace:/ws-2307"
+    assert opts[:message] =~ "cannot reconcile 304 responses"
+
+    # A persistent marker latches: the next refresh does not re-alert.
+    _snapshot = Quota.snapshot(quota)
+    refute_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
+
+    # Removing the marker (a refreshed broker recovered) rearms the latch, so a
+    # second stale period alerts again rather than staying permanently silent.
+    File.rm!(marker)
+    _snapshot = Quota.snapshot(quota)
+    refute_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
+
+    File.write!(marker, "workspace:/ws-2307\n")
+    _snapshot = Quota.snapshot(quota)
+    assert_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
   end
 
   test "publishes and clears resource-specific shell holds" do

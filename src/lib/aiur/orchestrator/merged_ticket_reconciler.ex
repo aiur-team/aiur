@@ -30,7 +30,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   """
 
   alias Aiur.{Alerts, Issue, RecentMerge, RecentMergeStore, Tracker}
-  alias Aiur.Orchestrator.{CommentWake, PushRouting, State}
+  alias Aiur.Orchestrator.{CommentWake, PushRouting, ReworkGate, State}
+
+  require Logger
 
   # A merge older than this no longer explains why a ticket is open now: the
   # ticket has had a full day to be reopened deliberately.
@@ -164,7 +166,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   The open-PR listing and the per-PR unresolved-findings predicate are
   injectable via opts (`:open_pull_requests_fun` and
   `:open_pull_request_unresolved_findings_fun`) so callers can supply their own
-  review-state source; the defaults route through the tracker boundary.
+  review-state source. The defaults route unresolved review threads through
+  `ReworkGate` — the single place that owns that rule (#2450) — via the tracker
+  boundary.
   """
   @spec merged_ticket_target(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
@@ -259,50 +263,60 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
   end
 
   # Per-PR unresolved-findings predicate, injectable so callers can substitute
-  # their own review-state source. The default reads the PR's review decision
-  # when the listing carried one, and otherwise falls back to unaddressed
-  # review-thread comments via the tracker boundary — the same signal the
-  # human-review gate blocks on, so the rework verdict stays consistent with it.
+  # their own review-state source. The default routes on unresolved review
+  # threads via `ReworkGate` — the single place that owns that rule (#2450) —
+  # with the #1756 carve-out that an `APPROVED` verdict outranks a thread
+  # nobody clicked "resolve" on, so an approved PR merely awaits review.
   defp open_pull_request_has_unresolved_findings?(pull_request, opts) do
     unresolved_findings_fun =
       Keyword.get(
         opts,
         :open_pull_request_unresolved_findings_fun,
-        &default_open_pull_request_unresolved_findings?/1
+        &default_open_pull_request_unresolved_findings?(&1, opts)
       )
 
     unresolved_findings_fun.(pull_request)
   end
 
-  defp default_open_pull_request_unresolved_findings?(pull_request) when is_map(pull_request) do
+  defp default_open_pull_request_unresolved_findings?(pull_request, opts) when is_map(pull_request) do
     case review_decision(pull_request) do
-      "CHANGES_REQUESTED" -> true
-      "APPROVED" -> false
-      _other -> unaddressed_review_threads?(pull_request)
+      # #1756: a reviewer's approval is a judgement on the whole change and
+      # outranks a thread nobody resolved; the PR merely awaits review.
+      "APPROVED" ->
+        false
+
+      _other ->
+        # #2450: `reviewDecision` is sticky — a `CHANGES_REQUESTED` verdict never
+        # clears when findings are addressed — so it is not a rework signal.
+        # Unresolved review threads are: a PR whose threads are all resolved is
+        # merely awaiting a fresh review and must not be routed to rework.
+        case ReworkGate.open_pull_request_rework_verdict(pull_request, opts) do
+          {:ok, :rework} ->
+            true
+
+          {:skip, :no_unresolved_review_threads} ->
+            Logger.info(
+              "merged-ticket reconcile: PR ##{pull_request_number(pull_request)} has zero unresolved review threads " <>
+                "(#{inspect(:no_unresolved_review_threads)}); skipping rework (#2450)"
+            )
+
+            false
+
+          # Fails open to "no unresolved findings": a transient thread lookup
+          # must never fabricate a rework verdict. A wrongly-clear answer can at
+          # worst route the ticket to `human-review`, whose entry gate re-checks
+          # threads before letting the transition land, so it can never write
+          # `done` over a finding.
+          {:error, _reason} ->
+            false
+        end
     end
   end
 
-  defp default_open_pull_request_unresolved_findings?(_pull_request), do: false
+  defp default_open_pull_request_unresolved_findings?(_pull_request, _opts), do: false
 
   defp review_decision(pull_request) do
     Map.get(pull_request, "review_decision") || Map.get(pull_request, :review_decision)
-  end
-
-  # Fails open to "no unresolved findings": a transient thread lookup must never
-  # fabricate a rework verdict. A wrongly-clear answer can at worst route the
-  # ticket to `human-review`, whose entry gate re-checks threads before letting
-  # the transition land, so it can never write `done` over a finding.
-  defp unaddressed_review_threads?(pull_request) do
-    case pull_request_number(pull_request) do
-      nil ->
-        false
-
-      number ->
-        case Tracker.fetch_unaddressed_pr_review_thread_comments(number) do
-          {:ok, comments} when is_list(comments) -> comments != []
-          _other -> false
-        end
-    end
   end
 
   defp pull_request_number(%{"number" => number}) when is_integer(number), do: number

@@ -139,6 +139,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   @type work ::
           {ResourceStore.resource_type(), term(), term(), String.t() | nil}
           | {:drop, ResourceStore.resource_type(), term()}
+          | {:thread_transition, term(), String.t(), map(), String.t() | nil, String.t() | nil}
           | {:invalidate_review_threads, term()}
           | {:merge_review_thread, term(), map()}
           | {:merge_check_run, term(), String.t(), map()}
@@ -161,17 +162,30 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   @spec deposit(term(), term(), term(), keyword()) :: [ResourceStore.key()]
   def deposit(event_type, payload, repo, opts \\ [])
 
-  def deposit(event_type, payload, repo, opts) when is_binary(event_type) and is_map(payload) and is_binary(repo) do
+  def deposit(event_type, payload, repo, opts)
+      when is_binary(event_type) and is_map(payload) and is_binary(repo) do
     keys =
       if store_running?() do
         arrival = arrival_version(opts)
 
-        Enum.flat_map(bodies(event_type, payload), fn
-          {:drop, type, id} -> drop(type, repo, id)
-          {:invalidate_review_threads, pr_number} -> invalidate_review_threads(repo, pr_number)
-          {:merge_review_thread, pr_number, thread} -> merge_review_thread(repo, pr_number, thread)
-          {:merge_check_run, target, head_sha, check_run} -> merge_check_run(repo, target, head_sha, check_run)
-          {type, id, body, version} -> store(type, repo, id, body, edge_version(type, version, arrival))
+        Enum.flat_map(bodies(event_type, payload, opts), fn
+          {:drop, type, id} ->
+            drop(type, repo, id)
+
+          {:thread_transition, id, action, thread, generation, version} ->
+            store_thread_transition(repo, id, action, thread, generation, version)
+
+          {:invalidate_review_threads, pr_number} ->
+            invalidate_review_threads(repo, pr_number)
+
+          {:merge_review_thread, pr_number, thread} ->
+            merge_review_thread(repo, pr_number, thread)
+
+          {:merge_check_run, target, head_sha, check_run} ->
+            merge_check_run(repo, target, head_sha, check_run)
+
+          {type, id, body, version} ->
+            store(type, repo, id, body, edge_version(type, version, arrival))
         end)
       else
         []
@@ -200,7 +214,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   # An `issue_comment` delivery carries the comment *and* the whole issue it
   # hangs off, so one free delivery populates both.
-  defp bodies("issue_comment", payload) do
+  defp bodies("issue_comment", payload, _opts) do
     comment = Map.get(payload, "comment")
     issue = Map.get(payload, "issue")
     action = Map.get(payload, "action")
@@ -212,7 +226,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     comment_deposits(:issue_comment, action, comment) ++ carried_issue_deposits(issue)
   end
 
-  defp bodies("pull_request_review_comment", payload) do
+  defp bodies("pull_request_review_comment", payload, _opts) do
     comment = Map.get(payload, "comment")
     action = Map.get(payload, "action")
 
@@ -221,7 +235,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       pull_request_deposits(Map.get(payload, "pull_request"))
   end
 
-  defp bodies("pull_request_review", payload) do
+  defp bodies("pull_request_review", payload, _opts) do
     review = Map.get(payload, "review")
     action = Map.get(payload, "action")
 
@@ -229,35 +243,57 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   end
 
   # A `pull_request_review_thread` delivery (resolved/unresolved) carries a full
-  # pull request plus the thread, and both halves are deposited: the PR under
-  # `:pull_request` / `:branch_pull_request` (feeds
-  # `Aiur.GitHub.DeliveredPullRequest`, which decides whether the comment poller
-  # pays for its per-PR `review_threads_unaddressed` fallback on this cycle —
-  # the single most common GraphQL spend the audit found, #2326), and the
-  # thread under the poll snapshot #2276 converges.
-  defp bodies("pull_request_review_thread", %{"action" => "resolved"} = payload) do
-    with %{} = pull_request <- Map.get(payload, "pull_request"),
-         pr_number when not is_nil(pr_number) <- Map.get(pull_request, "number"),
-         %{} = thread <- Map.get(payload, "thread"),
-         %{"id" => id} = normalized when is_binary(id) and id != "" <- normalize_review_thread(thread) do
-      pull_request_deposits(pull_request) ++ [{:merge_review_thread, pr_number, normalized}]
-    else
-      _other -> pull_request_deposits(Map.get(payload, "pull_request")) ++ review_thread_invalidation(payload)
-    end
+  # pull request plus the thread, and three kinds of deposit come out of it:
+  #
+  #   * the PR under `:pull_request` / `:branch_pull_request` (feeds
+  #     `Aiur.GitHub.DeliveredPullRequest`, which decides whether the comment
+  #     poller pays for its per-PR `review_threads_unaddressed` fallback on this
+  #     cycle — the single most common GraphQL spend the audit found, #2326),
+  #   * the thread snapshot for the resolved case (`:merge_review_thread`) or
+  #     its invalidation for every other action (#2276's poll-snapshot
+  #     convergence), and
+  #   * the transition marker (`:thread_transition`) that records the
+  #     resolve/unresolve generation so a re-raised thread wakes the agent again
+  #     without republishing one transition.
+  defp bodies("pull_request_review_thread", payload, opts) do
+    action = Map.get(payload, "action")
+    thread = Map.get(payload, "thread")
+
+    snapshot_deposits =
+      if action == "resolved" do
+        with %{} = pull_request <- Map.get(payload, "pull_request"),
+             pr_number when not is_nil(pr_number) <- Map.get(pull_request, "number"),
+             %{} = thread <- Map.get(payload, "thread"),
+             %{"id" => id} = normalized when is_binary(id) and id != "" <- normalize_review_thread(thread) do
+          [{:merge_review_thread, pr_number, normalized}]
+        else
+          _other -> review_thread_invalidation(payload)
+        end
+      else
+        # `unresolved` above all — the held resolution state is wrong and none
+        # of these carry enough to merge. An un-resolved thread left
+        # webhook-fresh as `isResolved: true` is filtered out of the unaddressed
+        # set, so the reviewer's re-raised objection disappears and the agent
+        # proceeds as though it were answered. Drop the snapshot and let the
+        # next poll pay for the truth.
+        review_thread_invalidation(payload)
+      end
+
+    transition_deposits =
+      if action in ["resolved", "unresolved"] and is_map(thread) do
+        thread_id = Map.get(thread, "node_id")
+        updated_at = Map.get(payload, "updated_at") || Map.get(thread, "updated_at")
+        generation = updated_at || Keyword.get(opts, :delivery_id)
+
+        [{:thread_transition, thread_id, action, thread, generation, updated_at}]
+      else
+        []
+      end
+
+    pull_request_deposits(Map.get(payload, "pull_request")) ++ snapshot_deposits ++ transition_deposits
   end
 
-  # Every other thread action — `unresolved` above all — is a statement that the
-  # held resolution state is wrong, and none of them carry enough to merge. An
-  # un-resolved thread left webhook-fresh as `isResolved: true` is filtered out
-  # of the unaddressed set, so the reviewer's re-raised objection disappears and
-  # the agent proceeds as though it were answered. Drop the snapshot and let the
-  # next poll pay for the truth. The delivery still deposits the PR half it
-  # carries (see above).
-  defp bodies("pull_request_review_thread", payload) do
-    pull_request_deposits(Map.get(payload, "pull_request")) ++ review_thread_invalidation(payload)
-  end
-
-  defp bodies("check_run", payload) do
+  defp bodies("check_run", payload, _opts) do
     with %{} = check_run <- Map.get(payload, "check_run"),
          head_sha when is_binary(head_sha) and head_sha != "" <- Map.get(check_run, "head_sha"),
          %{"id" => id} = normalized when not is_nil(id) <- normalize_check_run(check_run) do
@@ -267,9 +303,9 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
-  defp bodies("pull_request", payload), do: pull_request_deposits(Map.get(payload, "pull_request"))
+  defp bodies("pull_request", payload, _opts), do: pull_request_deposits(Map.get(payload, "pull_request"))
 
-  defp bodies("issues", payload), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
+  defp bodies("issues", payload, _opts), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
   # A `sub_issues` delivery mutates the Build Order graph's membership: an issue
   # becomes (or stops being) a member of a root. There is no fleet event to
@@ -283,7 +319,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   #
   # A `parent_issue_*` action and a `sub_issue_*` action are the same edge from
   # either end, so they deposit the same key.
-  defp bodies("sub_issues", payload) do
+  defp bodies("sub_issues", payload, _opts) do
     action = Map.get(payload, "action")
     edge = sub_issue_edge(payload)
 
@@ -303,7 +339,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   # actions cannot create two store entries for the same fact. The carried
   # issue is deposited like any carried issue, and the edge is merged into the
   # `:issue_blocked_by` list the dependency reader serves (#2326).
-  defp bodies("issue_dependencies", payload) do
+  defp bodies("issue_dependencies", payload, _opts) do
     action = Map.get(payload, "action")
     edge = dependency_edge(payload)
     issue = Map.get(payload, "issue")
@@ -317,7 +353,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       end
   end
 
-  defp bodies(_event_type, _payload), do: []
+  defp bodies(_event_type, _payload, _opts), do: []
 
   defp check_run_deposits(check_run, head_sha, normalized) do
     # A malformed `pull_requests` element (not a map) must not raise here: it
@@ -775,6 +811,24 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
+  defp store_thread_transition(repo, id, action, thread, generation, version) do
+    case ResourceStore.key_for_repo(:pr_review_thread, repo, id) do
+      nil ->
+        []
+
+      key ->
+        result =
+          ResourceStore.update_resource(
+            key,
+            &accept_thread_transition(&1, &2, action, thread, generation, version),
+            source: :webhook,
+            etag: :derive
+          )
+
+        if result == :unchanged, do: [], else: confirm(key)
+    end
+  end
+
   # The one edge a delivery names is merged into whatever the entry already
   # holds, never replacing a fuller list the reader holds. A repeat delivery of
   # the same edge is declined inside the store's swap. An absent entry is left
@@ -820,6 +874,55 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   defp accept(_held_body, %{version: held}, body, version) do
     if regression?(held, version), do: :unchanged, else: body
   end
+
+  # The transition carries its own ordering clock. The marker stores the
+  # transition's `updated_at` under `"updated_at"`, so it never shares the
+  # entry's version slots — which on this same key the comment pipe also writes
+  # (`mark_processed` records the published comment's version) and which a
+  # mutation's thread deposit records as the body version. The ordering guard
+  # compares the incoming transition's `updated_at` against the held marker's,
+  # not against whatever a different pipe last wrote to the entry: a review
+  # comment edited after a resolve/unresolve transition can no longer occupy the
+  # comparison slot and make the next genuine transition look like `:unchanged`.
+  defp accept_thread_transition(held, _marker, action, thread, generation, version) do
+    held_transition_at = transition_at(held)
+
+    cond do
+      regression?(held_transition_at, version) ->
+        :unchanged
+
+      same_thread_transition?(held, action, held_transition_at, version) ->
+        :unchanged
+
+      true ->
+        data =
+          %{
+            "webhook_action" => action,
+            "generation" => generation,
+            "thread" => thread
+          }
+          |> Map.put("updated_at", version)
+          |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+        case latest_unresolved_generation(held, action, generation) do
+          value when is_binary(value) and value != "" -> Map.put(data, "latest_unresolved_generation", value)
+          _other -> data
+        end
+    end
+  end
+
+  defp transition_at(%{"updated_at" => updated_at}) when is_binary(updated_at) and updated_at != "", do: updated_at
+  defp transition_at(_held), do: nil
+
+  defp latest_unresolved_generation(_held, "unresolved", generation), do: generation
+  defp latest_unresolved_generation(%{"latest_unresolved_generation" => generation}, _action, _generation), do: generation
+  defp latest_unresolved_generation(%{"webhook_action" => "unresolved", "generation" => generation}, _action, _generation), do: generation
+  defp latest_unresolved_generation(_held, _action, _generation), do: nil
+
+  defp same_thread_transition?(%{"webhook_action" => action}, action, held_transition_at, version),
+    do: is_nil(version) or held_transition_at == version
+
+  defp same_thread_transition?(_held, _action, _held_transition_at, _version), do: false
 
   # GitHub does not order deliveries, and a single delivery carries more than the
   # object it is about: an `issue_comment` also carries the whole issue and its

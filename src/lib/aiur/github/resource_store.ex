@@ -383,11 +383,19 @@ defmodule Aiur.GitHub.ResourceStore do
   # inverts the edge, exactly like a whole resource rolling back. The deposit
   # versions every edge with its delivery's arrival time so the store's
   # stale-delivery guard refuses a late add or remove (#2313).
+  #
+  # `:pr_review_thread` is deliberately *not* order-sensitive at the entry
+  # level: its webhook transition marker carries its own ordering clock
+  # (`Deposit.accept_thread_transition/6` compares the incoming transition's
+  # `updated_at` against the held marker's `"updated_at"` field), and the
+  # comment pipe writes the same key's processed-mark version. Both writers
+  # legitimately store bodies with no entry-level `data_version`, so warning
+  # about the version-less deposit would be noise about a guard that no longer
+  # lives here.
   @order_sensitive_types [
     :issue,
     :issue_labels,
     :pull_request,
-    :pr_review_thread,
     :branch_pull_request,
     :sub_issue,
     :issue_dependency,

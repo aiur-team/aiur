@@ -471,4 +471,20 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
       assert Map.new(absolute.tickets, &{&1.id, &1})["5"].merged_at == @t0 + 3 * @day + 10 * @minute
     end
   end
+
+  test "surfaces an unexpected analysis failure as :error, never as an idle fleet" do
+    # The latest-run loader's `:prior_loader` seam raises on purpose. An
+    # unhandled exception in the pipeline must map to `{:unavailable, :error}`
+    # — the Analytics page renders a distinct "could not be analyzed" state for
+    # it, not "no run telemetry" (which would send the operator hunting for a
+    # telemetry problem where none exists). The unique cache identity keeps this
+    # from reading a cached "no summaries" result left by a concurrent test.
+    assert {:unavailable, :error} =
+             Presenter.load(
+               telemetry_file: "/nonexistent/telemetry.ndjson",
+               session: :current,
+               cache_identity: {__MODULE__, :error_probe, System.unique_integer([:positive])},
+               prior_loader: fn -> raise "unexpected pipeline failure" end
+             )
+  end
 end

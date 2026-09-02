@@ -38,7 +38,11 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       request_fun = fn req ->
         cond do
           req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 42, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 42, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
             {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "aiur-bot"}}}}}
@@ -216,7 +220,11 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
           {:ok, %{status: 200, body: reviews}}
 
         req.method == :get and req.url =~ "/pulls?" ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
           {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "aiur-bot"}}}}}
