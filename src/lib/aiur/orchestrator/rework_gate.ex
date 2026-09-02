@@ -108,13 +108,55 @@ defmodule Aiur.Orchestrator.ReworkGate do
       %{} ->
         case threads_fetcher.(pull_request) do
           {:ok, comments} when is_list(comments) and comments != [] -> {:ok, :rework}
-          {:ok, _no_unresolved_threads} -> {:skip, :no_unresolved_review_threads}
+          {:ok, _no_unresolved_threads} -> no_thread_verdict(opts)
           {:error, reason} -> {:error, reason}
         end
 
       # A PR that is not a map has nothing a reviewer could have rejected.
       _non_map ->
         {:skip, :no_unresolved_review_threads}
+    end
+  end
+
+  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # opens no review thread at all, so the thread read below reports zero
+  # unresolved threads and #2422's rule alone refuses a verdict a reviewer very
+  # much did make (#2473). Where the caller is routing *that review submission*
+  # itself, the submission is the outstanding finding, and this does not reopen
+  # the #2422 loop.
+  #
+  # What keeps it closed is that a review submission is delivered ONCE, not
+  # re-derived every cycle the way `reviewDecision` was. Read the guard in the
+  # publisher, not here:
+  #
+  #   * `Aiur.Events.Publisher` consults `resource_processed?/1` BEFORE its
+  #     volatile dedup window. A review publishes as
+  #     `{:pr_review, owner, repo, review_id}` at `resource_version =
+  #     submitted_at`, which is immutable for a review, and `ResourceStore`
+  #     keeps that identity for 72h across daemon restarts — sized to GitHub's
+  #     redelivery ceiling. A redelivered or duplicated `pull_request_review`
+  #     is dropped at publish and never reaches this gate.
+  #   * The poller's `poll_pr_review_submissions/6` applies the
+  #     `pr_review_seen_at` / `current_target_since` / boot cutoff, and
+  #     `review_submission_enabled?/2` only reads `/reviews` for tickets still
+  #     in `human-review` — so a ticket already moved to `agent:rework` is not
+  #     re-polled into rework again.
+  #   * `verify_rework_attempt/4`'s head-SHA bound applies on top of both.
+  #
+  # Do NOT justify this by `ReviewFreshness`. Its staleness half needs
+  # `pull_request.head_committed_at`, which only the poller's GraphQL batch
+  # populates; `Normalizer.review_context/1` reads it off the REST pull request
+  # object, which never carries it, so that half is structurally inert on every
+  # webhook delivery. The single-delivery identity gate above is the guard, and
+  # it is the one a refactor must not delete.
+  #
+  # The option defaults to `false`, so every caller that is *not* holding a live
+  # changes-requested review keeps the pre-#2473 behaviour exactly.
+  defp no_thread_verdict(opts) do
+    if Keyword.get(opts, :changes_requested_review?, false) do
+      {:ok, :rework}
+    else
+      {:skip, :no_unresolved_review_threads}
     end
   end
 
@@ -146,6 +188,11 @@ defmodule Aiur.Orchestrator.ReworkGate do
       must not be routed to rework;
     * `{:error, reason}` — the PR or thread lookup failed transiently; callers
       decide whether to retry or park.
+
+  Pass `changes_requested_review?: true` when the caller is routing a live
+  `CHANGES_REQUESTED` review submission. A body-only review opens no review
+  thread, so the thread read cannot see it (#2473); the submission is itself
+  the outstanding finding and stands in for an unresolved thread.
   """
   @spec verify_unresolved_review_threads(String.t() | integer(), keyword()) ::
           {:ok, map()}
@@ -154,11 +201,9 @@ defmodule Aiur.Orchestrator.ReworkGate do
   def verify_unresolved_review_threads(issue_key, opts \\ []) do
     case open_pr(issue_key, opts) do
       {:ok, %{} = pr} ->
-        threads_fetcher = Keyword.get(opts, :unresolved_threads_fetcher, &default_threads_fetcher/1)
-
-        case threads_fetcher.(pr) do
-          {:ok, comments} when is_list(comments) and comments != [] -> {:ok, pr}
-          {:ok, _no_unresolved_threads} -> {:skip, :no_unresolved_review_threads}
+        case open_pull_request_rework_verdict(pr, opts) do
+          {:ok, :rework} -> {:ok, pr}
+          {:skip, reason} -> {:skip, reason}
           {:error, reason} -> {:error, reason}
         end
 
