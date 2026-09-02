@@ -714,7 +714,10 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     %{
       "action" => "resolved",
       "repository" => %{"full_name" => @repo},
-      "pull_request" => %{"number" => 7, "head" => %{"ref" => "aiur/42-slug"}},
+      "pull_request" => %{
+        "number" => 7,
+        "head" => %{"ref" => "aiur/42-slug", "repo" => %{"full_name" => @repo}}
+      },
       "thread" => %{"node_id" => "PRRT_thread", "is_resolved" => true, "updated_at" => "2026-08-17T16:00:00Z"}
     }
   end

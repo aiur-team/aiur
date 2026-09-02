@@ -53,6 +53,14 @@ defmodule Aiur.Events.GithubKeysTest do
 
       assert GithubKeys.review_thread_dedup_key("owner/repo", "61", "PRRT_kwDORkWEz86MGwBK") ==
                nil
+
+      assert GithubKeys.review_thread_dedup_key(
+               "owner/repo",
+               61,
+               "PRRT_kwDORkWEz86MGwBK",
+               "2026-08-21T12:00:00Z"
+             ) ==
+               {"owner/repo", "pr_review_thread:61", "PRRT_kwDORkWEz86MGwBK:2026-08-21T12:00:00Z"}
     end
 
     test "builds PR review submission dedup keys from review ids" do
