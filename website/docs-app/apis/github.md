@@ -469,6 +469,22 @@ different callers with different invalidation reach.
 
 An answer is kept for 60 seconds.
 
+**Conditional requests and 304s.** `gh api` reads carry a validator where the
+store holds one: a re-read sends `If-None-Match` with the entry's stored `ETag`,
+and an unchanged answer returns `304`, is served from the cache, and is
+reconciled free — the same contract as the daemon's REST reads.
+
+The high-level subcommand reads — `gh pr view`, `gh pr list`, `gh issue view`,
+`gh issue list` — hit GitHub's GraphQL endpoint, which returns no `ETag` and no
+`Last-Modified`, so there is no validator for the store to send. Those entries
+stay TTL-cached with invalidation markers.
+
+When a high-level read does return a `304` (an underlying REST read), the
+wrapper reconciles the lease as free rather than billing it full-price.
+
+The free share a TTL body cache cannot recover is GraphQL's — which no cache on
+either side can recover.
+
 The GitHub cache page reports whether this sharing is effective. Its **Agent gh
 exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
 alongside the raw hit and miss counts.
@@ -602,12 +618,17 @@ The webhook shortens reaction time for repository events while polling continues
 
 | Setting | Value |
 | --- | --- |
-| Payload URL | `https://hooks.aiur.dev/api/v1/github/webhook` |
+| Payload URL | `https://<your-host>/api/v1/github/webhook` |
 | Content type | `application/json` |
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
+| Events | `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, and `check_suite`. |
+
+The hostname is yours to choose — `hooks.aiur.dev` is this operator's setup, not a requirement. Without a domain, a quick tunnel (`cloudflared tunnel --url`) exposes the daemon on a temporary public URL, fine for a single session.
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
+
+Select every event listed above so a `pull_request_review_thread` delivery reconciles resolved or reopened threads immediately while the scheduled comment sweep remains the loss-recovery path.
 
 | Delivery | Result |
 | --- | --- |
@@ -637,8 +658,8 @@ Cloudflare is transport for the GitHub webhook, not an API Aiur calls.
 
 | Boundary | Operator requirement |
 | --- | --- |
-| Origin | Route the tunnel to the Aiur daemon at `127.0.0.1:4000`. |
-| Public host | Serve the webhook at `hooks.aiur.dev`. |
+| Origin | Point the tunnel at whatever address the daemon actually bound: `127.0.0.1` on the pinned `server.port` by default, or the `server.host` address if you pinned one. Pin `server.port` to a fixed value first — the default `0` binds a fresh OS port each boot. A `502` means the tunnel aims somewhere the daemon is not listening. |
+| Public host | Serve the webhook at a hostname you control (`hooks.aiur.dev` here); without one, a quick tunnel (`cloudflared tunnel --url`) works for a single session. |
 | Reachable path | Route only `/api/v1/github/webhook`; finish the ingress list with a catch-all `404`. |
 | Network | No inbound firewall rule is needed or wanted because `cloudflared` dials out. |
 
@@ -646,7 +667,7 @@ The path scope and webhook signature are independent locks:
 
 | Lock | Protects against |
 | --- | --- |
-| Path-only tunnel routing | Public access to the dashboard and every other route on `127.0.0.1:4000`. |
+| Path-only tunnel routing | Public access to the dashboard and every other route served on the daemon's bound address. |
 | HMAC-SHA256 signature | Requests from anyone who does not know the shared webhook secret. |
 
 Do not remove the catch-all `404`: the same origin serves the operator dashboard, and a host-wide tunnel would expose it to anyone who learned the hostname.

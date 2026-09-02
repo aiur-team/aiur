@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.ClientTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{Client, DispatchAuthorization}
+  alias Aiur.GitHub.{Client, DispatchAuthorization, ResourceStore}
   alias Aiur.Workflow
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -566,6 +566,40 @@ defmodule Aiur.GitHub.ClientTest do
       request_fun = fn _ -> {:ok, %{status: 500, body: %{}}} end
 
       assert {:error, _} = Client.fetch_open_pull_request(77, request_fun: request_fun)
+    end
+
+    test "revalidates a held pull request with If-None-Match instead of a full read" do
+      # #2352 row 5: `Client.fetch_open_pull_request` routes through
+      # `ResourceFetch` under the `:pull_request` key, so a second read of the
+      # same PR number sends If-None-Match and GitHub's 304 is answered without
+      # a full-price re-read. The acceptance is that the read *carries* the
+      # validator, not merely that a 304 is handled.
+      key = ResourceStore.key_for_repo(:pull_request, "owner/repo", 4242)
+      on_exit(fn -> ResourceStore.drop_data(key) end)
+
+      parent = self()
+
+      first = fn %{method: :get, url: url} ->
+        assert url =~ "/pulls/4242"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{"number" => 4242, "state" => "open", "head" => %{"ref" => "x"}, "updated_at" => "2026-01-01T00:00:00Z"},
+           headers: [{"etag", ~s("v1")}]
+         }}
+      end
+
+      second = fn request ->
+        send(parent, {:requested, request})
+        {:ok, %{status: 304, headers: [{"etag", ~s("v1")}]}}
+      end
+
+      assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: first)
+      assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: second)
+
+      assert_receive {:requested, request}
+      assert request.etag == ~s("v1")
     end
   end
 

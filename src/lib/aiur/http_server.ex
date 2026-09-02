@@ -11,6 +11,13 @@ defmodule Aiur.HttpServer do
   @secret_key_bytes 48
   @loopback_v4 {127, 0, 0, 1}
   @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
+  # A failed endpoint start can leave a linked child's `{:EXIT, pid, reason}`
+  # in this caller's mailbox, delivered a beat after the child dies. The drain
+  # waits this long for it rather than checking once with a zero timeout, so a
+  # non-trapping caller is left with a clean mailbox after a degraded `:ignore`
+  # start and the drain cannot be deleted silently. Bounded to the degraded
+  # start path only; successful starts never reach it.
+  @exit_drain_timeout_ms 100
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -26,48 +33,98 @@ defmodule Aiur.HttpServer do
 
     case Keyword.get(opts, :port, Config.server_port()) do
       port when is_integer(port) and port >= 0 ->
-        host = Keyword.get(opts, :host, Config.server_host())
-        orchestrator = Keyword.get(opts, :orchestrator, Orchestrator)
-        snapshot_timeout_ms = Keyword.get(opts, :snapshot_timeout_ms, 15_000)
-        dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
-        decision_api = Keyword.get(opts, :decision_api, DecisionApi)
-        decision_store = Keyword.get(opts, :decision_store, DecisionStore)
-        decision_policy = Keyword.get(opts, :decision_policy)
-
-        with {:ok, ip} <- parse_host(host),
-             :ok <- guard_dashboard_credentials(ip, host, dashboard_writable),
-             :ok <- guard_port_available(ip, port, host) do
-          endpoint_opts = [
-            server: true,
-            http: [ip: ip, port: port],
-            url: [host: normalize_host(host)],
-            orchestrator: orchestrator,
-            snapshot_timeout_ms: snapshot_timeout_ms,
-            dashboard_writable: dashboard_writable,
-            dashboard_auth_required: dashboard_writable or not loopback?(ip),
-            decision_api: decision_api,
-            decision_store: decision_store,
-            decision_policy: decision_policy,
-            secret_key_base: secret_key_base()
-          ]
-
-          endpoint_config =
-            :aiur
-            |> Application.get_env(Endpoint, [])
-            |> Keyword.merge(endpoint_opts)
-
-          Application.put_env(:aiur, Endpoint, endpoint_config)
-          Endpoint.start_link()
-        else
-          :dashboard_credentials_missing -> :ignore
-          :port_in_use -> :ignore
-          other -> other
-        end
+        start_on_port(opts, port)
 
       _ ->
         :ignore
     end
   end
+
+  defp start_on_port(opts, port) do
+    host = Keyword.get(opts, :host, Config.server_host())
+    dashboard_writable = Keyword.get(opts, :dashboard_writable, dashboard_writable?())
+
+    with {:ok, ip} <- parse_host(host),
+         :ok <- guard_dashboard_credentials(ip, host, dashboard_writable) do
+      configure_endpoint(opts, host, ip, port, dashboard_writable)
+
+      opts
+      |> Keyword.get(:endpoint_start_fun, &Endpoint.start_link/0)
+      |> start_endpoint()
+      |> handle_endpoint_start(host, ip, port)
+    else
+      :dashboard_credentials_missing -> :ignore
+      other -> other
+    end
+  end
+
+  defp configure_endpoint(opts, host, ip, port, dashboard_writable) do
+    endpoint_opts = [
+      server: true,
+      http: [ip: ip, port: port],
+      url: [host: normalize_host(host)],
+      orchestrator: Keyword.get(opts, :orchestrator, Orchestrator),
+      snapshot_timeout_ms: Keyword.get(opts, :snapshot_timeout_ms, 15_000),
+      dashboard_writable: dashboard_writable,
+      dashboard_auth_required: dashboard_writable or not loopback?(ip),
+      decision_api: Keyword.get(opts, :decision_api, DecisionApi),
+      decision_store: Keyword.get(opts, :decision_store, DecisionStore),
+      decision_policy: Keyword.get(opts, :decision_policy),
+      secret_key_base: secret_key_base()
+    ]
+
+    endpoint_config =
+      :aiur
+      |> Application.get_env(Endpoint, [])
+      |> Keyword.merge(endpoint_opts)
+
+    Application.put_env(:aiur, Endpoint, endpoint_config)
+  end
+
+  defp handle_endpoint_start({:endpoint_exit, reason}, host, ip, port) do
+    if address_in_use?(reason), do: ignore_port_conflict(host, ip, port), else: exit(reason)
+  end
+
+  defp handle_endpoint_start({:error, reason} = error, host, ip, port) do
+    if address_in_use?(reason), do: ignore_port_conflict(host, ip, port), else: error
+  end
+
+  defp handle_endpoint_start(other, _host, _ip, _port), do: other
+
+  defp ignore_port_conflict(host, ip, port) do
+    port_in_use(host, ip, port)
+    :ignore
+  end
+
+  defp start_endpoint(endpoint_start_fun) do
+    trapping_exits? = Process.flag(:trap_exit, true)
+
+    try do
+      result = endpoint_start_fun.()
+      drain_failed_start_exit(result)
+      result
+    catch
+      :exit, reason ->
+        drain_failed_start_exit({:error, reason})
+        {:endpoint_exit, reason}
+    after
+      Process.flag(:trap_exit, trapping_exits?)
+    end
+  end
+
+  # Drain an `{:EXIT, pid, reason}` left by the failed endpoint's linked child.
+  # Exit signals are delivered asynchronously, so a zero-timeout receive would
+  # miss one that arrives a beat after the child dies and leave a stale message
+  # in a non-trapping caller's mailbox; wait the bounded window instead.
+  defp drain_failed_start_exit({:error, reason}) do
+    receive do
+      {:EXIT, _pid, ^reason} -> :ok
+    after
+      @exit_drain_timeout_ms -> :ok
+    end
+  end
+
+  defp drain_failed_start_exit(_result), do: :ok
 
   @spec bound_port(term()) :: non_neg_integer() | nil
   def bound_port(_server \\ __MODULE__) do
@@ -144,45 +201,19 @@ defmodule Aiur.HttpServer do
     end
   end
 
-  # A fixed dashboard port that is already bound — e.g. a *second* aiur instance
-  # sharing the same `server.port` (this repo's config pins 4000) — makes
-  # Bandit's listener fail with `:eaddrinuse`. That failure surfaces as a
-  # crashed child, which `:one_for_one` retries until `max_restarts` is exhausted
-  # and the whole BEAM goes down on startup (#442). Probe the bind first and
-  # degrade to no-dashboard (`:ignore`) instead: the node keeps running agents,
-  # only this instance's dashboard is unavailable. The `Logger.warning` line is
-  # the Executor’s only signal, so it names the port + remediation.
-  #
-  # Port 0 is ephemeral (the OS assigns a free port), so it never collides —
-  # skip the probe. The probe mirrors Bandit's bind (`reuseaddr: true`) so a
-  # port merely lingering in TIME_WAIT is not misread as in-use. A tiny
-  # time-of-check/time-of-use window remains between the probe and the real
-  # bind; losing that race only reproduces the pre-#442 crash, which is no
-  # worse than today and astronomically unlikely in practice.
-  defp guard_port_available(_ip, 0, _host_input), do: :ok
-
-  defp guard_port_available(ip, port, host_input) do
-    case :gen_tcp.listen(port, ip: ip, reuseaddr: true) do
-      {:ok, socket} ->
-        :gen_tcp.close(socket)
-        :ok
-
-      {:error, :eaddrinuse} ->
-        Logger.warning(
-          "Aiur dashboard port #{port} is already in use on " <>
-            "#{inspect(host_input)} (#{format_ip(ip)}) — another aiur instance? " <>
-            "Dashboard disabled for this instance (agents still run). " <>
-            "Set a different `server.port` (or pass `--port`) to run a second dashboard."
-        )
-
-        :port_in_use
-
-      {:error, _other} ->
-        # Any other bind error (e.g. `:eaddrnotavail` for an unroutable host) is
-        # left to `Endpoint.start_link/0` to surface, preserving prior behavior.
-        :ok
-    end
+  defp port_in_use(host_input, ip, port) do
+    Logger.warning(
+      "Aiur dashboard port #{port} is already in use on " <>
+        "#{inspect(host_input)} (#{format_ip(ip)}) — another aiur instance? " <>
+        "Dashboard disabled for this instance (agents still run). " <>
+        "Set a different `server.port` (or pass `--port`) to run a second dashboard."
+    )
   end
+
+  defp address_in_use?(:eaddrinuse), do: true
+  defp address_in_use?(term) when is_tuple(term), do: term |> Tuple.to_list() |> Enum.any?(&address_in_use?/1)
+  defp address_in_use?(term) when is_list(term), do: Enum.any?(term, &address_in_use?/1)
+  defp address_in_use?(_term), do: false
 
   defp loopback?(@loopback_v4), do: true
   defp loopback?(@loopback_v6), do: true

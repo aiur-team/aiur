@@ -483,6 +483,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
       {false, []} -> :unknown
       {true, []} -> {:ok, nil}
       {_known_branch, [node | _rest]} -> {:ok, normalize_pull_request(node, false)}
+      # Both construction sites set a strict boolean today. If that ever stops
+      # holding, decline to decide rather than raise a CaseClauseError.
+      {_known_branch, []} -> :unknown
     end
   end
 

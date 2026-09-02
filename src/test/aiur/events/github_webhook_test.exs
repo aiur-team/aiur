@@ -3,6 +3,7 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   alias Aiur.Events.{Exchange, GithubWebhook, Publisher}
   alias Aiur.Events.GithubWebhook.Normalizer
+  alias Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe
   alias Aiur.GitHub.ReadCache
   alias Aiur.Webhooks
   alias Aiur.Webhooks.ModeRegistry
@@ -265,8 +266,8 @@ defmodule Aiur.Events.GithubWebhookTest do
       assert_receive {:reconcile, %{kind: :issue_state, ticket: "42"}}
     end
 
-    test "unlabeled and closed reconcile the same way, so out-of-order deliveries converge" do
-      for action <- ["unlabeled", "closed", "reopened"] do
+    test "unlabeled, closed, reopened and opened reconcile the same way, so out-of-order deliveries converge" do
+      for action <- ["unlabeled", "closed", "reopened", "opened"] do
         delivery = %{
           "action" => action,
           "repository" => %{"full_name" => @repo},
@@ -312,11 +313,21 @@ defmodule Aiur.Events.GithubWebhookTest do
       delivery = %{
         "action" => "resolved",
         "repository" => %{"full_name" => @repo},
-        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-slug"}},
+        "pull_request" => %{
+          "number" => 901,
+          "head" => %{"ref" => "aiur/42-slug", "repo" => %{"full_name" => @repo}}
+        },
         "thread" => %{"node_id" => "PRRT_resolved", "is_resolved" => true, "updated_at" => "2026-08-21T10:00:00Z"}
       }
 
-      assert {:reconcile, %{kind: :review_threads, ticket: "42", pull_request: 901, source: "pull_request_review_thread"}} =
+      assert {:reconcile,
+              %{
+                kind: :review_thread,
+                ticket: "42",
+                action: "resolved",
+                thread_id: "PRRT_resolved",
+                generation: "2026-08-21T10:00:00Z"
+              }} =
                Normalizer.normalize("pull_request_review_thread", delivery, repo: @repo)
     end
 
@@ -343,7 +354,94 @@ defmodule Aiur.Events.GithubWebhookTest do
                Normalizer.normalize("pull_request", delivery, repo: @repo)
     end
 
-    test "the orchestrator is nudged to poll now, and a delivery burst is coalesced into one nudge" do
+    test "review-thread resolution changes request targeted comment reconciliation" do
+      parent = self()
+
+      for action <- ["resolved", "unresolved"] do
+        delivery = review_thread_delivery(action)
+
+        assert %{
+                 status: :reconciled,
+                 hint: %{
+                   kind: :review_thread,
+                   ticket: "42",
+                   action: ^action,
+                   thread_id: "PRRT_kwDOabc",
+                   generation: "2026-08-21T12:00:00Z"
+                 }
+               } =
+                 GithubWebhook.handle_delivery("pull_request_review_thread", delivery,
+                   repo: @repo,
+                   reconcile_fun: fn hint -> send(parent, {:reconcile, hint}) end
+                 )
+
+        assert_receive {:reconcile, %{kind: :review_thread, ticket: "42", action: ^action}}
+      end
+    end
+
+    test "review-thread reconciliation uses the admitted delivery id when the timestamp is null" do
+      delivery = Map.put(review_thread_delivery("unresolved"), "updated_at", nil)
+
+      assert %{hint: %{generation: "delivery-123"}} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", delivery,
+                 repo: @repo,
+                 delivery_id: "delivery-123",
+                 reconcile_fun: fn _hint -> :ok end
+               )
+    end
+
+    test "review-thread deliveries reject malformed, irrelevant, and unmapped payloads" do
+      delivery = review_thread_delivery("unresolved")
+
+      assert {:drop, {:uninteresting_action, "pull_request_review_thread", "created"}} =
+               delivery
+               |> Map.put("action", "created")
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+
+      assert {:error, {:malformed_payload, "pull_request_review_thread"}} =
+               delivery
+               |> Map.delete("thread")
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+
+      # A payload whose pull request names no head repository at all is
+      # malformed, not an untracked fork: there is no repo to compare, so the
+      # drop reason would be a misleading `{:untracked_head_repository, nil}`
+      # that reads like a tracking decision when the payload is simply missing
+      # the field.
+      assert {:error, {:malformed_payload, "pull_request_review_thread"}} =
+               delivery
+               |> put_in(["pull_request", "head"], %{"ref" => "aiur/42-slug"})
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+
+      assert {:drop, {:unresolved_ticket, "pull_request_review_thread", "unresolved"}} =
+               delivery
+               |> put_in(["pull_request", "head", "ref"], "feature/no-ticket")
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+
+      assert {:drop, {:untracked_head_repository, "contributor/fork"}} =
+               delivery
+               |> put_in(["pull_request", "head", "repo", "full_name"], "contributor/fork")
+               |> then(&Normalizer.normalize("pull_request_review_thread", &1, repo: @repo))
+    end
+
+    test "review-thread hints bypass the generic reconcile debounce" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      for action <- ["resolved", "unresolved"] do
+        assert %{status: :reconciled} =
+                 GithubWebhook.handle_delivery("pull_request_review_thread", review_thread_delivery(action),
+                   repo: @repo,
+                   orchestrator: self()
+                 )
+      end
+
+      assert_receive {:github_webhook_reconcile, %{action: "resolved"}}, 500
+      assert_receive {:github_webhook_reconcile, %{action: "unresolved"}}, 500
+      refute_receive :request_refresh, 100
+    end
+
+    test "a reconcile delivery wakes the dispatcher once per quiet period" do
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -353,16 +451,117 @@ defmodule Aiur.Events.GithubWebhookTest do
         "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
       }
 
+      request_refresh_fun = fn -> send(self(), :request_refresh) end
+
       for _ <- 1..3 do
         assert %{status: :reconciled} =
-                 GithubWebhook.handle_delivery("issues", delivery, repo: @repo, orchestrator: self())
+                 GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
       end
 
-      assert_receive :run_poll_cycle, 500
-      refute_receive :run_poll_cycle, 200
+      # A burst of N deliveries in one second produces one wake, not N.
+      assert_receive :request_refresh, 500
+      refute_receive :request_refresh, 200
     end
 
-    test "no orchestrator running is not an error" do
+    test "a PR state change publish wakes the dispatcher" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      request_refresh_fun = fn -> send(self(), :request_refresh) end
+
+      delivery = %{
+        "action" => "opened",
+        "repository" => %{"full_name" => @repo},
+        "sender" => %{"login" => "its-everdred"},
+        "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-slug", "sha" => "abc123"}}
+      }
+
+      assert %{status: :published, published: ["ticket.42.pr.opened"]} =
+               GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh, 500
+    end
+
+    test "a PR merge publish wakes the dispatcher" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      request_refresh_fun = fn -> send(self(), :request_refresh) end
+
+      delivery = %{
+        "action" => "closed",
+        "repository" => %{"full_name" => @repo},
+        "sender" => %{"login" => "its-everdred"},
+        "pull_request" => %{
+          "number" => 901,
+          "merged" => true,
+          "head" => %{"ref" => "aiur/42-slug", "sha" => "abc123"},
+          "updated_at" => "2026-06-24T12:00:00Z"
+        }
+      }
+
+      assert %{status: :published, published: ["ticket.42.pr.merged"]} =
+               GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh, 500
+    end
+
+    test "a comment publish does not wake the dispatcher" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      request_refresh_fun = fn -> send(self(), :request_refresh) end
+
+      assert %{status: :published, published: ["ticket.42.issue.commented"]} =
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(),
+                 repo: @repo,
+                 request_refresh_fun: request_refresh_fun
+               )
+
+      refute_receive :request_refresh, 200
+    end
+
+    test "a newly-opened ticket that already carries an active state label wakes the dispatcher" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      request_refresh_fun = fn -> send(self(), :request_refresh) end
+
+      delivery = %{
+        "action" => "opened",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{
+          "number" => 42,
+          "updated_at" => "2026-06-24T12:00:00Z",
+          "labels" => [%{"name" => "aiur:todo"}]
+        }
+      }
+
+      assert %{status: :reconciled, hint: %{kind: :issue_state, ticket: "42", action: "opened"}} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh, 500
+    end
+
+    test "a newly-opened issue with no actionable label is dropped and never wakes" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      request_refresh_fun = fn -> send(self(), :request_refresh) end
+
+      delivery = %{
+        "action" => "opened",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z", "labels" => [%{"name" => "size:s"}]}
+      }
+
+      assert %{status: :dropped, reason: {:uninteresting_action, "issues", "opened"}} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      refute_receive :request_refresh, 200
+    end
+
+    test "a delivery with the default wake never raises, whatever the orchestrator answers" do
       GithubWebhook.reset_reconcile_window()
       on_exit(&GithubWebhook.reset_reconcile_window/0)
 
@@ -372,8 +571,204 @@ defmodule Aiur.Events.GithubWebhookTest do
         "issue" => %{"number" => 42}
       }
 
+      # The default `request_refresh_fun` is `Orchestrator.request_refresh/0`.
+      # Against the live supervised orchestrator (running in the test app) it
+      # succeeds; had the orchestrator been down it would return `:unavailable`
+      # instead of raising (that unavailable path, and the window release that
+      # goes with it, is pinned by "a wake that fails to land does not consume
+      # the coalesce window"). Either way the delivery must not error.
+      assert %{status: :reconciled} = GithubWebhook.handle_delivery("issues", delivery, repo: @repo)
+    end
+
+    # Blocking review finding #1: every other wake test injects
+    # `:request_refresh_fun`, so the production default — the one behaviour that
+    # distinguishes this wake from the raw `:run_poll_cycle` send it replaced —
+    # was never executed by anything, and a mutant reverting the default to the
+    # old `send(Process.whereis(Aiur.Orchestrator), :run_poll_cycle)` survived
+    # the whole suite. This test runs the real default against a stand-in
+    # registered as `Aiur.Orchestrator` (the live supervised orchestrator is
+    # temporarily unregistered and restored on exit, the same swap
+    # `agent_chat_broadcast_test` performs for its fake) and asserts the wake is
+    # a `:request_refresh` GenServer call, not a raw `:run_poll_cycle` message.
+    test "the real default wake is a request_refresh call, never a raw run_poll_cycle send" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      original = Process.whereis(Aiur.Orchestrator)
+      if is_pid(original), do: Process.unregister(Aiur.Orchestrator)
+
+      # `start_link` registers the probe under `Aiur.Orchestrator` now that the
+      # live orchestrator has been unregistered for the duration of this test.
+      {:ok, probe} = OrchestratorWakeProbe.start_link(self())
+      Process.unlink(probe)
+
+      on_exit(fn ->
+        # Synchronous stop (unlike `Process.exit/2`, which is async and can
+        # still hold the name when the live orchestrator is re-registered) so
+        # the probe's registration is actually released first, then restore.
+        if Process.alive?(probe) do
+          try do
+            GenServer.stop(probe)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+
+        if Process.whereis(Aiur.Orchestrator) == probe, do: Process.unregister(Aiur.Orchestrator)
+
+        if is_pid(original) do
+          try do
+            Process.register(original, Aiur.Orchestrator)
+          rescue
+            ArgumentError -> :ok
+          end
+        end
+      end)
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42}
+      }
+
       assert %{status: :reconciled} =
-               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, orchestrator: :no_such_orchestrator)
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo)
+
+      assert_receive :request_refresh_called, 500
+      refute_receive :run_poll_cycle_received, 200
+    end
+
+    # Non-blocking review finding #4: the leading-edge coalesce folds every
+    # delivery inside the window into the leading cycle, so state deposited just
+    # after that cycle read would otherwise wait out the full poll interval. A
+    # trailing wake at window close picks it up.
+    test "a delivery folded into the coalesce window still gets a trailing wake" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+      override_reconcile_debounce(200)
+
+      # The trailing wake fires from a spawned process, so the seam must send to
+      # an explicit pid rather than `self()` (which would resolve to the spawned
+      # process and lose the message).
+      parent = self()
+      request_refresh_fun = fn -> send(parent, :request_refresh) end
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+      }
+
+      # Leading edge: the first delivery wakes immediately.
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh, 500
+
+      # A second delivery inside the window deposits its state and is coalesced.
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      refute_receive :request_refresh, 100
+
+      # At window close the trailing wake fires, so the second delivery's
+      # deposit is acted on before the next scheduled tick.
+      assert_receive :request_refresh, 1_000
+    end
+
+    # Blocking review finding #3, second half: the coalesce window is sized from
+    # the poll cadence (`interval_seconds / 5`, floored at 2s) rather than being
+    # a flat 2s, which is what bounds sustained webhook traffic to a fixed
+    # multiple of the poll rate instead of a 60x amplification. Every other wake
+    # test either injects the Application override or runs inside a single
+    # window, so a mutant collapsing the sizing back to the flat floor survived
+    # them all. This test reads the *computed* window: with a 15s poll interval
+    # the window is 3s, so a delivery at 2.4s — past the flat floor, inside the
+    # sized window — must still coalesce.
+    test "the coalesce window is sized from the poll interval, not a flat floor" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      # No Application override: this test must exercise the computed branch.
+      previous = Application.get_env(:aiur, :github_webhook_reconcile_debounce_ms)
+      Application.delete_env(:aiur, :github_webhook_reconcile_debounce_ms)
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:aiur, :github_webhook_reconcile_debounce_ms)
+        else
+          Application.put_env(:aiur, :github_webhook_reconcile_debounce_ms, previous)
+        end
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: @repo,
+        tracker_label_prefix: "aiur",
+        poll_interval_seconds: 15
+      )
+
+      assert Aiur.Config.settings!().polling.interval_seconds == 15
+
+      # The trailing wake fires from a spawned process, so the seam must send to
+      # an explicit pid rather than `self()`.
+      parent = self()
+      request_refresh_fun = fn -> send(parent, :request_refresh) end
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh, 500
+
+      # Past a flat 2s floor, still inside the 3s window the 15s poll interval
+      # implies. A flat-floor mutant claims a fresh leading edge here and wakes.
+      Process.sleep(2_400)
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      refute_receive :request_refresh, 300
+    end
+
+    # Non-blocking review finding #4: a wake that fails to land (the orchestrator
+    # is not running) used to consume the coalesce window, so the failure also
+    # suppressed the next window's worth of wakes. Releasing the window on
+    # failure lets the next delivery retry.
+    test "a wake that fails to land does not consume the coalesce window" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+      override_reconcile_debounce(60_000)
+
+      parent = self()
+
+      request_refresh_fun = fn ->
+        send(parent, :request_refresh_attempted)
+        :unavailable
+      end
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42}
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh_attempted, 500
+
+      # With a 60s window a stuck failed claim would coalesce this second
+      # delivery; the release means it claims a fresh leading edge and wakes.
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, request_refresh_fun: request_refresh_fun)
+
+      assert_receive :request_refresh_attempted, 500
     end
 
     test "a check suite for an untracked branch is dropped" do
@@ -475,6 +870,23 @@ defmodule Aiur.Events.GithubWebhookTest do
     name
   end
 
+  # Test seam for the coalesce window: the production debounce is sized from
+  # `polling.interval_seconds` (default 120s => 24s), far too long for a test to
+  # wait through. The tail reads an Application override ahead of the computed
+  # value, exactly like the receiver's `:webhook_admission_timeout_ms`.
+  defp override_reconcile_debounce(ms) do
+    previous = Application.get_env(:aiur, :github_webhook_reconcile_debounce_ms)
+    Application.put_env(:aiur, :github_webhook_reconcile_debounce_ms, ms)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :github_webhook_reconcile_debounce_ms)
+      else
+        Application.put_env(:aiur, :github_webhook_reconcile_debounce_ms, previous)
+      end
+    end)
+  end
+
   defp graphql_request(number) do
     %{
       method: :post,
@@ -522,6 +934,23 @@ defmodule Aiur.Events.GithubWebhookTest do
     }
   end
 
+  defp review_thread_delivery(action) do
+    %{
+      "action" => action,
+      "repository" => %{"full_name" => @repo},
+      "thread" => %{
+        "id" => 88_001,
+        "node_id" => "PRRT_kwDOabc",
+        "comments" => 1
+      },
+      "updated_at" => "2026-08-21T12:00:00Z",
+      "pull_request" => %{
+        "number" => 901,
+        "head" => %{"ref" => "aiur/42-slug", "sha" => "deadbeef", "repo" => %{"full_name" => @repo}}
+      }
+    }
+  end
+
   defp clear_dedup do
     case :ets.whereis(@dedup_table) do
       :undefined -> :ok
@@ -530,4 +959,44 @@ defmodule Aiur.Events.GithubWebhookTest do
 
     :ok
   end
+end
+
+defmodule Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe do
+  @moduledoc """
+  Stand-in registered as `Aiur.Orchestrator` so the delivery tail's *default*
+  wake (`Orchestrator.request_refresh/0`) has a real process to call. Records a
+  `:request_refresh` GenServer call as `:request_refresh_called` and a raw
+  `:run_poll_cycle` message as `:run_poll_cycle_received`, so a test can tell
+  the two wake shapes apart — the mutant that reverts the default to a raw
+  `:run_poll_cycle` send would fail the `refute_receive`.
+  """
+  use GenServer
+
+  # `start_link/1` is the conventional constructor, not a GenServer callback.
+  def start_link(test) do
+    GenServer.start_link(__MODULE__, test, name: Aiur.Orchestrator)
+  end
+
+  @impl true
+  def init(test), do: {:ok, test}
+
+  @impl true
+  def handle_call(:request_refresh, _from, test) do
+    send(test, :request_refresh_called)
+    {:reply, %{queued: true, coalesced: false, requested_at: DateTime.utc_now(), operations: ["poll", "reconcile"]}, test}
+  end
+
+  # While the probe briefly holds the `Aiur.Orchestrator` name, any unrelated
+  # caller must get a fast reply rather than a 5s GenServer timeout.
+  @impl true
+  def handle_call(_request, _from, test), do: {:reply, :unavailable, test}
+
+  @impl true
+  def handle_info(:run_poll_cycle, test) do
+    send(test, :run_poll_cycle_received)
+    {:noreply, test}
+  end
+
+  @impl true
+  def handle_info(_message, test), do: {:noreply, test}
 end

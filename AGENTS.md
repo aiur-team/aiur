@@ -10,11 +10,10 @@ live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 ## Orientation
 
 Aiur's intended operating modes are documented in
-[README.md § Who drives Aiur?](README.md#who-drives-aiur). In short: every run has an
-**Executor** — the operator of the run — and that is either the human driving the CLI
-directly, or the human's coding agent operating Aiur on their behalf while they stay in
-conversation with it. Both are first-class. `README.md § What Aiur is not` records the
-misreadings this distinction commonly produces.
+[`src/README.md § Who operates a run`](src/README.md#who-operates-a-run). In short: every
+run has an **Executor** — the operator of the run — and that is either the human driving the
+CLI directly, or the human's coding agent operating Aiur on their behalf while they stay in
+conversation with it. Both are first-class.
 
 The Executor skills live at [`.claude/skills/aiur-run`](.claude/skills/aiur-run/SKILL.md)
 (operate a run end to end) and
@@ -138,9 +137,10 @@ aiurdev --host …              # explicitly override configured/default dashboa
 
 Every subcommand except `build` is handled by the shared engine, so the
 npm-installed `aiur` accepts the exact same set. When config omits `server.host`,
-the engine supplies a lower-precedence default: an authenticated Tailscale IPv4
-when safely available, otherwise `127.0.0.1`. A configured value wins over that
-default; explicit `--host` wins over both.
+the engine binds the dashboard on `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST`
+override) — there is no automatic Tailscale detection, so set `server.host`
+explicitly to serve the dashboard beyond the machine. A configured value wins over
+that default; explicit `--host` wins over both.
 
 Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
 Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
@@ -314,6 +314,13 @@ Recurring shapes to avoid — each has shipped and cost a review round:
 - Reading real state. Any test that touches `~/.aiur`, the live ledger, or a
   shared global path must point at a temp path explicitly. Green in CI and red
   on a live host is worse than red everywhere.
+- An unknown or unavailable rendering branch asserted only through its rendered
+  string. Any rendering path for `nil`, `unknown`, `stale` or `unavailable`
+  needs a test that fails when that path is replaced with a plausible default —
+  write the test, then replace the unavailable branch with `0`, `"—"`, or the
+  most recent known value, and confirm it fails. If it still passes, it is not
+  constraining that branch: check the assertion *and* whether the fixture can
+  reach it.
 
 Keeping a test that already passes on `main` is fine when it is deliberately a
 guard against a *future* regression — but say so in the test name or a
@@ -323,6 +330,29 @@ The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
 discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
+
+## Computed ages and collapsed causes — author-side checks
+
+Two more dashboard rules recur in review — an age computed but never rendered,
+and distinct causes collapsed into one state. (The companion unknown-path
+mutation guard is the last bullet in "Tests must fail without the production
+change they guard" above.) Run them before opening a PR; the review guidance in
+the `aiur-run` skill cross-links here rather than restating them.
+
+1. **If a surface computes an age, it renders the age.** Plumbing a timestamp
+   to a presenter and not displaying it is worse than not having it — it looks
+   handled in review while the surface keeps claiming freshness. The CLI emits
+   `observed_at`, `age_ms` and `freshness`; a web surface that computes the same
+   fields must render them, or the two surfaces the docs call equivalent
+   disagree about truth.
+2. **A collapsed cause names the collapse at the source.** Collapse an unknown
+   or heterogeneous cause to a cause-neutral atom at the point of collapse
+   (`_ -> :unknown`) — never to a specific cause. `_ -> :upstream` is a
+   confident lie when the failure is not upstream: the atom flows verbatim into
+   the JSON envelope and the logs whether or not a renderer prints "unknown",
+   so a render-side fixup protects none of the consumers. If a specific cause
+   *is* known, preserve it separately — a `reasons` list, as `analytics_cli.ex`
+   does — so it is carried without ever being mislabeled.
 
 ## Manual testing — the only definition
 

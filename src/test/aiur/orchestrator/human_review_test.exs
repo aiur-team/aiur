@@ -82,6 +82,44 @@ defmodule Aiur.Orchestrator.HumanReviewTest do
     refute log =~ "reverting to todo"
   end
 
+  # #2422: the human-review revert is the second rework writer, so it carries
+  # the same rework-attempt bound. A head that keeps failing the human-review
+  # gate without moving is stuck, not newly rejected: the revert must stop and
+  # raise attention once instead of flipping the ticket back to `agent:rework`
+  # every poll.
+  test "the rework revert stops once the same head exceeds the rework-attempt bound" do
+    setup_verifier(fn _issue_id -> unverified_review_threads_error() end)
+    issue = human_review_issue()
+    parent = self()
+    state = %State{rework_attempts: %{{"2075", "abc123"} => State.rework_attempt_limit()}}
+
+    log =
+      capture_log(fn ->
+        result =
+          HumanReview.maybe_deactivate_human_review_issue(state, issue,
+            rework_opts: [
+              open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+              emit_alert_fun: fn name, opts ->
+                send(parent, {:alert_emitted, name, opts})
+                :ok
+              end
+            ]
+          )
+
+        # The ticket keeps its current state — no rework write, and the
+        # one-time attention signature is recorded so a later poll is silent.
+        assert MapSet.member?(result.rework_attempt_alerted, {"2075", "abc123"})
+      end)
+
+    assert log =~ "stopped by rework-attempt bound"
+    assert log =~ ":rework_attempt_limit_reached"
+    refute log =~ "reverting to rework"
+    refute log =~ "reverting to todo"
+
+    assert_receive {:alert_emitted, "ticket.2075.agent.attention.rework_attempt_limit", opts}
+    assert Keyword.get(opts, :needs_attention) == true
+  end
+
   # #2400: every error the gate can return other than `:unverified_review_threads`
   # is an infrastructure or operational fault, not a reviewer verdict — the
   # open-PR search or viewer-login fetch failed (rate limit, 5xx, timeout, auth),

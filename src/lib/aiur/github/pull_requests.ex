@@ -547,6 +547,47 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   @doc """
+  Fetches a pull request's head ref with `If-None-Match` support.
+
+  The list-only `fetch_pull_request_head_ref/2` contract is unchanged. This
+  variant exists so a `/pulls/{n}` read can be a `304` in steady state — a
+  request GitHub does not bill against the primary REST limit — instead of the
+  unconditional re-read that made row 5 of #2352 pure waste.
+  """
+  @spec fetch_pull_request_head_ref_conditional(String.t() | integer(), keyword()) ::
+          {:ok, String.t(), String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_pull_request_head_ref_conditional(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+
+      pull_request_conditional_request(url, token, opts)
+      |> request_fun.()
+      |> head_ref_conditional_response(Keyword.get(opts, :etag))
+    end
+  end
+
+  defp head_ref_conditional_response(
+         {:ok, %{status: 200, body: %{"head" => %{"ref" => ref}}} = response},
+         etag
+       )
+       when is_binary(ref) do
+    {:ok, ref, retained_etag(response, etag)}
+  end
+
+  defp head_ref_conditional_response({:ok, %{status: 200}}, _etag), do: {:error, :head_ref_missing}
+
+  defp head_ref_conditional_response({:ok, %{status: 304} = response}, etag),
+    do: {:not_modified, retained_etag(response, etag)}
+
+  defp head_ref_conditional_response({:ok, %{status: _status} = response}, _etag),
+    do: {:error, Errors.github_status_error(response)}
+
+  defp head_ref_conditional_response({:error, reason}, _etag),
+    do: {:error, Errors.classify_error({:error, reason})}
+
+  @doc """
   Fetches the OPEN pull request numbered `pr_number` (`GET /pulls/{pr_number}`),
   for PR-anchored routing of watched/commanded PR comments.
 
@@ -579,6 +620,66 @@ defmodule Aiur.GitHub.PullRequests do
       end
     end
   end
+
+  @doc """
+  Fetches the OPEN pull request numbered `pr_number` with `If-None-Match`
+  support.
+
+  The list-only `fetch_open_pull_request/2` contract is unchanged for callers
+  that need a fresh answer. This variant exists because the `/pulls/{n}` read
+  was the one row of #2352 with **no validator at all** — unconditional, so
+  every repeat was pure waste rather than a cheap revalidation. `Client`
+  routes through it under `ResourceFetch`, so a read GitHub confirms unchanged
+  answers `304` — a request it does not bill against the primary REST limit —
+  instead of a full-price re-read. Inside the transport cache's `:pull` TTL the
+  held body is served as a cache hit and no request is sent; the `304` is the
+  post-expiry backstop, not the steady-state path.
+
+  A `304` against the held validator reuses the held pull request, exactly the
+  page-one contract the other conditional reads trust. A `404` (the number is a
+  plain issue) or a closed/merged PR carries no validator and answers
+  `{:ok, nil, nil}` / `{:ok, nil, etag}` respectively, matching the `{:ok, nil}`
+  signal `fetch_open_pull_request/2` already uses for the non-PR fallthrough.
+  """
+  @spec fetch_open_pull_request_conditional(String.t() | integer(), keyword()) ::
+          {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_open_pull_request_conditional(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}"
+
+      pull_request_conditional_request(url, token, opts)
+      |> request_fun.()
+      |> open_pull_request_conditional_response(Keyword.get(opts, :etag))
+    end
+  end
+
+  defp open_pull_request_conditional_response({:ok, %{status: 200, body: %{} = pr} = response}, etag) do
+    {:ok, open_pull_request_or_nil(pr), retained_etag(response, etag)}
+  end
+
+  defp open_pull_request_conditional_response({:ok, %{status: 304} = response}, etag),
+    do: {:not_modified, retained_etag(response, etag)}
+
+  defp open_pull_request_conditional_response({:ok, %{status: 404}}, _etag), do: {:ok, nil, nil}
+
+  defp open_pull_request_conditional_response({:ok, %{status: _status} = response}, _etag),
+    do: {:error, Errors.github_status_error(response)}
+
+  defp open_pull_request_conditional_response({:error, reason}, _etag),
+    do: {:error, Errors.classify_error({:error, reason})}
+
+  # The `/pulls/{n}` GET request shared by the two row-5 conditional variants,
+  # carrying the caller's validator when it has one.
+  defp pull_request_conditional_request(url, token, opts) do
+    etag = Keyword.get(opts, :etag)
+    request = %{method: :get, url: url, token: token}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+    Transport.put_caller(request, opts)
+  end
+
+  defp retained_etag(response, etag), do: Transport.header(Map.get(response, :headers, []), "etag") || etag
 
   @doc """
   Ensures an open pull request targets the configured integration branch.

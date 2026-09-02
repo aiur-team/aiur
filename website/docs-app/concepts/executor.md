@@ -17,7 +17,7 @@ Even when a human drives, a second agent is recommended for log analysis, snag d
 | --- | --- |
 | [TUI](/guide/tui) | Foreground fleet and live chats. |
 | [CLI](/reference/cli) | Agent-oriented run control; parity with interactive surfaces is the design target. |
-| [Dashboard](/guide/executor-control-center) | Browser fleet, Commands, Build Orders, analytics, and meters. |
+| [GUI](/guide/gui) | Browser fleet, Commands, Build Orders, analytics, and meters. |
 | [Stream Deck](/guide/stream-deck) | Physical or browser controls and event logs. |
 | [Message Bus](/concepts/message-bus) | Agent coordination, Commands, blockers, and attentions. |
 
