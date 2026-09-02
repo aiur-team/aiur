@@ -34,6 +34,16 @@ defmodule Aiur.Events.PublisherIdentityModeTest do
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
     on_exit(fn ->
+      # `identity_mode` lives in the shared workflow file, so leaving it at
+      # `single_account` would silently reconfigure every later test in this
+      # partition that does not write the file itself. Restore the default.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "aiur",
+        tracker_bot_account: @bot
+      )
+
       restore_env("GITHUB_TOKEN", prev_token)
 
       for pattern <- Exchange.bindings_for(self()) do

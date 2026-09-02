@@ -14,6 +14,14 @@ defmodule Aiur.GitHub.AgentMarkerTest do
     )
   end
 
+  setup do
+    # `identity_mode` lives in the shared workflow file, so leaving it at
+    # `single_account` would silently reconfigure every later test in this
+    # partition that does not write the file itself.
+    on_exit(fn -> configure!("separate_account") end)
+    :ok
+  end
+
   describe "marked?/1" do
     test "recognizes only the exact marker" do
       assert AgentMarker.marked?("done\n\n" <> AgentMarker.marker())
