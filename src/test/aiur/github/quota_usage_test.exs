@@ -207,6 +207,23 @@ defmodule Aiur.GitHub.QuotaUsageTest do
       assert length(series.points) == 3
     end
 
+    test "keeps cross-window history while identifying the current window" do
+      current_window_started_at = DateTime.add(@now, 30, :second)
+
+      history =
+        samples(3)
+        |> List.update_at(0, &put_in(&1, [:budgets, "graphql", :observed_from], @now))
+        |> List.update_at(1, &put_in(&1, [:budgets, "graphql", :window_started_at], current_window_started_at))
+        |> List.update_at(2, &put_in(&1, [:budgets, "graphql", :window_started_at], current_window_started_at))
+
+      series = QuotaUsage.series(history, "graphql")
+
+      assert length(series.points) == 3
+      assert series.current_window_started_at_ms == DateTime.to_unix(current_window_started_at, :millisecond)
+      assert QuotaUsage.spans_previous_window?(series)
+      assert List.last(series.bands).label == "not observed by this daemon"
+    end
+
     test "attributed_only/1 drops the remainder and says so in its scope" do
       series = QuotaUsage.series(samples(3), "graphql")
       attributed = QuotaUsage.attributed_only(series)

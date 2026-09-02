@@ -24,8 +24,12 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
   still paying, and is it paying because it missed or because the policy refuses
   to cache it". A refusal is counted with its reason, so
   `refused[:unsafe_kind]` standing at the top of the table reads as "this spend
-  is deliberate" rather than as a cache that is failing.
+  is deliberate" rather than as a cache that is failing. A REST refusal keys on
+  its shape (see `refused/2`), so the report names the call family instead of
+  folding every unrecognised read into one `unclassified` total.
   """
+
+  alias Aiur.GitHub.ReadCache.Policy
 
   @table :aiur_github_read_cache_metrics
 
@@ -98,8 +102,28 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
   This is not a miss. A miss is a cache that could have helped and did not; a
   refusal is spend the policy has decided is correct. Folding them together
   would make an unsafe kind look like a tuning problem.
+
+  A REST refusal arrives as `{:unclassified, shape}` and is keyed on the
+  **shape** — `:issue_list`, `:pull_list`, `:repo_events`, `:comment_stream`,
+  `:pull_files` — so `aiur github-cost` resolves the one-time `unclassified`
+  total into the named call families instead of one opaque bucket. The key is
+  bounded by `Policy.shapes/0`: a shape the classifier cannot name (which would
+  mean a future classifier grew a dynamic shape) is folded back to
+  `:unclassified`, so a pathological URL can never grow the metric map.
+
+  A read the classifier cannot name at all arrives with a **route template
+  string** instead, and is handed to `refused_shape/2` — a separate, capped key
+  set — so the unnamed remainder is still attributable to a call family without
+  putting an unbounded key set into this bounded map.
   """
-  @spec refused(atom(), String.t() | nil) :: :ok
+  @spec refused(atom() | {atom(), atom() | String.t()}, String.t() | nil) :: :ok
+  def refused({:unclassified, shape}, caller) when is_binary(shape), do: refused_shape(shape, caller)
+
+  def refused({:unclassified, shape}, caller) do
+    key = if shape in Policy.shapes(), do: shape, else: :unclassified
+    bump([{:refused, key}, {:caller, caller, :refused}])
+  end
+
   def refused(reason, caller), do: bump([{:refused, reason}, {:caller, caller, :refused}])
 
   @doc """

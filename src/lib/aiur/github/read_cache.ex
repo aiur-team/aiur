@@ -371,7 +371,12 @@ defmodule Aiur.GitHub.ReadCache do
     end
   end
 
-  defp refuse(fetch, {:unclassified, shape}, caller) do
+  # A REST refusal the policy could name arrives as a fixed `Policy.shape/0`
+  # atom and is counted by `Metrics.refused/2`, whose key set `Policy.shapes/0`
+  # bounds. One it could not name arrives as a route template string
+  # (`"rest:GET /repos/:owner/:repo/labels"`); that key set is unbounded by
+  # construction, so it goes to `Metrics.refused_shape/2`, which caps it.
+  defp refuse(fetch, {:unclassified, shape}, caller) when is_binary(shape) do
     Metrics.refused_shape(shape, caller)
     fetch.()
   end

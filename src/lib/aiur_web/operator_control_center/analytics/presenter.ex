@@ -6,8 +6,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   unit-testable against a fixture; `load/1` resolves the live telemetry file,
   concurrency cap, core count, and host memory before delegating to it.
 
-  The same model serves two scopes. The live-session view passes
-  `session: :current` and gets absolute timestamps over one daemon boot. The
+  The same model serves two scopes. The latest-run view passes
+  `session: :current` and gets absolute timestamps over one daemon boot. It
+  prefers the live boot, then falls back to the newest materialized prior boot
+  when a restart has moved the daemon to a fresh log root. The
   Build Order view passes the selected member ticket set, `session: :current`,
   and `timeline: :active`. That keeps its recurring refresh a bounded tail read;
   cross-session reporting belongs to a materialized summary rather than a live
@@ -18,6 +20,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   alias Aiur.{Orchestrator, RunTelemetry}
   alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
+  alias AiurWeb.OperatorControlCenter.Analytics.LatestRun
 
   @default_buckets 180
   @max_series_actors 8
@@ -27,6 +30,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @type model :: %{
           available?: boolean(),
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
+          source_boot_id: String.t() | nil,
           source_observed_at: String.t() | nil,
           cap: non_neg_integer(),
           cap_available?: boolean(),
@@ -59,15 +63,24 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     * `:timeline` — `:absolute` (default) or `:active` to elide idle gaps.
     * `:scope_total` — burn-up denominator when the scope knows its own size
       (a Build Order's member count) rather than inferring it from telemetry.
+
+  Unavailable reasons distinguish an idle fleet from a persistence failure:
+  `:no_telemetry` means nothing analyzable was recorded, while
+  `:retained_unreadable` means retained run summaries exist but could not be
+  decoded, and `:error` is an unexpected analysis failure.
   """
   @spec load(keyword()) :: {:ok, model()} | {:unavailable, atom()}
   def load(opts \\ []) do
     file = Keyword.get(opts, :telemetry_file) || RunTelemetry.telemetry_file()
+    analyzable? = fn dataset -> dataset |> scope(opts) |> dataset_analyzable?() end
 
     result =
       case Keyword.get(opts, :session, :all) do
+        # Forward the caller opts so the latest-run loader's documented test
+        # seams (`:cache_identity`, `:prior_loader`) stay reachable through
+        # this boundary; they default to production reads otherwise.
         :current ->
-          Dataset.build(file, session: :current, boot_id: current_boot_id())
+          LatestRun.load(file, current_boot_id(), analyzable?, opts)
 
         :cross ->
           cross_session(file)
@@ -77,8 +90,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       end
 
     case result do
-      {:ok, dataset} -> dataset |> scope(opts) |> analyzable(opts)
-      {:error, {:no_telemetry_files, _paths}} -> {:unavailable, :no_telemetry}
+      {:ok, dataset} ->
+        dataset |> scope(opts) |> analyzable(opts)
+
+      {:error, {:no_telemetry_files, _paths}} ->
+        {:unavailable, :no_telemetry}
+
+      {:error, :retained_unreadable} ->
+        {:unavailable, :retained_unreadable}
     end
   rescue
     _error -> {:unavailable, :error}
@@ -114,11 +133,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   # a zero-cost build: rendering empty charts and zeroed KPIs would claim a build
   # burned nothing when in truth none of its members has run yet.
   defp analyzable(dataset, opts) do
-    if Enum.empty?(Map.get(dataset, :tickets, %{})) and not any_agent_actor?(dataset) do
-      {:unavailable, :no_telemetry}
-    else
+    if dataset_analyzable?(dataset) do
       {:ok, model(dataset, runtime_opts(opts))}
+    else
+      {:unavailable, :no_telemetry}
     end
+  end
+
+  defp dataset_analyzable?(dataset) do
+    not Enum.empty?(Map.get(dataset, :tickets, %{})) or any_agent_actor?(dataset)
   end
 
   defp any_agent_actor?(dataset) do
@@ -149,8 +172,20 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     boots = Dataset.boot_ids(dataset)
     current = current_boot_id()
 
-    if current in boots, do: current, else: List.last(boots)
+    cond do
+      materialized_single_boot?(dataset, boots) -> nil
+      current in boots -> current
+      true -> List.last(boots)
+    end
   end
+
+  # A run summary is already reduced to exactly one boot. Filtering it by that
+  # same boot would unnecessarily re-reduce its cached ticket events instead of
+  # preserving the materialized intervals.
+  defp materialized_single_boot?(dataset, [_boot_id]),
+    do: get_in(dataset, [:provenance, :generated_by]) == "analytics/reduce"
+
+  defp materialized_single_boot?(_dataset, _boots), do: false
 
   defp current_boot_id do
     RunTelemetry.boot_id()
@@ -229,6 +264,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     %{
       available?: true,
       window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
+      source_boot_id: single_boot_id(dataset),
       source_observed_at: get_in(dataset, [:provenance, :time_range, :end]),
       cap: cap,
       cap_available?: cap_available?,
@@ -246,6 +282,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       complexity_breakdown: complexity_breakdown,
       kpis: kpis
     }
+  end
+
+  defp single_boot_id(dataset) do
+    case Dataset.boot_ids(dataset) do
+      [boot_id] -> boot_id
+      _other -> nil
+    end
   end
 
   @doc """

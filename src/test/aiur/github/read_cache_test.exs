@@ -82,6 +82,25 @@ defmodule Aiur.GitHub.ReadCacheTest do
       end
     end
 
+    test "the cached single-pull-request body is a routing source, never a merge verdict source" do
+      # Row 5 of #2352 gives `/pulls/{n}` a body cache, and that body carries
+      # merge-gating fields (`mergeable`, `mergeable_state`, `merged`,
+      # `requested_reviewers`, `auto_merge`) that the safety section refuses on
+      # content. The cache exists for the routing decision — "is there an open
+      # PR, what is its head ref/title/body" — and the `:pull` moduledoc names
+      # the fields a reader must not take from it. This pins the policy
+      # boundary: the parent stays cacheable for routing while every REST
+      # endpoint that answers the verdict fields stays refused, so a call site
+      # cannot reach a merge verdict through the REST family either.
+      assert {:cache, :pull, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073"))
+
+      for path <- ["/pulls/2073/merge", "/pulls/2073/requested_reviewers", "/pulls/2073/reviews"] do
+        assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur#{path}")),
+               "#{path} must not acquire a cacheable TTL"
+      end
+    end
+
     test "does not cache a read it has no classification for" do
       request = graphql("an_unheard_of_caller", safe_document(2073))
 
@@ -179,6 +198,34 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert %{totals: %{hit: 1, miss: 1, deposit: 1}, refused: %{}} = Metrics.snapshot()
       assert ReadCache.snapshot().hit_rate > 0
+    end
+
+    # #2352 acceptance: rows 1, 4 and 5 show cache hits. Each of the three
+    # genuinely cacheable families serves its second read from the meter.
+    test "a repeated timeline read is served from cache" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/timeline?per_page=100")
+      assert {:cache, :issue_timeline, _ttl} = Policy.classify(request)
+
+      assert {:ok, %{body: "timeline"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "timeline"}} end)
+      assert {:ok, %{body: "timeline"}} = ReadCache.through(request, fn -> flunk("a timeline hit must not fetch") end)
+    end
+
+    test "a repeated single-issue read is served from cache" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/issues/2073")
+      assert {:cache, :issue, _ttl} = Policy.classify(request)
+
+      assert {:ok, %{body: "issue"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "issue"}} end)
+      assert {:ok, %{body: "issue"}} = ReadCache.through(request, fn -> flunk("an issue hit must not fetch") end)
+    end
+
+    test "a repeated single-pull-request read is served from cache" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073")
+      assert {:cache, :pull, _ttl} = Policy.classify(request)
+
+      assert {:ok, %{body: "pr"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "pr"}} end)
+      assert {:ok, %{body: "pr"}} = ReadCache.through(request, fn -> flunk("a pull hit must not fetch") end)
+
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
     end
   end
 
@@ -744,6 +791,33 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert snapshot.refused_shapes.overflow == 1
     end
 
+    test "keys a REST refusal on its shape, not one unclassified total" do
+      # #2352 acceptance: the refusal metric resolves the 5,208 reads/hr into
+      # the named rows instead of one `unclassified` bucket, so `github-cost`
+      # can say *which* call family a refusal belongs to.
+      for url <- [
+            "/issues?labels=build-order&state=open",
+            "/pulls?state=open&per_page=100",
+            "/events",
+            "/pulls/2073/files?per_page=100"
+          ] do
+        request = rest("https://api.github.com/repos/aiur-team/aiur#{url}")
+        assert {:ok, _} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: []}} end)
+      end
+
+      assert %{issue_list: 1, pull_list: 1, repo_events: 1, pull_files: 1} = Metrics.snapshot().refused
+    end
+
+    test "folds an unknown shape back to a bounded :unclassified bucket" do
+      # The refusal keys are bounded by `Policy.shapes/0`; a shape the
+      # classifier cannot name (which would mean a future classifier grew a
+      # dynamic shape) must not grow the metric map without bound.
+      Metrics.refused({:unclassified, :some_pathological_shape}, "x")
+
+      assert %{unclassified: 1} = Metrics.snapshot().refused
+      refute Map.has_key?(Metrics.snapshot().refused, :some_pathological_shape)
+    end
+
     test "reports nothing observed as nothing observed, never as zero" do
       assert Metrics.hit_rate(%{hit: 0, miss: 0}) == nil
       assert Metrics.hit_rate(%{hit: 1, miss: 1}) == 0.5
@@ -777,6 +851,17 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert :comments in Policy.classes()
       assert :unsafe_kind in Policy.no_cache_reasons()
       assert :unclassified in Policy.no_cache_reasons()
+    end
+
+    test "the shape set is small and bounded, so the refusal metric cannot grow" do
+      # #2352 defect: a pathological URL must not be able to grow the refusal
+      # metric map. The shapes come from a fixed classifier list (well under the
+      # ~200 cap), and `Metrics.refused/2` folds anything else to
+      # `:unclassified`, so the cap is structural rather than aspirational.
+      assert length(Policy.shapes()) < 200
+      assert :unclassified in Policy.shapes()
+      assert :issue_list in Policy.shapes()
+      assert :pull in Policy.shapes()
     end
 
     test "declares no class that identity cannot reach" do
@@ -822,26 +907,102 @@ defmodule Aiur.GitHub.ReadCacheTest do
       end
     end
 
-    test "the bare repository read and the candidate issue list stay unclassified" do
+    test "the bare repository read stays unclassified while the candidate list is named" do
       # The bare `/repos/{owner}/{repo}` is the auth-preflight probe, which must
       # exercise the current credential rather than be answered from a cache;
       # the open-issue candidate list is dispatch authority and must not be
-      # served stale. Both are correctly left uncached, and both are refused
-      # with their route shape so the refusal metric names the call family.
+      # served stale. Both are correctly left uncached, and neither disappears
+      # into one opaque total: #2352 names the candidate list `:issue_list`,
+      # and the probe — which the table deliberately does not name — is refused
+      # with its route template (#2357) so the refusal report can still say
+      # which call family paid.
       assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur"}} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur"))
 
-      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/issues"}} =
+      assert {:no_cache, {:unclassified, :issue_list}} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues?state=open&per_page=100"))
     end
 
     test "caches a numbered comment read but not the repo-wide comment stream" do
       # The stream already revalidates with an ETag, so holding its body would
-      # trade a free 304 for staleness.
+      # trade a free 304 for staleness. It is still *classified* as
+      # `:comment_stream` so the refusal report can name it.
       assert {:cache, :comments, _ttl} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/comments?per_page=100"))
 
-      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/issues/comments"}} =
+      assert {:no_cache, {:unclassified, :comment_stream}} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
+    end
+
+    test "classifies the ten REST families and gives rows 1, 4 and 5 a real TTL" do
+      # #2352 acceptance: the 5,208 reads/hr of unclassified REST resolve into
+      # the named rows. Only rows 1 (timeline), 4 (single issue) and 5 (single
+      # PR) earn a body cache; every conditional row stays refused but named.
+      assert {:cache, :issue_timeline, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/timeline?per_page=100"))
+
+      assert {:cache, :issue, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073"))
+
+      assert {:cache, :pull, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073"))
+
+      # Repository configuration is cacheable only in its anchored forms —
+      # `.github/workflows` contents, branch protection, rulesets — never a
+      # bare `/contents/{path}` or `/branches` list. The tail row was narrowed
+      # to the forms anyone actually reads (review #2360), so an arbitrary
+      # `/contents/{path}` read stays unclassified.
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/.github/workflows"))
+
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches/main"))
+
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/rulesets"))
+
+      refute match?({:cache, _class, _ttl}, Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/foo/bar")))
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/contents/foo/bar"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/foo/bar"))
+
+      refute match?({:cache, _class, _ttl}, Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches")))
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/branches"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches"))
+
+      for {url, shape} <- [
+            {"/issues?labels=build-order&state=open", :issue_list},
+            {"/pulls?state=open&per_page=100", :pull_list},
+            {"/issues?state=open&per_page=100", :issue_list},
+            {"/events", :repo_events},
+            {"/issues/comments?since=2026-01-01", :comment_stream},
+            {"/pulls/comments?since=2026-01-01", :comment_stream},
+            {"/pulls/2073/files?per_page=100", :pull_files}
+          ] do
+        assert {:no_cache, {:unclassified, ^shape}} =
+                 Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur#{url}"))
+      end
+    end
+
+    test "the conditional rows are not body-cached" do
+      # #2352 acceptance: rows 2, 3, 6, 7, 8, 9 and 10 are already
+      # ETag-conditional at their call sites and answer 304 for free. Holding
+      # their bodies here would trade a free revalidation for staleness, so a
+      # later change must not be able to silently convert one. Each read runs
+      # its fetch twice — the cache never answers it.
+      for url <- [
+            "/issues?labels=build-order&state=open",
+            "/pulls?state=open&per_page=100",
+            "/issues?state=open&per_page=100",
+            "/events",
+            "/issues/comments?since=2026-01-01",
+            "/pulls/comments?since=2026-01-01",
+            "/pulls/2073/files?per_page=100"
+          ] do
+        request = rest("https://api.github.com/repos/aiur-team/aiur#{url}")
+        assert match?({:no_cache, {:unclassified, _shape}}, Policy.classify(request))
+        assert 2 = counted_fetches(request)
+      end
     end
 
     # #2326: a commit's timestamp is immutable per sha, so the bare commit read
@@ -863,9 +1024,9 @@ defmodule Aiur.GitHub.ReadCacheTest do
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
 
       # `/pulls/:n/files` carries no head sha, so a push changes the response
-      # under a fixed cache key; it is deliberately left uncached.
-      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/pulls/:n/files"}} =
-               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
+      # under a fixed cache key; it is deliberately left uncached, named so the
+      # refusal report says which call family it was.
+      assert {:no_cache, {:unclassified, :pull_files}} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
     end
 
     # Acceptance #2326: no verdict field becomes cacheable. Every selection the
@@ -910,10 +1071,13 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # name rather than in one loop.
       assert Policy.ttl_ms(:issue_graph) <= 30_000
       assert Policy.ttl_ms(:comments) <= 30_000
+      assert Policy.ttl_ms(:issue_timeline) <= 30_000
+      assert Policy.ttl_ms(:issue) <= 30_000
+      assert Policy.ttl_ms(:pull) <= 30_000
       assert Policy.ttl_ms(:repo_config) <= 3_600_000
 
       # No class may be left without a bound when one is added.
-      assert Enum.sort(Policy.classes()) == [:comments, :issue_graph, :repo_config]
+      assert Enum.sort(Policy.classes()) == [:comments, :issue, :issue_graph, :issue_timeline, :pull, :repo_config]
     end
 
     test "every unsafe selection is refused however high the TTL is set" do
@@ -993,6 +1157,15 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:cache, :repo_config, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
 
+      assert {:cache, :issue_timeline, 3_600_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/timeline?per_page=100"))
+
+      assert {:cache, :issue, 3_600_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073"))
+
+      assert {:cache, :pull, 3_600_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/pulls/2073"))
+
       ModeTable.put(@ttl_repo, degraded_mode())
 
       assert {:cache, :issue_graph, 30_000} =
@@ -1003,6 +1176,15 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert {:cache, :repo_config, 300_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
+
+      assert {:cache, :issue_timeline, 30_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/timeline?per_page=100"))
+
+      assert {:cache, :issue, 30_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073"))
+
+      assert {:cache, :pull, 30_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/pulls/2073"))
     end
 
     test "a webhook-backed entry is still a hit past the old 30-second TTL" do

@@ -263,10 +263,55 @@ defmodule Aiur.GitHub.Client do
   def fetch_pull_request_head_ref(pr_number, opts \\ []),
     do: PullRequests.fetch_pull_request_head_ref(pr_number, opts)
 
+  @spec fetch_pull_request_head_ref_conditional(String.t() | integer(), keyword()) ::
+          {:ok, String.t(), String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_pull_request_head_ref_conditional(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_head_ref_conditional(pr_number, opts)
+
   @spec fetch_open_pull_request(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
-  def fetch_open_pull_request(pr_number, opts \\ []),
-    do: PullRequests.fetch_open_pull_request(pr_number, opts)
+  def fetch_open_pull_request(pr_number, opts \\ []) do
+    fetch_open_pull_request_stored(pr_number, opts)
+  end
+
+  # Row 5 of #2352: the `/pulls/{n}` read was unconditional, with no validator
+  # at all, so every repeat was pure waste rather than a cheap revalidation.
+  # The transport read cache's `:pull` TTL owns the within-window repeats: the
+  # cache key is `{method, url, body}` and does not include the validator, so
+  # while a `:pull` entry is live a repeat is served the held body and
+  # `If-None-Match` is *not* sent — that is the cache hit row 5's TTL exists to
+  # produce. Once the entry expires, the conditional read sends the held
+  # validator and GitHub's `304` is the free post-expiry backstop. On a
+  # webhook-backed repo the window is bounded by the delivery, not the clock: a
+  # `pull_request` delivery retires the `:pull` entry immediately, so the
+  # routing decision (PR-anchored vs legacy, takeover snapshots) is stale only
+  # for a missed delivery, never for one that arrived. `:strict` on the
+  # `ResourceFetch` store means the store itself is never read for the answer —
+  # it only holds the validator for the post-expiry read (see the `:pull`
+  # moduledoc paragraph in `ReadCache.Policy`).
+  defp fetch_open_pull_request_stored(pr_number, opts) do
+    key = ResourceStore.key_for_repo(:pull_request, repo_full_name(opts), pr_number)
+
+    fetcher = fn fetch_opts ->
+      PullRequests.fetch_open_pull_request_conditional(
+        pr_number,
+        Keyword.merge(opts,
+          etag: Keyword.get(fetch_opts, :etag),
+          caller: "open_pull_request"
+        )
+      )
+    end
+
+    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "open pull request") do
+      {:ok, pull_request, _meta} -> {:ok, pull_request}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec fetch_open_pull_request_conditional(String.t() | integer(), keyword()) ::
+          {:ok, map() | nil, String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_open_pull_request_conditional(pr_number, opts \\ []),
+    do: PullRequests.fetch_open_pull_request_conditional(pr_number, opts)
 
   @spec fetch_compare_files(String.t(), String.t(), keyword()) ::
           {:ok, [{String.t(), String.t()}]} | {:error, term()}
