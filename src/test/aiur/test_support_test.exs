@@ -86,6 +86,24 @@ defmodule Aiur.TestSupportTest do
   # run see `unknown registry: Aiur.PubSub` and an `available?: false`
   # `ReadCache`. These prove the ensure-running helpers actually recover the app
   # rather than just returning `:ok`.
+  #
+  # Quarantined (#2474), and the reason is the whole point of #2397. This test
+  # is the only one here that takes the entire OTP application down and brings
+  # it back, and `Application.stop/1` + `Application.ensure_all_started/1` are
+  # calls into the single global `:application_controller`. It passes when the
+  # file runs alone (7.2s), but in a full partition a sibling module can leave a
+  # supervised child that does not terminate; the controller then blocks
+  # forever inside the shutdown, and because EVERY `ensure_*` helper funnels
+  # through `ensure_aiur_application_started/1`, every later test queues behind
+  # the wedged controller and dies on the 60s ExUnit timeout. Measured on this
+  # branch: `MIX_TEST_PARTITION=3 TEST_PARTITIONS=4 mix test --cover
+  # --partitions 4` never finished (killed at 11 min, 6 cascading 60s timeouts,
+  # all stacked on `:gen.do_call` -> `:application_controller.call`), which is
+  # the same wedge that burned 45 minutes as `coverage (3/4)` in run
+  # 32790770281. A test that can deadlock the partition it runs in cannot live
+  # in the blocking suite; the non-blocking quarantine job still runs it, so the
+  # mutation guard on `ensure_pubsub_running/1` is kept rather than deleted.
+  @tag :quarantine
   test "ensure_pubsub_running recovers the whole app after a sibling collapsed it by stopping PubSub" do
     on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
 

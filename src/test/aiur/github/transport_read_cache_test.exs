@@ -12,6 +12,7 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
   use ExUnit.Case, async: false
 
   alias Aiur.GitHub.{Quota, ReadCache, Transport}
+  alias Aiur.Webhooks.ModeTable
 
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)
@@ -103,6 +104,64 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
     assert %{refused: %{unsafe_kind: 2}, totals: %{hit: 0}} = ReadCache.snapshot()
   end
 
+  test "the :pull TTL owns within-window repeats; If-None-Match is the post-expiry backstop" do
+    # #2352 review, point 2: `Client.fetch_open_pull_request` runs through the
+    # transport read cache, whose `:pull` entry key is `{method, url, body}` and
+    # carries no validator. So inside the TTL a repeat is served the held body —
+    # a cache hit, with no request at all and no `If-None-Match` sent — and the
+    # ETag path only fires once the entry expires. This drives both layers
+    # together through the real transport (an injected `request_fun` would
+    # bypass the cache, which is why none of the diff's earlier tests saw the
+    # interplay): the first read is a 200 + deposit, the second is a cache hit,
+    # and after expiry the third read sends `If-None-Match` and GitHub's `304`
+    # is the free answer.
+    ModeTable.delete("owner/repo")
+    on_exit(fn -> ModeTable.delete("owner/repo") end)
+
+    test_process = self()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(test_process, {:pulls_request, Plug.Conn.get_req_header(conn, "if-none-match")})
+
+      case Plug.Conn.get_req_header(conn, "if-none-match") do
+        [] ->
+          conn
+          |> Plug.Conn.put_resp_header("etag", ~s("v1"))
+          |> Req.Test.json(%{"number" => 4242, "state" => "open", "head" => %{"ref" => "x"}})
+
+        [_etag] ->
+          conn
+          |> Plug.Conn.put_resp_header("etag", ~s("v1"))
+          |> Plug.Conn.send_resp(304, "")
+      end
+    end)
+
+    url = "https://api.github.com/repos/owner/repo/pulls/4242"
+    unconditional = %{method: :get, url: url, token: "test-gh-token"}
+
+    # First read: a `:pull` miss, so the request reaches the socket and the
+    # body (with its ETag) is deposited.
+    assert {:ok, %{status: 200, body: %{"number" => 4242}}} = Transport.default_request_fun(unconditional)
+    assert_receive {:pulls_request, []}
+    assert %{totals: %{hit: 0, miss: 1, deposit: 1}} = ReadCache.snapshot()
+
+    # Second read inside the TTL: a cache hit. No request is sent and no
+    # If-None-Match is produced — the TTL owns this window.
+    assert {:ok, %{status: 200, body: %{"number" => 4242}}} = Transport.default_request_fun(unconditional)
+    refute_receive {:pulls_request, _}, 50
+    assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = ReadCache.snapshot()
+
+    # Once the entry expires, the conditional read carries the held validator
+    # and GitHub's 304 is the free backstop.
+    age_entries_by(31_000)
+
+    assert {:ok, %{status: 304}} =
+             Transport.default_request_fun(Map.put(unconditional, :etag, ~s("v1")))
+
+    assert_receive {:pulls_request, [~s("v1")]}
+    assert %{totals: %{hit: 1, miss: 2, deposit: 1}} = ReadCache.snapshot()
+  end
+
   # The cache is a shared application child that a sibling test may have
   # stopped (its ETS tables die with the process, so `snapshot/0` answers
   # `available?: false` with no entries and every read becomes a full-price
@@ -118,6 +177,18 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
 
   defp attributed_calls(snapshot) do
     snapshot |> Map.get(:callers, []) |> Enum.reduce(0, fn caller, total -> total + caller.calls end)
+  end
+
+  # Rewrites the deposit stamps rather than sleeping. The freshness test is
+  # arithmetic on a stored timestamp, so moving the timestamp exercises exactly
+  # what a real TTL expiry exercises, in no time at all (same trick as
+  # `Aiur.GitHub.ReadCacheTest`).
+  defp age_entries_by(ms) do
+    table = :aiur_github_read_cache_entries
+
+    for {key, response, deposited_at} <- :ets.tab2list(table) do
+      :ets.insert(table, {key, response, deposited_at - ms})
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
