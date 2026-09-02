@@ -314,6 +314,13 @@ Recurring shapes to avoid — each has shipped and cost a review round:
 - Reading real state. Any test that touches `~/.aiur`, the live ledger, or a
   shared global path must point at a temp path explicitly. Green in CI and red
   on a live host is worse than red everywhere.
+- An unknown or unavailable rendering branch asserted only through its rendered
+  string. Any rendering path for `nil`, `unknown`, `stale` or `unavailable`
+  needs a test that fails when that path is replaced with a plausible default —
+  write the test, then replace the unavailable branch with `0`, `"—"`, or the
+  most recent known value, and confirm it fails. If it still passes, it is not
+  constraining that branch: check the assertion *and* whether the fixture can
+  reach it.
 
 Keeping a test that already passes on `main` is fine when it is deliberately a
 guard against a *future* regression — but say so in the test name or a
@@ -323,6 +330,29 @@ The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
 discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
+
+## Computed ages and collapsed causes — author-side checks
+
+Two more dashboard rules recur in review — an age computed but never rendered,
+and distinct causes collapsed into one state. (The companion unknown-path
+mutation guard is the last bullet in "Tests must fail without the production
+change they guard" above.) Run them before opening a PR; the review guidance in
+the `aiur-run` skill cross-links here rather than restating them.
+
+1. **If a surface computes an age, it renders the age.** Plumbing a timestamp
+   to a presenter and not displaying it is worse than not having it — it looks
+   handled in review while the surface keeps claiming freshness. The CLI emits
+   `observed_at`, `age_ms` and `freshness`; a web surface that computes the same
+   fields must render them, or the two surfaces the docs call equivalent
+   disagree about truth.
+2. **A collapsed cause names the collapse at the source.** Collapse an unknown
+   or heterogeneous cause to a cause-neutral atom at the point of collapse
+   (`_ -> :unknown`) — never to a specific cause. `_ -> :upstream` is a
+   confident lie when the failure is not upstream: the atom flows verbatim into
+   the JSON envelope and the logs whether or not a renderer prints "unknown",
+   so a render-side fixup protects none of the consumers. If a specific cause
+   *is* known, preserve it separately — a `reasons` list, as `analytics_cli.ex`
+   does — so it is carried without ever being mislabeled.
 
 ## Manual testing — the only definition
 

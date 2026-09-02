@@ -25,27 +25,27 @@ defmodule Aiur.GitHub.Budget do
   @lease_grace_ms 5_000
   @retry_floor_ms 5
   @command_cleanup_ms 25
-  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL
-  # responses one actor (the daemon, or each agent workspace) may consume in a
-  # rolling hour before its own requests hold. A completed `304` is reconciled
-  # as free. These remain request counts, not GraphQL point budgets. `0`
-  # disables a ceiling.
+  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL /
+  # search responses one actor (the daemon, or each agent workspace) may consume
+  # in a rolling hour before its own requests hold. A completed `304` is
+  # reconciled as free. These remain request counts, not GraphQL point budgets.
+  # `0` disables a ceiling.
   #
-  # Re-derived against the corrected bucket counts (#2297): the measured
-  # trailing-hour ledger was 4,198 GraphQL admissions against 305 Core. The
-  # GraphQL windows are now the load-bearing ones — `daemon_graphql` covers the
-  # daemon's dominant share, `agent_graphql` must clear a single agent's normal
-  # loop (which crossed the old 375 and stalled it) — while the Core windows
-  # come down because the volume they were sized against was mostly miscounted
-  # GraphQL.
-  @default_daemon_core_limit_per_hour 1000
-  @default_daemon_graphql_limit_per_hour 3000
+  # The GraphQL defaults were raised in #2299 because the guard now books the
+  # high-level `gh` reads (`pr view|list|status|checks`, `issue view|list`,
+  # `gh api graphql`) to the GraphQL window: the App-token daemon measured
+  # ~3,400-4,300 GraphQL-wire requests/hour, so the pre-fix daemon default of
+  # 2,000 would have stalled the fleet on merge. The agent GraphQL ceiling is
+  # raised too so a single agent's normal loop has headroom under the re-booked
+  # window. These stay request counts, never GraphQL point budgets. `search` is
+  # a third, much lower GitHub window (~30 requests/minute), so it gets its own
+  # ceiling instead of folding into core or graphql.
+  @default_daemon_core_limit_per_hour 3000
+  @default_daemon_graphql_limit_per_hour 4500
+  @default_daemon_search_limit_per_hour 600
   @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 750
-  # GitHub meters `/search/*` against a third pool (~30 req/min), so `search`
-  # has its own per-actor ceilings rather than folding into core (#2297).
-  @default_daemon_search_limit_per_hour 1000
-  @default_agent_search_limit_per_hour 250
+  @default_agent_graphql_limit_per_hour 600
+  @default_agent_search_limit_per_hour 600
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
@@ -129,12 +129,15 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
-  @spec broker_path() :: Path.t()
-  def broker_path do
-    :aiur
-    |> :code.priv_dir()
-    |> to_string()
-    |> Path.join("github_budget.py")
+  @spec broker_path(keyword()) :: Path.t()
+  def broker_path(opts \\ []) do
+    case Keyword.get(opts, :broker_path) do
+      path when is_binary(path) and path != "" -> path
+      # Tests inject a broker variant (e.g. one without the `reconcile`
+      # subcommand) through the `:broker_path` option; production always uses
+      # the broker shipped in `priv/`.
+      _missing -> :aiur |> :code.priv_dir() |> to_string() |> Path.join("github_budget.py")
+    end
   end
 
   @doc "Configuration exported to the agent-side `gh` wrapper."
@@ -199,7 +202,16 @@ defmodule Aiur.GitHub.Budget do
 
   defp reconcile_response(%{id: id, token_key: key}, {:ok, %{status: 304}}, opts)
        when is_binary(id) and is_binary(key) do
-    _ = command(["reconcile", "--lease-id", id, "--status", "304"], key, opts)
+    case command(["reconcile", "--lease-id", id, "--status", "304"], key, opts) do
+      {:ok, _output} -> :ok
+      # `command` already logs the broker failure generically; this names the
+      # reconcile specifically so a stale broker (one without the `reconcile`
+      # subcommand) or a broken reconcile is visible in the daemon log instead
+      # of reading as "reconciliation did not fire".
+      {:error, reason} -> Logger.warning("github_budget_reconcile_failed lease_id=#{id} reason=#{inspect(reason)}")
+      :bypass -> :ok
+    end
+
     :ok
   end
 
@@ -456,7 +468,7 @@ defmodule Aiur.GitHub.Budget do
           _missing -> []
         end
 
-      command_args = [broker_path() | args] ++ token_args ++ identity_args
+      command_args = [broker_path(opts) | args] ++ token_args ++ identity_args
 
       case port_command(python, command_args, command_deadline(opts)) do
         {:ok, output, 0} -> {:ok, output}
@@ -788,15 +800,20 @@ defmodule Aiur.GitHub.Budget do
       cooldown_until_ms: cooldown,
       inflight: inflight,
       admissions:
-        Enum.map(
-          admissions,
-          &%{
-            endpoint_family: &1["endpoint_family"],
-            resource: &1["resource"],
-            admitted_at_ms: &1["admitted_at_ms"],
-            billable: &1["billable"]
+        Enum.map(admissions, fn admission ->
+          %{
+            endpoint_family: admission["endpoint_family"],
+            resource: admission["resource"],
+            admitted_at_ms: admission["admitted_at_ms"],
+            # `billable = false` is a reconciled `304`; `billable_reason`
+            # records why the broker stopped billing the row (`"304"`) so the
+            # running system can verify reconciliation happened and tell it
+            # apart from any other unbilled state instead of reading a bare
+            # flag.
+            billable: Map.get(admission, "billable", true),
+            billable_reason: Map.get(admission, "billable_reason")
           }
-        )
+        end)
     }
   end
 

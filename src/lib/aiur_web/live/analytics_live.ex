@@ -1,6 +1,6 @@
 defmodule AiurWeb.AnalyticsLive do
   @moduledoc """
-  Authenticated, read-only LiveView for live run utilization. It derives every
+  Authenticated, read-only LiveView for latest-run utilization. It derives every
   chart from the durable `Aiur.RunTelemetry` stream via the analytics
   `Presenter`, and renders them as inline SVG inside the Operator Control Center
   shell. Legend, sort, and time-range interactions are plain LiveView events —
@@ -26,6 +26,9 @@ defmodule AiurWeb.AnalyticsLive do
   alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
+  # Matches the CLI's freshness threshold: telemetry observed within this
+  # window is "just now", anything older is shown with its elapsed age.
+  @source_fresh_ms 30_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -120,9 +123,19 @@ defmodule AiurWeb.AnalyticsLive do
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
 
       <section id="analytics-page" class="analytics-root" aria-label="Run analytics">
-        <div :if={@unavailable} class="an-empty">
-          <p><b>No run telemetry to analyze yet.</b></p>
-          <p>These charts are derived from the durable run-telemetry stream. Start a run with telemetry enabled and this view will populate on the next visit.</p>
+        <div :if={@unavailable} class="an-empty" data-empty-reason={@unavailable}>
+          <div :if={@unavailable == :no_telemetry}>
+            <p><b>No run telemetry to analyze yet.</b></p>
+            <p>These charts are derived from the durable run-telemetry stream and appear after it records agent or ticket activity.</p>
+          </div>
+          <div :if={@unavailable == :retained_unreadable}>
+            <p><b>Retained run telemetry could not be read.</b></p>
+            <p>A prior run recorded telemetry, but its retained summary cannot be decoded. Check the run-summary files under the analytics state node.</p>
+          </div>
+          <div :if={@unavailable == :error}>
+            <p><b>Run telemetry is unavailable.</b></p>
+            <p>The durable run-telemetry stream could not be analyzed right now.</p>
+          </div>
         </div>
 
         <div :if={!@unavailable} class="an-controls">
@@ -130,6 +143,11 @@ defmodule AiurWeb.AnalyticsLive do
             <span class="an-scope">Scope: <b>{scope_label(@analytics_scope)}</b></span>
             <p class="an-scope-note">
               {scope_note(@analytics_scope)}
+            </p>
+            <p :if={@source} class="an-source" data-source-kind={@source.kind} title={source_title(@source)}>
+              Source: <b>{source_kind_label(@source.kind)}</b>
+              <span :if={@source.boot_id} class="an-source-boot"> · boot {short_boot(@source.boot_id)}</span>
+              <span class="an-source-age"> · {age_label(@source.age_ms)}</span>
             </p>
           </div>
           <div class="an-seg" role="group" aria-label="Time range">
@@ -144,7 +162,7 @@ defmodule AiurWeb.AnalyticsLive do
         </div>
 
         <div :if={!@unavailable} class="an-kpis">
-          <div :for={k <- kpi_items(@model, @provider_spend)} class={["an-kpi", k.tone]}>
+          <div :for={k <- kpi_items(@model, @provider_spend, @source.kind)} class={["an-kpi", k.tone]}>
             <span class="an-kpi-label">{k.label}</span>
             <span class="an-kpi-val">{k.val}</span>
             <span class="an-kpi-sub">{k.sub}</span>
@@ -309,8 +327,6 @@ defmodule AiurWeb.AnalyticsLive do
         snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(AiurWeb.Endpoint.config(:snapshot_timeout_ms) || 15_000)
       ] ++ ScopeResolver.telemetry_opts(socket.assigns.analytics_scope)
 
-    socket = assign(socket, :provider_spend, provider_spend(socket))
-
     case Presenter.load(opts) do
       {:ok, model} ->
         domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
@@ -318,8 +334,10 @@ defmodule AiurWeb.AnalyticsLive do
         socket
         |> assign(
           model: model,
+          provider_spend: provider_spend(socket, model.source_boot_id),
           selected: MapSet.new(model.actors, & &1.key),
           unavailable: nil,
+          source: source_info(model, now),
           now: now
         )
         |> assign_time_domain(domain)
@@ -328,8 +346,10 @@ defmodule AiurWeb.AnalyticsLive do
         assign(socket,
           model: nil,
           chart_model: nil,
+          provider_spend: %{state: :unavailable},
           time_domain: nil,
           selected: MapSet.new(),
+          source: nil,
           unavailable: reason,
           now: now
         )
@@ -342,14 +362,20 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp assign_time_domain(socket, _domain), do: socket
 
-  defp kpi_items(model, provider_spend) do
+  # The KPI strip speaks in the present tense only about a live boot. When the
+  # page is showing a retained prior run (the restart fallback) or merged
+  # cross-boot history, `conc_now` is the tail of a run that already ended and
+  # the merged count is history, so the subtitles say "at run end" / "that run"
+  # instead of claiming the fleet is acting right now.
+  defp kpi_items(model, provider_spend, source_kind) do
     k = model.kpis
+    present? = source_kind == :live
 
     [
       %{
         label: "Peak concurrency",
         val: k.peak_conc,
-        sub: "#{k.conc_now} now / #{Presenter.cap_label(model)}",
+        sub: "#{k.conc_now} #{if(present?, do: "now", else: "at run end")} / #{Presenter.cap_label(model)}",
         tone: nil
       },
       %{
@@ -364,7 +390,7 @@ defmodule AiurWeb.AnalyticsLive do
         sub: "#{gb(k.mem_now_bytes)} / #{gb(model.host_mem_bytes)}",
         tone: nil
       },
-      %{label: "PRs merged", val: k.merged, sub: "this run", tone: nil},
+      %{label: "PRs merged", val: k.merged, sub: if(present?, do: "this run", else: "that run"), tone: nil},
       %{
         label: "Tickets done",
         val: "#{k.done} / #{k.total}",
@@ -393,9 +419,9 @@ defmodule AiurWeb.AnalyticsLive do
   # Financial data stays behind the same per-connection capability gate used by
   # the Build Order usage summary. The analytics page receives a display-only
   # provider estimate, never aggregate cells or an unscoped raw total.
-  defp provider_spend(socket) do
+  defp provider_spend(socket, source_boot_id) do
     case {connected?(socket), authorized_context(socket)} do
-      {true, {:ok, context}} -> load_provider_spend(context, socket.assigns.analytics_scope)
+      {true, {:ok, context}} -> load_provider_spend(context, socket.assigns.analytics_scope, source_boot_id)
       {_connected, :locked} -> %{state: :locked}
       {false, {:ok, _context}} -> %{state: :loading}
     end
@@ -405,10 +431,10 @@ defmodule AiurWeb.AnalyticsLive do
     _kind, _reason -> %{state: :unavailable}
   end
 
-  defp load_provider_spend(context, analytics_scope) do
+  defp load_provider_spend(context, analytics_scope, source_boot_id) do
     usage_aggregate = usage_aggregate_source()
 
-    with {:ok, scope} <- ScopeResolver.usage_scope(analytics_scope),
+    with {:ok, scope} <- ScopeResolver.usage_scope(analytics_scope, source_boot_id),
          {:ok, snapshot} <-
            FinancialData.fetch_usage_grouping(
              FinancialData,
@@ -444,13 +470,82 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp analytics_scope(root_number), do: ScopeResolver.resolve(root_number)
 
-  defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, this session"
-  defp scope_label(:session), do: "this session"
+  defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, latest run"
+  defp scope_label(:session), do: "latest run"
   defp scope_label(:unavailable), do: "selected Build Order unavailable"
 
-  defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in this session."
-  defp scope_note(:session), do: "The current live run only. Add a Build Order selection to scope this page to its members."
+  defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in the latest run with telemetry."
+  defp scope_note(:session), do: "The latest run with telemetry. Add a Build Order selection to scope this page to its members."
   defp scope_note(:unavailable), do: "The selected Build Order could not provide a valid member graph."
+
+  # The rendered charts can come from the live boot or from a retained prior
+  # run (the restart fallback). The source line makes which one visible so a
+  # run that ended an hour ago is never presented as the current boot, and so
+  # the cutover when a fresh boot takes over is not silent.
+  defp source_info(model, now) do
+    current = safe_boot_id()
+    boot_id = Map.get(model, :source_boot_id)
+    observed_at = parse_observed(Map.get(model, :source_observed_at))
+    age_ms = if observed_at, do: max(DateTime.diff(now, observed_at, :millisecond), 0), else: nil
+
+    %{
+      kind: source_kind(boot_id, current),
+      boot_id: boot_id,
+      observed_at: observed_at,
+      age_ms: age_ms
+    }
+  end
+
+  defp source_kind(boot_id, current) when is_binary(boot_id) and boot_id != "" and boot_id == current, do: :live
+  defp source_kind(boot_id, _current) when is_binary(boot_id) and boot_id != "", do: :retained
+  defp source_kind(_boot_id, _current), do: :history
+
+  defp source_kind_label(:live), do: "live boot"
+  defp source_kind_label(:retained), do: "retained run"
+  defp source_kind_label(:history), do: "retained history"
+
+  defp source_title(%{boot_id: boot_id, observed_at: observed_at}) do
+    [
+      if(is_binary(boot_id), do: "boot #{boot_id}"),
+      if(observed_at, do: "observed #{DateTime.to_iso8601(observed_at)}")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+  end
+
+  defp source_title(_source), do: ""
+
+  defp age_label(nil), do: "observed at an unknown time"
+  defp age_label(age_ms) when age_ms <= @source_fresh_ms, do: "observed just now"
+  defp age_label(age_ms), do: "observed #{elapsed_seconds(div(age_ms, 1000))} ago"
+
+  defp elapsed_seconds(seconds) when seconds < 60, do: "#{seconds}s"
+  defp elapsed_seconds(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m #{rem(seconds, 60)}s"
+  defp elapsed_seconds(seconds) when seconds < 86_400, do: "#{div(seconds, 3_600)}h #{div(rem(seconds, 3_600), 60)}m"
+  defp elapsed_seconds(seconds), do: "#{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
+
+  defp short_boot(nil), do: nil
+  defp short_boot(id) when is_binary(id) and byte_size(id) > 8, do: binary_part(id, 0, 8)
+  defp short_boot(id), do: id
+
+  defp parse_observed(nil), do: nil
+
+  defp parse_observed(iso) when is_binary(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, observed_at, _offset} -> observed_at
+      _invalid -> nil
+    end
+  end
+
+  defp parse_observed(_other), do: nil
+
+  defp safe_boot_id do
+    Aiur.RunTelemetry.boot_id()
+  rescue
+    _error -> nil
+  catch
+    _kind, _reason -> nil
+  end
 
   defp pressure_time(ms) when is_integer(ms), do: ms |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
   defp pressure_time(_ms), do: "—"

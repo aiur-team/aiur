@@ -469,6 +469,22 @@ different callers with different invalidation reach.
 
 An answer is kept for 60 seconds.
 
+**Conditional requests and 304s.** `gh api` reads carry a validator where the
+store holds one: a re-read sends `If-None-Match` with the entry's stored `ETag`,
+and an unchanged answer returns `304`, is served from the cache, and is
+reconciled free — the same contract as the daemon's REST reads.
+
+The high-level subcommand reads — `gh pr view`, `gh pr list`, `gh issue view`,
+`gh issue list` — hit GitHub's GraphQL endpoint, which returns no `ETag` and no
+`Last-Modified`, so there is no validator for the store to send. Those entries
+stay TTL-cached with invalidation markers.
+
+When a high-level read does return a `304` (an underlying REST read), the
+wrapper reconciles the lease as free rather than billing it full-price.
+
+The free share a TTL body cache cannot recover is GraphQL's — which no cache on
+either side can recover.
+
 The GitHub cache page reports whether this sharing is effective. Its **Agent gh
 exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
 alongside the raw hit and miss counts.
