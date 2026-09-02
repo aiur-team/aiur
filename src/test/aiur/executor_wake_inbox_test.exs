@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorWakeInboxTest do
   use Aiur.TestSupport
 
+  alias Aiur.Executor.Claims
   alias Aiur.ExecutorWakeInbox
 
   setup do
@@ -119,7 +120,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     :sys.get_state(pid)
     assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 0, pending_count: 3}}
 
-    assert {:ok, _claim} = Aiur.Executor.Claims.claim("covered-window")
+    assert {:ok, _claim} = Claims.claim("covered-window")
 
     assert {:error, {:not_owner, owner}} =
              ExecutorWakeInbox.fast_forward_as("observer", 2, __MODULE__)
@@ -148,7 +149,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     :ok = ExecutorWakeInbox.enqueue(record(1, "1"), __MODULE__)
 
     assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 0, pending_count: 1}}
-    assert {:ok, _claim} = Aiur.Executor.Claims.claim("covered-window")
+    assert {:ok, _claim} = Claims.claim("covered-window")
 
     assert {:ok, %{from: 0, through: 1, acknowledged_count: 1, pending_count: 0}} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 1, __MODULE__)
@@ -177,7 +178,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     end
 
     start_supervised!({ExecutorWakeInbox, opts})
-    assert {:ok, _claim} = Aiur.Executor.Claims.claim("covered-window")
+    assert {:ok, _claim} = Claims.claim("covered-window")
 
     assert {:error, {:wake_not_found, 2}} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
@@ -190,7 +191,7 @@ defmodule Aiur.ExecutorWakeInboxTest do
     :ok = Aiur.DecisionLog.append(opts[:path], Map.put(record(3, "3"), "wake_id", 3))
     :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 3})
     start_supervised!({ExecutorWakeInbox, opts})
-    assert {:ok, _claim} = Aiur.Executor.Claims.claim("covered-window")
+    assert {:ok, _claim} = Claims.claim("covered-window")
 
     assert {:error, {:wake_not_found, 2}} =
              ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)

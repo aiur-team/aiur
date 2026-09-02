@@ -420,32 +420,39 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   defp fast_forward(state, consumer_id, wake_id) do
-    with {:ok, durable} <- durable_records(state) do
-      records = Enum.filter(durable, &(&1["wake_id"] > state.cursor))
-      latest_wake_id = durable |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> state.cursor end)
-
-      cond do
-        wake_id > latest_wake_id ->
-          {{:error, {:beyond_latest_wake, latest_wake_id}}, state}
-
-        not Enum.any?(durable, &(&1["wake_id"] == wake_id)) ->
-          {{:error, {:wake_not_found, wake_id}}, state}
-
-        wake_id <= state.cursor ->
-          case acknowledge_records_as(state, consumer_id, [], state.cursor) do
-            {:ok, state} ->
-              result = {:ok, %{from: state.cursor, through: wake_id, acknowledged_count: 0, pending_count: length(records)}}
-              {result, state}
-
-            {:error, _reason} = error ->
-              {error, state}
-          end
-
-        true ->
-          fast_forward_existing_prefix(state, consumer_id, records, wake_id)
-      end
-    else
+    case durable_records(state) do
+      {:ok, durable} -> fast_forward_durable(state, consumer_id, wake_id, durable)
       {:error, _reason} = error -> {error, state}
+    end
+  end
+
+  defp fast_forward_durable(state, consumer_id, wake_id, durable) do
+    records = Enum.filter(durable, &(&1["wake_id"] > state.cursor))
+    latest_wake_id = durable |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> state.cursor end)
+
+    cond do
+      wake_id > latest_wake_id ->
+        {{:error, {:beyond_latest_wake, latest_wake_id}}, state}
+
+      not Enum.any?(durable, &(&1["wake_id"] == wake_id)) ->
+        {{:error, {:wake_not_found, wake_id}}, state}
+
+      wake_id <= state.cursor ->
+        fast_forward_already_seen(state, consumer_id, wake_id, length(records))
+
+      true ->
+        fast_forward_existing_prefix(state, consumer_id, records, wake_id)
+    end
+  end
+
+  defp fast_forward_already_seen(state, consumer_id, wake_id, pending_count) do
+    case acknowledge_records_as(state, consumer_id, [], state.cursor) do
+      {:ok, state} ->
+        result = {:ok, %{from: state.cursor, through: wake_id, acknowledged_count: 0, pending_count: pending_count}}
+        {result, state}
+
+      {:error, _reason} = error ->
+        {error, state}
     end
   end
 
@@ -502,23 +509,26 @@ defmodule Aiur.ExecutorWakeInbox do
   # dropped range so a consumer's next read is honest about where the stream now
   # begins rather than replaying a gap it cannot fill.
   defp trim_consumed(state) do
-    with {:ok, records, nil} <- DecisionLog.replay(state.path, &validate_record/1) do
-      unread = Enum.filter(records, &(&1["wake_id"] > state.cursor))
-      consumed = Enum.filter(records, &(&1["wake_id"] <= state.cursor))
-      retained_unread = Enum.take(unread, -state.max_records)
-      consumed_limit = max(state.max_records - length(retained_unread), 0)
-      retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
-
-      if length(retained) < length(records) do
-        contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
-        _ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)
-      end
-
-      cursor = report_dropped_unread(state, unread -- retained_unread)
-      %{state | cursor: cursor, pending_count: length(retained_unread)}
-    else
+    case DecisionLog.replay(state.path, &validate_record/1) do
+      {:ok, records, nil} -> trim_records(state, records)
       _error -> state
     end
+  end
+
+  defp trim_records(state, records) do
+    unread = Enum.filter(records, &(&1["wake_id"] > state.cursor))
+    consumed = Enum.filter(records, &(&1["wake_id"] <= state.cursor))
+    retained_unread = Enum.take(unread, -state.max_records)
+    consumed_limit = max(state.max_records - length(retained_unread), 0)
+    retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
+
+    if length(retained) < length(records) do
+      contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
+      _ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)
+    end
+
+    cursor = report_dropped_unread(state, unread -- retained_unread)
+    %{state | cursor: cursor, pending_count: length(retained_unread)}
   end
 
   defp report_dropped_unread(state, []), do: state.cursor

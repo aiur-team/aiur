@@ -263,10 +263,12 @@ successor resumes from the durable cursor.
 
 A `tail -F -n0` follower is a low-latency notification aid only. It skips the
 existing prefix, may filter wake classes, has no consumer identity or lease,
-and never advances the durable cursor. `executor-wait` is the normal discovery
-and consumption path; use `executor-fast-forward` only after independently
-verifying the exact prefix already covered. The 10,000-record bound remains an
-emergency disk bound, not evidence of consumption.
+and never advances the durable cursor.
+
+`executor-wait` is the normal discovery and consumption path. Use
+`executor-fast-forward` only after independently verifying the exact prefix
+already covered. The 10,000-record bound remains an emergency disk bound, not
+evidence of consumption.
 
 `AIUR_EXECUTOR_ID` names this consumer when `--as` is omitted. Nothing infers
 consumer identity from the terminal, parent process, or any other environment
