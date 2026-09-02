@@ -23,10 +23,11 @@ defmodule Aiur.Executor.PrincipalTest do
     assert first["role"] == "owner"
     assert is_binary(first["last_renewed_at"])
 
-    renewed = eventually(fn -> renewed_entry(path, "executor-a", first["last_renewed_at"]) end)
+    renewed_once = eventually(fn -> renewed_entry(path, "executor-a", first["last_renewed_at"]) end)
+    renewed_twice = eventually(fn -> renewed_entry(path, "executor-a", renewed_once["last_renewed_at"]) end)
 
-    assert renewed["last_acknowledged_at"] == nil
-    assert renewed["acknowledged_count"] == 0
+    assert renewed_twice["last_acknowledged_at"] == nil
+    assert renewed_twice["acknowledged_count"] == 0
   end
 
   test "registers as an observer when another Executor owns the stream", %{path: path} do
