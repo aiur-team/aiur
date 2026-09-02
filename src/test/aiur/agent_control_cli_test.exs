@@ -47,6 +47,35 @@ defmodule Aiur.AgentControlCLITest do
     refute File.exists?(cursor_path)
   end
 
+  test "executor-fast-forward acknowledges an externally covered wake prefix" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+
+    for id <- 1..3 do
+      now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+      :ok =
+        ExecutorWakeInbox.enqueue(%{
+          "wake_id" => id,
+          "event_id" => id,
+          "topic" => "ticket.#{id}.branch.push",
+          "topic_class" => "ticket.branch.push",
+          "ticket" => Integer.to_string(id),
+          "count" => 1,
+          "first_seen_at" => now,
+          "last_seen_at" => now
+        })
+    end
+
+    Process.sleep(20)
+    assert length(ExecutorWakeInbox.pending()) == 3
+
+    output = capture_io(fn -> AgentControlCLI.executor_fast_forward(2, as: "covered-window") end)
+
+    assert output =~ "FAST-FORWARDED from=0 through=2 acknowledged=2 pending=1"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert Enum.map(ExecutorWakeInbox.pending(), & &1["wake_id"]) == [3]
+  end
+
   defp capture_todo(ids, opts) do
     parent = self()
     ref = make_ref()
@@ -588,8 +617,10 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "status prints empty and populated tables", %{orchestrator: pid} do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     empty_output = capture_io(fn -> AgentControlCLI.status() end)
 
+    assert empty_output =~ "WAKES CURSOR 0 PENDING 0"
     assert empty_output =~ "ISSUE STATE  TITLE"
     assert empty_output =~ "(no active agents)"
     assert empty_output =~ "__AIUR_CONTROL_EXIT__:0"
@@ -612,6 +643,13 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "#88    running Issue "
     assert populated_output =~ "worker-alpha running Issue worker-alpha"
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "status reports wake depth as unavailable when the inbox is down" do
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "WAKES unavailable (cursor and pending count could not be read)"
+    refute output =~ "WAKES CURSOR 0 PENDING 0"
   end
 
   test "status surfaces an active idle polling backoff" do
