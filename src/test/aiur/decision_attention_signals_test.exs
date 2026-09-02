@@ -115,30 +115,87 @@ defmodule Aiur.DecisionAttentionSignalsTest do
              )
   end
 
-  test "stale and expired signals name the actionable pattern" do
+  test "a live blocking Command raises the stale needs-attention signal" do
     parent = self()
     decision = suspicious_decision()
 
-    for signal <- [:stale_blocking, :expired_unanswerable] do
-      assert :ok =
-               DecisionAttentionSignals.sync_expiry(decision, signal, @now,
-                 condition_state_fun: fn _topic -> :unknown end,
-                 alert_fun: fn topic, opts ->
-                   send(parent, {:alert, signal, topic, opts})
-                   :ok
-                 end
-               )
-    end
+    assert :ok =
+             DecisionAttentionSignals.sync_expiry(decision, :stale_blocking, @now,
+               condition_state_fun: fn _topic -> :unknown end,
+               alert_fun: fn topic, opts ->
+                 send(parent, {:alert, topic, opts})
+                 :ok
+               end
+             )
 
-    assert_received {:alert, :stale_blocking, stale_topic, stale_opts}
+    assert_received {:alert, stale_topic, stale_opts}
     assert stale_topic =~ "decision-stale"
     assert stale_opts[:reason] =~ "older than one day"
     assert stale_opts[:needs_attention] == true
+  end
 
-    assert_received {:alert, :expired_unanswerable, expired_topic, expired_opts}
+  test "an expired-unanswerable Command is retired, never raised as needs-attention" do
+    parent = self()
+    decision = suspicious_decision()
+
+    # A raised entry from an older build is cleared via the `.resolved` record —
+    # the only form `AlertFeed.resolve_attention_alerts/1` treats as a clear —
+    # rather than re-raised (#2458).
+    assert :ok =
+             DecisionAttentionSignals.sync_expiry(decision, :expired_unanswerable, @now,
+               condition_state_fun: fn _topic -> :firing end,
+               alert_fun: fn topic, opts ->
+                 send(parent, {:resolved, topic, opts})
+                 :ok
+               end
+             )
+
+    assert_received {:resolved, expired_topic, expired_opts}
     assert expired_topic =~ "decision-expired-unanswerable"
-    assert expired_opts[:reason] =~ "outside the Executor's floor"
-    assert expired_opts[:needs_attention] == true
+    assert String.ends_with?(expired_topic, ".resolved")
+    assert expired_opts[:needs_attention] == false
+
+    # A Command that was never raised (no firing record) emits nothing at all —
+    # no needs-attention entry and no resolution noise.
+    assert :ok =
+             DecisionAttentionSignals.sync_expiry(decision, :expired_unanswerable, @now,
+               condition_state_fun: fn _topic -> :unknown end,
+               alert_fun: fn _topic, _opts -> flunk("an expired Command must not emit an alert") end
+             )
+  end
+
+  test "a live Command still raises inside the same reconcile that retires expired Commands" do
+    parent = self()
+    live = blocking_command()
+    expired = %{live | decision_status: :expired}
+
+    # The expired topic is already firing (backlog from an older build) while
+    # the live Command's stale topic is not yet raised. Blanket suppression
+    # would swallow both; the reconcile must retire the expired backlog while
+    # still raising the live Command that needs an operator answer.
+    assert :ok =
+             DecisionAttentionSignals.reconcile([live], [live], [expired], @now,
+               condition_states_fun: fn topics ->
+                 Map.new(topics, fn topic ->
+                   if String.contains?(topic, "decision-expired-unanswerable"),
+                     do: {topic, :firing},
+                     else: {topic, :unknown}
+                 end)
+               end,
+               alert_fun: fn topic, opts ->
+                 send(parent, {:alert, topic, opts})
+                 :ok
+               end
+             )
+
+    assert_received {:alert, stale_topic, stale_opts}
+    assert stale_topic =~ "decision-stale"
+    assert stale_opts[:needs_attention] == true
+
+    assert_received {:alert, expired_topic, expired_opts}
+    assert expired_topic =~ "decision-expired-unanswerable"
+    assert String.ends_with?(expired_topic, ".resolved")
+    assert expired_opts[:needs_attention] == false
   end
 
   defp suspicious_decision do
@@ -154,6 +211,26 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                    %{"id" => "two", "label" => "Two", "risk" => "low"}
                  ],
                  "recommendation" => %{"option_id" => "one", "reason" => "Lowest cost."}
+               },
+               ticket: @ticket,
+               source: @source,
+               now: DateTime.add(@now, -86_400, :second)
+             )
+
+    decision
+  end
+
+  # A live blocking Command that still needs an operator answer: not a
+  # suspicious classification (no options), so the reconcile raises only the
+  # stale signal for it.
+  defp blocking_command do
+    assert {:ok, decision} =
+             DecisionValidation.normalize(
+               %{
+                 "question" => "Still actionable?",
+                 "blocking" => true,
+                 "authority" => "human_required",
+                 "source_id" => "live-blocking-1"
                },
                ticket: @ticket,
                source: @source,

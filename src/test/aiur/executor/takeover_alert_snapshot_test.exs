@@ -30,7 +30,11 @@ defmodule Aiur.Executor.TakeoverAlert.SnapshotTest do
       "state" => "open",
       "created_at" => "2026-01-01T00:00:00Z",
       "mergeable_state" => "clean",
-      "head" => %{"ref" => "aiur/101", "sha" => "abc123"},
+      "head" => %{
+        "ref" => "aiur/101",
+        "sha" => "abc123",
+        "repo" => %{"full_name" => "owner/repo"}
+      },
       "base" => %{"ref" => "develop"}
     }
   end

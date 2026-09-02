@@ -70,16 +70,17 @@ defmodule Aiur.Webhooks.EventKeyTest do
     refute EventKey.derive("pull_request", base) == EventKey.derive("pull_request", moved)
   end
 
-  test "review thread keys identify the pull request, thread, and action" do
+  test "review thread keys identify the thread, action, and transition timestamp" do
     payload = %{
       "action" => "resolved",
       "repository" => repo(),
       "pull_request" => %{"number" => 42},
-      "thread" => %{"node_id" => "PRRT_abc"}
+      "thread" => %{"node_id" => "PRRT_abc"},
+      "updated_at" => "2026-08-09T10:00:00Z"
     }
 
     assert EventKey.derive("pull_request_review_thread", payload) ==
-             "pull_request_review_thread:owner/repo:42:PRRT_abc:resolved"
+             "pull_request_review_thread:owner/repo:PRRT_abc:resolved:2026-08-09T10:00:00Z"
 
     refute EventKey.derive("pull_request_review_thread", payload) ==
              EventKey.derive("pull_request_review_thread", %{payload | "action" => "unresolved"})
@@ -89,6 +90,34 @@ defmodule Aiur.Webhooks.EventKeyTest do
     payload = %{"repository" => repo(), "ref" => "refs/heads/main", "after" => "abc123"}
 
     assert EventKey.derive("push", payload) == "push:owner/repo:refs/heads/main:abc123"
+  end
+
+  test "review-thread keys separate later state transitions" do
+    base = %{
+      "action" => "unresolved",
+      "repository" => repo(),
+      "thread" => %{"node_id" => "PRRT_kwDOabc"},
+      "updated_at" => "2026-08-09T10:00:00Z"
+    }
+
+    later = Map.put(base, "updated_at", "2026-08-09T10:05:00Z")
+
+    assert EventKey.derive("pull_request_review_thread", base) ==
+             EventKey.derive("pull_request_review_thread", base)
+
+    refute EventKey.derive("pull_request_review_thread", base) ==
+             EventKey.derive("pull_request_review_thread", later)
+  end
+
+  test "review-thread keys fail open when GitHub omits the transition timestamp" do
+    payload = %{
+      "action" => "unresolved",
+      "repository" => repo(),
+      "thread" => %{"node_id" => "PRRT_kwDOabc"},
+      "updated_at" => nil
+    }
+
+    assert EventKey.derive("pull_request_review_thread", payload) == nil
   end
 
   test "unknown events and incomplete payloads derive no key" do

@@ -13,10 +13,10 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   gap this file exists to close.
 
   "No poll cycle in between" is asserted, not assumed: a stand-in registered as
-  `Aiur.Orchestrator` must never receive `:run_poll_cycle` for a review
-  submission. If review deliveries were ever routed through the reconciler
-  instead of published directly, the wake would depend on a poll and these tests
-  would fail.
+  `Aiur.Orchestrator` must never receive a dispatcher wake (`:run_poll_cycle`,
+  or a `:request_refresh` call) for a review submission. If review deliveries
+  were ever routed through the reconciler instead of published directly, the
+  wake would depend on a poll and these tests would fail.
 
   The receiver also runs W-4's admission gate ahead of the dispatch, and that
   gate is durable and process-wide. Each test therefore gets its own
@@ -158,6 +158,27 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   end
 
   describe "W-4 admission runs ahead of the dispatch" do
+    test "the admitted delivery id reaches the asynchronous delivery tail" do
+      test_pid = self()
+      delivery_id = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
+      previous_fun = Application.get_env(:aiur, :github_webhook_deliver_fun)
+
+      Application.put_env(:aiur, :github_webhook_deliver_fun, fn event_type, payload, admitted_delivery_id ->
+        send(test_pid, {:delivered, event_type, payload, admitted_delivery_id})
+      end)
+
+      on_exit(fn ->
+        if is_nil(previous_fun),
+          do: Application.delete_env(:aiur, :github_webhook_deliver_fun),
+          else: Application.put_env(:aiur, :github_webhook_deliver_fun, previous_fun)
+      end)
+
+      payload = review_thread_delivery()
+      assert deliver("pull_request_review_thread", payload, delivery: delivery_id).status == 202
+
+      assert_receive {:delivered, "pull_request_review_thread", ^payload, ^delivery_id}, 500
+    end
+
     test "a retried delivery publishes the wake exactly once" do
       :ok = Exchange.subscribe(@topic)
 
@@ -260,6 +281,19 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     }
   end
 
+  defp review_thread_delivery do
+    %{
+      "action" => "unresolved",
+      "repository" => %{"full_name" => @repo},
+      "thread" => %{"id" => 88_001, "node_id" => "PRRT_kwDOabc", "comments" => 1},
+      "updated_at" => nil,
+      "pull_request" => %{
+        "number" => 901,
+        "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef", "repo" => %{"full_name" => @repo}}
+      }
+    }
+  end
+
   # A stand-in for the orchestrator, so a reconcile nudge would be observable.
   # Registered only when the real one is absent; when it is present the test
   # falls back to asserting through it is impossible and skips the check.
@@ -289,6 +323,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
 
   defp refute_received_poll_cycle(_pid) do
     refute_receive {:orchestrator, :run_poll_cycle}, 200
+    refute_receive {:orchestrator, {:"$gen_call", _from, :request_refresh}}, 200
   end
 
   # GitHub stamps every delivery with its own id, so the default here is unique

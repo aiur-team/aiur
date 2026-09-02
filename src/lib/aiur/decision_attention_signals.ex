@@ -97,11 +97,20 @@ defmodule Aiur.DecisionAttentionSignals do
   end
 
   def sync_expiry(%Decision{} = decision, :expired_unanswerable, _now, opts) do
-    open_once(
+    # An expired Command is non-actionable by definition (#2458): the window in
+    # which anyone could have answered it has closed, so re-raising it as
+    # needs-attention demands action nothing can take. The `.resolved` record —
+    # the only form `AlertFeed.resolve_attention_alerts/1` treats as a clear —
+    # retires any raised entry an older build left on the topic while raising
+    # nothing new. The sweep that drives this reconcile visits every historical
+    # expired-unanswerable Command each cycle, so this one branch is also the
+    # boot retirement pass for the whole backlog. The Command itself stays
+    # visible as history on the decision surface, so only the alert-channel
+    # enumeration is dropped, not the record.
+    resolve_if_open(
       expired_topic(decision),
-      "Executor-unanswerable Command #{decision.decision_id} expired without a decision.",
+      "Executor-unanswerable Command #{decision.decision_id} expired without a decision; an expired Command is already over, so the alert is retired rather than re-raised.",
       decision,
-      "The Command expired with no answer while its authority or reversibility kept it outside the Executor's floor; inspect repeated expiries and the upstream classification.",
       opts
     )
   end

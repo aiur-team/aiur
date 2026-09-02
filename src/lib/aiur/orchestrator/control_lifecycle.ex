@@ -5,12 +5,23 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   The Orchestrator owns this projection. Worker messages may move a request
   from `:accepted` to `:applied` only when they carry the exact request ID and
   worker generation that were admitted by the control plane.
+
+  The same durable journal also carries bounded daemon lifecycle events
+  (`:start` / `:stop` with the invoking process's identity), so a second
+  instance or a crash is identifiable after the fact from
+  `<repo>.control-lifecycle.json` in the durable repository Executor state.
   """
 
   alias Aiur.TrackerIdentity
 
   @protocol_version 1
   @default_history_limit 32
+  # Daemon lifecycle events (daemon start/stop) are carried in the same durable
+  # journal as control requests so a second instance or a crash is identifiable
+  # after the fact. The journal is deliberately bounded so an always-on daemon
+  # cannot grow it without limit.
+  @daemon_kinds [:start, :stop]
+  @daemon_event_limit 64
   @pending_statuses [:requested, :accepted]
   @statuses [:requested, :accepted, :applied, :rejected, :expired]
   @actions [:pause, :resume]
@@ -55,7 +66,18 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
             history_limit: @default_history_limit,
             records: %{},
             history_ids: %{},
-            pending: %{}
+            pending: %{},
+            daemon_events: []
+
+  @type daemon_event :: %{
+          kind: :start | :stop,
+          at: DateTime.t(),
+          run_id: String.t(),
+          os_pid: String.t(),
+          ppid: String.t() | nil,
+          ppid_comm: String.t() | nil,
+          hostname: String.t() | nil
+        }
 
   @type t :: %__MODULE__{
           protocol_version: pos_integer(),
@@ -63,7 +85,8 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
           history_limit: pos_integer(),
           records: %{optional(String.t() | pos_integer()) => request()},
           history_ids: %{optional(term()) => [String.t() | pos_integer()]},
-          pending: %{optional(term()) => String.t() | pos_integer()}
+          pending: %{optional(term()) => String.t() | pos_integer()},
+          daemon_events: [daemon_event()]
         }
 
   @doc "Creates an empty, bounded lifecycle projection."
@@ -336,7 +359,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   end
 
   @doc "Returns a redacted, JSON-safe projection for the durable audit journal."
-  @spec dump(t()) :: %{version: pos_integer(), records: [map()]}
+  @spec dump(t()) :: %{version: pos_integer(), records: [map()], daemon_events: [map()]}
   def dump(%__MODULE__{} = lifecycle) do
     records =
       lifecycle.history_ids
@@ -346,17 +369,80 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
       |> Enum.map(&Map.fetch!(lifecycle.records, &1))
       |> Enum.map(&event_payload/1)
 
-    %{version: @protocol_version, records: records}
+    %{
+      version: @protocol_version,
+      records: records,
+      daemon_events: Enum.map(lifecycle.daemon_events, &daemon_event_payload/1)
+    }
+  end
+
+  @doc """
+  Appends a daemon lifecycle event (`:start` or `:stop`) to the durable journal.
+
+  The event identifies the invoking process so a later incident review can tell
+  which instance booted, when, and from which parent. Recording is idempotent
+  per run: a second event with the same `kind` and `run_id` (a re-marked boot,
+  or a stop recorded on both the `prep_stop` and `stop` shutdown paths) is a
+  no-op rather than a duplicate. The journal is bounded to `@daemon_event_limit`
+  events, keeping the most recent entries.
+  """
+  @spec record_daemon_event(t(), :start | :stop, map()) :: t()
+  def record_daemon_event(%__MODULE__{} = lifecycle, kind, attrs)
+      when kind in @daemon_kinds and is_map(attrs) do
+    event = build_daemon_event(kind, attrs)
+
+    if Enum.any?(lifecycle.daemon_events, &(&1.kind == kind and &1.run_id == event.run_id)) do
+      lifecycle
+    else
+      %{lifecycle | daemon_events: (lifecycle.daemon_events ++ [event]) |> Enum.take(-@daemon_event_limit)}
+    end
+  end
+
+  @doc "Returns the recorded daemon lifecycle events, oldest first."
+  @spec daemon_events(t()) :: [daemon_event()]
+  def daemon_events(%__MODULE__{} = lifecycle), do: lifecycle.daemon_events
+
+  @doc false
+  @spec merge_daemon_events(t(), t()) :: t()
+  def merge_daemon_events(%__MODULE__{} = lifecycle, %__MODULE__{} = other) do
+    events =
+      (lifecycle.daemon_events ++ other.daemon_events)
+      |> Enum.uniq_by(&{&1.kind, &1.run_id})
+      |> Enum.sort_by(&DateTime.to_unix(&1.at, :microsecond))
+      |> Enum.take(-@daemon_event_limit)
+
+    %{lifecycle | daemon_events: events}
+  end
+
+  @doc false
+  @spec merge(t(), t()) :: t()
+  def merge(%__MODULE__{} = lifecycle, %__MODULE__{} = other) do
+    records =
+      Map.merge(lifecycle.records, other.records, fn _request_id, left, right ->
+        Enum.max_by([left, right], &request_transition_key/1)
+      end)
+
+    history_limit = max(lifecycle.history_limit, other.history_limit)
+    created_at = earliest_datetime(lifecycle.created_at, other.created_at)
+
+    merged =
+      records
+      |> Map.values()
+      |> Enum.sort_by(&request_history_key/1)
+      |> Enum.reduce(new(now: created_at, history_limit: history_limit), &put_restored_request(&2, &1))
+      |> trim_restored_history()
+
+    merge_daemon_events(merged, %{lifecycle | daemon_events: lifecycle.daemon_events ++ other.daemon_events})
   end
 
   @doc "Restores a previously redacted lifecycle projection, skipping invalid records."
   @spec restore(term(), keyword()) :: t()
-  def restore(%{"version" => @protocol_version, "records" => records}, opts) when is_list(records) do
-    restore_records(records, opts)
+  def restore(%{"version" => @protocol_version, "records" => records} = persisted, opts) when is_list(records) do
+    restore_records(records, opts) |> put_restored_daemon_events(persisted)
   end
 
-  def restore(%{version: @protocol_version, records: records}, opts) when is_list(records) do
-    restore_records(records, opts)
+  def restore(%{version: @protocol_version, records: records} = persisted, opts) when is_list(records) do
+    restore_records(records, opts) |> put_restored_daemon_events(persisted)
   end
 
   def restore(_persisted, opts), do: new(opts)
@@ -478,6 +564,28 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
       &(Map.get(record, &1) == Map.get(attrs, &1))
     )
   end
+
+  defp request_history_key(request) do
+    {DateTime.to_unix(request.requested_at, :microsecond), to_string(request.request_id)}
+  end
+
+  defp request_transition_key(request) do
+    {DateTime.to_unix(request_transition_at(request), :microsecond), status_rank(request.status)}
+  end
+
+  defp request_transition_at(%{status: :applied, applied_at: %DateTime{} = at}), do: at
+  defp request_transition_at(%{status: :rejected, rejected_at: %DateTime{} = at}), do: at
+  defp request_transition_at(%{status: :expired, expiry: %{at: %DateTime{} = at}}), do: at
+  defp request_transition_at(%{status: :accepted, accepted_at: %DateTime{} = at}), do: at
+  defp request_transition_at(request), do: request.requested_at
+
+  defp status_rank(:requested), do: 0
+  defp status_rank(:accepted), do: 1
+  defp status_rank(status) when status in [:applied, :rejected, :expired], do: 2
+
+  defp earliest_datetime(nil, right), do: right
+  defp earliest_datetime(left, nil), do: left
+  defp earliest_datetime(%DateTime{} = left, %DateTime{} = right), do: Enum.min_by([left, right], &DateTime.to_unix(&1, :microsecond))
 
   defp supersede_pending(lifecycle, issue_id, now) do
     case current_pending(lifecycle, issue_id) do
@@ -613,6 +721,73 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   defp trim_restored_history(lifecycle) do
     Enum.reduce(Map.keys(lifecycle.history_ids), lifecycle, &trim_history(&2, &1))
   end
+
+  defp build_daemon_event(kind, attrs) do
+    %{
+      kind: kind,
+      at: daemon_event_at(attrs),
+      run_id: Map.get(attrs, :run_id) || "",
+      os_pid: Map.get(attrs, :os_pid) || "",
+      ppid: string_or_nil(Map.get(attrs, :ppid)),
+      ppid_comm: string_or_nil(Map.get(attrs, :ppid_comm)),
+      hostname: string_or_nil(Map.get(attrs, :hostname))
+    }
+  end
+
+  defp daemon_event_payload(event) do
+    %{
+      kind: event.kind,
+      at: event.at,
+      run_id: event.run_id,
+      os_pid: event.os_pid,
+      ppid: event.ppid,
+      ppid_comm: event.ppid_comm,
+      hostname: event.hostname
+    }
+  end
+
+  defp put_restored_daemon_events(lifecycle, persisted) do
+    events =
+      case persisted_value(persisted, :daemon_events) do
+        raw when is_list(raw) -> Enum.flat_map(raw, &restore_daemon_event/1)
+        _ -> []
+      end
+
+    %{lifecycle | daemon_events: Enum.take(events, -@daemon_event_limit)}
+  rescue
+    _ -> lifecycle
+  end
+
+  defp restore_daemon_event(raw) when is_map(raw) do
+    with {:ok, kind} <- persisted_atom(persisted_value(raw, :kind), @daemon_kinds),
+         {:ok, at} <- restore_datetime(persisted_value(raw, :at)),
+         run_id when is_binary(run_id) and run_id != "" <- persisted_value(raw, :run_id) do
+      [
+        build_daemon_event(kind, %{
+          at: at,
+          run_id: run_id,
+          os_pid: persisted_value(raw, :os_pid),
+          ppid: persisted_value(raw, :ppid),
+          ppid_comm: persisted_value(raw, :ppid_comm),
+          hostname: persisted_value(raw, :hostname)
+        })
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp restore_daemon_event(_raw), do: []
+
+  defp daemon_event_at(attrs) do
+    case Map.get(attrs, :at) do
+      %DateTime{} = value -> value
+      _ -> now!([])
+    end
+  end
+
+  defp string_or_nil(value) when is_binary(value) and value != "", do: value
+  defp string_or_nil(_value), do: nil
 
   defp restore_identity(raw) when is_map(raw) do
     with {:ok, status} <- persisted_atom(persisted_value(raw, :status), [:joinable, :unjoinable]),

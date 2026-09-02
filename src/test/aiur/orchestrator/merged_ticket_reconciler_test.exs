@@ -1,6 +1,8 @@
 defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{Issue, RecentMerge}
   alias Aiur.Orchestrator.{MergedTicketReconciler, State}
 
@@ -209,12 +211,15 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     assert_receive {:merger_checked, "drive-by-bot"}
   end
 
-  test "a merged PR does not close a ticket whose other open PR carries CHANGES_REQUESTED; it routes to rework" do
+  test "a merged PR routes a ticket to rework when its remaining open PR has unresolved review threads" do
     # The acceptance regression: ticket #2307 had two open PRs; the first merged
     # and the reconciler stamped `done`, abandoning the second PR's
-    # CHANGES_REQUESTED findings. The remaining PR must land the ticket in
-    # `rework` — asserting merely "not done" would pass if the reconciler wrote
-    # nothing at all, which is a different bug with the same symptom.
+    # CHANGES_REQUESTED findings. The remaining PR's *unresolved review threads*
+    # must land the ticket in `rework` — asserting merely "not done" would pass
+    # if the reconciler wrote nothing at all, which is a different bug with the
+    # same symptom. This is also the #2450 control: genuinely unresolved threads
+    # must still route to rework, or "does not route" would be indistinguishable
+    # from "routing disabled".
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
     parent = self()
 
@@ -237,7 +242,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
                "review_decision" => "CHANGES_REQUESTED"
              }
            ]}
-        end
+        end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
       )
 
     # The specific label, not a mere "not done".
@@ -246,6 +252,57 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     assert issues == []
     assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
     assert opts[:message] =~ "rework instead of done"
+  end
+
+  test "a CHANGES_REQUESTED remaining PR with zero unresolved review threads does not route the merged ticket to rework" do
+    # #2450 acceptance: `reviewDecision` is sticky — it stays CHANGES_REQUESTED
+    # after the requested changes are pushed, until a reviewer submits a new
+    # review. Routing on the verdict alone re-flips a finished ticket to rework
+    # on every poll (#2309, narrower path). The actionable signal is unresolved
+    # review threads: a PR whose threads are all resolved is merely awaiting a
+    # fresh review, so the merged ticket must keep its state rather than degrade
+    # to rework.
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "human-review"}
+    parent = self()
+
+    log =
+      capture_log(fn ->
+        {_state, issues} =
+          MergedTicketReconciler.reconcile(%State{}, [issue],
+            recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+            now_fun: fn -> @now end,
+            update_issue_state_fun: fn identifier, state_name, expected_state ->
+              send(parent, {:transition, identifier, state_name, expected_state})
+              :ok
+            end,
+            resume_blockees_fun: fn state, _identifier -> state end,
+            emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+            open_pull_requests_fun: fn _identifier ->
+              {:ok,
+               [
+                 %{
+                   "number" => 2318,
+                   "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+                   "review_decision" => "CHANGES_REQUESTED"
+                 }
+               ]}
+            end,
+            unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+          )
+
+        assert issues == []
+      end)
+
+    # The ticket is not routed to rework: it keeps its human-review state.
+    refute_receive {:transition, "1570", "rework", _expected}
+    assert_receive {:transition, "1570", "human-review", "human-review"}
+    refute_receive {:transition, "1570", "done", _expected}
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert opts[:message] =~ "human-review instead of done"
+
+    # The skip is a *named* reason, not a silent "not rework": the gate read the
+    # thread state and deliberately refused rework because the threads are clear.
+    assert log =~ ":no_unresolved_review_threads"
   end
 
   test "a merged PR routes a ticket to human-review when its remaining open PR merely awaits review" do
