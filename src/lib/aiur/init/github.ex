@@ -35,8 +35,8 @@ defmodule Aiur.Init.GitHub do
   def check_ci_readiness(%{kind: "github", repo: repo} = tracker) when is_binary(repo) do
     opts = [repo: repo, base_branch: Config.base_branch(tracker)]
 
-    case System.get_env(CiReadiness.operator_token_env()) do
-      token when is_binary(token) and token != "" -> CiReadiness.check(Keyword.put(opts, :token, token))
+    case readiness_operator_token() do
+      token when is_binary(token) -> CiReadiness.check(Keyword.put(opts, :token, token))
       _ -> CiReadiness.check(Keyword.put(opts, :workflow_presence_only, true))
     end
   end
@@ -62,16 +62,22 @@ defmodule Aiur.Init.GitHub do
             {:error, "Repository CI readiness was verified but could not be saved for the daemon: #{inspect(reason)}"}
         end
 
+      {:ok, %{issues: [:base_branch_missing]} = readiness} ->
+        {:error, missing_base_branch_message(tracker, readiness)}
+
       {:ok, readiness} ->
         case persist_operator_assessment(readiness, tracker) do
           :ok ->
-            io.puts.("CI readiness setup error: " <> CiReadiness.format(readiness))
-            maybe_scaffold_ci(io, deps, readiness)
+            io.puts.(ci_readiness_purpose() <> "\n" <> CiReadiness.format(readiness))
+            maybe_scaffold_ci(io, deps, readiness, tracker)
             {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
 
           {:error, reason} ->
             {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
         end
+
+      {:error, {:repository_access_failed, reason}} ->
+        {:error, repository_access_message(tracker, reason)}
 
       {:error, reason} ->
         {:error, readiness_error_message(reason)}
@@ -84,8 +90,8 @@ defmodule Aiur.Init.GitHub do
   defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())
 
   defp persist_operator_assessment(readiness, tracker) do
-    case System.get_env(CiReadiness.operator_token_env()) do
-      token when is_binary(token) and token != "" ->
+    case readiness_operator_token() do
+      token when is_binary(token) ->
         CiReadiness.persist_assessment(readiness,
           repo: tracker.repo,
           base_branch: Config.base_branch(tracker),
@@ -108,24 +114,71 @@ defmodule Aiur.Init.GitHub do
 
   defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
 
-  defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}) do
+  defp ci_readiness_purpose do
+    "Pull-request workflows run checks, while making `ci / required` a required status check prevents failed work from merging."
+  end
+
+  defp missing_base_branch_message(tracker, readiness) do
+    repo = tracker.repo
+    base_branch = Map.get(readiness, :base_branch, Config.base_branch(tracker))
+
+    "Repository #{repo} is visible, but configured branch `#{base_branch}` from `tracker.base_branch` does not exist. " <>
+      "Check the repository default with `gh api repos/#{repo} -q .default_branch`, update `tracker.base_branch`, then rerun `aiur init`."
+  end
+
+  defp repository_access_message(tracker, reason) do
+    repo = tracker.repo
+    base_branch = Config.base_branch(tracker)
+    credential_source = active_readiness_credential_source()
+
+    "Repository CI readiness could not access #{repo} while checking configured branch `#{base_branch}` from `tracker.base_branch` " <>
+      "with #{credential_source} (#{format_access_reason(reason)}). Authorize #{credential_source} for #{repo}; " <>
+      "if the organization enforces SAML SSO, authorize that token for SAML SSO too. " <>
+      "Check the repository default with `gh api repos/#{repo} -q .default_branch`, then rerun `aiur init`."
+  end
+
+  defp active_readiness_credential_source do
+    case readiness_operator_token() do
+      token when is_binary(token) -> CiReadiness.operator_token_env()
+      _ -> "GITHUB_TOKEN"
+    end
+  end
+
+  defp readiness_operator_token do
+    case System.get_env(CiReadiness.operator_token_env()) do
+      token when is_binary(token) and token != "" -> token
+      _ -> nil
+    end
+  end
+
+  defp format_access_reason({:github, _kind, %{status: status}}), do: "GitHub HTTP #{status}"
+  defp format_access_reason(reason), do: inspect(reason)
+
+  defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}, tracker) do
     if io.confirm.("No pull-request CI workflow found — scaffold .github/workflows/ci.yml?", true) do
       path = Path.join([deps.repo_root.(), ".github", "workflows", "ci.yml"])
-      scaffold_ci(io, path)
+      scaffold_ci(io, path, Config.base_branch(tracker))
     end
   end
 
-  defp maybe_scaffold_ci(_io, _deps, _readiness), do: :ok
+  defp maybe_scaffold_ci(_io, _deps, _readiness, _tracker), do: :ok
 
-  defp scaffold_ci(io, path) do
+  defp scaffold_ci(io, path, base_branch) do
     case File.exists?(path) do
       true -> io.puts.("CI scaffold skipped: #{path} already exists.")
-      false -> report_scaffold_write(io, path, write_scaffold(path))
+      false -> report_scaffold_write(io, path, base_branch, write_scaffold(path))
     end
   end
 
-  defp report_scaffold_write(io, path, :ok), do: io.puts.("Created #{path}. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
-  defp report_scaffold_write(io, _path, {:error, reason}), do: io.puts.("CI scaffold could not be written: #{inspect(reason)}")
+  defp report_scaffold_write(io, path, base_branch, :ok) do
+    io.puts.(
+      "Created #{path}. After the workflow runs on a pull request, open GitHub Settings → Rules → Rulesets for branch `#{base_branch}` " <>
+        "and make `ci / required` a required status check so failed work cannot merge; then rerun `aiur init`."
+    )
+  end
+
+  defp report_scaffold_write(io, _path, _base_branch, {:error, reason}),
+    do: io.puts.("CI scaffold could not be written: #{inspect(reason)}")
 
   defp write_scaffold(path) do
     case File.mkdir_p(Path.dirname(path)) do

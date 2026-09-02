@@ -7,6 +7,9 @@ defmodule Aiur.Config.Schema.ElevenLabs do
 
   @primary_key false
   embedded_schema do
+    # Explicitly false records an init decline and suppresses both configured
+    # and ambient credentials. Default true preserves legacy configs.
+    field(:enabled, :boolean, default: true)
     # ElevenLabs speech-to-text credential for Stream Deck voice input. A secret:
     # prefer the `$ELEVENLABS_API_KEY` env reference over an inline value, and
     # note the daemon scrubs `*_API_KEY` from every agent environment.
@@ -21,6 +24,6 @@ defmodule Aiur.Config.Schema.ElevenLabs do
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
-    cast(schema, attrs, [:api_key, :language_code, :voice_id], empty_values: [])
+    cast(schema, attrs, [:enabled, :api_key, :language_code, :voice_id], empty_values: [])
   end
 end

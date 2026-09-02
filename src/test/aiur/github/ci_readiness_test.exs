@@ -265,14 +265,48 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
   end
 
-  test "reports a missing configured base branch before inspecting workflows" do
+  test "reports a missing configured base branch only after establishing repository visibility" do
+    parent = self()
+
     request_fun = fn %{url: url} ->
-      assert url =~ "/branches/develop"
-      {:ok, %{status: 404, body: %{}}}
+      send(parent, {:requested, url})
+
+      if String.ends_with?(url, "/repos/owner/repo") do
+        {:ok, %{status: 200, body: %{"default_branch" => "main"}}}
+      else
+        assert url =~ "/branches/develop"
+        {:ok, %{status: 404, body: %{}}}
+      end
     end
 
     assert {:ok, %{ready?: false, issues: [:base_branch_missing]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+
+    assert_receive {:requested, repo_url}
+    assert String.ends_with?(repo_url, "/repos/owner/repo")
+    assert_receive {:requested, branch_url}
+    assert branch_url =~ "/branches/develop"
+    refute_receive {:requested, _url}
+  end
+
+  for status <- [403, 404] do
+    test "classifies repository HTTP #{status} as access failure without probing the branch" do
+      status = unquote(status)
+      parent = self()
+
+      request_fun = fn %{url: url} ->
+        send(parent, {:requested, url})
+        assert String.ends_with?(url, "/repos/owner/repo")
+        {:ok, %{status: status, body: %{}}}
+      end
+
+      assert {:error, {:repository_access_failed, {:github, :http, %{status: ^status}}}} =
+               CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+
+      assert_receive {:requested, repo_url}
+      assert String.ends_with?(repo_url, "/repos/owner/repo")
+      refute_receive {:requested, _url}
+    end
   end
 
   test "reports a missing workflow without needing Actions or Administration access" do
@@ -310,10 +344,11 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:ok, %{issues: [:no_pr_workflow, :no_required_check]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", branch)
 
+    assert_receive {:readiness_url, repo_url}
+    assert String.ends_with?(repo_url, "/repos/owner/repo")
+
     assert_receive {:readiness_url, branch_url}
     assert branch_url =~ "/branches/feature%2F%23%26gate"
-
-    assert_receive {:readiness_url, _repo_url}
 
     assert_receive {:readiness_url, workflow_url}
     assert workflow_url =~ "?ref=feature%2F%23%26gate"

@@ -178,27 +178,29 @@ defmodule Aiur.Init do
   defp provision(io, deps, tracker, agents, pair \\ default_rate_limit_pair())
 
   defp provision(io, deps, %{kind: "github"} = tracker, agents, pair) do
-    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
-
-    if github_token_present?(deps) do
-      provision_github_with_token(io, deps, tracker, agents, pair)
-    else
-      token_setup_instructions(io)
-      :ok
+    with :ok <- Aiur.Init.AgentCli.check_agent_clis(io, deps, agents) do
+      if github_token_present?(deps) do
+        provision_github_with_token(io, deps, tracker, agents, pair)
+      else
+        token_setup_instructions(io)
+        :ok
+      end
     end
   end
 
   defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair) do
-    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
-    linear_walkthrough(io, tracker)
-    final_screen(io)
-    :ok
+    with :ok <- Aiur.Init.AgentCli.check_agent_clis(io, deps, agents) do
+      linear_walkthrough(io, tracker)
+      final_screen(io)
+      :ok
+    end
   end
 
   defp provision(io, deps, _tracker, agents, _pair) do
-    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
-    final_screen(io)
-    :ok
+    with :ok <- Aiur.Init.AgentCli.check_agent_clis(io, deps, agents) do
+      final_screen(io)
+      :ok
+    end
   end
 
   defp provision_github_with_token(io, deps, tracker, agents, pair) do

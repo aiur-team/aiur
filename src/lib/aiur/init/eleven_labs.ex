@@ -34,13 +34,12 @@ defmodule Aiur.Init.ElevenLabs do
   end
 
   @doc """
-  The `elevenlabs:` YAML block, or empty iodata when the operator declined.
+  The `elevenlabs:` YAML block for an accepted or declined answer.
 
   The single renderer for both `aiur init` paths — the fresh-setup template fill
   (`{{ELEVENLABS_SECTION}}`) and the resume backfill append — so the same answer
-  always produces the same config. Declining renders nothing at all, which is
-  what leaves the section *missing* and therefore offerable again on a later
-  resume.
+  always produces the same valid configuration. A decline is explicit so a
+  later resume remembers it and ambient credentials cannot override it.
   """
   @spec eleven_labs_section_yaml(map()) :: iodata()
   def eleven_labs_section_yaml(%{enabled: true} = answer) do
@@ -50,13 +49,20 @@ defmodule Aiur.Init.ElevenLabs do
       "# api_key is a SECRET: keep it as the literal `#{@env_reference}` reference and put the value in `.env`.\n",
       "# aiur scrubs every `*_API_KEY` variable from agent environments and never logs the key.\n",
       "elevenlabs:\n",
+      "  enabled: true\n",
       "  api_key: #{api_key_value(answer)}\n",
       "  language_code: #{@language_code}  # ISO-639-3 transcription language (\"eng\" = English)\n",
       "  voice_id: null  # Stock or owned ElevenLabs voice; also grant the key Text to Speech permission\n"
     ]
   end
 
-  def eleven_labs_section_yaml(_answer), do: []
+  def eleven_labs_section_yaml(_answer) do
+    [
+      "# === Voice input and playback (declined in `aiur init`; ElevenLabs) ===\n",
+      "elevenlabs:\n",
+      "  enabled: false\n"
+    ]
+  end
 
   defp api_key_value(%{api_key: key}) when is_binary(key) do
     case String.trim(key) do

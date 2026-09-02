@@ -35,8 +35,9 @@ defmodule Aiur.Init.Resume do
          "workspace_root: #{workspace["root"]}",
          "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
          "polling_interval_seconds: #{polling["interval_seconds"]}",
+         prewarm_summary_line(config["prewarm"]),
          alerts_summary_line(config),
-         config["elevenlabs"] && "elevenlabs_voice_input: #{elevenlabs_key_state(config["elevenlabs"])}",
+         optional_section_state("elevenlabs_voice_input", config["elevenlabs"], &elevenlabs_key_state/1),
          config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
        ])
     |> Enum.reject(&is_nil/1)
@@ -59,6 +60,16 @@ defmodule Aiur.Init.Resume do
       _ -> nil
     end
   end
+
+  defp prewarm_summary_line(nil), do: nil
+  defp prewarm_summary_line(%{"enabled" => true}), do: "prewarm: enabled"
+  defp prewarm_summary_line(_prewarm), do: "prewarm: declined"
+
+  # ElevenLabs predates its enabled key, so a present legacy section remains
+  # enabled unless it explicitly records enabled: false.
+  defp optional_section_state(_label, nil, _detail), do: nil
+  defp optional_section_state(label, %{"enabled" => false}, _detail), do: "#{label}: declined"
+  defp optional_section_state(label, section, detail), do: "#{label}: enabled (#{detail.(section)})"
 
   # The ElevenLabs credential is a secret, so the readback reports only whether
   # one is configured — never the value (nor the env reference's resolved key).
@@ -133,7 +144,7 @@ defmodule Aiur.Init.Resume do
   #   * `label`     — human name for the "Added …" confirmation line
   #   * `prompt`    — `(io, deps, location) -> answer`; the fresh-setup prompt
   #   * `opted_in?` — `(answer) -> boolean`; did the user choose to add it?
-  #   * `to_yaml`   — `(answer) -> iodata`; the YAML block to append on opt-in
+  #   * `to_yaml`   — `(answer) -> iodata`; the accepted or declined YAML block
   #   * `first_run` — `(io, deps, target, tracker, answer) -> any`; one-time side
   #                   effect after the block is appended (gets the config target
   #                   so it can write sibling files, e.g. the `prewarm` script)
@@ -160,9 +171,9 @@ defmodule Aiur.Init.Resume do
   end
 
   # For each registered section the saved config lacks, reuse its fresh-setup
-  # prompt to offer adding it. On opt-in, append the rendered block to the
-  # existing file (never regenerate — hand-tuned settings stay put) and run the
-  # section's one-time side effect. Declining leaves the config untouched.
+  # prompt to offer adding it. Append the accepted or declined block to the
+  # existing file (never regenerate — hand-tuned settings stay put), and run
+  # the section's one-time side effect only for accepted answers.
   @spec backfill_missing_sections(Aiur.Init.io(), Aiur.Init.deps(), atom(), map(), map(), Path.t()) :: :ok
   def backfill_missing_sections(io, deps, location, tracker, config, target) do
     promptable_sections()
@@ -177,9 +188,9 @@ defmodule Aiur.Init.Resume do
   def offer_section(io, deps, location, tracker, target, section) do
     answer = section.prompt.(io, deps, location)
 
-    # Only run the one-time side effect once the section actually persisted —
-    # mirrors fresh setup, which builds the warm base only on a successful write.
-    if section.opted_in?.(answer) and append_section(io, deps, target, section, answer) == :ok do
+    # Only run the one-time side effect for an accepted answer after the section
+    # actually persisted — mirrors fresh setup's warm-base behavior.
+    if append_section(io, deps, target, section, answer) == :ok and section.opted_in?.(answer) do
       section.first_run.(io, deps, target, tracker, answer)
     end
   end

@@ -395,8 +395,8 @@ defmodule Aiur.GitHub.CiReadiness do
       when is_function(request_fun, 1) and is_binary(token) and is_binary(base_branch) do
     base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
 
-    with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
-         {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
+    with {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
+         :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
          {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{encode_query_value(base_branch)}") do
       inspect_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries, opts)
     else
@@ -445,12 +445,26 @@ defmodule Aiur.GitHub.CiReadiness do
     # config sub-paths (`/branches/…`, `/contents/.github/workflows`,
     # `/actions/workflows`, `/rulesets`) are classified as `:repo_config`.
     case request_fun.(%{method: :get, url: base_url, token: token, caller: "ci_readiness"}) do
-      {:ok, %{status: 200, body: %{"default_branch" => branch}}} when is_binary(branch) -> {:ok, branch}
-      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
-      _ -> {:error, :invalid_repository_response}
+      {:ok, %{status: 200, body: %{"default_branch" => branch}}} when is_binary(branch) ->
+        {:ok, branch}
+
+      {:ok, %{status: _} = response} ->
+        response
+        |> Errors.github_status_error()
+        |> classify_repository_error()
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+
+      _ ->
+        {:error, :invalid_repository_response}
     end
   end
+
+  defp classify_repository_error({:github, :http, %{status: status}} = reason) when status in [403, 404],
+    do: {:error, {:repository_access_failed, reason}}
+
+  defp classify_repository_error(reason), do: {:error, reason}
 
   @doc "Pure readiness decision used by the HTTP adapter and tests."
   @spec evaluate(String.t(), [{String.t(), String.t()}], [String.t() | map()]) :: result()
