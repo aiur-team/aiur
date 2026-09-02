@@ -94,7 +94,8 @@ defmodule Aiur.TestSupport do
     :repo_base_root,
     :executor_state_dir,
     :loadavg_source_override,
-    :proc_stat_source_override
+    :proc_stat_source_override,
+    :workflow_store_config_reader
   ]
 
   # A quiet host: no load pressure, and a `/proc/stat` whose counters advance on

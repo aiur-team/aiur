@@ -344,9 +344,24 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
+  # The loaded workflow and the freshness stamp that decides when to load again
+  # MUST come from the same bytes. They used to come from two separate reads of
+  # the config — `Workflow.load/1` and then `stamp_with_context/3` — with a
+  # window between them. A write landing in that window (a `write_workflow_file!`
+  # in a concurrent test, an operator editing config while the poll runs) made
+  # the store record the *new* content's digest against the *old* content's
+  # workflow. Every later stamp comparison then reported "unchanged", so the
+  # pre-write config was served from `Cache` indefinitely — until some further
+  # edit moved the digest again. That is the `core_test` "config defaults and
+  # validation checks" flake: `max_concurrent_builds: -1` outliving the write
+  # that replaced it with `0`, surfacing as an `ArgumentError` from a later
+  # `Config.settings!/0`.
+  #
+  # One read, then parse and stamp that value.
   defp load_state(path, attempts \\ @reload_attempts) do
-    with {:ok, workflow} <- Workflow.load(path),
-         {:ok, stamp, digest, aux} <- stamp_with_context(path, nil, nil) do
+    with {:ok, content} <- read_config(path),
+         {:ok, workflow} <- Workflow.parse_config(content, path),
+         {:ok, stamp, digest, aux} <- stamp_for_content(path, content, nil, nil) do
       {:ok,
        %State{
          path: path,
@@ -383,8 +398,15 @@ defmodule Aiur.WorkflowStore do
   # carry the resolved paths in state; the steady-state poll now does one config
   # read plus one read per referenced file, and no parsing at all.
   defp stamp_with_context(path, known_digest, known_aux) do
-    with {:ok, stat} <- File.stat(path, time: :posix),
-         {:ok, content} <- File.read(path) do
+    with {:ok, content} <- read_config(path) do
+      stamp_for_content(path, content, known_digest, known_aux)
+    end
+  end
+
+  # Stamps content the caller already holds, so a caller that also parses that
+  # content cannot pair it with another read's digest. See `load_state/2`.
+  defp stamp_for_content(path, content, known_digest, known_aux) do
+    with {:ok, stat} <- File.stat(path, time: :posix) do
       digest = :erlang.phash2(content)
       aux = if digest == known_digest and is_map(known_aux), do: known_aux, else: resolve_aux_paths(path)
 
@@ -394,6 +416,28 @@ defmodule Aiur.WorkflowStore do
       {:ok, stamp, digest, aux}
     else
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The single read that backs both the parsed workflow and its stamp.
+  #
+  # Injectable through `:workflow_store_config_reader` so a test can land a
+  # write in the instant after the store reads the config — the interleaving
+  # that used to leave the store permanently stale — without racing a real
+  # writer against it. `:workflow_store_call_timeout_ms` exists for the
+  # saturation repro for the same reason.
+  defp read_config(path) do
+    reader = Application.get_env(:aiur, :workflow_store_config_reader)
+
+    if Workflow.legacy_config_path?(path) do
+      {:error, Workflow.legacy_config_error(path)}
+    else
+      read_result = if is_function(reader, 1), do: reader.(path), else: File.read(path)
+
+      case read_result do
+        {:ok, content} when is_binary(content) -> {:ok, content}
+        {:error, reason} -> {:error, {:missing_workflow_file, path, reason}}
+      end
     end
   end
 
