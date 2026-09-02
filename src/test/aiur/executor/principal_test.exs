@@ -45,9 +45,10 @@ defmodule Aiur.Executor.PrincipalTest do
     assert observer["role"] == "observer"
     assert is_binary(observer["last_renewed_at"])
 
-    renewed = eventually(fn -> renewed_entry(path, "executor-b", observer["last_renewed_at"]) end)
+    renewed_once = eventually(fn -> renewed_entry(path, "executor-b", observer["last_renewed_at"]) end)
+    renewed_twice = eventually(fn -> renewed_entry(path, "executor-b", renewed_once["last_renewed_at"]) end)
 
-    assert renewed["role"] == "observer"
+    assert renewed_twice["role"] == "observer"
     assert {:ok, %{"id" => "executor-a"}} = Claims.owner(path: path)
   end
 
