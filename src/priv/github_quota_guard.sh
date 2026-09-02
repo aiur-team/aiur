@@ -634,12 +634,14 @@ command_key="$command_name $subcommand_name"
 # an unset variable — a separate-account install, an older workspace, a `gh`
 # invoked outside an agent environment — leaves argv untouched byte for byte.
 #
-# Only the inline `--body`/`-b` forms are rewritten. `--body-file` and stdin are
-# deliberately left alone rather than rewritten through a temp file: the guard
-# would have to copy agent-controlled content to a new path and pass that path
-# on, which is a wider blast radius than the marker is worth. An unstamped
-# comment is read as human by `Aiur.Events.Publisher`, so the cost of skipping
-# them is a redundant agent wake, never a swallowed instruction.
+# The inline `--body`/`-b`/`--body=` forms are rewritten in argv. The
+# `--body-file`/`--body-file=`/`-F` forms are stamped by copying the agent's
+# file to a marked temp copy and passing that path on — the agent's own file is
+# never edited, because it may be read again after the call. Stdin (`-F -`) is
+# the one form that genuinely cannot be rewritten without buffering an unbounded
+# stream, so it stays unmarked. An unstamped comment is read as human by
+# `Aiur.Events.Publisher`, so the cost of skipping stdin is a redundant agent
+# wake, never a swallowed instruction.
 marker_tmp_files=
 if [ -n "${AIUR_AGENT_COMMENT_MARKER:-}" ]; then
   case "$command_key" in
@@ -714,10 +716,30 @@ $AIUR_AGENT_COMMENT_MARKER" ;;
         set -- "$@" "$arg"
         marker_index=$((marker_index + 1))
       done
-      unset marker_count marker_index marker_prior marker_stamp
+      unset marker_count marker_index marker_prior marker_stamp marker_stamp_file
       ;;
   esac
 fi
+
+# Marked copies of an agent's `--body-file` (#2501) live only for the duration
+# of the call that sends them. The trap is armed here, immediately after the
+# copies can first exist, rather than alongside the budget traps far below:
+# every `exit` in between (the agent refusals, the budget-unavailable refusal,
+# the validate-only and cache-hit successes) would otherwise leak one file per
+# call into TMPDIR. `rm -f` on an unset/empty list is a no-op, so this is
+# harmless when the marker block did not run at all — separate-account mode, a
+# non-comment command, or a `-` stdin invocation where no copy is made.
+marker_cleanup() {
+  [ -n "${marker_tmp_files:-}" ] || return 0
+  rm -f $marker_tmp_files 2>/dev/null || true
+  marker_tmp_files=
+}
+
+# `budget_release` is not defined yet at this point in the script, so these
+# traps clean up the marker only. They are replaced below — once the budget
+# helpers exist — by traps that do both.
+trap 'marker_cleanup; exit 143' HUP INT TERM
+trap 'marker_cleanup' 0
 
 if [ "$command_key" = "issue create" ]; then
   disposition=0
@@ -2744,15 +2766,9 @@ if slurp:
 PY
 }
 
-# Marked copies of an agent's `--body-file` (#2501) live only for the duration
-# of the call that sends them. Cleared alongside the budget lease so no exit
-# path leaks them, and `rm -f` on an unset/empty list is a no-op.
-marker_cleanup() {
-  [ -n "${marker_tmp_files:-}" ] || return 0
-  rm -f $marker_tmp_files 2>/dev/null || true
-  marker_tmp_files=
-}
-
+# `marker_cleanup` is defined and armed beside the marker block itself, so the
+# early refusal exits do not leak a temp copy. Now that `budget_release` exists,
+# widen the same traps to release the budget lease as well.
 trap 'marker_cleanup; budget_release; exit 143' HUP INT TERM
 trap 'marker_cleanup; budget_release' 0
 

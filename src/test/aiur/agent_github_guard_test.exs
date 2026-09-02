@@ -654,6 +654,59 @@ defmodule Aiur.AgentGitHubGuardTest do
       refute File.exists?(sent_path)
     end
 
+    # The happy path deletes the marked copy on the way out, but the refusal
+    # paths `exit` long before the budget traps are installed. Arming the
+    # cleanup trap beside the marker block is what makes these exits clean;
+    # with the trap left at its old position each refused call leaks one
+    # `aiur-marked-body.*` into TMPDIR, one file per agent comment attempt.
+    test "a refused call does not leak the marked copy into TMPDIR", context do
+      body_file = Path.join(context.workspace, "refused.md")
+      File.write!(body_file, "Please approve.\n")
+
+      for {args, expected_status, expected_message} <- [
+            {["pr", "review", "1670", "--approve", "--body-file", body_file], 77,
+             "agents cannot approve or merge pull requests"},
+            {["pr", "comment", "1670", "--body-file", body_file], 75,
+             "GitHub shared budget unavailable"}
+          ] do
+        tmp = Path.join(context.workspace, "tmpdir-#{System.unique_integer([:positive])}")
+        File.mkdir_p!(tmp)
+
+        # `--body-file` alone does not reach the budget gate, so the second
+        # case forces the budget-unavailable refusal with a root that holds no
+        # usable broker.
+        budget_env =
+          if expected_status == 75 do
+            [
+              AIUR_GITHUB_BUDGET_ENABLED: "1",
+              AIUR_GITHUB_BUDGET_ROOT: Path.join(tmp, "absent-budget")
+            ]
+          else
+            []
+          end
+
+        {output, status} =
+          run_guard(
+            context,
+            args,
+            [TMPDIR: tmp, AIUR_AGENT_COMMENT_MARKER: @marker] ++ budget_env
+          )
+
+        assert status == expected_status, "unexpected status for #{inspect(args)}: #{output}"
+        assert output =~ expected_message
+
+        leaked =
+          tmp
+          |> File.ls!()
+          |> Enum.filter(&String.starts_with?(&1, "aiur-marked-body."))
+
+        assert leaked == [], "refusal #{expected_status} leaked #{inspect(leaked)} into TMPDIR"
+
+        # The agent's own file is untouched by a refused call.
+        assert File.read!(body_file) == "Please approve.\n"
+      end
+    end
+
     test "a command that is not a comment write is never rewritten", context do
       forwarded =
         forwarded_args(context, ["issue", "view", "1670", "--json", "body"], AIUR_AGENT_COMMENT_MARKER: @marker)
