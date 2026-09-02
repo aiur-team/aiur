@@ -32,7 +32,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.Config.Schema.Webhooks, as: WebhookSettings
-  alias Aiur.Webhooks.{DeliveryMode, ModeTable}
+  alias Aiur.Webhooks.{DeliveryMode, DeliveryModeEvents, ModeTable}
 
   @type server :: GenServer.server()
 
@@ -397,6 +397,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
   # operator who has been shown enough false ones stops reading the true one.
   defp announce(state, %DeliveryMode{repo: repo} = mode, :degraded) do
     seconds = div(state.silence_threshold_ms, 1_000)
+    DeliveryModeEvents.publish(mode, :degraded)
 
     publish_degraded(repo)
 
@@ -432,10 +433,14 @@ defmodule Aiur.Webhooks.ModeRegistry do
     )
   end
 
-  defp announce(state, %DeliveryMode{repo: repo}, :recovered) do
+  defp announce(state, %DeliveryMode{repo: repo} = mode, :recovered) do
     # The trailing-edge signal: the gap has closed, so every projection that
     # rode the event stream through the degraded window re-lists to recover what
-    # the gap dropped.
+    # the gap dropped. Published on both channels: `DeliveryModeEvents`
+    # (`{:webhook_mode_changed, ...}`, the #2313 Build Order projection) and the
+    # `@recovered_topic` broadcast (`{:webhook_recovered, repo}`, the #2325
+    # view-state sources).
+    DeliveryModeEvents.publish(mode, :recovered)
     publish_recovered(repo)
 
     emit(
