@@ -814,6 +814,27 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute_receive {:event, %{topic: ^operator_pause_topic}}, 100
     end
 
+    test "an explicit worker pause cause overrides pending CI wait" do
+      identifier = unique_identifier("ci-explicit-pause")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      pending =
+        issue
+        |> running_state(recorder, :working, [])
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      assert_receive {:recorded, 1, {:pause_agent, _request_id, 101}}
+
+      assert {:noreply, paused} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, identifier, :paused, %{kind: :usage_limit_exhausted}},
+                 pending
+               )
+
+      assert paused.running[identifier].paused_reason == :usage_limit_exhausted
+    end
+
     test "a matching fallback token revalidates, queues one-check guidance, and resumes" do
       identifier = unique_identifier("ci-rewake")
       recorder = start_recorder()
