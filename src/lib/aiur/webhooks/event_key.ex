@@ -68,12 +68,12 @@ defmodule Aiur.Webhooks.EventKey do
   end
 
   defp identity("pull_request_review_thread", payload) do
-    with pull_request when is_map(pull_request) <- Map.get(payload, "pull_request"),
-         number when is_integer(number) <- Map.get(pull_request, "number"),
-         thread when is_map(thread) <- Map.get(payload, "thread"),
-         id when not is_nil(id) <- Map.get(thread, "node_id") || Map.get(thread, "id"),
-         action when is_binary(action) <- Map.get(payload, "action") do
-      [Integer.to_string(number), to_string(id), action]
+    with thread when is_map(thread) <- Map.get(payload, "thread"),
+         node_id when is_binary(node_id) and node_id != "" <- Map.get(thread, "node_id"),
+         action when is_binary(action) <- Map.get(payload, "action"),
+         updated_at when is_binary(updated_at) and updated_at != "" <-
+           Map.get(payload, "updated_at") || Map.get(thread, "updated_at") do
+      [node_id, action, updated_at]
     else
       _ -> nil
     end

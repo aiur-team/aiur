@@ -319,6 +319,74 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
                ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review, @repo, 9204))
     end
 
+    test "pull_request_review_thread deposits its resolution generation" do
+      payload = %{
+        "action" => "unresolved",
+        "repository" => %{"full_name" => @repo},
+        "thread" => %{"id" => 88_001, "node_id" => "PRRT_kwDOabc", "comments" => 1},
+        "updated_at" => "2026-08-21T12:00:00Z",
+        "pull_request" => %{
+          "number" => 77,
+          "head" => %{"ref" => "aiur/42-a-ticket", "repo" => %{"full_name" => @repo}}
+        }
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok,
+              %{
+                data: %{
+                  "webhook_action" => "unresolved",
+                  "generation" => "2026-08-21T12:00:00Z",
+                  "latest_unresolved_generation" => "2026-08-21T12:00:00Z",
+                  "updated_at" => "2026-08-21T12:00:00Z"
+                }
+              }} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
+
+      # The transition keeps its own clock in the marker data, never the entry's
+      # version slot (which the comment pipe also writes on this same key).
+      assert {:ok, %{version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
+    end
+
+    test "a null review-thread timestamp uses the admitted delivery id as its generation" do
+      payload = %{
+        "action" => "unresolved",
+        "repository" => %{"full_name" => @repo},
+        "thread" => %{"id" => 88_002, "node_id" => "PRRT_kwDOnull", "comments" => 1},
+        "updated_at" => nil,
+        "pull_request" => %{
+          "number" => 77,
+          "head" => %{"ref" => "aiur/42-a-ticket", "repo" => %{"full_name" => @repo}}
+        }
+      }
+
+      assert %{status: :reconciled, hint: %{generation: "delivery-fallback"}} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 delivery_id: "delivery-fallback",
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok, %{data: %{"generation" => "delivery-fallback"}, version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOnull"))
+
+      assert %{status: :reconciled, hint: %{generation: "manual-redelivery"}} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 delivery_id: "manual-redelivery",
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok, %{data: %{"generation" => "delivery-fallback"}, version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOnull"))
+    end
+
     test "pull_request deposits the pull request even when the event only reconciles" do
       # `synchronize` normalizes to a CI reconcile and publishes nothing, so a
       # deposit driven off the publish outcome would miss it entirely.
@@ -447,11 +515,14 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       }
 
       # A thread delivery also deposits the full PR it carries — the half that
-      # feeds `DeliveredPullRequest` (#2326) — alongside the snapshot merge.
+      # feeds `DeliveredPullRequest` (#2326) — alongside the snapshot merge and
+      # the transition marker (#2279) that records the resolve/unresolve
+      # generation.
       assert [
                ResourceStore.key_for_repo(:pull_request, @repo, 77),
                ResourceStore.key_for_repo(:branch_pull_request, @repo, 42),
-               PollSnapshots.review_threads_key(@repo, 77)
+               PollSnapshots.review_threads_key(@repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5502")
              ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
@@ -475,10 +546,12 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       }
 
       # The unknown thread is not merged into the empty snapshot, but the PR the
-      # delivery carries is still deposited (#2326).
+      # delivery carries is still deposited (#2326) and the transition marker is
+      # still recorded (#2279).
       assert [
                ResourceStore.key_for_repo(:pull_request, @repo, 77),
-               PollSnapshots.review_threads_key(@repo, 77)
+               PollSnapshots.review_threads_key(@repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_unknown")
              ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
@@ -499,7 +572,8 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert [
                ResourceStore.key_for_repo(:pull_request, @repo, 77),
-               PollSnapshots.review_threads_key(@repo, 77)
+               PollSnapshots.review_threads_key(@repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5504")
              ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", resolved, @repo)
 
@@ -515,8 +589,12 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       }
 
       # An invalidation writes no body, so it reports no thread key — but the
-      # delivery's PR half is still deposited (#2326).
-      assert [ResourceStore.key_for_repo(:pull_request, @repo, 77)] ==
+      # delivery's PR half is still deposited (#2326) and the transition marker
+      # still advances (#2279).
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5504")
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", unresolved, @repo)
 
       assert :miss = PollSnapshots.review_threads(@repo, 77)
@@ -557,11 +635,13 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       # A thread delivery also deposits the full PR it carries — including its
       # `:branch_pull_request` sibling when the head branch is a ticket — which
       # is what keeps `DeliveredPullRequest` from falling into the per-PR
-      # `review_threads_unaddressed` fallback (#2326).
+      # `review_threads_unaddressed` fallback (#2326), plus the transition
+      # marker (#2279).
       assert [
                ResourceStore.key_for_repo(:pull_request, @repo, 77),
                ResourceStore.key_for_repo(:branch_pull_request, @repo, 42),
-               PollSnapshots.review_threads_key(@repo, 77)
+               PollSnapshots.review_threads_key(@repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5503")
              ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
