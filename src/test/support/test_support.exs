@@ -601,9 +601,9 @@ defmodule Aiur.TestSupport do
   function of the machine. This helper keys on provenance instead, which is
   knowable without waiting to see what happens:
 
-    * an application-owned endpoint outlives every test — the supervisor that
-      holds it is never stopped by a test, and restarts it if one tries — so it
-      is safe to reuse;
+    * an application-owned endpoint is reused, because in the ordinary case the
+      supervisor holding it is not stopped by a test and restarts it if one
+      tries;
 
     * anything else registered under that name belongs to a finished test's
       supervisor and is mid-teardown, so its `:DOWN` is guaranteed to arrive and
@@ -611,6 +611,14 @@ defmodule Aiur.TestSupport do
 
   No wall-clock window is involved either way, so the result cannot change with
   machine load. Call it once per test.
+
+  The provenance test is about where a process was started, not whether it is
+  healthy now, and those come apart in one case: some tests deliberately stop
+  `Aiur.Supervisor` (which is why `ensure_aiur_supervisor_running/0` exists). An
+  application endpoint caught mid-teardown still carries `Aiur.Supervisor` in
+  its `$ancestors` and would be reused here, which is the #2288 shape again. No
+  current caller runs in that window; a test that stops the supervisor and then
+  wants an endpoint must restore it first rather than rely on this function.
   """
   @spec start_owned_endpoint!() :: pid()
   def start_owned_endpoint! do
@@ -619,25 +627,41 @@ defmodule Aiur.TestSupport do
         pid
 
       {:error, {:already_started, pid}} ->
-        if application_owned?(pid) do
-          pid
-        else
-          :ok = await_process_down(pid, :infinity)
-          start_owned_endpoint!()
-        end
+        adopt_or_replace_endpoint(pid)
 
       {:error, reason} ->
         raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
     end
   end
 
+  defp adopt_or_replace_endpoint(pid) do
+    cond do
+      application_owned?(pid) ->
+        pid
+
+      # The wait is bounded only so that a mis-keyed provenance test fails
+      # loudly and says which process it misread. A genuinely dying endpoint
+      # returns in microseconds, so this bound is never a race window; if it is
+      # ever reached, the classification above is wrong and the timeout value is
+      # not the thing to change.
+      await_process_down(pid, 10_000) == :ok ->
+        start_owned_endpoint!()
+
+      true ->
+        raise "AiurWeb.Endpoint #{inspect(pid)} was classified as a dying test-owned endpoint " <>
+                "but is still alive after 10s; $ancestors=#{inspect(ancestors(pid))}"
+    end
+  end
+
   # `$ancestors` is written by `proc_lib` at spawn and never rewritten, so it
   # names the supervision tree the process was actually started under rather
   # than whatever happens to be registered now.
-  defp application_owned?(pid) do
+  defp application_owned?(pid), do: Aiur.Supervisor in ancestors(pid)
+
+  defp ancestors(pid) do
     case Process.info(pid, :dictionary) do
-      {:dictionary, dictionary} -> Aiur.Supervisor in Keyword.get(dictionary, :"$ancestors", [])
-      nil -> false
+      {:dictionary, dictionary} -> Keyword.get(dictionary, :"$ancestors", [])
+      nil -> []
     end
   end
 

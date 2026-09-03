@@ -3063,9 +3063,13 @@ defmodule Aiur.DecisionStoreTest do
       # `handle_continue(:schedule_reconciliation, …)`, so this report is
       # guaranteed to arrive; the wait is on the event, not on a duration long
       # enough to cover a loaded runner's boot.
-      assert_receive {:decision_dispatches_reconciled, %{store: ^pid2, dispatched: dispatched}},
+      assert_receive {:decision_dispatches_reconciled, %{store: ^pid2, fences: fences, dispatched: dispatched}},
                      @reconcile_report_timeout_ms
 
+      # `fences` is what the pass considered, `dispatched` what it scheduled.
+      # Both are needed: on its own an empty `dispatched` cannot distinguish
+      # "replay lost the decision" from "the pass saw it and declined".
+      assert fences == 1
       assert [%{decision_id: reconciled_id, action_id: reconciled_action_id, kind: :dispatch}] = dispatched
       assert reconciled_id == decision.decision_id
       assert reconciled_action_id == action.action_id
