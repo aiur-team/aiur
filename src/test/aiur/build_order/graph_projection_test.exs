@@ -883,6 +883,86 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
   end
 
+  # The catalog is event-sourced from `Aiur.BuildOrder.CatalogStore`, which is
+  # fed by `sub_issues` / `issue_dependencies` deliveries. A repo with no
+  # webhooks configured feeds it nothing at all after boot, so a store-only
+  # rebuild republishes the boot-time world for ever: a root whose sub-issues
+  # exist on GitHub reported `member_count: 0` until the daemon restarted
+  # (#2538). So the explicit refresh buys the re-converge from GitHub too.
+  test "an explicit catalog refresh re-converges from GitHub, not only from the store" do
+    parent = self()
+    first = identity(1, "I1")
+
+    {:ok, projection} = start_projection(reconciliation_fun: blocking_reconciliation(parent))
+
+    # Boot's re-converge is inflight and stays that way until released.
+    assert_receive {:reconciled, _boot_opts, boot_task}, 2_000
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 1}}}, 2_000
+
+    # A refresh while one is running coalesces onto it — the budget rule the
+    # boot and degraded paths already keep — while still rebuilding from the
+    # store.
+    :ok = GraphProjection.refresh_catalog(projection)
+    refute_receive {:reconciled, _coalesced_opts, _coalesced_task}, 200
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+
+    finish(boot_task, :ok)
+    await_reconciliation_idle(projection)
+
+    # With nothing inflight, the operator's refresh buys the GraphQL read that
+    # a store-only rebuild can never make.
+    :ok = GraphProjection.refresh_catalog(projection)
+    assert_receive {:reconciled, refresh_opts, refresh_task}, 2_000
+    assert Keyword.get(refresh_opts, :repository) == @repository
+
+    finish(refresh_task, :ok)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+  end
+
+  # An explicit refresh is an operator saying "read this now", so the answer has
+  # to be a read. It was not: a root whose snapshot was healthy, complete and
+  # stamped with the catalog marker still in force was "not due", and a root
+  # whose page had gone was "not watched" — so a detail page kept reporting 0
+  # members and 0 dependencies for membership written after the last read
+  # (#2538).
+  test "an explicit selected refresh re-reads a held root that is current and unwatched" do
+    first = identity(1, "I1")
+    second = identity(2, "I2")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # The state in which nothing is due: complete data, healthy, no read
+    # running and no successor armed.
+    entry = :sys.get_state(projection).selected[Policy.root_key(first)]
+    assert entry.health.state == :healthy
+    assert entry.data == selected(first)
+    assert entry.inflight == nil
+    assert entry.timer == nil
+
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # Losing the watcher does not make the request unanswerable: the entry is
+    # still held, so it is still read.
+    assert :ok = GraphProjection.release(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    _unwatched_reader = await_reader({:selected, first})
+
+    # What a refresh still cannot do is create a root the projection is not
+    # holding, which is what stops a caller buying a read for anything at all.
+    :ok = GraphProjection.refresh(projection, second)
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
+  end
+
   defp start_projection(opts \\ []) do
     parent = self()
 
@@ -937,6 +1017,32 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   end
 
   defp finish(reader, result), do: send(reader, {:finish, result})
+
+  # A reconciliation that holds until the test releases it, so "one at a time"
+  # can be asserted rather than raced against a stub that returns instantly.
+  defp blocking_reconciliation(parent) do
+    fn reader_opts ->
+      send(parent, {:reconciled, reader_opts, self()})
+
+      receive do
+        {:finish, result} -> result
+      end
+    end
+  end
+
+  defp await_reconciliation_idle(projection, attempts \\ 200) do
+    cond do
+      is_nil(:sys.get_state(projection).reconciliation) ->
+        :ok
+
+      attempts > 0 ->
+        Process.sleep(10)
+        await_reconciliation_idle(projection, attempts - 1)
+
+      true ->
+        flunk("reconciliation stayed inflight")
+    end
+  end
 
   defp await_selected_scope(identity) do
     assert_receive {:reader_started, {:selected, ^identity} = scope, _reader}, 2_000
