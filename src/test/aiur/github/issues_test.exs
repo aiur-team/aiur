@@ -212,6 +212,26 @@ defmodule Aiur.GitHub.IssuesTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    # Guards the too-large clause in `conditional_get/4`: with it reverted the
+    # collector's empty-bodied 200 falls through to `github_status_error/1` and
+    # this returns the bare `%{status: 200}` detail with no `:reason`.
+    test "reports an over-limit open-issue list as too large, not as a bare 200" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["Todo"]
+      )
+
+      request_fun = fn request ->
+        assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+        {:ok, %{status: 200, headers: [], body: "", private: %{aiur_response_too_large: true}}}
+      end
+
+      assert {:error, {:github, :http, %{status: 200, reason: :response_too_large, max_response_bytes: 16_777_216}}} =
+               Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+    end
+
     test "revalidates one authoritative list and reuses it only on 304" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
@@ -244,9 +264,10 @@ defmodule Aiur.GitHub.IssuesTest do
           {:ok, %{status: 200, headers: [], body: []}}
         else
           assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
-          # The open-issue list is bound by its own, larger cap (#2140); the
-          # single-issue cap would truncate a growing backlog.
-          assert request.max_response_bytes == 1_048_576
+          # The open-issue list is bound by its own, larger cap (#2140) sized to
+          # the endpoint's ceiling — one full page of maximal bodies — so a
+          # spec-heavy backlog does not truncate (#2533).
+          assert request.max_response_bytes == 16_777_216
 
           Agent.get_and_update(list_step, fn
             0 ->

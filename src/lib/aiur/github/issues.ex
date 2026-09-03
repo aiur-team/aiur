@@ -22,11 +22,14 @@ defmodule Aiur.GitHub.Issues do
   @max_issue_response_bytes 65_536
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
-  # assignees, and bodies measured ~390 KiB, which the single-issue cap
-  # truncates. The list endpoint gets its own, larger bound so a growing
-  # backlog does not silently fail the candidate fetch as `{:github, :http,
-  # %{status: 200}}` (#2140).
-  @max_issue_list_response_bytes 1_048_576
+  # assignees, and bodies measured ~390 KiB (#2140), and a backlog whose ticket
+  # bodies are full specifications measured 2.9 MiB across 45 issues (#2533).
+  # The bound is sized to the endpoint's real ceiling rather than an observed
+  # backlog: GitHub caps a page at 100 issues and a body at 64 KiB, so one page
+  # of maximal bodies plus metadata stays under 16 MiB. A response that still
+  # exceeds it is reported as `:response_too_large` by `conditional_get/4`
+  # instead of the self-contradictory `{:github, :http, %{status: 200}}`.
+  @max_issue_list_response_bytes 16_777_216
 
   @spec max_issue_response_bytes() :: pos_integer()
   def max_issue_response_bytes, do: @max_issue_response_bytes
@@ -881,9 +884,8 @@ defmodule Aiur.GitHub.Issues do
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     case ctx.request_fun.(request) do
-      {:ok, %{status: 200, body: body} = response} ->
-        retained_etag = Transport.header(Map.get(response, :headers, []), "etag") || etag
-        {:ok, body, retained_etag, response}
+      {:ok, %{status: 200} = response} ->
+        conditional_ok_response(response, etag, max_response_bytes)
 
       {:ok, %{status: 304} = response} ->
         retained_etag = Transport.header(Map.get(response, :headers, []), "etag") || etag
@@ -896,6 +898,25 @@ defmodule Aiur.GitHub.Issues do
         {:error, Errors.classify_error({:error, reason})}
     end
   end
+
+  # The bounded collector halts an over-limit body and hands back a 200 with an
+  # empty body (`Transport.bounded_response_collector/1`). Left unrecognised,
+  # that fell through the list-page match to `Errors.github_status_error/1` and
+  # surfaced as `{:github, :http, %{status: 200}}` — a "failure" carrying a
+  # success status, which hid the real cause for a spec-heavy backlog (#2533).
+  # Name it instead, before the ordinary 200 path claims it.
+  defp conditional_ok_response(%{private: %{aiur_response_too_large: true}}, _etag, max_response_bytes) do
+    {:error, {:github, :http, %{status: 200, reason: :response_too_large, max_response_bytes: max_response_bytes}}}
+  end
+
+  defp conditional_ok_response(%{body: body} = response, etag, _max_response_bytes) do
+    retained_etag = Transport.header(Map.get(response, :headers, []), "etag") || etag
+    {:ok, body, retained_etag, response}
+  end
+
+  # A 200 without a body key never reached the list-page match before either;
+  # keep routing it to the generic status path rather than raising here.
+  defp conditional_ok_response(response, _etag, _max_response_bytes), do: {:http_error, response}
 
   defp authorize_issue(%Issue{} = issue, request_fun, token, owner, repo, prefix) do
     # Dispatch-time revalidation can observe a ticket that closed after the
