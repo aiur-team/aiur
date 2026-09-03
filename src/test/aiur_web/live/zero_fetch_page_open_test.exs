@@ -101,7 +101,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       end
     end)
 
-    start_supervised!({AiurWeb.Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
 
     {:ok, counter} = Agent.start_link(fn -> [] end)
     previous_options = Application.get_env(:aiur, :github_transport_test_options)

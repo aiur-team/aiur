@@ -725,6 +725,72 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert %{unsafe_kind: 1} = snapshot.refused
     end
 
+    test "a REST read with no declared caller is named by route shape, not unattributed" do
+      # `Quota` bills the same request `rest:GET /repos/...` via
+      # `GraphQLCost.derive/1`; the cache used to fall back to a single
+      # `unattributed` bucket that hid every REST call site. The two must use
+      # the same derivation, so the cache metric names the shape the way the
+      # spend ranking does (#2357).
+      request = rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/comments?per_page=100")
+
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{miss: 1, deposit: 1} = snapshot.callers["rest:GET /repos/aiur-team/aiur/issues/:n/comments"]
+      refute Map.has_key?(snapshot.callers, "unattributed")
+    end
+
+    test "keys a REST refusal on its path template, not one unclassified total" do
+      # An unclassified REST GET is refused with its route shape, so
+      # `github-cost` can name the call family instead of folding every
+      # unrecognised read into a single `unclassified` total (#2357). Same
+      # derivation `Quota` bills spend by.
+      request = rest("https://api.github.com/repos/aiur-team/aiur/labels?per_page=100")
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/labels"}} = Policy.classify(request)
+
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+      assert {:ok, _two} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{"rest:GET /repos/aiur-team/aiur/labels" => 2} = snapshot.refused_shapes
+      refute Map.has_key?(snapshot.refused, :unclassified)
+      assert snapshot.totals.refused == 2
+    end
+
+    test "a GraphQL read the policy cannot name stays a bare :unclassified refusal" do
+      # There is no REST URL to shape a GraphQL read by, so the unknown-caller
+      # fallback keeps its plain reason rather than being forced into the shape
+      # map.
+      request = graphql("an_unheard_of_caller", safe_document(2073))
+
+      assert {:no_cache, :unclassified} = Policy.classify(request)
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{unclassified: 1} = snapshot.refused
+      assert snapshot.refused_shapes == %{}
+    end
+
+    test "folds a refusal beyond the 200-shape cap into :overflow" do
+      # The refusal map is only bounded if the key set is: 200 distinct shapes
+      # fill the map, the 201st distinct shape must not add a key, and a repeat
+      # of an existing shape keeps accumulating under its own key.
+      Metrics.init()
+
+      Enum.each(1..200, fn i -> Metrics.refused_shape("rest:GET /path/#{i}", "x") end)
+      assert map_size(Metrics.snapshot().refused_shapes) == 200
+
+      Metrics.refused_shape("rest:GET /path/201", "x")
+      snapshot = Metrics.snapshot()
+      assert snapshot.refused_shapes.overflow == 1
+
+      Metrics.refused_shape("rest:GET /path/1", "x")
+      snapshot = Metrics.snapshot()
+      assert snapshot.refused_shapes["rest:GET /path/1"] == 2
+      assert snapshot.refused_shapes.overflow == 1
+    end
+
     test "keys a REST refusal on its shape, not one unclassified total" do
       # #2352 acceptance: the refusal metric resolves the 5,208 reads/hr into
       # the named rows instead of one `unclassified` bucket, so `github-cost`
@@ -845,11 +911,16 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # The bare `/repos/{owner}/{repo}` is the auth-preflight probe, which must
       # exercise the current credential rather than be answered from a cache;
       # the open-issue candidate list is dispatch authority and must not be
-      # served stale. Both are correctly left uncached. #2352 names the
-      # candidate list `:issue_list` (and the probe `:unclassified`) so the
-      # refusal report resolves the shapes instead of one `unclassified` total.
-      assert {:no_cache, {:unclassified, :unclassified}} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur"))
-      assert {:no_cache, {:unclassified, :issue_list}} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues?state=open&per_page=100"))
+      # served stale. Both are correctly left uncached, and neither disappears
+      # into one opaque total: #2352 names the candidate list `:issue_list`,
+      # and the probe — which the table deliberately does not name — is refused
+      # with its route template (#2357) so the refusal report can still say
+      # which call family paid.
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur"))
+
+      assert {:no_cache, {:unclassified, :issue_list}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues?state=open&per_page=100"))
     end
 
     test "caches a numbered comment read but not the repo-wide comment stream" do
@@ -857,7 +928,9 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # trade a free 304 for staleness. It is still *classified* as
       # `:comment_stream` so the refusal report can name it.
       assert {:cache, :comments, _ttl} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/comments?per_page=100"))
-      assert {:no_cache, {:unclassified, :comment_stream}} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
+
+      assert {:no_cache, {:unclassified, :comment_stream}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
     end
 
     test "classifies the ten REST families and gives rows 1, 4 and 5 a real TTL" do
@@ -887,10 +960,14 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:cache, :repo_config, _ttl} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/rulesets"))
 
-      assert {:no_cache, {:unclassified, :unclassified}} =
+      refute match?({:cache, _class, _ttl}, Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/foo/bar")))
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/contents/foo/bar"}} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/foo/bar"))
 
-      assert {:no_cache, {:unclassified, :unclassified}} =
+      refute match?({:cache, _class, _ttl}, Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches")))
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/branches"}} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches"))
 
       for {url, shape} <- [
@@ -942,10 +1019,9 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/abc1234/status"))
 
       # A branch ref is not a sha: `/commits/main` returns the mutable head
-      # commit, so it must not be cached under a key that never changes. The
-      # refusal carries no named shape (the classifier only names the shapes it
-      # recognises), so it folds to the `:unclassified` fallback.
-      assert {:no_cache, {:unclassified, :unclassified}} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
+      # commit, so it must not be cached under a key that never changes.
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/commits/main"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
 
       # `/pulls/:n/files` carries no head sha, so a push changes the response
       # under a fixed cache key; it is deliberately left uncached, named so the

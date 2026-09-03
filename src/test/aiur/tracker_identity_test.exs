@@ -60,6 +60,26 @@ defmodule Aiur.TrackerIdentityTest do
              )
   end
 
+  # Deterministic pure-layer lock for the malformed-configured-repository path
+  # (`normalize_issue/4` marks `owner/repo/extra` explicitly nonjoinable). The
+  # `normalize_issue/4` integration test lives under the `:quarantine` tag for
+  # #2397 because it reads the configured repository through the shared
+  # `WorkflowStore` singleton, which can serve a stale valid config under load;
+  # this test pins the same decision at the layer that does not touch the store.
+  test "rejects a malformed configured repository explicitly" do
+    issue = %{"node_id" => "I_kwDOExample", "number" => 42}
+
+    assert {:error, :invalid_configured_repository} =
+             TrackerIdentity.from_github(issue, {"owner/repo/extra", "repo"}, @configured)
+
+    # The shape `normalize_issue/4` builds when `configured_repo/0` returns the
+    # error: an explicit nonjoinable identity carrying the invalid reason.
+    assert %{status: :unjoinable, reason: :invalid_configured_repository, identifier: "42"} =
+             TrackerIdentity.unjoinable(:invalid_configured_repository, identifier: 42)
+
+    refute TrackerIdentity.joinable?(TrackerIdentity.unjoinable(:invalid_configured_repository))
+  end
+
   test "rejects malformed or conflicting response repository locators" do
     base = %{"node_id" => "I_kwDOExample", "number" => 42}
 
