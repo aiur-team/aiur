@@ -80,8 +80,8 @@ defmodule Aiur.Application do
 
       # `:rest_for_one`, not `:one_for_one`: the children above are written in
       # dependency order, and several of them genuinely depend on the ones
-      # before them. `Aiur.PubSub` is first because ~17 modules subscribe to it,
-      # most of them from `init/1`.
+      # before them. `Aiur.PubSub` is first because 17 lib modules subscribe to
+      # it; six application children hold a live link to it at boot.
       #
       # Elixir's `Registry` links every registered process to its partition, and
       # `Phoenix.PubSub.subscribe/2` registers — so each subscribing sibling is

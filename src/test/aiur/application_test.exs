@@ -4,6 +4,7 @@ defmodule Aiur.ApplicationTest do
   import ExUnit.CaptureLog
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Claude.Telemetry
 
   defmodule SuccessStubDistribution do
     @moduledoc false
@@ -677,7 +678,7 @@ defmodule Aiur.ApplicationTest do
 
       # ...and the exact consumer that reported `unknown registry: Aiur.PubSub`
       # can subscribe again rather than raising.
-      assert :ok = Aiur.Claude.Telemetry.subscribe()
+      assert :ok = Telemetry.subscribe()
       Phoenix.PubSub.unsubscribe(Aiur.PubSub, "claude_telemetry:events")
 
       # Every child that was up before the crash is up again afterwards: the
