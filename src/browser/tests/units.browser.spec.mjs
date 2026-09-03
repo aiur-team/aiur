@@ -52,7 +52,8 @@ test('Units keeps complete semantic rows, named actions, and 44px targets across
       await expect(first).toHaveAttribute('data-github-url', 'https://github.com/its-everdred/aiur/issues/1110')
       await expect(first.locator('.ut-id-num')).toHaveText('1110')
       await expect(first).toContainText('Responsive Units interface')
-      await expect(first).toContainText('gpt-5.6-terra')
+      await expect(first).toContainText('GPT-5.6 TERRA')
+      await expect(first.locator('.u-model')).toHaveAttribute('title', 'gpt-5.6-terra')
       await expect(first).toContainText('L2')
       // Latest evidence is the branch push, rendered as its bare name with a branch glyph.
       await expect(first.locator('.ut-latest-text')).toHaveText('feature pushed')
@@ -186,7 +187,9 @@ test('Units tables sort stably, persist in the URL, and keep unknown progress fl
 
   // The existing pills are fed through the complete runtime projection again.
   await expect(unitRows.first().locator('.u-agent')).toHaveText('Codex')
-  await expect(unitRows.first().locator('.u-model')).toHaveText('gpt-5.6-terra')
+  // The pill names the model an operator recognises; the raw id stays exact in its title.
+  await expect(unitRows.first().locator('.u-model')).toHaveText('GPT-5.6 TERRA')
+  await expect(unitRows.first().locator('.u-model')).toHaveAttribute('title', 'gpt-5.6-terra')
 
   const unknownTrack = unitRows.nth(1).locator('.ut-pbar.is-unknown')
   const unknownStyle = await unknownTrack.evaluate((track) => {

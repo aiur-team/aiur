@@ -46,6 +46,7 @@ defmodule Aiur.CodingAgent.ModelsTest do
 
     test "a tier that names a real variant survives" do
       assert Models.label("gpt-5.6-sol") == "GPT-5.6 SOL"
+      assert Models.label("gpt-5.6-terra") == "GPT-5.6 TERRA"
     end
 
     test "an id with no rule still names something, bounded to a chip" do
