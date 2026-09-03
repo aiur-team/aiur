@@ -11,33 +11,78 @@ defmodule Aiur.GitHub.Config do
 
   @default_label_prefix "agent"
 
-  @spec repo() :: String.t() | nil
-  def repo do
-    case section_value("repo") do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> Aiur.Git.origin_repo()
-          trimmed -> trimmed
-        end
+  @doc """
+  The `owner/name` this daemon operates on.
 
-      _ ->
-        # No repo in config (e.g. the general global config) — auto-detect
-        # it from the current repo's git remote.
-        Aiur.Git.origin_repo()
-    end
-  end
+  `tracker.github.repo` when it carries a value, otherwise the current
+  checkout's `origin` remote — the auto-detect path a general global
+  `~/.aiur/config` that names no repo of its own relies on.
+  """
+  @spec repo() :: String.t() | nil
+  def repo, do: explicit_repo() || Aiur.Git.origin_repo()
 
   @doc """
-  Returns only the repository explicitly configured in `tracker.github.repo`.
+  The repository tracker identities are qualified by, as an `{owner, name}`
+  pair.
 
-  Unlike `repo/0`, this never falls back to the current checkout's git remote;
-  callers using it are establishing a trusted cross-repository identity.
+  Resolves the *same* repository `repo/0` does, including the fallback to the
+  current checkout's `origin` remote when `tracker.github.repo` carries no
+  value. Every GitHub call already picks its repository through `repo/0`
+  (`Aiur.GitHub.Transport.parse_repo/0`), so without the fallback a daemon
+  launched against a shared config that names no repo polls its origin
+  repository happily while every issue it reads normalizes to an unjoinable
+  identity — `:missing_tracker_identity` at pre-spawn, and no agent can
+  start (#2518). Sharing one `~/.aiur/config` across repositories only works if
+  identity resolves the repository being polled rather than disagreeing
+  with it.
+
+  A *present but malformed* `tracker.github.repo` stays fail-closed as
+  `:invalid_configured_repository`: a typo must not silently redirect identity
+  at whatever checkout the daemon happens to have been launched from.
   """
   @spec configured_repo() ::
           {:ok, {String.t(), String.t()}}
           | {:error, :missing_configured_repository | :invalid_configured_repository}
-  def configured_repo do
-    case section_value("repo") do
+  def configured_repo, do: configured_repo([])
+
+  @doc """
+  `configured_repo/0` with an injectable origin resolver.
+
+  `:origin_fun` defaults to `Aiur.Git.origin_repo/0` and is only consulted when
+  `tracker.github.repo` carries no value, so a test can exercise both the
+  fallback and the fail-closed path without depending on the checkout it runs
+  in.
+  """
+  @spec configured_repo(keyword()) ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
+  def configured_repo(opts) when is_list(opts) do
+    case explicit_repo() do
+      value when is_binary(value) ->
+        parse_configured_repo(value)
+
+      nil ->
+        opts
+        |> Keyword.get(:origin_fun, &Aiur.Git.origin_repo/0)
+        |> origin_configured_repo()
+    end
+  end
+
+  # The configured value with surrounding whitespace removed, or nil when the
+  # key is absent, blank, or not a string. Blank is treated exactly like absent
+  # so a config reset to its annotated template (`repo:` with nothing after it)
+  # takes the same auto-detect path as one that omits the key.
+  defp explicit_repo do
+    with value when is_binary(value) <- section_value("repo"),
+         trimmed when trimmed != "" <- String.trim(value) do
+      trimmed
+    else
+      _ -> nil
+    end
+  end
+
+  defp origin_configured_repo(origin_fun) when is_function(origin_fun, 0) do
+    case origin_fun.() do
       value when is_binary(value) -> parse_configured_repo(value)
       _ -> {:error, :missing_configured_repository}
     end

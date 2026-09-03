@@ -3,7 +3,10 @@ defmodule Aiur.GitHub.ConfigTest do
   # :persistent_term cache, so they must not run concurrently.
   use ExUnit.Case, async: false
 
+  import Aiur.TestSupport, only: [write_workflow_file!: 2]
+
   alias Aiur.GitHub.Config
+  alias Aiur.Workflow
 
   @cache_key {Config, :resolved_token}
   @source_cache_key {Config, :resolved_token_source}
@@ -187,6 +190,67 @@ defmodule Aiur.GitHub.ConfigTest do
     refute Config.human_merger_allowed?("its-everdred", [])
   end
 
+  # One `~/.aiur/config` shared by daemons for several repositories can name at
+  # most one repo, so identity has to resolve the repository the daemon is
+  # actually polling — the checkout's origin — when the key carries no value.
+  # Without that, every issue normalized to an unjoinable identity and every
+  # dispatch failed `:missing_tracker_identity` (#2518).
+  describe "configured_repo/1" do
+    setup do
+      on_exit(fn ->
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "github",
+          tracker_repo: "owner/repo"
+        )
+      end)
+
+      :ok
+    end
+
+    test "an explicitly configured repository is used without consulting the origin remote" do
+      write_tracker_repo!("acme/widgets")
+
+      assert {:ok, {"acme", "widgets"}} = Config.configured_repo(refuting_origin())
+    end
+
+    test "an omitted repository falls back to the checkout's origin remote" do
+      write_tracker_repo!(nil)
+
+      assert {:ok, {"acme", "widgets"}} = Config.configured_repo(origin("acme/widgets"))
+    end
+
+    test "a blank repository falls back to the checkout's origin remote" do
+      write_tracker_repo!("   ")
+
+      assert {:ok, {"acme", "widgets"}} = Config.configured_repo(origin("acme/widgets"))
+    end
+
+    test "an omitted repository with no origin remote stays explicitly missing" do
+      write_tracker_repo!(nil)
+
+      assert {:error, :missing_configured_repository} = Config.configured_repo(origin(nil))
+    end
+
+    test "a malformed configured repository stays fail-closed and never falls back" do
+      write_tracker_repo!("owner/repo/extra")
+
+      assert {:error, :invalid_configured_repository} = Config.configured_repo(refuting_origin())
+    end
+
+    test "configured_repo/0 and repo/0 resolve the same repository when the key is omitted" do
+      write_tracker_repo!(nil)
+
+      case Config.repo() do
+        nil ->
+          assert {:error, :missing_configured_repository} = Config.configured_repo()
+
+        slug ->
+          assert [owner, repository] = String.split(slug, "/")
+          assert {:ok, {^owner, ^repository}} = Config.configured_repo()
+      end
+    end
+  end
+
   describe "GitHub App installation-token integration" do
     alias Aiur.GitHub.AppTokenRefresher
 
@@ -280,6 +344,16 @@ defmodule Aiur.GitHub.ConfigTest do
       assert message =~ "installation"
       refute message =~ "GITHUB_TOKEN"
     end
+  end
+
+  defp write_tracker_repo!(repo) do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: repo)
+  end
+
+  defp origin(repo), do: [origin_fun: fn -> repo end]
+
+  defp refuting_origin do
+    [origin_fun: fn -> flunk("origin remote must not be consulted") end]
   end
 
   defp authorization_token(opts) do

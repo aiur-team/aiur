@@ -665,17 +665,27 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.normalize_issue(missing_node, "owner", "repo", "sym").tracker_identity
     end
 
-    test "does not use the current checkout when repository configuration is absent" do
+    # A shared `~/.aiur/config` that names no repo is the multi-repo case from
+    # #2518: every GitHub call already resolves its repository from the
+    # checkout's origin via `Config.repo/0`, so identity has to resolve the same
+    # repository. When it did not, every issue normalized to an unjoinable
+    # identity and every agent dispatch failed `:missing_tracker_identity`.
+    test "uses the current checkout when repository configuration is absent" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: nil,
         tracker_label_prefix: "sym"
       )
 
-      issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
+      origin = Aiur.Git.origin_repo()
+      assert is_binary(origin), "this checkout must have an origin remote for the fallback path"
+      [owner, repository] = String.split(origin, "/")
 
-      assert %{status: :unjoinable, reason: :missing_configured_repository} =
-               Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
+      issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
+      identity = Issues.normalize_issue(issue, owner, repository, "sym").tracker_identity
+
+      assert %{status: :joinable, owner: ^owner, repository: ^repository, identifier: "16"} = identity
+      assert Aiur.TrackerIdentity.joinable?(identity)
     end
 
     # Quarantined for #2397: this integration test reads `configured_repo/0`
