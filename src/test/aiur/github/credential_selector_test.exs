@@ -271,6 +271,21 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
   end
 
   describe "assign/2" do
+    test "keeps a credential-pinned request on its supplied token" do
+      primary = with_token(credential("primary", primary?: true, writes?: true), "ghp_primary-token")
+      spare = with_token(credential("spare", writes?: true), "github_pat_spare-token")
+      windows = %{Credential.token_key(primary) => %{"core" => window(1)}}
+
+      request = %{
+        method: :get,
+        url: "https://api.github.com/repos/o/r",
+        token: "ghp_primary-token",
+        credential_pinned?: true
+      }
+
+      assert CredentialSelector.assign(request, credentials: [primary, spare], windows: windows, now: @now) == request
+    end
+
     test "swaps in the selected credential's token and records which one" do
       primary = with_token(credential("primary", primary?: true, writes?: true), "primary-token")
       spare = with_token(credential("spare", writes?: true), "spare-token")

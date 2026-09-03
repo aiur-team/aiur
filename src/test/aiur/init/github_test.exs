@@ -57,6 +57,48 @@ defmodule Aiur.Init.GitHubTest do
   end
 
   describe "ensure_ci_readiness/3" do
+    test "explains organization authorization by token type before offering CI setup" do
+      cases = [
+        classic_pat: ["classic PAT", "`repo` scope", "Configure SSO", "different OAuth token"],
+        fine_grained_pat: ["fine-grained PAT", "resource owner", "organization approval", "different OAuth token"],
+        oauth: ["OAuth token", "OAuth app access"],
+        app_installation: ["GitHub App installation token", "installed on"],
+        unknown: ["credential type is not recognized", "organization authorization"]
+      ]
+
+      for {token_type, fragments} <- cases do
+        io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> flunk("CI setup must not be offered after an authorization failure") end}
+
+        deps = %{
+          check_ci_readiness: fn _ ->
+            {:error, {:github_org_repository_not_accessible, %{organization: "acme", repo: "acme/private-repo", token_type: token_type}}}
+          end
+        }
+
+        assert {:error, message} =
+                 GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "acme/private-repo"})
+
+        assert message =~ "Cannot read acme/private-repo"
+        assert message =~ "GitHub returns 404"
+        assert message =~ "rather than a missing repository or branch"
+        assert Enum.all?(fragments, &String.contains?(message, &1))
+        refute message =~ "ghp_secret-sentinel"
+      end
+    end
+
+    test "keeps an unclassified repository 404 ambiguous" do
+      io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> flunk("CI setup must not be offered after an unreadable repository") end}
+      deps = %{check_ci_readiness: fn _ -> {:error, {:github, :http, %{status: 404}}} end}
+
+      assert {:error, message} =
+               GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "person/private-repo"})
+
+      assert message =~ "repository is absent"
+      assert message =~ "token cannot access it"
+      refute message =~ "organization"
+      refute message =~ "base branch"
+    end
+
     test "keeps CI-readiness administration access separate from the daemon token" do
       io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> false end}
       deps = %{check_ci_readiness: fn _ -> {:error, {:github, :http, %{status: 403}}} end, detect_repo: fn -> "o/r" end}

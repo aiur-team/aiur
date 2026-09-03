@@ -55,9 +55,15 @@ defmodule Aiur.GitHub.CredentialSelector do
 
   One credential still keeps the request's token unchanged, but attaches the
   stable accounting identity used by the broker and headroom meter.
+
+  Callers that must compare several responses from one authorization identity
+  may set `:credential_pinned?`; those requests keep their supplied token and
+  bypass pool selection.
   """
   @spec assign(map(), keyword()) :: map()
   def assign(request, opts \\ [])
+
+  def assign(%{credential_pinned?: true} = request, _opts), do: request
 
   def assign(%{token: token} = request, opts) when is_binary(token) do
     case CredentialRegistry.credentials(opts) do
