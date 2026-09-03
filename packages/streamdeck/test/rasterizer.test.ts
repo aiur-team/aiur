@@ -1,4 +1,4 @@
-import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { createCanvas, loadImage, type SKRSContext2D } from "@napi-rs/canvas";
 import { describe, expect, it } from "vitest";
 
 import { createRasterizer, wrapToWidth } from "../src/rasterizer.js";
@@ -38,8 +38,24 @@ const keyPixel = async (jpeg: Uint8Array, x: number, y: number): Promise<number[
 };
 
 describe("wrapToWidth", () => {
-  const context = createCanvas(120, 120).getContext("2d");
-  context.font = "600 14px sans-serif";
+  // `sans-serif` is resolved by the host's fontconfig, so measuring with a real
+  // canvas made these expectations depend on which fonts the runner happens to
+  // ship: "V2 webhooks" stayed on one line here and wrapped to ["V2",
+  // "webhooks"] on CI, between two commits with no TypeScript change at all.
+  // wrapToWidth asks the context exactly one question -- how wide is this
+  // string -- so a stubbed metric pins the greedy-fill arithmetic that is
+  // actually under test and leaves the host nothing to decide. The stub stays
+  // proportional, with narrow glyphs and spaces measuring less than wide ones,
+  // so an implementation that counted characters rather than asking the context
+  // still fails here; that is the property separating this wrapper from the
+  // pure layout layer. The rendering suites below still use a real canvas, but
+  // they assert on ink coverage and on images differing, never on a width.
+  const NARROW = new Set([..." iIl1.,;:'!|"]);
+  const context = {
+    measureText: (text: string) => ({
+      width: [...text].reduce((total, glyph) => total + (NARROW.has(glyph) ? 4 : 7), 0),
+    }),
+  } as unknown as SKRSContext2D;
   const width = 102;
 
   it("keeps a short title on one line", () => {
