@@ -671,6 +671,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       backend: backend,
       agent_family: CodingAgent.family_for(backend),
       requested_model: Map.get(execution, :requested_model),
+      resolved_model: Map.get(execution, :resolved_model),
       effort: Map.get(execution, :effort)
     }
     |> Map.merge(issue_classification_facts(Map.get(entry, :issue)))

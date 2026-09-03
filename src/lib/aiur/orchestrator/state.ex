@@ -440,15 +440,43 @@ defmodule Aiur.Orchestrator.State do
         session_execution = %{
           backend: backend,
           requested_model: optional_runtime_string(info[:requested_model]),
+          resolved_model: nil,
           effort: optional_runtime_string(info[:effort])
         }
 
-        updated_state =
-          %{state | running: Map.put(running, issue_id, Map.put(running_entry, :session_execution, session_execution))}
-
-        StatusReport.notify_dashboard(updated_state)
-        {:noreply, updated_state}
+        {:noreply, put_session_execution(state, issue_id, running_entry, session_execution)}
     end
+  end
+
+  @doc """
+  Records the model a running session reported actually serving its turns.
+
+  The route names a backend and at most a model tag; which concrete version
+  answered is only knowable once the agent is running, and it arrives after
+  the session's execution facts. Merge it so a late observation names the
+  model on the dashboard without erasing the backend and route that were
+  already reported.
+  """
+  @spec handle_session_resolved_model(t(), String.t(), String.t()) :: {:noreply, t()}
+  def handle_session_resolved_model(%__MODULE__{running: running} = state, issue_id, model)
+      when is_binary(issue_id) and is_binary(model) and model != "" do
+    with running_entry when is_map(running_entry) <- Map.get(running, issue_id),
+         %{} = execution <- Map.get(running_entry, :session_execution),
+         false <- Map.get(execution, :resolved_model) == model do
+      {:noreply, put_session_execution(state, issue_id, running_entry, Map.put(execution, :resolved_model, model))}
+    else
+      _unchanged -> {:noreply, state}
+    end
+  end
+
+  def handle_session_resolved_model(%__MODULE__{} = state, _issue_id, _model), do: {:noreply, state}
+
+  defp put_session_execution(%__MODULE__{running: running} = state, issue_id, running_entry, session_execution) do
+    updated_state =
+      %{state | running: Map.put(running, issue_id, Map.put(running_entry, :session_execution, session_execution))}
+
+    StatusReport.notify_dashboard(updated_state)
+    updated_state
   end
 
   @spec note_agent_activity(t(), String.t()) :: t()

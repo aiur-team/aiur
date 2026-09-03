@@ -65,7 +65,8 @@ defmodule Aiur.Claude.Telemetry do
       worker_generation: worker_generation(Keyword.get(opts, :workspace_ownership)),
       backend: Keyword.get(opts, :backend),
       worker_host: Keyword.get(opts, :worker_host),
-      owner: Keyword.get(opts, :owner, self())
+      owner: Keyword.get(opts, :owner, self()),
+      execution_recipient: Keyword.get(opts, :execution_recipient)
     }
 
     GenServer.call(server, {:prepare_launch, request})
@@ -182,6 +183,9 @@ defmodule Aiur.Claude.Telemetry do
         correlation: correlation,
         source_contract: source_contract(),
         session_id: nil,
+        issue_id: Map.get(request.issue, :id),
+        execution_recipient: request.execution_recipient,
+        resolved_model: nil,
         owner_monitor: monitor,
         inflight: 0,
         rate_started_at: now,
@@ -243,7 +247,9 @@ defmodule Aiur.Claude.Telemetry do
           %{event | correlation: Map.put(event.correlation, :producer_generation, entry.correlation.producer_generation)}
         end)
 
-      next_entry = %{next_entry | session_id: events |> hd() |> get_in([:correlation, :session_id])}
+      next_entry =
+        %{next_entry | session_id: events |> hd() |> get_in([:correlation, :session_id])}
+        |> report_resolved_model(events)
 
       next =
         state
@@ -261,6 +267,39 @@ defmodule Aiur.Claude.Telemetry do
       {:error, reason} ->
         {:reply, {:error, reason}, count_rejection(state, reason)}
     end
+  end
+
+  # A route names a backend and at most a model tag; the concrete version that
+  # answered is only ever reported by the running agent. Every authenticated
+  # API-request event carries it, so the first one to name a model — and any
+  # later one that names a different model, which is what a mid-session
+  # fallback looks like — tells the orchestrator what its running entry is
+  # actually executing on.
+  @spec report_resolved_model(map(), [Event.t()]) :: map()
+  defp report_resolved_model(%{execution_recipient: recipient, issue_id: issue_id} = entry, events)
+       when is_pid(recipient) and is_binary(issue_id) do
+    case observed_model(events) do
+      nil ->
+        entry
+
+      model when model == entry.resolved_model ->
+        entry
+
+      model ->
+        send(recipient, {:session_resolved_model, issue_id, model})
+        %{entry | resolved_model: model}
+    end
+  end
+
+  defp report_resolved_model(entry, _events), do: entry
+
+  defp observed_model(events) do
+    Enum.find_value(events, fn event ->
+      case event |> Map.get(:attributes, %{}) |> Map.get("model") do
+        model when is_binary(model) and model != "" -> model
+        _absent -> nil
+      end
+    end)
   end
 
   @impl true

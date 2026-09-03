@@ -267,7 +267,15 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          session_context,
          start_fun
        ) do
-    case start_with_telemetry(workspace, issue, worker_host, ownership, session_context.session_opts, start_fun) do
+    case start_with_telemetry(
+           workspace,
+           issue,
+           worker_host,
+           ownership,
+           session_context.session_opts,
+           start_fun,
+           codex_update_recipient
+         ) do
       {:ok, session} ->
         run_contained_session(
           session,
@@ -288,10 +296,11 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     end
   end
 
-  defp start_with_telemetry(workspace, issue, worker_host, ownership, session_opts, start_fun) do
-    case prepare_telemetry_launch(issue, worker_host, ownership, session_opts) do
+  defp start_with_telemetry(workspace, issue, worker_host, ownership, session_opts, start_fun, execution_recipient) do
+    case prepare_telemetry_launch(issue, worker_host, ownership, session_opts, execution_recipient) do
       {:ok, telemetry_launch} ->
-        launch_opts = with_telemetry_launch_opts(session_opts, telemetry_launch, issue, worker_host, ownership)
+        launch_opts =
+          with_telemetry_launch_opts(session_opts, telemetry_launch, issue, worker_host, ownership, execution_recipient)
 
         case start_agent_session(workspace, launch_opts, start_fun) do
           {:ok, session} ->
@@ -308,30 +317,32 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     end
   end
 
-  defp prepare_telemetry_launch(_issue, _worker_host, nil, _session_opts), do: {:ok, nil}
+  defp prepare_telemetry_launch(_issue, _worker_host, nil, _session_opts, _execution_recipient), do: {:ok, nil}
 
-  defp prepare_telemetry_launch(issue, worker_host, ownership, session_opts) do
+  defp prepare_telemetry_launch(issue, worker_host, ownership, session_opts, execution_recipient) do
     if Keyword.get(session_opts, :backend) in ["claude", "claude-repl"] do
       Telemetry.prepare_launch(issue,
         attempt_id: Keyword.get(session_opts, :attempt_id),
         workspace_ownership: ownership,
         backend: Keyword.get(session_opts, :backend),
-        worker_host: worker_host
+        worker_host: worker_host,
+        execution_recipient: execution_recipient
       )
     else
       {:ok, nil}
     end
   end
 
-  defp with_telemetry_launch_opts(session_opts, nil, _issue, _worker_host, _ownership), do: session_opts
+  defp with_telemetry_launch_opts(session_opts, nil, _issue, _worker_host, _ownership, _recipient), do: session_opts
 
-  defp with_telemetry_launch_opts(session_opts, telemetry_launch, issue, worker_host, ownership) do
+  defp with_telemetry_launch_opts(session_opts, telemetry_launch, issue, worker_host, ownership, execution_recipient) do
     fallback_launch_fun = fn fallback_backend ->
       Telemetry.prepare_launch(issue,
         attempt_id: Keyword.get(session_opts, :attempt_id),
         workspace_ownership: ownership,
         backend: fallback_backend,
-        worker_host: worker_host
+        worker_host: worker_host,
+        execution_recipient: execution_recipient
       )
     end
 
