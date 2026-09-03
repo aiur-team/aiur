@@ -5,6 +5,11 @@ defmodule Aiur.ApplicationTest do
 
   alias Aiur.Application, as: AiurApp
   alias Aiur.Claude.Telemetry
+  alias Aiur.Webhooks.{DeliveryMode, ModeTable}
+
+  # This module's own delivery-mode key. Repository-keyed global state needs a
+  # per-module key or one module's teardown erases another's fixture.
+  @mode_repo "aiur-team/application-test-repo"
 
   defmodule SuccessStubDistribution do
     @moduledoc false
@@ -685,6 +690,52 @@ defmodule Aiur.ApplicationTest do
       # dependents PubSub took down with it were restarted, not abandoned.
       for id <- running_before, do: assert(await_child(id), "#{inspect(id)} never came back")
     end
+
+    # Regression guard for #2531. `ModeTable` publishes into a named ETS table,
+    # and an ETS table dies with the process that created it. Ordered behind
+    # ~90 unrelated children in a `:rest_for_one` tree, *every* one of those
+    # children's crashes restarted `ModeTable` and silently emptied the whole
+    # delivery-mode view: in production a repo proven webhook-backed fell back
+    # to the 30-second polling TTL until a fresh delivery re-proved it, and in
+    # the suite `Aiur.GitHub.ReadCacheTest` had a mode it had written erased
+    # before it could read it back, so a webhook-backed entry refetched at 31 s.
+    #
+    # `ModeTable` reads no config and subscribes to nothing, so it depends on no
+    # sibling and now starts ahead of all of them. Move it back behind
+    # `Aiur.PubSub` in `Aiur.Application.child_specs/1` and this test fails: the
+    # cascade takes `ModeTable` down and the recorded mode is gone.
+    @tag timeout: 60_000
+    test "a crashing shared child does not erase the recorded delivery modes" do
+      on_exit(fn ->
+        ModeTable.delete(@mode_repo)
+        Aiur.TestSupport.ensure_runtime_children_running()
+      end)
+
+      ModeTable.put(@mode_repo, webhook_backed_mode())
+      assert ModeTable.transport(@mode_repo) == :webhook
+
+      mode_table = Process.whereis(Aiur.Webhooks.ModeTable)
+      assert is_pid(mode_table)
+      ref = Process.monitor(mode_table)
+
+      Process.exit(Process.whereis(Aiur.PubSub), :kill)
+
+      # A `:rest_for_one` cascade reaches its later children in microseconds, so
+      # a `ModeTable` ordered behind the crash is already down well inside this
+      # window. The surviving mode below is the property; this is the mechanism.
+      refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 5_000
+
+      assert await_registered(Aiur.PubSub)
+      assert Process.whereis(Aiur.Webhooks.ModeTable) == mode_table
+      assert ModeTable.transport(@mode_repo) == :webhook
+    end
+  end
+
+  # A proven, webhook-backed mode: configured, then proven by a delivery.
+  defp webhook_backed_mode do
+    {mode, :proven} = DeliveryMode.new(@mode_repo, configured?: true) |> DeliveryMode.record_delivery(~U[2026-01-01 00:00:00Z])
+
+    mode
   end
 
   # Signal-based, never a duration: polls the registry rather than sleeping for
