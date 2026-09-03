@@ -62,7 +62,9 @@ The env token remains the fallback when no App credentials are present, followed
 
 ### Organization repository access during init
 
-`aiur init` verifies that it can read the configured repository before it offers CI or label setup. GitHub deliberately returns `404 Not Found`, rather than `403 Forbidden`, for an inaccessible private repository, so a repository 404 is not proof that the repository or its base branch is missing. Aiur checks the owner namespace and, when it can confirm an organization, reports an authorization diagnostic for the exact credential used by the probe.
+`aiur init` verifies that it can read the configured repository before it offers CI or label setup. GitHub deliberately returns `404 Not Found`, rather than `403 Forbidden`, for an inaccessible private repository, so a repository 404 is not proof that the repository or its base branch is missing.
+
+Aiur checks the owner namespace and, when it can confirm an organization, reports an authorization diagnostic for the exact credential used by the probe.
 
 The recovery depends on that credential:
 

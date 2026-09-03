@@ -279,6 +279,29 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "GitHub identity_mode" do
+    test "defaults to separate_account so an existing install is unchanged" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.identity_mode == "separate_account"
+    end
+
+    test "accepts single_account" do
+      assert {:ok, settings} =
+               Schema.parse(%{"tracker" => %{"github" => %{"identity_mode" => "single_account"}}})
+
+      assert settings.tracker.github.identity_mode == "single_account"
+    end
+
+    test "rejects any other spelling rather than silently picking a mode" do
+      # Which mode is in effect decides which comments wake an agent, so a typo
+      # must fail loudly at config load, not resolve to a guess.
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"identity_mode" => "single"}}})
+
+      assert message =~ "tracker.github.identity_mode"
+    end
+  end
+
   describe "agent rate_limit_fallback" do
     test "defaults to claude" do
       assert {:ok, defaults} = Schema.parse(%{})
