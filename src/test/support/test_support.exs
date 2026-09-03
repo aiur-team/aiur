@@ -686,8 +686,10 @@ defmodule Aiur.TestSupport do
   def ensure_runtime_children_running do
     with :ok <- ensure_aiur_supervisor_running(),
          :ok <- ensure_pubsub_running(),
+         :ok <- ensure_subscription_store_supervisor_running(),
          :ok <- ensure_branch_ref_store_running(),
-         :ok <- ensure_workflow_store_running() do
+         :ok <- ensure_workflow_store_running(),
+         :ok <- ensure_read_cache_running() do
       ensure_resource_store_running()
     end
   end
@@ -737,7 +739,21 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp ensure_pubsub_running(retries \\ 1) do
+  @doc """
+  Ensures the shared `Aiur.PubSub` registry is running, restarting the
+  supervised `Phoenix.PubSub.Supervisor` child when a prior test terminated it
+  (or the application supervisor toppled while a sibling was unavailable).
+  Tests that subscribe to `Aiur.PubSub` must call this before subscribing —
+  the registry is a shared app child that a sibling can stop, and subscribing
+  to a missing registry raises `ArgumentError: unknown registry: Aiur.PubSub`
+  rather than failing silently (#2397). Prefer this over `start_supervised!`-ing
+  a replacement `Phoenix.PubSub` under the ExUnit supervisor: a temporary
+  replacement dies at module end and can leave the shared name permanently
+  unregistered for every later test in the suite. Signal-based (`Process.whereis`)
+  — never a duration.
+  """
+  @spec ensure_pubsub_running() :: :ok | :error
+  def ensure_pubsub_running(retries \\ 1) do
     case Process.whereis(Aiur.PubSub) do
       pid when is_pid(pid) ->
         :ok
@@ -760,8 +776,83 @@ defmodule Aiur.TestSupport do
     end
   end
 
+  @doc """
+  Ensures the shared `Aiur.Events.SubscriptionStoreSupervisor` is running
+  before a test attaches a per-issue subscription store. A missing dynamic
+  supervisor makes `SubscriptionStore.attach/1` exit with `:noproc` (#2397).
+  Signal-based (`Process.whereis`) — never a duration.
+  """
+  @spec ensure_subscription_store_supervisor_running() :: :ok | :error
+  def ensure_subscription_store_supervisor_running(retries \\ 1) do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.Events.SubscriptionStoreSupervisor) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case restart_subscription_store_supervisor_child() do
+          {:ok, pid} when is_pid(pid) ->
+            :ok
+
+          {:error, {:already_started, pid}} when is_pid(pid) ->
+            :ok
+
+          :supervisor_unavailable when retries > 0 ->
+            ensure_aiur_supervisor_running()
+            ensure_subscription_store_supervisor_running(retries - 1)
+
+          _ ->
+            subscription_store_supervisor_status()
+        end
+    end
+  end
+
+  @doc """
+  Ensures the shared `Aiur.GitHub.ReadCache` is running before a test reads or
+  resets it. A stopped cache makes `ReadCache.snapshot/0` answer `available?:
+  false` with no entries, which under load reads as a hard cache miss on every
+  request (#2397). Signal-based (`Process.whereis`) — never a duration.
+  """
+  @spec ensure_read_cache_running() :: :ok | :error
+  def ensure_read_cache_running(retries \\ 1) do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.GitHub.ReadCache) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case restart_read_cache_child() do
+          {:ok, pid} when is_pid(pid) ->
+            :ok
+
+          {:error, {:already_started, pid}} when is_pid(pid) ->
+            :ok
+
+          :supervisor_unavailable when retries > 0 ->
+            ensure_aiur_supervisor_running()
+            ensure_read_cache_running(retries - 1)
+
+          _ ->
+            read_cache_status()
+        end
+    end
+  end
+
+  defp read_cache_status do
+    if Process.whereis(Aiur.GitHub.ReadCache), do: :ok, else: :error
+  end
+
   defp pubsub_status do
     case Process.whereis(Aiur.PubSub) do
+      pid when is_pid(pid) -> :ok
+      nil -> :error
+    end
+  end
+
+  defp subscription_store_supervisor_status do
+    case Process.whereis(Aiur.Events.SubscriptionStoreSupervisor) do
       pid when is_pid(pid) -> :ok
       nil -> :error
     end
@@ -858,6 +949,18 @@ defmodule Aiur.TestSupport do
 
   defp restart_pubsub_child do
     Supervisor.restart_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp restart_subscription_store_supervisor_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreSupervisor)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp restart_read_cache_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.GitHub.ReadCache)
   catch
     :exit, _reason -> :supervisor_unavailable
   end

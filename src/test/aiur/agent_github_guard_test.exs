@@ -4417,6 +4417,8 @@ defmodule Aiur.AgentGitHubGuardTest do
     test "simultaneous readers of different resources are not made to wait on each other", context do
       # The claim is per resource shape. Two agents reading two pull requests are
       # not duplicates and must both be admitted.
+      warm_cache_broker(context)
+
       results =
         [["pr", "view", "1670", "--json", "body"], ["pr", "view", "1671", "--json", "body"]]
         |> Task.async_stream(&run_cached_guard(context, &1, broker_env(context) ++ [FAKE_GH_SLEEP: "1"]),
@@ -5030,10 +5032,21 @@ defmodule Aiur.AgentGitHubGuardTest do
     ]
   end
 
+  # The daemon opens the shared broker ledger before it dispatches agents. These
+  # tests create a private ledger per case, so initialize it synchronously before
+  # asking concurrent readers to prove the steady-state coalescing contract. The
+  # completed guard call is the readiness signal; no wall-clock bound is involved.
+  defp warm_cache_broker(context) do
+    assert {"ok\n", 0} = run_cached_guard(context, ["pr", "view", "1669", "--json", "body"], broker_env(context))
+    File.rm!(context.calls)
+  end
+
   # `FAKE_GH_SLEEP` holds the leader's call open long enough that every follower
   # is genuinely in flight while it runs. Without an overlap there is no
   # coalescing to observe, only caching.
   defp concurrent_reads(context, args, count) do
+    warm_cache_broker(context)
+
     env =
       broker_env(context) ++
         [
@@ -5298,9 +5311,13 @@ defmodule Aiur.AgentGitHubGuardTest do
   end
 
   defp run_git_credential(context, input, extra_env) do
-    env =
-      [{"AIUR_REAL_GIT", real_git()}] ++
-        Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+    base_env = [
+      {"AIUR_REAL_GIT", real_git()},
+      {"AIUR_GITHUB_CREDENTIAL_FILE", Path.join(context.state_path, "no-agent-token")}
+    ]
+
+    overrides = Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+    env = Enum.reject(base_env, fn {name, _value} -> List.keymember?(overrides, name, 0) end) ++ overrides
 
     System.cmd("sh", ["-c", ~s(printf '%s' "$2" | "$1" credential fill), "sh", context.git_wrapper, input],
       env: env,
