@@ -66,13 +66,35 @@ defmodule Aiur.Config.Schema.Claude do
   end
 end
 
+defmodule Aiur.Config.Schema.Rtk do
+  @moduledoc false
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @primary_key false
+  embedded_schema do
+    # Opt-in. rtk compresses shell output before an agent reads it, which is an
+    # optimization rather than a correctness fix, and its saving is strongly
+    # command-dependent (measured on this repo: `ls -la src/lib/aiur` 12724 ->
+    # 1044 bytes, but `git log --oneline -30` 2033 -> 2033 bytes, i.e. nothing).
+    # A tool that rewrites every command an agent runs is a real behaviour
+    # change, so it stays off until an operator asks for it.
+    field(:enabled, :boolean, default: false)
+  end
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+  def changeset(schema, attrs) do
+    cast(schema, attrs, [:enabled], empty_values: [])
+  end
+end
+
 defmodule Aiur.Config.Schema.Agent do
   @moduledoc false
   use Ecto.Schema
   import Ecto.Changeset
 
   alias Aiur.Config.RoutingValue
-  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, PricingPolicy}
+  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, PricingPolicy, Rtk}
 
   @primary_key false
   embedded_schema do
@@ -213,6 +235,7 @@ defmodule Aiur.Config.Schema.Agent do
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pricing_policy, PricingPolicy, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:rtk, Rtk, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -317,6 +340,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
+    |> cast_embed(:rtk, with: &Rtk.changeset/2)
   end
 
   defp validate_dispatch_selections(changeset) do
