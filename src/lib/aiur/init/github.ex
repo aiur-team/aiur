@@ -116,7 +116,7 @@ defmodule Aiur.Init.GitHub do
     "Repository CI readiness found a pull-request workflow but needs an operator-only #{CiReadiness.operator_token_env()} to inspect workflow state, branch protection, and rulesets. Do not grant those permissions to GITHUB_TOKEN."
   end
 
-  defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
+  defp readiness_error_message(reason), do: CiReadiness.error_message(reason)
 
   defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}) do
     if io.confirm.("No pull-request CI workflow found — scaffold .github/workflows/ci.yml?", true) do

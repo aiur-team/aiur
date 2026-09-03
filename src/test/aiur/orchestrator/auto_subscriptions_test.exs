@@ -6,6 +6,10 @@ defmodule Aiur.Orchestrator.AutoSubscriptionsTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoSubscriptions
 
+  setup do
+    :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
+  end
+
   test "declared blockers receive the reserved force-push subscription" do
     blockee = "blockee-#{System.unique_integer([:positive])}"
     blocker = "blocker-#{System.unique_integer([:positive])}"
