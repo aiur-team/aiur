@@ -73,6 +73,16 @@ defmodule Aiur.Init.GitHub do
             {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
         end
 
+      {:error, {:ci_readiness_plan_limit, message}} ->
+        io.puts.(
+          "GitHub reports: #{message}\n" <>
+            "This repository plan does not support the ruleset or classic branch-protection checks needed for full CI readiness verification. " <>
+            "Make the repository public, upgrade the plan, or continue without ruleset verification. " <>
+            "aiur init is continuing without ruleset verification and will not save a CI-readiness assessment."
+        )
+
+        :ok
+
       {:error, reason} ->
         {:error, readiness_error_message(reason)}
     end
