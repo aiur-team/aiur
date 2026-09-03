@@ -7,7 +7,9 @@ A guide to common issues encountered during Aiur setup and how to resolve them.
 ### GitHub Token (`GITHUB_TOKEN`)
 
 Aiur uses the GitHub Issues API to fetch issues, update labels, and post comments.
-The `GITHUB_TOKEN` environment variable must be set.
+`GITHUB_TOKEN` is the default credential. A complete GitHub App credential set
+is an optional alternative, recommended if agents are hitting rate limits; see
+`docs/security/daemon-token-posture.md` for setup.
 
 **Required scopes:**
 

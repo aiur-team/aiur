@@ -197,6 +197,13 @@ signals (`ci.failed`, `agent.attention`, `retry_exhausted`,
 matches success alone is silent through a crashloop, and silence is
 indistinguishable from "nothing happening".
 
+The tail is notification-only. It does **not** advance the durable cursor and
+cannot substitute for `executor-wait`: `-n0` skips the existing prefix, the
+filter intentionally omits many wake classes, and a follower has no Executor
+identity or owner lease. Ordinary `aiur status` prints `WAKES CURSOR <id>
+PENDING <count>`; a growing `PENDING` value means the authoritative consumer is
+not draining even when tail notifications are arriving.
+
 `ticket.branch.push` is the **rework signal**: it names the PR and means "a
 blocking review has probably been addressed; re-review now". Agents also post
 an explicit PR comment on rework naming the head SHA and the findings they
@@ -307,6 +314,20 @@ Executor loop: inspect the projected PR number, SHA, draft/trust flags, action,
 CI conclusion, and attention flag before choosing the trusted content read or
 status command to run next. The concise form acknowledges the same record but
 omits those decision fields, so it is for human display rather than automation.
+
+If this Executor demonstrably covered an older prefix by another complete
+means, fast-forward only to the exact last durable `wake_id` it verified:
+
+```bash
+"$AIUR_CMD" executor-fast-forward <wake-id>
+```
+
+This is an exceptional reconciliation path, not the normal loop. It acquires
+the same owner lease as `executor-wait`, refuses a live peer owner, rejects an
+id beyond or absent from the durable inbox, reports the exact `from`, `through`,
+acknowledged count and remaining `pending`, and leaves every newer wake unread.
+Never use it merely because the backlog is large; inspect and cover the prefix
+first.
 
 `aiur executor-listen --topic executor.#` remains available as an optional raw
 JSON-line stream if you want the interactive wake in a background shell. It is

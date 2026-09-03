@@ -60,12 +60,32 @@ defmodule Aiur.ExecutorWakeInbox do
     GenServer.call(server, {:acknowledge_as, consumer_id, records})
   end
 
+  @doc """
+  Advances the shared cursor through one exact durable wake id.
+
+  This is the explicit recovery path for an owner that covered a wake window
+  outside `executor-wait`. It uses the same lease check as normal
+  acknowledgement, refuses ids beyond or absent from the durable journal, and
+  leaves every newer wake unread.
+  """
+  @spec fast_forward_as(String.t(), pos_integer(), GenServer.server()) ::
+          {:ok, %{from: non_neg_integer(), through: non_neg_integer(), acknowledged_count: non_neg_integer(), pending_count: non_neg_integer()}}
+          | {:error, term()}
+  def fast_forward_as(consumer_id, wake_id, server \\ __MODULE__)
+      when is_binary(consumer_id) and is_integer(wake_id) and wake_id > 0 do
+    GenServer.call(server, {:fast_forward_as, consumer_id, wake_id})
+  end
+
   @spec pending(GenServer.server()) :: [map()]
   def pending(server \\ __MODULE__), do: GenServer.call(server, :pending)
 
   @doc "The shared cursor: the highest wake id an owner has acknowledged."
   @spec cursor(GenServer.server()) :: non_neg_integer()
   def cursor(server \\ __MODULE__), do: GenServer.call(server, :cursor)
+
+  @doc "The cursor and unread count for operator status surfaces."
+  @spec stats(GenServer.server()) :: {:ok, %{cursor: non_neg_integer(), pending_count: non_neg_integer()}} | {:error, term()}
+  def stats(server \\ __MODULE__), do: GenServer.call(server, :stats)
 
   @impl true
   def init(opts) do
@@ -79,7 +99,7 @@ defmodule Aiur.ExecutorWakeInbox do
 
     with :ok <- DecisionLog.prepare(Path.dirname(path), path),
          {:ok, pending} <- read_pending(pending_path),
-         {:ok, next_wake_id} <- next_wake_id(path, pending, cursor_path) do
+         {:ok, summary} <- journal_summary(path, pending, cursor_path) do
       state = %{
         path: path,
         cursor_path: cursor_path,
@@ -87,7 +107,9 @@ defmodule Aiur.ExecutorWakeInbox do
         debounce_ms: debounce_ms,
         max_records: max_records,
         pending: pending,
-        next_wake_id: next_wake_id,
+        next_wake_id: summary.next_wake_id,
+        cursor: summary.cursor,
+        pending_count: summary.pending_count,
         timer: nil,
         waiters: %{}
       }
@@ -135,26 +157,43 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   def handle_call({:acknowledge, records}, _from, state) do
-    :ok = advance_cursor(state.cursor_path, records)
-    trim_consumed(state)
+    state = state |> advance_cursor(records) |> trim_consumed()
     {:reply, :ok, state}
   end
 
   def handle_call({:acknowledge_as, consumer_id, records}, _from, state) do
-    highest = records |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> read_cursor(state.cursor_path) end)
+    highest = records |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> state.cursor end)
 
-    case Claims.record_acknowledgement(consumer_id, highest) do
-      {:ok, _entry} ->
-        :ok = advance_cursor(state.cursor_path, records)
-        trim_consumed(state)
-        {:reply, :ok, state}
+    case acknowledge_records_as(state, consumer_id, records, highest) do
+      {:ok, state} -> {:reply, :ok, state}
+      {:error, _reason} = error -> {:reply, error, state}
+    end
+  end
+
+  def handle_call({:fast_forward_as, consumer_id, wake_id}, _from, state) do
+    state = flush_now(state)
+    {result, state} = fast_forward(state, consumer_id, wake_id)
+    {:reply, result, state}
+  end
+
+  def handle_call(:cursor, _from, state) do
+    state = refresh_cursor(state)
+    {:reply, state.cursor, state}
+  end
+
+  def handle_call(:stats, _from, state) do
+    state = refresh_cursor(state)
+
+    case unread_records(state) do
+      {:ok, unread} ->
+        in_flight = Enum.count(state.pending, fn {_key, record} -> record["wake_id"] > state.cursor end)
+        stats = %{cursor: state.cursor, pending_count: length(unread) + in_flight}
+        {:reply, {:ok, stats}, %{state | pending_count: length(unread)}}
 
       {:error, _reason} = error ->
         {:reply, error, state}
     end
   end
-
-  def handle_call(:cursor, _from, state), do: {:reply, read_cursor(state.cursor_path), state}
 
   def handle_call(:pending, _from, state) do
     records =
@@ -211,6 +250,13 @@ defmodule Aiur.ExecutorWakeInbox do
     %{state | timer: {timer, token}}
   end
 
+  defp flush_now(%{timer: nil} = state), do: flush_pending(state)
+
+  defp flush_now(%{timer: {timer, _token}} = state) do
+    Process.cancel_timer(timer)
+    flush_pending(%{state | timer: nil})
+  end
+
   defp flush_pending(%{pending: pending} = state) when map_size(pending) == 0, do: serve_waiters(state)
 
   defp flush_pending(state) do
@@ -219,8 +265,7 @@ defmodule Aiur.ExecutorWakeInbox do
     case append_new_records(state.path, records) do
       :ok ->
         :ok = persist_pending(state.pending_path, %{})
-        trim_consumed(state)
-        serve_waiters(%{state | pending: %{}})
+        state |> Map.put(:pending, %{}) |> trim_consumed() |> serve_waiters()
 
       {:error, _reason} ->
         reset_flush_timer(state)
@@ -246,10 +291,16 @@ defmodule Aiur.ExecutorWakeInbox do
   end
 
   defp unread_records(state) do
-    cursor = read_cursor(state.cursor_path)
+    cursor = current_cursor(state)
 
+    with {:ok, records} <- durable_records(state) do
+      {:ok, Enum.filter(records, &(&1["wake_id"] > cursor))}
+    end
+  end
+
+  defp durable_records(state) do
     case DecisionLog.replay(state.path, &validate_record/1) do
-      {:ok, records, nil} -> {:ok, Enum.filter(records, &(&1["wake_id"] > cursor))}
+      {:ok, records, nil} -> {:ok, records}
       {:ok, _records, corruption} -> {:error, corruption}
       {:error, reason} -> {:error, reason}
     end
@@ -343,12 +394,19 @@ defmodule Aiur.ExecutorWakeInbox do
     end
   end
 
-  defp next_wake_id(path, pending, cursor_path) do
+  defp journal_summary(path, pending, cursor_path) do
     case DecisionLog.replay(path, &validate_record/1) do
       {:ok, records, nil} ->
+        cursor = read_cursor(cursor_path)
         durable_ids = Enum.map(records, & &1["wake_id"])
         pending_ids = pending |> Map.values() |> Enum.map(& &1["wake_id"])
-        {:ok, Enum.max([read_cursor(cursor_path) | durable_ids ++ pending_ids]) + 1}
+
+        {:ok,
+         %{
+           next_wake_id: Enum.max([cursor | durable_ids ++ pending_ids]) + 1,
+           cursor: cursor,
+           pending_count: Enum.count(records, &(&1["wake_id"] > cursor))
+         }}
 
       {:ok, _records, corruption} ->
         {:error, corruption}
@@ -365,9 +423,93 @@ defmodule Aiur.ExecutorWakeInbox do
     end
   end
 
-  defp advance_cursor(path, records) do
-    id = max(read_cursor(path), records |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> 0 end))
-    JsonStore.write!(path, %{"last_seen_wake_id" => id})
+  # The journal, cursor and pending files live under the repository state root,
+  # not under a process, so every Executor daemon on this host and repository
+  # shares them. A peer that acknowledges wakes advances the very same cursor
+  # file while this process still holds the value it cached at boot. Caching is
+  # still worth keeping for the write path, so the cached value is treated as a
+  # lower bound rather than the truth: reads take the newer of cache and disk,
+  # which observes a peer's advance and still cannot be rewound by a stale file.
+  defp current_cursor(state), do: max(state.cursor, read_cursor(state.cursor_path))
+
+  defp refresh_cursor(state), do: %{state | cursor: current_cursor(state)}
+
+  defp advance_cursor(state, records) do
+    cursor = Enum.max([current_cursor(state) | Enum.map(records, & &1["wake_id"])])
+    :ok = JsonStore.write!(state.cursor_path, %{"last_seen_wake_id" => cursor})
+    %{state | cursor: cursor}
+  end
+
+  defp fast_forward(state, consumer_id, wake_id) do
+    state = refresh_cursor(state)
+
+    case durable_records(state) do
+      {:ok, durable} -> fast_forward_durable(state, consumer_id, wake_id, durable)
+      {:error, _reason} = error -> {error, state}
+    end
+  end
+
+  defp fast_forward_durable(state, consumer_id, wake_id, durable) do
+    records = Enum.filter(durable, &(&1["wake_id"] > state.cursor))
+    latest_wake_id = durable |> Enum.map(& &1["wake_id"]) |> Enum.max(fn -> state.cursor end)
+
+    cond do
+      wake_id > latest_wake_id ->
+        {{:error, {:beyond_latest_wake, latest_wake_id}}, state}
+
+      not Enum.any?(durable, &(&1["wake_id"] == wake_id)) ->
+        {{:error, {:wake_not_found, wake_id}}, state}
+
+      wake_id <= state.cursor ->
+        fast_forward_already_seen(state, consumer_id, wake_id, length(records))
+
+      true ->
+        fast_forward_existing_prefix(state, consumer_id, records, wake_id)
+    end
+  end
+
+  defp fast_forward_already_seen(state, consumer_id, wake_id, pending_count) do
+    case acknowledge_records_as(state, consumer_id, [], state.cursor) do
+      {:ok, updated_state} ->
+        result = {:ok, %{from: state.cursor, through: wake_id, acknowledged_count: 0, pending_count: pending_count}}
+        {result, updated_state}
+
+      {:error, _reason} = error ->
+        {error, state}
+    end
+  end
+
+  # `fast_forward_durable/4` has already proven that `wake_id` is present in the
+  # durable log and sits above the cursor, so the split below always covers it.
+  defp fast_forward_existing_prefix(state, consumer_id, records, wake_id) do
+    {covered, remaining} = Enum.split_while(records, &(&1["wake_id"] <= wake_id))
+
+    case acknowledge_records_as(state, consumer_id, covered, wake_id) do
+      {:ok, updated_state} ->
+        result =
+          {:ok,
+           %{
+             from: state.cursor,
+             through: wake_id,
+             acknowledged_count: length(covered),
+             pending_count: length(remaining)
+           }}
+
+        {result, updated_state}
+
+      {:error, _reason} = error ->
+        {error, state}
+    end
+  end
+
+  defp acknowledge_records_as(state, consumer_id, records, highest) do
+    case Claims.record_acknowledgement(consumer_id, highest) do
+      {:ok, _entry} ->
+        {:ok, state |> advance_cursor(records) |> trim_consumed()}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   # Recording is unconditional now, so an unattended run appends wake records
@@ -382,31 +524,34 @@ defmodule Aiur.ExecutorWakeInbox do
   # dropped range so a consumer's next read is honest about where the stream now
   # begins rather than replaying a gap it cannot fill.
   defp trim_consumed(state) do
-    cursor = read_cursor(state.cursor_path)
-
-    with {:ok, records, nil} <- DecisionLog.replay(state.path, &validate_record/1) do
-      unread = Enum.filter(records, &(&1["wake_id"] > cursor))
-      consumed = Enum.filter(records, &(&1["wake_id"] <= cursor))
-      retained_unread = Enum.take(unread, -state.max_records)
-      consumed_limit = max(state.max_records - length(retained_unread), 0)
-      retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
-
-      if length(retained) < length(records) do
-        contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
-        _ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)
-      end
-
-      report_dropped_unread(state, unread -- retained_unread)
+    case DecisionLog.replay(state.path, &validate_record/1) do
+      {:ok, records, nil} -> trim_records(state, records)
+      _error -> state
     end
-
-    :ok
   end
 
-  defp report_dropped_unread(_state, []), do: :ok
+  defp trim_records(state, records) do
+    unread = Enum.filter(records, &(&1["wake_id"] > state.cursor))
+    consumed = Enum.filter(records, &(&1["wake_id"] <= state.cursor))
+    retained_unread = Enum.take(unread, -state.max_records)
+    consumed_limit = max(state.max_records - length(retained_unread), 0)
+    retained = Enum.take(consumed, -consumed_limit) ++ retained_unread
+
+    if length(retained) < length(records) do
+      contents = Enum.map(retained, &[Jason.encode!(&1), "\n"])
+      _ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)
+    end
+
+    cursor = report_dropped_unread(state, unread -- retained_unread)
+    %{state | cursor: cursor, pending_count: length(retained_unread)}
+  end
+
+  defp report_dropped_unread(state, []), do: state.cursor
 
   defp report_dropped_unread(state, dropped) do
     ids = Enum.map(dropped, & &1["wake_id"])
-    :ok = advance_cursor(state.cursor_path, dropped)
+    cursor = Enum.max(ids)
+    :ok = JsonStore.write!(state.cursor_path, %{"last_seen_wake_id" => cursor})
 
     message =
       "Executor wake ledger overflowed its #{state.max_records}-record bound; " <>
@@ -418,6 +563,7 @@ defmodule Aiur.ExecutorWakeInbox do
     )
 
     safe_overflow_alert(message)
+    cursor
   end
 
   # Losing a wake is exactly the class of event an operator must be told about;
