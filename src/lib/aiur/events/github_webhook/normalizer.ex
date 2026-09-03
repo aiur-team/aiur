@@ -46,7 +46,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   of the above runs.
   """
 
-  alias Aiur.Events.{CommentFilter, GithubKeys}
+  alias Aiur.Events.{CommentFilter, GithubKeys, GithubReviewThreadIdentity}
   alias Aiur.GitHub.ResourceStore
   alias Aiur.TicketBranch
 
@@ -116,24 +116,43 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
 
   def tracked_repo(payload, opts) when is_map(payload) do
     tracked = Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
-    delivered = get_in(payload, ["repository", "full_name"])
+    candidates = delivery_repos(payload)
 
     cond do
-      not is_binary(delivered) or delivered == "" ->
+      candidates == [] ->
         {:error, :missing_repository}
 
       not is_binary(tracked) or tracked == "" ->
-        {:drop, {:untracked_repository, delivered}}
-
-      String.downcase(delivered) == String.downcase(tracked) ->
-        {:ok, delivered}
+        {:drop, {:untracked_repository, hd(candidates)}}
 
       true ->
-        {:drop, {:untracked_repository, delivered}}
+        case Enum.find(candidates, &(String.downcase(&1) == String.downcase(tracked))) do
+          nil -> {:drop, {:untracked_repository, hd(candidates)}}
+          repo -> {:ok, repo}
+        end
     end
   end
 
   def tracked_repo(_payload, _opts), do: {:error, :missing_repository}
+
+  # The repositories a delivery names, most specific first. Every other event
+  # type carries the whole object's repo as `repository.full_name`; the two
+  # graph-edge events carry their repos as `*_repo` fields instead, because
+  # neither `sub_issues` nor `issue_dependencies` wraps a `repository` object.
+  # Resolving both lets a delivery count as tracked — and therefore get
+  # deposited and recorded — when either endpoint of the edge is in the repo
+  # the fleet tracks (#2313).
+  defp delivery_repos(payload) do
+    [
+      get_in(payload, ["repository", "full_name"]),
+      Map.get(payload, "parent_issue_repo"),
+      Map.get(payload, "sub_issue_repo"),
+      Map.get(payload, "blocked_issue_repo"),
+      Map.get(payload, "blocking_issue_repo")
+    ]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
 
   # ---------------------------------------------------------------------------
   # issue_comment -> ticket.<id>.issue.commented
@@ -212,30 +231,26 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   end
 
   # ---------------------------------------------------------------------------
-  # pull_request_review_thread resolved -> reconciliation only
+  # pull_request_review_thread resolved / unresolved -> targeted comment reconcile
+  #
+  # GitHub changes thread resolution without creating a review comment. The
+  # unresolved-thread poller owns publication, so the delivery names the exact
+  # ticket that poller should reconcile rather than inventing another event.
   # ---------------------------------------------------------------------------
 
-  defp normalize_event("pull_request_review_thread", payload, _repo) when is_map(payload) do
+  defp normalize_event("pull_request_review_thread", payload, repo) when is_map(payload) do
     action = Map.get(payload, "action")
     thread = Map.get(payload, "thread")
 
     cond do
-      action != "resolved" ->
+      action not in ["resolved", "unresolved"] ->
         {:drop, {:uninteresting_action, "pull_request_review_thread", action}}
 
-      not is_map(thread) ->
+      not is_map(thread) or not is_map(Map.get(payload, "pull_request")) ->
         {:error, {:malformed_payload, "pull_request_review_thread"}}
 
       true ->
-        with {:ok, target, pr_number} <- pull_request_identity(payload) do
-          {:reconcile,
-           %{
-             kind: :review_threads,
-             ticket: target,
-             pull_request: pr_number,
-             source: "pull_request_review_thread"
-           }}
-        end
+        review_thread_reconcile(payload, thread, action, repo)
     end
   end
 
@@ -264,14 +279,18 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   end
 
   # ---------------------------------------------------------------------------
-  # issues labeled / unlabeled / closed -> issue-state reconcile
+  # issues labeled / unlabeled / closed / reopened / opened -> issue-state
+  # reconcile
   #
   # The polling path does not publish these through Publisher: IssueSync diffs
   # the observed label set and emits `ticket.<id>.issue.label.added.agent.<state>`
   # from that diff, and the same diff drives dispatch. GitHub does not order
   # deliveries, so an `unlabeled` can arrive before the `labeled` it followed —
   # another reason to treat the delivery as "state changed, go look" rather than
-  # as an ordered instruction.
+  # as an ordered instruction. A freshly `opened` ticket reconciles the same way
+  # so a new issue that already carries an active state label does not wait out
+  # the poll interval (#2365); whether the opened issue implies work is decided
+  # by the delivery tail, not here, so this module stays pure.
   # ---------------------------------------------------------------------------
 
   defp normalize_event("issues", payload, _repo) when is_map(payload) do
@@ -279,7 +298,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
     issue = Map.get(payload, "issue")
 
     cond do
-      action not in ["labeled", "unlabeled", "closed", "reopened"] ->
+      action not in ["labeled", "unlabeled", "closed", "reopened", "opened"] ->
         {:drop, {:uninteresting_action, "issues", action}}
 
       not is_map(issue) ->
@@ -300,6 +319,25 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
              }}
         end
     end
+  end
+
+  # ---------------------------------------------------------------------------
+  # sub_issues / issue_dependencies -> graph mutation, deposited not published
+  #
+  # These two event types mutate the Build Order graph — membership and
+  # dependency edges — and neither has a fleet event the polling path produces
+  # (`Aiur.Events.GithubWebhook.Deposit` is the only consumer that matters, and
+  # it runs before this clause, in `record_tracked_delivery/3`). Publishing a
+  # shape here would invent an event no poller emits, and reconciling through
+  # the orchestrator would be wrong: the graph projection is woken by the
+  # store's own `ResourceEvents`, not by a poll cycle. So the delivery is
+  # dropped as a publish candidate with the reason naming what it was, and the
+  # store already holds the edge (#2313).
+  # ---------------------------------------------------------------------------
+
+  defp normalize_event(event_type, payload, _repo)
+       when event_type in ["sub_issues", "issue_dependencies"] and is_map(payload) do
+    {:drop, {:graph_event, event_type, Map.get(payload, "action")}}
   end
 
   # ---------------------------------------------------------------------------
@@ -403,7 +441,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # this change. A duplicate wake is recoverable; a dropped delivery is not.
   defp review_comment_triple(payload, comment, repo) do
     with {:ok, target, pr_number} <- pull_request_identity(payload) do
-      {dedup_key, resource} = review_comment_keys(repo, pr_number, comment)
+      {dedup_key, resource, version} = review_comment_keys(repo, pr_number, comment)
 
       {:publish,
        [
@@ -413,7 +451,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
            poller_comment_shape(comment),
            dedup_key,
            payload |> Map.get("pull_request") |> review_context() |> approval_only_context(),
-           resource
+           resource,
+           version
          )
        ]}
     end
@@ -421,17 +460,28 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
 
   defp review_comment_keys(repo, pr_number, %{"review_thread_id" => thread_id})
        when is_binary(thread_id) and thread_id != "" do
-    {GithubKeys.review_thread_dedup_key(repo, pr_number, thread_id), ResourceStore.key_for_repo(:pr_review_thread, repo, thread_id)}
+    resource = ResourceStore.key_for_repo(:pr_review_thread, repo, thread_id)
+    generation = GithubReviewThreadIdentity.unresolved_generation(resource)
+
+    {
+      GithubKeys.review_thread_dedup_key(repo, pr_number, thread_id, generation),
+      resource,
+      generation
+    }
   end
 
   defp review_comment_keys(repo, pr_number, comment) when is_map(comment) do
-    {GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")), ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id"))}
+    {
+      GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")),
+      ResourceStore.key_for_repo(:pr_review_comment, repo, Map.get(comment, "id")),
+      nil
+    }
   end
 
   # GithubCommentsPoller.publish_comment/4: payload keyed by the ticket
   # identifier string, actor from the comment author, contamination bypassed so
   # an inbound human comment can reactivate a deactivated ticket.
-  defp comment_triple(topic, target, comment, dedup_key, review_context, resource) do
+  defp comment_triple(topic, target, comment, dedup_key, review_context, resource, generation \\ nil) do
     actor = get_in(comment, ["user", "login"])
 
     payload =
@@ -454,7 +504,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
        issue_number: target,
        dedup_key: dedup_key,
        resource: resource,
-       resource_version: resource_version(comment),
+       resource_version: GithubReviewThreadIdentity.resource_version(resource_version(comment), generation),
        resource_source: :webhook,
        actor: actor,
        bypass_contamination: true
@@ -653,6 +703,62 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
          }}
     end
   end
+
+  defp review_thread_reconcile(payload, thread, action, repo) do
+    thread_id = Map.get(thread, "node_id")
+    pull_request = Map.get(payload, "pull_request")
+
+    cond do
+      not is_binary(thread_id) or thread_id == "" ->
+        {:error, {:malformed_payload, "pull_request_review_thread"}}
+
+      # A delivery whose pull request carries no head repository cannot be
+      # routed to a ticket: there is nothing to compare the tracked repo
+      # against. That is a malformed payload, not an untracked repository — the
+      # drop reason would otherwise read `{:untracked_head_repository, nil}`,
+      # which hides a gap in the payload behind the language of a tracking
+      # decision.
+      not named_head_repo?(pull_request) ->
+        {:error, {:malformed_payload, "pull_request_review_thread"}}
+
+      not tracked_head_repo?(pull_request, repo) ->
+        {:drop, {:untracked_head_repository, get_in(pull_request, ["head", "repo", "full_name"])}}
+
+      ticket = ticket_from_head_ref(pull_request) ->
+        {:reconcile,
+         %{
+           kind: :review_thread,
+           ticket: ticket,
+           action: action,
+           thread_id: thread_id,
+           generation: Map.get(payload, "updated_at") || Map.get(thread, "updated_at")
+         }}
+
+      true ->
+        {:drop, {:unresolved_ticket, "pull_request_review_thread", action}}
+    end
+  end
+
+  defp named_head_repo?(pull_request) when is_map(pull_request) do
+    case get_in(pull_request, ["head", "repo", "full_name"]) do
+      delivered when is_binary(delivered) and delivered != "" -> true
+      _other -> false
+    end
+  end
+
+  defp named_head_repo?(_pull_request), do: false
+
+  defp tracked_head_repo?(pull_request, repo) when is_map(pull_request) and is_binary(repo) do
+    case get_in(pull_request, ["head", "repo", "full_name"]) do
+      delivered when is_binary(delivered) and delivered != "" ->
+        String.downcase(delivered) == String.downcase(repo)
+
+      _other ->
+        false
+    end
+  end
+
+  defp tracked_head_repo?(_pull_request, _repo), do: false
 
   # ---------------------------------------------------------------------------
   # Identity helpers

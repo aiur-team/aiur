@@ -25,7 +25,7 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
     :ok
   end
 
-  test "at the idle cadence the catalog arms its next sweep 600s out, not 120s out" do
+  test "the catalog no longer arms a periodic sweep after a completion" do
     {:ok, projection} = start_projection()
 
     reader = await_reader(:catalog)
@@ -33,21 +33,13 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
 
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
 
+    # The catalog is event-sourced from the store (#2313): a completion rebuilds
+    # it once and arms nothing, so an open page never re-reads on a clock.
     entry = catalog_entry(projection)
-
-    assert entry.timer
-    # `read_timer` is the remaining time on the armed timer. A projection still
-    # running at the base interval would show ~120_000 here.
-    remaining = Process.read_timer(entry.timer)
-    assert is_integer(remaining)
-    # Tight enough that a projection still running at the 120s base interval, or
-    # at any other multiple of it, fails. `read_timer` counts down in real time,
-    # so the last millisecond or two is not pinned.
-    assert remaining > @idle_refresh_ms - 1_000
-    assert remaining <= @idle_refresh_ms
+    assert entry.timer == nil
   end
 
-  test "a root labelled while the fleet was idle still reaches the page on the next sweep" do
+  test "a root labelled while the fleet was idle reaches the page on a store change, not a sweep" do
     first = identity(1, "I1")
     newly_labelled = identity(2, "I2")
 
@@ -60,9 +52,27 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
 
     assert Enum.map(published.data.entries, & &1.identity) == [first]
 
-    # Somebody adds the build-order label to a second root. Fire the sweep the
-    # projection armed rather than waiting 600 seconds for it.
-    fire_catalog_timer(projection)
+    # Somebody adds the build-order label to a second root. In the old design a
+    # periodic sweep noticed on its own clock; now the store's change event is
+    # the trigger, and there is no sweep to wait for.
+    send(
+      projection,
+      {:github_resource_changed,
+       %{
+         key: nil,
+         resource_type: :issue_labels,
+         owner: "owner",
+         repo: "repo",
+         id: "2",
+         source: :webhook,
+         version: nil,
+         etag: nil,
+         data?: true,
+         data_version: nil,
+         recorded_at_ms: 1,
+         cleared: false
+       }}
+    )
 
     next_reader = await_reader(:catalog)
     finish(next_reader, {:ok, ProviderResult.complete(catalog([root(first), root(newly_labelled)]))})
@@ -80,38 +90,26 @@ defmodule Aiur.BuildOrder.GraphProjectionIdleCadenceTest do
     projection |> :sys.get_state() |> Map.fetch!(:catalog)
   end
 
-  defp fire_catalog_timer(projection) do
-    entry = catalog_entry(projection)
-    Process.cancel_timer(entry.timer)
-    send(projection, {:graph_projection_due, :catalog, entry.timer_token})
-  end
-
   defp start_projection do
     parent = self()
     task_supervisor = start_supervised!({Task.Supervisor, name: nil})
 
-    {:ok, projection} =
-      GraphProjection.start_link(
-        name: nil,
-        task_supervisor: task_supervisor,
-        authority_snapshot: fn -> authority() end,
-        configuration_subscriber: fn _pid -> :ok end,
-        catalog_reader: fn _reader_opts -> blocking_read(parent, :catalog) end,
-        selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
-        now: fn -> @now end,
-        clock_ms: fn -> 0 end,
-        catalog_refresh_ms: @idle_refresh_ms,
-        refresh_timeout_ms: 30_000,
-        max_selected_roots: 4,
-        max_inflight: 4,
-        after_broadcast: fn event -> send(parent, {:projection_event, event}) end
-      )
-
-    # The catalog is demand-gated since #2312: these tests exercise its cadence,
-    # so register the test process as the viewer a page would be.
-    GraphProjection.subscribe_catalog(projection)
-
-    {:ok, projection}
+    GraphProjection.start_link(
+      name: nil,
+      task_supervisor: task_supervisor,
+      authority_snapshot: fn -> authority() end,
+      configuration_subscriber: fn _pid -> :ok end,
+      reconciliation_fun: fn _opts -> :ok end,
+      catalog_reader: fn _reader_opts -> blocking_read(parent, :catalog) end,
+      selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
+      now: fn -> @now end,
+      clock_ms: fn -> 0 end,
+      catalog_refresh_ms: @idle_refresh_ms,
+      refresh_timeout_ms: 30_000,
+      max_selected_roots: 4,
+      max_inflight: 4,
+      after_broadcast: fn event -> send(parent, {:projection_event, event}) end
+    )
   end
 
   defp authority do

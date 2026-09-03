@@ -109,7 +109,7 @@ defmodule Aiur.Config.Schema.Agent do
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
-    field(:max_concurrent_builds, :integer, default: 2)
+    field(:max_concurrent_builds, :integer, default: 4)
     # Minimum spacing between local Mix compile/test starts when more than one
     # build may run concurrently. 0 disables start pacing.
     field(:build_start_stagger_seconds, :integer, default: 0)
@@ -121,6 +121,12 @@ defmodule Aiur.Config.Schema.Agent do
     # and the daemon raises a needs-attention alert naming the command. 0
     # disables the backstop.
     field(:build_gate_max_hold_seconds, :integer, default: 3_600)
+    # Maximum post-command courtesy window (seconds) the detached holder keeps
+    # a slot after the wrapped command exits, gated on a descendant still
+    # consuming CPU (#2398). The holder releases the moment the retained tree
+    # goes idle, so this is the *ceiling* for a genuinely-busy descendant, not
+    # a per-build hold. 0 disables the courtesy.
+    field(:build_gate_retain_seconds, :integer, default: 120)
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
@@ -179,6 +185,30 @@ defmodule Aiur.Config.Schema.Agent do
     # `erl_child_setup` dump has no stack) is interpretable. Default on; set
     # false to disable the recorder.
     field(:saturation_log_enabled, :boolean, default: true)
+    # Minimum seconds a ready-work capacity-starvation condition must persist
+    # before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved`
+    # raise. The below-target dispatch ramp clears itself within a few poll
+    # cycles, so this dwell keeps the intended ramp quiet while a genuine gate
+    # that outlives the bound still raises (#2447).
+    field(:capacity_starvation_alert_after_seconds, :integer, default: 60)
+    # The sliding window over which budget-broker-timeout retries are counted
+    # (#2464). The retry rate is the whole signal — the individual retry is
+    # uninteresting — and this is how much recent history the rate is measured
+    # over. The measured 2026-08-24 fault produced 28 timeouts in ~10 minutes.
+    field(:budget_broker_rate_window_seconds, :integer, default: 300)
+    # The retry count within the window above which the broker counts as
+    # degraded. Default sits above an isolated timeout (which must page nobody)
+    # while keeping "if the normal rate is zero, almost any sustained rate is
+    # worth surfacing". Derived from a measured quiet-period baseline, not
+    # guessed — this is the knob an operator tunes from their own baseline.
+    field(:budget_broker_degraded_retry_threshold, :integer, default: 5)
+    # How long the degraded retry rate must persist before the single
+    # `system.github.budget_broker_degraded` alert raises (#2434/#2449 dwell):
+    # a momentary blip that clears within this bound produces nothing, a
+    # sustained degradation raises exactly once. Kept longer than the rate
+    # window so a burst that stops ages out of the window before the dwell
+    # completes — the dwell then filters exactly the momentary cases.
+    field(:budget_broker_degraded_alert_after_seconds, :integer, default: 600)
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -202,6 +232,7 @@ defmodule Aiur.Config.Schema.Agent do
         :build_start_stagger_seconds,
         :min_free_memory_mb,
         :build_gate_max_hold_seconds,
+        :build_gate_retain_seconds,
         :max_turns,
         :max_retry_attempts,
         :max_retry_backoff_ms,
@@ -223,7 +254,11 @@ defmodule Aiur.Config.Schema.Agent do
         :load_cooldown_seconds,
         :synthetic_load_process_cap,
         :mix_scheduler_cap,
-        :saturation_log_enabled
+        :saturation_log_enabled,
+        :capacity_starvation_alert_after_seconds,
+        :budget_broker_rate_window_seconds,
+        :budget_broker_degraded_retry_threshold,
+        :budget_broker_degraded_alert_after_seconds
       ],
       empty_values: []
     )
@@ -233,6 +268,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
     |> validate_number(:build_gate_max_hold_seconds, greater_than_or_equal_to: 0)
+    |> validate_number(:build_gate_retain_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:max_turns, greater_than: 0)
     |> validate_number(:max_dispatches_per_ticket, greater_than_or_equal_to: 0)
     |> validate_number(:max_retry_attempts, greater_than: 0)
@@ -247,6 +283,10 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:load_cooldown_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:synthetic_load_process_cap, greater_than_or_equal_to: 0)
     |> validate_number(:mix_scheduler_cap, greater_than: 0)
+    |> validate_number(:capacity_starvation_alert_after_seconds, greater_than: 0)
+    |> validate_number(:budget_broker_rate_window_seconds, greater_than: 0)
+    |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
+    |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
     |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)

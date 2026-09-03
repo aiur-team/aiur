@@ -2,7 +2,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, Publisher}
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.GitHub.{CodeOwners, ResourceStore}
   alias Aiur.Workflow
 
   setup do
@@ -23,6 +23,20 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
+      end
+
+      # This suite publishes reviews and comments through the shared
+      # `Publisher`, which marks them in `ResourceStore` and records their
+      # dedup keys in the volatile `Publisher.Dedup` window. Neither is cleared
+      # per test anywhere else, so a sibling suite that publishes the same
+      # review ids (e.g. `WebhookPollReconciliationTest`) would be silently
+      # suppressed by the leaked marks/keys when this suite runs first. Clean
+      # both up so the shared state is self-contained per module.
+      ResourceStore.reset()
+
+      case :ets.whereis(Aiur.Events.Publisher.Dedup) do
+        :undefined -> :ok
+        table -> :ets.delete_all_objects(table)
       end
     end)
 
@@ -194,7 +208,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok, %{status: 200, body: []}}
@@ -252,7 +270,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok,
@@ -428,7 +450,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok,
@@ -1110,11 +1136,24 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       request_fun = fn %{url: url} ->
         cond do
-          String.contains?(url, "/issues/42/comments?") -> {:ok, %{status: 200, body: []}}
-          String.contains?(url, "/pulls?") -> {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
-          String.contains?(url, "/issues/77/comments?") -> {:ok, %{status: 200, body: []}}
-          String.contains?(url, "/graphql") -> empty_review_threads_response()
-          String.contains?(url, "/pulls/77/reviews") -> {:error, :timeout}
+          String.contains?(url, "/issues/42/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
+
+          String.contains?(url, "/issues/77/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+
+          String.contains?(url, "/pulls/77/reviews") ->
+            {:error, :timeout}
         end
       end
 
@@ -1151,7 +1190,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              }}
 
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           String.contains?(url, "/issues/77/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -1295,7 +1338,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       nil ->
         path =
-          Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.unique_integer([:positive])}")
+          Aiur.TestSupport.tmp_root!("aiur-codeowners")
 
         File.write!(path, contents)
 
@@ -1306,7 +1349,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   defp ensure_configured_codeowners!(contents) do
-    path = Path.join(System.tmp_dir!(), "aiur-codeowners-#{System.unique_integer([:positive])}")
+    path = Aiur.TestSupport.tmp_root!("aiur-codeowners")
     File.write!(path, contents)
 
     case Process.whereis(CodeOwners) do
@@ -1405,7 +1448,11 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/pulls?") ->
-          {:ok, %{status: 200, body: [%{"number" => 77, "head" => %{"ref" => "aiur/42"}}]}}
+          {:ok,
+           %{
+             status: 200,
+             body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+           }}
 
         String.contains?(url, "/issues/77/comments?") ->
           {:ok, %{status: 200, body: []}}

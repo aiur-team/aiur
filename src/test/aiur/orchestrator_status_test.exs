@@ -611,12 +611,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     snapshot_input = StatusReport.snapshot_input(state)
 
-    assert snapshot_input.github_comment_issue_updated_at == %{}
-    assert snapshot_input.queue_store == AgentQueueStore.new()
-    assert snapshot_input.ci_lifecycle == %State{}.ci_lifecycle
-    assert snapshot_input.control_lifecycle == %Aiur.Orchestrator.ControlLifecycle{}
-    assert :erts_debug.size(snapshot_input) < 1_000
-    assert :erts_debug.size(snapshot_input) * 100 < :erts_debug.size(state)
+    assert snapshot_input == %State{}
   end
 
   test "dashboard projection retains queue facts for rendered issues" do
@@ -973,7 +968,7 @@ defmodule Aiur.OrchestratorStatusTest do
     previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
     previous_github_token = System.get_env("GITHUB_TOKEN")
     previous_log_file = Application.get_env(:aiur, :log_file)
-    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-terminal-cleanup-#{System.unique_integer([:positive])}")
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-startup-terminal-cleanup")
 
     try do
       System.put_env("GITHUB_TOKEN", "gh-test-token")
@@ -1025,7 +1020,7 @@ defmodule Aiur.OrchestratorStatusTest do
     previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
     previous_github_token = System.get_env("GITHUB_TOKEN")
     previous_log_file = Application.get_env(:aiur, :log_file)
-    workspace_root = Path.join(System.tmp_dir!(), "aiur-startup-todo-cleanup-#{System.unique_integer([:positive])}")
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-startup-todo-cleanup")
 
     try do
       System.put_env("GITHUB_TOKEN", "gh-test-token")
@@ -4762,11 +4757,7 @@ defmodule Aiur.OrchestratorStatusTest do
   defp configure_completed_revalidation!(issues, overrides \\ []) do
     previous_issues = Application.get_env(:aiur, :memory_tracker_issues)
 
-    release_file =
-      Path.join(
-        System.tmp_dir!(),
-        "completed-revalidation-#{System.unique_integer([:positive])}.release"
-      )
+    release_file = Aiur.TestSupport.tmp_root!("completed-revalidation") <> ".release"
 
     File.rm(release_file)
 

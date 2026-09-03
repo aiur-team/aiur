@@ -15,11 +15,10 @@ defmodule Aiur.DecisionApiIntegrationTest do
   setup do
     original_dir = Application.get_env(:aiur, :decision_state_dir)
     original_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
-    dir = Path.join(System.tmp_dir!(), "aiur-decision-api-integration-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-decision-api-integration")
     Application.put_env(:aiur, :decision_state_dir, dir)
     System.put_env("AIUR_SUPERVISOR_TOKEN", @token)
-    endpoint_started? = ensure_endpoint_running()
-    original_writable = Endpoint.config(:dashboard_writable)
+    ensure_endpoint_running()
     configure_endpoint(dashboard_writable: true)
 
     parent = self()
@@ -46,7 +45,6 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(store)
-      restore_endpoint_config(original_writable, endpoint_started?)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_token)
 
       case original_dir do
@@ -250,34 +248,25 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
   defp maybe_put_mutation_headers(conn, _method), do: conn
 
+  # Ownership of `AiurWeb.Endpoint` is never inferred from the process registry
+  # here; see `Aiur.TestSupport.start_owned_endpoint!/0` for why (#2288).
   defp ensure_endpoint_running do
-    if is_nil(Process.whereis(Endpoint)) do
-      endpoint_config = Application.get_env(:aiur, Endpoint, [])
+    endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
-      Application.put_env(
-        :aiur,
-        Endpoint,
-        Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
-      )
+    Application.put_env(
+      :aiur,
+      Endpoint,
+      Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
+    )
 
-      start_supervised!({Endpoint, []})
-      on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
-      true
-    else
-      false
-    end
+    Aiur.TestSupport.start_owned_endpoint!()
+
+    on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
+    true
   end
 
   defp configure_endpoint(changed) do
     Endpoint.config_change(%{Endpoint => changed}, [])
-  end
-
-  defp restore_endpoint_config(_original_writable, true), do: :ok
-
-  defp restore_endpoint_config(original_writable, false) do
-    if Process.whereis(Endpoint) do
-      configure_endpoint(dashboard_writable: original_writable)
-    end
   end
 
   defp audit_type(%DecisionEvent{type: type}), do: type

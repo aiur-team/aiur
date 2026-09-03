@@ -281,6 +281,19 @@ defmodule Aiur.Usage.GroupedScopesTest do
       assert Decimal.equal?(direct.api_equivalent.amount["USD"], Decimal.new("0.14"))
       assert length(snap.contributors.by_provider_route) == 3
     end
+
+    test "an aggregate deepseek cell without an occurrence time prices the conservative peak rate" do
+      # The aggregate folds away the per-observation occurrence time, so the
+      # window cannot be determined and the peak rate is the fallback — never
+      # a cheaper guess. A 1M-input cell on 2026-08-24 (post-repricing, where
+      # the off-peak rate would be 0.22) is reported at the peak 0.44.
+      snap = project(Support.source([Support.deepseek_record(1, pricing_date: ~D[2026-08-24], tokens: %{input: 1_000_000})]), Scope.this_run("run-1115"))
+
+      direct =
+        Enum.find(snap.contributors.by_provider_route, &(&1.key == %{provider: :deepseek, upstream_provider: nil}))
+
+      assert Decimal.equal?(direct.api_equivalent.amount["USD"], Decimal.new("0.44"))
+    end
   end
 
   describe "tier join keys" do

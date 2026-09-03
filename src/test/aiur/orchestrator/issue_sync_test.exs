@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   alias Aiur.{AgentQueueStore, AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
   alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
-  alias Aiur.Orchestrator.{AutoSubscriptions, IssueSync, PushRouting, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, IssueSync, PushRouting, State}
 
   test "ignores a non-list poll result" do
     state = %State{last_polled_issues: %{"42" => %{id: "42"}}}
@@ -712,6 +712,174 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_received {:event, %{topic: "system.dispatch.capacity_starved"}}
   end
 
+  describe "DecisionStore outage alert (#2453)" do
+    setup do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.decision_store_unavailable")
+      :ok = Exchange.subscribe("system.dispatch.decision_store_unavailable.resolved")
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      :ok
+    end
+
+    test "raises exactly one needs-attention alert when the DecisionStore is unreachable with work queued" do
+      ready = issue("store-outage", "todo")
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: :unavailable
+      }
+
+      waiting = IssueSync.sync_decision_store_unavailable_alert(state, [ready], 1_000)
+      assert waiting.decision_store_unavailable_since_ms == 1_000
+      refute waiting.decision_store_unavailable_alert_active
+      mailbox_barrier()
+      refute_received {:event, %{topic: "system.dispatch.decision_store_unavailable"}}
+
+      alerted = IssueSync.sync_decision_store_unavailable_alert(waiting, [ready], 61_000)
+      assert alerted.decision_store_unavailable_alert_active
+      refute alerted.decision_store_unavailable_alert_resolution_emitted
+
+      assert_received {:event, %{topic: "system.dispatch.decision_store_unavailable"} = event}
+      assert event["needs_attention"] == true
+      assert event["reason"] =~ "DecisionStore could not be read"
+      assert event["reason"] =~ "capacity-starvation alerting is suppressed"
+
+      # Held across further polls without re-publishing.
+      repeated = IssueSync.sync_decision_store_unavailable_alert(alerted, [ready], 122_000)
+      assert repeated == alerted
+      mailbox_barrier()
+      refute_received {:event, %{topic: "system.dispatch.decision_store_unavailable"}}
+
+      # The fail-closed dispatch behaviour is untouched by this ticket.
+      assert DispatchPolicy.blocked_on_decision?(ready, :unavailable)
+    end
+
+    test "a brief unavailability shorter than the dwell raises nothing" do
+      ready = issue("store-blip", "todo")
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: :unavailable
+      }
+
+      first = IssueSync.sync_decision_store_unavailable_alert(state, [ready], 1_000)
+      within_dwell = IssueSync.sync_decision_store_unavailable_alert(first, [ready], 5_000)
+
+      refute within_dwell.decision_store_unavailable_alert_active
+      mailbox_barrier()
+      refute_received {:event, %{topic: "system.dispatch.decision_store_unavailable"}}
+
+      # A store that recovers before the dwell ends resolves with no alert pair.
+      recovered = %{within_dwell | blocked_ticket_ids: MapSet.new()}
+      _cleared = IssueSync.sync_decision_store_unavailable_alert(recovered, [ready], 6_000)
+      refute_received {:event, %{topic: "system.dispatch.decision_store_unavailable.resolved"}}
+    end
+
+    test "does not raise while the store is down but no dispatchable work is queued" do
+      ready = issue("store-idle", "todo")
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        blocked_ticket_ids: :unavailable
+      }
+
+      # The queued ticket is claimed, so nothing is dispatchable: an idle fleet
+      # on a store outage has no capacity-starvation signal to suppress.
+      claimed = %{state | claimed: MapSet.new([ready.id])}
+
+      waiting = IssueSync.sync_decision_store_unavailable_alert(claimed, [ready], 1_000)
+      no_work = IssueSync.sync_decision_store_unavailable_alert(waiting, [ready], 61_000)
+
+      refute no_work.decision_store_unavailable_alert_active
+      assert is_nil(no_work.decision_store_unavailable_since_ms)
+      mailbox_barrier()
+      refute_received {:event, %{topic: "system.dispatch.decision_store_unavailable"}}
+    end
+
+    test "resolves on recovery and normal capacity alerting resumes" do
+      ready = issue("store-recovery", "todo")
+
+      alerted =
+        %State{
+          max_concurrent_agents: 4,
+          effective_concurrent_agents: 4,
+          blocked_ticket_ids: :unavailable
+        }
+        |> IssueSync.sync_decision_store_unavailable_alert([ready], 1_000)
+        |> IssueSync.sync_decision_store_unavailable_alert([ready], 61_000)
+
+      assert alerted.decision_store_unavailable_alert_active
+      assert_received {:event, %{topic: "system.dispatch.decision_store_unavailable"}}
+
+      # The store recovers: `blocked_ticket_ids` is a fresh MapSet again.
+      recovered = %{alerted | blocked_ticket_ids: MapSet.new()}
+
+      cleared = IssueSync.sync_decision_store_unavailable_alert(recovered, [ready], 62_000)
+      refute cleared.decision_store_unavailable_alert_active
+      assert cleared.decision_store_unavailable_alert_resolution_emitted
+      assert is_nil(cleared.decision_store_unavailable_since_ms)
+      assert_received {:event, %{topic: "system.dispatch.decision_store_unavailable.resolved"}}
+
+      # With the gate lifted, queued work is visible to the capacity-starvation
+      # alert again: a genuine load gate now raises the normal dispatch alert,
+      # so a recovered store can never leave capacity alerting suppressed.
+      starved = %{
+        cleared
+        | dispatch_capacity_constraints: [%{kind: :load, detail: "load=24.0 threshold=1.0 schedulers=8"}]
+      }
+
+      _ =
+        starved
+        |> IssueSync.sync_capacity_starvation_alert([ready], 63_000)
+        |> IssueSync.sync_capacity_starvation_alert([ready], 123_000)
+
+      assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
+      assert event["reason"] =~ "load gate"
+      assert event["reason"] =~ "Ready tickets=1"
+    end
+
+    test "rearms after a recovery so a second outage raises again" do
+      ready = issue("store-rearm", "todo")
+
+      alerted =
+        %State{
+          max_concurrent_agents: 4,
+          effective_concurrent_agents: 4,
+          blocked_ticket_ids: :unavailable
+        }
+        |> IssueSync.sync_decision_store_unavailable_alert([ready], 1_000)
+        |> IssueSync.sync_decision_store_unavailable_alert([ready], 61_000)
+
+      assert_received {:event, %{topic: "system.dispatch.decision_store_unavailable"}}
+
+      cleared =
+        %{alerted | blocked_ticket_ids: MapSet.new()}
+        |> IssueSync.sync_decision_store_unavailable_alert([ready], 62_000)
+
+      assert_received {:event, %{topic: "system.dispatch.decision_store_unavailable.resolved"}}
+
+      # Second outage, fresh dwell, raises again exactly once.
+      waiting =
+        %{cleared | blocked_ticket_ids: :unavailable}
+        |> IssueSync.sync_decision_store_unavailable_alert([ready], 100_000)
+
+      _rearmed =
+        waiting
+        |> IssueSync.sync_decision_store_unavailable_alert([ready], 160_000)
+
+      assert_received {:event, %{topic: "system.dispatch.decision_store_unavailable"}}
+    end
+  end
+
   test "emits a fleet starvation alert after one configured poll interval" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")
@@ -899,7 +1067,37 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "binding constraint=no binding constraint identified"
   end
 
-  test "reports a static load envelope as the binding constraint" do
+  test "does not alert while a fleet sits at its envelope during a below-target ramp" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("envelope-ramp-#{id}", "todo")
+
+    # A fleet at 2 of 16 with an envelope of 2 is at capacity, not starved:
+    # the below-target envelope is mid-ramp and widens on the next sample, so
+    # the fleet filling to its envelope is the intended ramp (#2447).
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 3,
+      running: running_agents(3),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 121_000)
+
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
+  end
+
+  test "reports a load envelope holding under load as the binding constraint" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")
 
@@ -910,11 +1108,13 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     ready = for id <- 1..8, do: issue("envelope-#{id}", "todo")
 
+    # Above-target load means the envelope is not ramping — it is the binding
+    # constraint holding capacity below the ceiling while ready work queues.
     state = %State{
       max_concurrent_agents: 20,
       effective_concurrent_agents: 3,
       running: running_agents(3),
-      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+      dispatch_capacity_sample: %{load: 17.0, target: 1.0, schedulers: 16}
     }
 
     state
@@ -1105,6 +1305,77 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     _ = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 61_000)
     mailbox_barrier()
     refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
+  end
+
+  test "does not report capacity starvation when every awaiting-dispatch ticket is blocked on an operator decision" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..3, do: issue("decision-#{id}", "todo")
+    blocked = MapSet.new(Enum.map(ready, & &1.id))
+
+    # Fully ramped and at the ceiling with a load gate, which would normally be
+    # reported as starvation — but every awaiting-dispatch ticket is blocked on
+    # an open operator Command, and no amount of capacity can start it (#2447).
+    state = %State{
+      max_concurrent_agents: 16,
+      effective_concurrent_agents: 16,
+      running: running_agents(16),
+      blocked_ticket_ids: blocked,
+      dispatch_capacity_constraints: [%{kind: :load, detail: "load=24.0 threshold=1.0 schedulers=8"}],
+      dispatch_capacity_sample: %{load: 17.0, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_capacity_starvation_alert(ready, 1_000)
+    |> IssueSync.sync_capacity_starvation_alert(ready, 61_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    mailbox_barrier()
+    refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
+    refute_received {:event, %{topic: "system.dispatch.capacity_starved"}}
+  end
+
+  test "still alerts when a load gate holds while dispatchable unblocked work is queued" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("genuine-#{id}", "todo")
+
+    # The guard against blanket suppression: a resource gate holding while
+    # dispatchable, unblocked work is queued must still raise both alerts.
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 4,
+      running: running_agents(4),
+      capacity_hold: %{signal: :load},
+      dispatch_capacity_constraints: [%{kind: :load, detail: "load=24.0 threshold=1.0 schedulers=8"}],
+      dispatch_capacity_sample: %{load: 17.0, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_capacity_starvation_alert(ready, 1_000)
+    |> IssueSync.sync_capacity_starvation_alert(ready, 61_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = dispatch_event}
+    assert dispatch_event["reason"] =~ "load gate"
+    assert_received {:event, %{topic: "system.fleet.capacity.starved"} = fleet_event}
+    assert fleet_event["reason"] =~ "binding constraint=load gate"
   end
 
   test "purges released claims once the ticket is confirmed terminal or gone (#1475)" do
@@ -1383,7 +1654,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     issue = issue("latched-error-store-failure", "rework")
     topic = "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch"
     resolved_topic = "#{topic}.resolved"
-    store_path = Path.join(System.tmp_dir!(), "dispatch-budget-invalid-#{System.unique_integer([:positive])}.json")
+    store_path = Aiur.TestSupport.tmp_root!("dispatch-budget-invalid") <> ".json"
     previous_store_path = Application.get_env(:aiur, :dispatch_budget_store_path)
     Application.put_env(:aiur, :dispatch_budget_store_path, store_path)
     File.write!(store_path, "not json")
@@ -2026,19 +2297,152 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert healed_state.last_polled_issues[dual.id].state == "todo"
     end
 
-    test "passes through issues with a single or no state label" do
+    test "repairs an issue with no state label and passes through single-labelled issues" do
       single = %{issue("single", "rework") | state_labels: ["rework"]}
-      none = issue("none", "todo")
+
+      # The zero-label ticket's previous polled copy carried `rework`, which is
+      # the positive evidence that it was in the agent workflow and not
+      # deliberate parking: a remove-then-add swap dropped the label, so the
+      # heal restores the last known state instead of guessing.
+      none = %{issue("none", nil) | state_labels: []}
+      parent = self()
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{last_polled_issues: %{none.id => issue("none", "rework")}},
+          [single, none],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      # A zero-label ticket with prior workflow evidence is invisible to
+      # dispatch and nothing else repairs it, so it is restored to its last
+      # known state and written through the tracker (#2420). A single-labelled
+      # ticket passes through untouched.
+      assert_receive {:heal, "its-everdred/aiur#none", "rework"}
+      refute_receive {:heal, "its-everdred/aiur#single", _}, 0
+
+      assert Enum.map(healed_issues, & &1.id) == ["single", "none"]
+      assert Enum.find(healed_issues, &(&1.id == "none")).state == "rework"
+      assert Enum.find(healed_issues, &(&1.id == "none")).state_labels == ["rework"]
+      assert healed_state.last_polled_issues[none.id].state == "rework"
+      assert healed_state.last_polled_issues[none.id].state_labels == ["rework"]
+    end
+
+    test "leaves a zero-label ticket with no workflow evidence alone and alerts without writing" do
+      topic = "ticket.its-everdred/aiur#untriaged.agent.attention.state-label-missing-no-evidence"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      # A fresh issue with no labels has no running entry and no prior polled
+      # state: stamping `agent:todo` on it would guess at work that never
+      # existed. It must be left untouched and surfaced with an alert instead
+      # of silently re-dispatched (#2420).
+      untriaged = %{issue("untriaged", nil) | state_labels: []}
 
       {healed_state, healed_issues} =
         IssueSync.reconcile_contradictory_state_labels(
           %State{},
-          [single, none],
-          fn _id, _target -> flunk("must not rewrite single-labelled issues") end
+          [untriaged],
+          fn _id, _target -> flunk("must not write a state label without workflow evidence") end
         )
 
-      assert Enum.map(healed_issues, & &1.id) == ["single", "none"]
+      assert [left_alone] = healed_issues
+      assert left_alone.id == "untriaged"
+      assert left_alone.state_labels == []
+      assert is_nil(left_alone.state)
       assert healed_state.last_polled_issues == %{}
+
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "left as-is"
+    end
+
+    test "leaves a deliberately parked zero-label ticket alone" do
+      # `needs-triage`, `human:todo`, and `Epic:` containers carry no `agent:*`
+      # state label on purpose; dispatching them would reverse deliberate
+      # parking, so the heal must not touch them even though they are zero-label
+      # (#2420).
+      parked = %{issue("parked", nil) | state_labels: [], labels: ["needs-triage"]}
+      human_todo = %{issue("human-todo", nil) | state_labels: [], labels: ["human:todo"]}
+      epic = %{issue("epic", nil) | state_labels: [], labels: ["epic:fleet"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [parked, human_todo, epic],
+          fn _id, _target -> flunk("must not rewrite a deliberately parked ticket") end
+        )
+
+      assert Enum.map(healed_issues, & &1.id) == ["parked", "human-todo", "epic"]
+      assert Enum.all?(healed_issues, &(&1.state_labels == []))
+      assert healed_state.last_polled_issues == %{}
+    end
+
+    test "restores a zero-label ticket to its last known running state and alerts" do
+      topic = "ticket.its-everdred/aiur#sweep.agent.attention.state-label-missing"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      stranded = %{issue("sweep", nil) | state_labels: []}
+
+      running_entry = %{
+        pid: self(),
+        identifier: "its-everdred/aiur#sweep",
+        issue: issue("sweep", "in-progress")
+      }
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{running: %{"sweep" => running_entry}},
+          [stranded],
+          fn _id, _target -> :ok end
+        )
+
+      assert [healed] = healed_issues
+      assert healed.state == "in-progress"
+      assert healed.state_labels == ["in-progress"]
+      assert healed_state.last_polled_issues["sweep"].state_labels == ["in-progress"]
+
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "restored in-progress"
+    end
+
+    test "keeps a zero-label issue dispatchable even when the heal write fails" do
+      # Evidence of prior workflow membership (the previous poll saw `rework`)
+      # is what makes the heal attempt; the write failing must not strand the
+      # ticket this cycle.
+      none = %{issue("none", nil) | state_labels: []}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{last_polled_issues: %{none.id => issue("none", "rework")}},
+          [none],
+          fn _id, _target -> {:error, :github_down} end
+        )
+
+      assert [healed] = healed_issues
+      assert healed.state == "rework"
+      assert healed.state_labels == ["rework"]
+
+      # A failed heal write must not strand the ticket this cycle: the healed
+      # issue is returned dispatchable, and the original evidence entry (not a
+      # healed copy) is what last_polled_issues still holds so the next poll
+      # retries the heal.
+      assert healed_state.last_polled_issues == %{none.id => issue("none", "rework")}
     end
 
     test "keeps the resolved issue dispatchable even when the heal write fails" do
@@ -2058,6 +2462,273 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       # A failed heal write must not strand the ticket this cycle: it stays
       # dispatchable on the resolved state and the next poll retries the heal.
       assert healed_state.last_polled_issues == %{}
+    end
+
+    test "emits one fleet alert for tickets undispatchable due to contradictory labels" do
+      dual_a = %{issue("dual-a", nil) | state_labels: ["ci-wait", "rework"]}
+      dual_b = %{issue("dual-b", nil) | state_labels: ["ci-wait", "human-review"]}
+
+      now_ms = System.monotonic_time(:millisecond)
+
+      state = %State{
+        contradictory_state_label_tickets: %{
+          dual_a.id => %{identifier: dual_a.identifier, labels: ["ci-wait", "rework"], since_ms: now_ms - 120_000},
+          dual_b.id => %{identifier: dual_b.identifier, labels: ["ci-wait", "human-review"], since_ms: now_ms - 120_000}
+        }
+      }
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual_a, dual_b],
+          fn _id, _target -> :ok end
+        )
+
+      # One actionable line names the whole undispatchable set instead of one
+      # buried warning per ticket (#2366).
+      assert healed_state.contradictory_state_label_alert_active
+      assert map_size(healed_state.contradictory_state_label_tickets) == 2
+
+      assert Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels" and
+                   &1["message"] =~ "2 tickets undispatchable due to contradictory labels")
+             )
+    end
+
+    test "resolves the fleet alert once every ticket carries a single state label" do
+      dual = %{issue("dual-c", nil) | state_labels: ["ci-wait", "rework"]}
+
+      now_ms = System.monotonic_time(:millisecond)
+
+      state = %State{
+        contradictory_state_label_tickets: %{
+          dual.id => %{identifier: dual.identifier, labels: ["ci-wait", "rework"], since_ms: now_ms - 120_000}
+        },
+        contradictory_state_label_alert_active: true
+      }
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(state, [], fn _id, _target -> :ok end)
+
+      assert healed_state.contradictory_state_label_tickets == %{}
+      assert healed_state.contradictory_state_label_alert_active == false
+
+      assert Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()]),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels.resolved")
+             )
+    end
+
+    test "heals a done+rework pair to rework so the ticket is not closed" do
+      # #2437: the terminal `done` must never win a contradiction. A ticket
+      # carrying `done` + `rework` heals to `rework` (the outstanding work),
+      # never to `done` — healing to `done` would route the tracker write into
+      # the terminal close path (`swap_and_maybe_close_issue/4`) and silently
+      # discard the rework. `rework` is non-terminal, so the write only swaps
+      # the label and the ticket stays open.
+      dual = %{issue("dual-done-rework", nil) | state_labels: ["done", "rework"]}
+      parent = self()
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#dual-done-rework", "rework"}
+
+      # Assert the healed issue state, not just the label set: the winner is
+      # written through the tracker, and a non-terminal target is what keeps
+      # the ticket from being closed.
+      assert [healed] = healed_issues
+      assert healed.state == "rework"
+      assert healed.state_labels == ["rework"]
+      assert healed_state.last_polled_issues[dual.id].state == "rework"
+
+      refute DispatchPolicy.terminal_issue_state?("rework", DispatchPolicy.terminal_state_set())
+    end
+
+    test "does not alert for a pair first seen this poll" do
+      # The fleet alert is debounced: a pair the heal repairs on the same
+      # observation must not alarm. A pair with no prior observation (first seen
+      # this poll) sits below the debounce — it is tracked so a pair that
+      # persists past one cycle still alerts, but the single fleet line must not
+      # fire yet (#2366).
+      dual = %{issue("dual-fresh", nil) | state_labels: ["ci-wait", "rework"]}
+
+      {healed_state, _healed} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn _id, _target -> :ok end
+        )
+
+      refute healed_state.contradictory_state_label_alert_active
+      assert is_map(healed_state.contradictory_state_label_tickets[dual.id])
+      assert healed_state.contradictory_state_label_tickets[dual.id].since_ms <= System.monotonic_time(:millisecond)
+
+      refute Enum.any?(
+               AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
+               &(&1["topic"] == "system.fleet.contradictory_state_labels")
+             )
+    end
+  end
+
+  describe "sync_stranded_ticket_reconciliation (#2361)" do
+    test "re-queues a released-claim ticket with no recovery and alerts" do
+      topic = "ticket.its-everdred/aiur#released.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      stranded = issue("released", "rework")
+      parent = self()
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{released_claims: %{"released" => %{cause: :tracker_retry_exhausted}}},
+          [stranded],
+          fn identifier, target ->
+            send(parent, {:requeue, identifier, target})
+            :ok
+          end
+        )
+
+      # A valid `agent:rework` label with a released claim and no recovery is
+      # invisible to label checks but has no owner and nothing scheduled to give
+      # it one; it must be re-queued to a dispatchable state and surfaced.
+      assert_receive {:requeue, "its-everdred/aiur#released", "todo"}
+      assert next_state.released_claims == %{}
+
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert alert["reason"] =~ "restored todo"
+    end
+
+    test "leaves a released-claim ticket with a scheduled transient resume alone" do
+      recovered = issue("recovered", "rework")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{
+            released_claims: %{"recovered" => %{cause: :tracker_retry_exhausted}},
+            auto_resume: %{"recovered" => %{attempt: 1, cause: :transient_tracker}}
+          },
+          [recovered],
+          fn _id, _target -> flunk("must not re-queue a ticket with recovery scheduled") end
+        )
+
+      assert next_state.released_claims != %{}
+    end
+
+    test "leaves a running ticket alone" do
+      running = issue("running", "rework")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{running: %{"running" => %{pid: self(), issue: running}}},
+          [running],
+          fn _id, _target -> flunk("must not re-queue a ticket with a live owner") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a todo ticket waiting for capacity alone" do
+      queued = issue("queued", "todo")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [queued],
+          fn _id, _target -> flunk("must not re-queue a todo ticket queued for dispatch") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a ci-wait ticket with no owner alone" do
+      waiting = issue("waiting", "ci-wait")
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [waiting],
+          fn _id, _target -> flunk("must not re-queue a ticket waiting on external CI") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "re-queues a zero-label non-dispatchable ticket to its last known state and alerts" do
+      topic = "ticket.its-everdred/aiur#nolabel.agent.attention.stranded-requeued"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      # The previous poll saw this ticket under `rework`; the label has since
+      # vanished (a broken swap) while the running entry did not survive. The
+      # prior polled state is the evidence that re-queuing is a repair rather
+      # than a guess at work that never existed (#2420).
+      stranded = issue("nolabel", nil)
+      parent = self()
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{last_polled_issues: %{stranded.id => issue("nolabel", "rework")}},
+          [stranded],
+          fn identifier, target ->
+            send(parent, {:requeue, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:requeue, "its-everdred/aiur#nolabel", "rework"}
+      assert_receive {:event, %{topic: ^topic} = alert}
+      assert alert["needs_attention"] == true
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a zero-label ticket with no workflow evidence alone" do
+      # A ticket that has never entered the agent workflow (no running entry,
+      # no released claim, no prior polled state) is untriaged parking, not a
+      # strand; the sweep must not re-queue it (#2420).
+      untriaged = issue("untriaged", nil)
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [untriaged],
+          fn _id, _target -> flunk("must not re-queue a ticket with no workflow evidence") end
+        )
+
+      assert next_state.released_claims == %{}
+    end
+
+    test "leaves a deliberately parked zero-label ticket alone" do
+      parked = %{issue("parked", nil) | labels: ["human:todo"]}
+
+      next_state =
+        IssueSync.sync_stranded_ticket_reconciliation(
+          %State{},
+          [parked],
+          fn _id, _target -> flunk("must not re-queue a deliberately parked ticket") end
+        )
+
+      assert next_state.released_claims == %{}
     end
   end
 

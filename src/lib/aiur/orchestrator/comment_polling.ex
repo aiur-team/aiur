@@ -12,17 +12,25 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   require Logger
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{AlertFeed, Alerts, Config, PollCadence, RunTelemetry}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{State, TrackerHealth}
 
   @recent_merge_persistence_retry_limit 3
 
+  # Consecutive firehose ticks that truncate (reach `@events_window_pages`
+  # without finding the previous watermark) before the sustained-truncation
+  # attention fires. One truncated tick can be a boot reconciliation or a
+  # one-off burst; two in a row means truncation is the steady state and the
+  # Executor must hear about it (#2354).
+  @firehose_truncation_threshold 2
+
   @comment_poll_setup_timeout_ms 300_000
   @comment_poll_abandon_margin_ms 30_000
+  @reconcile_retry_delay_ms 5_000
 
   @spec poll_github_firehose(State.t(), keyword()) :: State.t()
   def poll_github_firehose(%State{} = state, opts \\ []) do
@@ -32,14 +40,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> Keyword.put_new(:last_event_id, state.events_last_id)
 
     case GithubFirehose.poll(poll_opts) do
-      {:ok, %{etag: etag, last_event_id: last_event_id, count: count} = result} ->
-        if count > 0, do: Logger.debug("aiur_perf github_firehose published count=#{count}")
-
+      {:ok, %{etag: etag, last_event_id: last_event_id} = result} ->
         state =
           state
           |> Orchestrator.note_github_connectivity_success(:firehose)
           |> Orchestrator.note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
           |> note_recent_merge_persistence_success(Map.get(result, :recent_merge_persistence))
+          |> note_firehose_window(result, opts)
 
         %{state | events_etag: etag, events_last_id: last_event_id}
 
@@ -59,6 +66,90 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   defp note_recent_merge_persistence_success(state, _status), do: state
+
+  # The firehose window metric (#2354). Every successful tick records how many
+  # event pages were fetched and whether the previous watermark was reachable
+  # inside GitHub's events window. `partial?` is true only when the poll hit
+  # `@events_window_pages` without finding the watermark — events beyond the
+  # window were genuinely lost, not merely skipped — and is the signal the
+  # sustained-truncation attention keys on.
+  defp note_firehose_window(state, result, opts) do
+    partial? = Map.get(result, :partial_window?, false)
+    pages_fetched = Map.get(result, :pages_fetched, 0)
+    published = Map.get(result, :count, 0)
+
+    Logger.info("aiur_perf github_firehose pages=#{pages_fetched} capped=#{partial?} published=#{published}")
+
+    telemetry_fun = Keyword.get(opts, :firehose_poll_telemetry_fun, &RunTelemetry.record/2)
+
+    _ =
+      telemetry_fun.(:firehose_poll, %{
+        pages_fetched: pages_fetched,
+        partial_window?: partial?,
+        published: published
+      })
+
+    streak = if partial?, do: state.firehose_partial_streak + 1, else: 0
+    state = %{state | firehose_partial_streak: streak}
+    reconcile_firehose_truncation_alert(state, partial?, streak, opts)
+  end
+
+  # Fires the attention once a truncated window becomes the steady state, and
+  # resolves it the first tick the window is complete again. Mirrors the
+  # dispatcher's prewarm-blocked alert lifecycle.
+  #
+  # The resolve decision reads both the in-memory latch and the durable alert
+  # feed: after an Orchestrator restart the in-memory flag is lost while the
+  # feed still carries the attention, so a complete window must still clear it.
+  defp reconcile_firehose_truncation_alert(%State{} = state, false, _streak, opts) do
+    resolve? =
+      state.firehose_truncation_alert_active or
+        AlertFeed.active_system_attention?("system.firehose.event_truncation")
+
+    if resolve?, do: resolve_firehose_truncation_alert(state, opts), else: state
+  end
+
+  defp reconcile_firehose_truncation_alert(state, true, streak, opts) when streak >= @firehose_truncation_threshold,
+    do: arm_firehose_truncation_alert(state, opts)
+
+  defp reconcile_firehose_truncation_alert(state, _partial?, _streak, _opts), do: state
+
+  defp arm_firehose_truncation_alert(%State{firehose_truncation_alert_active: true} = state, _opts), do: state
+
+  defp arm_firehose_truncation_alert(%State{} = state, opts) do
+    reason =
+      "The GitHub repo-events firehose hit its #{GithubFirehose.events_window_pages()} page bound on " <>
+        "#{state.firehose_partial_streak} consecutive ticks without reaching the previous event watermark. " <>
+        "Events beyond GitHub's #{GithubFirehose.events_window_pages() * GithubFirehose.repo_events_per_page()}-event " <>
+        "window are being dropped each tick; the firehose is truncating an unbounded stream."
+
+    case firehose_truncation_alert_fun(opts).("system.firehose.event_truncation",
+           reason: reason,
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok -> %{state | firehose_truncation_alert_active: true, firehose_truncation_alert_resolution_emitted: false}
+      {:error, _reason} -> state
+    end
+  end
+
+  defp resolve_firehose_truncation_alert(%State{firehose_truncation_alert_resolution_emitted: true} = state, _opts),
+    do: %{state | firehose_truncation_alert_active: false}
+
+  defp resolve_firehose_truncation_alert(%State{} = state, opts) do
+    _ =
+      firehose_truncation_alert_fun(opts).("system.firehose.event_truncation.resolved",
+        reason: "The GitHub repo-events firehose returned a complete event window; the truncation attention clears.",
+        needs_attention: false,
+        severity: "info"
+      )
+
+    %{state | firehose_truncation_alert_active: false, firehose_truncation_alert_resolution_emitted: true}
+  end
+
+  defp firehose_truncation_alert_fun(opts) do
+    Keyword.get(opts, :firehose_truncation_alert_fun, &Alerts.emit_system/2)
+  end
 
   defp note_recent_merge_persistence_failure(state, reason, cursor, opts) do
     failures = recent_merge_persistence_failure_count(state) + 1
@@ -180,12 +271,56 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
     cond do
       tracker_kind(opts) != "github" -> state
-      comment_poll_in_flight?(state, now_ms) -> state
-      true -> spawn_comment_poll(state, opts, now_ms)
+      within_review_cadence?(state, now_ms) -> state
+      true -> maybe_spawn_comment_poll(state, opts, now_ms)
+    end
+  end
+
+  defp maybe_spawn_comment_poll(state, opts, now_ms) do
+    case prepare_comment_poll_start(state, now_ms) do
+      {:busy, state} -> state
+      {:ready, state} -> spawn_comment_poll(state, opts, now_ms)
     end
   end
 
   defp tracker_kind(opts), do: Keyword.get_lazy(opts, :tracker_kind, &Config.tracker_kind/0)
+
+  @doc false
+  @spec request_reconcile(State.t(), map(), keyword()) :: State.t()
+  def request_reconcile(state, hint, opts \\ [])
+
+  def request_reconcile(%State{} = state, %{kind: :review_thread, ticket: ticket}, opts)
+      when is_binary(ticket) do
+    case String.trim(ticket) do
+      "" ->
+        state
+
+      target ->
+        state
+        |> admit_reconcile_targets(MapSet.new([target]), opts)
+        |> schedule_reconcile()
+    end
+  end
+
+  def request_reconcile(%State{} = state, _hint, _opts), do: state
+
+  # Throttles the comment poll to the `:review` class cadence (#2309). See
+  # `PollCadence.within_class_cadence?/3` for the two limits that keep this a
+  # no-op where it must be (never fired, or nothing published yet). The class
+  # cadence is the safety-net price for a review poll that no longer runs at the
+  # dispatch rate once an operator sets `intervals.review` wider — the tradeoff
+  # #2309 exists to make, and webhooks cover the arrival of a comment in the
+  # meantime.
+  #
+  # The divergence is *enforced*, not asserted: `TrackerHealth` publishes a
+  # `:review` cadence wider than the dispatch tick only when the repo is proven
+  # webhook-backed, so on a polling repo the published `:review` value equals
+  # the dispatch cadence and this gate never binds — the safety net stays at the
+  # dispatch rate. This is the "no webhook installed: nothing is ever
+  # suppressed" contract (see `apis/github.md`).
+  defp within_review_cadence?(state, now_ms) do
+    PollCadence.within_class_cadence?(state.last_comment_poll_started_at_ms, now_ms, :review)
+  end
 
   @doc """
   Folds a completed asynchronous comment poll into the current state.
@@ -198,8 +333,16 @@ defmodule Aiur.Orchestrator.CommentPolling do
   def apply_async(%State{github_comment_poll: %{ref: ref} = poll} = state, ref, payload) do
     release_poll_owner(poll)
     demonitor_comment_poll(poll)
-    state = %{state | github_comment_poll: nil}
-    apply_comment_poll(state, payload)
+    retry_targets = failed_reconcile_targets(poll, payload)
+
+    state =
+      state
+      |> Map.put(:github_comment_poll, nil)
+      |> requeue_reconcile_targets(retry_targets)
+      |> apply_comment_poll(payload)
+
+    minimum_delay_ms = if MapSet.size(retry_targets) > 0, do: @reconcile_retry_delay_ms, else: 0
+    schedule_reconcile(state, minimum_delay_ms, MapSet.size(retry_targets) > 0)
   end
 
   def apply_async(%State{} = state, _stale_ref, _payload), do: state
@@ -248,48 +391,211 @@ defmodule Aiur.Orchestrator.CommentPolling do
         owner_monitor_ref
       ) do
     reap_poll_after_owner_down(poll)
-    {:handled, %{state | github_comment_poll: nil}}
+
+    state =
+      state
+      |> reclaim_reconcile_targets(poll)
+      |> Map.put(:github_comment_poll, nil)
+      |> schedule_reconcile(@reconcile_retry_delay_ms, true)
+
+    {:handled, state}
   end
 
   def apply_async_down(%State{github_comment_poll: %{monitor_ref: monitor_ref} = poll} = state, monitor_ref) do
     release_poll_owner(poll)
     demonitor_owner(poll)
-    {:handled, %{state | github_comment_poll: nil}}
+
+    state =
+      state
+      |> reclaim_reconcile_targets(poll)
+      |> Map.put(:github_comment_poll, nil)
+      |> schedule_reconcile(@reconcile_retry_delay_ms, true)
+
+    {:handled, state}
   end
 
   def apply_async_down(%State{}, _stale_monitor_ref), do: :unhandled
 
-  defp comment_poll_in_flight?(
+  defp prepare_comment_poll_start(
          %State{github_comment_poll: %{started_at_ms: started_at_ms, abandon_after_ms: abandon_after_ms}} = state,
          now_ms
        )
        when is_integer(started_at_ms) and is_integer(abandon_after_ms) do
     if now_ms - started_at_ms < abandon_after_ms do
-      true
+      {:busy, state}
     else
       Logger.warning(
         "GithubCommentsPoller poll has not answered in #{abandon_after_ms}ms; " <>
           "abandoning it and starting a fresh one"
       )
 
-      abandon_poll(state.github_comment_poll)
-      false
+      poll = state.github_comment_poll
+      abandon_poll(poll)
+
+      state =
+        state
+        |> reclaim_reconcile_targets(poll)
+        |> Map.put(:github_comment_poll, nil)
+
+      case TrackerHealth.github_next_poll_delay_ms(state) do
+        delay_ms when is_integer(delay_ms) and delay_ms > 0 ->
+          {:busy, schedule_reconcile(state, delay_ms, true)}
+
+        _no_backoff ->
+          {:ready, state}
+      end
     end
   end
 
-  defp comment_poll_in_flight?(_state, _now_ms), do: false
+  defp prepare_comment_poll_start(state, _now_ms), do: {:ready, state}
 
   defp spawn_comment_poll(%State{} = state, opts, now_ms) do
     orchestrator = self()
     ref = make_ref()
+    reconcile_targets = TargetSelection.reconcile_targets_for_poll(state, opts)
+    poll_state = %{state | github_comment_reconcile_targets: reconcile_targets}
 
-    task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end
+    task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(poll_state, opts)}) end
     phase_hook = Keyword.get(opts, :owner_phase_hook)
     {owner, owner_monitor_ref} = spawn_owned_poll(orchestrator, state.snapshot_key, ref, task_fun, phase_hook)
-    abandon_after_ms = comment_poll_abandon_after_ms(state, opts)
+    abandon_after_ms = comment_poll_abandon_after_ms(poll_state, opts)
 
-    poll = %{ref: ref, owner: owner, owner_monitor_ref: owner_monitor_ref, started_at_ms: now_ms, abandon_after_ms: abandon_after_ms}
-    %{state | github_comment_poll: poll}
+    poll = %{
+      ref: ref,
+      owner: owner,
+      owner_monitor_ref: owner_monitor_ref,
+      started_at_ms: now_ms,
+      abandon_after_ms: abandon_after_ms,
+      reconcile_targets: reconcile_targets
+    }
+
+    %{
+      state
+      | github_comment_poll: poll,
+        github_comment_reconcile_targets: MapSet.difference(state.github_comment_reconcile_targets, reconcile_targets),
+        last_comment_poll_started_at_ms: now_ms
+    }
+  end
+
+  defp reclaim_reconcile_targets(state, %{reconcile_targets: targets}) do
+    admit_reconcile_targets(state, targets, [])
+  end
+
+  defp reclaim_reconcile_targets(state, _poll), do: state
+
+  defp requeue_reconcile_targets(state, targets) do
+    admit_reconcile_targets(state, targets, [])
+  end
+
+  defp admit_reconcile_targets(state, targets, _opts) do
+    # Admission is lossless and deduplicated by ticket identity. The bounded
+    # claim in TargetSelection limits every GraphQL batch; keeping the remainder
+    # here is what lets successive claims drain a burst without pretending an
+    # unrelated capped discovery sweep can reconstruct the dropped identities.
+    %{state | github_comment_reconcile_targets: MapSet.union(state.github_comment_reconcile_targets, targets)}
+  end
+
+  defp failed_reconcile_targets(%{reconcile_targets: targets}, {:error, _reason}), do: targets
+
+  defp failed_reconcile_targets(
+         %{reconcile_targets: targets},
+         {:ok, _cache, _human_review_targets, {_polled_targets, {:ok, %{errors: errors}}}}
+       )
+       when is_list(errors) do
+    failed = errors |> Enum.map(fn {target, _reason} -> to_string(target) end) |> MapSet.new()
+    MapSet.intersection(targets, failed)
+  end
+
+  defp failed_reconcile_targets(%{reconcile_targets: _targets}, {:ok, _cache, _human_review_targets, _outcome}),
+    do: MapSet.new()
+
+  defp failed_reconcile_targets(%{reconcile_targets: targets}, _unrecognised), do: targets
+  defp failed_reconcile_targets(_poll, _payload), do: MapSet.new()
+
+  defp schedule_reconcile(state, minimum_delay_ms \\ 0, replace_timer? \\ false)
+
+  defp schedule_reconcile(%State{poll_frozen: true} = state, _minimum_delay_ms, _replace_timer?), do: state
+
+  defp schedule_reconcile(%State{github_comment_poll: poll} = state, _minimum_delay_ms, _replace_timer?)
+       when not is_nil(poll),
+       do: state
+
+  defp schedule_reconcile(%State{github_comment_reconcile_targets: targets} = state, minimum_delay_ms, replace_timer?) do
+    if MapSet.size(targets) == 0 do
+      cancel_reconcile_timer(state.github_comment_reconcile_timer)
+      %{state | github_comment_reconcile_timer: nil}
+    else
+      delay_ms = max(minimum_delay_ms, TrackerHealth.github_next_poll_delay_ms(state) || 0)
+      due_at_ms = System.monotonic_time(:millisecond) + delay_ms
+      schedule_reconcile_timer(state, delay_ms, due_at_ms, replace_timer?)
+    end
+  end
+
+  defp schedule_reconcile_timer(state, delay_ms, due_at_ms, true),
+    do: replace_reconcile_timer(state, delay_ms, due_at_ms)
+
+  defp schedule_reconcile_timer(
+         %State{github_comment_reconcile_timer: %{delay_ms: delay_ms}} = state,
+         new_delay_ms,
+         _due_at_ms,
+         false
+       )
+       when delay_ms >= new_delay_ms,
+       do: state
+
+  defp schedule_reconcile_timer(%State{} = state, delay_ms, due_at_ms, false),
+    do: replace_reconcile_timer(state, delay_ms, due_at_ms)
+
+  defp replace_reconcile_timer(%State{} = state, delay_ms, due_at_ms) do
+    cancel_reconcile_timer(state.github_comment_reconcile_timer)
+    token = make_ref()
+    message = {:run_github_comment_reconcile, token}
+
+    timer_ref =
+      if delay_ms == 0 do
+        send(self(), message)
+        nil
+      else
+        Process.send_after(self(), message, delay_ms)
+      end
+
+    %{
+      state
+      | github_comment_reconcile_timer: %{
+          token: token,
+          timer_ref: timer_ref,
+          delay_ms: delay_ms,
+          due_at_ms: due_at_ms
+        }
+    }
+  end
+
+  defp cancel_reconcile_timer(%{timer_ref: timer_ref}) when is_reference(timer_ref), do: Process.cancel_timer(timer_ref)
+  defp cancel_reconcile_timer(_timer), do: false
+
+  @doc false
+  @spec run_scheduled_reconcile(State.t(), reference(), keyword()) :: State.t()
+  def run_scheduled_reconcile(state, token, opts \\ [])
+
+  def run_scheduled_reconcile(
+        %State{poll_frozen: true, github_comment_reconcile_timer: %{token: token}} = state,
+        token,
+        _opts
+      ),
+      do: %{state | github_comment_reconcile_timer: nil}
+
+  def run_scheduled_reconcile(%State{github_comment_reconcile_timer: %{token: token}} = state, token, opts) do
+    state
+    |> Map.put(:github_comment_reconcile_timer, nil)
+    |> start_async(Keyword.put(opts, :reconcile_only, true))
+  end
+
+  def run_scheduled_reconcile(%State{} = state, _stale_token, _opts), do: state
+
+  @doc false
+  @spec reconcile_retry_delay_ms(State.t()) :: non_neg_integer()
+  def reconcile_retry_delay_ms(%State{} = state) do
+    max(@reconcile_retry_delay_ms, TrackerHealth.github_next_poll_delay_ms(state) || 0)
   end
 
   defp comment_poll_abandon_after_ms(state, opts) do

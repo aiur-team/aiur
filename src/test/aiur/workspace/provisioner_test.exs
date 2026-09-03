@@ -36,7 +36,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "local workspaces get command guards and a private scratch directory" do
-    workspace = Path.join(System.tmp_dir!(), "aiur-provision-scratch-#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("aiur-provision-scratch")
     File.mkdir_p!(workspace)
     on_exit(fn -> File.rm_rf(workspace) end)
 
@@ -57,7 +57,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
 
   @tag @linux_only
   test "bulk workspace creation caps external POSIX after_create child builds" do
-    test_root = Path.join(System.tmp_dir!(), "workspace-build-gate-#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("workspace-build-gate")
     workspace_root = Path.join(test_root, "workspaces")
     bin_dir = Path.join(test_root, "bin")
     active_path = Path.join(test_root, "active")
@@ -165,7 +165,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "ensure_workspace/2 on a valid existing checkout returns false and preserves contents" do
-    tmp = Path.join(System.tmp_dir!(), "prov_#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("prov")
     init_repo!(tmp)
     sentinel = Path.join(tmp, "sentinel.txt")
     File.write!(sentinel, "wip")
@@ -177,7 +177,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "reports interrupted Git initialization as existing but refuses it for use" do
-    workspace = Path.join(System.tmp_dir!(), "prov_unborn_#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("prov_unborn")
     File.mkdir_p!(workspace)
     {_output, 0} = System.cmd("git", ["init", "--quiet", workspace], stderr_to_stdout: true)
     notes = Path.join(workspace, "notes.txt")
@@ -194,7 +194,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "refuses unproven non-Git contents without deleting them" do
-    workspace = Path.join(System.tmp_dir!(), "prov_unproven_#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("prov_unproven")
     notes = Path.join(workspace, "notes.txt")
     File.mkdir_p!(workspace)
     File.write!(notes, "agent WIP\n")
@@ -208,7 +208,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "completion proof makes an intentionally non-Git workspace reusable" do
-    workspace = Path.join(System.tmp_dir!(), "prov_ready_#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("prov_ready")
     notes = Path.join(workspace, "notes.txt")
     File.mkdir_p!(workspace)
     File.write!(notes, "intentional non-git workspace\n")
@@ -222,7 +222,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "partial agent-skill installation is not a non-Git completion proof" do
-    workspace = Path.join(System.tmp_dir!(), "prov_partial_skills_#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("prov_partial_skills")
     skill = Path.join([workspace, ".claude", "skills", "aiur-agent", "SKILL.md"])
     notes = Path.join(workspace, "notes.txt")
     File.mkdir_p!(Path.dirname(skill))
@@ -239,7 +239,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "refuses an after_create hook that leaves a logs-only workspace non-Git, then self-heals on retry" do
-    test_root = Path.join(System.tmp_dir!(), "prov_completion_#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("prov_completion")
     workspace_root = Path.join(test_root, "workspaces")
 
     on_exit(fn -> File.rm_rf!(test_root) end)
@@ -282,7 +282,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "ensure_workspace/5 marks a logs-only directory for initial provisioning" do
-    workspace = Path.join(System.tmp_dir!(), "prov_logs_only_#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("prov_logs_only")
     log_path = Path.join([workspace, "logs", "agent.md"])
     File.mkdir_p!(Path.dirname(log_path))
     File.write!(log_path, "preserve this transcript\n")
@@ -296,7 +296,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "remote setup refuses a logs-only workspace before a provider can receive its cwd" do
-    test_root = Path.join(System.tmp_dir!(), "prov_remote_logs_#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("prov_remote_logs")
     workspace = Path.join(test_root, "workspace")
     log_path = Path.join([workspace, "logs", "agent.md"])
     fake_ssh = Path.join(test_root, "ssh")
@@ -331,7 +331,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "refuses a logs-only workspace whose logs node is not a safe directory" do
-    workspace = Path.join(System.tmp_dir!(), "prov_invalid_logs_#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("prov_invalid_logs")
     File.mkdir_p!(workspace)
     File.write!(Path.join(workspace, "logs"), "not a directory")
 
@@ -342,7 +342,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "ensure_workspace/2 on a stale plain file replaces it and returns created? true" do
-    test_root = Path.join(System.tmp_dir!(), "prov_stale_#{System.unique_integer([:positive])}")
+    test_root = Aiur.TestSupport.tmp_root!("prov_stale")
     workspace_root = Path.join(test_root, "workspaces")
     File.mkdir_p!(workspace_root)
 
@@ -359,7 +359,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "resolve_branch_name/3 resumes the checked-out branch after a title edit" do
-    root = Path.join(System.tmp_dir!(), "provisioner-branch-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("provisioner-branch")
     workspace = Path.join(root, "123")
     File.mkdir_p!(root)
     init_repo!(workspace)
@@ -375,7 +375,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   test "resolve_branch_name/3 resumes an open PR head after a deleted workspace" do
-    workspace = Path.join(System.tmp_dir!(), "missing-#{System.unique_integer([:positive])}")
+    workspace = Aiur.TestSupport.tmp_root!("missing")
     context = ticket_context("aiur/123-fix-login-and-signup")
 
     assert Provisioner.resolve_branch_name(workspace, context, fn ticket_id ->

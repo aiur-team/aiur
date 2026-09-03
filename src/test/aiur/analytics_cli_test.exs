@@ -82,6 +82,10 @@ defmodule Aiur.AnalyticsCLITest do
     assert json["data"]["range"]["start"] == DateTime.to_unix(since, :millisecond)
     assert json["data"]["range"]["end"] == DateTime.to_unix(until, :millisecond)
     assert json["data"]["model"]["window"]["start_ms"] == DateTime.to_unix(since, :millisecond)
+    assert hd(json["data"]["model"]["series"])["fleet_agents_occupied"] == 13
+    assert hd(json["data"]["model"]["series"])["fleet_capacity_observed_at_ms"] == 1_786_270_480_000
+    assert json["data"]["model"]["pressure"]["latest_build_capacity"] == 2
+    assert json["data"]["model"]["pressure"]["latest_build_observed_at_ms"] == 1_786_270_495_000
     assert {:ok, observed_at, _offset} = DateTime.from_iso8601(json["sources"]["telemetry"]["observed_at"])
     assert DateTime.to_unix(observed_at, :millisecond) == DateTime.to_unix(@finish, :millisecond)
   end
@@ -174,6 +178,9 @@ defmodule Aiur.AnalyticsCLITest do
     assert output =~ "Memory headroom:"
     assert output =~ "PRs merged:"
     assert output =~ "Wasted capacity:"
+    assert output =~ "Fleet-wide pressure: peak occupied 13; active builds 2; queued builds 8; longest live wait 189s"
+    assert output =~ "Latest measured capacities: configured 16; max 16; effective 12; build slots 2"
+    assert output =~ "Latest source observations: fleet 2026-08-09T10:14:40.000Z; build 2026-08-09T10:14:55.000Z"
     assert output =~ "telemetry: available; freshness current; observed 2026-08-09T11:00:00Z; age 0ms"
     assert output =~ "provider_spend: unavailable; freshness unknown; observed unknown; age unknown"
     assert output =~ "Chart window: 2026-08-09T10:00:00.000Z to 2026-08-09T11:00:00.000Z (run)"
@@ -205,7 +212,37 @@ defmodule Aiur.AnalyticsCLITest do
     %{
       window: %{start_ms: start_ms, end_ms: end_ms, buckets: 2},
       source_observed_at: DateTime.to_iso8601(@finish),
-      series: [%{t_ms: start_ms}, %{t_ms: end_ms}],
+      series: [
+        %{t_ms: start_ms},
+        %{
+          t_ms: start_ms + 15 * 60_000,
+          fleet_agents_occupied: 13,
+          fleet_agents_configured: 16,
+          fleet_agents_max: 16,
+          fleet_agents_effective: 12,
+          fleet_capacity_observed_at_ms: 1_786_270_480_000,
+          fleet_capacity_status: "current",
+          build_gate_capacity: 2,
+          build_gate_active: 2,
+          build_gate_queued: 8,
+          build_queue_oldest_wait_seconds: 189,
+          build_gate_observed_at_ms: 1_786_270_495_000,
+          build_gate_status: "measured"
+        },
+        %{t_ms: end_ms}
+      ],
+      pressure: %{
+        peak_occupied: 13,
+        peak_active_builds: 2,
+        peak_queued_builds: 8,
+        longest_wait_seconds: 189,
+        latest_configured_capacity: 16,
+        latest_max_capacity: 16,
+        latest_effective_capacity: 12,
+        latest_build_capacity: 2,
+        latest_fleet_observed_at_ms: 1_786_270_480_000,
+        latest_build_observed_at_ms: 1_786_270_495_000
+      },
       kpis: %{
         peak_conc: 2,
         mean_util_pct: 40.0,

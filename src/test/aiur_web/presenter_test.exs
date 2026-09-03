@@ -2,7 +2,7 @@ defmodule AiurWeb.PresenterTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.SubscriptionStore
-  alias Aiur.{Issue, RecentMerge, TicketActivity, TicketObservation, TrackerIdentity}
+  alias Aiur.{Issue, PollCadence, RecentMerge, TicketActivity, TicketObservation, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{SnapshotStore, StatusReport}
   alias Aiur.TicketActivity.Projection
@@ -156,7 +156,8 @@ defmodule AiurWeb.PresenterTest do
              next_poll_in_ms: nil,
              poll_interval_ms: 120_000,
              effective_interval_ms: 600_000,
-             idle_backoff: %{active?: true, factor: 5.0}
+             idle_backoff: %{active?: true, factor: 5.0},
+             class_intervals: PollCadence.effective_intervals()
            }
 
     refute Map.has_key?(payload, :rate_limits)
@@ -527,7 +528,7 @@ defmodule AiurWeb.PresenterTest do
   end
 
   test "durable history and outcomes remain visible when the orchestrator is unavailable" do
-    telemetry_path = Path.join(System.tmp_dir!(), "presenter-telemetry-#{System.unique_integer([:positive])}.ndjson")
+    telemetry_path = Aiur.TestSupport.tmp_root!("presenter-telemetry") <> ".ndjson"
     File.write!(telemetry_path, "")
     on_exit(fn -> File.rm(telemetry_path) end)
 

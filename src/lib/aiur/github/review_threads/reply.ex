@@ -268,9 +268,12 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
   end
 
   @spec retryable_review_thread_verification_error?(term()) :: boolean()
-  def retryable_review_thread_verification_error?({:github, kind, _detail})
-      when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
-      do: true
+  # The transient `{:github, ...}` verdicts route through the shared classifier
+  # in `Aiur.GitHub.Errors` so the transient/permanent list lives in exactly one
+  # place (#2427). Thread-specific read-path races below are retryable on top of
+  # that.
+  def retryable_review_thread_verification_error?({:github, _kind, _detail} = reason),
+    do: Errors.retryable_github_error?(reason)
 
   def retryable_review_thread_verification_error?({:review_thread_latest_comment_author_mismatch, _}),
     do: true

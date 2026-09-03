@@ -368,18 +368,20 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert state.comment_rework_retries == %{}
     end
 
-    test "writes rework when an open PR exists" do
-      # Control: with an open PR the trusted-comment writer reaches the tracker
-      # update. The unset tracker fails the write (permanently, here a 404), so
-      # the write is skipped and reported — proving the gate passed and the
-      # `rework` write was actually attempted.
+    test "writes rework when an open PR exists with unresolved review threads" do
+      # Control: with an open PR that still has unresolved review threads, the
+      # trusted-comment writer reaches the tracker update. The unset tracker
+      # fails the write (permanently, here a 404), so the write is skipped and
+      # reported — proving the gate passed and the `rework` write was actually
+      # attempted.
       state = base_state()
 
       event = %{
         author_trusted?: true,
         comment: %{"body" => "please fix"},
         issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2075")]} end,
-        open_pr_fetcher: fn _issue_key -> {:ok, %{number: 42}} end
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
       }
 
       log =
@@ -389,7 +391,295 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       refute log =~ "ignored for idle issue"
       refute log =~ ":no_open_pr"
+      refute log =~ ":no_unresolved_review_threads"
       assert log =~ "rework transition skipped"
+    end
+
+    # #2422 acceptance: a pull request whose `reviewDecision` is
+    # `CHANGES_REQUESTED` but whose review threads are all resolved (or that has
+    # none) is not a rework target. GitHub never clears the verdict when
+    # findings are addressed, so routing on the verdict alone re-enters
+    # `agent:rework` forever. Unresolved review threads are the routing signal.
+    test "does not route a CHANGES_REQUESTED PR with zero unresolved review threads to rework" do
+      state = base_state()
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "rework complete"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2422")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      }
+
+      {result, log} =
+        with_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2422", "issue comment", event, 1)
+        end)
+
+      # The routing decision is a *named* skip, not a silent nothing: a router
+      # that returned "not rework" with no specific state would strand the
+      # ticket at zero state labels (#2420). The named reason proves the gate
+      # read the thread state and deliberately left the ticket in its current
+      # `human-review` state — the returned orchestrator state is untouched.
+      assert log =~ "ignored for idle issue"
+      assert log =~ ":no_unresolved_review_threads"
+      refute log =~ "rework transition skipped"
+      assert result == state
+      assert state.comment_rework_retries == %{}
+    end
+
+    # #2473 acceptance: a `CHANGES_REQUESTED` review submitted with a body and
+    # no inline comments opens NO review thread, so #2422's unresolved-thread
+    # read reports zero threads and the ticket never leaves
+    # `agent:human-review` — the reviewer's verdict is silently dropped, with
+    # no label write at all on the timeline. The review submission is itself
+    # the outstanding finding and must route to rework.
+    test "routes a body-only CHANGES_REQUESTED review submission to rework with zero review threads" do
+      state = base_state()
+
+      event = %{
+        author_trusted?: true,
+        comment: %{
+          "body" => "This needs changes before it can merge.",
+          "state" => "CHANGES_REQUESTED",
+          "submitted_at" => "2026-09-01T02:03:20Z"
+        },
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      }
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+        end)
+
+      # The gate must be passed, not skipped: the unset tracker then fails the
+      # write, which proves the `rework` write was actually attempted.
+      refute log =~ ":no_unresolved_review_threads"
+      refute log =~ "ignored for idle issue"
+      assert log =~ "rework transition skipped"
+    end
+
+    # The two tests above read the write through a log proxy, because the
+    # tracker adapter is global config and this module is `async: true`, so it
+    # cannot be swapped for a recording fake without serialising the file. This
+    # one asserts *positively* that control reached the rework write stage: the
+    # rework-attempt bound runs immediately before the write and its alert
+    # emitter is injectable, so a head already at the limit produces a message
+    # that no earlier skip could produce.
+    test "a body-only CHANGES_REQUESTED review reaches the rework write stage" do
+      test_pid = self()
+
+      state =
+        Enum.reduce(1..State.rework_attempt_limit(), base_state(), fn _i, acc ->
+          State.bump_rework_attempt(acc, "2473", "abc123")
+        end)
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "This needs changes.", "state" => "CHANGES_REQUESTED"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+        emit_alert_fun: fn topic, opts -> send(test_pid, {:alert, topic, opts}) end
+      }
+
+      capture_log(fn ->
+        CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+      end)
+
+      # The bound is only consulted after the thread gate has already allowed
+      # the rework write, so receiving this proves the body-only review was
+      # accepted as a rework signal.
+      assert_receive {:alert, "ticket.2473.agent.attention.rework_attempt_limit", _opts}
+    end
+
+    # The lower-cased `state` a `pull_request_review` delivery carries must
+    # route identically to the upper-cased one the poller reads, so the
+    # webhook path and its polling backstop cannot disagree (#2473).
+    test "routes a lower-cased changes_requested review state to rework as well" do
+      state = base_state()
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "please fix", "state" => "changes_requested"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      }
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+        end)
+
+      refute log =~ ":no_unresolved_review_threads"
+      assert log =~ "rework transition skipped"
+    end
+
+    # The #2473 signal is scoped to a changes-requested review. An APPROVED or
+    # COMMENTED review with no unresolved threads keeps #2422's refusal, so the
+    # fix cannot reopen the rework loop it closed.
+    test "keeps refusing rework for a non-changes-requested review with zero review threads" do
+      state = base_state()
+
+      for review_state <- ["APPROVED", "COMMENTED", "DISMISSED"] do
+        event = %{
+          author_trusted?: true,
+          comment: %{"body" => "looks good", "state" => review_state},
+          issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2473")]} end,
+          open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        }
+
+        {result, log} =
+          with_log(fn ->
+            CommentWake.maybe_transition_idle_issue_to_rework(state, "2473", "pr review", event, 1)
+          end)
+
+        assert log =~ ":no_unresolved_review_threads", "expected #{review_state} to keep the #2422 refusal"
+        assert result == state
+      end
+    end
+
+    test "a CHANGES_REQUESTED PR with unresolved review threads still routes to rework" do
+      # #2422 acceptance, control: unresolved threads mean the reviewer is still
+      # asking for a change, so the routing decision is unchanged from before.
+      state = base_state()
+
+      event = %{
+        author_trusted?: true,
+        comment: %{"body" => "please fix"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2422")]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
+      }
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2422", "issue comment", event, 1)
+        end)
+
+      refute log =~ ":no_unresolved_review_threads"
+      assert log =~ "rework transition skipped"
+    end
+  end
+
+  # #2422 acceptance: a ticket cannot enter `agent:rework` more than N times for
+  # the same head SHA. When the bound is exhausted the routing stops and raises
+  # attention once, instead of looping and consuming a slot every wake.
+  describe "maybe_transition_idle_issue_to_rework/5 rework-attempt bound (#2422)" do
+    defp rework_issue(number) do
+      %Issue{id: number, identifier: number, state: "human-review", title: "t", labels: ["agent:human-review"]}
+    end
+
+    defp rework_comment_event(number) do
+      %{
+        author_trusted?: true,
+        comment: %{"body" => "please fix"},
+        issue_state_fetcher: fn _ids -> {:ok, [rework_issue(number)]} end,
+        open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
+      }
+    end
+
+    test "does not consume the bound when the rework write fails" do
+      # The bound only consumes on a *successful* rework write: a failed tracker
+      # write must not exhaust it, or one transient failure would permanently
+      # silence a ticket that genuinely needs rework.
+      state = base_state()
+
+      {result, log} =
+        with_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2422", "issue comment", rework_comment_event("2422"), 1)
+        end)
+
+      # The unset tracker fails the write, so no bump lands.
+      assert log =~ "rework transition skipped"
+      assert result.rework_attempts == %{}
+    end
+
+    test "refuses rework and raises attention once when the same head exceeds the bound" do
+      state = %{base_state() | rework_attempts: %{{"2422", "abc123"} => State.rework_attempt_limit()}}
+      parent = self()
+
+      event =
+        rework_comment_event("2422")
+        |> Map.put(:emit_alert_fun, fn name, opts ->
+          send(parent, {:alert_emitted, name, opts})
+          :ok
+        end)
+
+      {result, log} =
+        with_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2422", "issue comment", event, 1)
+        end)
+
+      # The routing stopped with a named reason, and the rework writer was never
+      # reached — no further rework write, no further dispatch to a rework turn.
+      assert log =~ ":rework_attempt_limit_reached"
+      refute log =~ "rework transition skipped"
+      assert state.comment_rework_retries == %{}
+
+      assert_receive {:alert_emitted, "ticket.2422.agent.attention.rework_attempt_limit", opts}
+      assert Keyword.get(opts, :needs_attention) == true
+      assert Keyword.get(opts, :severity) == "warning"
+
+      # The attention is raised exactly once per (issue, head): the signature is
+      # recorded so a later wake does not re-emit it.
+      assert MapSet.member?(result.rework_attempt_alerted, {"2422", "abc123"})
+      assert result.rework_attempts == state.rework_attempts
+    end
+
+    test "does not raise the attention a second time for the same head" do
+      state = %{
+        base_state()
+        | rework_attempts: %{{"2422", "abc123"} => State.rework_attempt_limit()},
+          rework_attempt_alerted: MapSet.new([{"2422", "abc123"}])
+      }
+
+      parent = self()
+
+      event =
+        rework_comment_event("2422")
+        |> Map.put(:emit_alert_fun, fn name, opts ->
+          send(parent, {:alert_emitted, name, opts})
+          :ok
+        end)
+
+      {result, log} =
+        with_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2422", "issue comment", event, 1)
+        end)
+
+      assert log =~ ":rework_attempt_limit_reached"
+      refute_receive {:alert_emitted, _, _}
+      assert MapSet.member?(result.rework_attempt_alerted, {"2422", "abc123"})
+    end
+
+    test "a new head SHA is not bound by the old head's count" do
+      # A genuine rework push changes the head SHA, so the bound starts fresh:
+      # the rework write for the new head is attempted again.
+      state = %{base_state() | rework_attempts: %{{"2422", "abc123"} => State.rework_attempt_limit()}}
+      parent = self()
+
+      event =
+        rework_comment_event("2422")
+        |> Map.put(:open_pr_fetcher, fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "newhead"}}} end)
+        |> Map.put(:emit_alert_fun, fn name, opts ->
+          send(parent, {:alert_emitted, name, opts})
+          :ok
+        end)
+
+      {_result, log} =
+        with_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "2422", "issue comment", event, 1)
+        end)
+
+      refute log =~ ":rework_attempt_limit_reached"
+      assert log =~ "rework transition skipped"
+      refute_receive {:alert_emitted, _, _}
     end
   end
 
@@ -528,7 +818,10 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
   describe "mark_pr_merged_issue_done/2" do
     test "returns state unchanged when no matching running entry exists" do
       state = base_state()
-      result = CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123")
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123", open_pull_requests_fun: fn _identifier -> {:ok, []} end)
+
       assert result == state
     end
 
@@ -569,11 +862,202 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
                 claimed: MapSet.new()
             }
           end,
-          merger_allowed_fun: fn _login -> true end
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
+    end
+
+    # #2467: the merged-PR terminal path is the fourth site of the
+    # hold-is-fatal defect. The open-PR lookup that decides the post-merge
+    # target is a GitHub call, and a short self-clearing local budget hold on
+    # it used to fire the merge-terminal-write alert and leave the ticket
+    # stranded on its active-state label with its work complete (the #2457
+    # incident). The shared helper waits the hold out, so the ticket still
+    # reaches `done` and closes; the assertion is on the transition completing,
+    # not on a log line.
+    test "waits out a short local hold on the merged-PR open-PR lookup and completes the done transition" do
+      issue = %Issue{
+        id: "issue-hold-target",
+        identifier: "42",
+        state: "in-progress",
+        tracker_identity: tracker_identity("42")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+      identity = issue.tracker_identity
+      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          update_issue_state_fun: fn identifier, "done" ->
+            send(parent, {:transitioned_to_done, identifier})
+            :ok
+          end,
+          clear_session_handle_fun: fn _identifier -> :ok end,
+          observe_membership_fun: fn identity, lifecycle ->
+            send(parent, {:membership_recorded, identity, lifecycle})
+            :ok
+          end,
+          set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
+          terminate_running_issue_fun: fn current_state, issue_id, true ->
+            assert_receive {:membership_recorded, ^identity, :completed}
+
+            %{
+              current_state
+              | running: Map.delete(current_state.running, issue_id),
+                claimed: MapSet.new()
+            }
+          end,
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier ->
+            attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+            if attempt == 1, do: {:error, {:github, :local_hold, detail}}, else: {:ok, []}
+          end,
+          local_hold_sleep_fun: fn _ms -> :ok end
+        )
+
+      assert_receive {:transitioned_to_done, "42"}
+      refute Map.has_key?(result.running, issue.id)
+      refute MapSet.member?(result.claimed, issue.id)
+      # One held lookup, then a successful retry.
+      assert Agent.get(counter, & &1) == 2
+    end
+
+    # #2467: the same hold, one step later — on the `done` terminal write
+    # itself. Waited out, the write retries and the ticket still closes.
+    test "waits out a short local hold on the merged-PR terminal write and closes the ticket" do
+      issue = %Issue{
+        id: "issue-hold-write",
+        identifier: "42",
+        state: "in-progress",
+        tracker_identity: tracker_identity("42")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+      identity = issue.tracker_identity
+      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          update_issue_state_fun: fn identifier, "done" ->
+            attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+            send(parent, {:terminal_write, identifier, attempt})
+            if attempt == 1, do: {:error, {:github, :local_hold, detail}}, else: :ok
+          end,
+          clear_session_handle_fun: fn _identifier -> :ok end,
+          observe_membership_fun: fn identity, lifecycle ->
+            send(parent, {:membership_recorded, identity, lifecycle})
+            :ok
+          end,
+          set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
+          terminate_running_issue_fun: fn current_state, issue_id, true ->
+            assert_receive {:membership_recorded, ^identity, :completed}
+
+            %{
+              current_state
+              | running: Map.delete(current_state.running, issue_id),
+                claimed: MapSet.new()
+            }
+          end,
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end,
+          local_hold_sleep_fun: fn _ms -> :ok end
+        )
+
+      assert_receive {:terminal_write, "42", 1}
+      assert_receive {:terminal_write, "42", 2}
+      refute Map.has_key?(result.running, issue.id)
+      refute MapSet.member?(result.claimed, issue.id)
+    end
+
+    # #2467 mutation guard at this site: a hold whose `reset_at` is beyond the
+    # ceiling is a genuine capacity problem and must still fail the terminal
+    # path — the existing merge-terminal-write alert fires and no sleep happens.
+    # Without this bound, waiting would be indistinguishable from swallowing the
+    # error.
+    test "a merged-PR local hold beyond the ceiling still fails and the existing alert fires" do
+      state = base_state()
+      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+
+      log =
+        capture_log(fn ->
+          assert CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+                   open_pull_requests_fun: fn _identifier -> {:error, {:github, :local_hold, detail}} end,
+                   local_hold_sleep_fun: fn _ms -> flunk("must not sleep for a beyond-ceiling hold") end
+                 ) == state
+        end)
+
+      assert log =~
+               "[alert] (#nonexistent-123) ticket.nonexistent-123.agent.attention.merge_terminal_write_failed"
+
+      assert log =~ "Merged PR could not transition ticket nonexistent-123 to done"
+    end
+
+    # #2467 guard on the `done` write itself: a beyond-ceiling hold fails the
+    # transition (skipped, no teardown) instead of being slept off indefinitely.
+    test "a merged-PR terminal write hold beyond the ceiling still skips the transition" do
+      issue = %Issue{
+        id: "issue-hold-write-beyond",
+        identifier: "42",
+        state: "in-progress",
+        tracker_identity: tracker_identity("42")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      detail = %{reason: {:aiur, :locally_held, hold}, hold: hold}
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          update_issue_state_fun: fn _identifier, "done" -> {:error, {:github, :local_hold, detail}} end,
+          observe_membership_fun: fn _identity, _lifecycle ->
+            send(parent, :membership_recorded)
+            :ok
+          end,
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end,
+          local_hold_sleep_fun: fn _ms -> flunk("must not sleep for a beyond-ceiling hold") end
+        )
+
+      refute_receive :membership_recorded
+      assert Map.has_key?(result.running, issue.id)
+      assert MapSet.member?(result.claimed, issue.id)
     end
 
     test "does not raise alert when merged_by_login is allowlisted" do
@@ -590,7 +1074,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         emit_alert_fun: fn _name, _opts ->
           send(parent, :unexpected_alert)
           :ok
-        end
+        end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
       assert_receive {:checked_allowlist, "its-everdred"}
@@ -611,7 +1096,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         emit_alert_fun: fn name, opts ->
           send(parent, {:alert_emitted, name, opts})
           :ok
-        end
+        end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
       assert_receive {:checked_allowlist, "unknown-bot"}
@@ -636,7 +1122,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         emit_alert_fun: fn name, opts ->
           send(parent, {:alert_emitted, name, opts})
           :ok
-        end
+        end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
       assert_receive {:checked_allowlist, nil}
@@ -656,7 +1143,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           emit_alert_fun: fn name, opts ->
             send(parent, {:alert_emitted, name, opts})
             :ok
-          end
+          end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
       assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
@@ -673,7 +1161,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           assert CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
                    merged_by_login: "unknown-bot",
                    update_issue_state_fun: fn _id, "done" -> :ok end,
-                   merger_allowed_fun: fn _login -> false end
+                   merger_allowed_fun: fn _login -> false end,
+                   open_pull_requests_fun: fn _identifier -> {:ok, []} end
                  ) == state
         end)
 
@@ -718,7 +1207,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
           terminate_running_issue_fun: fn s, id, true ->
             %{s | running: Map.delete(s.running, id), claimed: MapSet.new()}
-          end
+          end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
       assert_receive {:checked, "bad-actor"}
@@ -762,7 +1252,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
               | running: Map.delete(current_state.running, issue_id),
                 claimed: MapSet.new()
             }
-          end
+          end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
       assert_receive {:alert, "ticket.100.merge.attribution_check_failed", opts}
@@ -770,6 +1261,69 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert Keyword.get(opts, :severity) == "critical"
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
+    end
+
+    test "a merged PR whose ticket has other open PRs routes it to rework, never done, with no terminal teardown" do
+      # The live webhook path (EventTopics {:pr_merged, id}) calls this without a
+      # precomputed target_state, so the merge must not terminalize a ticket that
+      # still has another open PR carrying CHANGES_REQUESTED: it lands in rework,
+      # the running entry survives (no session clear / terminate / blockee resume),
+      # and the remaining PR's findings stay dispatchable.
+      issue = %Issue{
+        id: "issue-remaining-open",
+        identifier: "2307",
+        state: "in-progress",
+        tracker_identity: tracker_identity("2307")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          merged_by_login: "its-everdred",
+          update_issue_state_fun: fn identifier, state_name ->
+            send(parent, {:transition, identifier, state_name})
+            :ok
+          end,
+          observe_membership_fun: fn _identity, _lc ->
+            send(parent, :membership_recorded)
+            :ok
+          end,
+          resume_blockees_fun: fn current_state, _identifier ->
+            send(parent, :blockees_resumed)
+            current_state
+          end,
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier ->
+            {:ok,
+             [
+               %{
+                 "number" => 2318,
+                 "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+                 "review_decision" => "CHANGES_REQUESTED"
+               }
+             ]}
+          end,
+          # #2450: a CHANGES_REQUESTED verdict alone is not a rework signal —
+          # the remaining PR must also carry genuinely unresolved review threads
+          # for the ticket to land in rework.
+          unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
+        )
+
+      assert_receive {:transition, "2307", "rework"}
+      refute_receive {:transition, "2307", "done"}
+      refute_receive :membership_recorded
+      refute_receive :blockees_resumed
+      assert Map.has_key?(result.running, issue.id)
+      assert MapSet.member?(result.claimed, issue.id)
     end
   end
 

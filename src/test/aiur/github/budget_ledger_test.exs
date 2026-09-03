@@ -42,7 +42,7 @@ defmodule Aiur.GitHub.BudgetLedgerTest do
   """
 
   setup do
-    path = Path.join(System.tmp_dir!(), "aiur-budget-ledger-#{System.unique_integer([:positive])}.sqlite3")
+    path = Aiur.TestSupport.tmp_root!("aiur-budget-ledger") <> ".sqlite3"
     {:ok, conn} = Basic.open(path)
     _ = Basic.exec(conn, @admissions)
     _ = Basic.exec(conn, @policies)

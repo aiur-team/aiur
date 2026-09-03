@@ -22,7 +22,7 @@ defmodule Aiur.Claude.UsageApiTest do
 
   defp tmp_subdir(prefix) do
     dir =
-      Path.join(System.tmp_dir!(), "usage_api_test_#{prefix}_#{System.unique_integer([:positive])}")
+      Aiur.TestSupport.tmp_root!("usage_api_test_#{prefix}")
 
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf(dir) end)
@@ -75,6 +75,46 @@ defmodule Aiur.Claude.UsageApiTest do
 
     test "a non-map body yields :no_utilization" do
       assert {:error, :no_utilization} = UsageApi.select_window("bogus")
+    end
+
+    # The five-hour session window resets constantly, so a meter that shows only
+    # it is nearly useless for planning. Every reported window is carried, with
+    # the weekly ones ahead of the session window by priority.
+    test "carries every reported window with the weekly windows first" do
+      body = %{
+        "five_hour" => %{"utilization" => 21, "resets_at" => "2026-09-01T18:00:00Z"},
+        "seven_day" => %{"utilization" => 5, "resets_at" => "2026-09-03T18:00:00Z"},
+        "seven_day_opus" => %{"utilization" => 2}
+      }
+
+      assert {:ok, %{windows: windows}} = UsageApi.select_window(body)
+
+      assert Enum.map(windows, & &1.window) == ["seven_day", "seven_day_opus", "five_hour"]
+      assert Enum.map(windows, & &1.priority) == [0, 1, 3]
+
+      by_window = Map.new(windows, &{&1.window, &1})
+      assert by_window["seven_day"].used_percent == 5
+      assert by_window["seven_day"].resets_at == ~U[2026-09-03 18:00:00Z]
+      assert by_window["seven_day"].scope == :weekly
+      assert by_window["seven_day"].coverage == :supported
+      assert by_window["five_hour"].scope == :session
+    end
+
+    # A weekly window the endpoint omits must still reach the surface saying so.
+    # Dropping it would leave a card showing only the session bar, which reads
+    # as a healthy weekly standing that was never observed.
+    test "an unreported weekly window is carried with no percentage" do
+      assert {:ok, %{windows: windows}} = UsageApi.select_window(%{"five_hour" => %{"utilization" => 21}})
+
+      weekly = Enum.find(windows, &(&1.window == "seven_day"))
+      assert weekly.coverage == :empty_supported
+      assert weekly.used_percent == nil
+      assert weekly.resets_at == nil
+    end
+
+    test "an unreported optional window is not invented" do
+      assert {:ok, %{windows: windows}} = UsageApi.select_window(%{"five_hour" => %{"utilization" => 21}})
+      refute Enum.any?(windows, &(&1.window == "seven_day_opus"))
     end
   end
 

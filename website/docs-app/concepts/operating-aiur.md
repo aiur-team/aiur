@@ -5,7 +5,7 @@
 | Surface | Best for |
 | --- | --- |
 | [TUI](/guide/tui) | Foreground fleet board and live agent chat. |
-| [Dashboard](/guide/executor-control-center) | Browser fleet, Commands, Build Orders, analytics, and meters. |
+| [GUI](/guide/gui) | Browser fleet, Commands, Build Orders, analytics, and meters. |
 | [CLI](/reference/cli) | Agent-driven operation and terminal automation. |
 | [Stream Deck](/guide/stream-deck) | Physical or browser fleet controls and event logs. |
 

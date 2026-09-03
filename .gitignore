@@ -70,6 +70,14 @@ __pycache__/
 # Runtime build-gate lock namespace created by agent-launched Mix verification.
 .aiur/build-gate.locks/
 
+# Runtime GitHub shared-budget state: the per-repo state-cache written by the
+# test/daemon runtimes (invalidation markers, collection ticks), the broker
+# database, and the #2356 credential file the `gh` guard reads. Host-local
+# secrets/state written under the daemon's own HOME; never commit them, even
+# when that HOME is a workspace. Left unanchored so nested workspace copies are
+# covered too.
+.aiur/github-budget/
+
 # Provider model catalogue cache (Aiur.ModelDiscovery). Refetched on a 24h TTL;
 # a cold start falls back to the curated registry list, so it is never a
 # dependency worth committing.

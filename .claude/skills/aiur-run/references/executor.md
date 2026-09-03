@@ -142,9 +142,11 @@ The Executor continuously:
 
 ## Command decision loop
 
-Launching the run with `--executor` arms the daemon-resident Executor listener
-(`Aiur.ExecutorListener`) as part of launch; there is no separate subscription
-step to forget. The run supervises and restarts it, it subscribes to
+Every run arms the daemon-resident Executor listener (`Aiur.ExecutorListener`)
+as part of launch; there is no separate subscription step to forget. An
+`--executor` launch additionally registers and renews its roster principal,
+without acknowledging wakes or advancing the shared cursor. The run supervises
+and restarts the listener, it subscribes to
 `executor.decision.requested` / `executor.decision.deferred`, and it replays
 from its own durable watermark so a restart re-delivers only what was missed.
 Each Command surfaces as a needs-attention alert in `aiur watch` / `aiur
@@ -184,8 +186,12 @@ This judgement sits on top of a floor the store enforces, not in place of it.
 `DecisionStore` refuses an Executor-attributed answer unless the Command itself
 declares `authority: supervisor_allowed | supervisor_preferred` **and**
 `reversibility: reversible`; anything else — `human_required`, irreversible or
-partially reversible work, or an absent declaration — is rejected with
-`{:executor_scope, …}` and must be escalated. Treat that rejection as the
+partially reversible work — is rejected with
+`{:executor_scope, …}` and must be escalated. (A request that omits those
+fields is normalized to `supervisor_allowed` + `reversible`, so an omitted
+declaration lands inside the floor rather than being refused; a genuinely
+irreversible or operator-scoped Command carries its `human_required` /
+non-reversible declaration explicitly.) Treat that rejection as the
 Command telling you it was always the operator's. Escalations are appended to
 the Decision's durable event log as an attributed `executor_escalated` event,
 so "the Executor deferred to the human" is as recoverable later as "the
@@ -266,10 +272,13 @@ Alerts persist across daemon restarts and tokens (#1231), so the actionable list
 keeps naming long-merged tickets. Check alert timestamps and trust the live
 state table over the alert list.
 
-Review feedback does not wake agents into rework (#1389). Tickets stay in
-`agent:human-review` with `CHANGES_REQUESTED` pull requests and nothing picks
-them up, which breaks the entire review-to-rework loop. After posting reviews,
-relabel `agent:human-review` to `agent:rework` by hand.
+A `CHANGES_REQUESTED` review on an open PR moves its ticket to `agent:rework`
+automatically — the `pull_request_review` webhook and the review-submission
+poll route through `CommentWake`, so the manual `agent:human-review` to
+`agent:rework` relabel is no longer required. After posting a review, verify
+the ticket left `agent:human-review`; only relabel by hand when the automatic
+transition did not fire, and check the delivery (review state, trusted author,
+open PR) before doing so.
 
 For an agent with stale activity, ignored feedback, repeated retries, or a
 ticket it will not pick up:
@@ -376,7 +385,11 @@ instead of issuing the same directive indefinitely. Once all conditions hold:
    are `f(x) === f(x)` assertions, a test hand-poking the same
    `:persistent_term` the broken wiring should have set, and tests asserting
    against an inlined *copy* of the code under test that stayed green after the
-   real code was deleted;
+   real code was deleted. On the same principle, the author-side rules that move
+   these checks before review — the unknown-path, computed-age and collapsed-cause
+   rules — live in the repo's `AGENTS.md` (`Tests must fail without the
+   production change they guard` and `Computed ages and collapsed causes`);
+   cross-reference those sections rather than restating them;
 4. use `ce-code-review` when Compound Engineering is available, adding the
    relevant security, data, frontend, backend, or design lens for the change;
 5. reconcile duplicates and contradictions, classifying each finding under the

@@ -3,6 +3,19 @@ defmodule Aiur.ConfigTest do
 
   alias Aiur.Config
 
+  describe "avoid_peak_pricing_value/1" do
+    test "defaults to true when the pricing policy is absent (the opt-out default)" do
+      assert Config.avoid_peak_pricing_value(%{agent: %{}}) == true
+      assert Config.avoid_peak_pricing_value(%{}) == true
+      assert Config.avoid_peak_pricing_value(nil) == true
+    end
+
+    test "honours an explicit setting" do
+      assert Config.avoid_peak_pricing_value(%{agent: %{pricing_policy: %{avoid_peak_pricing: true}}}) == true
+      assert Config.avoid_peak_pricing_value(%{agent: %{pricing_policy: %{avoid_peak_pricing: false}}}) == false
+    end
+  end
+
   describe "base_branch/2" do
     test "returns a configured non-empty branch" do
       assert Config.base_branch(%{base_branch: "develop"}, config_path: "/tmp/aiur/config", cwd: "/tmp/repo") == "develop"

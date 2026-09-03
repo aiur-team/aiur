@@ -106,11 +106,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     Application.put_env(:aiur, Endpoint, config)
 
-    if is_nil(Process.whereis(Endpoint)) do
-      start_supervised!({Endpoint, []})
-    else
-      Endpoint.config_change(config, [])
-    end
+    Aiur.TestSupport.start_owned_endpoint!()
+    Endpoint.config_change(config, [])
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, original_config)
@@ -601,6 +598,10 @@ defmodule AiurWeb.StreamdeckChannelTest do
       # Executor — the load-bearing attribution decision of this feature.
       assert_receive {:fake_decision_answer, _decision_id, payload, opts}
       assert payload["option_id"] == "ship"
+      # The exact version the device read is forwarded as `expected_version`,
+      # so the store rejects a stale press as a conflict rather than a double
+      # answer. This is the option path half of the staleness contract.
+      assert payload["expected_version"] == 1
       assert Keyword.get(opts, :actor) == %{kind: :operator, id: "streamdeck"}
     end
 
@@ -623,6 +624,10 @@ defmodule AiurWeb.StreamdeckChannelTest do
       assert_receive {:fake_decision_answer, _decision_id, payload, _opts}
       assert payload["custom_response"] == "Hold everything — verify first."
       refute Map.has_key?(payload, "option_id")
+      # Same staleness forwarding as the option path: `expected_version` is set
+      # on the custom-response path too, which is the clause the double mutant
+      # proved was unguarded.
+      assert payload["expected_version"] == 1
     end
 
     test "answer_command refuses a Command that is not the focused agent's" do
@@ -679,6 +684,26 @@ defmodule AiurWeb.StreamdeckChannelTest do
         :error,
         %{reason: "empty_custom_response"}
       )
+    end
+
+    test "answer_command guard refuses a blank idempotency key and a non-positive version" do
+      # The `handle_in` guard (`idempotency_key != ""` and `version > 0`) is the
+      # first line of the staleness contract: a blank key could never dedupe a
+      # retry, and a non-positive version could never match any real Command.
+      # Each of these must fall through to `invalid_answer` before touching the
+      # store.
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
+      assert_push("commands", _payload)
+      decision_id = command_decision("AIUR-1").decision_id
+
+      for bad <- [
+            %{"decision_id" => decision_id, "version" => 1, "idempotency_key" => "", "option_id" => "ship"},
+            %{"decision_id" => decision_id, "version" => 0, "idempotency_key" => "sd-key-zero", "option_id" => "ship"},
+            %{"decision_id" => decision_id, "version" => -1, "idempotency_key" => "sd-key-neg", "option_id" => "ship"}
+          ] do
+        assert_reply(push(socket, "answer_command", bad), :error, %{reason: "invalid_answer"})
+      end
     end
 
     test "answer_command refuses a dismissed Command as not answerable" do
@@ -775,6 +800,78 @@ defmodule AiurWeb.StreamdeckChannelTest do
       assert {:ok, current} = Aiur.DecisionStore.get(decision.decision_id, store)
       assert current.answer.actor == %{kind: :operator, id: "streamdeck"}
       assert current.answer.selected_option_id == "ship"
+    end
+
+    test "answer_command rejects a stale custom-response answer as a conflict" do
+      # A stale press is a conflict, never a double-answer. This drives a real
+      # store so the rejection holds only while BOTH staleness layers are
+      # present: the channel's `validate_focused_command/4` version pre-check
+      # AND `expected_version` in the `custom_response` clause reaching
+      # `DecisionAnswer.normalize/2`. The double mutant that removed both
+      # (the gap this ticket closes) lets the answer through as accepted — or
+      # as a generic error — so this assertion on `stale_version` fails.
+      dir = Path.join(System.tmp_dir!(), "aiur-streamdeck-stale-#{System.unique_integer([:positive])}")
+
+      {:ok, store} =
+        Aiur.DecisionStore.start_link(
+          name: nil,
+          state_dir: dir,
+          filesystem_sync_fun: fn -> :ok end
+        )
+
+      previous_config = Application.get_env(:aiur, Endpoint)
+      Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, [])
+
+      on_exit(fn ->
+        Application.put_env(:aiur, Endpoint, previous_config)
+        Aiur.TestSupport.safe_stop(store)
+        File.rm_rf!(dir)
+      end)
+
+      payload = %{
+        "source_id" => "streamdeck-stale",
+        "question" => "Ship the stale change?",
+        "blocking" => true,
+        "authority" => "human_required",
+        "reversibility" => "reversible",
+        "options" => [%{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."}]
+      }
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 payload,
+                 [
+                   ticket: %{identifier: "984", title: "Stream Deck Commands", url: "https://github.com/its-everdred/aiur/issues/984"},
+                   source: %{agent_id: "agent-1", session_id: "session-1", event_id: "evt-stale"},
+                   now: ~U[2026-07-12 10:00:00Z]
+                 ],
+                 store
+               )
+
+      socket = joined_socket()
+      assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"})
+      assert_push("commands", _payload)
+
+      # The device answers the version it read; a different version is stale.
+      stale_version = decision.version + 1
+
+      assert_reply(
+        push(socket, "answer_command", %{
+          "decision_id" => decision.decision_id,
+          "version" => stale_version,
+          "idempotency_key" => "sd-stale-1",
+          "custom_response" => "Hold everything — this is stale."
+        }),
+        :error,
+        %{reason: reason}
+      )
+
+      assert reason =~ "stale_version"
+
+      # The stale press must not have recorded an answer: it is a conflict,
+      # never a double-answer.
+      assert {:ok, current} = Aiur.DecisionStore.get(decision.decision_id, store)
+      assert current.answer == nil
     end
   end
 

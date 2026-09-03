@@ -36,6 +36,11 @@ defmodule Aiur.Shutdown do
   @spec cleanup(non_neg_integer()) :: :ok
   def cleanup(timeout_ms \\ @default_cleanup_timeout_ms) do
     safely(fn -> record_workspace_root() end, "record_workspace_root")
+    # Durable daemon-lifecycle journal: record the orderly stop before the
+    # supervision tree comes down. Idempotent per run, so the `prep_stop` and
+    # `stop` paths cannot double-record one stop. Best-effort with a bounded
+    # lock deadline — a journal write must never block shutdown.
+    safely(fn -> Aiur.DaemonLifecycle.record_stop() end, "record_daemon_stop")
 
     # Kind-ordered: agent trees/panes die first (so nothing writes during
     # session deletion), serves die last (delete_all needs them alive for

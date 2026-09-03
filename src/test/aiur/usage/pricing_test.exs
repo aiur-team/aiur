@@ -312,6 +312,43 @@ defmodule Aiur.Usage.PricingTest do
     assert :unknown_account_generation in result.coverage_reasons
   end
 
+  test "prices a deepseek call at the window actually in force (weekend off-peak vs weekday peak)" do
+    registry = Fixture.registry!([Fixture.deepseek_definition()])
+
+    # 1M input tokens, nothing else: the API-equivalent amount is exactly the
+    # input rate per million tokens.
+    tokens = Fixture.deepseek_tokens()
+
+    # Saturday 02:00 UTC = Beijing Saturday 10:00, inside what would be a
+    # daily peak window — the weekend rule makes it off-peak.
+    weekend =
+      resolve(
+        Fixture.deepseek_envelope!(%{
+          occurred_at: ~U[2026-08-29 02:00:00Z],
+          pricing_effective_date: ~D[2026-08-29],
+          tokens: tokens
+        }),
+        registry
+      )
+
+    assert Decimal.equal?(weekend.api_equivalent_estimate.amount, Decimal.new("0.22"))
+
+    # Monday 02:00 UTC is inside the 01:00-04:00 weekday peak window.
+    weekday_peak =
+      resolve(
+        Fixture.deepseek_envelope!(%{
+          occurred_at: ~U[2026-08-24 02:00:00Z],
+          pricing_effective_date: ~D[2026-08-24],
+          tokens: tokens
+        }),
+        registry
+      )
+
+    assert Decimal.equal?(weekday_peak.api_equivalent_estimate.amount, Decimal.new("0.44"))
+    assert weekday_peak.api_equivalent_estimate.components |> hd() |> Map.get(:price_revision) =~ "peak"
+    assert weekend.api_equivalent_estimate.components |> hd() |> Map.get(:price_revision) =~ "off_peak"
+  end
+
   defp resolve(envelope), do: resolve(envelope, pricing_options(envelope))
 
   defp resolve(envelope, options) when is_list(options) do
@@ -339,6 +376,9 @@ defmodule Aiur.Usage.PricingTest do
 
   defp pricing_options(%{provider: :claude}),
     do: [currency: "USD", cache_write_duration: :five_minutes]
+
+  defp pricing_options(%{provider: :deepseek}),
+    do: [currency: "USD", context_tier: :not_applicable, cache_write_duration: :not_applicable]
 
   defp codex_tokens(overrides) do
     Map.merge(

@@ -24,6 +24,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
   alias Aiur.AgentControlCLI
   alias Aiur.GitHub.{Budget, Transport}
+  alias Aiur.Issue
   alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.StatusReport
@@ -32,9 +33,10 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   # already-known state must finish well inside it.
   @cli_budget_ms 5_000
 
-  # The release test first needs a real lease before it can lock the broker.
-  # Give that setup admission enough time for its Python process and SQLite
-  # transaction; the 300 ms deadline measured below applies only to release.
+  # The request deadline the release test configures. It is the ceiling the
+  # release must charge itself against, and the release's granted budget is
+  # asserted against it directly — nothing below times a wall-clock window, so
+  # this value does not have to absorb admission cost or machine load.
   @locked_release_deadline_ms 1_500
 
   @crashing_owner_name :orchestrator_blocking_http_crashing_owner
@@ -223,6 +225,70 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
         Process.sleep(50)
       end
+    end
+  end
+
+  # #2329: `aiurdev resume <id>` timed out with "timed out while reading agent
+  # status" on max_agent_duration pauses while `status` answered from the read
+  # model in ~300ms. The resume command was still reading its target view from
+  # the Orchestrator mailbox (`Orchestrator.status/0`), so it queued behind a
+  # blocked GitHub read. It must read the same SnapshotStore read model the
+  # read-only commands use, so a resume never depends on a busy or dead agent
+  # process answering a status read.
+  describe "resume while the orchestrator holds a GitHub read" do
+    setup %{orchestrator: pid} do
+      # Publish a view that already contains a paused duration-capped agent so
+      # the read model can serve the resume's target row while the Orchestrator
+      # is parked in a GitHub read. The entry must be injected before the block:
+      # `:sys.replace_state` after the block would wait on the parked process.
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-44" => paused_duration_entry("issue-44", "44")}}
+      end)
+
+      :ok = publish_current_view(pid)
+      on_exit(fn -> SnapshotStore.forget(Orchestrator) end)
+
+      # Registered first so it runs last: the shared Orchestrator must be
+      # answering again before any later cleanup tries to talk to it.
+      on_exit(fn -> wait_until(fn -> answers?(pid) end, 400) end)
+
+      url = hanging_endpoint()
+      test_pid = self()
+
+      blocker =
+        spawn(fn ->
+          :sys.replace_state(
+            pid,
+            fn state ->
+              send(test_pid, :fetch_started)
+              hanging_request(url)
+              state
+            end,
+            :infinity
+          )
+        end)
+
+      on_exit(fn -> if Process.alive?(blocker), do: Process.exit(blocker, :kill) end)
+
+      assert_receive :fetch_started, 5_000
+      refute_eventually_answers(pid)
+
+      :ok
+    end
+
+    test "resume reads its target view from the read model, not the mailbox", %{orchestrator: pid} do
+      {_elapsed_us, output} = :timer.tc(fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
+
+      assert_blocked(pid)
+
+      # The status read that produced #2329's error is served from the read
+      # model now, so the resume gets past target selection. With the
+      # Orchestrator fully parked in a GitHub read, the resume RPC itself
+      # cannot be answered — that failure is reported at the RPC, not as a
+      # status-read timeout.
+      refute output =~ "timed out while reading agent status"
+      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to resume #44 (orchestrator timed out)"
+      assert output =~ "__AIUR_CONTROL_EXIT__:124"
     end
   end
 
@@ -607,7 +673,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   end
 
   test "a locked shared budget cannot strand the orchestrator", %{orchestrator: pid} do
-    budget_dir = Path.join(System.tmp_dir!(), "aiur-orchestrator-budget-#{System.unique_integer([:positive])}")
+    budget_dir = Aiur.TestSupport.tmp_root!("aiur-orchestrator-budget")
     previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
     previous_dir = Application.get_env(:aiur, :github_budget_dir)
 
@@ -641,13 +707,15 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
     on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
 
-    assert_receive {:locked_budget_result, {:error, :github_budget_broker_unavailable}}, 2_000
+    assert_receive {:locked_budget_result, {:error, :github_budget_broker_timeout}}, 2_000
     assert answers?(pid)
     close_port(lock)
   end
 
-  test "locked lease release stays inside the orchestrator request deadline", %{orchestrator: pid} do
-    budget_dir = Path.join(System.tmp_dir!(), "aiur-orchestrator-release-#{System.unique_integer([:positive])}")
+  test "a locked lease release is abandoned at its deadline instead of parking on the broker lock", %{
+    orchestrator: pid
+  } do
+    budget_dir = Aiur.TestSupport.tmp_root!("aiur-orchestrator-release")
     previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
     previous_dir = Application.get_env(:aiur, :github_budget_dir)
 
@@ -666,10 +734,14 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     # for here rather than inside the deadline being measured.
     assert %{inflight: %{}} = Budget.snapshot("locked-release-token")
 
+    # Subscribe before the request exists, so the release signal cannot be
+    # emitted into a subscription that is not yet registered.
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Budget.release_topic())
+    on_exit(fn -> Phoenix.PubSub.unsubscribe(Aiur.PubSub, Budget.release_topic()) end)
+    release_token_key = Budget.token_key("locked-release-token")
+
     test_pid = self()
     {url, server} = controlled_json_endpoint(test_pid)
-
-    started_at = System.monotonic_time(:millisecond)
 
     probe =
       spawn(fn ->
@@ -687,23 +759,46 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
     on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
 
-    # Waits for a bounded event — the admission in front of the request, which
-    # cannot outlive the deadline it is charged to — not slack for a slow path.
+    # The request is admitted and in flight before the broker database is
+    # locked, so the lock can only be met by the release that closes it.
     assert_receive :release_request_started, 2 * @locked_release_deadline_ms
     lock = lock_budget_database(Budget.database_path())
     send(server, :finish_release_request)
 
-    # Deliberately looser than the ceiling below, so a release that is bounded
-    # but bounded too generously is reported by the elapsed assertion with its
-    # real number rather than by a bare receive timeout.
-    assert_receive {:locked_release_result, {:ok, %{status: 200}}}, 5_000
-    elapsed_ms = System.monotonic_time(:millisecond) - started_at
-    assert elapsed_ms >= 250
+    # The guarantee is a *budget and an outcome*, not a duration.
+    #
+    # `budget_ms` is how long the release was willing to wait, decided by the
+    # request's own deadline before the release runs. It is a property of the
+    # code, so machine load cannot move it. The regression this test guards —
+    # a release that ignores the request deadline and parks on the broker's
+    # SQLite `busy_timeout` — grants itself a budget larger than the request
+    # deadline, and that shows up here directly.
+    #
+    # `outcome` then confirms the budget was actually honoured: against a
+    # database held under `BEGIN EXCLUSIVE`, a release that stops at its
+    # deadline reports `:deadline_exceeded`, while one that waits out the lock
+    # is eventually acknowledged and reports `:released`.
+    #
+    # The old assertion, `elapsed_ms < 2 * @locked_release_deadline_ms`, timed
+    # a window that also contained unbounded admission work — an Orchestrator
+    # `GenServer.call`, a `python3` broker spawn and the SQLite open — against
+    # a ceiling derived only from the post-admission deadline. It therefore
+    # asserted that *setup* finished in under @locked_release_deadline_ms,
+    # which is a claim about the machine rather than about the release.
+    #
+    # The receive bounds below are lost-signal safety nets only. Both are far
+    # larger than any legitimate outcome, and neither is what separates pass
+    # from fail.
+    assert_receive {:github_budget_lease_released, %{token_key: ^release_token_key} = release}, 15_000
 
-    # A release that ignored the deadline would sit on the broker's SQLite
-    # `busy_timeout` (5 s), so the ceiling has to stay well below it to still
-    # catch the regression while leaving the deadline itself room to land.
-    assert elapsed_ms < 2 * @locked_release_deadline_ms
+    assert release.budget_ms <= @locked_release_deadline_ms
+    assert release.outcome == :deadline_exceeded
+
+    # Ordering, not timing: the release above is charged inside the request, so
+    # the caller's response arriving after it is the non-blocking property —
+    # the abandoned release did not swallow the result — and the Orchestrator
+    # is still answering once both have landed.
+    assert_receive {:locked_release_result, {:ok, %{status: 200}}}, 15_000
     assert answers?(pid)
     close_port(lock)
   end
@@ -854,6 +949,33 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   defp publish_current_view(pid) do
     state = :sys.get_state(pid)
     SnapshotStore.publish(Orchestrator, StatusReport.snapshot_payload(state), state)
+  end
+
+  # A parked duration-capped agent: enough shape for the read model to render a
+  # paused row that `resume` can select by issue id/identifier.
+  defp paused_duration_entry(issue_id, identifier) do
+    %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: identifier,
+      issue: %Issue{
+        id: issue_id,
+        identifier: identifier,
+        state: "in-progress",
+        title: "Duration paused #{identifier}"
+      },
+      control: %{
+        status: :paused,
+        generation: 1,
+        version: 1,
+        application_confirmation: :confirmed,
+        can_interrupt: true,
+        safe_checkpoints: []
+      },
+      paused_reason: :max_agent_duration,
+      session_id: "thread-#{identifier}",
+      started_at: DateTime.utc_now()
+    }
   end
 
   # A listener that completes the TCP handshake and then never answers — the

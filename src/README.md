@@ -19,8 +19,7 @@ programmatic operator. Nothing here assumes a human is the one typing.
 If you want your agent to be the Executor, ask it to "run aiur"; the repository bundles
 [`aiur-run`](../.claude/skills/aiur-run/SKILL.md) and
 [`aiur-monitor`](../.claude/skills/aiur-monitor/SKILL.md) for exactly that, and
-[`aiur-intro`](../.claude/skills/aiur-intro/SKILL.md) to help you choose. See
-[README § Who drives Aiur?](../README.md#who-drives-aiur) for the fuller picture.
+[`aiur-intro`](../.claude/skills/aiur-intro/SKILL.md) to help you choose.
 
 ## How it works
 
@@ -371,10 +370,12 @@ or starts the local agent. If the tracker refuses that removal, the command exit
 non-zero and explains that the resume will not hold; it does not report a plain
 success. A fleet-wide `aiurdev resume` still preserves per-ticket pause labels.
 
-When `server.host` is absent, the engine supplies a lower-precedence dashboard
-default: an authenticated Tailscale IPv4 when available, otherwise `127.0.0.1`.
-Configured `server.host` wins over that default, and explicit `--host` wins over
-both. Startup output reports the usable URL and effective bind host and port.
+When `server.host` is absent, the dashboard binds `127.0.0.1` by default (or
+the `AIUR_DEFAULT_DASHBOARD_HOST` override). There is no automatic Tailscale
+detection — set `server.host` explicitly to serve the dashboard beyond the
+machine. Configured `server.host` wins over that default, and explicit `--host`
+wins over both. Startup output reports the usable URL and effective bind host
+and port.
 
 Background mode is headless at the terminal layer: it skips the interactive
 agent-list and chat/prewarm panes while serving the web dashboard at the
@@ -482,6 +483,10 @@ requests-per-minute ceiling, total and endpoint-family in-flight ceilings, and
 jittered admission starts. A primary exhaustion holds its resource globally;
 a secondary-limit response or `Retry-After` holds every consumer of that token,
 including separately started daemons and agent `gh` commands.
+
+The broker is an optimization, not a dependency: on a box without `python3` the
+broker cannot run, so metering fails open to unmetered requests (announced once
+at boot) rather than failing every GitHub request.
 
 The defaults are deliberately conservative and can be tuned per workflow:
 
@@ -599,6 +604,20 @@ the current canonical `telemetry.ndjson` through that same reducer and renderer.
 The Operations Dashboard links to it only when the input exists; debug-off runs
 instead show an explicit analytics-unavailable state. The route accepts no input
 path parameter and is never browser-cacheable.
+
+The daemon aggregate also records whole-host fleet and build-gate pressure on the
+normal sampling cadence: occupied agents, configured/max/effective capacity, active
+and queued builds, and the oldest live queue wait. Fleet and build observations keep
+independent state and observation timestamps, so stale or degraded sources render as
+gaps instead of false zeroes. The binding admission signal (which host-pressure gate
+is holding dispatch) and the measured load against its threshold ride along, so a
+build-queue that is growing while load sits far below its threshold reads as
+build-gate-saturated rather than host-saturated. Because reading the build gate scans
+its lock files, that probe runs on a reduced cadence and carries the last observation
+forward, so telemetry never disturbs a real build acquisition. `/analytics`,
+`aiurdev analytics` (including `--json`), and the self-contained HTML report expose
+the same pressure evidence. This telemetry is measurement-only; it does not adapt
+`max_concurrent_agents` automatically.
 
 ## Configuration notes
 
@@ -829,4 +848,4 @@ is not a product-performance budget; BO-014 owns those thresholds.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache License 2.0. See [LICENSE](../LICENSE) and [NOTICE](../NOTICE).

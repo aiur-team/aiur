@@ -51,6 +51,7 @@ defmodule Aiur.DecisionStore do
     DecisionValidation,
     ExecutorCommandAttention,
     ExecutorEvents,
+    Issue,
     JsonStore,
     SecretRedactor
   }
@@ -59,6 +60,8 @@ defmodule Aiur.DecisionStore do
   alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{IdGenerator, Publisher}
+  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.Tracker
 
   @ndjson_filename "decisions.ndjson"
   @projection_filename "decisions.json"
@@ -89,6 +92,20 @@ defmodule Aiur.DecisionStore do
   @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
   @revision_transient_failure_classes @transient_failure_classes ++
                                         ["target_agent_unavailable", "target_revalidation_failed"]
+  # Delivery failures whose target is structurally unreachable cannot be made
+  # actionable by re-raising them as needs-attention: an agent that no longer
+  # exists cannot act, so the alert would assert the opposite of its own
+  # reason. These are never raised as needs-attention and always clear the
+  # delivery topic via its `.resolved` record, so a raised entry from an older
+  # build (or an earlier attempt) is retired rather than left active (#2419).
+  #
+  # "Non-actionable" is an alert-surface verdict, not a liveness one: the same
+  # class is transient in the revision retry ladder
+  # (`@revision_transient_failure_classes`), and an answered decision stays
+  # visible and explicitly retryable on the decision surface (the Control
+  # Center renders it `delivery_failed` with a retry affordance), so a
+  # temporarily-restarting agent is never silently dropped.
+  @non_actionable_failure_classes ["target_agent_unavailable"]
   @system_follow_up_actor %{kind: :system, id: "decision-store"}
 
   @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
@@ -458,6 +475,7 @@ defmodule Aiur.DecisionStore do
         dispatch_delay_ms: Keyword.get(opts, :dispatch_delay_ms, @default_dispatch_delay_ms),
         reconcile_delay_ms: Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms),
         retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
+        terminal_ticket_resolver: Keyword.get(opts, :terminal_ticket_resolver, &default_terminal_ticket_resolver/1),
         dispatch_scheduler: Keyword.get(opts, :dispatch_scheduler, &Process.send_after/3),
         revision_follow_up_projector: revision_projector,
         revision_follow_up_resolver: revision_resolver,
@@ -482,7 +500,7 @@ defmodule Aiur.DecisionStore do
     if state.writable? do
       reconcile_requested_executor_notifications(state)
       reconcile_deferred_executor_notifications(state)
-      reproject_failure_attentions(state)
+      schedule_failure_attention_reprojection(state)
 
       schedule_dispatch_work(
         state,
@@ -2743,16 +2761,154 @@ defmodule Aiur.DecisionStore do
       else: state
   end
 
-  defp reproject_failure_attentions(state) do
-    state.current
-    |> Map.values()
-    |> Enum.filter(&(&1.delivery_status == :failed and not is_nil(Decision.active_answer(&1))))
-    |> Enum.each(&emit_failure_attention/1)
+  # The daemon-start failure reprojection is what #2419 calls out: every boot
+  # used to re-fire a needs-attention alert for every failed delivery, which
+  # produced a sub-second burst of stale entries for decisions whose tickets
+  # closed long ago. Failures whose reason is structurally non-actionable
+  # (`target_agent_unavailable`) are never raised; the boot pass resolves
+  # (clears) the delivery topic once for each of them — retiring any alert an
+  # older build already raised — and never consults the terminal resolver,
+  # because they are non-actionable regardless of ticket state. The rest are
+  # checked against the tracker's current ticket state so a decision on a
+  # terminal ticket is *resolved* (its active alert cleared) rather than
+  # re-raised. The tracker round-trip is batch and runs in a detached Task so
+  # boot never blocks on GitHub; a resolver failure fails open (nothing treated
+  # as terminal) so today's re-raise behavior survives a tracker outage.
+  defp schedule_failure_attention_reprojection(state) do
+    failed =
+      state.current
+      |> Map.values()
+      |> Enum.filter(&(&1.delivery_status == :failed and not is_nil(Decision.active_answer(&1))))
 
-    :ok
+    {non_actionable, checkable} = Enum.split_with(failed, &non_actionable_failure?/1)
+
+    Enum.each(non_actionable, &emit_failure_resolution(&1, :non_actionable))
+
+    case checkable do
+      [] ->
+        :ok
+
+      _checkable ->
+        store = self()
+        resolver = state.terminal_ticket_resolver
+
+        _ =
+          Task.start(fn ->
+            reproject_failure_attentions(store, resolver, checkable)
+          end)
+
+        :ok
+    end
   end
 
+  defp reproject_failure_attentions(store, resolver, failed) do
+    terminal_ticket_ids = resolve_terminal_ticket_ids(resolver, failed)
+
+    Enum.each(failed, fn decision ->
+      if MapSet.member?(terminal_ticket_ids, decision.ticket.identifier) do
+        emit_failure_resolution(decision, :terminal)
+      else
+        emit_failure_attention(decision)
+      end
+    end)
+
+    send(store, {:failure_attention_reprojection_complete, length(failed)})
+  rescue
+    error ->
+      Logger.warning("aiur_decision_store phase=failure_attention_reprojection_failed error=#{Exception.message(error)}")
+  catch
+    kind, reason ->
+      Logger.warning("aiur_decision_store phase=failure_attention_reprojection_failed kind=#{kind} reason=#{inspect(reason)}")
+  end
+
+  defp resolve_terminal_ticket_ids(resolver, failed) do
+    identifiers = failed |> Enum.map(& &1.ticket.identifier) |> Enum.uniq()
+
+    try do
+      case resolver.(identifiers) do
+        {:ok, terminal} when is_struct(terminal, MapSet) -> terminal
+        {:ok, terminal} when is_list(terminal) -> MapSet.new(terminal)
+        {:error, reason} -> unresolved_terminal_ids(reason, identifiers)
+      end
+    rescue
+      error -> unresolved_terminal_ids(error, identifiers)
+    catch
+      kind, reason -> unresolved_terminal_ids({kind, reason}, identifiers)
+    end
+  end
+
+  defp unresolved_terminal_ids(reason, identifiers) do
+    Logger.warning(
+      "aiur_decision_store phase=failure_attention_terminal_resolution_failed " <>
+        "tickets=#{inspect(identifiers)} reason=#{inspect(reason)}"
+    )
+
+    MapSet.new()
+  end
+
+  # The production resolver batch-reads the tracker's current issue states and
+  # returns the ticket identifiers in terminal state. Fail-open on any read
+  # error: an unreadable tracker must never be read as "everything terminal"
+  # (which would clear live alerts), it is read as "nothing terminal" so the
+  # conservative re-raise path stays in effect.
+  defp default_terminal_ticket_resolver(ticket_identifiers) do
+    with {:ok, issues} <- Tracker.fetch_issue_states_by_ids(ticket_identifiers) do
+      terminal_states = DispatchPolicy.terminal_state_set()
+      {:ok, terminal_identities(issues, terminal_states)}
+    end
+  end
+
+  @doc false
+  # Terminal ticket identities from one fetched issue-state batch. Mirrors the
+  # established reader in `Aiur.DecisionRevisionDispatch`, which falls back to
+  # `id` when `identifier` is blank: an adapter returning id-only issues must
+  # still resolve as terminal, or this fix silently becomes a no-op on that
+  # adapter with only a log line to say so.
+  @spec terminal_identities([term()], MapSet.t(String.t())) :: MapSet.t(String.t())
+  def terminal_identities(issues, terminal_states)
+      when is_list(issues) and is_struct(terminal_states, MapSet) do
+    issues
+    |> Enum.filter(&DispatchPolicy.terminal_issue_state?(&1.state, terminal_states))
+    |> Enum.map(&issue_terminal_identity/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  defp issue_terminal_identity(%Issue{identifier: identifier}) when is_binary(identifier) and identifier != "",
+    do: identifier
+
+  defp issue_terminal_identity(%Issue{id: id}) when is_binary(id) and id != "", do: id
+  defp issue_terminal_identity(_issue), do: nil
+
+  defp non_actionable_failure?(decision) do
+    case List.last(Decision.active_dispatch_attempts(decision)) do
+      %{failure_reason_class: reason_class} when is_binary(reason_class) ->
+        reason_class in @non_actionable_failure_classes
+
+      _attempt ->
+        false
+    end
+  end
+
+  # Raising a delivery failure as needs-attention is only meaningful when the
+  # target could still act. A structurally non-actionable failure
+  # (`target_agent_unavailable`) must never raise: re-raising would demand
+  # action nothing can take, and a `needs_attention: false` record on the bare
+  # topic would only prepend to the feed, leaving any earlier raised entry
+  # active. So the non-actionable branch clears the topic's `.resolved` record
+  # instead — the only form `AlertFeed.resolve_attention_alerts/1` treats as a
+  # clear — which both retires a prior raise (e.g. an earlier `send_failed`
+  # attempt on the same topic) and keeps the decision off the needs-attention
+  # feed (#2419, review).
   defp emit_failure_attention(decision) do
+    if non_actionable_failure?(decision) do
+      emit_failure_resolution(decision, :non_actionable)
+    else
+      emit_actionable_failure_attention(decision)
+    end
+  end
+
+  defp emit_actionable_failure_attention(decision) do
     active_answer = Decision.active_answer(decision)
 
     reason_class =
@@ -2773,7 +2929,9 @@ defmodule Aiur.DecisionStore do
     )
   end
 
-  defp emit_failure_resolution(decision) do
+  defp emit_failure_resolution(decision), do: emit_failure_resolution(decision, :recovered)
+
+  defp emit_failure_resolution(decision, :recovered) do
     active_answer = Decision.active_answer(decision)
 
     Alerts.emit_custom(
@@ -2781,6 +2939,49 @@ defmodule Aiur.DecisionStore do
       "Decision answer delivery recovered for #{decision.decision_id}.",
       issue: decision.ticket.identifier,
       reason: "Decision #{decision.decision_id} action #{active_answer.action_id} delivery recovered.",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
+  # A delivery that failed for a structurally non-actionable reason clears the
+  # delivery topic exactly like a recovery or a terminal ticket does: the
+  # `.resolved` record is the only form `AlertFeed` treats as a clear, so this
+  # retires a raised entry from an older build or an earlier attempt on the
+  # same topic while raising nothing new. Idempotent — re-emitting against a
+  # topic with no active raise is a no-op via the alert emitter's edge-trigger.
+  defp emit_failure_resolution(decision, :non_actionable) do
+    active_answer = Decision.active_answer(decision)
+
+    Alerts.emit_custom(
+      failure_attention_topic(decision) <> ".resolved",
+      "Decision answer delivery is not actionable for #{decision.decision_id}: " <>
+        "the target agent is absent.",
+      issue: decision.ticket.identifier,
+      reason:
+        "Decision #{decision.decision_id} action #{active_answer.action_id} " <>
+          "cannot be delivered while the target agent is absent; the delivery alert is " <>
+          "cleared and the decision stays visible on the decision surface.",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
+  # Boot cleanup for a decision whose ticket has since gone terminal: the
+  # delivery will never complete, so the stale needs-attention alert is cleared
+  # instead of re-raised. Idempotent — re-running against an already-resolved
+  # condition is a no-op via the alert emitter's edge-trigger.
+  defp emit_failure_resolution(decision, :terminal) do
+    active_answer = Decision.active_answer(decision)
+
+    Alerts.emit_custom(
+      failure_attention_topic(decision) <> ".resolved",
+      "Decision answer delivery is no longer actionable for #{decision.decision_id}: " <>
+        "ticket #{decision.ticket.identifier} is terminal.",
+      issue: decision.ticket.identifier,
+      reason:
+        "Decision #{decision.decision_id} action #{active_answer.action_id} " <>
+          "targets a terminal ticket; the delivery alert is cleared.",
       needs_attention: false,
       severity: "info"
     )
@@ -2805,8 +3006,10 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_info({:reconcile_dispatches, fences}, state) do
-    next_state =
-      Enum.reduce(fences, state, &reconcile_scheduled_decision/2)
+    {next_state, dispatched} =
+      Enum.reduce(fences, {state, []}, &reconcile_scheduled_decision/2)
+
+    DecisionPubSub.broadcast_dispatches_reconciled(self(), length(fences), Enum.reverse(dispatched))
 
     {:noreply, next_state}
   end
@@ -2870,6 +3073,11 @@ defmodule Aiur.DecisionStore do
     {:noreply, monitor_decision_dispatch_tasks(%{state | decision_dispatch_monitor_timer: nil})}
   end
 
+  def handle_info({:failure_attention_reprojection_complete, count}, state) do
+    Logger.debug("aiur_decision_store phase=failure_attention_reprojection_complete count=#{count}")
+    {:noreply, state}
+  end
+
   def handle_info({:project_revision_follow_up, decision_id, action_id}, state) do
     {:noreply, start_revision_follow_up_task(state, :project, decision_id, action_id)}
   end
@@ -2899,30 +3107,56 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp reconcile_scheduled_decision(%{decision_id: decision_id} = fence, state) do
+  defp reconcile_scheduled_decision(%{decision_id: decision_id} = fence, {state, dispatched}) do
     case fetch_decision(state, decision_id) do
       {:ok, current} ->
         dispatch_current? = dispatch_fence_current?(fence, current, :normal)
         reconcile_queue? = dispatch_current? and fence.request_version == current.version
-        reconcile_decision(current, state, dispatch_current?, reconcile_queue?)
+        reconcile_decision(current, state, dispatch_current?, reconcile_queue?, dispatched)
 
       {:error, _reason} ->
-        state
+        {state, dispatched}
     end
   end
 
-  defp reconcile_decision(decision, state, dispatch_current?, reconcile_queue?) do
+  defp reconcile_decision(decision, state, dispatch_current?, reconcile_queue?, dispatched) do
     state = ensure_revision_follow_up_required(state, decision)
     current = Map.fetch!(state.current, decision.decision_id)
     state = ensure_superseded_revision_follow_ups(state, current)
     current = Map.fetch!(state.current, decision.decision_id)
     state = schedule_revision_follow_up_work(state, current)
 
+    # The pass reports what it scheduled, decision by decision, so that
+    # "reconciliation dispatched this answer exactly once" is a claim a caller
+    # can read off the report rather than infer from a quiet mailbox. The
+    # predicates below are the same ones the schedulers themselves consult, so
+    # the report cannot drift from the scheduling it describes.
+    dispatched =
+      if dispatch_current? and answer_dispatch_schedulable?(state, current, false),
+        do: [reconcile_entry(current, :dispatch) | dispatched],
+        else: dispatched
+
+    dispatched =
+      if reconcile_queue? and queue_reconciliation_schedulable?(state, current),
+        do: [reconcile_entry(current, :reconcile_queue) | dispatched],
+        else: dispatched
+
     state = if dispatch_current?, do: maybe_schedule_after_answer(state, current, false), else: state
 
     # Request enrichment may advance the version without changing delivery state.
     # Pending first delivery can follow it; queued reconciliation cannot.
-    if reconcile_queue?, do: maybe_schedule_queue_reconciliation(state, current), else: state
+    state = if reconcile_queue?, do: maybe_schedule_queue_reconciliation(state, current), else: state
+
+    {state, dispatched}
+  end
+
+  defp reconcile_entry(decision, kind) do
+    %{
+      decision_id: decision.decision_id,
+      action_id: decision.active_action_id,
+      version: decision.version,
+      kind: kind
+    }
   end
 
   defp schedule_revision_follow_up_work(state, decision) do
@@ -3021,42 +3255,36 @@ defmodule Aiur.DecisionStore do
   defp revision_follow_up_message(:resolve, decision_id, action_id),
     do: {:resolve_revision_follow_up, decision_id, action_id}
 
-  defp maybe_schedule_after_answer(state, %Decision{} = decision, retry_failed?) do
-    active_answer = Decision.active_answer(decision)
+  defp answer_dispatch_schedulable?(state, %Decision{} = decision, retry_failed?) do
+    state.writable? and dispatchable?(decision, retry_failed?) and
+      answer_free_for_dispatch?(state, decision)
+  end
 
-    cond do
-      not state.writable? ->
-        state
+  defp queue_reconciliation_schedulable?(state, %Decision{} = decision) do
+    state.writable? and queue_reconcilable?(decision) and answer_free_for_dispatch?(state, decision)
+  end
 
-      not dispatchable?(decision, retry_failed?) ->
-        state
-
-      is_nil(active_answer) or dispatch_active?(state, active_answer.action_id) ->
-        state
-
-      true ->
-        schedule_dispatch(state, decision, retry_failed?, state.dispatch_delay_ms)
-        state
+  defp answer_free_for_dispatch?(state, %Decision{} = decision) do
+    case Decision.active_answer(decision) do
+      nil -> false
+      active_answer -> not dispatch_active?(state, active_answer.action_id)
     end
   end
 
-  defp maybe_schedule_queue_reconciliation(state, %Decision{} = decision) do
-    active_answer = Decision.active_answer(decision)
-
-    cond do
-      not state.writable? ->
-        state
-
-      not queue_reconcilable?(decision) ->
-        state
-
-      is_nil(active_answer) or dispatch_active?(state, active_answer.action_id) ->
-        state
-
-      true ->
-        schedule_dispatch_work(state, {:reconcile_queue_action, dispatch_fence(decision)}, 0)
-        state
+  defp maybe_schedule_after_answer(state, %Decision{} = decision, retry_failed?) do
+    if answer_dispatch_schedulable?(state, decision, retry_failed?) do
+      schedule_dispatch(state, decision, retry_failed?, state.dispatch_delay_ms)
     end
+
+    state
+  end
+
+  defp maybe_schedule_queue_reconciliation(state, %Decision{} = decision) do
+    if queue_reconciliation_schedulable?(state, decision) do
+      schedule_dispatch_work(state, {:reconcile_queue_action, dispatch_fence(decision)}, 0)
+    end
+
+    state
   end
 
   defp schedule_dispatch(state, decision, retry_failed?, delay_ms) do

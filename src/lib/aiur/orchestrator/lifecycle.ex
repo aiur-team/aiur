@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{CIApprovalStore, Config, LiveConversation, ProcessReaper}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
@@ -22,6 +22,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     State,
     StatusReport,
     TrackedSet,
+    TrackerHealth,
     WorkspaceCleanup
   }
 
@@ -80,14 +81,22 @@ defmodule Aiur.Orchestrator.Lifecycle do
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
 
+    # The dispatch tick's base is the `:dispatch` poll class, not the raw
+    # `interval_seconds` scalar: since #2309 an operator can give the tracker
+    # poll its own `polling.intervals.dispatch` entry, and the scheduler must
+    # honor it exactly like every other class. `base_interval_ms/1` falls back
+    # to `interval_seconds` for an unlisted class, so a config without an
+    # `intervals` map resolves the same value it always did.
+    dispatch_base_ms = PollCadence.base_interval_ms(class: :dispatch)
+
     state = %State{
       snapshot_key: snapshot_key,
       # A restarted server keeps its prior fleet view until this generation has
       # completed a fresh poll and projection. Older projector tasks are fenced
       # by this token before they can replace that retained view.
       snapshot_generation: SnapshotStore.begin_generation(snapshot_key),
-      poll_interval_ms: config.polling.interval_seconds * 1_000,
-      effective_poll_interval_ms: config.polling.interval_seconds * 1_000,
+      poll_interval_ms: dispatch_base_ms,
+      effective_poll_interval_ms: dispatch_base_ms,
       idle_poll_backoff: %{active?: false, factor: config.polling.idle_widen_factor},
       max_concurrent_agents: config.agent.max_concurrent_agents,
       # `--max-agents N` at launch: seed the session override (highest
@@ -131,6 +140,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     TrackedSet.reset([])
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics()
+    subscribe_to_prewarm(opts)
     _ = LiveConversation.subscribe_restarts()
 
     state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
@@ -234,7 +244,21 @@ defmodule Aiur.Orchestrator.Lifecycle do
     now_ms = System.monotonic_time(:millisecond)
     already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
     coalesced = state.poll_check_in_progress == true or already_due?
-    state = if coalesced, do: state, else: schedule_tick(state, 0)
+
+    state =
+      if coalesced do
+        state
+      else
+        # A wake interrupts an idle backoff, but never ahead of the GitHub
+        # rate-limit floor: the cycle it schedules fetches from GitHub, so
+        # scheduling it sooner than the floor would let an externally-triggered
+        # wake (a webhook delivery) force a full fetch ahead of the floor the
+        # orchestrator computed for itself (#2365). No floor means an immediate
+        # tick, which is what collapses a long idle backoff to now.
+        floor_ms = TrackerHealth.github_next_poll_delay_ms(state) || 0
+        schedule_tick(state, floor_ms)
+      end
+
     {state, coalesced}
   end
 
@@ -270,7 +294,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
     %{
       state
-      | poll_interval_ms: config.polling.interval_seconds * 1_000,
+      | # The dispatch class base (#2309): falls back to `interval_seconds` for
+        # an unlisted `dispatch`, so a config without `polling.intervals` keeps
+        # today's value exactly.
+        poll_interval_ms: PollCadence.base_interval_ms(class: :dispatch),
         max_concurrent_agents: config.agent.max_concurrent_agents
     }
   end
@@ -292,6 +319,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
     end
 
     :ok
+  end
+
+  defp subscribe_to_prewarm(opts) do
+    if Keyword.get(opts, :name) == Aiur.Orchestrator, do: AgentPubSub.subscribe_prewarm(), else: :ok
   end
 
   @doc false

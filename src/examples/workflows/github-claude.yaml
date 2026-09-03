@@ -32,16 +32,18 @@ tracker:
     max_inflight_per_endpoint: 2
     requests_per_minute: 120
     stagger_ms: 75
-    # Per-actor hourly ceilings (0 disables): billable Core (REST) / GraphQL
-    # responses in a rolling hour. 304s reconcile as free. Re-derived against
-    # the corrected bucket counts (#2297): measured 4,198 GraphQL admissions
-    # vs 305 Core, so GraphQL windows are load-bearing and Core comes down.
-    daemon_core_limit_per_hour: 1000
-    daemon_graphql_limit_per_hour: 3000
+    # Per-actor hourly ceilings (0 disables): billable Core (REST) / GraphQL /
+    # search responses in a rolling hour. 304s reconcile as free. The GraphQL
+    # windows were raised because the guard now books the high-level GraphQL-on-
+    # the-wire reads to the GraphQL bucket; `search` is GitHub's separate, much
+    # lower pool (~30/min) and gets its own ceiling rather than folding into
+    # core or graphql.
+    daemon_core_limit_per_hour: 3000
+    daemon_graphql_limit_per_hour: 4500
+    daemon_search_limit_per_hour: 600
     agent_core_limit_per_hour: 250
-    agent_graphql_limit_per_hour: 750
-    daemon_search_limit_per_hour: 1000
-    agent_search_limit_per_hour: 250
+    agent_graphql_limit_per_hour: 600
+    agent_search_limit_per_hour: 600
 build_order:
   # Three settings are intentionally absent — graph_catalog_refresh_ms,
   # graph_catalog_labels_refresh_ms and ticket_detail_freshness_ms. They derive
@@ -71,6 +73,16 @@ executor_takeover_first_alert_hours: 8
 executor_takeover_continuous_alert_hours: 1
 polling:
   idle_widen_factor: 5.0
+  # Per-class cadences override interval_seconds for one class (#2309). The
+  # `ci` class is deliberately not listed — it only ever slows CI detection, so
+  # keep it at the fallback. `review` widens only while a webhook proves
+  # comment coverage; `planning` is on-demand (0 = no timer). `firehose` is also
+  # not listed: its loop rides the dispatch tick and is self-regulating via
+  # X-Poll-Interval, so an entry would be a dead knob.
+  intervals:
+    dispatch: 120
+    review: 300
+    planning: 0        # on-demand: no timer
 workspace:
   root: ~/code/aiur-workspaces
 hooks:

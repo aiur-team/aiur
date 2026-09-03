@@ -4,19 +4,27 @@ defmodule Aiur.AgentCommandInstallerTest do
   alias Aiur.{AgentBuildGuard, AgentGitHubGuard}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-command-installer-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-command-installer")
     workspace = Path.join(root, "workspace")
     File.mkdir_p!(workspace)
     on_exit(fn -> File.rm_rf!(root) end)
     {:ok, root: root, workspace: workspace}
   end
 
+  # Every `run_install_script/2` below runs the *remote* install script on this
+  # machine (see the helper at the bottom of this module), so
+  # `HOME` is pinned to the test root. Left unset it is the operator's own home,
+  # and the script's host-credential branch then acted on the live shared
+  # `~/.aiur/github-budget/agent-token` that the whole local fleet authenticates
+  # with — deleting it once per run, silently, with the suite still green
+  # (#2478). The production fix scopes that branch to genuinely remote installs;
+  # this keeps the tests from writing outside their own sandbox regardless.
   test "remote installation rejects a directory at a command target", context do
     target = Path.join(AgentGitHubGuard.bin_dir(context.workspace), "gh")
     File.mkdir_p!(target)
 
     assert {output, 73} =
-             System.cmd("sh", ["-lc", AgentGitHubGuard.remote_install_script(context.workspace)], stderr_to_stdout: true)
+             run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
 
     assert output =~ "unsafe agent command target"
     assert File.dir?(target)
@@ -25,7 +33,7 @@ defmodule Aiur.AgentCommandInstallerTest do
 
   test "remote installation writes executable command guards idempotently", context do
     assert {"", 0} =
-             System.cmd("sh", ["-lc", AgentGitHubGuard.remote_install_script(context.workspace)], stderr_to_stdout: true)
+             run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
 
     bin_dir = AgentGitHubGuard.bin_dir(context.workspace)
     gh_wrapper = Path.join(bin_dir, "gh")
@@ -40,35 +48,24 @@ defmodule Aiur.AgentCommandInstallerTest do
     inodes = {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode}
 
     assert {"", 0} =
-             System.cmd("sh", ["-lc", AgentGitHubGuard.remote_install_script(context.workspace)], stderr_to_stdout: true)
+             run_install_script(context, AgentGitHubGuard.remote_install_script(context.workspace))
 
     assert {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode} == inodes
   end
 
-  # The whole remote install can travel as ONE argv string — the worst case is a
-  # `bash -c <script>` / `sh -lc <script>` invocation — and Linux caps a single
-  # argument at 128 KiB (`MAX_ARG_STRLEN`, 32 pages) however large `ARG_MAX` is.
-  # The guards grew past the bar once, and the failure mode is `Argument list too
-  # long` before a single line runs — no agent, no useful error.
-  #
-  # The bar was originally half the ceiling (65,536): a deliberate safety margin,
-  # not a platform limit — no platform caps a single argument at 64 KiB. The real
-  # limit is `MAX_ARG_STRLEN` = 32 * PAGE_SIZE = 131,072 bytes per argument,
-  # documented in Linux `execve(2)` and verified empirically (a 131,072-byte
-  # argument fails with `Argument list too long` / E2BIG; 131,071 succeeds). The
-  # gh guard then legitimately grew — resource bucketing, the lease pools, the
-  # classification arms — and the compressed install script crossed 64 KiB.
-  #
-  # The bar is re-based to 96 KiB (98,304 = 75% of the verified ceiling, a 25%
-  # margin) so a loud CI failure is never converted into a silent runtime failure,
-  # while a PR that grows the script past the bar still fails loudly here, well
-  # before a remote host would. The headroom covers the guard growth queued in
-  # #2353 and #2366.
-  test "the remote install script fits in one argument", context do
+  # A growth budget, not a platform limit. Nothing breaks the moment the script
+  # passes it — the remote install is staged to a file and fed to `bash -s` on
+  # stdin by `Aiur.SSH.with_script/4`, so Linux's 128 KiB per-argument cap
+  # (`MAX_ARG_STRLEN`) never bound it; the composed agent-support payload is
+  # already megabytes and installs fine. What the budget protects is cost: the
+  # `gh` guard is compiled into the daemon, held in memory, and re-sent on every
+  # remote dispatch, so growth deserves a deliberate decision rather than a
+  # discovery. Raise it only with a reason stated in the commit.
+  test "the remote install script stays inside its growth budget", context do
     script = AgentGitHubGuard.remote_install_script(context.workspace)
 
     assert byte_size(script) < 98_304,
-           "remote install script is #{byte_size(script)} bytes; the single-argument ceiling is 131072"
+           "remote install script is #{byte_size(script)} bytes; the growth budget is 98304"
   end
 
   test "local installation replaces a command-target symlink", context do
@@ -82,5 +79,75 @@ defmodule Aiur.AgentCommandInstallerTest do
     assert :ok = AgentBuildGuard.install(context.workspace)
     assert File.lstat!(target).type == :regular
     assert File.read!(target) == File.read!(external)
+  end
+
+  # Mirrors production transport: the script is staged to a file and read by the
+  # shell, never handed over as a command-line argument. Running these through
+  # `sh -lc` instead would reimpose `MAX_ARG_STRLEN` on the test suite alone, so
+  # a growing guard could redden tests that production does not care about.
+  defp run_install_script(context, script) do
+    path = Path.join(context.root, "install-#{System.unique_integer([:positive])}.sh")
+    File.write!(path, script)
+    System.cmd("sh", [path], stderr_to_stdout: true, env: [{"HOME", context.root}])
+  end
+end
+
+defmodule Aiur.AgentCommandInstallerTransportTest do
+  # Mutates PATH to install a fake `ssh`, so it cannot run concurrently.
+  use ExUnit.Case, async: false
+
+  alias Aiur.{AgentGitHubGuard, SSH}
+
+  # Pins the transport property where it actually lives. The remote install does
+  # not cross `execve` as an argument: `Aiur.SSH.with_script/4` stages it to a
+  # file and feeds it to `bash -s` on stdin. If `ssh.ex` ever reverts to argv
+  # transport, this fails here — with the real install script — rather than on a
+  # remote host with `Argument list too long` and no useful error.
+  test "the remote install script reaches the host on stdin, not as an argument" do
+    root = Aiur.TestSupport.tmp_root!("aiur-command-installer-transport")
+    workspace = Path.join(root, "workspace")
+    File.mkdir_p!(workspace)
+    trace_file = Path.join(root, "ssh.trace")
+    input_file = Path.join(root, "ssh.input")
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      if previous_path, do: System.put_env("PATH", previous_path), else: System.delete_env("PATH")
+      File.rm_rf!(root)
+    end)
+
+    install_fake_ssh!(root, trace_file, input_file)
+
+    script = AgentGitHubGuard.remote_install_script(workspace)
+
+    assert {:ok, {"", 0}} = SSH.run_script("worker-01", script, stderr_to_stdout: true)
+
+    # The payload arrived whole on stdin.
+    assert File.read!(input_file) == script
+
+    # And nothing resembling the payload crossed argv — only `bash -s` did.
+    trace = File.read!(trace_file)
+    assert trace =~ "bash -s"
+    refute trace =~ "base64 -d"
+    assert byte_size(trace) < 131_072
+  end
+
+  defp install_fake_ssh!(root, trace_file, input_file) do
+    fake_bin_dir = Path.join(root, "bin")
+    fake_ssh = Path.join(fake_bin_dir, "ssh")
+    File.mkdir_p!(fake_bin_dir)
+
+    File.write!(fake_ssh, """
+    #!/bin/sh
+    printf 'ARGV:%s\\n' "$*" >> "#{trace_file}"
+    # Only a redirect from the staged file makes stdin a regular file. Argv
+    # transport would leave stdin an open pipe, so read nothing and let the
+    # assertion below report an empty payload instead of blocking forever.
+    if [ -f /dev/stdin ]; then cat > "#{input_file}"; else : > "#{input_file}"; fi
+    exit 0
+    """)
+
+    File.chmod!(fake_ssh, 0o755)
+    System.put_env("PATH", fake_bin_dir <> ":" <> (System.get_env("PATH") || ""))
   end
 end

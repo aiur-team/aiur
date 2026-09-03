@@ -40,6 +40,15 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
   # read; the selected-root path paginates members and resolves those.
   @catalog_member_labels "labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }"
 
+  # The member selection carries identity fields as well as lifecycle. The
+  # catalog's own rendering only needs `state`/`stateReason` (the cheap read),
+  # but the rare reconciliation re-converges the event-sourced store from this
+  # query, and it cannot deposit a `:sub_issue` edge or a member body without
+  # the member's number, id and repo (#2313). Those scalars ride existing
+  # connections, so they cost nothing: GraphQL bills per connection, not per
+  # field.
+  @catalog_member_fields "state stateReason"
+
   @catalog_template """
   query AiurBuildOrderCatalog($owner: String!, $repo: String!, $cursor: String, $pageSize: Int!) {
     #{@rate_limit}
@@ -55,7 +64,12 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
           subIssues(first: 100) {
             totalCount
             pageInfo { hasNextPage endCursor }
-            nodes { state stateReason__MEMBER_LABELS__ }
+            nodes {
+              id databaseId number title url createdAt updatedAt
+              repository { name owner { login } }
+              parent { id databaseId number url repository { name owner { login } } }
+              __MEMBER_FIELDS__
+            }
           }
         }
       }
@@ -63,8 +77,9 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
   }
   """
 
-  @catalog String.replace(@catalog_template, "__MEMBER_LABELS__", "")
-  @catalog_labelled String.replace(@catalog_template, "__MEMBER_LABELS__", " " <> @catalog_member_labels)
+  @catalog String.replace(@catalog_template, "__MEMBER_FIELDS__", @catalog_member_fields)
+
+  @catalog_labelled String.replace(@catalog_template, "__MEMBER_FIELDS__", @catalog_member_fields <> " " <> @catalog_member_labels)
 
   @selected """
   query AiurBuildOrderSelectedRoot($owner: String!, $repo: String!, $number: Int!, $cursor: String, $pageSize: Int!) {

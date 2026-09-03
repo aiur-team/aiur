@@ -11,7 +11,7 @@ defmodule Aiur.RunTelemetry.SummariesTest do
   @telemetry_fixtures Path.expand("../../fixtures/run_telemetry/session-b/telemetry.ndjson", __DIR__)
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-summaries-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-summaries")
     # These two are application-global. Without restoring them, every later
     # sync test in the same partition inherits a deleted tmp root and this
     # file's analytics repo slug.
@@ -60,6 +60,94 @@ defmodule Aiur.RunTelemetry.SummariesTest do
   end
 
   describe "decode_summary/1" do
+    test "preserves fleet build evidence and legacy nils from a materialized summary" do
+      pressure_sample = %{
+        "actor" => "_daemon",
+        "actor_type" => "system",
+        "availability" => "measured",
+        "fleet_agents_occupied" => 13,
+        "fleet_agents_configured" => 16,
+        "fleet_agents_max" => 16,
+        "fleet_agents_effective" => 12,
+        "fleet_capacity_status" => "current",
+        "fleet_capacity_age_ms" => 41,
+        "fleet_capacity_observed_at_ms" => 1_787_306_400_001,
+        "build_gate_enabled" => true,
+        "build_gate_capacity" => 2,
+        "build_gate_active" => 2,
+        "build_gate_queued" => 8,
+        "build_queue_oldest_wait_seconds" => 189,
+        "build_gate_status" => "measured",
+        "build_gate_observed_at_ms" => 1_787_306_400_002,
+        "partial_fields" => ["fd_count"],
+        "timestamp" => "2026-08-21T18:00:00Z",
+        "timestamp_ms" => 1_787_306_400_000,
+        "boot_id" => "pressure-boot",
+        "record_id" => "pressure-boot:1"
+      }
+
+      legacy_sample = %{
+        "actor" => "_daemon",
+        "actor_type" => "system",
+        "availability" => "measured",
+        "cpu_percent" => 7.0,
+        "timestamp" => "2026-08-21T18:00:05Z",
+        "timestamp_ms" => 1_787_306_405_000,
+        "boot_id" => "pressure-boot",
+        "record_id" => "pressure-boot:2"
+      }
+
+      body =
+        Jason.encode!(%{
+          "actors" => %{
+            "_daemon" => %{
+              "actor" => "_daemon",
+              "actor_type" => "system",
+              "samples" => [pressure_sample, legacy_sample],
+              "profile" => %{},
+              "gaps" => [],
+              "availability" => %{"measured" => 2, "unavailable" => 0}
+            }
+          }
+        })
+
+      assert {:ok, dataset} = Summaries.decode_summary(body)
+      [sample, legacy] = dataset.actors["_daemon"].samples
+
+      assert Map.take(sample, [
+               "fleet_agents_occupied",
+               "fleet_agents_configured",
+               "fleet_agents_max",
+               "fleet_agents_effective",
+               "build_gate_capacity",
+               "build_gate_active",
+               "build_gate_queued",
+               "build_queue_oldest_wait_seconds"
+             ]) == %{
+               "fleet_agents_occupied" => 13,
+               "fleet_agents_configured" => 16,
+               "fleet_agents_max" => 16,
+               "fleet_agents_effective" => 12,
+               "build_gate_capacity" => 2,
+               "build_gate_active" => 2,
+               "build_gate_queued" => 8,
+               "build_queue_oldest_wait_seconds" => 189
+             }
+
+      assert sample.fleet_capacity_status == "current"
+      assert sample.fleet_capacity_age_ms == 41
+      assert sample.fleet_capacity_observed_at_ms == 1_787_306_400_001
+      assert sample.build_gate_enabled == true
+      assert sample.build_gate_status == "measured"
+      assert sample.build_gate_observed_at_ms == 1_787_306_400_002
+      assert sample.partial_fields == ["fd_count"]
+
+      assert legacy["fleet_agents_occupied"] == nil
+      assert legacy["build_gate_active"] == nil
+      assert legacy.fleet_capacity_status == nil
+      assert legacy.build_gate_status == nil
+    end
+
     test "decodes a Python-materialized run summary into the dataset shape" do
       body = File.read!(Path.join(@fixtures, "runs/boot-a/run-summary.json"))
       assert {:ok, dataset} = Summaries.decode_summary(body)
@@ -247,7 +335,7 @@ defmodule Aiur.RunTelemetry.SummariesTest do
   end
 
   defp with_tmp_reduce(fun) do
-    dir = Path.join(System.tmp_dir!(), "aiur-reduce-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-reduce")
     File.mkdir_p!(dir)
     script = Path.join(dir, "reduce")
     File.write!(script, "#!/usr/bin/env bash\nprintf 'ok\\n'\n")

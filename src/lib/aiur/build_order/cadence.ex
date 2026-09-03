@@ -12,19 +12,17 @@ defmodule Aiur.BuildOrder.Cadence do
   is looking rather than what has changed. A selected root is now read when a
   writer or an explicit `GraphProjection.refresh/2` asks for it.
 
-  What is left here is the cadence of the catalog's refreshes **while a Build
-  Order page is open** (#2312), plus one freshness window. For those a number is
-  still needed, and the durable statement is the *relationship*: **Build Order
-  displays state the tracker produces, so it cannot be fresher than the tracker's
-  own cycle.** The shipped constants were chosen when the tracker polled every 5
-  seconds; #2064 moved it to 120 and they did not follow, because nothing tied
-  them together. Expressing them against the poll interval is what stops that
-  recurring.
-
-  The catalog no longer runs for nobody: `GraphProjection` gates it on a viewer
-  being present, so a headless run buys none of it. The *interval* derived here
-  is what the catalog uses while a page is open, and it is still the tracker
-  interval — a number that describes the fleet's real cycle, not who is looking.
+  What is left here is the cadence of things the event-sourced catalog still
+  derives a number from — its failure-backoff and age-display base, its labelled
+  read cadence, and one freshness window — rather than the cadence of a periodic
+  catalog poll. The catalog itself no longer polls on any of these: it is
+  projected from daemon-owned store state and rebuilt when a delivery or
+  mutation changes it (#2313). For the numbers that survive, the durable
+  statement is the *relationship*: **Build Order displays state the tracker
+  produces, so it cannot be fresher than the tracker's own cycle.** The shipped
+  constants were chosen when the tracker polled every 5 seconds; #2064 moved it
+  to 120 and they did not follow, because nothing tied them together. Expressing
+  them against the poll interval is what stops that recurring.
 
   ## Which poll interval — the effective one, not the configured one
 
@@ -44,13 +42,13 @@ defmodule Aiur.BuildOrder.Cadence do
 
   ## The ratios
 
-    * `catalog_refresh_ms` — **one effective poll interval.** The interval of the
-      catalog's refresh while a Build Order page is open. The catalog is the
-      daemon's only reader of the Build Order projection, and it is what notices
-      a root appearing or changing, so while anyone is looking it reconciles at
-      the tracker's own cycle. Refreshing faster than the tracker cannot show
-      anything new. It cannot be revalidated (see below), so cadence is the only
-      control it has. When no page is open it does not run at all.
+    * `catalog_refresh_ms` — **one effective poll interval.** No longer a refresh
+      cadence: the catalog is event-sourced from daemon-owned store state and
+      does not poll on a clock (#2313). The value survives as the failure-backoff
+      base for the catalog scope, the window after which the catalog snapshot is
+      shown as ageing, and the floor the labelled-read cadence rides on, so it
+      still follows the tracker's own cycle and the derivation below stays
+      accurate.
 
     * `catalog_labels_refresh_ms` — **five effective poll intervals, and never less than
       ten minutes.** This is the variant that resolves per-member labels, and it
@@ -84,10 +82,9 @@ defmodule Aiur.BuildOrder.Cadence do
   `AiurBuildOrderSelectedRoot` and `AiurLinkedPullRequests` cannot answer `304`
   no matter how they are written. For those three, *when* they run and how large
   a connection they ask for are the entire cost story — which is why the two that
-  ran on a viewer's behalf were removed outright, and the remaining one, the
-  catalog, is tied to the tracker here *and* gated on a viewer being present
-  (#2312): it refreshes at the tracker's cadence while a Build Order page is
-  open, and not at all otherwise.
+  ran on a viewer's behalf were removed outright and the one that does not is
+  tied to the tracker here: the labelled read rides the derived `catalog_refresh_ms`
+  floor, and both still follow the effective interval.
 
   An explicit setting always wins. These are defaults for operators who have not
   expressed a requirement, not a ceiling on ones who have.
@@ -112,7 +109,7 @@ defmodule Aiur.BuildOrder.Cadence do
   @max_detail_freshness_ms 300_000
 
   @type t :: %{
-          graph_catalog_refresh_ms: pos_integer(),
+          graph_catalog_refresh_ms: non_neg_integer(),
           graph_catalog_labels_refresh_ms: pos_integer(),
           ticket_detail_freshness_ms: pos_integer()
         }
@@ -141,6 +138,19 @@ defmodule Aiur.BuildOrder.Cadence do
   interval by exactly the widening factors the dispatcher applied — at the
   shipped defaults, a factor of 5 while the fleet is idle.
 
+  The catalog is a `:planning`-class read: its cadence resolves from the
+  planning interval (`polling.intervals.planning`, falling back to
+  `polling.interval_seconds`) rather than the bare global interval, so an
+  operator can run the expensive Build Order reads at 10 minutes while dispatch
+  stays at 2 (#2309).
+
+  When the planning class is **on-demand** (`polling.intervals.planning: 0`,
+  the recommended value), the catalog has *no timer*: `graph_catalog_refresh_ms`
+  is `0`, which `GraphProjection` reads as "refresh only on demand" — a page
+  mount or an explicit `refresh`, never a cadence. The labelled-read and
+  ticket-detail values still need a non-zero base (they are display budgets,
+  not timers), so they derive from the fallback interval.
+
   Before the dispatcher has published anything — which is every boot, since
   `:persistent_term` does not survive a VM restart, and `GraphProjection` starts
   ahead of the `Orchestrator` — this falls back to the **base** interval rather
@@ -153,14 +163,34 @@ defmodule Aiur.BuildOrder.Cadence do
   """
   @spec effective(keyword()) :: t()
   def effective(opts \\ []) do
-    opts |> effective_interval_ms() |> derive_ms()
+    case effective_interval_ms(opts) do
+      # On-demand planning: no timer. The labels and ticket-detail values still
+      # need a base, so they derive from the fallback while the catalog cadence
+      # is the on-demand sentinel `0` (#2309).
+      0 -> on_demand()
+      interval_ms -> derive_ms(interval_ms)
+    end
   end
 
   defp effective_interval_ms(opts) do
     case Keyword.get(opts, :effective_interval_ms) do
       ms when is_integer(ms) and ms > 0 -> ms
-      _unset -> PollCadence.published_effective_interval_ms() || PollCadence.base_interval_ms(opts)
+      _unset -> PollCadence.published_effective_interval_ms(class: :planning) || PollCadence.base_interval_ms(Keyword.put(opts, :class, :planning))
     end
+  end
+
+  # On-demand planning: the catalog has no timer — `graph_catalog_refresh_ms`
+  # is the `0` sentinel that `GraphProjection` reads as "no cadence, refresh on
+  # demand only". The two values that are display budgets rather than timers
+  # still derive from a real interval so they never become zero-width (#2309).
+  defp on_demand do
+    fallback = derive_ms(@fallback_interval_ms)
+
+    %{
+      graph_catalog_refresh_ms: 0,
+      graph_catalog_labels_refresh_ms: fallback.graph_catalog_labels_refresh_ms,
+      ticket_detail_freshness_ms: fallback.ticket_detail_freshness_ms
+    }
   end
 
   @doc """

@@ -10,7 +10,13 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
   @async_assert_timeout 2_000
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-current-run-membership-#{System.unique_integer([:positive])}")
+    # The tests subscribe to the shared `Aiur.PubSub` registry, an app child a
+    # sibling test can terminate. Ensure it is running before subscribing —
+    # a missing registry raises `unknown registry: Aiur.PubSub` instead of
+    # failing the assertion the test is actually about (#2397).
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
+
+    dir = Aiur.TestSupport.tmp_root!("aiur-current-run-membership")
     on_exit(fn -> File.rm_rf!(dir) end)
     %{dir: dir}
   end

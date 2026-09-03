@@ -1,6 +1,12 @@
 defmodule Aiur.TestSupportTest do
   use Aiur.TestSupport
 
+  alias Aiur.CurrentRunMembership
+  alias Aiur.Events.SubscriptionStore
+  alias Aiur.Events.SubscriptionStoreRegistry
+  alias Aiur.Events.SubscriptionStoreSupervisor
+  alias Aiur.GitHub.ReadCache
+
   test "receive_barrier selectively receives and exports bindings without a clock" do
     send(self(), :unrelated)
     send(self(), {:ready, 42})
@@ -14,7 +20,7 @@ defmodule Aiur.TestSupportTest do
   test "write_workflow_file! waits for the active config reload to finish" do
     ensure_workflow_store_running()
     store = Process.whereis(WorkflowStore)
-    workspace_root = Path.join(System.tmp_dir!(), "synced-workflow-#{System.unique_integer([:positive])}")
+    workspace_root = Aiur.TestSupport.tmp_root!("synced-workflow")
 
     :sys.suspend(store)
     :erlang.trace(store, true, [:receive])
@@ -43,7 +49,7 @@ defmodule Aiur.TestSupportTest do
   test "write_workflow_file_async! warns when the active config reload times out" do
     ensure_workflow_store_running()
     store = Process.whereis(WorkflowStore)
-    workspace_root = Path.join(System.tmp_dir!(), "async-workflow-#{System.unique_integer([:positive])}")
+    workspace_root = Aiur.TestSupport.tmp_root!("async-workflow")
 
     Application.put_env(:aiur, :workflow_store_call_timeout_ms, 25)
     :sys.suspend(store)
@@ -75,5 +81,105 @@ defmodule Aiur.TestSupportTest do
 
     assert :ok = Aiur.TestSupport.ensure_runtime_children_running()
     assert is_pid(Process.whereis(Aiur.Events.BranchRefStore))
+  end
+
+  # The two #2397 regression failures share one mechanism: a sibling test that
+  # stops the shared `Aiur.PubSub` child takes down the whole `Aiur.Supervisor`
+  # tree (PubSub AND the read cache, and everything else), so the next tests to
+  # run see `unknown registry: Aiur.PubSub` and an `available?: false`
+  # `ReadCache`. These prove the ensure-running helpers actually recover the app
+  # rather than just returning `:ok`.
+  #
+  # Quarantined (#2474), and the reason is the whole point of #2397. This test
+  # is the only one here that takes the entire OTP application down and brings
+  # it back, and `Application.stop/1` + `Application.ensure_all_started/1` are
+  # calls into the single global `:application_controller`. It passes when the
+  # file runs alone (7.2s), but in a full partition a sibling module can leave a
+  # supervised child that does not terminate; the controller then blocks
+  # forever inside the shutdown, and because EVERY `ensure_*` helper funnels
+  # through `ensure_aiur_application_started/1`, every later test queues behind
+  # the wedged controller and dies on the 60s ExUnit timeout. Measured on this
+  # branch: `MIX_TEST_PARTITION=3 TEST_PARTITIONS=4 mix test --cover
+  # --partitions 4` never finished (killed at 11 min, 6 cascading 60s timeouts,
+  # all stacked on `:gen.do_call` -> `:application_controller.call`), which is
+  # the same wedge that burned 45 minutes as `coverage (3/4)` in run
+  # 32790770281. A test that can deadlock the partition it runs in cannot live
+  # in the blocking suite.
+  #
+  # Skipped rather than quarantined, because quarantine is for tests that pass
+  # in isolation and fail only under load, and this one does not clear that bar:
+  # `mix test --include quarantine --exclude test` — the quarantine job's exact
+  # command, running this test alone — fails every time, in either of two ways.
+  # Sometimes the premise itself is false and `Aiur.Supervisor` survives the
+  # terminated PubSub child, so line 121 below fails outright; sometimes the
+  # premise holds and the recovery then wedges `:application_controller` for the
+  # full 60s ExUnit timeout, which is the same deadlock quarantine was supposed
+  # to escape. Either way the mutation guard on `ensure_pubsub_running/1` is NOT
+  # kept by the quarantine job, so claiming it is would be a dead guard stated
+  # as a live one. The body is left intact for whoever fixes the underlying
+  # shutdown wedge on #2397; until then no job runs it and none pretends to.
+  @tag :skip
+  test "ensure_pubsub_running recovers the whole app after a sibling collapsed it by stopping PubSub" do
+    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+
+    assert is_pid(Process.whereis(Aiur.Supervisor))
+    assert is_pid(Process.whereis(Aiur.PubSub))
+    assert is_pid(Process.whereis(ReadCache))
+
+    # A sibling terminating the shared PubSub child collapses the whole tree.
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
+    Process.sleep(150)
+
+    assert is_nil(Process.whereis(Aiur.Supervisor))
+    assert is_nil(Process.whereis(Aiur.PubSub))
+    assert is_nil(Process.whereis(ReadCache))
+
+    # The guard restarts the whole app and brings PubSub back before use.
+    capture_log(fn -> assert :ok = Aiur.TestSupport.ensure_pubsub_running() end)
+
+    assert is_pid(Process.whereis(Aiur.Supervisor))
+    assert is_pid(Process.whereis(Aiur.PubSub))
+    assert is_pid(Process.whereis(ReadCache))
+    assert :ok = CurrentRunMembership.subscribe()
+    Phoenix.PubSub.unsubscribe(Aiur.PubSub, "current-run-membership:changed")
+    assert ReadCache.snapshot().available?
+  end
+
+  test "ensure_read_cache_running recovers a stopped read cache (contained to one child)" do
+    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+
+    assert is_pid(Process.whereis(ReadCache))
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.GitHub.ReadCache)
+    Process.sleep(100)
+
+    refute is_pid(Process.whereis(ReadCache))
+    # ReadCache is contained: stopping it must not take down PubSub or the app.
+    assert is_pid(Process.whereis(Aiur.Supervisor))
+    assert is_pid(Process.whereis(Aiur.PubSub))
+
+    assert :ok = Aiur.TestSupport.ensure_read_cache_running()
+    assert is_pid(Process.whereis(ReadCache))
+    assert ReadCache.snapshot().available?
+  end
+
+  test "ensure_subscription_store_supervisor_running restores the stopped dynamic supervisor" do
+    identifier = "test-support-subscription-store-#{System.unique_integer([:positive])}"
+    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+    on_exit(fn -> SubscriptionStore.stop(identifier) end)
+
+    assert is_pid(Process.whereis(SubscriptionStoreSupervisor))
+
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, SubscriptionStoreSupervisor)
+
+    refute Process.whereis(SubscriptionStoreSupervisor)
+
+    assert :ok = Aiur.TestSupport.ensure_subscription_store_supervisor_running()
+    assert is_pid(Process.whereis(SubscriptionStoreSupervisor))
+    assert :ok = SubscriptionStore.attach(identifier)
+    assert [{store, _value}] = Registry.lookup(SubscriptionStoreRegistry, identifier)
+    assert is_pid(store)
+
+    assert %{subscribed_to: [], last_seen_event_id: nil, open_attentions: []} =
+             SubscriptionStore.snapshot(identifier)
   end
 end

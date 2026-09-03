@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.ClientTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{Client, DispatchAuthorization}
+  alias Aiur.GitHub.{Client, DispatchAuthorization, ResourceStore}
   alias Aiur.Workflow
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -90,7 +90,7 @@ defmodule Aiur.GitHub.ClientTest do
       refute_received :candidate_request
     end
 
-    test "rejects an issue carrying contradictory active-state labels" do
+    test "surfaces an issue carrying contradictory active-state labels as undispatchable" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -111,11 +111,20 @@ defmodule Aiur.GitHub.ClientTest do
         }
       end
 
-      # The all-open snapshot returns each issue once. Multiple active-state
-      # labels are contradictory tracker truth and must not authorize dispatch.
+      # The all-open snapshot returns each issue once. Contradictory state
+      # labels resolve to a concrete state so no consumer sees a nil disposition
+      # (and a stale `agent:ci-wait` can be cleared), but the pair must never
+      # authorize dispatch: the ticket stays visible and undispatchable rather
+      # than silently dropped from the pool as "no work" (#2366). The pair
+      # resolves to the most-outstanding-work label (`rework`), never the
+      # alphabetically-first one.
       request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: [issue.()]}} end
 
-      assert {:ok, []} = Client.fetch_candidate_issues(request_fun: request_fun)
+      assert {:ok, [candidate]} = Client.fetch_candidate_issues(request_fun: request_fun)
+      assert candidate.id == "35"
+      assert candidate.state == "rework"
+      assert candidate.state_labels == ["in-progress", "rework"]
+      assert candidate.dispatch_authorized? == false
     end
 
     test "returns normalized issues from GitHub API" do
@@ -558,6 +567,40 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert {:error, _} = Client.fetch_open_pull_request(77, request_fun: request_fun)
     end
+
+    test "revalidates a held pull request with If-None-Match instead of a full read" do
+      # #2352 row 5: `Client.fetch_open_pull_request` routes through
+      # `ResourceFetch` under the `:pull_request` key, so a second read of the
+      # same PR number sends If-None-Match and GitHub's 304 is answered without
+      # a full-price re-read. The acceptance is that the read *carries* the
+      # validator, not merely that a 304 is handled.
+      key = ResourceStore.key_for_repo(:pull_request, "owner/repo", 4242)
+      on_exit(fn -> ResourceStore.drop_data(key) end)
+
+      parent = self()
+
+      first = fn %{method: :get, url: url} ->
+        assert url =~ "/pulls/4242"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{"number" => 4242, "state" => "open", "head" => %{"ref" => "x"}, "updated_at" => "2026-01-01T00:00:00Z"},
+           headers: [{"etag", ~s("v1")}]
+         }}
+      end
+
+      second = fn request ->
+        send(parent, {:requested, request})
+        {:ok, %{status: 304, headers: [{"etag", ~s("v1")}]}}
+      end
+
+      assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: first)
+      assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: second)
+
+      assert_receive {:requested, request}
+      assert request.etag == ~s("v1")
+    end
   end
 
   describe "fetch_open_pull_request_for_branch/2" do
@@ -706,6 +749,47 @@ defmodule Aiur.GitHub.ClientTest do
     end
   end
 
+  describe "fetch_open_pull_requests_for_branch/2" do
+    test "returns every open PR for a ticket's branches, across pages" do
+      next_page = "https://api.github.com/repos/owner/repo/pulls?per_page=100&state=open&page=2"
+
+      request_fun = fn %{method: :get, url: url} ->
+        cond do
+          url == next_page ->
+            {:ok,
+             %{
+               status: 200,
+               headers: [],
+               body: [%{"number" => 52, "head" => %{"ref" => "aiur/35-add-new-test-cases"}}]
+             }}
+
+          url =~ "/repos/owner/repo/pulls?" ->
+            {:ok,
+             %{
+               status: 200,
+               headers: [{"link", "<#{next_page}>; rel=\"next\""}],
+               body: [
+                 %{"number" => 50, "head" => %{"ref" => "feature/not-a-ticket"}},
+                 %{"number" => 51, "head" => %{"ref" => "aiur/35-parallel-branch"}}
+               ]
+             }}
+        end
+      end
+
+      assert {:ok, pull_requests} =
+               Client.fetch_open_pull_requests_for_branch(35, request_fun: request_fun)
+
+      assert Enum.map(pull_requests, &Map.get(&1, "number")) == [51, 52]
+    end
+
+    test "returns an empty list when the ticket has no open PR" do
+      request_fun = fn %{method: :get} -> {:ok, %{status: 200, body: []}} end
+
+      assert {:ok, []} =
+               Client.fetch_open_pull_requests_for_branch("35", request_fun: request_fun)
+    end
+  end
+
   describe "fetch_commit_ci_status/2" do
     test "fetches both latest check runs and legacy commit statuses for the head SHA" do
       request_fun = fn %{method: :get, url: url} ->
@@ -777,11 +861,7 @@ defmodule Aiur.GitHub.ClientTest do
     end
 
     test "fails closed on comments when CODEOWNERS is missing" do
-      repo_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-github-client-test-#{System.unique_integer([:positive])}"
-        )
+      repo_root = Aiur.TestSupport.tmp_root!("aiur-github-client-test")
 
       File.mkdir_p!(repo_root)
 
@@ -1570,18 +1650,19 @@ defmodule Aiur.GitHub.ClientTest do
              %{
                status: 200,
                body: %{
+                 "state" => "open",
                  "labels" => [%{"name" => "sym:todo"}, %{"name" => "other"}]
                }
              }}
 
-          # DELETE old label
-          {:delete, 1} ->
-            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
+          # POST new label (terminal target, so no active-label re-check GET)
+          {:post, 1} ->
+            assert req.body == %{"labels" => ["sym:done"]}
             {:ok, %{status: 200}}
 
-          # POST new label
-          {:post, 2} ->
-            assert req.body == %{"labels" => ["sym:done"]}
+          # DELETE old label (new label excluded)
+          {:delete, 2} ->
+            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
 
           # PATCH close
@@ -1622,22 +1703,26 @@ defmodule Aiur.GitHub.ClientTest do
                }
              }}
 
-          {:delete, 1} ->
-            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
-            {:ok, %{status: 200}}
-
-          {:get, 2} ->
+          {:get, 1} ->
             {:ok,
              %{
                status: 200,
                body: %{
                  "state" => "open",
-                 "labels" => [%{"name" => "sym:paused"}, %{"name" => "sym:watch"}]
+                 "labels" => [
+                   %{"name" => "sym:paused"},
+                   %{"name" => "sym:todo"},
+                   %{"name" => "sym:watch"}
+                 ]
                }
              }}
 
-          {:post, 3} ->
+          {:post, 2} ->
             assert req.body == %{"labels" => ["sym:rework"]}
+            {:ok, %{status: 200}}
+
+          {:delete, 3} ->
+            assert req.url =~ "sym:todo" or req.url =~ "sym%3Atodo"
             {:ok, %{status: 200}}
         end
       end
@@ -1645,9 +1730,9 @@ defmodule Aiur.GitHub.ClientTest do
       assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :delete, url: deleted_url}}
       assert_receive {:github_request, %{method: :get}}
       assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}
+      assert_receive {:github_request, %{method: :delete, url: deleted_url}}
       refute deleted_url =~ "sym:paused"
       refute deleted_url =~ "sym:watch"
       refute_receive {:github_request, %{method: :delete}}, 100
@@ -1833,11 +1918,9 @@ defmodule Aiur.GitHub.ClientTest do
             assert req.url == "https://api.github.com/graphql"
             review_threads_page_response([])
 
-          {:delete, 3} ->
-            assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
-            {:ok, %{status: 200}}
-
-          {:get, 4} ->
+          # The swap adds first: the active-label add re-checks the issue, then
+          # POSTs the new label, then removes the old one (#2420).
+          {:get, 3} ->
             assert req.url =~ "/issues/42"
 
             {:ok,
@@ -1845,12 +1928,16 @@ defmodule Aiur.GitHub.ClientTest do
                status: 200,
                body: %{
                  "state" => "open",
-                 "labels" => []
+                 "labels" => [%{"name" => "sym:in-progress"}]
                }
              }}
 
-          {:post, 5} ->
+          {:post, 4} ->
             assert req.body == %{"labels" => ["sym:human-review"]}
+            {:ok, %{status: 200}}
+
+          {:delete, 5} ->
+            assert req.url =~ "sym:in-progress" or req.url =~ "sym%3Ain-progress"
             {:ok, %{status: 200}}
         end
       end
@@ -1862,7 +1949,7 @@ defmodule Aiur.GitHub.ClientTest do
                )
     end
 
-    test "closed issues remove stale active labels without adding a new active label" do
+    test "closed issues remove stale active labels and report no state label written" do
       test_pid = self()
 
       request_fun = fn req ->
@@ -1889,7 +1976,11 @@ defmodule Aiur.GitHub.ClientTest do
         end
       end
 
-      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
+      # Active target on a closed issue: the stale active labels are stripped,
+      # but no active state label was written, so the transition reports that
+      # honestly instead of a false `:ok` (#2420).
+      assert {:error, {:no_state_label_written, _issue}} =
+               Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}
       assert_receive {:github_request, %{method: :delete, url: human_review_url}}
@@ -1924,10 +2015,7 @@ defmodule Aiur.GitHub.ClientTest do
                }
              }}
 
-          {:delete, 1} ->
-            {:ok, %{status: 200}}
-
-          {:get, 2} ->
+          {:get, 1} ->
             {:ok,
              %{
                status: 200,
@@ -1937,7 +2025,7 @@ defmodule Aiur.GitHub.ClientTest do
                }
              }}
 
-          {:delete, 3} ->
+          {:delete, 2} ->
             {:ok, %{status: 200}}
 
           _ ->
@@ -1945,18 +2033,19 @@ defmodule Aiur.GitHub.ClientTest do
         end
       end
 
-      assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
+      # The add is the swap's first step; its closed-state re-check finds the
+      # issue closed, strips the stale active label, and reports that no state
+      # label was written (#2420).
+      assert {:error, {:no_state_label_written, _issue}} =
+               Client.update_issue_state("42", "rework", request_fun: request_fun)
 
       assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :delete, url: human_review_url}}
       assert_receive {:github_request, %{method: :get}}
       assert_receive {:github_request, %{method: :delete, url: rework_url}}
-      refute human_review_url =~ "sym:done"
       refute rework_url =~ "sym:done"
       refute_receive {:github_request, %{method: :post}}, 100
       refute_receive {:github_request, %{method: :patch}}, 100
 
-      assert human_review_url =~ "sym:human-review" or human_review_url =~ "sym%3Ahuman-review"
       assert rework_url =~ "sym:rework" or rework_url =~ "sym%3Arework"
     end
 
@@ -2100,11 +2189,7 @@ defmodule Aiur.GitHub.ClientTest do
   end
 
   defp codeowners_repo!(content) do
-    repo_root =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-github-client-test-#{System.unique_integer([:positive])}"
-      )
+    repo_root = Aiur.TestSupport.tmp_root!("aiur-github-client-test")
 
     path = Path.join(repo_root, ".github/CODEOWNERS")
     File.mkdir_p!(Path.dirname(path))

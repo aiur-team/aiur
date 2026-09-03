@@ -51,7 +51,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
       |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
-    start_supervised!({Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, previous_endpoint)
@@ -1598,7 +1598,6 @@ defmodule AiurWeb.StreamdeckLiveTest do
            "version" => 1,
            "question" => "Ship the change?",
            "status" => "open",
-           "blocking" => true,
            "context" => %{"short" => "The checks are green."},
            "options" => [
              %{"id" => "ship", "label" => "Ship it", "description" => "Merge and deploy now."},

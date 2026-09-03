@@ -74,6 +74,7 @@ defmodule Aiur.GitHub.ReadCache do
 
   use GenServer
 
+  alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy}
 
   require Logger
@@ -151,6 +152,26 @@ defmodule Aiur.GitHub.ReadCache do
   end
 
   def invalidate(_identities), do: :ok
+
+  @doc """
+  The retention bound the sweep deletes past, in milliseconds.
+
+  Exposed so a test can assert no class TTL reaches it: an entry deleted by the
+  sweep is an entry the cache was still entitled to serve, so the bound and the
+  shipped TTLs have to stay apart or the sweep turns into a silent miss
+  generator.
+  """
+  @spec max_ttl_ms() :: pos_integer()
+  def max_ttl_ms, do: @max_ttl_ms
+
+  @doc """
+  The entry ceiling at which `room?/0` refuses new deposits.
+
+  Exposed so a test can assert the `:no_room` accounting without restating the
+  number — the ceiling moves and the test follows it.
+  """
+  @spec max_entries() :: pos_integer()
+  def max_entries, do: @max_entries
 
   @doc """
   Retires every read of one issue-or-pull-request number, and the repository's
@@ -327,17 +348,45 @@ defmodule Aiur.GitHub.ReadCache do
   # resolutions. Every REST write carries `/repos/{owner}/{repo}/` in its URL
   # and so never arrives here. If that ever stops being true, the metric to
   # watch is `invalidations.events` against the hit rate.
+  #
+  # A write that *can* name its subject retires exactly that subject, never the
+  # whole repository. `Identity.extract/1` always includes `{:repo, owner, repo}`
+  # — which every read of that repository also carries — so retiring it on every
+  # numbered write emptied the repository's cache per mutation: on a repo the
+  # daemon writes to continuously, no entry survived to be served, and the cache
+  # reported 0% hits with a full, freshly-deposited table (#2372). A numbered
+  # write retires the number plus the repository's collections instead — the
+  # same pair `invalidate_number/2` writes for a delivery — and only a write
+  # that names a repository but no number (a git ref, a repo-config write)
+  # retires the repository itself.
   defp write_identities(request) do
-    case request |> Identity.extract() |> Enum.reject(&(&1 == :root)) do
-      [] -> [:root]
-      identities -> identities
+    identities = Identity.extract(request)
+    repo = Enum.find(identities, &match?({:repo, _owner, _repo}, &1))
+    numbers = Enum.filter(identities, &match?({:number, _owner, _repo, _number}, &1))
+
+    cond do
+      repo == nil -> [:root]
+      numbers == [] -> [repo]
+      true -> [collections_identity(repo) | numbers]
     end
+  end
+
+  # A REST refusal the policy could name arrives as a fixed `Policy.shape/0`
+  # atom and is counted by `Metrics.refused/2`, whose key set `Policy.shapes/0`
+  # bounds. One it could not name arrives as a route template string
+  # (`"rest:GET /repos/:owner/:repo/labels"`); that key set is unbounded by
+  # construction, so it goes to `Metrics.refused_shape/2`, which caps it.
+  defp refuse(fetch, {:unclassified, shape}, caller) when is_binary(shape) do
+    Metrics.refused_shape(shape, caller)
+    fetch.()
   end
 
   defp refuse(fetch, reason, caller) do
     Metrics.refused(reason, caller)
     fetch.()
   end
+
+  defp collections_identity({:repo, owner, repo}), do: {:collections, owner, repo}
 
   # A cache is not allowed to be the reason a GitHub read fails. If the tables
   # are not there — a CLI process, a restart in flight — the answer is a miss,
@@ -381,14 +430,26 @@ defmodule Aiur.GitHub.ReadCache do
     ArgumentError -> true
   end
 
+  # Every miss either deposits or does not, and the not-deposited side is
+  # counted with its reason so the gap between misses and deposits is
+  # attributable rather than a silent subtraction. `success?/1` rejects a
+  # GraphQL failure or partial failure that arrived as HTTP 200 — common on
+  # graph queries, and not a cache problem — while `room?/0` refuses a good
+  # response only at the entry ceiling.
   defp deposit(key, result, started_at, class, caller) do
-    with true <- success?(result),
-         {:ok, response} <- result,
-         true <- room?() do
-      true = :ets.insert(@entries, {key, response, started_at})
-      Metrics.deposit(class, caller)
-    else
-      _skipped -> :ok
+    cond do
+      not success?(result) ->
+        Metrics.not_deposited(:unsuccessful, class, caller)
+        :ok
+
+      not room?() ->
+        Metrics.not_deposited(:no_room, class, caller)
+        :ok
+
+      true ->
+        {:ok, response} = result
+        true = :ets.insert(@entries, {key, response, started_at})
+        Metrics.deposit(class, caller)
     end
   end
 
@@ -427,6 +488,17 @@ defmodule Aiur.GitHub.ReadCache do
   defp answered?({:ok, %{status: status}}) when is_integer(status), do: true
   defp answered?(_result), do: false
 
+  # The cache counts by caller the same way `Quota` attributes spend: the
+  # declared call site, falling through to the GraphQL operation name and then
+  # to the REST route shape (`GraphQLCost.derive/1`). Reading only
+  # `request[:caller]` made the whole `unattributed` bucket a single asymmetry
+  # — `Quota` names the same request `rest:GET /repos/...` while the cache
+  # called it `unattributed` — so a REST read without a declared caller is
+  # counted under its route shape, not under a bucket that hides every REST
+  # call (#2357).
+  defp declared_caller(request) when is_map(request), do: GraphQLCost.derive(request)
+  defp declared_caller(_request), do: "unattributed"
+
   # Identity decides invalidation; the shape decides which bytes are served. A
   # digest rather than the document itself because these documents are tens of
   # kilobytes and there is one per poll chunk.
@@ -447,15 +519,6 @@ defmodule Aiur.GitHub.ReadCache do
   rescue
     ArgumentError -> :ok
   end
-
-  defp declared_caller(request) when is_map(request) do
-    case Map.get(request, :caller) do
-      caller when is_binary(caller) and caller != "" -> caller
-      _undeclared -> "unattributed"
-    end
-  end
-
-  defp declared_caller(_request), do: "unattributed"
 
   defp split_repo(full_name) when is_binary(full_name) do
     case full_name |> String.downcase() |> String.split("/") do

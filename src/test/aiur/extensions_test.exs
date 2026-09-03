@@ -1139,7 +1139,7 @@ defmodule Aiur.ExtensionsTest do
 
   test "dashboard liveview renders and refreshes over pubsub" do
     orchestrator_name = Module.concat(__MODULE__, :DashboardOrchestrator)
-    log_root = Path.join(System.tmp_dir!(), "aiur-dashboard-log-#{System.unique_integer([:positive])}")
+    log_root = Aiur.TestSupport.tmp_root!("aiur-dashboard-log")
     log_dir = Path.join(log_root, "logs")
     File.mkdir_p!(log_dir)
 
@@ -1590,7 +1590,7 @@ defmodule Aiur.ExtensionsTest do
       |> Keyword.merge(overrides)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
-    start_supervised!({AiurWeb.Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
   end
 
   defp start_static_payload_provider(id, responses) do

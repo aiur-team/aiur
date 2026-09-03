@@ -9,8 +9,8 @@ defmodule Aiur.UsageCompaction.CoordinatorTest do
   import Aiur.TestSupport.UsageAggregate, only: [envelope: 1]
 
   setup do
-    ledger_root = Path.join(System.tmp_dir!(), "aiur-cc-ledger-#{System.unique_integer([:positive])}")
-    comp_root = Path.join(System.tmp_dir!(), "aiur-cc-comp-#{System.unique_integer([:positive])}")
+    ledger_root = Aiur.TestSupport.tmp_root!("aiur-cc-ledger")
+    comp_root = Aiur.TestSupport.tmp_root!("aiur-cc-comp")
     File.mkdir_p!(ledger_root)
     File.mkdir_p!(comp_root)
     ledger = :"cc_ledger_#{System.unique_integer([:positive])}"
@@ -164,7 +164,7 @@ defmodule Aiur.UsageCompaction.CoordinatorTest do
 
   test "an aggregate rebuild latches unavailable rather than undercount on a broken floor", context do
     append_n(context.ledger, 3)
-    agg_root = Path.join(System.tmp_dir!(), "aiur-cc-agg-#{System.unique_integer([:positive])}")
+    agg_root = Aiur.TestSupport.tmp_root!("aiur-cc-agg")
     File.mkdir_p!(agg_root)
     on_exit(fn -> File.rm_rf(agg_root) end)
     agg = :"cc_agg_#{System.unique_integer([:positive])}"
