@@ -142,9 +142,11 @@ The Executor continuously:
 
 ## Command decision loop
 
-Launching the run with `--executor` arms the daemon-resident Executor listener
-(`Aiur.ExecutorListener`) as part of launch; there is no separate subscription
-step to forget. The run supervises and restarts it, it subscribes to
+Every run arms the daemon-resident Executor listener (`Aiur.ExecutorListener`)
+as part of launch; there is no separate subscription step to forget. An
+`--executor` launch additionally registers and renews its roster principal,
+without acknowledging wakes or advancing the shared cursor. The run supervises
+and restarts the listener, it subscribes to
 `executor.decision.requested` / `executor.decision.deferred`, and it replays
 from its own durable watermark so a restart re-delivers only what was missed.
 Each Command surfaces as a needs-attention alert in `aiur watch` / `aiur

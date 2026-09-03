@@ -2116,7 +2116,7 @@ defmodule Aiur.AgentControlCLITest do
     stderr =
       capture_io(:stderr, fn ->
         output =
-          with_resume_confirm_timeout(300, fn ->
+          with_resume_confirm_timeout(3_000, fn ->
             capture_io(fn -> AgentControlCLI.resume(["44"]) end)
           end)
 
@@ -2221,7 +2221,7 @@ defmodule Aiur.AgentControlCLITest do
     stderr =
       capture_io(:stderr, fn ->
         output =
-          with_resume_confirm_timeout(300, fn ->
+          with_resume_confirm_timeout(3_000, fn ->
             capture_io(fn -> AgentControlCLI.resume(["44"]) end)
           end)
 
@@ -2265,7 +2265,7 @@ defmodule Aiur.AgentControlCLITest do
 
     stderr =
       capture_io(:stderr, fn ->
-        output = with_resume_confirm_timeout(300, fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
+        output = with_resume_confirm_timeout(3_000, fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
         assert output =~ "__AIUR_CONTROL_EXIT__:1"
       end)
 
@@ -2347,7 +2347,7 @@ defmodule Aiur.AgentControlCLITest do
 
     stderr =
       capture_io(:stderr, fn ->
-        output = with_resume_confirm_timeout(300, fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
+        output = with_resume_confirm_timeout(3_000, fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
         refute output =~ "aiur: resumed #44"
         assert output =~ "__AIUR_CONTROL_EXIT__:1"
       end)

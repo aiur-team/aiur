@@ -611,12 +611,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     snapshot_input = StatusReport.snapshot_input(state)
 
-    assert snapshot_input.github_comment_issue_updated_at == %{}
-    assert snapshot_input.queue_store == AgentQueueStore.new()
-    assert snapshot_input.ci_lifecycle == %State{}.ci_lifecycle
-    assert snapshot_input.control_lifecycle == %Aiur.Orchestrator.ControlLifecycle{}
-    assert :erts_debug.size(snapshot_input) < 1_000
-    assert :erts_debug.size(snapshot_input) * 100 < :erts_debug.size(state)
+    assert snapshot_input == %State{}
   end
 
   test "dashboard projection retains queue facts for rendered issues" do

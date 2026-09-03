@@ -987,6 +987,36 @@ defmodule Aiur.Config do
     settings!().agent.capacity_starvation_alert_after_seconds
   end
 
+  @doc """
+  The sliding window over which budget-broker-timeout retries are counted for
+  the retry-rate signal (#2464). Data, not magic, so the rate can be measured
+  against whatever window a quiet-period baseline was taken over.
+  """
+  @spec budget_broker_rate_window_seconds() :: pos_integer()
+  def budget_broker_rate_window_seconds do
+    settings!().agent.budget_broker_rate_window_seconds
+  end
+
+  @doc """
+  The retry count within the window above which the budget broker counts as
+  degraded (#2464). Set from a measured baseline — if the normal rate is zero,
+  almost any sustained rate is worth surfacing.
+  """
+  @spec budget_broker_degraded_retry_threshold() :: pos_integer()
+  def budget_broker_degraded_retry_threshold do
+    settings!().agent.budget_broker_degraded_retry_threshold
+  end
+
+  @doc """
+  How long the degraded budget-broker retry rate must persist before the single
+  `system.github.budget_broker_degraded` alert raises (#2464, dwell per
+  #2434/#2449).
+  """
+  @spec budget_broker_degraded_alert_after_seconds() :: pos_integer()
+  def budget_broker_degraded_alert_after_seconds do
+    settings!().agent.budget_broker_degraded_alert_after_seconds
+  end
+
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
   def codex_turn_sandbox_policy(workspace \\ nil) do
     case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do

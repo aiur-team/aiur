@@ -11,9 +11,7 @@ defmodule AiurWeb.RouterAuthTest do
   setup do
     FinancialDataAccess.Generation.invalidate()
 
-    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
-      start_supervised!({AiurWeb.Endpoint, []})
-    end
+    Aiur.TestSupport.start_owned_endpoint!()
 
     previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
     previous_writable = AiurWeb.Endpoint.config(:dashboard_writable)

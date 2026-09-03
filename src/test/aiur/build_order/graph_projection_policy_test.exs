@@ -37,8 +37,10 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
     assert policy |> Map.keys() |> Enum.sort() == [
              :catalog_labels_refresh_ms,
              :catalog_refresh_ms,
+             :delivery_staleness_ms,
              :max_inflight,
              :max_selected_roots,
+             :reconciliation_cooldown_ms,
              :refresh_timeout_ms
            ]
   end

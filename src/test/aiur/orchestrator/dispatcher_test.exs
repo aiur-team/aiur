@@ -237,6 +237,26 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert next.initial_dispatch_cycle
   end
 
+  test "a successful candidate poll starts the DecisionStore outage alert dwell" do
+    candidate = issue("decision-store-outage")
+
+    state = %State{
+      max_concurrent_agents: 4,
+      effective_concurrent_agents: 4,
+      blocked_ticket_ids: :unavailable
+    }
+
+    next =
+      Dispatcher.dispatch_candidate_poll(state,
+        fetch_candidate_issues_fun: fn current -> {:ok, [candidate], current} end,
+        stranded_reconciliation_fun: fn current, _issues -> current end
+      )
+
+    assert is_integer(next.decision_store_unavailable_since_ms)
+    refute next.decision_store_unavailable_alert_active
+    assert next.dispatch_declines[candidate.id] == :blocked_on_decision
+  end
+
   describe "dispatch_issue blocked_by dependency gate" do
     test "skips dispatch when revalidation hydration reveals a non-terminal blocker" do
       test_pid = self()
@@ -549,6 +569,22 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     refute state.ci_readiness_checked
     refute_receive {:ci_readiness_alert, _}
+  end
+
+  test "readiness alerts explain organization repository authorization failures" do
+    emit = fn name, opts -> send(self(), {:ci_readiness_alert, name, opts}) end
+
+    error =
+      {:github_org_repository_not_accessible, %{organization: "acme", repo: "acme/private-repo", token_type: :classic_pat}}
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:error, error} end, emit)
+
+    assert state.ci_readiness_checked
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable", opts}
+    assert opts[:reason] =~ "Cannot read acme/private-repo"
+    assert opts[:reason] =~ "classic PAT"
+    assert opts[:reason] =~ "Configure SSO"
+    refute opts[:reason] =~ "github_org_repository_not_accessible"
   end
 
   test "does not launch another readiness scan before the transient retry deadline" do
