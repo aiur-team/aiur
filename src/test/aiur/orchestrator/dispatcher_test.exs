@@ -551,6 +551,22 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     refute_receive {:ci_readiness_alert, _}
   end
 
+  test "readiness alerts explain organization repository authorization failures" do
+    emit = fn name, opts -> send(self(), {:ci_readiness_alert, name, opts}) end
+
+    error =
+      {:github_org_repository_not_accessible, %{organization: "acme", repo: "acme/private-repo", token_type: :classic_pat}}
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:error, error} end, emit)
+
+    assert state.ci_readiness_checked
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable", opts}
+    assert opts[:reason] =~ "Cannot read acme/private-repo"
+    assert opts[:reason] =~ "classic PAT"
+    assert opts[:reason] =~ "Configure SSO"
+    refute opts[:reason] =~ "github_org_repository_not_accessible"
+  end
+
   test "does not launch another readiness scan before the transient retry deadline" do
     scope = CiReadiness.readiness_scope()
     state = %State{ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + 60_000, ci_readiness_scope: scope}

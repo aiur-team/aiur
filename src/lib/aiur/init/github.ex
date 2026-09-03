@@ -127,7 +127,7 @@ defmodule Aiur.Init.GitHub do
       operator_readiness_token_guidance()
   end
 
-  defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
+  defp readiness_error_message(reason), do: CiReadiness.error_message(reason)
 
   defp ci_readiness_purpose do
     "Pull-request workflows run checks, while making `ci / required` a required status check prevents failed work from merging."

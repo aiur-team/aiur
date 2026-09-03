@@ -60,6 +60,19 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 
 The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
 
+### Organization repository access during init
+
+`aiur init` verifies that it can read the configured repository before it offers CI or label setup. GitHub deliberately returns `404 Not Found`, rather than `403 Forbidden`, for an inaccessible private repository, so a repository 404 is not proof that the repository or its base branch is missing. Aiur checks the owner namespace and, when it can confirm an organization, reports an authorization diagnostic for the exact credential used by the probe.
+
+The recovery depends on that credential:
+
+- A classic PAT (`ghp_…`) needs the `repo` scope and SAML SSO authorization for the organization under **Settings → Developer settings → Personal access tokens → Tokens (classic) → Configure SSO**.
+- A fine-grained PAT (`github_pat_…`) must use the organization as its resource owner, include the repository, and may need organization approval. A personal-owner token cannot be expanded to cover the organization's repositories.
+- An OAuth token (`gho_…`) must belong to an OAuth app authorized for the organization. The `gh` CLI commonly uses a separate OAuth token from its keyring, so a successful `gh api` request does not prove that Aiur's configured token has the same access.
+- A GitHub App installation token (`ghs_…`) requires the App to be installed on the repository with Contents read access.
+
+If Aiur cannot confirm that the owner is an organization, it keeps the 404 ambiguous and asks you to verify both the repository name and token access.
+
 ### Token lifecycle
 
 At boot the daemon signs an `RS256` JWT with the App private key and exchanges it at `POST /app/installations/{installation_id}/access_tokens`.

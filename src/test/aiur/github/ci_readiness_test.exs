@@ -289,23 +289,87 @@ defmodule Aiur.GitHub.CiReadinessTest do
     refute_receive {:requested, _url}
   end
 
-  for status <- [403, 404] do
-    test "classifies repository HTTP #{status} as access failure without probing the branch" do
-      status = unquote(status)
-      parent = self()
+  test "classifies repository HTTP 403 as access failure without probing the branch" do
+    parent = self()
 
-      request_fun = fn %{url: url} ->
-        send(parent, {:requested, url})
-        assert String.ends_with?(url, "/repos/owner/repo")
-        {:ok, %{status: status, body: %{}}}
+    request_fun = fn %{url: url} ->
+      send(parent, {:requested, url})
+      assert String.ends_with?(url, "/repos/owner/repo")
+      {:ok, %{status: 403, body: %{}}}
+    end
+
+    assert {:error, {:repository_access_failed, {:github, :http, %{status: 403}}}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+
+    assert_receive {:requested, repo_url}
+    assert String.ends_with?(repo_url, "/repos/owner/repo")
+    refute_receive {:requested, _url}
+  end
+
+  test "reports org repository authorization when the repository 404s before requesting its branch" do
+    parent = self()
+
+    request_fun = fn %{url: url, token: token, credential_pinned?: true} ->
+      send(parent, {:readiness_request, url, token})
+
+      cond do
+        String.ends_with?(url, "/repos/acme/private-repo") -> {:ok, %{status: 404, body: %{}}}
+        String.ends_with?(url, "/orgs/acme") -> {:ok, %{status: 200, body: %{"login" => "acme"}}}
+        true -> flunk("unexpected URL: #{url}")
+      end
+    end
+
+    assert {:error, {:github_org_repository_not_accessible, %{organization: "acme", repo: "acme/private-repo", token_type: :classic_pat}}} =
+             CiReadiness.inspect_repository(request_fun, "ghp_test-token", "acme", "private-repo", "main")
+
+    assert_receive {:readiness_request, "https://api.github.com/repos/acme/private-repo", "ghp_test-token"}
+    assert_receive {:readiness_request, "https://api.github.com/orgs/acme", "ghp_test-token"}
+    refute_receive {:readiness_request, _url, _token}
+  end
+
+  test "keeps a repository 404 ambiguous when the owner is not proven to be an organization" do
+    request_fun = fn %{url: url, credential_pinned?: true} ->
+      cond do
+        String.ends_with?(url, "/repos/person/private-repo") -> {:ok, %{status: 404, body: %{}}}
+        String.ends_with?(url, "/orgs/person") -> {:ok, %{status: 404, body: %{}}}
+        true -> flunk("unexpected URL: #{url}")
+      end
+    end
+
+    assert {:error, {:github, :http, %{status: 404}}} =
+             CiReadiness.inspect_repository(request_fun, "github_pat_test", "person", "private-repo", "main")
+  end
+
+  test "keeps the repository 404 when the organization probe is forbidden" do
+    request_fun = fn %{url: url, credential_pinned?: true} ->
+      if String.ends_with?(url, "/orgs/acme"),
+        do: {:ok, %{status: 403, body: %{}}},
+        else: {:ok, %{status: 404, body: %{}}}
+    end
+
+    assert {:error, {:github, :http, %{status: 404}}} =
+             CiReadiness.inspect_repository(request_fun, "ghp_test", "acme", "private-repo", "main")
+  end
+
+  test "classifies the pinned credential by its documented prefix without returning its value" do
+    for {token, token_type} <- [
+          {"ghp_classic-secret", :classic_pat},
+          {"github_pat_fine-secret", :fine_grained_pat},
+          {"gho_oauth-secret", :oauth},
+          {"ghs_installation-secret", :app_installation},
+          {"unrecognized-secret", :unknown}
+        ] do
+      request_fun = fn %{url: url, credential_pinned?: true} ->
+        if String.ends_with?(url, "/orgs/acme"),
+          do: {:ok, %{status: 200, body: %{}}},
+          else: {:ok, %{status: 404, body: %{}}}
       end
 
-      assert {:error, {:repository_access_failed, {:github, :http, %{status: ^status}}}} =
-               CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+      assert {:error, {:github_org_repository_not_accessible, detail}} =
+               CiReadiness.inspect_repository(request_fun, token, "acme", "private-repo", "main")
 
-      assert_receive {:requested, repo_url}
-      assert String.ends_with?(repo_url, "/repos/owner/repo")
-      refute_receive {:requested, _url}
+      assert detail.token_type == token_type
+      refute inspect(detail) =~ token
     end
   end
 

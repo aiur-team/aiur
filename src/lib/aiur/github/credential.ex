@@ -24,6 +24,7 @@ defmodule Aiur.GitHub.Credential do
   @type kind :: :app_installation | :machine_user | :human
   @type source :: :legacy | :app | :env
   @type intent :: :read | :write
+  @type token_type :: :classic_pat | :fine_grained_pat | :oauth | :app_installation | :unknown
 
   @type t :: %__MODULE__{
           id: String.t(),
@@ -53,6 +54,14 @@ defmodule Aiur.GitHub.Credential do
   def token(%__MODULE__{token_env: env}) when is_binary(env), do: normalize(System.get_env(env))
 
   def token(%__MODULE__{}), do: nil
+
+  @doc "Classifies a GitHub token by its documented prefix without retaining or returning the token."
+  @spec token_type(term()) :: token_type()
+  def token_type("github_pat_" <> _rest), do: :fine_grained_pat
+  def token_type("ghp_" <> _rest), do: :classic_pat
+  def token_type("gho_" <> _rest), do: :oauth
+  def token_type("ghs_" <> _rest), do: :app_installation
+  def token_type(_token), do: :unknown
 
   @doc "The broker's stable one-way key for this configured credential, or `nil` when unavailable."
   @spec token_key(t()) :: String.t() | nil
