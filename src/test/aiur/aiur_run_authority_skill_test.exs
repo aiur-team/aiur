@@ -33,7 +33,7 @@ defmodule Aiur.AiurRunAuthoritySkillTest do
     assert File.exists?(Path.join(@repo_root, ".claude/skills/aiur-run/scripts/diagnose-pr-merge-gate.sh"))
   end
 
-  test "worker push guidance fails closed on the configured agent token" do
+  test "worker push guidance fails closed on the configured agent credential file" do
     skill = read(".claude/skills/aiur-run/SKILL.md")
     dev_loop = read(".claude/skills/aiur-agent/dev-loop.md")
 
@@ -43,10 +43,14 @@ defmodule Aiur.AiurRunAuthoritySkillTest do
     refute skill =~ "explicit\ntoken-bearing URL"
 
     assert dev_loop =~ "configured `tracker.github.bot_account`"
-    assert dev_loop =~ "GIT_TERMINAL_PROMPT=0 git -C \"$workspace\" -c credential.helper= -c credential.helper=\"$agent_helper\" push"
+    assert dev_loop =~ ~s(f="${AIUR_GITHUB_CREDENTIAL_FILE:-}")
+    assert dev_loop =~ "-c credential.https://github.com.helper="
+    assert dev_loop =~ ~s(-c credential.https://github.com.helper="$agent_helper")
+    assert dev_loop =~ "-c http.https://github.com/.extraheader="
     assert dev_loop =~ "printf \"quit=true\\n\""
-    assert dev_loop =~ "never\n   retry through the Executor keyring"
-    assert dev_loop =~ "empty commit or API ref update does\n   not repair"
+    assert dev_loop =~ "never retry through the Executor keyring"
+    assert dev_loop =~ "An empty commit or API ref update does not repair a prior attribution"
+    refute dev_loop =~ ~s(GH_TOKEN="$GITHUB_TOKEN" gh api user)
     refute dev_loop =~ "token-bearing remote URL from the first push"
   end
 

@@ -229,19 +229,45 @@ defmodule Aiur.ProviderMeterProbe do
         last_attempt_at: nil,
         consecutive_failures: 0
       },
-      windows: %{
-        reading.window => %{
-          limit_id: reading.window,
-          kind: :rate_limit,
-          name: :primary,
-          used_percent: reading.used_percent,
-          resets_at: reading.resets_at,
-          source: :usage_api,
-          observed_at: observed_at,
-          coverage: :supported
-        }
-      }
+      windows: usage_api_windows(reading, observed_at)
     })
+  end
+
+  # Every window the usage endpoint reports is published, not just the
+  # worst-consumed one. The weekly windows are what an operator plans a day
+  # against; the five-hour session window resets so often that on its own it is
+  # close to no signal at all. `priority` comes from the reading, so the
+  # dashboard orders by window identity rather than by a rendered label.
+  defp usage_api_windows(%{windows: windows}, observed_at) when is_list(windows) and windows != [] do
+    Map.new(windows, fn window ->
+      {window.window,
+       %{
+         limit_id: window.window,
+         kind: :rate_limit,
+         name: window.label,
+         priority: window.priority,
+         used_percent: window.used_percent,
+         resets_at: window.resets_at,
+         source: :usage_api,
+         observed_at: observed_at,
+         coverage: window.coverage
+       }}
+    end)
+  end
+
+  defp usage_api_windows(reading, observed_at) do
+    %{
+      reading.window => %{
+        limit_id: reading.window,
+        kind: :rate_limit,
+        name: :primary,
+        used_percent: reading.used_percent,
+        resets_at: reading.resets_at,
+        source: :usage_api,
+        observed_at: observed_at,
+        coverage: :supported
+      }
+    }
   end
 
   defp usage_api_opts(opts), do: Keyword.take(opts, [:credentials_path, :request_fun, :now_ms])

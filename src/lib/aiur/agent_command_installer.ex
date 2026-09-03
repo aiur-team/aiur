@@ -23,15 +23,16 @@ defmodule Aiur.AgentCommandInstaller do
   @spec remote_install_script(Path.t(), Path.t(), [String.t()], String.t()) :: String.t()
   def remote_install_script(workspace, relative_dir, command_names, script)
       when is_binary(workspace) and is_list(command_names) and is_binary(script) do
-    # Gzipped before encoding, because the whole install script travels as ONE
-    # argv string and Linux caps a single argument at 128 KiB (`MAX_ARG_STRLEN`,
-    # 32 pages) no matter how large `ARG_MAX` is. The `gh` guard alone is 91 KiB
-    # of shell, which base64 inflates to 121 KiB, and the three guards together
-    # crossed that ceiling — the remote install then failed with `Argument list
-    # too long` before running a single line. Compression takes the payload back
-    # to roughly a fifth of the source, which is a real margin rather than a
-    # narrower one. `gzip` is as available as `base64` on every host that can run
-    # an agent, and a host missing it fails loudly on the pipeline.
+    # Gzipped before encoding because the guard sources are large — the `gh` guard
+    # alone is over 100 KiB of shell, which base64 alone would inflate by a third —
+    # and the whole payload is re-sent on every remote dispatch. Compression takes
+    # it back to roughly a fifth of the source. `gzip` is as available as `base64`
+    # on every host that can run an agent, and a host missing it fails loudly on
+    # the pipeline.
+    #
+    # This is a bandwidth and memory concern, not a `MAX_ARG_STRLEN` one: the
+    # script is staged to a file and fed to the remote shell on stdin by
+    # `Aiur.SSH.with_script/4`, so it never crosses `execve` as an argument.
     encoded = script |> :zlib.gzip() |> Base.encode64()
     commands = Enum.map_join(command_names, " ", &Aiur.Shell.escape/1)
 

@@ -253,13 +253,21 @@ defmodule Aiur.Opencode.ServerTest do
 
       assert_receive {:serve_up, server, os_pid}, 40_000
 
+      # The server reaps its child inside `terminate/2`, so the OS pid can
+      # disappear while the GenServer is still exiting. Reading
+      # `Process.alive?(server)` straight after the OS-pid check therefore
+      # races the BEAM process teardown and fails under load (#2397). Monitor
+      # the server before the kill and wait on the `:DOWN` it actually emits —
+      # the signal, not a wall-clock or immediate-state guess.
+      server_ref = Process.monitor(server)
+
       Process.exit(owner, :kill)
       assert_receive {:DOWN, ^ref, :process, ^owner, _}, 5_000
 
       assert eventually(fn -> not process_alive?(os_pid) end),
              "opencode serve pid #{inspect(os_pid)} survived its owner's death"
 
-      refute Process.alive?(server)
+      assert_receive {:DOWN, ^server_ref, :process, ^server, _}, 5_000
     end
 
     test "a trapped-exit message from a dying linked process is swallowed, not a crash" do

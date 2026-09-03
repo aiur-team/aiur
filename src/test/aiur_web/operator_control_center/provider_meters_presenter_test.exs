@@ -302,6 +302,42 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert order == ["Primary", "Secondary", "Credits", "Spend control"]
     end
 
+    # Claude reports a five-hour session window and a set of weekly windows.
+    # The session window resets every few hours, so on its own it is close to
+    # no planning signal; the weekly standing is what an operator budgets a day
+    # against, and it must lead the card. Ordering keys off the declared
+    # priority, so it survives a renamed label or a changed reset time.
+    test "a window's declared priority leads its same-kind peers" do
+      windows = %{
+        "five_hour" => window(kind: :rate_limit, name: "Session (5-hour)", priority: 3),
+        "seven_day" => window(kind: :rate_limit, name: "Weekly (all models)", priority: 0),
+        "seven_day_opus" => window(kind: :rate_limit, name: "Weekly (Opus)", priority: 1)
+      }
+
+      order =
+        Presenter.present(authorized(), %{codex: with_windows(:codex, windows)})
+        |> card(:codex)
+        |> Map.fetch!(:windows)
+        |> Enum.map(& &1.limit_id)
+
+      assert order == ["seven_day", "seven_day_opus", "five_hour"]
+    end
+
+    test "windows without a declared priority keep their name ordering" do
+      windows = %{
+        "b" => window(kind: :rate_limit, name: "Secondary"),
+        "a" => window(kind: :rate_limit, name: "Primary")
+      }
+
+      order =
+        Presenter.present(authorized(), %{codex: with_windows(:codex, windows)})
+        |> card(:codex)
+        |> Map.fetch!(:windows)
+        |> Enum.map(& &1.name)
+
+      assert order == ["Primary", "Secondary"]
+    end
+
     # A surface must be able to name a credit window's age ("as of HH:MM") and
     # its freshness horizon, so the presenter carries both timestamps through.
     test "a window exposes its observed_at and expires_at timestamps" do
@@ -364,6 +400,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       used_percent: Keyword.get(opts, :used_percent, 40),
       remaining_percent: Keyword.get(opts, :remaining_percent, 60),
       coverage: Keyword.get(opts, :coverage, :supported),
+      priority: Keyword.get(opts, :priority),
       freshness: Keyword.get(opts, :freshness, :fresh),
       source: :codex_app_server
     }
