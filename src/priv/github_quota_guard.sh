@@ -1899,6 +1899,36 @@ budget_sleep_ms() {
   sleep "$budget_seconds"
 }
 
+# The broker's captured stdout+stderr, folded into one bounded line fit for an
+# error message. A traceback is several lines and a SQLite message can be long,
+# and this text is read out of a CI log and an ExUnit failure, so it is squeezed
+# to single spaces and truncated. Empty output is itself a diagnosis — a
+# subprocess that died on a signal says nothing — so it is named rather than
+# left as an empty parenthesis.
+budget_diagnostic_line() {
+  budget_diagnostic=$(printf '%s\n' "$1" | tr '\n\t' '  ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//' | cut -c1-400)
+  if [ -n "$budget_diagnostic" ]; then
+    printf '%s' "$budget_diagnostic"
+  else
+    printf '%s' 'broker exited non-zero without output'
+  fi
+  unset budget_diagnostic
+}
+
+# Whether the broker's own diagnostic says it could not reach its storage. Only
+# then is the ownership/permissions/writableRoots recovery text the right advice:
+# it IS the fix for a budget root the sandbox never granted, and it is noise for
+# a broker that opened the ledger fine and aborted on something else. Matching on
+# what the broker actually reported is what keeps this from becoming the blanket
+# misdiagnosis it replaced (#2499).
+budget_storage_failure() {
+  case "$1" in
+    *"unable to open database file"*|*"readonly database"*|*"read-only database"*) return 0 ;;
+    *"Permission denied"*|*"permission denied"*|*"Errno 13"*|*"disk I/O error"*) return 0 ;;
+  esac
+  return 1
+}
+
 valid_budget_lease() {
   case "$1" in ''|*[!0-9abcdef]*) return 1 ;; esac
   [ "${#1}" -eq 32 ]
@@ -1973,7 +2003,25 @@ budget_acquire() {
         budget_mark_stale_broker acquire
         return 0
       fi
-      printf 'aiur: GitHub budget broker unavailable (%s); refusing uncoordinated request\n' "$budget_recovery" >&2
+      # The broker told us why it failed; say that instead of guessing. This
+      # message used to print only `$budget_recovery`, which names ownership,
+      # permissions and `writableRoots` as the cause. For a broker subprocess
+      # that aborted on its own — a SQLite error, a Python traceback — that is a
+      # confident misdiagnosis, and it sent readers to repair a directory the
+      # caller had just created successfully (#2499). The captured output is the
+      # evidence; the root is a locator, not a diagnosis. The recovery text is
+      # kept for the one case it actually diagnoses — a broker that could not
+      # reach its storage — so a genuinely ungranted budget root still tells the
+      # operator how to repair it.
+      budget_failure=$(budget_diagnostic_line "$budget_result")
+      if budget_storage_failure "$budget_failure"; then
+        printf 'aiur: GitHub budget broker unavailable (%s; %s); refusing uncoordinated request\n' \
+          "$budget_failure" "$budget_recovery" >&2
+      else
+        printf 'aiur: GitHub budget broker unavailable (%s; budget root %s); refusing uncoordinated request\n' \
+          "$budget_failure" "$budget_root" >&2
+      fi
+      unset budget_failure
       return 75
     fi
     unset budget_ignore_flag budget_cache_flags
