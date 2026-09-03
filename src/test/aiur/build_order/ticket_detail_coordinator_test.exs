@@ -1166,12 +1166,14 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
     identity = identity(42, "I42")
     {:ok, task_supervisor} = Task.Supervisor.start_link()
     {:ok, attempts} = Agent.start_link(fn -> 0 end)
+    {:ok, epochs} = Agent.start_link(fn -> 0 end)
 
     cache_options = [
       name: nil,
       configured_repo: @configured,
       task_supervisor: task_supervisor,
       configuration_subscriber: fn _pid -> :ok end,
+      reset_epoch: fn -> Agent.get_and_update(epochs, fn epoch -> {epoch + 1, epoch + 1} end) end,
       reader: fn _identity ->
         attempt = Agent.get_and_update(attempts, fn value -> {value + 1, value + 1} end)
         send(parent, {:reader_started, attempt, self()})
@@ -1185,12 +1187,29 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
     {:ok, supervisor} = Supervisor.start_link([{TicketDetailCoordinator, cache_options}], strategy: :one_for_one)
     cache = cache_child(supervisor)
 
+    # Subscribe to the reset topic before the kill so the restart below is
+    # observable as a signal (the replacement coordinator broadcasts its reset
+    # epoch from `init`) rather than as a wall-clock guess.
+    :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, TicketDetailCoordinator.reset_topic())
+
     assert {:ok, %State{health: :unavailable}} = TicketDetailCoordinator.request(cache, identity)
     assert_receive {:reader_started, 1, old_reader}, 2_000
     old_reader_ref = Process.monitor(old_reader)
 
     Process.exit(cache, :kill)
+
+    # Signal 1: the abnormal restart kills the owned in-flight read — the old
+    # reader's monitor DOWN. This is the production guarantee under test.
     assert_receive {:DOWN, ^old_reader_ref, :process, ^old_reader, _reason}, 2_000
+
+    # Signal 2: the replacement coordinator has started (its reset broadcast
+    # comes from `init`). Reading the child from the supervisor before this
+    # signal races the supervisor's restart and can hand back the dead pid —
+    # CI run 32629780488 caught `refute restarted == cache` failing exactly
+    # that way under load. Each bound above is only a lost-message safety net
+    # so a genuine regression fails loudly; the synchronization itself is the
+    # confirmed monitor/subscription signal, not the duration.
+    assert_receive {:ticket_detail_coordinator_reset, 2}, 2_000
 
     restarted = cache_child(supervisor)
     refute restarted == cache

@@ -94,10 +94,11 @@ reacting to its own writes.
 it is load-bearing for:
 
 - **Self-loop suppression** — `Aiur.Events.Publisher` drops events whose actor
-  equals `bot_account` (except authoritative `.pr.merged` events, which publish
-  regardless of actor). Left pointing at the PAT account, the App bot's own
-  comments are not recognized as self and are republished back into the
-  orchestrator.
+  equals `Aiur.GitHub.Config.daemon_account/0` — the App bot login when one is
+  configured, otherwise `bot_account` (except authoritative `.pr.merged` events,
+  which publish regardless of actor). Left pointing at the PAT account, the App
+  bot's own comments are not recognized as self and are republished back into
+  the orchestrator.
 - **PR command self-loop drop** — `Aiur.Events.PrCommandScanner` ignores `/aiur`
   comments authored by `bot_account`; a mismatch lets an agent re-trigger itself.
 - **CODEOWNERS self-include** — the trust allowlist always unions in
@@ -112,6 +113,67 @@ needs-attention `system.github_app_token.identity_mismatch` alert when App
 credentials are configured and `bot_account` is unset or is not a `[bot]`
 login. Confirm the exact login by looking at the author of any comment the
 daemon posts after the switch.
+
+## Identity modes: `tracker.github.identity_mode`
+
+Everything above assumes the agents post as a login no human uses. That is the
+default and is spelled `separate_account`. Where it holds, the author login of a
+comment is proof of who wrote it, and self-loop suppression needs nothing else.
+
+A solo operator running Aiur on their own repository usually has no second
+account, so the agents and the human share one login. Say so:
+
+```yaml
+tracker:
+  github:
+    identity_mode: single_account
+```
+
+The mode is **stated, never inferred**. Nothing compares `bot_account` against
+the token's viewer login to guess it, because that comparison is true for an
+operator who runs the daemon under their dedicated bot and false for one whose
+single account is a machine user — and guessing wrong in either direction
+silently changes which comments wake an agent.
+
+In `single_account` the author login proves nothing, so provenance moves into
+the comment body. Aiur appends `Aiur.GitHub.AgentMarker`'s HTML-comment marker
+to every comment it writes — daemon-side in `Aiur.GitHub.Comments`, agent-side
+in the `gh` wrapper, which is the only point an agent's own body passes
+through. The wrapper covers both `--body` and `--body-file` (the latter is what
+Aiur's own skills tell agents to use, since the inline-body policy forbids the
+former); a body piped in on stdin cannot be rewritten and stays unmarked.
+`Aiur.Events.Publisher` then suppresses a comment from the shared login only
+when that marker is present.
+
+The failure direction is deliberate. Authorship is decided by the **presence**
+of the marker, never its absence, so anything unmarked — a comment posted before
+this existed, one piped in on stdin, one whose body could not be read —
+is treated as **human**. The cost of being wrong is one redundant agent wake.
+The opposite default would silently swallow an operator's instruction.
+
+Three things it deliberately does *not* treat as Aiur's own:
+
+- **A quoted marker.** GitHub's "Quote reply" copies the body verbatim, HTML
+  comments included, so `AgentMarker.marked?/1` drops blockquote lines and
+  requires the marker to be the last thing in the body. Quoting an agent to
+  disagree with it is the ordinary review gesture and must reach the agent.
+- **A comment whose body is unreadable.** A CHANGES_REQUESTED review with
+  inline-only comments has a `null` body, and since #2473 it is the
+  load-bearing rework signal when there are no threads. "No comment on this
+  event" and "a comment I could not read" are different facts and are kept
+  apart.
+- **Anything that predates the marker.** An agent re-woken by its own old
+  comment is expected and self-clears once it replies with a marked one.
+
+One collision worth knowing about: `Aiur.Events.Sanitizer` strips HTML comments
+as hidden-instruction carriers and caps bodies at 500 characters, so on paths
+that sanitize before publishing it would destroy the marker before the gate
+sees it. `stamp_aiur_authorship/1` therefore records what the raw body carried
+*before* the scrub, and the publisher consults that record first. Its absence
+proves nothing and falls back to the body, which in turn fails to human.
+
+`separate_account` installs are untouched throughout: no body is rewritten, the
+wrapper leaves argv alone, and the gate behaves exactly as it did before.
 
 One asymmetry is expected and is not a misconfiguration: **git commits keep
 their configured author** (the installation token is used only as the HTTPS

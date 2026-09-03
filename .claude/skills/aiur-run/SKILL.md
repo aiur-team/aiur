@@ -143,9 +143,11 @@ in consumer repositories. Equivalent background forms are:
 `--executor` is required for every Executor-owned run, but what it now declares
 is **authority**, not recording. Every run records the wake stream and every run
 arms the listener; `--executor` is what raises created and deferred Commands as
-needs-attention alerts, and it is what marks this run as the principal. If you
-are acting as the Executor, launch with `--executor`; there is no valid Executor
-launch without it.
+needs-attention alerts, and it registers a renewing principal in
+`executor-roster`. A live peer with a different identity is recorded as an
+observer. Registration never acknowledges wakes or advances the shared cursor;
+only `executor-wait` does that. If you are acting as the Executor, launch with
+`--executor`; there is no valid Executor launch without it.
 
 Include `--debug` only when authorized. It controls evidence capture and never
 authorizes filing or commenting on an issue; those mutations require separately
@@ -238,12 +240,11 @@ goal/monitor continuation; a shell operator can use:
 
 ### Immediate Executor events
 
-Launching with `--executor` starts the daemon-resident Executor listener
-(`Aiur.ExecutorListener`) as part of the run itself — there is no separate
-command to start, and nothing for you to forget. The run supervises and
-restarts it, so the harness-level failure mode where a background listener is
-killed after ten minutes no longer applies. It reconciles a compile-time set of
-reviewed bindings on every start:
+Every run starts the daemon-resident Executor listener (`Aiur.ExecutorListener`)
+as part of the run itself — there is no separate command to start, and nothing
+for you to forget. The run supervises and restarts it, so the harness-level
+failure mode where a background listener is killed after ten minutes no longer
+applies. It reconciles a compile-time set of reviewed bindings on every start:
 
 - Commands: `executor.#`
 - dispatch gates: `system.dispatch.capacity_starved{,.resolved}`,

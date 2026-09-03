@@ -271,6 +271,38 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
   end
 
   describe "assign/2" do
+    test "keeps a credential-pinned request on its supplied token and records its identity" do
+      primary = with_token(credential("primary", primary?: true, writes?: true), "ghp_primary-token")
+      spare = with_token(credential("spare", writes?: true), "github_pat_spare-token")
+      windows = %{Credential.token_key(primary) => %{"core" => window(1)}}
+
+      request = %{
+        method: :get,
+        url: "https://api.github.com/repos/o/r",
+        token: "ghp_primary-token",
+        credential_pinned?: true
+      }
+
+      assigned = CredentialSelector.assign(request, credentials: [primary, spare], windows: windows, now: @now)
+
+      assert assigned.token == request.token
+      assert assigned.credential_id == "primary"
+      assert assigned.credential_key == Credential.identity_key(primary)
+    end
+
+    test "keeps an unregistered credential-pinned request unchanged" do
+      primary = with_token(credential("primary", primary?: true, writes?: true), "ghp_primary-token")
+
+      request = %{
+        method: :get,
+        url: "https://api.github.com/repos/o/r",
+        token: "external-token",
+        credential_pinned?: true
+      }
+
+      assert CredentialSelector.assign(request, credentials: [primary]) == request
+    end
+
     test "swaps in the selected credential's token and records which one" do
       primary = with_token(credential("primary", primary?: true, writes?: true), "primary-token")
       spare = with_token(credential("spare", writes?: true), "spare-token")
@@ -303,6 +335,17 @@ defmodule Aiur.GitHub.CredentialSelectorTest do
       second = with_token(credential("second", identity: "same-login"), "shared-token")
 
       refute Credential.token_key(first) == Credential.token_key(second)
+    end
+  end
+
+  describe "token_type/1" do
+    test "classifies GitHub credential prefixes without exposing their values" do
+      assert Credential.token_type("ghp_classic-secret") == :classic_pat
+      assert Credential.token_type("github_pat_fine-secret") == :fine_grained_pat
+      assert Credential.token_type("gho_oauth-secret") == :oauth
+      assert Credential.token_type("ghs_installation-secret") == :app_installation
+      assert Credential.token_type("unrecognized-secret") == :unknown
+      assert Credential.token_type(nil) == :unknown
     end
   end
 end

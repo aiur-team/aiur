@@ -67,7 +67,9 @@ async function newShellContext(browser, { width, collapsed }) {
       // scrollbar's width and make an honest cross-route comparison fail. Hold
       // the gutter open everywhere so the routes are measured against the same
       // available width.
-      document.documentElement.style.overflowY = 'scroll'
+      document.addEventListener('DOMContentLoaded', () => {
+        document.documentElement.style.overflowY = 'scroll'
+      }, { once: true })
     },
     { key: navCollapsedStorageKey, value: String(collapsed) }
   )
@@ -94,6 +96,20 @@ async function openRoute(page, route, collapsed) {
   // renamed out from under this spec.
   expect(await page.evaluate((key) => window.localStorage.getItem(key), navCollapsedStorageKey)).toBe(String(collapsed))
   await expect(page.locator('.dashboard-shell')).toHaveAttribute('data-nav-collapsed', String(collapsed))
+
+  // The server-owned attribute can arrive before the browser has reflected its
+  // collapsed geometry. Force layout and wait for the narrow rail itself, so
+  // the measurement below cannot sample the expanded shell between round trips.
+  if (collapsed) {
+    await expect.poll(() => page.locator('.shell-main').evaluate((main) => main.getBoundingClientRect().x)).toBeLessThan(100)
+  }
+}
+
+function collectPageErrors(page) {
+  const errors = []
+
+  page.on('pageerror', (error) => errors.push(error.message))
+  return errors
 }
 
 // `assertNoDocumentOverflow` compares against `innerWidth`, which counts the
@@ -150,6 +166,7 @@ for (const width of viewports) {
     test(`every route renders the same content width at ${label}`, async ({ browser }) => {
       const context = await newShellContext(browser, { width, collapsed })
       const page = await context.newPage()
+      const pageErrors = collectPageErrors(page)
 
       try {
         await openFixture(page)
@@ -168,6 +185,8 @@ for (const width of viewports) {
 
           measured.set(route.path, await measureShell(page))
         }
+
+        expect(pageErrors).toEqual([])
 
         // Guards the comparison below against passing vacuously: a shrunken or
         // duplicated route list would otherwise trivially agree with itself.
@@ -206,6 +225,7 @@ for (const width of viewports) {
 test('the content column settles on the shared measure, centred in the window', async ({ browser }) => {
   const context = await newShellContext(browser, { width: 2560, collapsed: false })
   const page = await context.newPage()
+  const pageErrors = collectPageErrors(page)
 
   try {
     await openFixture(page)
@@ -224,6 +244,8 @@ test('the content column settles on the shared measure, centred in the window', 
       // the shell's own comment calls that out, so allow it and nothing more.
       expect(Math.abs(centre - viewportCentre), `centring at ${route.path}`).toBeLessThanOrEqual(20)
     }
+
+    expect(pageErrors).toEqual([])
   } finally {
     await context.close()
   }

@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.Comments do
 
   require Logger
   alias Aiur.Codeowners
-  alias Aiur.GitHub.{Errors, Transport, WriteThrough}
+  alias Aiur.GitHub.{AgentMarker, Errors, Transport, WriteThrough}
 
   @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def create_comment(issue_number, body, opts \\ [])
@@ -14,6 +14,12 @@ defmodule Aiur.GitHub.Comments do
          {:ok, token} <- Transport.require_token() do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments"
+      # Single-account mode has no other way to tell this comment from one the
+      # operator typed under the same login, so the provenance has to be written
+      # into the body at the moment it is posted — after that the fact is gone.
+      # A no-op on separate-account installs (`AgentMarker.stamp/1` returns the
+      # body unchanged), so no existing comment body shape changes.
+      body = AgentMarker.stamp(body)
 
       case request_fun.(%{method: :post, url: url, token: token, body: %{"body" => body}}) do
         # GitHub answers a comment creation with the comment it created, so the
