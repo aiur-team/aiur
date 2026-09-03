@@ -916,8 +916,16 @@ defmodule Aiur.IssueLog do
 
   defp log_root_dir, do: Paths.log_root_dir()
 
+  # Deliberately `explicit_configured_repo/0`, not `configured_repo/0`: this
+  # scope names every log, event log and transcript file on disk, and the
+  # writer registry key that keeps one process per ticket. `configured_repo/0`
+  # falls back to the checkout's `origin` remote (#2518), so reading it here
+  # would rename every file for an install that never set `tracker.github.repo`
+  # — the existing history would still be on disk but unreachable through
+  # `history/2` and `read_tail/2`, and a resumed ticket would append to a fresh
+  # empty file. Durable paths only move when an operator moves them.
   defp configured_repository_scope do
-    case GitHubConfig.configured_repo() do
+    case GitHubConfig.explicit_configured_repo() do
       {:ok, {owner, repository}} -> repository_scope(owner, repository)
       {:error, _reason} -> repo_name()
     end

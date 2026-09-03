@@ -91,6 +91,8 @@ jobs:
         run: bash scripts/test-pr-merge-gate-diagnostic.sh
       - name: Test CI failure diagnostics
         run: bash scripts/test-report-ci-failures.sh
+      - name: Test quarantine _build cache invariants
+        run: bash scripts/test-quarantine-build-cache.sh
       - name: Test known-flaky reporter
         run: bash scripts/test-report-known-flaky-tests.sh
       - name: Test CI run-attempt disclosure
@@ -307,21 +309,42 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Set up Elixir
         uses: ./.github/actions/setup-elixir
-      - name: Cache _build
+      - name: Cache _build (dependency apps only)
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: src/_build
+          # Dependency-only cache: `_build/test/lib` holds one directory per
+          # app, and only the dependency apps are worth restoring. The
+          # first-party `aiur` app is pruned before every run (below) so it
+          # always recompiles against the current source — a key on
+          # `mix.lock`/`mix.exs` cannot see a config-schema, struct, or module
+          # attribute change, so caching the `aiur` beams would let a run use
+          # artifacts predating that change.
           # No prefix `restore-keys`: a stale _build from a different mix.lock
           # restores compiled deps whose versions no longer match mix.exs, which
           # fails with "Unchecked dependencies for environment test". Exact-key
           # only, so a lock/dep bump recompiles fresh instead of reusing stale
-          # artifacts.
-          key: ${{ runner.os }}-quarantine-build-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
+          # artifacts. The `-deps-` key prefix also retires the old whole-`_build`
+          # entries, whose tar layout no longer matches this path.
+          key: ${{ runner.os }}-quarantine-build-deps-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
+          path: src/_build/test/lib
+      - name: Drop first-party beams (always recompile against current source)
+        # The `aiur` app dir may have been restored from a cache saved before a
+        # compile-time-visible source change (a schema field, a struct, a module
+        # attribute). Removing it forces Mix to recompile the app fresh; the
+        # dependency beams the cache exists to save are left in place.
+        # `run` steps inherit the job's `working-directory: src`; action inputs
+        # such as the cache path remain workspace-relative.
+        run: rm -rf _build/test/lib/aiur
       - name: Run quarantined tests
         # `--exclude test` narrows to the tag without failing while the queue
         # is empty; unlike `--only`, that lets this non-blocking job stay green
         # until the first confirmed flake is quarantined.
         run: mix test --include quarantine --exclude test
+      - name: Prune first-party beams before the cache save
+        # `mix test` recompiles the `aiur` app, so prune it again before the
+        # cache post-step saves, keeping the stored cache dependency-only (the
+        # path the restore step promises).
+        run: rm -rf _build/test/lib/aiur
 
   test:
     needs: coverage
