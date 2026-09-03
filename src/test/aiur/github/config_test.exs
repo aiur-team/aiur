@@ -353,6 +353,76 @@ defmodule Aiur.GitHub.ConfigTest do
       end
     end
 
+    test "the direct pid is still signalled when the descendant walk yields garbage" do
+      # Review blocker: `kill_os_process/1` computed `[pid | descendant_os_pids(pid)]`
+      # BEFORE sending any signal, and the walk parsed pgrep output — captured
+      # with `stderr_to_stdout: true` — with `String.to_integer/1`. One
+      # non-numeric byte on that stream raised, the function-level
+      # `rescue _ -> :ok` swallowed it, and NO signal was sent at all: the
+      # silent failure that let 76 stalled `gh` processes accumulate.
+      #
+      # The pgrep stream here carries a warning line and a blank line as well as
+      # a real child pid. The direct pid must be TERMed and KILLed regardless,
+      # and the one parseable child pid must still be killed.
+      test_pid = self()
+
+      signal_fun = fn signal, target ->
+        send(test_pid, {:signal, signal, target})
+        :ok
+      end
+
+      pgrep_fun = fn
+        4242 -> {"pgrep: warning from stderr\nnot-a-pid\n\n4343\n", 0}
+        _other -> {"", 1}
+      end
+
+      assert Config.kill_os_process(4242, signal_fun: signal_fun, pgrep_fun: pgrep_fun) == :ok
+
+      signals = drain_signals()
+
+      assert {"TERM", 4242} in signals, "the direct pid was never TERMed: #{inspect(signals)}"
+      assert {"KILL", 4242} in signals, "the direct pid was never KILLed: #{inspect(signals)}"
+      assert {"TERM", -4242} in signals
+      assert {"KILL", 4343} in signals, "the parseable child pid was dropped: #{inspect(signals)}"
+    end
+
+    test "a stalled gh that is the DIRECT port child is killed (the CI topology)" do
+      # Review blocker: local runs killed the fake `gh` while CI did not, and
+      # the difference is topology. `keyring_token/1` resolves through
+      # `HostCommand.find_executable/1`, which prefers `~/.aiur/bin/gh`: on a
+      # dev box the port child is that wrapper and the fake `gh` is a
+      # GRANDchild, so the descendant walk saved it even when the direct-pid
+      # kill was lost. On CI no wrapper is installed, the fake IS the direct
+      # child, and nothing else covers it. The `:wrapper_dir` seam points at an
+      # empty directory so the wrapper never resolves and this test drives the
+      # CI topology deliberately on any host.
+      root = Aiur.TestSupport.tmp_root!("aiur-config-keyring-no-wrapper")
+      File.mkdir_p!(root)
+      pidfile = Path.join(root, "gh.pid")
+
+      try do
+        with_fake_gh_on_path(
+          """
+          if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+            echo $$ > #{pidfile}
+            while true; do sleep 1; done
+          fi
+          """,
+          fn ->
+            assert Config.keyring_token(timeout_ms: 200, wrapper_dir: root) == nil
+            assert File.exists?(pidfile), "the fake gh never started"
+
+            pid = pidfile |> File.read!() |> String.trim() |> String.to_integer()
+
+            Process.sleep(200)
+            refute live_process?(pid), "direct-child gh pid #{pid} survived the timeout"
+          end
+        )
+      after
+        File.rm_rf!(root)
+      end
+    end
+
     test "the shipped default timeout is bounded so a boot stall cannot ship unnoticed" do
       # Pins @keyring_command_timeout_ms in the safe direction: every other test
       # injects its own timeout_ms or pins the env override, so a mutation to a
@@ -548,6 +618,15 @@ defmodule Aiur.GitHub.ConfigTest do
         File.mkdir_p!(pid_root)
         pidfile = Path.join(pid_root, "gh.pid")
         {pidfile, "echo $$ > #{pidfile}\n" <> token_script}
+    end
+  end
+
+  # Collects every {signal, target} pair recorded by an injected `:signal_fun`.
+  defp drain_signals(acc \\ []) do
+    receive do
+      {:signal, signal, target} -> drain_signals([{signal, target} | acc])
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 

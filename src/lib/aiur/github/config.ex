@@ -517,11 +517,20 @@ defmodule Aiur.GitHub.Config do
     * `:run_fun` — how the `gh auth token` command runs, defaulting to the
       `HostCommand`-routed port spawn. Test seam so the in-task rescue that
       turns a raising runner into "no keyring credential" is load-bearing.
+    * `:wrapper_dir` — the guard-wrapper directory `HostCommand.find_executable/1`
+      prefers, as in that function. Test seam that selects the process TOPOLOGY
+      of the shell-out, which the timeout kill has to survive either way: with a
+      wrapper installed the port child is the wrapper and the real `gh` is a
+      GRANDchild (a dev box), while with no wrapper the `gh` on PATH is the
+      DIRECT child (CI). Pointing this at an empty directory reproduces the CI
+      topology deliberately instead of only in CI — which is where the
+      direct-pid kill regressed.
   """
   @spec keyring_token(keyword()) :: String.t() | nil
   def keyring_token(opts \\ []) do
     timeout_ms = keyring_timeout_ms(opts)
-    run_fun = Keyword.get(opts, :run_fun, &run_gh_auth_token_command/0)
+    wrapper_dir = Keyword.get(opts, :wrapper_dir)
+    run_fun = Keyword.get(opts, :run_fun, fn -> run_gh_auth_token_command(wrapper_dir) end)
 
     Logger.debug(
       "aiur_boot phase=github_keyring_lookup state=starting " <>
@@ -607,8 +616,8 @@ defmodule Aiur.GitHub.Config do
   # descendants on timeout — reaching a guard wrapper AND the `gh` /
   # lease-renewer it spawned, not just the direct child. Closing the port
   # alone would orphan the process.
-  defp run_gh_auth_token_command do
-    case HostCommand.find_executable() do
+  defp run_gh_auth_token_command(wrapper_dir) do
+    case HostCommand.find_executable(wrapper_dir: wrapper_dir) do
       nil ->
         {"", 127}
 
@@ -664,44 +673,113 @@ defmodule Aiur.GitHub.Config do
   # BEFORE the task is torn down: Task.shutdown closes the port,
   # erl_child_setup may reap the child, and the OS could recycle the pid
   # before a later kill landed on an unrelated process.
-  defp kill_os_process(pid) when is_integer(pid) and pid > 0 do
-    tree = [pid | descendant_os_pids(pid)]
-    signal_os_pid("TERM", pid)
-    signal_os_pid("TERM", -pid)
+  #
+  # ORDER MATTERS. The direct pid is signalled FIRST, before any enumeration.
+  # Enumerating first put the whole kill behind a shell-out whose output this
+  # code parses: a single non-numeric byte on pgrep's (stderr-merged) stream
+  # raised, the function-level `rescue` swallowed it, and NO signal was sent at
+  # all — silently reintroducing the orphan accumulation this exists to
+  # prevent. The direct pid is the one that always exists, so it can never be
+  # lost to a failure while walking for pids that may not. The walk itself is
+  # additionally defensive: `child_os_pids/1` parses with `Integer.parse/1` and
+  # drops anything non-numeric, and `safe_descendant_os_pids/1` degrades a
+  # failed walk to [] instead of aborting the kill.
+  #
+  # Seams (tests only): `:signal_fun` observes the signals, `:pgrep_fun`
+  # supplies the raw child-enumeration output.
+  @doc false
+  @spec kill_os_process(term(), keyword()) :: :ok
+  def kill_os_process(pid, opts \\ [])
+
+  def kill_os_process(pid, opts) when is_integer(pid) and pid > 0 do
+    signal = Keyword.get(opts, :signal_fun, &signal_os_pid/2)
+
+    signal.("TERM", pid)
+    signal.("TERM", -pid)
+
+    descendants = safe_descendant_os_pids(pid, opts)
+
     Process.sleep(150)
-    Enum.each(tree, &signal_os_pid("KILL", &1))
-    signal_os_pid("KILL", -pid)
+
+    signal.("KILL", pid)
+    Enum.each(descendants, &signal.("KILL", &1))
+    signal.("KILL", -pid)
     :ok
   rescue
     _ -> :ok
   end
 
-  defp kill_os_process(_pid), do: :ok
+  def kill_os_process(_pid, _opts), do: :ok
+
+  # The descendant walk can never abort the kill: any failure degrades to "no
+  # descendants found" and the direct-pid and group signals still land.
+  defp safe_descendant_os_pids(pid, opts) do
+    descendant_os_pids(pid, opts)
+  rescue
+    _ -> []
+  catch
+    _, _ -> []
+  end
 
   # Sends `signal` to `target`: a positive target is a pid, a negative target
   # (-pid) is the process group led by `pid`. Stderr is captured (and
   # discarded) so an ESRCH on a host where the child does not lead a group
   # cannot raise.
+  # A missing `kill` binary raises `:enoent`, which would abort the whole kill
+  # sequence; fall back to the shell builtin, and never let one failed signal
+  # stop the remaining ones.
   defp signal_os_pid(signal, target) do
-    System.cmd("kill", [signal, Integer.to_string(target)], stderr_to_stdout: true)
+    System.cmd("kill", ["-" <> signal, Integer.to_string(target)], stderr_to_stdout: true)
     :ok
+  rescue
+    _ -> shell_signal_os_pid(signal, target)
+  end
+
+  defp shell_signal_os_pid(signal, target) do
+    System.cmd("sh", ["-c", "kill -#{signal} #{target} 2>/dev/null"], stderr_to_stdout: true)
+    :ok
+  rescue
+    _ -> :ok
   end
 
   # Every descendant OS pid of `pid`, recursively, enumerated from the live
   # process table via pgrep's parent filter (available on Linux and macOS).
   # Returns [] when pgrep is unavailable or the pid has no children.
-  defp descendant_os_pids(pid) do
+  defp descendant_os_pids(pid, opts) do
     pid
-    |> child_os_pids()
-    |> Enum.flat_map(&[&1 | descendant_os_pids(&1)])
+    |> child_os_pids(opts)
+    |> Enum.flat_map(&[&1 | descendant_os_pids(&1, opts)])
   end
 
-  defp child_os_pids(pid) do
-    case System.cmd("pgrep", ["-P", Integer.to_string(pid)], stderr_to_stdout: true) do
-      {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1)
+  # pgrep's output is captured with `stderr_to_stdout: true`, so the stream can
+  # carry a warning line as well as pids. Parse every line defensively and drop
+  # what is not a pid: `String.to_integer/1` raised on the first such byte and
+  # took the entire kill down with it.
+  defp child_os_pids(pid, opts) do
+    pgrep = Keyword.get(opts, :pgrep_fun, &run_pgrep/1)
+
+    case pgrep.(pid) do
+      {out, 0} -> parse_pids(out)
       _ -> []
     end
   end
+
+  defp run_pgrep(pid) do
+    System.cmd("pgrep", ["-P", Integer.to_string(pid)], stderr_to_stdout: true)
+  end
+
+  defp parse_pids(out) when is_binary(out) do
+    out
+    |> String.split()
+    |> Enum.flat_map(fn token ->
+      case Integer.parse(token) do
+        {pid, ""} when pid > 0 -> [pid]
+        _ -> []
+      end
+    end)
+  end
+
+  defp parse_pids(_out), do: []
 
   defp collect_port_output(port, acc \\ "") do
     receive do
