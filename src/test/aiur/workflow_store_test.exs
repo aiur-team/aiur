@@ -23,26 +23,29 @@ defmodule Aiur.WorkflowStoreTest do
     path = Path.join([Path.dirname(Workflow.workflow_file_path()), "raced", ".aiur", "config"])
     File.mkdir_p!(Path.dirname(path))
 
+    # Two renderings of the same config, captured by writing each in turn. The
+    # file is left holding `pre_read_content`; `raced_write` is what lands
+    # behind the store's read.
     write_workflow_file!(path, poll_interval_seconds: 90)
-    after_write = File.read!(path)
+    raced_write = File.read!(path)
 
     write_workflow_file!(path, poll_interval_seconds: 45)
-    before_write = File.read!(path)
-    refute before_write == after_write
+    pre_read_content = File.read!(path)
+    refute pre_read_content == raced_write
 
     # Fires once, on the store's own read: hand back what is on disk and land
     # the next write immediately behind it.
     Application.put_env(:aiur, :workflow_store_config_reader, fn read_path ->
       Application.delete_env(:aiur, :workflow_store_config_reader)
       content = File.read!(read_path)
-      write_workflow_file_atomic!(read_path, after_write)
+      write_workflow_file_atomic!(read_path, raced_write)
       {:ok, content}
     end)
 
     Workflow.set_workflow_file_path(path)
     :ok = WorkflowStore.force_reload()
     refute Application.get_env(:aiur, :workflow_store_config_reader), "the store never read through the seam"
-    assert File.read!(path) == after_write
+    assert File.read!(path) == raced_write
 
     # The raced write is on disk and nothing else touches the file. The store
     # must still notice it.
