@@ -82,7 +82,9 @@ An installation token authenticates as the App's bot user, `<app-slug>[bot]`, so
 | `tracker.github.bot_account` | Keep set to the account agents use to push branches, open pull requests, and comment on tickets. |
 | App account unset or not a bot login | Needs-attention `system.github_app_token.identity_mismatch` alert at boot. |
 
-Self-loop suppression and PR command handling key off the daemon account: `github_app.account` under App auth, with `bot_account` as the single-identity fallback when App auth is not configured. CODEOWNERS self-includes both the daemon account and the agents' `bot_account`. A wrong App login means the daemon does not recognize its own writes; replacing `bot_account` with that login instead breaks agent-authorship checks.
+Self-loop suppression and PR command handling key off the daemon account: `github_app.account` under App auth, with `bot_account` as the fallback when App auth is not configured.
+
+CODEOWNERS self-includes both the daemon account and the agents' `bot_account`. A wrong App login prevents self-write recognition; replacing `bot_account` with that login instead breaks agent-authorship checks.
 
 Git commits keep their configured author; only GitHub API objects are authored by the App bot. Add the App bot login to `trusted_accounts` only if a gate needs to trust it beyond the configured daemon identity and built-in self-includes.
 

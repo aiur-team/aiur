@@ -155,7 +155,7 @@ defmodule Aiur.Init do
             Scaffold.ensure_aiurhooks(io, deps, path)
             Alerts.ensure_alerts(io, deps, path, alerts)
             Prewarm.ensure_prewarm_file(io, deps, path, prewarm)
-            if daemon_auth == :github_token, do: Scaffold.setup_env(io, deps, tracker)
+            maybe_setup_env(io, deps, tracker, daemon_auth)
             Scaffold.maybe_offer_gitignore(io, deps, location)
             Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
 
@@ -210,6 +210,9 @@ defmodule Aiur.Init do
     final_screen(io)
     :ok
   end
+
+  defp maybe_setup_env(io, deps, tracker, :github_token), do: Scaffold.setup_env(io, deps, tracker)
+  defp maybe_setup_env(_io, _deps, _tracker, :github_app), do: :ok
 
   defp provision_github_with_token(io, deps, tracker, agents, pair) do
     case Aiur.Init.GitHub.ensure_ci_readiness(io, deps, tracker) do
