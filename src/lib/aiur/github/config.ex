@@ -700,16 +700,24 @@ defmodule Aiur.GitHub.Config do
   # erl_child_setup may reap the child, and the OS could recycle the pid
   # before a later kill landed on an unrelated process.
   #
-  # ORDER MATTERS. The direct pid is signalled FIRST, before any enumeration.
-  # Enumerating first put the whole kill behind a shell-out whose output this
-  # code parses: a single non-numeric byte on pgrep's (stderr-merged) stream
-  # raised, the function-level `rescue` swallowed it, and NO signal was sent at
-  # all — silently reintroducing the orphan accumulation this exists to
-  # prevent. The direct pid is the one that always exists, so it can never be
-  # lost to a failure while walking for pids that may not. The walk itself is
-  # additionally defensive: `child_os_pids/1` parses with `Integer.parse/1` and
-  # drops anything non-numeric, and `safe_descendant_os_pids/1` degrades a
-  # failed walk to [] instead of aborting the kill.
+  # NO STEP MAY SWALLOW ANOTHER. The kill used to compute
+  # `[pid | descendant_os_pids(pid)]` before signalling anything, and the walk
+  # parsed pgrep's (stderr-merged) output with `String.to_integer/1`. A single
+  # non-numeric byte on that stream raised, the function-level `rescue _ -> :ok`
+  # swallowed it, and NO signal was sent at all — silently reintroducing the
+  # orphan accumulation this exists to prevent. The walk is now defensive at
+  # both levels: `child_os_pids/2` parses with `Integer.parse/1` and drops
+  # non-pids, and `safe_descendant_os_pids/2` degrades any walk failure to []
+  # rather than aborting the kill, so the direct-pid and group signals always
+  # land.
+  #
+  # The walk still runs BEFORE the TERM, and that ordering is load-bearing in
+  # the other direction: TERM kills the direct child immediately, its children
+  # are reparented to init, and `pgrep -P <pid>` then finds nothing. CI proved
+  # this — with the walk moved after the TERM the direct `gh` died and its
+  # `sleep` grandchild was orphaned. The tree is walked again after the TERM
+  # settles and the two results are unioned, so a process that only appears
+  # later is still reached.
   #
   # Seams (tests only): `:signal_fun` observes the signals, `:pgrep_fun`
   # supplies the raw child-enumeration output.
@@ -719,13 +727,14 @@ defmodule Aiur.GitHub.Config do
 
   def kill_os_process(pid, opts) when is_integer(pid) and pid > 0 do
     signal = Keyword.get(opts, :signal_fun, &signal_os_pid/2)
+    before_term = safe_descendant_os_pids(pid, opts)
 
     signal.("TERM", pid)
     signal.("TERM", -pid)
 
-    descendants = safe_descendant_os_pids(pid, opts)
-
     Process.sleep(150)
+
+    descendants = Enum.uniq(before_term ++ safe_descendant_os_pids(pid, opts))
 
     signal.("KILL", pid)
     Enum.each(descendants, &signal.("KILL", &1))

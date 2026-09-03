@@ -399,23 +399,33 @@ defmodule Aiur.GitHub.ConfigTest do
       root = Aiur.TestSupport.tmp_root!("aiur-config-keyring-no-wrapper")
       File.mkdir_p!(root)
       pidfile = Path.join(root, "gh.pid")
+      childfile = Path.join(root, "gh.child.pid")
 
       try do
         with_fake_gh_on_path(
           """
           if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
             echo $$ > #{pidfile}
+            sleep 300 &
+            echo $! > #{childfile}
             while true; do sleep 1; done
           fi
           """,
           fn ->
             assert Config.keyring_token(timeout_ms: 200, wrapper_dir: root) == nil
             assert File.exists?(pidfile), "the fake gh never started"
+            assert File.exists?(childfile), "the fake gh never spawned its child"
 
             pid = pidfile |> File.read!() |> String.trim() |> String.to_integer()
+            child = childfile |> File.read!() |> String.trim() |> String.to_integer()
 
             Process.sleep(200)
             refute live_process?(pid), "direct-child gh pid #{pid} survived the timeout"
+
+            # The descendant walk must run BEFORE the TERM: a TERM to the
+            # direct child reparents this one to init, after which
+            # `pgrep -P <pid>` cannot find it.
+            refute live_process?(child), "child pid #{child} of the direct gh was orphaned"
           end
         )
       after
