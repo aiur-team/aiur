@@ -92,6 +92,39 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @doc """
+  A one-line account of where the tracker repository was looked for and what
+  was found: the config file actually read, every path searched to choose it,
+  the working directory, the `tracker.github.repo` value, and the detected
+  `origin` remote.
+
+  `:missing_tracker_identity` on its own points a reader at the wrong file. In
+  #2518 an operator was twice told their configuration had been "reverted to
+  the template" and advised to restore it; the configuration was fine. The
+  failing daemon was reading the global `~/.aiur/config` while the operator was
+  reading a repo-local `.aiur/config` — two genuinely different files, one of
+  which legitimately carries no `tracker.github` block. That cost two
+  investigations and a recommendation to edit a live config for no reason. Any
+  error reporting unresolvable tracker identity has to name the file it read
+  and the paths it searched, or it sends the next reader down the same path.
+  """
+  @spec repository_resolution_diagnostic() :: String.t()
+  def repository_resolution_diagnostic do
+    Enum.join(
+      [
+        "config_read=#{Aiur.Workflow.workflow_file_path()}",
+        "searched=#{Enum.join(Aiur.Workflow.config_path_candidates(), ",")}",
+        "cwd=#{origin_cwd()}",
+        "tracker.github.repo=#{explicit_repo() || "unset"}",
+        "origin=#{origin_repo([]) || "none"}"
+      ],
+      " "
+    )
+  rescue
+    # A diagnostic must never be the reason a failure path fails.
+    error -> "config_read=unavailable diagnostic_error=#{inspect(error.__struct__)}"
+  end
+
   # The configured value with surrounding whitespace removed, or nil when the
   # key is absent, blank, or not a string. Blank is treated exactly like absent
   # so a config reset to its annotated template (`repo:` with nothing after it)

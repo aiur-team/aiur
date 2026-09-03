@@ -284,6 +284,36 @@ defmodule Aiur.GitHub.ConfigTest do
       assert Config.repo(origin(nil)) == nil
     end
 
+    # #2518 cost two investigations and a recommendation to edit a healthy live
+    # config, because the failure named no file: the operator read a repo-local
+    # `.aiur/config` while the failing daemon read the global one. The
+    # diagnostic must name the file that was read AND the paths searched, or the
+    # next reader repeats the mistake.
+    test "the resolution diagnostic names the config file read and every path searched" do
+      write_tracker_repo!(nil)
+
+      diagnostic = Config.repository_resolution_diagnostic()
+
+      assert diagnostic =~ "config_read=#{Workflow.workflow_file_path()}"
+      assert diagnostic =~ "tracker.github.repo=unset"
+
+      # Every candidate, so a reader can see the repo-local path was searched
+      # even when the global file is the one that won.
+      for candidate <- Workflow.config_path_candidates() do
+        assert diagnostic =~ candidate,
+               "diagnostic must name searched path #{candidate}, got: #{diagnostic}"
+      end
+
+      assert Enum.any?(Workflow.config_path_candidates(), &String.ends_with?(&1, "/.aiur/config")),
+             "the searched set must include the repo-local and global .aiur/config paths"
+    end
+
+    test "the resolution diagnostic reports a configured repository as the value read" do
+      write_tracker_repo!("acme/widgets")
+
+      assert Config.repository_resolution_diagnostic() =~ "tracker.github.repo=acme/widgets"
+    end
+
     # `explicit_configured_repo/0` is what durable on-disk scoping reads, so it
     # must never take the fallback — see `Aiur.IssueLog.configured_repository_scope/0`.
     test "explicit_configured_repo/0 never falls back to the origin remote" do
