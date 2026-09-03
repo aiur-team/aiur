@@ -46,6 +46,26 @@ These states are intentionally not estimates. `aiur build-orders --json` reports
 
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
+### A worked example
+
+A real 42-member Build Order, four lanes wide and four waves deep, part way through execution:
+
+<img src="/images/dashboard/build-order-waves-lanes-dark.png" alt="Build Order graph of a real 42-member pack: four lane columns across the top with per-lane completion, four wave rows down the left, and dependency edges drawn between member cards in done, active and blocked states">
+
+What to read on it:
+
+| Where | What it tells you |
+| --- | --- |
+| Lane headers | Members and completion for each lane. Lanes progress independently, so an uneven spread across them is normal rather than a fault. |
+| Wave rows | How wide the front is at each depth. This pack is 5, 8, 10, then 19 — the shape of a dependency graph that opens up once its keystone lands. |
+| Card badges | The tracker number, complexity, and percent complete for one member. |
+| Edges | Dependencies. A member with many inbound edges is a bottleneck worth dispatching early. |
+| Card tone | Done, active, and blocked. Most of wave 4 reads blocked here because its dependencies have not landed yet, which is the graph working, not a stall. |
+
+The wave counts are the useful part when you are judging a pack before you run it. A first wave far wider
+than the second usually means members were grouped by topic rather than by dependency, and the fan-out
+will not survive contact with the scheduler.
+
 ## The repository state node
 
 Aiur separates the repository's tracked code from daemon-owned state under `~/.aiur/repo/<owner>/<repo>/`.
