@@ -1592,8 +1592,12 @@ defmodule Aiur.InitTest do
                is_binary(hint) and String.contains?(hint, "App bot login")
              end)
 
-      assert log =~ "docs/security/daemon-token-posture.md"
+      assert log =~
+               "GitHub App setup steps: https://github.com/aiur-team/aiur/blob/main/docs/security/daemon-token-posture.md"
+
       refute log =~ "Generate new token (classic)"
+      refute log =~ "GITHUB_APP_ID"
+      refute log =~ "Generate and download a private key"
       refute File.exists?(Path.join(dir, ".env"))
       refute_received {:labels, _tracker, _labels}
     end
@@ -1607,6 +1611,8 @@ defmodule Aiur.InitTest do
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/bot account/i))
       assert Enum.any?(log, &(&1 =~ "settings/tokens"))
+      assert Enum.any?(log, &(&1 =~ "Fine-grained token (recommended)"))
+      assert Enum.any?(log, &(&1 =~ "broad access that includes Administration"))
     end
 
     test "closing file lines use Created:/Found: and drop the setup preamble", %{
@@ -1634,7 +1640,7 @@ defmodule Aiur.InitTest do
       refute_received {:labels, _tracker, _labels}
     end
 
-    test "no-token instructions give explicit classic and fine-grained click-paths", %{
+    test "no-token instructions recommend fine-grained and label classic as broad", %{
       dir: dir,
       target: target
     } do
@@ -1645,7 +1651,8 @@ defmodule Aiur.InitTest do
 
       assert joined =~ "Generate new token (classic)"
       assert joined =~ "Administration: Read-only"
-      assert joined =~ "repo` scope"
+      assert joined =~ "Fine-grained token (recommended)"
+      assert joined =~ "Check `repo` (broad access that includes Administration)"
       assert joined =~ "Only select repositories"
       assert joined =~ "Read and write"
       assert joined =~ "Issues"

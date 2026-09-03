@@ -4,7 +4,7 @@ defmodule Aiur.Init.GitHubApp do
   @github_token_choice "No — use my GITHUB_TOKEN"
   @github_app_choice "Yes — I'll set up a GitHub App"
   @prompt "Use a GitHub App for the daemon? (recommended if agents are hitting rate limits)"
-  @setup_doc "docs/security/daemon-token-posture.md"
+  @setup_doc "https://github.com/aiur-team/aiur/blob/main/docs/security/daemon-token-posture.md"
 
   @doc "Asks which daemon credential path a fresh GitHub setup will use."
   @spec prompt(Aiur.Init.io(), map()) :: :github_token | :github_app
