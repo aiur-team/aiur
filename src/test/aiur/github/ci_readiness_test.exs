@@ -331,6 +331,21 @@ defmodule Aiur.GitHub.CiReadinessTest do
              CiReadiness.inspect_repository(request_fun, "ghp_test", "acme", "private-repo", "main")
   end
 
+  test "preserves retryable organization-probe failures" do
+    for status <- [429, 500] do
+      request_fun = fn %{url: url, credential_pinned?: true} ->
+        if String.ends_with?(url, "/orgs/acme"),
+          do: {:ok, %{status: status, body: %{}}},
+          else: {:ok, %{status: 404, body: %{}}}
+      end
+
+      assert {:error, {:github, reason, %{status: ^status}}} =
+               CiReadiness.inspect_repository(request_fun, "ghp_test", "acme", "private-repo", "main")
+
+      assert reason in [:http, :rate_limited]
+    end
+  end
+
   test "classifies the pinned credential by its documented prefix without returning its value" do
     for {token, token_type} <- [
           {"ghp_classic-secret", :classic_pat},
