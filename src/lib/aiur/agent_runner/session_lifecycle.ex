@@ -422,9 +422,11 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
     opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
 
+    turn_loop_fun = Keyword.get(opts, :turn_loop_fun, &TurnLoop.run_turns/10)
+
     try do
       result =
-        TurnLoop.run_turns(
+        turn_loop_fun.(
           session,
           workspace,
           issue,
@@ -459,7 +461,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         :erlang.raise(kind, reason, __STACKTRACE__)
     after
       stop_display_tailer(display_tailer)
-      stop_session_with_ownership(session, ownership)
+      stop_session_with_ownership(session, ownership, Keyword.get(opts, :stop_session_fun, &CodingAgent.stop_session/1))
     end
   end
 

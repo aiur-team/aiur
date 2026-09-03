@@ -62,6 +62,15 @@ defmodule Aiur.Claude.AdapterHealthTest do
       assert remediation =~ "npm install -g aiur-claude@1.1.0"
       refute remediation =~ "npm release is pending"
     end
+
+    test "every install instruction uninstalls before installing its source" do
+      for release_status <- [:available, :not_found, {:unknown, :timeout}] do
+        instruction = AdapterHealth.install_instruction(release_status)
+
+        assert instruction ==
+                 "npm uninstall -g aiur-claude, then npm install -g #{AdapterHealth.install_spec(release_status)}"
+      end
+    end
   end
 
   describe "version_status/1" do

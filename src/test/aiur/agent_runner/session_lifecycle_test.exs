@@ -643,6 +643,66 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
     end
   end
 
+  describe "adapter health at dispatch" do
+    test "a started Claude session reports adapter health before its first turn" do
+      issue = %Issue{id: "issue-claude-wired", identifier: "claude-health-wired", selected_backend: "claude"}
+      parent = self()
+
+      assert :ok =
+               SessionLifecycle.run_session(
+                 "/workspaces/claude-health-wired",
+                 issue,
+                 nil,
+                 [
+                   session_start_fun: fn _workspace, opts -> {:ok, %{backend: Keyword.fetch!(opts, :backend)}} end,
+                   turn_loop_fun: fn _session, _workspace, _issue, _recipient, _opts, _fetcher, _orchestrator, _host, _turn, _max ->
+                     send(parent, :turn_loop_ran)
+                     :ok
+                   end,
+                   stop_session_fun: fn _session -> :ok end,
+                   adapter_health_task_start: fn fun ->
+                     send(parent, {:health_task, fun})
+                     {:ok, self()}
+                   end,
+                   adapter_health_reporter: fn reported_issue, workspace ->
+                     send(parent, {:reported, reported_issue.identifier, workspace})
+                     :ok
+                   end
+                 ],
+                 nil
+               )
+
+      assert_receive {:health_task, health_check}
+      assert health_check.() == :ok
+      assert_receive {:reported, "claude-health-wired", "/workspaces/claude-health-wired"}
+      assert_receive :turn_loop_ran
+    end
+
+    test "a started Codex session reports no adapter health" do
+      issue = %Issue{id: "issue-codex-wired", identifier: "codex-health-wired", selected_backend: "codex"}
+      parent = self()
+
+      assert :ok =
+               SessionLifecycle.run_session(
+                 "/workspaces/codex-health-wired",
+                 issue,
+                 nil,
+                 [
+                   session_start_fun: fn _workspace, opts -> {:ok, %{backend: Keyword.fetch!(opts, :backend)}} end,
+                   turn_loop_fun: fn _session, _workspace, _issue, _recipient, _opts, _fetcher, _orchestrator, _host, _turn, _max -> :ok end,
+                   stop_session_fun: fn _session -> :ok end,
+                   adapter_health_task_start: fn fun ->
+                     send(parent, {:health_task, fun})
+                     {:ok, self()}
+                   end
+                 ],
+                 nil
+               )
+
+      refute_received {:health_task, _fun}
+    end
+  end
+
   describe "authoritative no-provider startup failures" do
     test "does not report adapter health for a Claude session that never starts" do
       issue = %Issue{identifier: "claude-start-failed", selected_backend: "claude"}

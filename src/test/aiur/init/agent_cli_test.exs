@@ -82,6 +82,74 @@ defmodule Aiur.Init.AgentCliTest do
     end
   end
 
+  describe "install_claude_app_server/2" do
+    test "a clean install runs npm once and never uninstalls" do
+      parent = self()
+
+      cmd_fun = fn _npm, args, _opts ->
+        send(parent, {:npm, args})
+        {"added 1 package", 0}
+      end
+
+      assert :ok =
+               AgentCli.install_claude_app_server("aiur-claude@1.1.0", npm_path: "/usr/bin/npm", cmd_fun: cmd_fun)
+
+      assert_received {:npm, ["install", "-g", "aiur-claude@1.1.0"]}
+      refute_received {:npm, ["uninstall" | _rest]}
+    end
+
+    # A global install over a half-removed package fails with ENOTEMPTY, and
+    # the documented remedy is to uninstall first — so do it, rather than
+    # handing the operator a failure they would have to fix by hand.
+    test "a failed install retries once after uninstalling the leftover package" do
+      parent = self()
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(attempts) end)
+
+      cmd_fun = fn _npm, args, _opts ->
+        send(parent, {:npm, args})
+
+        case args do
+          ["install" | _rest] ->
+            if Agent.get_and_update(attempts, &{&1, &1 + 1}) == 0,
+              do: {"ENOTEMPTY: directory not empty", 1},
+              else: {"added 1 package", 0}
+
+          ["uninstall" | _rest] ->
+            {"removed 1 package", 0}
+        end
+      end
+
+      assert :ok =
+               AgentCli.install_claude_app_server("aiur-claude@1.1.0", npm_path: "/usr/bin/npm", cmd_fun: cmd_fun)
+
+      assert_received {:npm, ["install", "-g", "aiur-claude@1.1.0"]}
+      assert_received {:npm, ["uninstall", "-g", "aiur-claude"]}
+      assert_received {:npm, ["install", "-g", "aiur-claude@1.1.0"]}
+    end
+
+    test "a retry that still fails reports the original install error" do
+      cmd_fun = fn _npm, args, _opts ->
+        case args do
+          ["install" | _rest] -> {"ENOTEMPTY: directory not empty", 1}
+          ["uninstall" | _rest] -> {"EACCES: permission denied", 1}
+        end
+      end
+
+      assert {:error, message} =
+               AgentCli.install_claude_app_server("aiur-claude@1.1.0", npm_path: "/usr/bin/npm", cmd_fun: cmd_fun)
+
+      assert message =~ "ENOTEMPTY"
+    end
+
+    test "a missing npm never shells out" do
+      cmd_fun = fn _npm, _args, _opts -> flunk("npm must not run when it is absent") end
+
+      assert {:error, "npm not found on PATH"} =
+               AgentCli.install_claude_app_server("aiur-claude@1.1.0", npm_path: nil, cmd_fun: cmd_fun)
+    end
+  end
+
   describe "check_agent_auth/1" do
     test "unknown kind returns exact error message" do
       assert AgentCli.check_agent_auth("nope") == {:error, "no command configured for nope"}

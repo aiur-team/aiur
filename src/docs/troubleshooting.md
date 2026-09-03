@@ -229,6 +229,12 @@ npm uninstall -g aiur-claude
 Do not use an unversioned `npm install -g aiur-claude`: npm's `latest` release
 may be older than Aiur's required adapter.
 
+`aiur init` follows the same rules when it provisions the backend for you. It
+reads the installed version first and keeps an adapter that already satisfies
+1.1.0 rather than replacing it with the pinned minimum, and when a global
+install fails — typically `ENOTEMPTY` from a half-removed package — it
+uninstalls and retries once before printing the manual commands above.
+
 Initialization and agent execution remain fail-open if installation, registry,
 or version checks fail. A local headless Claude session observed using an
 adapter older than 1.1.0 still runs, but Aiur records a durable degraded-adapter

@@ -12,9 +12,10 @@ defmodule Aiur.Claude.AdapterHealth do
   alias Aiur.{AlertFeed, Alerts, Issue}
   alias Aiur.Claude.Config, as: ClaudeConfig
 
+  @package "aiur-claude"
   @min_version "1.1.0"
   @github_release_commit "3478281243bfec8b9e1719461ff17c836c07c5b8"
-  @npm_spec "aiur-claude@#{@min_version}"
+  @npm_spec "#{@package}@#{@min_version}"
   @github_spec "github:aiur-team/aiur-claude##{@github_release_commit}"
   @registry_url "https://registry.npmjs.org/aiur-claude/#{@min_version}"
   @request_timeout_ms 5_000
@@ -59,20 +60,32 @@ defmodule Aiur.Claude.AdapterHealth do
   @spec install_command(String.t()) :: String.t()
   def install_command(spec), do: "npm install -g #{spec}"
 
+  # Every operator-facing instruction leads with the uninstall: `npm install -g`
+  # over a half-removed global package is the ENOTEMPTY this ticket is about,
+  # and an instruction that fails is the defect, not the fix.
+  @spec install_instruction(release_status()) :: String.t()
+  def install_instruction(release_status) do
+    "#{uninstall_command()}, then #{install_command(install_spec(release_status))}"
+  end
+
+  @spec uninstall_command() :: String.t()
+  def uninstall_command, do: "npm uninstall -g #{@package}"
+
+  @spec package() :: String.t()
+  def package, do: @package
+
   @spec remediation(release_status()) :: String.t()
   def remediation(:available) do
-    "upgrade it with: npm uninstall -g aiur-claude, then #{install_command(@npm_spec)}"
+    "upgrade it with: #{install_instruction(:available)}"
   end
 
   def remediation(:not_found) do
-    "the #{@min_version} npm release is pending; upgrade with: " <>
-      "npm uninstall -g aiur-claude, then #{install_command(@github_spec)}"
+    "the #{@min_version} npm release is pending; upgrade with: #{install_instruction(:not_found)}"
   end
 
-  def remediation({:unknown, _reason}) do
+  def remediation({:unknown, _reason} = release_status) do
     "couldn't confirm the npm release; use the reviewed GitHub release: " <>
-      "npm uninstall -g aiur-claude, then #{install_command(@github_spec)} " <>
-      "(exact npm alternative: #{install_command(@npm_spec)})"
+      "#{install_instruction(release_status)} (exact npm alternative: #{install_command(@npm_spec)})"
   end
 
   @spec version_status({:ok, String.t()} | {:error, term()}) :: version_status()
