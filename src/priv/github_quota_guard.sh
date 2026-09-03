@@ -622,6 +622,125 @@ done
 unset positional_count
 command_key="$command_name $subcommand_name"
 
+# Single-account provenance marker (#2501).
+#
+# When agents and the human operator share one GitHub login, the author of a
+# comment no longer says who wrote it, so the daemon reads authorship from a
+# marker in the body instead. This is the only place that marker can be applied
+# to an agent's comment: the body is composed inside the agent process and
+# reaches GitHub through `gh` without ever passing through the daemon.
+#
+# `AIUR_AGENT_COMMENT_MARKER` is exported only on a single-account install, so
+# an unset variable — a separate-account install, an older workspace, a `gh`
+# invoked outside an agent environment — leaves argv untouched byte for byte.
+#
+# The inline `--body`/`-b`/`--body=` forms are rewritten in argv. The
+# `--body-file`/`--body-file=`/`-F` forms are stamped by copying the agent's
+# file to a marked temp copy and passing that path on — the agent's own file is
+# never edited, because it may be read again after the call. Stdin (`-F -`) is
+# the one form that genuinely cannot be rewritten without buffering an unbounded
+# stream, so it stays unmarked. An unstamped comment is read as human by
+# `Aiur.Events.Publisher`, so the cost of skipping stdin is a redundant agent
+# wake, never a swallowed instruction.
+marker_tmp_files=
+if [ -n "${AIUR_AGENT_COMMENT_MARKER:-}" ]; then
+  case "$command_key" in
+    "issue comment"|"pr comment"|"pr review")
+      # Rotate argv exactly $# times: shift each argument off the front and
+      # append it (rewritten or not) to the back, leaving "$@" in its original
+      # order with the body value replaced in place.
+      marker_count=$#
+      marker_index=0
+      marker_prior=
+      while [ "$marker_index" -lt "$marker_count" ]; do
+        arg=$1
+        shift
+        marker_stamp=0
+        marker_stamp_file=0
+        case "$marker_prior" in
+          --body|-b) marker_stamp=1 ;;
+          --body-file|-F) marker_stamp_file=1 ;;
+        esac
+        # Quoted so the body-file policy scan (which flags any line starting
+        # with a bare `--body=`) reads this as the pattern match it is rather
+        # than as a `gh` invocation passing a body inline. Same match in sh.
+        case "$arg" in
+          "--body="*) marker_stamp=1 ;;
+          "--body-file="*) marker_stamp_file=1 ;;
+        esac
+        # Recorded before any rewrite, so the next iteration compares against
+        # the flag the caller actually passed.
+        marker_prior=$arg
+        if [ "$marker_stamp" -eq 1 ]; then
+          # Idempotent: a body that already carries the marker is passed through
+          # untouched, so a re-run or an agent that stamped its own body does not
+          # accumulate copies.
+          case "$arg" in
+            *"$AIUR_AGENT_COMMENT_MARKER"*) ;;
+            *) arg="$arg
+
+$AIUR_AGENT_COMMENT_MARKER" ;;
+          esac
+        fi
+        # `--body-file` is the spelling Aiur's own skills tell agents to use
+        # (the inline-body policy in `Aiur.GitHubBodyFilePolicyTest` requires
+        # it), so leaving it unstamped would mean the common agent comment is
+        # never marked and every agent wakes on its own reply. The file is
+        # copied — never edited in place — because it belongs to the agent and
+        # may be read again after the call.
+        if [ "$marker_stamp_file" -eq 1 ]; then
+          marker_src=$arg
+          case "$arg" in
+            "--body-file="*) marker_src=${arg#--body-file=} ;;
+          esac
+          # `-` is stdin, which cannot be rewritten without buffering an
+          # unbounded stream; it stays unstamped and reads as human.
+          if [ "$marker_src" != "-" ] && [ -f "$marker_src" ] &&
+             ! grep -qF "$AIUR_AGENT_COMMENT_MARKER" "$marker_src" 2>/dev/null; then
+            marker_tmp=${TMPDIR:-/tmp}/aiur-marked-body.$$.$marker_index
+            if cat "$marker_src" > "$marker_tmp" 2>/dev/null &&
+               printf '\n\n%s\n' "$AIUR_AGENT_COMMENT_MARKER" >> "$marker_tmp" 2>/dev/null; then
+              marker_tmp_files="$marker_tmp_files $marker_tmp"
+              case "$arg" in
+                "--body-file="*) arg="--body-file=$marker_tmp" ;;
+                *) arg=$marker_tmp ;;
+              esac
+            else
+              # A copy that did not complete must not be passed to `gh`: a
+              # truncated body is worse than an unstamped one.
+              rm -f "$marker_tmp" 2>/dev/null || true
+            fi
+          fi
+          unset marker_src marker_tmp
+        fi
+        set -- "$@" "$arg"
+        marker_index=$((marker_index + 1))
+      done
+      unset marker_count marker_index marker_prior marker_stamp marker_stamp_file
+      ;;
+  esac
+fi
+
+# Marked copies of an agent's `--body-file` (#2501) live only for the duration
+# of the call that sends them. The trap is armed here, immediately after the
+# copies can first exist, rather than alongside the budget traps far below:
+# every `exit` in between (the agent refusals, the budget-unavailable refusal,
+# the validate-only and cache-hit successes) would otherwise leak one file per
+# call into TMPDIR. `rm -f` on an unset/empty list is a no-op, so this is
+# harmless when the marker block did not run at all — separate-account mode, a
+# non-comment command, or a `-` stdin invocation where no copy is made.
+marker_cleanup() {
+  [ -n "${marker_tmp_files:-}" ] || return 0
+  rm -f $marker_tmp_files 2>/dev/null || true
+  marker_tmp_files=
+}
+
+# `budget_release` is not defined yet at this point in the script, so these
+# traps clean up the marker only. They are replaced below — once the budget
+# helpers exist — by traps that do both.
+trap 'marker_cleanup; exit 143' HUP INT TERM
+trap 'marker_cleanup' 0
+
 if [ "$command_key" = "issue create" ]; then
   disposition=0
   prior=
@@ -2647,8 +2766,11 @@ if slurp:
 PY
 }
 
-trap 'budget_release; exit 143' HUP INT TERM
-trap 'budget_release' 0
+# `marker_cleanup` is defined and armed beside the marker block itself, so the
+# early refusal exits do not leak a temp copy. Now that `budget_release` exists,
+# widen the same traps to release the budget lease as well.
+trap 'marker_cleanup; budget_release; exit 143' HUP INT TERM
+trap 'marker_cleanup; budget_release' 0
 
 secondary_delay_ms() {
   retry_after=

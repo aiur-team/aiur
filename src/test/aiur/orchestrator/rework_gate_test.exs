@@ -120,6 +120,37 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
                unresolved_threads_fetcher: fn _pr -> {:error, :timeout} end
              ) == {:error, :timeout}
     end
+
+    # #2473: a body-only `CHANGES_REQUESTED` review opens no review thread, so
+    # the thread read reports zero and #2422's rule alone refuses a verdict the
+    # reviewer did make. The submission stands in for an unresolved thread when
+    # the caller is routing that review.
+    test "allows rework for a live changes-requested review with zero review threads" do
+      pr = %{"number" => 42, "head" => %{"sha" => "abc123"}}
+
+      assert ReworkGate.verify_unresolved_review_threads("2473",
+               open_pr_fetcher: fn _ -> {:ok, pr} end,
+               unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+               changes_requested_review?: true
+             ) == {:ok, pr}
+    end
+
+    test "still refuses rework with zero review threads when no changes-requested review is being routed" do
+      pr = %{"number" => 42, "head" => %{"sha" => "abc123"}}
+
+      assert ReworkGate.verify_unresolved_review_threads("2473",
+               open_pr_fetcher: fn _ -> {:ok, pr} end,
+               unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+               changes_requested_review?: false
+             ) == {:skip, :no_unresolved_review_threads}
+    end
+
+    test "a changes-requested review still cannot manufacture rework without an open PR" do
+      assert ReworkGate.verify_unresolved_review_threads("2473",
+               open_pr_fetcher: fn _ -> {:ok, nil} end,
+               changes_requested_review?: true
+             ) == {:skip, :no_open_pr}
+    end
   end
 
   describe "head_sha/1" do

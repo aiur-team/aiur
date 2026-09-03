@@ -99,7 +99,29 @@ defmodule Aiur.Webhooks.EventKey do
     end
   end
 
+  defp identity(event_type, payload) when event_type in ["sub_issues", "issue_dependencies"] do
+    # Edge events carry no `updated_at`, so the action plus the two endpoint
+    # numbers is the stable identity of one underlying graph mutation. A
+    # redelivery of the same mutation dedups; a genuinely different edge or
+    # action derives a different key.
+    with action when is_binary(action) <- Map.get(payload, "action"),
+         left when is_integer(left) <- Map.get(payload, left_number(event_type)),
+         right when is_integer(right) <- Map.get(payload, right_number(event_type)) do
+      [Integer.to_string(left), Integer.to_string(right), action]
+    else
+      _ -> nil
+    end
+  end
+
   defp identity(_event_name, _payload), do: nil
+
+  defp left_number("sub_issues"), do: "parent_issue_number"
+  defp left_number("issue_dependencies"), do: "blocked_issue_number"
+  defp left_number(_event_type), do: nil
+
+  defp right_number("sub_issues"), do: "sub_issue_number"
+  defp right_number("issue_dependencies"), do: "blocking_issue_number"
+  defp right_number(_event_type), do: nil
 
   defp comment_identity(payload, parent_field) do
     with comment when is_map(comment) <- Map.get(payload, "comment"),
@@ -131,8 +153,23 @@ defmodule Aiur.Webhooks.EventKey do
 
   defp repository(payload) do
     case Map.get(payload, "repository") do
-      %{"full_name" => full_name} when is_binary(full_name) and full_name != "" -> full_name
-      _ -> nil
+      %{"full_name" => full_name} when is_binary(full_name) and full_name != "" ->
+        full_name
+
+      _other ->
+        # `sub_issues` / `issue_dependencies` carry no `repository` object;
+        # their endpoint repos live in `*_repo` fields. Any one of them names
+        # the delivery's repo for the purpose of a dedup key.
+        edge_repository(payload)
     end
   end
+
+  defp edge_repository(payload) do
+    payload
+    |> Map.take(["parent_issue_repo", "sub_issue_repo", "blocked_issue_repo", "blocking_issue_repo"])
+    |> Enum.find_value(&repo_field/1)
+  end
+
+  defp repo_field({_key, value}) when is_binary(value) and value != "", do: value
+  defp repo_field(_entry), do: nil
 end
