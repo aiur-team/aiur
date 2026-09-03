@@ -14,6 +14,10 @@ defmodule Aiur.PaneManager.ConvoPaintTest do
         id: tmux_name
       )
 
+    # Subscribing to the shared `Aiur.PubSub` registry, which a sibling async
+    # test can collapse (stopping it takes the whole app down, #2397). Ensure it
+    # is up before subscribing or the subscribe raises `unknown registry`.
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Aiur.Perf.topic())
 
     %{tmux: tmux_name}
