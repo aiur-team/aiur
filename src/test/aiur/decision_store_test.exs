@@ -31,6 +31,13 @@ defmodule Aiur.DecisionStoreTest do
   alias AiurWeb.ControlCenterPresenter
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
 
+  # A deadlock backstop, not a race window. The reconciliation report is
+  # published unconditionally by the pass that boot always schedules, so the
+  # only way to reach this bound is a store that never reconciled at all —
+  # which is a failure whatever the number is. Raising or lowering it cannot
+  # change a verdict the way the 1_000 ms boot deadline it replaced could.
+  @reconcile_report_timeout_ms 30_000
+
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
 
@@ -3006,16 +3013,44 @@ defmodule Aiur.DecisionStoreTest do
       assert settled.answer.decision_version == 1
     end
 
+    # Both halves of this test used to be claims about the passage of time: that
+    # the first store had *not* dispatched (a 100 ms silence) and that the
+    # restarted store had reconciled exactly once (a 1 s deadline over an
+    # unbounded boot — log replay, projection and the dispatch task supervisor —
+    # followed by another 100 ms silence). Neither silence observes the
+    # exactly-once property the test exists to prove, and both verdicts move
+    # with machine load, which is why this failed in `coverage (1/4)` at CI
+    # concurrency while passing in isolation.
+    #
+    # Both are now assertions on state and on the reconciliation pass's own
+    # report (`DecisionPubSub.subscribe_dispatches_reconciled/0`): the pass
+    # names every dispatch it scheduled, so "exactly one" is read off the
+    # payload rather than inferred from a quiet mailbox, and nothing here is
+    # timed.
     test "restart reconciles a persisted answer that was not yet dispatched", %{dir: dir} do
       parent = self()
+
+      # The reconciliation report is a best-effort broadcast: without a PubSub
+      # server it is silently dropped, and this test would then wait for a
+      # message that can never come. Fail on the missing dependency instead.
+      assert is_pid(Process.whereis(Aiur.PubSub)), "Aiur.PubSub must be running to observe reconciliation"
+      :ok = DecisionPubSub.subscribe_dispatches_reconciled()
+
       never = fn _decision, _opts -> send(parent, :old_dispatch) end
       pid1 = start_store!(dir, dispatcher: never, dispatch_delay_ms: 5_000, reconcile_delay_ms: 5_000)
       assert {:ok, %{decision: decision}} = request(pid1, answerable_request("answer-restart"))
 
       payload = %{"idempotency_key" => "restart-1", "expected_version" => 1, "custom_response" => "Proceed"}
       assert {:ok, %{status: :accepted, action: action}} = answer(pid1, decision.decision_id, payload)
+
+      # The answer is durable but undelivered: that is the state the restart has
+      # to recover from, and asserting it directly is what the 100 ms silence
+      # was standing in for.
+      assert {:ok, persisted} = DecisionStore.get(decision.decision_id, pid1)
+      assert persisted.delivery_status == :pending
+      assert persisted.dispatch_attempts == []
       GenServer.stop(pid1)
-      refute_receive :old_dispatch, 100
+      refute_received :old_dispatch
 
       dispatcher = fn replayed, opts ->
         send(parent, {:reconciled, replayed.answer.action_id, opts[:attempt_id]})
@@ -3023,10 +3058,31 @@ defmodule Aiur.DecisionStoreTest do
       end
 
       pid2 = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0, reconcile_delay_ms: 0)
-      assert_receive {:reconciled, action_id, _attempt_id}, 1_000
-      assert action_id == action.action_id
-      _settled = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
-      refute_receive {:reconciled, _, _}, 100
+
+      # The boot reconciliation pass is scheduled unconditionally by
+      # `handle_continue(:schedule_reconciliation, …)`, so this report is
+      # guaranteed to arrive; the wait is on the event, not on a duration long
+      # enough to cover a loaded runner's boot.
+      assert_receive {:decision_dispatches_reconciled, %{store: ^pid2, fences: fences, dispatched: dispatched}},
+                     @reconcile_report_timeout_ms
+
+      # `fences` is what the pass considered, `dispatched` what it scheduled.
+      # Both are needed: on its own an empty `dispatched` cannot distinguish
+      # "replay lost the decision" from "the pass saw it and declined".
+      assert fences == 1
+      assert [%{decision_id: reconciled_id, action_id: reconciled_action_id, kind: :dispatch}] = dispatched
+      assert reconciled_id == decision.decision_id
+      assert reconciled_action_id == action.action_id
+
+      settled = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
+      assert [attempt] = settled.dispatch_attempts
+      assert attempt.status == :queued
+
+      # The dispatcher sends before it returns, and the store only reaches
+      # `:queued` after it returns, so this message is already in the mailbox:
+      # a zero-timeout check, not a race.
+      assert_received {:reconciled, ^reconciled_action_id, _attempt_id}
+      refute_received {:reconciled, _, _}
     end
 
     test "transient dispatch failure is retried after request enrichment", %{dir: dir} do

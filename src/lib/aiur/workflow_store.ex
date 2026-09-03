@@ -344,9 +344,24 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
+  # The loaded workflow and the freshness stamp that decides when to load again
+  # MUST come from the same bytes. They used to come from two separate reads of
+  # the config — `Workflow.load/1` and then `stamp_with_context/3` — with a
+  # window between them. A write landing in that window (a `write_workflow_file!`
+  # in a concurrent test, an operator editing config while the poll runs) made
+  # the store record the *new* content's digest against the *old* content's
+  # workflow. Every later stamp comparison then reported "unchanged", so the
+  # pre-write config was served from `Cache` indefinitely — until some further
+  # edit moved the digest again. That is the `core_test` "config defaults and
+  # validation checks" flake: `max_concurrent_builds: -1` outliving the write
+  # that replaced it with `0`, surfacing as an `ArgumentError` from a later
+  # `Config.settings!/0`.
+  #
+  # One read, then parse and stamp that value.
   defp load_state(path, attempts \\ @reload_attempts) do
-    with {:ok, workflow} <- Workflow.load(path),
-         {:ok, stamp, digest, aux} <- stamp_with_context(path, nil, nil) do
+    with {:ok, content} <- read_config(path),
+         {:ok, workflow} <- Workflow.parse_config(content, path),
+         {:ok, stamp, digest, aux} <- stamp_for_content(path, content, nil, nil) do
       {:ok,
        %State{
          path: path,
@@ -383,17 +398,50 @@ defmodule Aiur.WorkflowStore do
   # carry the resolved paths in state; the steady-state poll now does one config
   # read plus one read per referenced file, and no parsing at all.
   defp stamp_with_context(path, known_digest, known_aux) do
-    with {:ok, stat} <- File.stat(path, time: :posix),
-         {:ok, content} <- File.read(path) do
-      digest = :erlang.phash2(content)
-      aux = if digest == known_digest and is_map(known_aux), do: known_aux, else: resolve_aux_paths(path)
-
-      stamp =
-        {stat.mtime, stat.size, digest, file_stamp(aux.prompt), file_stamp(aux.hooks), file_stamp(aux.prewarm)}
-
-      {:ok, stamp, digest, aux}
-    else
+    case read_config(path) do
+      {:ok, content} -> stamp_for_content(path, content, known_digest, known_aux)
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Stamps content the caller already holds, so a caller that also parses that
+  # content cannot pair it with another read's digest. See `load_state/2`.
+  defp stamp_for_content(path, content, known_digest, known_aux) do
+    case File.stat(path, time: :posix) do
+      {:ok, stat} ->
+        digest = :erlang.phash2(content)
+        aux = if digest == known_digest and is_map(known_aux), do: known_aux, else: resolve_aux_paths(path)
+
+        stamp =
+          {stat.mtime, stat.size, digest, file_stamp(aux.prompt), file_stamp(aux.hooks), file_stamp(aux.prewarm)}
+
+        {:ok, stamp, digest, aux}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # The single read that backs both the parsed workflow and its stamp.
+  #
+  # Injectable through `:workflow_store_config_reader` so a test can land a
+  # write in the instant after the store reads the config — the interleaving
+  # that used to leave the store permanently stale — without racing a real
+  # writer against it, in the same way `:loadavg_source_override` and
+  # `:proc_stat_source_override` stand in for the host probes. All three are
+  # reset per case by `test/support/test_support.exs`.
+  #
+  # Rejecting a legacy `.aiurconfig` path is `Workflow.parse_config/2`'s job,
+  # not this function's: `load_state/2` calls it on every path this store ever
+  # loads, and nothing else here sees a path that has not already been through
+  # it.
+  defp read_config(path) do
+    reader = Application.get_env(:aiur, :workflow_store_config_reader)
+    read_result = if is_function(reader, 1), do: reader.(path), else: File.read(path)
+
+    case read_result do
+      {:ok, content} when is_binary(content) -> {:ok, content}
+      {:error, reason} -> {:error, {:missing_workflow_file, path, reason}}
     end
   end
 

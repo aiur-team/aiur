@@ -3879,11 +3879,26 @@ defmodule AiurWeb.DashboardLiveTest do
                )
     end
 
+    # This test measures what the operator's own clicks put on screen: page one,
+    # then one page per "Load more". The view also refreshes itself on a timer
+    # (PayloadLoader schedules :reload_payload 50-450ms out), and that refresh
+    # correctly prepends a Command that reached history since the last read --
+    # here, history-26. Whether that refresh lands inside the window between
+    # answering history-26 and a click is pure scheduling luck, so the row count
+    # was 20-or-21 and then 25-or-26 depending on box load; CI saw the second
+    # form. Holding the timer inert makes the pagination arithmetic the only
+    # thing moving the rows. The totals still come from the store, because
+    # "Load more" reads the counts and the page in the same serialized read --
+    # so the 26 assertions below still prove the refresh path is not the source
+    # of the count. Same seam, and same reason, as the retry test above.
+    inert_reload_timer = fn _destination, _message, _delay_ms -> make_ref() end
+
     start_test_endpoint(
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 100,
       control_center_cache: false,
-      decision_store: decision_store_name
+      decision_store: decision_store_name,
+      control_center_reload_timer: inert_reload_timer
     )
 
     {:ok, view, _html} = live(build_conn(), "/commands")
@@ -5710,7 +5725,7 @@ defmodule AiurWeb.DashboardLiveTest do
       end
     end)
 
-    start_supervised!({AiurWeb.Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
   end
 
   defp start_counting_orchestrator(name, opts \\ []) do

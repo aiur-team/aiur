@@ -569,7 +569,7 @@ defmodule Aiur.GitHub.Issues do
       {:ok, body, retained_etag, response} when is_list(body) ->
         page = %{
           etag: retained_etag,
-          issues: Enum.map(body, &normalize_issue(&1, ctx.owner, ctx.repo, ctx.prefix)),
+          issues: normalize_issue_page(body, ctx.owner, ctx.repo, ctx.prefix, nil),
           next_url: Transport.parse_next_page_url(Map.get(response, :headers, []))
         }
 
@@ -687,7 +687,7 @@ defmodule Aiur.GitHub.Issues do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         revision = response_header(Map.get(response, :headers, []), "etag")
 
-        {:ok, Enum.map(body, &normalize_issue(&1, owner, repo, prefix, revision)), Transport.parse_next_page_url(Map.get(response, :headers, []))}
+        {:ok, normalize_issue_page(body, owner, repo, prefix, revision), Transport.parse_next_page_url(Map.get(response, :headers, []))}
 
       {:ok, %{status: status} = response} ->
         Logger.error("GitHub API request failed status=#{status}")
@@ -913,6 +913,15 @@ defmodule Aiur.GitHub.Issues do
         token: token
       )
     end
+  end
+
+  # GitHub's issues collection includes pull requests in the shared number
+  # space. Drop them while the raw discriminator is still available so they
+  # cannot become zero-label tickets eligible for state-label repair.
+  defp normalize_issue_page(body, owner, repo, prefix, dispatch_revision) do
+    body
+    |> Enum.reject(&Map.has_key?(&1, "pull_request"))
+    |> Enum.map(&normalize_issue(&1, owner, repo, prefix, dispatch_revision))
   end
 
   @spec normalize_issue(map(), String.t(), String.t(), String.t()) :: Issue.t()

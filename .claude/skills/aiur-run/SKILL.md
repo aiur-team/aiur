@@ -143,9 +143,11 @@ in consumer repositories. Equivalent background forms are:
 `--executor` is required for every Executor-owned run, but what it now declares
 is **authority**, not recording. Every run records the wake stream and every run
 arms the listener; `--executor` is what raises created and deferred Commands as
-needs-attention alerts, and it is what marks this run as the principal. If you
-are acting as the Executor, launch with `--executor`; there is no valid Executor
-launch without it.
+needs-attention alerts, and it registers a renewing principal in
+`executor-roster`. A live peer with a different identity is recorded as an
+observer. Registration never acknowledges wakes or advances the shared cursor;
+only `executor-wait` does that. If you are acting as the Executor, launch with
+`--executor`; there is no valid Executor launch without it.
 
 Include `--debug` only when authorized. It controls evidence capture and never
 authorizes filing or commenting on an issue; those mutations require separately
@@ -195,6 +197,13 @@ signals (`ci.failed`, `agent.attention`, `retry_exhausted`,
 matches success alone is silent through a crashloop, and silence is
 indistinguishable from "nothing happening".
 
+The tail is notification-only. It does **not** advance the durable cursor and
+cannot substitute for `executor-wait`: `-n0` skips the existing prefix, the
+filter intentionally omits many wake classes, and a follower has no Executor
+identity or owner lease. Ordinary `aiur status` prints `WAKES CURSOR <id>
+PENDING <count>`; a growing `PENDING` value means the authoritative consumer is
+not draining even when tail notifications are arriving.
+
 `ticket.branch.push` is the **rework signal**: it names the PR and means "a
 blocking review has probably been addressed; re-review now". Agents also post
 an explicit PR comment on rework naming the head SHA and the findings they
@@ -238,12 +247,11 @@ goal/monitor continuation; a shell operator can use:
 
 ### Immediate Executor events
 
-Launching with `--executor` starts the daemon-resident Executor listener
-(`Aiur.ExecutorListener`) as part of the run itself — there is no separate
-command to start, and nothing for you to forget. The run supervises and
-restarts it, so the harness-level failure mode where a background listener is
-killed after ten minutes no longer applies. It reconciles a compile-time set of
-reviewed bindings on every start:
+Every run starts the daemon-resident Executor listener (`Aiur.ExecutorListener`)
+as part of the run itself — there is no separate command to start, and nothing
+for you to forget. The run supervises and restarts it, so the harness-level
+failure mode where a background listener is killed after ten minutes no longer
+applies. It reconciles a compile-time set of reviewed bindings on every start:
 
 - Commands: `executor.#`
 - dispatch gates: `system.dispatch.capacity_starved{,.resolved}`,
@@ -306,6 +314,20 @@ Executor loop: inspect the projected PR number, SHA, draft/trust flags, action,
 CI conclusion, and attention flag before choosing the trusted content read or
 status command to run next. The concise form acknowledges the same record but
 omits those decision fields, so it is for human display rather than automation.
+
+If this Executor demonstrably covered an older prefix by another complete
+means, fast-forward only to the exact last durable `wake_id` it verified:
+
+```bash
+"$AIUR_CMD" executor-fast-forward <wake-id>
+```
+
+This is an exceptional reconciliation path, not the normal loop. It acquires
+the same owner lease as `executor-wait`, refuses a live peer owner, rejects an
+id beyond or absent from the durable inbox, reports the exact `from`, `through`,
+acknowledged count and remaining `pending`, and leaves every newer wake unread.
+Never use it merely because the backlog is large; inspect and cover the prefix
+first.
 
 `aiur executor-listen --topic executor.#` remains available as an optional raw
 JSON-line stream if you want the interactive wake in a background shell. It is
@@ -908,6 +930,24 @@ What a review agent needs in its prompt, every time:
   must not violate — on this repo, the `@unsafe_selections` refusals in
   `read_cache/policy.ex` are correct and a PR that "improves the cache hit rate"
   by caching verdict state is a reject, not a nitpick.
+- **Saving claims are measured, not estimated.** A PR claiming a quota, latency,
+  or cost saving must carry the five items AGENTS.md requires ("A claimed saving
+  must be measured"): a number with units and a baseline (`X → Y pts/hr`), a
+  measurement against the running system or a census of real data — never
+  derived from the code; `aiur github-cost` gives per-caller points, calls, and
+  rate, and the local ledger plus the App-token `/rate_limit` give the
+  credential-side view — what must be true at merge for the saving to occur, a
+  test asserting the claimed figure, and a count of the population the change
+  will meet in production. Verify that last one yourself: **check the
+  population, not the mechanism.** Before judging whether a
+  cache/classifier/cadence change is correct, count what it will actually see in
+  production. #2360's classification was observability as first reviewed (it
+  saves reads only since a later revision added TTLs) and it satisfies the other
+  four items, #2399's shipped configs left every `polling.intervals` gate
+  commented out, and #2417's validator almost never fires — successive censuses
+  found 0 of 462 and 1 of 99 stored bodies with its shape. All three passed a
+  mechanism-only review and measured zero. An instrumentation PR should claim no
+  saving at all; if it does, that is the finding.
 - **Mutation-testing discipline, explicitly.** Require the agent to check whether
   each new test still passes with the production change reverted, and to **name
   any test that does**. This is what separates a review from a summary. It has
