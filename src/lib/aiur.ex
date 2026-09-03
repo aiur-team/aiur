@@ -78,9 +78,29 @@ defmodule Aiur.Application do
           telemetry?: telemetry?
         )
 
+      # `:rest_for_one`, not `:one_for_one`: the children above are written in
+      # dependency order, and several of them genuinely depend on the ones
+      # before them. `Aiur.PubSub` is first because 17 lib modules subscribe to
+      # it; six application children hold a live link to it at boot.
+      #
+      # Elixir's `Registry` links every registered process to its partition, and
+      # `Phoenix.PubSub.subscribe/2` registers — so each subscribing sibling is
+      # *linked* to `Aiur.PubSub`. When PubSub dies, that exit propagates over
+      # those links and kills its subscribers in the same instant. Under
+      # `:one_for_one` they are then restarted with no ordering guarantee
+      # relative to PubSub itself: they resubscribe before it is back, fail to
+      # start, and the resulting hot restart loop exhausts the restart budget
+      # and terminates all ~90 children. Because a link-propagated `:shutdown`
+      # is not an error exit, that happened with no crash report at all — the
+      # tree was simply gone, and every later consumer either raised
+      # `unknown registry: Aiur.PubSub` or blocked forever on a message from a
+      # dead child (#2525).
+      #
+      # `:rest_for_one` makes the ordering real: PubSub restarts first, then
+      # everything after it, so dependents never start into a missing registry.
       Supervisor.start_link(
         children ++ [supervision_health_child(children)],
-        strategy: :one_for_one,
+        strategy: :rest_for_one,
         name: Aiur.Supervisor
       )
       |> tap(fn _ -> start_upgrade_check() end)

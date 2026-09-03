@@ -468,6 +468,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
        aiur executor-wait [--timeout <seconds>] [--json]  block until Executor work arrives
+       aiur executor-fast-forward <wake-id> [--as <id>]  acknowledge an externally covered wake prefix
        aiur executor-emit <topic> --payload <json>  publish an Executor event
        aiur executor-subscribe|executor-unsubscribe <pattern>
        aiur executor-subscriptions  list persistent Executor bindings
@@ -3050,6 +3051,33 @@ cmd_executor_roster() {
   run_control_rpc "Aiur.AgentControlCLI.executor_roster(json: $json_arg)"
 }
 
+cmd_executor_fast_forward() {
+  local wake_id="${1:-}" as="" arg
+  [ -n "$wake_id" ] || { echo "aiur: executor-fast-forward expects a positive wake id" >&2; exit 64; }
+  shift
+  [[ "$wake_id" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-fast-forward expects a positive wake id" >&2; exit 64; }
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --as)
+        shift
+        [ "$#" -gt 0 ] && [ -n "${1:-}" ] || { echo "aiur: executor-fast-forward --as requires a consumer id" >&2; exit 64; }
+        as="$1"
+        ;;
+      --as=*)
+        as="${arg#--as=}"
+        [ -n "$as" ] || { echo "aiur: executor-fast-forward --as requires a consumer id" >&2; exit 64; }
+        ;;
+      *) echo "aiur: executor-fast-forward accepts <wake-id> and --as <id>" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  executor_validate_consumer_id "$as" "executor-fast-forward"
+  run_control_rpc "Aiur.AgentControlCLI.executor_fast_forward($wake_id, [$(executor_as_keyword "$as")])"
+}
+
 cmd_executor_claim() {
   local as="" arg
   while [ "$#" -gt 0 ]; do
@@ -3995,6 +4023,10 @@ aiur_engine_main() {
     executor-roster)
       shift
       cmd_executor_roster "$@"
+      ;;
+    executor-fast-forward)
+      shift
+      cmd_executor_fast_forward "$@"
       ;;
     executor-claim)
       shift
