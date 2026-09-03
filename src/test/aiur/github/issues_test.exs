@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.IssuesTest do
   alias Aiur.{GitHub.Issues, Issue}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @origin_cache_key {Aiur.GitHub.Config, :resolved_origin_repo}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -665,19 +666,108 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.normalize_issue(missing_node, "owner", "repo", "sym").tracker_identity
     end
 
-    test "does not use the current checkout when repository configuration is absent" do
+    # A shared `~/.aiur/config` that names no repo is the multi-repo case from
+    # #2518: every GitHub call already resolves its repository from the
+    # checkout's origin via `Config.repo/0`, so identity has to resolve the same
+    # repository. When it did not, every issue normalized to an unjoinable
+    # identity and every agent dispatch failed `:missing_tracker_identity`.
+    test "uses the current checkout when repository configuration is absent" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: nil,
         tracker_label_prefix: "sym"
       )
 
-      issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
+      # Stub the shell boundary rather than reading the checkout's real remote,
+      # so the assertion is the identity contract and not "this build has an
+      # origin". `normalize_issue/4` has no option seam, so seed the resolved
+      # value the production path reads.
+      :persistent_term.put(@origin_cache_key, "acme/widgets")
+      on_exit(fn -> :persistent_term.erase(@origin_cache_key) end)
 
-      assert %{status: :unjoinable, reason: :missing_configured_repository} =
-               Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
+      issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
+      identity = Issues.normalize_issue(issue, "acme", "widgets", "sym").tracker_identity
+
+      assert %{status: :joinable, owner: "acme", repository: "widgets", identifier: "16"} = identity
+      assert Aiur.TrackerIdentity.joinable?(identity)
     end
 
+    # The auto-detected repository is still only a default: an explicitly
+    # configured one must keep winning, or the trusted cross-repository setup
+    # (daemon in checkout A tracking repo B) silently retargets.
+    test "an explicitly configured repository still wins over a differing checkout origin" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym"
+      )
+
+      :persistent_term.put(@origin_cache_key, "acme/widgets")
+      on_exit(fn -> :persistent_term.erase(@origin_cache_key) end)
+
+      issue = %{"number" => 19, "node_id" => "I_kwDOIssue19", "labels" => []}
+
+      assert %{status: :joinable, owner: "owner", repository: "repo"} =
+               Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
+
+      assert %{status: :unjoinable, reason: :repository_mismatch} =
+               Issues.normalize_issue(issue, "acme", "widgets", "sym").tracker_identity
+    end
+
+    # The #2518 acceptance bar: identity must resolve for a repository whose
+    # config lives OUTSIDE the global file. This drives the real chain —
+    # `resolve_config_path/1` picks the repo-local file over a global one that
+    # names a different repository, that file becomes active, and identity
+    # resolves from it. Asserting `configured_repo/0` merely returns something
+    # non-nil would pass against the bug; this does not.
+    test "resolves identity from a repo-local config while a global config names another repository" do
+      previous_path = Workflow.workflow_file_path()
+      dir = Aiur.TestSupport.tmp_root!("aiur-2518-config-precedence")
+      repo_local = Path.join([dir, "repo", ".aiur", "config"])
+      global = Path.join([dir, "home", ".aiur", "config"])
+      File.mkdir_p!(Path.dirname(repo_local))
+      File.mkdir_p!(Path.dirname(global))
+
+      # The global file names a DIFFERENT repository, so a fix that made the
+      # global config win would resolve `global-org/global-repo` here.
+      write_workflow_file!(global, tracker_kind: "github", tracker_repo: "global-org/global-repo", tracker_label_prefix: "sym")
+
+      # The repo-local file carries no `tracker.github.repo` — the shared-config
+      # shape from the report — so identity must come from the checkout.
+      write_workflow_file!(repo_local, tracker_kind: "github", tracker_repo: nil, tracker_label_prefix: "sym")
+
+      candidates = [repo_local, Path.join([dir, "repo", ".aiurconfig"]), global, Path.join([dir, "home", ".aiurconfig"])]
+      assert Workflow.resolve_config_path(candidates) == repo_local
+
+      Workflow.set_workflow_file_path(repo_local)
+      :persistent_term.put(@origin_cache_key, "acme/widgets")
+
+      on_exit(fn ->
+        :persistent_term.erase(@origin_cache_key)
+        Workflow.set_workflow_file_path(previous_path)
+        File.rm_rf!(dir)
+      end)
+
+      issue = %{"number" => 20, "node_id" => "I_kwDOIssue20", "labels" => []}
+      identity = Issues.normalize_issue(issue, "acme", "widgets", "sym").tracker_identity
+
+      assert %{status: :joinable, owner: "acme", repository: "widgets", identifier: "20"} = identity
+      assert Aiur.TrackerIdentity.joinable?(identity)
+      refute identity.repository == "global-repo"
+    end
+
+    # Quarantined for #2397: this integration test reads `configured_repo/0`
+    # through the shared `WorkflowStore` singleton, and under load the store can
+    # serve the previous (valid) config for this path right after the malformed
+    # write + `force_reload` — CI run 32630000223 caught it returning a
+    # `:joinable` identity with `owner/repo`. The same shape reproduces locally
+    # (~2%) when this module runs immediately after `workflow_store_test.exs`,
+    # which manipulates the shared cache directly. The exact residual-state
+    # mechanism is not yet pinned down; the behavior stays covered by the
+    # deterministic pure-layer test in `tracker_identity_test.exs`, and the
+    # quarantine job keeps this integration path exercised non-blockingly so a
+    # regression still surfaces.
+    @tag :quarantine
     test "marks malformed configured repositories explicitly nonjoinable" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",

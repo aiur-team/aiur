@@ -11,35 +11,180 @@ defmodule Aiur.GitHub.Config do
 
   @default_label_prefix "agent"
 
-  @spec repo() :: String.t() | nil
-  def repo do
-    case section_value("repo") do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> Aiur.Git.origin_repo()
-          trimmed -> trimmed
-        end
-
-      _ ->
-        # No repo in config (e.g. the general global config) — auto-detect
-        # it from the current repo's git remote.
-        Aiur.Git.origin_repo()
-    end
-  end
+  @origin_cache_key {__MODULE__, :resolved_origin_repo}
 
   @doc """
-  Returns only the repository explicitly configured in `tracker.github.repo`.
+  The `owner/name` this daemon operates on.
 
-  Unlike `repo/0`, this never falls back to the current checkout's git remote;
-  callers using it are establishing a trusted cross-repository identity.
+  `tracker.github.repo` when it carries a value, otherwise the current
+  checkout's `origin` remote — the auto-detect path a general global
+  `~/.aiur/config` that names no repo of its own relies on.
+  """
+  @spec repo() :: String.t() | nil
+  def repo, do: repo([])
+
+  @doc """
+  `repo/0` with the same injectable `:origin_fun` seam `configured_repo/1` takes.
+  """
+  @spec repo(keyword()) :: String.t() | nil
+  def repo(opts) when is_list(opts), do: explicit_repo() || origin_repo(opts)
+
+  @doc """
+  The repository tracker identities are qualified by, as an `{owner, name}`
+  pair.
+
+  Resolves the *same* repository `repo/0` does, including the fallback to the
+  current checkout's `origin` remote when `tracker.github.repo` carries no
+  value. Every GitHub call already picks its repository through `repo/0`
+  (`Aiur.GitHub.Transport.parse_repo/0`), so without the fallback a daemon
+  launched against a shared config that names no repo polls its origin
+  repository happily while every issue it reads normalizes to an unjoinable
+  identity — `:missing_tracker_identity` at pre-spawn, and no agent can
+  start (#2518). Sharing one `~/.aiur/config` across repositories only works if
+  identity resolves the repository being polled rather than disagreeing
+  with it.
+
+  A *present but malformed* `tracker.github.repo` stays fail-closed as
+  `:invalid_configured_repository`: a typo must not silently redirect identity
+  at whatever checkout the daemon happens to have been launched from.
   """
   @spec configured_repo() ::
           {:ok, {String.t(), String.t()}}
           | {:error, :missing_configured_repository | :invalid_configured_repository}
-  def configured_repo do
-    case section_value("repo") do
+  def configured_repo, do: configured_repo([])
+
+  @doc """
+  `configured_repo/0` with an injectable origin resolver.
+
+  `:origin_fun` defaults to `Aiur.Git.origin_repo/0` and is only consulted when
+  `tracker.github.repo` carries no value, so a test can exercise both the
+  fallback and the fail-closed path without depending on the checkout it runs
+  in.
+  """
+  @spec configured_repo(keyword()) ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
+  def configured_repo(opts) when is_list(opts) do
+    case explicit_repo() do
       value when is_binary(value) -> parse_configured_repo(value)
-      _ -> {:error, :missing_configured_repository}
+      nil -> origin_configured_repo(origin_repo(opts))
+    end
+  end
+
+  @doc """
+  Only the repository `tracker.github.repo` names explicitly, never the
+  checkout's `origin` remote.
+
+  This is the reader for durable, on-disk scoping that must not move when a
+  repository is auto-detected rather than configured. `Aiur.IssueLog` derives
+  every transcript filename and its writer registry key from this scope, so
+  resolving it through `configured_repo/0`'s fallback would rename every log
+  file on the first restart after an upgrade and orphan the existing history.
+  Identity resolution wants the fallback; durable paths do not.
+  """
+  @spec explicit_configured_repo() ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
+  def explicit_configured_repo do
+    case explicit_repo() do
+      value when is_binary(value) -> parse_configured_repo(value)
+      nil -> {:error, :missing_configured_repository}
+    end
+  end
+
+  @doc """
+  A one-line account of where the tracker repository was looked for and what
+  was found: the config file actually read, every path searched to choose it,
+  the working directory, the `tracker.github.repo` value, and the detected
+  `origin` remote.
+
+  `:missing_tracker_identity` on its own points a reader at the wrong file. In
+  #2518 an operator was twice told their configuration had been "reverted to
+  the template" and advised to restore it; the configuration was fine. The
+  failing daemon was reading the global `~/.aiur/config` while the operator was
+  reading a repo-local `.aiur/config` — two genuinely different files, one of
+  which legitimately carries no `tracker.github` block. That cost two
+  investigations and a recommendation to edit a live config for no reason. Any
+  error reporting unresolvable tracker identity has to name the file it read
+  and the paths it searched, or it sends the next reader down the same path.
+  """
+  @spec repository_resolution_diagnostic() :: String.t()
+  def repository_resolution_diagnostic do
+    Enum.join(
+      [
+        "config_read=#{Aiur.Workflow.workflow_file_path()}",
+        "searched=#{Enum.join(Aiur.Workflow.config_path_candidates(), ",")}",
+        "cwd=#{origin_cwd()}",
+        "tracker.github.repo=#{explicit_repo() || "unset"}",
+        "origin=#{origin_repo([]) || "none"}"
+      ],
+      " "
+    )
+  rescue
+    # A diagnostic must never be the reason a failure path fails.
+    error -> "config_read=unavailable diagnostic_error=#{inspect(error.__struct__)}"
+  end
+
+  # The configured value with surrounding whitespace removed, or nil when the
+  # key is absent, blank, or not a string. Blank is treated exactly like absent
+  # so a config reset to its annotated template (`repo:` with nothing after it)
+  # takes the same auto-detect path as one that omits the key.
+  defp explicit_repo do
+    with value when is_binary(value) <- section_value("repo"),
+         trimmed when trimmed != "" <- String.trim(value) do
+      trimmed
+    else
+      _ -> nil
+    end
+  end
+
+  defp origin_configured_repo(value) when is_binary(value), do: parse_configured_repo(value)
+  defp origin_configured_repo(_value), do: {:error, :missing_configured_repository}
+
+  # Resolved once per VM rather than per call. `Aiur.Git.origin_repo/0` shells
+  # out to git, and `configured_repo/0` runs once per issue during poll
+  # normalization, so an uncached fallback would fork a process per issue on
+  # exactly the shared-config installs it exists to serve. More importantly it
+  # would leave `repo/0` and `configured_repo/0` reading two independent `git`
+  # invocations at different instants: a transient failure of one alone yields
+  # `:repository_mismatch` or `:missing_configured_repository`, turning the
+  # deterministic #2518 bug into an intermittent one. Caching makes the two
+  # agree by construction. Only a binary is cached, so a transient failure is
+  # retried on the next call instead of frozen in for the process lifetime.
+  defp origin_repo(opts) do
+    case Keyword.get(opts, :origin_fun) do
+      origin_fun when is_function(origin_fun, 0) ->
+        origin_fun.()
+
+      _default ->
+        case :persistent_term.get(@origin_cache_key, :unset) do
+          :unset -> resolve_origin_repo()
+          resolved -> resolved
+        end
+    end
+  end
+
+  defp resolve_origin_repo do
+    case Aiur.Git.origin_repo() do
+      value when is_binary(value) ->
+        # The one operator-facing surface that names which repository an
+        # unconfigured install actually resolved to. Without it, a daemon
+        # launched from the wrong directory auto-detects that directory's
+        # repository and reports nothing.
+        Logger.info("aiur_config phase=repo_auto_detected repo=#{value} cwd=#{origin_cwd()} reason=tracker_github_repo_unset")
+
+        :persistent_term.put(@origin_cache_key, value)
+        value
+
+      _other ->
+        nil
+    end
+  end
+
+  defp origin_cwd do
+    case File.cwd() do
+      {:ok, cwd} -> cwd
+      _error -> "unknown"
     end
   end
 
