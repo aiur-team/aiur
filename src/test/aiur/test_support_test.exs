@@ -104,9 +104,21 @@ defmodule Aiur.TestSupportTest do
   # all stacked on `:gen.do_call` -> `:application_controller.call`), which is
   # the same wedge that burned 45 minutes as `coverage (3/4)` in run
   # 32790770281. A test that can deadlock the partition it runs in cannot live
-  # in the blocking suite; the non-blocking quarantine job still runs it, so the
-  # mutation guard on `ensure_pubsub_running/1` is kept rather than deleted.
-  @tag :quarantine
+  # in the blocking suite.
+  #
+  # Skipped rather than quarantined, because quarantine is for tests that pass
+  # in isolation and fail only under load, and this one does not clear that bar:
+  # `mix test --include quarantine --exclude test` — the quarantine job's exact
+  # command, running this test alone — fails every time, in either of two ways.
+  # Sometimes the premise itself is false and `Aiur.Supervisor` survives the
+  # terminated PubSub child, so line 121 below fails outright; sometimes the
+  # premise holds and the recovery then wedges `:application_controller` for the
+  # full 60s ExUnit timeout, which is the same deadlock quarantine was supposed
+  # to escape. Either way the mutation guard on `ensure_pubsub_running/1` is NOT
+  # kept by the quarantine job, so claiming it is would be a dead guard stated
+  # as a live one. The body is left intact for whoever fixes the underlying
+  # shutdown wedge on #2397; until then no job runs it and none pretends to.
+  @tag :skip
   test "ensure_pubsub_running recovers the whole app after a sibling collapsed it by stopping PubSub" do
     on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
 

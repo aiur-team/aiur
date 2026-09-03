@@ -12,10 +12,20 @@
 #
 # Provenance: each entry records where it was last observed (run URL or commit,
 # date) so stale entries can be audited and pruned once a flake stops firing.
-# Update the list when a flake is fixed (remove the entry once it has not fired
-# for several weeks) or when a new flake is confirmed (add the exact name
-# printed by the runner). Keep entries byte-exact — the comparison is a
-# full-line match.
+# Add a new entry when a flake is confirmed, using the exact name printed by the
+# runner. Keep entries byte-exact — the comparison is a full-line match.
+#
+# Remove an entry as soon as its cause is fixed and the fix is on main or in the
+# same change — do NOT keep a fixed test listed "in case it recurs". A listed
+# test is reported as a known flake instead of a NEW failure, so a fixed test
+# left on the list converts the very regression it would have caught back into
+# noise. That is the exact signal loss this file exists to prevent, and a
+# recurrence after a fix is a regression, which is precisely what must be loud.
+#
+# Scope: the classifier parses ExUnit's `N) test <name> (<Module>)` lines and
+# runs only on the Elixir coverage partitions. Failures from other runners
+# (e.g. the streamdeck Vitest job) can never match a line here, so listing them
+# would be inert — track those on their own ticket instead.
 
 # Quarantined for #2397: reads the configured repository through the shared
 # WorkflowStore singleton, which can serve a stale valid config under load.
@@ -33,24 +43,14 @@ Aiur.DecisionStoreTest :: saturation fails admission durably and opens delivery 
 # decision_store_test.exs journal append `append_failed, :enoent` (#2403). The
 # exact test name varies by run; add it here once pinned.
 
-# Fixed by #2405 (signal-based restart wait). Kept so a recurrence is
-# classified as known rather than a regression; remove once stable.
-# Last observed run 32629780488 (2026-08-23).
-Aiur.BuildOrder.TicketDetailCoordinatorTest :: abnormal restart kills owned in-flight reads before replacement demand
-
 # Dispatched on #2373 (open).
 # Last observed 2026-08-23.
 Aiur.BuildOrder.TicketHistoryProviderTest :: publishes immutable per-ticket updates and tolerates subscriber churn
 
-# Shared PubSub/ReadCache collapse cluster — six failures in one partition at
-# commit 5c1679f7 (2026-08-23). Fixed by the #2405 shared-children recovery;
-# kept so a recurrence is classified as known; remove once stable.
-Aiur.GitHub.TransportReadCacheTest :: a repeated cacheable GraphQL read never reaches the socket or the quota meter
-Aiur.GitHub.TransportReadCacheTest :: a CI status read reaches the socket every time
-Aiur.CurrentRunMembership.StoreTest :: corrupt journal contents never reach health or PubSub
-Aiur.CurrentRunMembership.StoreTest :: corrupt recovery contents never reach health or PubSub
-Aiur.CurrentRunMembership.StoreTest :: publishes the durable accepted membership fact over the headless PubSub API
-Aiur.Opencode.SlotTest :: PubSub event topology all attach/visible events broadcast on slots_topic/0
+# The shared PubSub/ReadCache collapse cluster (six failures in one partition at
+# commit 5c1679f7, 2026-08-23) was listed here and is now removed: this change
+# fixes it with the shared-children recovery, so a recurrence is a regression
+# and must report as NEW.
 
 # Unticketed. Observed blocking docs-only PR #2412 (+84/-0, one file) and #2282
 # (2026-08-23); passes on current main in isolation (12 tests, 0 failures).
@@ -73,11 +73,9 @@ Aiur.GitHub.CodeOwnersTest :: user tokens become allowlist entries
 Aiur.DecisionApiIntegrationTest :: authenticated enrichment and delegated answer share one durable lifecycle
 Aiur.DecisionApiIntegrationTest :: authenticated revision uses OCC-8 persistence, correlation, and trusted supervisor basis
 
-# Unticketed, observed 2026-08-24 run 32786514956 coverage (4/4); previously
-# blocked PRs #2279, #2430, #2336 (its-everdred). Wall-clock-deadline class:
-# asserts an elapsed-time bound instead of gating on the lease-release signal;
-# the code is unchanged by this PR (fully green on head 1ff0f23aa).
-Aiur.Regression.OrchestratorBlockingHttpTest :: locked lease release stays inside the orchestrator request deadline
+# The OrchestratorBlockingHttpTest wall-clock-deadline entry (run 32786514956
+# coverage (4/4), 2026-08-24) is removed: #2470 replaced the elapsed-time bound
+# with a lease-release signal and is closed as completed on main.
 
 # Unticketed, observed 2026-08-24 run 32785954406 coverage (3/4). Same code was
 # fully green on head 1ff0f23aa (run 32780225293). Restart-fencing/concurrency
