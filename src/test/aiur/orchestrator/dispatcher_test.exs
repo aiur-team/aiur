@@ -237,6 +237,26 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert next.initial_dispatch_cycle
   end
 
+  test "a successful candidate poll starts the DecisionStore outage alert dwell" do
+    candidate = issue("decision-store-outage")
+
+    state = %State{
+      max_concurrent_agents: 4,
+      effective_concurrent_agents: 4,
+      blocked_ticket_ids: :unavailable
+    }
+
+    next =
+      Dispatcher.dispatch_candidate_poll(state,
+        fetch_candidate_issues_fun: fn current -> {:ok, [candidate], current} end,
+        stranded_reconciliation_fun: fn current, _issues -> current end
+      )
+
+    assert is_integer(next.decision_store_unavailable_since_ms)
+    refute next.decision_store_unavailable_alert_active
+    assert next.dispatch_declines[candidate.id] == :blocked_on_decision
+  end
+
   describe "dispatch_issue blocked_by dependency gate" do
     test "skips dispatch when revalidation hydration reveals a non-terminal blocker" do
       test_pid = self()
