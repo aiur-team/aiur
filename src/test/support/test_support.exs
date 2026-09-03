@@ -687,8 +687,10 @@ defmodule Aiur.TestSupport do
   def ensure_runtime_children_running do
     with :ok <- ensure_aiur_supervisor_running(),
          :ok <- ensure_pubsub_running(),
+         :ok <- ensure_subscription_store_supervisor_running(),
          :ok <- ensure_branch_ref_store_running(),
-         :ok <- ensure_workflow_store_running() do
+         :ok <- ensure_workflow_store_running(),
+         :ok <- ensure_read_cache_running() do
       ensure_resource_store_running()
     end
   end
@@ -738,7 +740,21 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp ensure_pubsub_running(retries \\ 1) do
+  @doc """
+  Ensures the shared `Aiur.PubSub` registry is running, restarting the
+  supervised `Phoenix.PubSub.Supervisor` child when a prior test terminated it
+  (or the application supervisor toppled while a sibling was unavailable).
+  Tests that subscribe to `Aiur.PubSub` must call this before subscribing —
+  the registry is a shared app child that a sibling can stop, and subscribing
+  to a missing registry raises `ArgumentError: unknown registry: Aiur.PubSub`
+  rather than failing silently (#2397). Prefer this over `start_supervised!`-ing
+  a replacement `Phoenix.PubSub` under the ExUnit supervisor: a temporary
+  replacement dies at module end and can leave the shared name permanently
+  unregistered for every later test in the suite. Signal-based (`Process.whereis`)
+  — never a duration.
+  """
+  @spec ensure_pubsub_running() :: :ok | :error
+  def ensure_pubsub_running(retries \\ 1) do
     case Process.whereis(Aiur.PubSub) do
       pid when is_pid(pid) ->
         :ok
@@ -761,8 +777,83 @@ defmodule Aiur.TestSupport do
     end
   end
 
+  @doc """
+  Ensures the shared `Aiur.Events.SubscriptionStoreSupervisor` is running
+  before a test attaches a per-issue subscription store. A missing dynamic
+  supervisor makes `SubscriptionStore.attach/1` exit with `:noproc` (#2397).
+  Signal-based (`Process.whereis`) — never a duration.
+  """
+  @spec ensure_subscription_store_supervisor_running() :: :ok | :error
+  def ensure_subscription_store_supervisor_running(retries \\ 1) do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.Events.SubscriptionStoreSupervisor) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case restart_subscription_store_supervisor_child() do
+          {:ok, pid} when is_pid(pid) ->
+            :ok
+
+          {:error, {:already_started, pid}} when is_pid(pid) ->
+            :ok
+
+          :supervisor_unavailable when retries > 0 ->
+            ensure_aiur_supervisor_running()
+            ensure_subscription_store_supervisor_running(retries - 1)
+
+          _ ->
+            subscription_store_supervisor_status()
+        end
+    end
+  end
+
+  @doc """
+  Ensures the shared `Aiur.GitHub.ReadCache` is running before a test reads or
+  resets it. A stopped cache makes `ReadCache.snapshot/0` answer `available?:
+  false` with no entries, which under load reads as a hard cache miss on every
+  request (#2397). Signal-based (`Process.whereis`) — never a duration.
+  """
+  @spec ensure_read_cache_running() :: :ok | :error
+  def ensure_read_cache_running(retries \\ 1) do
+    ensure_aiur_supervisor_running()
+
+    case Process.whereis(Aiur.GitHub.ReadCache) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case restart_read_cache_child() do
+          {:ok, pid} when is_pid(pid) ->
+            :ok
+
+          {:error, {:already_started, pid}} when is_pid(pid) ->
+            :ok
+
+          :supervisor_unavailable when retries > 0 ->
+            ensure_aiur_supervisor_running()
+            ensure_read_cache_running(retries - 1)
+
+          _ ->
+            read_cache_status()
+        end
+    end
+  end
+
+  defp read_cache_status do
+    if Process.whereis(Aiur.GitHub.ReadCache), do: :ok, else: :error
+  end
+
   defp pubsub_status do
     case Process.whereis(Aiur.PubSub) do
+      pid when is_pid(pid) -> :ok
+      nil -> :error
+    end
+  end
+
+  defp subscription_store_supervisor_status do
+    case Process.whereis(Aiur.Events.SubscriptionStoreSupervisor) do
       pid when is_pid(pid) -> :ok
       nil -> :error
     end
@@ -863,6 +954,18 @@ defmodule Aiur.TestSupport do
     :exit, _reason -> :supervisor_unavailable
   end
 
+  defp restart_subscription_store_supervisor_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreSupervisor)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp restart_read_cache_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.GitHub.ReadCache)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
   defp ensure_aiur_supervisor_running do
     case Process.whereis(Aiur.Supervisor) do
       pid when is_pid(pid) ->
@@ -946,6 +1049,9 @@ defmodule Aiur.TestSupport do
           tracker_repo: nil,
           tracker_label_prefix: nil,
           tracker_bot_account: nil,
+          # Left nil so the default fixture renders no `identity_mode` key at
+          # all, exercising the schema default an existing install is on.
+          tracker_identity_mode: nil,
           tracker_github_app_account: nil,
           tracker_trusted_accounts: [],
           tracker_planning_root_limit: 100,
@@ -1163,10 +1269,16 @@ defmodule Aiur.TestSupport do
 
   defp tracker_linear_yaml(_kind, _config), do: nil
 
+  # A key that only means anything under a GitHub tracker: nil for any other
+  # kind, so the caller renders no line for it at all.
+  defp github_only("github", config, key), do: Keyword.get(config, key)
+  defp github_only(_kind, _config, _key), do: nil
+
   defp tracker_github_yaml(tracker_kind, config) do
-    repo = if tracker_kind == "github", do: Keyword.get(config, :tracker_repo)
-    label_prefix = if tracker_kind == "github", do: Keyword.get(config, :tracker_label_prefix)
-    bot_account = if tracker_kind == "github", do: Keyword.get(config, :tracker_bot_account)
+    repo = github_only(tracker_kind, config, :tracker_repo)
+    label_prefix = github_only(tracker_kind, config, :tracker_label_prefix)
+    bot_account = github_only(tracker_kind, config, :tracker_bot_account)
+    identity_mode = github_only(tracker_kind, config, :tracker_identity_mode)
     trusted_accounts = if tracker_kind == "github", do: Keyword.get(config, :tracker_trusted_accounts, []), else: []
     root_limit = Keyword.fetch!(config, :tracker_planning_root_limit)
     page_budget = Keyword.fetch!(config, :tracker_planning_page_budget)
@@ -1177,6 +1289,7 @@ defmodule Aiur.TestSupport do
       repo && "    repo: #{yaml_value(repo)}",
       label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
       bot_account && "    bot_account: #{yaml_value(bot_account)}",
+      identity_mode && "    identity_mode: #{yaml_value(identity_mode)}",
       tracker_github_app_yaml(tracker_kind, config),
       trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}",
       "    planning_root_limit: #{yaml_value(root_limit)}",
