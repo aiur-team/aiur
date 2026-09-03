@@ -21,10 +21,12 @@ defmodule Aiur.Events.PrCommandScanner do
        stamped by `Aiur.Events.Sanitizer.stamp_author_trust/2` from the
        CODEOWNERS ∪ Aiur's own logins ∪ `trusted_accounts` set. This module
        does NOT re-derive trust; it consumes the flag.
-    3. The author is NOT the bot itself — the bot's own `/aiur`/mention
-       comments are dropped to avoid a self-loop (mirrors
+    3. The comment is NOT Aiur's own — Aiur's `/aiur`/mention comments are
+       dropped to avoid a self-loop (mirrors
        `Aiur.Events.Publisher.bot_self_loop?/1`, which keys on the
        comment author so a *human* mentioning the bot still passes).
+       In single-account mode (#2501) the author login cannot answer this,
+       so it is answered by `Aiur.GitHub.AgentMarker` instead.
 
   ## Comment shape
 
@@ -35,6 +37,9 @@ defmodule Aiur.Events.PrCommandScanner do
     * a `"body"` string
     * an `author_trusted?` boolean (stamped upstream)
   """
+
+  alias Aiur.GitHub.AgentMarker
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   @typedoc """
   A GitHub comment map with an author login, a `"body"`, and an
@@ -68,7 +73,7 @@ defmodule Aiur.Events.PrCommandScanner do
     body = comment_body(comment)
 
     trusted?(comment) and
-      not bot_author?(author, daemon_account) and
+      not aiur_authored?(author, daemon_account, body) and
       command_body?(body, command_prefix, daemon_account)
   end
 
@@ -117,6 +122,20 @@ defmodule Aiur.Events.PrCommandScanner do
   defp trusted?(%{author_trusted?: true}), do: true
   defp trusted?(%{"author_trusted?" => true}), do: true
   defp trusted?(_comment), do: false
+
+  # The self-loop drop, mode-aware for the same reason the publisher's is
+  # (#2501): in single-account mode the operator types `/aiur` under the very
+  # login the daemon writes as, so dropping on the login alone would make the
+  # command surface unusable for exactly the operator it exists for.
+  #
+  # Presence of the marker, never its absence: an unmarked `/aiur` comment is
+  # obeyed. The worst case is Aiur acting on a command it wrote, which is
+  # already bounded by the trust gate above; the alternative is an operator's
+  # command silently ignored.
+  defp aiur_authored?(author, daemon_account, body) do
+    bot_author?(author, daemon_account) and
+      (not GitHubConfig.single_account?() or AgentMarker.marked?(body))
+  end
 
   defp bot_author?(author, daemon_account)
        when is_binary(author) and is_binary(daemon_account) do

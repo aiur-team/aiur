@@ -111,11 +111,8 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
     Application.put_env(:aiur, AiurWeb.Endpoint, test_config)
 
-    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
-      start_supervised!({AiurWeb.Endpoint, []})
-    else
-      AiurWeb.Endpoint.config_change([dashboard_auth_required: false], [])
-    end
+    Aiur.TestSupport.start_owned_endpoint!()
+    AiurWeb.Endpoint.config_change([dashboard_auth_required: false], [])
 
     on_exit(fn ->
       Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)

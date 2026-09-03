@@ -106,11 +106,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     Application.put_env(:aiur, Endpoint, config)
 
-    if is_nil(Process.whereis(Endpoint)) do
-      start_supervised!({Endpoint, []})
-    else
-      Endpoint.config_change(config, [])
-    end
+    Aiur.TestSupport.start_owned_endpoint!()
+    Endpoint.config_change(config, [])
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, original_config)
