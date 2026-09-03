@@ -1586,7 +1586,7 @@ defmodule Aiur.InitTest do
       log = Enum.join(puts_log(), "\n")
       hints = input_hints()
 
-      assert {@bot_account_label, "The agents' publishing login that Aiur recognizes as its own to suppress self-triggered comment/event loops."} in hints
+      assert {@bot_account_label, "The login Aiur's agents post as: it is trusted for review comments and, in separate-account mode, distinguishes agent comments from human comments."} in hints
 
       refute Enum.any?(hints, fn {_label, hint} ->
                is_binary(hint) and String.contains?(hint, "App bot login")
