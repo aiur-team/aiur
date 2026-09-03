@@ -1,4 +1,8 @@
 defmodule Aiur.Git do
+  # TEMPORARY marker for the #2456 quarantine cache demonstration. This is a
+  # first-party lib/ change at an unchanged mix.lock/mix.exs, so the next
+  # quarantine run must restore the dependency cache (a HIT) and still
+  # recompile every first-party file. Reverted in the following commit.
   @moduledoc """
   Thin wrappers around git shell-outs used by Aiur subsystems that need
   out-of-band access to a remote's refs without making a GitHub REST call.
