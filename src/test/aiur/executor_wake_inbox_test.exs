@@ -157,6 +157,42 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 1, pending_count: 0}}
   end
 
+  test "observes a peer daemon's cursor advance written after boot", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 20)
+    pid = start_supervised!({ExecutorWakeInbox, opts})
+
+    for id <- 1..3, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+    send(pid, :flush)
+    :sys.get_state(pid)
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 0, pending_count: 3}}
+
+    # The journal, cursor and pending files are per repository, so a peer
+    # Executor on the same host consumes these wakes by advancing the very same
+    # cursor file. This process must see that advance without a restart.
+    :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 3})
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 3
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 3, pending_count: 0}}
+    assert ExecutorWakeInbox.pending(__MODULE__) == []
+  end
+
+  test "never lets a peer's stale cursor rewind the cached one", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 20)
+    pid = start_supervised!({ExecutorWakeInbox, opts})
+
+    for id <- 1..3, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+    send(pid, :flush)
+    :sys.get_state(pid)
+
+    assert {:ok, _claim} = Claims.claim("rewind-guard")
+    assert {:ok, %{through: 3}} = ExecutorWakeInbox.fast_forward_as("rewind-guard", 3, __MODULE__)
+
+    :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 1})
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 3
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 3, pending_count: 0}}
+  end
+
   test "restores cached stats from a persisted cursor and backlog", %{opts: opts} do
     :ok = Aiur.DecisionLog.prepare(Path.dirname(opts[:path]), opts[:path])
 
