@@ -5,6 +5,54 @@ defmodule Aiur.WorkflowStoreTest do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.WorkflowStore.Cache
 
+  # A write that lands in the instant after the store reads the config must not
+  # be swallowed. The store used to read the file twice per reload — once to
+  # load the workflow, once to stamp it — so a write in between paired the new
+  # content's digest with the old content's workflow. Every later stamp
+  # comparison then said "unchanged" and the pre-write config was served from
+  # the cache indefinitely.
+  #
+  # `:workflow_store_config_reader` stands in for that interleaving: it hands
+  # the store the pre-write bytes and puts the post-write bytes on disk in the
+  # same breath.
+  test "a write landing while the store reads the config is not masked by the stamp" do
+    ensure_workflow_store_running()
+
+    # A config the store has never seen, so its first reload of it takes the
+    # `load_state/2` path directly.
+    path = Path.join([Path.dirname(Workflow.workflow_file_path()), "raced", ".aiur", "config"])
+    File.mkdir_p!(Path.dirname(path))
+
+    # Two renderings of the same config, captured by writing each in turn. The
+    # file is left holding `pre_read_content`; `raced_write` is what lands
+    # behind the store's read.
+    write_workflow_file!(path, poll_interval_seconds: 90)
+    raced_write = File.read!(path)
+
+    write_workflow_file!(path, poll_interval_seconds: 45)
+    pre_read_content = File.read!(path)
+    refute pre_read_content == raced_write
+
+    # Fires once, on the store's own read: hand back what is on disk and land
+    # the next write immediately behind it.
+    Application.put_env(:aiur, :workflow_store_config_reader, fn read_path ->
+      Application.delete_env(:aiur, :workflow_store_config_reader)
+      content = File.read!(read_path)
+      write_workflow_file_atomic!(read_path, raced_write)
+      {:ok, content}
+    end)
+
+    Workflow.set_workflow_file_path(path)
+    :ok = WorkflowStore.force_reload()
+    refute Application.get_env(:aiur, :workflow_store_config_reader), "the store never read through the seam"
+    assert File.read!(path) == raced_write
+
+    # The raced write is on disk and nothing else touches the file. The store
+    # must still notice it.
+    assert :ok = WorkflowStore.force_reload()
+    assert Config.settings!().polling.interval_seconds == 90
+  end
+
   # Regression for #1214: a transient reload error must not advance the change
   # stamp. When it did, the store believed the failed content was already
   # current, skipped the next good reload, and kept serving the previous
