@@ -81,6 +81,9 @@ agent:
   # load_ramp_step: 1                    # slots added per below-target poll
   # load_cooldown_seconds: 60            # minimum seconds between high-load decreases
   # capacity_starvation_alert_after_seconds: 60  # dwell before capacity-starvation alerts raise (keeps the below-target ramp quiet)
+  # budget_broker_rate_window_seconds: 300       # window over which budget-broker-timeout retries are counted for the retry-rate signal
+  # budget_broker_degraded_retry_threshold: 5    # retries in the window above which the broker counts as degraded (keep above an isolated timeout)
+  # budget_broker_degraded_alert_after_seconds: 600  # dwell before the single `system.github.budget_broker_degraded` alert raises
   # remote_control: false                # always attach Claude remote control to RC-capable agents
 
 # === Workspace & per-repo agent prompt ===
