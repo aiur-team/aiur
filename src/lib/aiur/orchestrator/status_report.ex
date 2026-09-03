@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
   alias Aiur.Orchestrator.AutoResume
+  alias Aiur.Orchestrator.CapacityBinding
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
@@ -425,17 +426,22 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp capacity_hold_payload(%State{} = state, now_ms) do
     case state.capacity_hold do
-      %{signal: signal, measured: measured, threshold: threshold, held_since_ms: held_since_ms} ->
+      %{signal: signal, measured: measured, threshold: threshold, held_since_ms: held_since_ms} = hold ->
         %{
           held?: true,
           signal: signal,
           measured: measured,
           threshold: threshold,
-          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
+          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0),
+          # How long the hold has lasted and how old its measurement is are
+          # different quantities: a hold extended without a fresh probe keeps
+          # ageing while `held_for_seconds` grows too, and only this one says
+          # whether the figure beside it still describes the host (#2527).
+          sample_age_seconds: CapacityBinding.sample_age_seconds(hold)
         }
 
       _other ->
-        %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0}
+        %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0, sample_age_seconds: nil}
     end
   end
 

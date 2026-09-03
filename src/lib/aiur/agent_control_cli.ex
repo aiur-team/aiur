@@ -1798,49 +1798,13 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
-  defp capacity_binding_label(
-         {:admission,
-          %{
-            signal: :load,
-            measured: load,
-            threshold: threshold,
-            reclaimable_cpu_percent: reclaimable,
-            reclaimable_cpu_threshold: reclaimable_threshold
-          }}
-       ),
-       do:
-         "load+cpu contention, load=#{load} threshold=#{threshold} " <>
-           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+  # Every admission measurement is rendered with the age of the sample it came
+  # from. The figure alone is indistinguishable from a current one, which is how
+  # a `load=24.14` taken minutes earlier sat unnoticed beside a live `LOAD 7.23`
+  # line four times smaller (#2527).
+  defp capacity_binding_label({:admission, hold}),
+    do: admission_detail(hold) <> admission_sample_age(hold)
 
-  defp capacity_binding_label({:admission, %{signal: :load, measured: load, threshold: threshold}}),
-    do: "load, load=#{load} threshold=#{threshold}"
-
-  defp capacity_binding_label(
-         {:admission,
-          %{
-            signal: :run_queue,
-            measured: runnable,
-            threshold: threshold,
-            reclaimable_cpu_percent: reclaimable,
-            reclaimable_cpu_threshold: reclaimable_threshold
-          }}
-       ),
-       do:
-         "run_queue+cpu contention, runnable=#{runnable} threshold=#{threshold} " <>
-           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
-
-  defp capacity_binding_label({:admission, %{signal: :run_queue, measured: runnable, threshold: threshold}}),
-    do: "run_queue, runnable=#{runnable} threshold=#{threshold}"
-
-  defp capacity_binding_label({:admission, %{signal: :github_quota, measured: measured}}) do
-    case github_quota_measurement(measured) do
-      {:current, detail} -> "github_quota, #{detail}"
-      {:stale, detail} -> "github_quota stale, #{detail}"
-      :unavailable -> "github_quota, measurement unavailable"
-    end
-  end
-
-  defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
   defp capacity_binding_label({:none, %{ceiling: ceiling}}), do: "none; ceiling: #{ceiling}"
   defp capacity_binding_label({:none, _detail}), do: "none"
 
@@ -1859,6 +1823,57 @@ defmodule Aiur.AgentControlCLI do
     do: "has not polled yet (ceiling: #{ceiling})"
 
   defp capacity_binding_label({:has_not_polled, _detail}), do: "has not polled yet"
+
+  defp admission_detail(%{
+         signal: :load,
+         measured: load,
+         threshold: threshold,
+         reclaimable_cpu_percent: reclaimable,
+         reclaimable_cpu_threshold: reclaimable_threshold
+       }),
+       do:
+         "load+cpu contention, load=#{load} threshold=#{threshold} " <>
+           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+
+  defp admission_detail(%{signal: :load, measured: load, threshold: threshold}),
+    do: "load, load=#{load} threshold=#{threshold}"
+
+  defp admission_detail(%{
+         signal: :run_queue,
+         measured: runnable,
+         threshold: threshold,
+         reclaimable_cpu_percent: reclaimable,
+         reclaimable_cpu_threshold: reclaimable_threshold
+       }),
+       do:
+         "run_queue+cpu contention, runnable=#{runnable} threshold=#{threshold} " <>
+           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+
+  defp admission_detail(%{signal: :run_queue, measured: runnable, threshold: threshold}),
+    do: "run_queue, runnable=#{runnable} threshold=#{threshold}"
+
+  defp admission_detail(%{signal: :github_quota, measured: measured}) do
+    case github_quota_measurement(measured) do
+      {:current, detail} -> "github_quota, #{detail}"
+      {:stale, detail} -> "github_quota stale, #{detail}"
+      :unavailable -> "github_quota, measurement unavailable"
+    end
+  end
+
+  defp admission_detail(%{signal: signal}), do: to_string(signal)
+  defp admission_detail(_hold), do: "admission"
+
+  # A hold carrying no stamp predates #2527 and gets no age clause: an invented
+  # "0s" would be the very false reassurance this line exists to remove.
+  defp admission_sample_age(%{stale_sample?: true} = hold), do: sample_age_clause(hold, " STALE")
+  defp admission_sample_age(hold), do: sample_age_clause(hold, "")
+
+  defp sample_age_clause(hold, suffix) do
+    case CapacityBinding.sample_age_seconds(hold) do
+      age when is_integer(age) -> " sampled=#{age}s ago#{suffix}"
+      nil -> ""
+    end
+  end
 
   defp github_quota_measurement(%{resource: resource, remaining: remaining, limit: limit, observed_at: observed_at}) do
     if stale_github_quota_measurement?(observed_at) do

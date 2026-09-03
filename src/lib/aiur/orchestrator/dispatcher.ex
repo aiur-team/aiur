@@ -585,7 +585,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
       :hold ->
         state
-        |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun)
+        |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun, opts)
         |> log_prewarm_hold(phase, log_fun)
         |> maybe_emit_prewarm_blocked_alert(phase)
     end
@@ -625,16 +625,30 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # of a gate that never actually cleared — suppressing the starvation alert for
   # as long as prewarm keeps oscillating. Only probe when ready work exists,
   # since that is the sole condition the starvation alert reports on.
-  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, [], _admission_probes_fun), do: state
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, [], _admission_probes_fun, _opts), do: state
 
-  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues, admission_probes_fun)
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues, admission_probes_fun, opts)
        when is_list(issues) and is_function(admission_probes_fun, 0) do
     probes = admission_probes_fun.() |> put_cpu_headroom(state)
+    queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
+    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
 
     state
     |> remember_cpu_snapshot(probes)
     |> record_capacity_sample(probes)
     |> record_capacity_constraints(probes)
+    # The prewarm branch is a dispatch path too: it just decided the hold for a
+    # different reason. Reconciling `capacity_hold` against this tick's own
+    # probes is what keeps the reported binding honest while prewarm holds —
+    # otherwise the last host-pressure measurement taken before the base build
+    # started stays latched for the build's whole duration, and `status` reports
+    # a minutes-old `load=` beside a current `LOAD` line four times smaller
+    # (#2527).
+    |> reconcile_capacity_hold(
+      DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)),
+      now_ms,
+      opts
+    )
   end
 
   @doc false
@@ -1893,14 +1907,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
     emit_fun = Keyword.get(opts, :emit_fun, &default_capacity_alert/2)
     telemetry_fun = Keyword.get(opts, :telemetry_fun, &RunTelemetry.record/2)
     debounce_ms = Keyword.get(opts, :alert_debounce_ms, @capacity_backoff_alert_ms)
+    measured_at = Keyword.get(opts, :utc_now_fun, &DateTime.utc_now/0).()
     signal = Map.fetch!(reason, :signal)
 
     case state.capacity_hold do
       %{signal: ^signal, alerted?: true} = hold ->
-        %{state | capacity_hold: merge_capacity_reason(hold, reason)}
+        %{state | capacity_hold: merge_capacity_reason(hold, reason, measured_at)}
 
       %{signal: ^signal, alerted?: false} = hold ->
-        hold = merge_capacity_reason(hold, reason)
+        hold = merge_capacity_reason(hold, reason, measured_at)
 
         if now_ms - hold.held_since_ms < debounce_ms do
           %{state | capacity_hold: hold}
@@ -1911,7 +1926,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
       _other ->
         telemetry_fun.(:capacity_hold, Aiur.JSONSafe.normalize(reason))
-        %{state | capacity_hold: Map.merge(reason, %{held_since_ms: now_ms, alerted?: false})}
+
+        %{
+          state
+          | capacity_hold: Map.merge(reason, %{held_since_ms: now_ms, alerted?: false, measured_at: measured_at})
+        }
     end
   end
 
@@ -1939,10 +1958,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
     ])
   end
 
-  defp merge_capacity_reason(hold, reason) do
+  # `measured_at` moves with the measurements it describes: an extended hold
+  # carries this tick's probe, not the probe that first opened it. Without the
+  # re-stamp the age would report how long the hold has lasted rather than how
+  # fresh the number beside it is (#2527).
+  defp merge_capacity_reason(hold, reason, measured_at) do
     hold
     |> Map.drop([:reclaimable_cpu_percent, :reclaimable_cpu_threshold])
     |> Map.merge(capacity_reason_measurements(reason))
+    |> Map.put(:measured_at, measured_at)
   end
 
   defp log_admission_hold(%{signal: :memory, measured: available_mb, threshold: threshold_mb}) do

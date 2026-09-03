@@ -40,11 +40,16 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   supply (#2138). A caller with no polling report gets the pre-#2138 behaviour.
   """
   @spec binding(map(), map()) :: t()
-  def binding(capacity, polling \\ %{})
+  def binding(capacity, polling \\ %{}), do: binding(capacity, polling, DateTime.utc_now())
 
-  def binding(%{capacity_hold: %{} = hold}, _polling), do: {:admission, hold}
+  @doc false
+  @spec binding(map(), map(), DateTime.t()) :: t()
+  def binding(capacity, polling, now)
 
-  def binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity, polling)
+  def binding(%{capacity_hold: %{} = hold}, polling, now),
+    do: {:admission, mark_stale_sample(hold, polling, now)}
+
+  def binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity, polling, _now)
       when is_integer(max) and is_integer(effective) and is_integer(configured) and is_integer(occupied) do
     case ticket_supply(capacity, polling) do
       {:ticket_supply, detail} -> {:ticket_supply, detail}
@@ -53,7 +58,96 @@ defmodule Aiur.Orchestrator.CapacityBinding do
     end
   end
 
-  def binding(_capacity, _polling), do: {:none, nil}
+  def binding(_capacity, _polling, _now), do: {:none, nil}
+
+  @doc """
+  Whether an admission hold's measurement is old enough to be reported as stale.
+
+  A hold is re-sampled once per poll cycle, so a sample older than two cycles
+  was taken on a tick that never ran — the daemon is paused, its tracker fetch
+  failed, or the reconciliation was skipped. The bound is floored at a minute so
+  a very tight cadence does not flag every reading, and capped at five minutes
+  because a figure that old stops describing the host whatever the cadence is:
+  #2527 was reported against a `load=24.14` that had been current eight minutes
+  earlier. The number is still the last thing the daemon measured; what changes
+  is that a reader may no longer read it as current. A hold with no stamp
+  predates #2527 and is left unjudged.
+  """
+  @spec stale_sample?(map(), map(), DateTime.t()) :: boolean()
+  def stale_sample?(hold, polling \\ %{}, now \\ DateTime.utc_now()) do
+    case sample_age_seconds(hold, now) do
+      age when is_integer(age) -> age > div(stale_after_ms(polling), 1_000)
+      nil -> false
+    end
+  end
+
+  @doc """
+  How many seconds ago an admission hold's measurement was taken.
+
+  Returns `nil` when the hold carries no usable stamp, so a caller renders no
+  age rather than a fabricated one.
+  """
+  @spec sample_age_seconds(map(), DateTime.t()) :: non_neg_integer() | nil
+  def sample_age_seconds(hold, now \\ DateTime.utc_now())
+
+  def sample_age_seconds(%{} = hold, %DateTime{} = now) do
+    case measured_at(hold) do
+      %DateTime{} = measured_at -> max(DateTime.diff(now, measured_at, :second), 0)
+      nil -> nil
+    end
+  end
+
+  def sample_age_seconds(_hold, _now), do: nil
+
+  @stale_sample_floor_ms 60_000
+  @stale_sample_ceiling_ms 300_000
+  @stale_sample_default_ms 120_000
+
+  defp stale_after_ms(polling) do
+    case poll_interval_ms(polling) do
+      interval when is_integer(interval) and interval > 0 ->
+        interval |> Kernel.*(2) |> max(@stale_sample_floor_ms) |> min(@stale_sample_ceiling_ms)
+
+      _unknown ->
+        @stale_sample_default_ms
+    end
+  end
+
+  defp poll_interval_ms(%{} = polling) do
+    Map.get(polling, :effective_interval_ms) || Map.get(polling, "effective_interval_ms") ||
+      Map.get(polling, :poll_interval_ms) || Map.get(polling, "poll_interval_ms")
+  end
+
+  defp poll_interval_ms(_polling), do: nil
+
+  # The stamp survives a JSON round trip through the status snapshot, so both
+  # the struct and its ISO-8601 rendering are accepted. Anything else is treated
+  # as "no stamp" rather than as a fresh sample.
+  defp measured_at(%{measured_at: %DateTime{} = measured_at}), do: measured_at
+  defp measured_at(%{"measured_at" => %DateTime{} = measured_at}), do: measured_at
+
+  defp measured_at(%{measured_at: measured_at}) when is_binary(measured_at), do: parse_measured_at(measured_at)
+  defp measured_at(%{"measured_at" => measured_at}) when is_binary(measured_at), do: parse_measured_at(measured_at)
+  defp measured_at(_hold), do: nil
+
+  defp parse_measured_at(measured_at) do
+    case DateTime.from_iso8601(measured_at) do
+      {:ok, parsed, _offset} -> parsed
+      _invalid -> nil
+    end
+  end
+
+  # The classification stays `:admission` — the daemon really did decide this
+  # hold, and dropping it would replace a known cause with a guess. What the
+  # marker adds is the one fact the figure alone cannot carry: whether it was
+  # measured recently enough to describe the host right now (#2527).
+  defp mark_stale_sample(hold, polling, now) do
+    if stale_sample?(hold, polling, now) do
+      Map.put(hold, :stale_sample?, true)
+    else
+      hold
+    end
+  end
 
   @doc """
   A short binding label for space-constrained surfaces such as a KPI tile.
@@ -70,6 +164,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   def short_label({:session_cap, _detail}), do: "session max_concurrent_agents"
   def short_label({:ticket_supply, _detail}), do: "ticket supply"
   def short_label({:has_not_polled, _detail}), do: "has not polled yet"
+  def short_label({:admission, %{signal: signal, stale_sample?: true}}), do: "admission: #{signal} (stale sample)"
   def short_label({:admission, %{signal: signal}}), do: "admission: #{signal}"
   def short_label({:admission, _hold}), do: "admission"
 
