@@ -193,7 +193,7 @@ When voice input is enabled, the Units meter reads the ElevenLabs credit quota a
 
 ### Without a key
 
-The key is optional and its absence is not an error. This differs from `elevenlabs.enabled: false`, which records that voice input was declined and disables the provider integration; see [Configuration](/reference/configuration#elevenlabs).
+The key is optional and its absence is not an error; unlike an absent key, `elevenlabs.enabled: false` records that voice input was declined and disables the provider integration (see [Configuration](/reference/configuration#elevenlabs)).
 
 | Surface | Behavior with no key |
 | --- | --- |

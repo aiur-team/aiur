@@ -287,7 +287,7 @@ Dismissing a Command closes it and moves it to history. If the Command's agent i
 | --- | --- |
 | **Dispatch needs `agent:todo`.** | `AGENTS 0/32 (binding: ticket supply)` means a recent poll found no queued ticket. If it instead reads `has not polled yet (POLL backed off...)`, the daemon has not looked recently — run `aiur --todo <id>`, add the label, or trigger a refresh so the work is seen. |
 | **Global pause is durable.** | Use `aiur status` and `aiur resume` before treating a silent restarted fleet as broken. |
-| **CI readiness uses a one-shot operator token.** | With a fine-grained token granting Contents, Actions, and Administration: Read-only, use `read -rsp 'AIUR_CI_READINESS_TOKEN: ' AIUR_CI_READINESS_TOKEN; echo`, then `export AIUR_CI_READINESS_TOKEN`, `aiur init`, and `unset AIUR_CI_READINESS_TOKEN`; never save it in `~/.aiur/.env`, the repository `.env`, or the daemon environment. |
+| **CI readiness uses an operator-only token.** | This is a one-shot credential: with a fine-grained token granting Contents, Actions, and Administration: Read-only, use `read -rsp 'AIUR_CI_READINESS_TOKEN: ' AIUR_CI_READINESS_TOKEN; echo`, then `export AIUR_CI_READINESS_TOKEN`, `aiur init`, and `unset AIUR_CI_READINESS_TOKEN`; never save it in `~/.aiur/.env`, the repository `.env`, or the daemon environment. |
 | **A base refresh affects approval ownership.** | With `require_last_push_approval`, route a base refresh through the ticket agent so the Executor does not become the ineligible last pusher. |
 
 ## `aiurdev`, for developing Aiur itself

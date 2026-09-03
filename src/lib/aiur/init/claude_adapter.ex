@@ -103,16 +103,17 @@ defmodule Aiur.Init.ClaudeAdapter do
 
   defp run_npm(args) do
     with npm when is_binary(npm) <- System.find_executable("npm") || {:error, "npm not found on PATH"} do
-      case bounded_command(fn -> System.cmd(npm, args, stderr_to_stdout: true) end, @command_timeout_ms) do
-        {:error, :timeout} -> {:error, "npm timed out after #{@command_timeout_ms}ms"}
-        {:error, reason} -> {:error, "npm failed: #{inspect(reason)}"}
-        {output, 0} -> {:ok, output}
-        {output, status} -> {:error, "npm exited #{status}: #{String.trim(output)}"}
-      end
+      bounded_command(fn -> System.cmd(npm, args, stderr_to_stdout: true) end, @command_timeout_ms)
+      |> normalize_npm_result()
     end
   rescue
     error -> {:error, Exception.message(error)}
   end
+
+  defp normalize_npm_result({:error, :timeout}), do: {:error, "npm timed out after #{@command_timeout_ms}ms"}
+  defp normalize_npm_result({:error, reason}), do: {:error, "npm failed: #{inspect(reason)}"}
+  defp normalize_npm_result({output, 0}), do: {:ok, output}
+  defp normalize_npm_result({output, status}), do: {:error, "npm exited #{status}: #{String.trim(output)}"}
 
   defp parse_version(output) do
     case Regex.run(~r/\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?/, output) do
