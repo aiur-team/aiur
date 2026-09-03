@@ -1,0 +1,103 @@
+# Known load-dependent flakes (#2397)
+#
+# Each non-comment line is one ExUnit failure exactly as the runner prints it:
+#   <Module> :: <test name>
+#
+# A red CI run's failing tests are compared against this list. A test on the
+# list is reported as a KNOWN FLAKE (an existing investigation owns it); a test
+# not on the list is reported as a NEW FAILURE and must be treated as a real
+# regression from the change. That distinction is what keeps "CI is red"
+# informative: red caused only by known flakes is a flake that fired, not proof
+# the change is broken.
+#
+# Provenance: each entry records where it was last observed (run URL or commit,
+# date) so stale entries can be audited and pruned once a flake stops firing.
+# Add a new entry when a flake is confirmed, using the exact name printed by the
+# runner. Keep entries byte-exact — the comparison is a full-line match.
+#
+# Remove an entry as soon as its cause is fixed and the fix is on main or in the
+# same change — do NOT keep a fixed test listed "in case it recurs". A listed
+# test is reported as a known flake instead of a NEW failure, so a fixed test
+# left on the list converts the very regression it would have caught back into
+# noise. That is the exact signal loss this file exists to prevent, and a
+# recurrence after a fix is a regression, which is precisely what must be loud.
+#
+# Scope: the classifier parses ExUnit's `N) test <name> (<Module>)` lines and
+# runs only on the Elixir coverage partitions. Failures from other runners
+# (e.g. the streamdeck Vitest job) can never match a line here, so listing them
+# would be inert — track those on their own ticket instead.
+
+# Quarantined for #2397: reads the configured repository through the shared
+# WorkflowStore singleton, which can serve a stale valid config under load.
+# Last observed run 32630000223 (2026-08-23).
+Aiur.GitHub.IssuesTest :: normalize_issue/4 marks malformed configured repositories explicitly nonjoinable
+
+# Shared WorkflowStore-config family, sibling of the quarantined test above.
+# Last observed run 32646869941 coverage (1/4) (2026-08-23).
+Aiur.GitHub.IssuesTest :: normalize_issue/4 does not use the current checkout when repository configuration is absent
+
+# decision_store_test.exs:2624 saturation dispatch ordering (#2402).
+# Last observed 2026-08-23.
+Aiur.DecisionStoreTest :: saturation fails admission durably and opens delivery attention
+
+# decision_store_test.exs journal append `append_failed, :enoent` (#2403). The
+# exact test name varies by run; add it here once pinned.
+
+# Dispatched on #2373 (open).
+# Last observed 2026-08-23.
+Aiur.BuildOrder.TicketHistoryProviderTest :: publishes immutable per-ticket updates and tolerates subscriber churn
+
+# The shared PubSub/ReadCache collapse cluster (six failures in one partition at
+# commit 5c1679f7, 2026-08-23) was listed here and is now removed: this change
+# fixes it with the shared-children recovery, so a recurrence is a regression
+# and must report as NEW.
+
+# Unticketed. Observed blocking docs-only PR #2412 (+84/-0, one file) and #2282
+# (2026-08-23); passes on current main in isolation (12 tests, 0 failures).
+# Ruled out the obvious regression suspect #2370 by running against main.
+Aiur.GitHub.BotIdentityTest :: daemon_account/3 under a split identity resolves the daemon App bot, not the account agents publish as
+Aiur.GitHub.BotIdentityTest :: falls back from config bot account to authenticated viewer login
+
+# Observed on docs-only PR #2342, run referenced on #2397 (2026-08-24).
+Aiur.GitHub.BotIdentityTest :: classifies both split identities as Aiur's own from config alone
+
+# Unticketed, reported on PR #2451 (2026-08-24) as a load-dependent allowlist
+# failure in coverage (3/4). The exact name is pinned to the test definition so
+# the reporter keeps its full-line matching contract.
+Aiur.GitHub.CodeOwnersTest :: user tokens become allowlist entries
+
+# Unticketed, observed 2026-08-24 run 32784032689 coverage (1/4). Same code was
+# fully green on head 1ff0f23aa (run 32780225293). Residual members of the
+# #2288 endpoint teardown/startup class (shared AiurWeb.Endpoint): the owned
+# endpoint's start races the prior teardown under load.
+Aiur.DecisionApiIntegrationTest :: authenticated enrichment and delegated answer share one durable lifecycle
+Aiur.DecisionApiIntegrationTest :: authenticated revision uses OCC-8 persistence, correlation, and trusted supervisor basis
+
+# The OrchestratorBlockingHttpTest wall-clock-deadline entry (run 32786514956
+# coverage (4/4), 2026-08-24) is removed: #2470 replaced the elapsed-time bound
+# with a lease-release signal and is closed as completed on main.
+
+# Unticketed, observed 2026-08-24 run 32785954406 coverage (3/4). Same code was
+# fully green on head 1ff0f23aa (run 32780225293). Restart-fencing/concurrency
+# shape in the Orchestrator family.
+Aiur.Orchestrator.LiveConversationRuntimeTest :: fences runtime status by worker, exact source, epoch, revision, and restart
+
+# Unticketed, observed 2026-08-24 run 32785192527 coverage (3/4); previously
+# blocked PR #2423 (its-everdred, 2026-08-24). Wall-clock-deadline class: the
+# CLI's "running through the tracker poll" path races the runner replacement
+# under load.
+Aiur.OrchestratorStatusTest :: tracker poll unpause replaces a dead runner and reports running through the CLI
+
+# Unticketed, observed 2026-08-24 run 32782984118 coverage (2/4). Same code was
+# fully green on head 1ff0f23aa (run 32780225293); passes locally in isolation.
+# Timing-shaped (socket token expiry delivery).
+AiurWeb.StreamdeckChannelTest :: a joined channel closes when its socket token expires
+
+# Unticketed, observed 2026-09-02 run 33585045973 coverage (1/4), the first run
+# where the step-level timeout let a partition actually report its failures.
+# Passes locally in isolation on the same head (113 tests, 0 failures). The
+# assertion is on a real shelled-out `mise`/Mix build under a build-gate lease
+# and it failed as {"", 1} -- exit 1 with EMPTY output, i.e. the command never
+# produced anything, which is a saturated-runner signature rather than a lease
+# defect. Cannot be reached by this PR's diff.
+Aiur.BuildGateTest :: real mise command strings acquire one lease for the whole Mix build

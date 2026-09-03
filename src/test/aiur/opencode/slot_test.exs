@@ -105,6 +105,12 @@ defmodule Aiur.Opencode.SlotTest do
 
   describe "PubSub event topology" do
     test "all attach/visible events broadcast on slots_topic/0" do
+      # Broadcasts to the shared `Aiur.PubSub` registry, an app child a sibling
+      # test can terminate; subscribing to a missing registry raises
+      # `unknown registry: Aiur.PubSub` rather than failing the broadcast
+      # assertions this test is actually about (#2397).
+      :ok = Aiur.TestSupport.ensure_pubsub_running()
+
       topic = Slot.slots_topic()
       Phoenix.PubSub.subscribe(Aiur.PubSub, topic)
 
