@@ -5710,7 +5710,7 @@ defmodule AiurWeb.DashboardLiveTest do
       end
     end)
 
-    start_supervised!({AiurWeb.Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
   end
 
   defp start_counting_orchestrator(name, opts \\ []) do

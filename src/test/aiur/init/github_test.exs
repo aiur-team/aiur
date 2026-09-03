@@ -126,6 +126,25 @@ defmodule Aiur.Init.GitHubTest do
       refute message =~ "do not grant those permissions to GITHUB_TOKEN"
     end
 
+    test "continues with actionable guidance when the repository plan excludes rulesets" do
+      parent = self()
+      plan_limit_message = "Upgrade to GitHub Pro or make this repository public to enable this feature."
+      io = %{puts: fn message -> send(parent, {:io_puts, message}) end, confirm: fn _, _ -> false end}
+
+      deps = %{
+        check_ci_readiness: fn _ -> {:error, {:ci_readiness_plan_limit, plan_limit_message}} end,
+        detect_repo: fn -> "o/r" end
+      }
+
+      assert :ok = GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "o/r"})
+      assert_received {:io_puts, message}
+      assert message =~ plan_limit_message
+      assert String.downcase(message) =~ "make the repository public"
+      assert String.downcase(message) =~ "upgrade the plan"
+      assert message =~ "continuing without ruleset verification"
+      refute message =~ "AIUR_CI_READINESS_TOKEN"
+    end
+
     test "persists a ready operator assessment for the daemon and reports it" do
       root = Aiur.TestSupport.tmp_root!("aiur-init-readiness")
       config_path = Path.join([root, "aiur", "config.yml"])

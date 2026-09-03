@@ -86,6 +86,17 @@ defmodule Aiur.Init.GitHub do
   defp handle_readiness_result({:error, {:repository_access_failed, reason}}, _io, _deps, tracker),
     do: {:error, repository_access_message(tracker, reason)}
 
+  defp handle_readiness_result({:error, {:ci_readiness_plan_limit, message}}, io, _deps, _tracker) do
+    io.puts.(
+      "GitHub reports: #{message}\n" <>
+        "This repository plan does not support the ruleset or classic branch-protection checks needed for full CI readiness verification. " <>
+        "Make the repository public, upgrade the plan, or continue without ruleset verification. " <>
+        "aiur init is continuing without ruleset verification and will not save a CI-readiness assessment."
+    )
+
+    :ok
+  end
+
   defp handle_readiness_result({:error, reason}, _io, _deps, _tracker),
     do: {:error, readiness_error_message(reason)}
 
