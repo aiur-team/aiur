@@ -166,6 +166,59 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "account for every hit"
   end
 
+  test "aiur-agent push preflight validates the broker credential file (#2498)" do
+    content = File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md"))
+    normalized = one_line(content)
+
+    assert normalized =~ "Agent processes deliberately do not inherit `GITHUB_TOKEN` or `GH_TOKEN`"
+    assert content =~ ~s(test -n "${AIUR_GITHUB_CREDENTIAL_FILE:-}")
+    assert content =~ ~s(test -f "$AIUR_GITHUB_CREDENTIAL_FILE")
+    assert content =~ ~s(test -s "$AIUR_GITHUB_CREDENTIAL_FILE")
+    assert content =~ ~s(gh api user --jq .login)
+    refute content =~ ~s(GH_TOKEN="$GITHUB_TOKEN" gh api user)
+
+    # Each credential-preflight failure must identify the credential-file
+    # authority and carry the actual file path where one is available.
+    assert content =~ "AIUR_GITHUB_CREDENTIAL_FILE is unset; the agent GitHub credential file cannot be located"
+
+    assert content =~
+             "GitHub credential file is missing or empty: %s\\n' \"$AIUR_GITHUB_CREDENTIAL_FILE\" >&2"
+
+    assert content =~
+             "GitHub credential file could not authenticate: %s\\n' \"$AIUR_GITHUB_CREDENTIAL_FILE\" >&2"
+
+    assert content =~ "GitHub credential file %s authenticates as %s; expected %s\\n'"
+    assert content =~ ~s("$AIUR_GITHUB_CREDENTIAL_FILE" "$actual_login" "<bot_account>" >&2)
+
+    # Budget holds are self-clearing pauses, not generic credential failures.
+    assert content =~ "'aiur: github budget hold resource=core reset_at_ms='*|\\"
+    assert content =~ "'aiur: github budget hold resource=graphql reset_at_ms='*)"
+    assert content =~ ~s(printf '%s\\n' "$github_auth_output" >&2)
+
+    budget_hold_guidance =
+      "Follow the existing github_budget_hold pause.request protocol below; do not raise a credential attention."
+
+    generic_credential_failure = "GitHub credential file could not authenticate"
+
+    assert {budget_hold_index, _} = :binary.match(content, budget_hold_guidance)
+    assert {generic_failure_index, _} = :binary.match(content, generic_credential_failure)
+    assert budget_hold_index < generic_failure_index
+
+    # Manual recovery clears GitHub-only inherited auth before installing the
+    # credential-file helper; it must not fall back to scrubbed token variables.
+    assert content =~
+             ~r/-c credential\.https:\/\/github\.com\.helper= \\\n+\s+-c credential\.https:\/\/github\.com\.helper="\$agent_helper"/
+
+    assert content =~ ~r/-c http\.https:\/\/github\.com\/\.extraheader= \\\n+\s+push origin HEAD/
+
+    assert content =~ ~s(f="${AIUR_GITHUB_CREDENTIAL_FILE:-}")
+    refute content =~ ~s(t=${GITHUB_TOKEN:-${GH_TOKEN:-}})
+
+    assert normalized =~ "name `AIUR_GITHUB_CREDENTIAL_FILE` and its resolved path"
+    assert normalized =~ "`supervisor_allowed` + `reversible`"
+    assert normalized =~ "never `human_required` or `irreversible`"
+  end
+
   test "aiur-agent instructions forbid --trace on a bare file or directory (#2311)" do
     for path <- [".claude/skills/aiur-agent/dev-loop.md", ".aiur/prompt.md"] do
       content = File.read!(Path.join(@repo_root, path))

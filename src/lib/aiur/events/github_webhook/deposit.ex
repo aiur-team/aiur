@@ -150,6 +150,14 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   `event_type` is the `X-GitHub-Event` header value, `repo` the tracked
   `"owner/name"` the caller already resolved. Never raises: the caller is an
   HTTP endpoint, and a cache write is never worth failing a delivery over.
+
+  Options:
+
+    * `:at` — the delivery's arrival time, used as the version marker for the
+      ordering-sensitive edge deposits (`sub_issue`, `issue_dependency`).
+      GitHub's edge events carry no `updated_at` of their own, so the arrival
+      time is the only honest ordering marker a stale-delivery guard can
+      compare. Defaults to now.
   """
   @spec deposit(term(), term(), term(), keyword()) :: [ResourceStore.key()]
   def deposit(event_type, payload, repo, opts \\ [])
@@ -158,6 +166,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       when is_binary(event_type) and is_map(payload) and is_binary(repo) do
     keys =
       if store_running?() do
+        arrival = arrival_version(opts)
+
         Enum.flat_map(bodies(event_type, payload, opts), fn
           {:drop, type, id} ->
             drop(type, repo, id)
@@ -175,7 +185,7 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
             merge_check_run(repo, target, head_sha, check_run)
 
           {type, id, body, version} ->
-            store(type, repo, id, body, version)
+            store(type, repo, id, body, edge_version(type, version, arrival))
         end)
       else
         []
@@ -297,33 +307,50 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
 
   defp bodies("issues", payload, _opts), do: issue_deposits(Map.get(payload, "action"), Map.get(payload, "issue"))
 
-  # A `sub_issues` delivery carries the full sub-issue and its full parent
-  # issue — deposited as carried issues (`:issue` / `:issue_labels`) for the
-  # readers those resources serve (#2326) — plus the parent↔sub-issue edge the
-  # Build Order catalog rebuilds each root's membership from (#2325). The edge
-  # is keyed by the sub-issue's node id and holds the parent relationship the
-  # projection needs to attach it to a root; `sub_issue_removed` drops it.
+  # A `sub_issues` delivery mutates the Build Order graph's membership: an issue
+  # becomes (or stops being) a member of a root. There is no fleet event to
+  # publish for it — the catalog is event-sourced from the store — so this
+  # delivery's job is to deposit the edge, with the edge's `present` flag
+  # storing the *operation* at the delivery's arrival version so the
+  # stale-delivery guard can refuse a late `added` after a `removed` and
+  # vice-versa (#2313). The full sub-issue and parent issue are also deposited
+  # as carried issues (`:issue` / `:issue_labels`) for the readers those
+  # resources serve (#2326).
+  #
+  # A `parent_issue_*` action and a `sub_issue_*` action are the same edge from
+  # either end, so they deposit the same key.
   defp bodies("sub_issues", payload, _opts) do
+    action = Map.get(payload, "action")
+    edge = sub_issue_edge(payload)
+
     carried_issue_deposits(Map.get(payload, "sub_issue")) ++
       carried_issue_deposits(Map.get(payload, "parent_issue")) ++
-      sub_issue_deposits(Map.get(payload, "action"), payload)
+      if is_map(edge) do
+        if removed_action?(action), do: [edge_deposit(:sub_issue, edge, false)], else: [edge_deposit(:sub_issue, edge, true)]
+      else
+        []
+      end
   end
 
-  # An `issue_dependencies` delivery carries the issue whose dependency edge
-  # changed, plus the blocker edge it created or removed, and the action tells
-  # which. The issue is deposited like any carried issue; the edge is then
-  # deposited according to the action — `blocked_by_added` merges it into the
-  # `:issue_blocked_by` list the dependency reader serves (so a delivery that
-  # announces an edge does not make the next `fetch_blocked_by` pay for it
-  # again), `blocked_by_removed` drops the held list entirely (#2326). The edge
-  # is also deposited under its relationship id so the catalog's event-sourced
-  # rebuild can enumerate every edge from the store (#2325).
+  # An `issue_dependencies` delivery mutates the graph's dependency edges. Like
+  # `sub_issues` there is no fleet event: the deposit is the whole point. The
+  # two directions of one edge (`blocked_by_added` says A is blocked by B;
+  # `blocking_added` says B blocks A) normalize to one canonical key so the two
+  # actions cannot create two store entries for the same fact. The carried
+  # issue is deposited like any carried issue, and the edge is merged into the
+  # `:issue_blocked_by` list the dependency reader serves (#2326).
   defp bodies("issue_dependencies", payload, _opts) do
+    action = Map.get(payload, "action")
+    edge = dependency_edge(payload)
     issue = Map.get(payload, "issue")
 
     carried_issue_deposits(issue) ++
-      blocked_by_edge_deposits(Map.get(payload, "action"), issue, Map.get(payload, "blocked_by_issue")) ++
-      issue_dependency_deposits(Map.get(payload, "action"), Map.get(payload, "dependency"))
+      blocked_by_edge_deposits(action, issue, Map.get(payload, "blocked_by_issue")) ++
+      if is_map(edge) do
+        if removed_action?(action), do: [edge_deposit(:issue_dependency, edge, false)], else: [edge_deposit(:issue_dependency, edge, true)]
+      else
+        []
+      end
   end
 
   defp bodies(_event_type, _payload, _opts), do: []
@@ -387,6 +414,17 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   #
   # Deliberately runs even when the store is not running: a delivery proves the
   # change whether or not there is anywhere to hold its body.
+  #
+  # A `sub_issues` or `issue_dependencies` delivery changes only the Build Order
+  # graph, which the catalog projects from the store (#2313) and whose GitHub
+  # re-reads bypass `ReadCache`. It retires no numbered REST resource, so
+  # invalidating here would fall through to `invalidate_repo/1` and clear the
+  # whole repository's cache for a change that made nothing it serves stale —
+  # paying a full re-fetch on the very path this ticket exists to stop charging.
+  defp invalidate_read_cache(event_type, _payload, _repo)
+       when event_type in ["sub_issues", "issue_dependencies"],
+       do: :ok
+
   defp invalidate_read_cache(event_type, payload, repo) do
     case delivery_numbers(event_type, payload) do
       [] -> ReadCache.invalidate_repo(repo)
@@ -598,83 +636,105 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
     end
   end
 
-  # -- Build Order relationship deposits --------------------------------------
+  # -- Build Order graph edges (#2313) --------------------------------------
+  #
+  # `sub_issues` and `issue_dependencies` deliveries carry no `updated_at` on
+  # either issue — the payload is pure edge facts — so the deposit versions each
+  # edge with the delivery's arrival time (threaded as `:at`, falling back to
+  # now). That version is what lets `deposit_unless_older/3` refuse a late
+  # `added` after a `removed` for the same edge, and a late `removed` after a
+  # newer `added`. Without it, out-of-order delivery would silently invert the
+  # graph the catalog renders.
 
-  # A `sub_issues` delivery announces one parent↔sub-issue edge. The Build
-  # Order catalog rebuilds each root's membership from the store, so the edge is
-  # keyed by the sub-issue's **node id** — the identity GitHub uses in both the
-  # `sub_issue_added` and `sub_issue_removed` payloads, and the one field that
-  # survives a removal that carries no issue object — with a body holding the
-  # sub-issue object and the parent relationship the projection needs to attach
-  # it to a root. A projection resolves the node id to a held `:issue` number
-  # through the REST bodies' own `node_id`.
-  defp sub_issue_deposits("sub_issue_added", payload) do
-    with sub_issue when is_map(sub_issue) <- Map.get(payload, "sub_issue"),
-         node_id when is_binary(node_id) <- Map.get(sub_issue, "node_id") || Map.get(payload, "sub_issue_id"),
-         parent_id when is_binary(parent_id) <- Map.get(payload, "parent_issue_id") do
-      parent = parent_relationship(Map.get(payload, "parent_issue"), parent_id)
-      [{:sub_issues, node_id, Map.put(sub_issue, "parent", parent), version(sub_issue)}]
+  # An `*_removed` action is the mirror of an `*_added`, and both directions
+  # (`parent_issue_*`/`sub_issue_*`, `blocked_by_*`/`blocking_*`) describe the
+  # same edge, so the edge key is canonical and the operation is stored in the
+  # body.
+  defp removed_action?(action)
+       when action in [
+              "parent_issue_removed",
+              "sub_issue_removed",
+              "blocked_by_removed",
+              "blocking_removed"
+            ],
+       do: true
+
+  defp removed_action?(_action), do: false
+
+  defp sub_issue_edge(payload) do
+    with parent when not is_nil(parent) <- positive_number(Map.get(payload, "parent_issue_number")),
+         sub when not is_nil(sub) <- positive_number(Map.get(payload, "sub_issue_number")) do
+      %{
+        "parent_issue_number" => parent,
+        "sub_issue_number" => sub,
+        "parent_issue_repo" => repo_string(Map.get(payload, "parent_issue_repo")),
+        "sub_issue_repo" => repo_string(Map.get(payload, "sub_issue_repo"))
+      }
     else
-      _other -> []
-    end
-  end
-
-  defp sub_issue_deposits("sub_issue_removed", payload) do
-    case payload do
-      %{"sub_issue" => %{"node_id" => node_id}} when is_binary(node_id) ->
-        [{:drop, :sub_issues, node_id}]
-
-      %{"sub_issue_id" => node_id} when is_binary(node_id) ->
-        [{:drop, :sub_issues, node_id}]
-
-      _other ->
-        []
-    end
-  end
-
-  defp sub_issue_deposits(_action, _payload), do: []
-
-  # The parent edge as the projection reads it: the parent issue object when the
-  # delivery carried one, else a node-id-only record the projection resolves
-  # against the held `:issue` bodies.
-  defp parent_relationship(%{"number" => number} = parent, _parent_id) when is_integer(number), do: parent
-
-  defp parent_relationship(_parent, parent_id), do: %{"node_id" => parent_id, "number" => nil}
-
-  # An `issue_dependencies` delivery announces one dependency edge; the
-  # `dependency` object carries the relationship id and both issue objects. Keyed
-  # by the relationship id so add/remove map to deposit/drop and a rebuild
-  # enumerates every edge from the store.
-  defp issue_dependency_deposits("created", dependency) when is_map(dependency) do
-    case dependency_id(dependency) do
-      nil -> []
-      id -> [{:issue_dependencies, id, dependency, dependency_version(dependency)}]
-    end
-  end
-
-  defp issue_dependency_deposits("removed", dependency) when is_map(dependency) do
-    case dependency_id(dependency) do
-      nil -> []
-      id -> [{:drop, :issue_dependencies, id}]
-    end
-  end
-
-  defp issue_dependency_deposits(_action, _dependency), do: []
-
-  defp dependency_id(dependency) do
-    case Map.get(dependency, "dependency_id") do
-      id when is_binary(id) and id != "" -> id
       _other -> nil
     end
   end
 
-  # A dependency edge has no `updated_at` of its own; the dependant issue's
-  # marker is the closest ordering claim the delivery carries.
-  defp dependency_version(%{"dependant" => %{"updated_at" => updated_at}})
-       when is_binary(updated_at) and updated_at != "",
-       do: updated_at
+  # One edge, two actions. `blocked_by_added` reports A blocked by B;
+  # `blocking_added` reports B blocking A. Both store the same canonical
+  # `blocked:blocker` key, so the projection reads one entry per fact.
+  defp dependency_edge(payload) do
+    with blocked when not is_nil(blocked) <- positive_number(Map.get(payload, "blocked_issue_number")),
+         blocker when not is_nil(blocker) <- positive_number(Map.get(payload, "blocking_issue_number")) do
+      %{
+        "blocked_issue_number" => blocked,
+        "blocking_issue_number" => blocker,
+        "blocked_issue_repo" => repo_string(Map.get(payload, "blocked_issue_repo")),
+        "blocking_issue_repo" => repo_string(Map.get(payload, "blocking_issue_repo"))
+      }
+    else
+      _other -> nil
+    end
+  end
 
-  defp dependency_version(_dependency), do: nil
+  defp edge_deposit(:sub_issue, edge, present) do
+    edge = Map.put(edge, "present", present)
+    id = "#{edge["parent_issue_number"]}:#{edge["sub_issue_number"]}"
+    {:sub_issue, id, edge, nil}
+  end
+
+  defp edge_deposit(:issue_dependency, edge, present) do
+    edge = Map.put(edge, "present", present)
+    id = "#{edge["blocked_issue_number"]}:#{edge["blocking_issue_number"]}"
+    {:issue_dependency, id, edge, nil}
+  end
+
+  # Only the two graph-edge types carry no `updated_at` and are
+  # ordering-sensitive, so only they fall back to the delivery's arrival time
+  # as their version marker. Every other type keeps the version its `bodies/2`
+  # clause supplied, which may legitimately be `nil` — a PR review has no
+  # `updated_at` — and forcing an arrival time onto those would change their
+  # stored marker and break consumers that read it (#2313).
+  defp edge_version(type, nil, arrival) when type in [:sub_issue, :issue_dependency], do: arrival
+  defp edge_version(_type, version, _arrival), do: version
+
+  defp positive_number(value) when is_integer(value) and value > 0, do: value
+
+  defp positive_number(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} when number > 0 -> number
+      _other -> nil
+    end
+  end
+
+  defp positive_number(_value), do: nil
+
+  defp repo_string(value) when is_binary(value) and value != "", do: value
+  defp repo_string(_value), do: nil
+
+  # The ISO-8601 arrival marker used as an edge's version. UTC timestamps sort
+  # lexically, which is exactly what `regression?/2`'s `<` comparison needs.
+  defp arrival_version(opts) do
+    case Keyword.get(opts, :at) do
+      %DateTime{} = at -> DateTime.to_iso8601(at)
+      _other -> DateTime.to_iso8601(DateTime.utc_now())
+    end
+  end
 
   # ---------------------------------------------------------------------------
   # Writing

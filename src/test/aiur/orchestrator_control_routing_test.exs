@@ -141,6 +141,14 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert %{status: :rejected, rejection: %{class: :superseded}} =
                resume_pending_state.control_lifecycle.records[pause_request_id]
 
+      assert {:noreply, unclassified_pause_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused, %{kind: :worker_pause_unknown}},
+                 resume_pending_state
+               )
+
+      assert unclassified_pause_state.running[issue_id].paused_reason == :worker_pause_unknown
+
       assert {:noreply, ^resume_pending_state} =
                Orchestrator.handle_info(
                  {:worker_control_state, issue_id, :paused, %{request_id: pause_request_id, generation: 101}},
@@ -155,6 +163,25 @@ defmodule Aiur.OrchestratorControlRoutingTest do
 
       assert resumed_state.running[issue_id].control.status == :working
       refute Map.has_key?(resumed_state.running[issue_id], :pending_pause_reason)
+    end
+
+    test "an uncorrelated worker pause does not inherit a pending operator cause" do
+      issue_id = unique_id("control-uncorrelated-operator-pause")
+      entry = running_entry(issue_id)
+      state = base_state(running: %{issue_id => entry})
+
+      assert {{:ok, request_id}, pause_pending_state} =
+               PauseResume.request_pause(state, entry, entry.issue, :operator_pause)
+
+      assert_receive {:pause_agent, ^request_id, 101}
+
+      assert {:noreply, unclassified_pause_state} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :paused, %{kind: :worker_pause_unknown}},
+                 pause_pending_state
+               )
+
+      assert unclassified_pause_state.running[issue_id].paused_reason == :worker_pause_unknown
     end
 
     test "a new pause supersedes an accepted resume before its worker evidence" do
