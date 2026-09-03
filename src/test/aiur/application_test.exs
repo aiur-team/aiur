@@ -714,7 +714,16 @@ defmodule Aiur.ApplicationTest do
       ModeTable.put(@mode_repo, webhook_backed_mode())
       assert ModeTable.transport(@mode_repo) == :webhook
 
-      mode_table = Process.whereis(Aiur.Webhooks.ModeTable)
+      # Same barrier discipline as the sibling test above: a test that returns
+      # while a `:rest_for_one` cascade is still restarting leaks that restart
+      # into whichever test runs next, which is the exact fault this file is
+      # guarding against.
+      running_before =
+        for {id, pid, _type, _modules} <- Supervisor.which_children(Aiur.Supervisor),
+            is_pid(pid),
+            do: id
+
+      mode_table = Process.whereis(ModeTable)
       assert is_pid(mode_table)
       ref = Process.monitor(mode_table)
 
@@ -726,7 +735,10 @@ defmodule Aiur.ApplicationTest do
       refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 5_000
 
       assert await_registered(Aiur.PubSub)
-      assert Process.whereis(Aiur.Webhooks.ModeTable) == mode_table
+      for id <- running_before, do: assert(await_child(id), "#{inspect(id)} never came back")
+
+      # Never restarted, so the ETS table it created is the same table.
+      assert Process.whereis(ModeTable) == mode_table
       assert ModeTable.transport(@mode_repo) == :webhook
     end
   end

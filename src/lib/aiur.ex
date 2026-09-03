@@ -277,6 +277,13 @@ defmodule Aiur.Application do
       # webhook-backed repo silently fell back to the 30-second polling TTL and
       # stayed there until a fresh delivery re-proved it. Ordered first, no
       # sibling's crash can reach it.
+      #
+      # Going first also means a `ModeTable` crash would now restart the whole
+      # tree behind it, which is only acceptable because it has no way to crash:
+      # `put/2`, `transport/1` and `delete/1` all run in the *caller's* process
+      # against a `:public` table, so the server itself exposes no `handle_call`
+      # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
+      # Give it a failing callback and this ordering stops being free.
       Aiur.Webhooks.ModeTable,
       {Phoenix.PubSub, name: Aiur.PubSub},
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
