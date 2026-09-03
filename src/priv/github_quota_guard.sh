@@ -1899,6 +1899,22 @@ budget_sleep_ms() {
   sleep "$budget_seconds"
 }
 
+# The broker's captured stdout+stderr, folded into one bounded line fit for an
+# error message. A traceback is several lines and a SQLite message can be long,
+# and this text is read out of a CI log and an ExUnit failure, so it is squeezed
+# to single spaces and truncated. Empty output is itself a diagnosis — a
+# subprocess that died on a signal says nothing — so it is named rather than
+# left as an empty parenthesis.
+budget_diagnostic_line() {
+  budget_diagnostic=$(printf '%s\n' "$1" | tr '\n\t' '  ' | sed -e 's/  */ /g' -e 's/^ //' -e 's/ $//' | cut -c1-400)
+  if [ -n "$budget_diagnostic" ]; then
+    printf '%s' "$budget_diagnostic"
+  else
+    printf '%s' 'broker exited non-zero without output'
+  fi
+  unset budget_diagnostic
+}
+
 valid_budget_lease() {
   case "$1" in ''|*[!0-9abcdef]*) return 1 ;; esac
   [ "${#1}" -eq 32 ]
@@ -1973,7 +1989,15 @@ budget_acquire() {
         budget_mark_stale_broker acquire
         return 0
       fi
-      printf 'aiur: GitHub budget broker unavailable (%s); refusing uncoordinated request\n' "$budget_recovery" >&2
+      # The broker told us why it failed; say that instead of guessing. This
+      # message used to print only `$budget_recovery`, which names ownership,
+      # permissions and `writableRoots` as the cause. For a broker subprocess
+      # that aborted on its own — a SQLite error, a Python traceback — that is a
+      # confident misdiagnosis, and it sent readers to repair a directory the
+      # caller had just created successfully (#2499). The captured output is the
+      # evidence; the root is a locator, not a diagnosis.
+      printf 'aiur: GitHub budget broker unavailable (%s; budget root %s); refusing uncoordinated request\n' \
+        "$(budget_diagnostic_line "$budget_result")" "$budget_root" >&2
       return 75
     fi
     unset budget_ignore_flag budget_cache_flags

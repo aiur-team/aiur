@@ -197,7 +197,9 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.chmod!(fake_gh, 0o755)
     File.write!(fake_jq, "#!/bin/sh\nprintf '%s\\n' 'unexpected system jq invocation' >&2\nexit 89\n")
     File.chmod!(fake_jq, 0o755)
-    File.write!(failing_broker, "import sys\nsys.exit(1)\n")
+    # A broker that aborts the way a real one does: a diagnostic on stderr and a
+    # non-zero exit. The wrapper must carry that text into its refusal (#2499).
+    File.write!(failing_broker, "import sys\nprint('simulated broker abort', file=sys.stderr)\nsys.exit(1)\n")
     File.chmod!(failing_broker, 0o755)
     File.write!(wait_broker, "import os\nprint(os.environ['FAKE_BROKER_RESPONSE'])\n")
     File.chmod!(wait_broker, 0o755)
@@ -2340,8 +2342,93 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     assert output =~ "refusing uncoordinated request"
     assert output =~ budget_root
-    assert output =~ "agent.codex.turn_sandbox_policy.writableRoots"
+    assert output =~ "simulated broker abort"
+
+    # The broker said why it failed, so the wrapper must not talk over it with a
+    # guess. This path used to print only the ownership/permissions/writableRoots
+    # recovery text, which named a cause that has nothing to do with a broker
+    # that aborted on its own and sent readers to repair a directory the caller
+    # had just created successfully (#2499).
+    refute output =~ "agent.codex.turn_sandbox_policy.writableRoots"
     refute File.exists?(context.calls)
+  end
+
+  test "a silent broker failure is named rather than left blank", context do
+    budget_root = Path.join(context.state_path, "silent-broker-budget")
+    silent_broker = Path.join(context.state_path, "silent-broker.py")
+    File.mkdir_p!(context.state_path)
+    File.write!(silent_broker, "import sys\nsys.exit(1)\n")
+    File.chmod!(silent_broker, 0o755)
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: silent_broker,
+               GITHUB_TOKEN: "shared-test-credential"
+             )
+
+    # A subprocess killed by a signal says nothing, and an empty parenthesis
+    # reads as though the wrapper had no idea it was there.
+    assert output =~ "broker exited non-zero without output"
+    refute File.exists?(context.calls)
+  end
+
+  # #2499. Adding a ledger column is a `PRAGMA table_info` read followed by an
+  # `ALTER TABLE` write, and the daemon plus every agent runs it on the same file
+  # from separate processes. On a cold start they all read the same column set
+  # before any of them writes, so they all decide the column is missing and all
+  # try to add it; every process but the winner used to abort with `duplicate
+  # column name`, which the wrapper reported as `GitHub budget broker
+  # unavailable` and refused. That is a fleet whose first simultaneous reads are
+  # mostly refused, on a ledger that is in fact perfectly healthy.
+  #
+  # The interleaving is forced rather than hoped for. An exclusive lock holds
+  # every reader at its `ALTER` until all of them have taken their decision, so
+  # releasing it produces exactly one winner and three losers every run.
+  test "concurrent readers of different resources survive a migrating ledger", context do
+    budget_root = Path.join(context.state_path, "migrating-budget")
+    database = Path.join(budget_root, "budget.sqlite3")
+    markers = Path.join(context.state_path, "broker-starts")
+
+    env = [
+      AIUR_GITHUB_BUDGET_ROOT: budget_root,
+      AIUR_GITHUB_BUDGET_KEY: "c" <> String.duplicate("0", 63),
+      AIUR_GITHUB_BUDGET_BROKER: start_marking_broker(context, markers),
+      # Every reader admissible at once, so the only thing that can refuse one is
+      # the migration under test rather than an in-flight ceiling or the stagger.
+      AIUR_GITHUB_MAX_INFLIGHT: "8",
+      AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT: "8",
+      AIUR_GITHUB_REQUESTS_PER_MINUTE: "600",
+      AIUR_GITHUB_STAGGER_MS: "0"
+    ]
+
+    # A ledger from before `billable_reason` existed. A genuinely fresh ledger
+    # has the identical pending migration — the column is not in the `CREATE
+    # TABLE` script — but this shape is reachable without racing the file into
+    # existence, so the test can hold the lock before the readers arrive.
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/1669"], env)
+    drop_ledger_column!(database, "admissions", "billable_reason")
+    File.rm_rf!(markers)
+    File.mkdir_p!(markers)
+
+    lock = lock_database(database)
+
+    tasks =
+      for number <- [1670, 1671, 1672, 1673] do
+        Task.async(fn -> run_guard(context, ["api", "repos/owner/repo/issues/#{number}"], env) end)
+      end
+
+    # The marker is written as each broker process starts. From there to the
+    # blocked `ALTER` nothing else can block: the exclusive lock excludes
+    # writers, and every step in between — the journal-mode pragma, the
+    # `CREATE TABLE IF NOT EXISTS` script against tables that already exist, and
+    # the column probe itself — only reads. So four markers means four readers
+    # have taken their decision and are queued behind the lock.
+    wait_until(fn -> length(File.ls!(markers)) >= 4 end)
+    close_port(lock)
+
+    results = Enum.map(tasks, &Task.await(&1, 30_000))
+    assert Enum.all?(results, &match?({"ok\n", 0}, &1)), inspect(results)
   end
 
   test "an unavailable budget root names the root and recovery configuration", context do
@@ -5255,6 +5342,80 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     File.chmod!(path, 0o755)
     path
+  end
+
+  # The installed broker, wrapped so each process announces itself before it
+  # touches the ledger. `runpy` runs the real file as `__main__`, so the broker's
+  # own argument parsing, output and exit status are exactly what the wrapper
+  # would have seen without the shim.
+  defp start_marking_broker(context, marker_dir) do
+    path = Path.join(context.state_path, "start-marking-broker.py")
+    real = AgentGitHubGuard.budget_broker_path(context.workspace)
+    File.mkdir_p!(marker_dir)
+
+    File.write!(path, """
+    import os, runpy
+    open(os.path.join(#{inspect(marker_dir)}, str(os.getpid())), "w").close()
+    runpy.run_path(#{inspect(real)}, run_name="__main__")
+    """)
+
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  # Rewinds one column out of the ledger, producing the pre-migration shape a
+  # broker has to repair on startup.
+  defp drop_ledger_column!(database, table, column) do
+    assert {_output, 0} =
+             System.cmd("python3", [
+               "-c",
+               "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+                 "c.execute('ALTER TABLE %s DROP COLUMN %s' % (sys.argv[2], sys.argv[3])); c.commit()",
+               database,
+               table,
+               column
+             ])
+  end
+
+  # Holds the ledger's write lock. Readers are unaffected — WAL keeps them
+  # running — so a broker blocked by this has already read everything it reads
+  # and is stopped at its first write.
+  defp lock_database(path) do
+    python = System.find_executable("python3") || flunk("python3 is required")
+
+    script =
+      "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); " <>
+        "print('locked', flush=True); time.sleep(60)"
+
+    port =
+      Port.open(
+        {:spawn_executable, String.to_charlist(python)},
+        [:binary, :exit_status, :stderr_to_stdout, args: [~c"-c", String.to_charlist(script), String.to_charlist(path)]]
+      )
+
+    on_exit(fn -> close_port(port) end)
+    assert_receive {^port, {:data, "locked\n"}}, 5_000
+    port
+  end
+
+  defp close_port(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, pid} ->
+        _ = System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+        _ = Port.close(port)
+        :ok
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp wait_until(predicate, attempts \\ 500) do
+    cond do
+      predicate.() -> :ok
+      attempts <= 0 -> flunk("condition never held")
+      true -> Process.sleep(10) && wait_until(predicate, attempts - 1)
+    end
   end
 
   defp run_guard(context, args, extra_env \\ []) do
