@@ -9,6 +9,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Codex.SessionRecovery
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
   alias Aiur.RunTelemetry.Lifecycle
@@ -40,11 +41,21 @@ defmodule Aiur.AgentRunner do
           Logger.warning("Agent run interrupted by transient condition for #{issue_context(issue)}: #{inspect(reason)}; exiting cleanly to re-dispatch with a fresh session")
           :ok
         else
-          Logger.error("Agent run failed for #{issue_context(issue)}: #{inspect(reason)}")
-          raise RuntimeError, "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}"
+          message = "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}#{failure_detail(reason)}"
+          Logger.error(message)
+          raise RuntimeError, message
         end
     end
   end
+
+  # `:missing_tracker_identity` means the daemon could not decide which
+  # repository an issue belongs to. Reported bare, it names no file, so the
+  # reader guesses — and in #2518 guessed a config that had never been touched,
+  # because the daemon was reading a different one. Name the file that was read
+  # and the paths that were searched, at the point the operator actually sees
+  # the failure.
+  defp failure_detail(:missing_tracker_identity), do: " (#{GitHubConfig.repository_resolution_diagnostic()})"
+  defp failure_detail(_reason), do: ""
 
   # A mid-turn REPL pane death (`:repl_gone`) is a transient, recoverable
   # condition — the cloud-mediated remote-control pane dropped (flaky link or
