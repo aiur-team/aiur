@@ -568,6 +568,103 @@ defmodule Aiur.TestSupport do
     :exit, _reason -> :ok
   end
 
+  @doc """
+  Returns an `AiurWeb.Endpoint` pid that is guaranteed to outlive this test.
+
+  `AiurWeb.Endpoint` is a singleton registered under its own module name, and
+  who owns it is not fixed. Whether `Aiur.Supervisor` starts one depends on the
+  ambient dashboard configuration the application read at boot: CI has none and
+  gets no endpoint, a developer box with `~/.aiur/config` gets a permanent one.
+  Tests that need an endpoint therefore start their own under the ExUnit test
+  supervisor, which tears it down when the test ends — and for a short window
+  after that the *name* is still registered while the process finishes
+  terminating.
+
+  Three patterns built on that landscape are wrong, and #2288 is what each one
+  looks like when it fails:
+
+    * `if is_nil(Process.whereis(AiurWeb.Endpoint)), do: start_supervised!(...)`
+      reads "registered right now" as "will be alive for this whole test". Against
+      a *dying* endpoint it declines to start its own and then loses the config
+      ETS table mid-test — `Endpoint.call/2` raises `ArgumentError` with "the
+      table identifier does not refer to an existing ETS table".
+
+    * a bare `start_supervised!({AiurWeb.Endpoint, []})` raises on the
+      `{:error, {:already_started, pid}}` that same window produces.
+
+    * waiting unconditionally for the already-started pid's `:DOWN` hangs
+      forever against a permanent `Aiur.Supervisor` child, which is not dying
+      and never will.
+
+  The first two are functions of which test ran immediately before, so they
+  appear and vanish with the seed and with partition membership; the third is a
+  function of the machine. This helper keys on provenance instead, which is
+  knowable without waiting to see what happens:
+
+    * an application-owned endpoint is reused, because in the ordinary case the
+      supervisor holding it is not stopped by a test and restarts it if one
+      tries;
+
+    * anything else registered under that name belongs to a finished test's
+      supervisor and is mid-teardown, so its `:DOWN` is guaranteed to arrive and
+      is waited for, without a grace period, before starting our own.
+
+  No wall-clock window is involved either way, so the result cannot change with
+  machine load. Call it once per test.
+
+  The provenance test is about where a process was started, not whether it is
+  healthy now, and those come apart in one case: some tests deliberately stop
+  `Aiur.Supervisor` (which is why `ensure_aiur_supervisor_running/0` exists). An
+  application endpoint caught mid-teardown still carries `Aiur.Supervisor` in
+  its `$ancestors` and would be reused here, which is the #2288 shape again. No
+  current caller runs in that window; a test that stops the supervisor and then
+  wants an endpoint must restore it first rather than rely on this function.
+  """
+  @spec start_owned_endpoint!() :: pid()
+  def start_owned_endpoint! do
+    case ExUnit.Callbacks.start_supervised({AiurWeb.Endpoint, []}) do
+      {:ok, pid} ->
+        pid
+
+      {:error, {:already_started, pid}} ->
+        adopt_or_replace_endpoint(pid)
+
+      {:error, reason} ->
+        raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
+    end
+  end
+
+  defp adopt_or_replace_endpoint(pid) do
+    cond do
+      application_owned?(pid) ->
+        pid
+
+      # The wait is bounded only so that a mis-keyed provenance test fails
+      # loudly and says which process it misread. A genuinely dying endpoint
+      # returns in microseconds, so this bound is never a race window; if it is
+      # ever reached, the classification above is wrong and the timeout value is
+      # not the thing to change.
+      await_process_down(pid, 10_000) == :ok ->
+        start_owned_endpoint!()
+
+      true ->
+        raise "AiurWeb.Endpoint #{inspect(pid)} was classified as a dying test-owned endpoint " <>
+                "but is still alive after 10s; $ancestors=#{inspect(ancestors(pid))}"
+    end
+  end
+
+  # `$ancestors` is written by `proc_lib` at spawn and never rewritten, so it
+  # names the supervision tree the process was actually started under rather
+  # than whatever happens to be registered now.
+  defp application_owned?(pid), do: Aiur.Supervisor in ancestors(pid)
+
+  defp ancestors(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dictionary} -> Keyword.get(dictionary, :"$ancestors", [])
+      nil -> []
+    end
+  end
+
   @doc false
   @spec await_process_down(pid(), timeout()) :: :ok | :error
   def await_process_down(process, timeout \\ 2_000) when is_pid(process) do
