@@ -13,14 +13,12 @@ defmodule Aiur.Config.Schema.Github do
   @default_max_inflight_per_endpoint 2
   @default_requests_per_minute 120
   @default_stagger_ms 75
-  @default_daemon_core_limit_per_hour 1000
-  @default_daemon_graphql_limit_per_hour 3000
+  @default_daemon_core_limit_per_hour 3000
+  @default_daemon_graphql_limit_per_hour 4500
+  @default_daemon_search_limit_per_hour 600
   @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 750
-  # GitHub meters `/search/*` against a third pool (~30 req/min rather than
-  # 5,000/hr), so `search` gets its own per-actor ceilings (#2297).
-  @default_daemon_search_limit_per_hour 1000
-  @default_agent_search_limit_per_hour 250
+  @default_agent_graphql_limit_per_hour 600
+  @default_agent_search_limit_per_hour 600
 
   @primary_key false
   embedded_schema do
@@ -30,6 +28,20 @@ defmodule Aiur.Config.Schema.Github do
     # opens pull requests. Separate from the daemon's App identity below — see
     # `Aiur.Config.Schema.GithubApp`.
     field(:bot_account, :string)
+    # Which identity arrangement this install runs, stated rather than guessed.
+    #
+    #   * `"separate_account"` (default) — agents post as a login no human uses,
+    #     so the author login alone answers "did Aiur write this".
+    #   * `"single_account"` — the operator's own login is also the agents'
+    #     login. Authorship can no longer be read from the author, so it is read
+    #     from `Aiur.GitHub.AgentMarker`'s in-body marker instead.
+    #
+    # Deliberately not inferred from whether `bot_account` equals the token's
+    # viewer login: that comparison is true for an operator who has a dedicated
+    # bot and happens to run the daemon under it, and false for a single-account
+    # operator whose token is a PAT of a machine user. Guessing wrong in either
+    # direction silently changes which comments wake an agent.
+    field(:identity_mode, :string, default: "separate_account")
     field(:trusted_accounts, {:array, :string}, default: [])
     field(:allowed_users, {:array, :string}, default: [])
     field(:human_mergers, {:array, :string}, default: [])
@@ -40,18 +52,12 @@ defmodule Aiur.Config.Schema.Github do
     field(:max_inflight_per_endpoint, :integer, default: @default_max_inflight_per_endpoint)
     field(:requests_per_minute, :integer, default: @default_requests_per_minute)
     field(:stagger_ms, :integer, default: @default_stagger_ms)
-    # Per-actor hourly GitHub ceilings (#2181): how many billable Core (REST) /
-    # GraphQL responses one actor may consume in a rolling hour before its own
+    # Per-actor hourly GitHub ceilings (#2181): how many billable Core / GraphQL
+    # / search responses one actor may consume in a rolling hour before its own
     # requests hold. `304` responses are reconciled as free; `0` disables the
-    # ceiling. GraphQL remains request-counted rather than point-priced.
-    #
-    # Re-derived against the corrected bucket counts (#2297): the measured
-    # trailing-hour ledger was 4,198 GraphQL admissions against 305 Core, so the
-    # GraphQL windows are the load-bearing ones. `daemon_graphql` covers the
-    # daemon's dominant share of that GraphQL volume; `agent_graphql` must clear
-    # a single agent's normal loop (which crossed the old 375 and stalled it);
-    # the Core windows come way down because Core traffic is a small fraction of
-    # the volume they used to be sized against.
+    # ceiling. GraphQL remains request-counted rather than point-priced, and
+    # `search` is a third window (~30 requests/minute) that must not be folded
+    # into core or graphql.
     field(:daemon_core_limit_per_hour, :integer, default: @default_daemon_core_limit_per_hour)
     field(:daemon_graphql_limit_per_hour, :integer, default: @default_daemon_graphql_limit_per_hour)
     field(:daemon_search_limit_per_hour, :integer, default: @default_daemon_search_limit_per_hour)
@@ -76,6 +82,7 @@ defmodule Aiur.Config.Schema.Github do
         :repo,
         :label_prefix,
         :bot_account,
+        :identity_mode,
         :trusted_accounts,
         :allowed_users,
         :human_mergers,
@@ -113,6 +120,7 @@ defmodule Aiur.Config.Schema.Github do
     |> cast_embed(:credentials, with: &GithubCredential.changeset/2)
     |> cast_embed(:github_app, with: &GithubApp.changeset/2)
     |> validate_unique_credential_ids()
+    |> validate_inclusion(:identity_mode, ["separate_account", "single_account"], message: "must be \"separate_account\" or \"single_account\"")
     |> validate_login_list(:allowed_users)
     |> validate_login_list(:human_mergers)
     |> validate_number(:planning_root_limit,

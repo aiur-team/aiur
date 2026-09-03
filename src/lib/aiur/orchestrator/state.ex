@@ -93,6 +93,14 @@ defmodule Aiur.Orchestrator.State do
             alerted: [String.t()]
           },
           fleet_capacity_starvation: %{since_ms: integer() | nil, alert_active: boolean(), effective_cap: pos_integer() | nil},
+          # Monotonic ms when the DecisionStore first read as `:unavailable`
+          # while dispatchable work was queued (nil when no such hold is in
+          # progress). The `system.dispatch.decision_store_unavailable` alert is
+          # only raised once the outage has persisted past the capacity-
+          # starvation dwell, so a momentary blip raises nothing (#2453).
+          decision_store_unavailable_since_ms: integer() | nil,
+          decision_store_unavailable_alert_active: boolean(),
+          decision_store_unavailable_alert_resolution_emitted: boolean(),
           dependency_circular_wait: %{
             optional(String.t()) => %{identifier: String.t(), waiting_count: pos_integer(), since_ms: integer(), alerted?: boolean()}
           },
@@ -130,6 +138,8 @@ defmodule Aiur.Orchestrator.State do
           github_comment_issue_updated_at: map(),
           github_comment_issue_list_cache: map(),
           github_comment_poll: map() | nil,
+          github_comment_reconcile_targets: MapSet.t(String.t()),
+          github_comment_reconcile_timer: map() | nil,
           # Monotonic time the asynchronous comment poll last started, used to
           # throttle it to the `:review` class cadence (#2309). `nil` until the
           # first start.
@@ -237,6 +247,9 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
+    decision_store_unavailable_since_ms: nil,
+    decision_store_unavailable_alert_active: false,
+    decision_store_unavailable_alert_resolution_emitted: false,
     dependency_circular_wait: %{},
     # Fleet aggregate for tickets carrying more than one `agent:*` state label
     # (`contradictory_state_label_tickets` maps issue id -> %{identifier, labels,
@@ -278,6 +291,12 @@ defmodule Aiur.Orchestrator.State do
     # In-flight marker for the asynchronous comment poll. The pid and monitor
     # let lifecycle shutdown reap the poll and its owned descendants.
     github_comment_poll: nil,
+    # Tickets named by review-thread webhooks. A poll claims this set when it
+    # starts; hints arriving during that poll stay here for the follow-up.
+    github_comment_reconcile_targets: MapSet.new(),
+    # At most one delayed reconcile wake is live. Its token fences stale timer
+    # messages after a later GitHub backoff extends the due time.
+    github_comment_reconcile_timer: nil,
     last_comment_poll_started_at_ms: nil,
     last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},

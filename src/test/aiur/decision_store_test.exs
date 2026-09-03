@@ -13,11 +13,13 @@ defmodule Aiur.DecisionStoreTest do
     Decision,
     DecisionDispatchTasks,
     DecisionEvent,
+    DecisionExpiry,
     DecisionHistory,
     DecisionLog,
     DecisionProjection,
     DecisionPubSub,
     DecisionStore,
+    DecisionValidation,
     ExecutorCommandAttention,
     ExecutorCommandCLI,
     Issue
@@ -28,6 +30,13 @@ defmodule Aiur.DecisionStoreTest do
   alias Aiur.Events.{Exchange, IdGenerator}
   alias AiurWeb.ControlCenterPresenter
   alias AiurWeb.OperatorControlCenter.DecisionPresenter
+
+  # A deadlock backstop, not a race window. The reconciliation report is
+  # published unconditionally by the pass that boot always schedules, so the
+  # only way to reach this bound is a store that never reconciled at all —
+  # which is a failure whatever the number is. Raising or lowering it cannot
+  # change a verdict the way the 1_000 ms boot deadline it replaced could.
+  @reconcile_report_timeout_ms 30_000
 
   @ticket %{identifier: "979", title: "OCC-1", url: "https://github.com/its-everdred/aiur/issues/979"}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
@@ -3004,16 +3013,44 @@ defmodule Aiur.DecisionStoreTest do
       assert settled.answer.decision_version == 1
     end
 
+    # Both halves of this test used to be claims about the passage of time: that
+    # the first store had *not* dispatched (a 100 ms silence) and that the
+    # restarted store had reconciled exactly once (a 1 s deadline over an
+    # unbounded boot — log replay, projection and the dispatch task supervisor —
+    # followed by another 100 ms silence). Neither silence observes the
+    # exactly-once property the test exists to prove, and both verdicts move
+    # with machine load, which is why this failed in `coverage (1/4)` at CI
+    # concurrency while passing in isolation.
+    #
+    # Both are now assertions on state and on the reconciliation pass's own
+    # report (`DecisionPubSub.subscribe_dispatches_reconciled/0`): the pass
+    # names every dispatch it scheduled, so "exactly one" is read off the
+    # payload rather than inferred from a quiet mailbox, and nothing here is
+    # timed.
     test "restart reconciles a persisted answer that was not yet dispatched", %{dir: dir} do
       parent = self()
+
+      # The reconciliation report is a best-effort broadcast: without a PubSub
+      # server it is silently dropped, and this test would then wait for a
+      # message that can never come. Fail on the missing dependency instead.
+      assert is_pid(Process.whereis(Aiur.PubSub)), "Aiur.PubSub must be running to observe reconciliation"
+      :ok = DecisionPubSub.subscribe_dispatches_reconciled()
+
       never = fn _decision, _opts -> send(parent, :old_dispatch) end
       pid1 = start_store!(dir, dispatcher: never, dispatch_delay_ms: 5_000, reconcile_delay_ms: 5_000)
       assert {:ok, %{decision: decision}} = request(pid1, answerable_request("answer-restart"))
 
       payload = %{"idempotency_key" => "restart-1", "expected_version" => 1, "custom_response" => "Proceed"}
       assert {:ok, %{status: :accepted, action: action}} = answer(pid1, decision.decision_id, payload)
+
+      # The answer is durable but undelivered: that is the state the restart has
+      # to recover from, and asserting it directly is what the 100 ms silence
+      # was standing in for.
+      assert {:ok, persisted} = DecisionStore.get(decision.decision_id, pid1)
+      assert persisted.delivery_status == :pending
+      assert persisted.dispatch_attempts == []
       GenServer.stop(pid1)
-      refute_receive :old_dispatch, 100
+      refute_received :old_dispatch
 
       dispatcher = fn replayed, opts ->
         send(parent, {:reconciled, replayed.answer.action_id, opts[:attempt_id]})
@@ -3021,10 +3058,31 @@ defmodule Aiur.DecisionStoreTest do
       end
 
       pid2 = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0, reconcile_delay_ms: 0)
-      assert_receive {:reconciled, action_id, _attempt_id}, 1_000
-      assert action_id == action.action_id
-      _settled = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
-      refute_receive {:reconciled, _, _}, 100
+
+      # The boot reconciliation pass is scheduled unconditionally by
+      # `handle_continue(:schedule_reconciliation, …)`, so this report is
+      # guaranteed to arrive; the wait is on the event, not on a duration long
+      # enough to cover a loaded runner's boot.
+      assert_receive {:decision_dispatches_reconciled, %{store: ^pid2, fences: fences, dispatched: dispatched}},
+                     @reconcile_report_timeout_ms
+
+      # `fences` is what the pass considered, `dispatched` what it scheduled.
+      # Both are needed: on its own an empty `dispatched` cannot distinguish
+      # "replay lost the decision" from "the pass saw it and declined".
+      assert fences == 1
+      assert [%{decision_id: reconciled_id, action_id: reconciled_action_id, kind: :dispatch}] = dispatched
+      assert reconciled_id == decision.decision_id
+      assert reconciled_action_id == action.action_id
+
+      settled = wait_for_decision(pid2, decision.decision_id, &(&1.delivery_status == :queued))
+      assert [attempt] = settled.dispatch_attempts
+      assert attempt.status == :queued
+
+      # The dispatcher sends before it returns, and the store only reaches
+      # `:queued` after it returns, so this message is already in the mailbox:
+      # a zero-timeout check, not a race.
+      assert_received {:reconciled, ^reconciled_action_id, _attempt_id}
+      refute_received {:reconciled, _, _}
     end
 
     test "transient dispatch failure is retried after request enrichment", %{dir: dir} do
@@ -3609,6 +3667,110 @@ defmodule Aiur.DecisionStoreTest do
       _pid2 = start_store!(dir, dispatcher: fn _decision, _opts -> {:error, :no_running_agent} end)
       wait_for_feed_empty(log_root, topic)
       assert case_attention_alerts(log_root, topic) == []
+    end
+
+    test "boot sweep retires the already-raised expired-unanswerable needs-attention backlog", %{dir: dir} do
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "expired-backlog-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      now = ~U[2026-08-24 12:00:00Z]
+      decision = expired_unanswerable_decision(now)
+      topic = expired_unanswerable_topic(decision)
+
+      # Simulate the backlog this fix exists to clear: an older build raised the
+      # expired-unanswerable alert as needs-attention, so a raised entry is
+      # already on disk before this sweep (a boot-time backlog, not a live
+      # condition).
+      :ok =
+        Alerts.emit_custom(
+          topic,
+          "stale raised expired-unanswerable alert",
+          issue: "979",
+          reason: "stale",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+      assert [%{"topic" => ^topic}] = case_attention_alerts(log_root, topic)
+
+      # The boot sweep reconciles the whole historical expired-unanswerable
+      # backlog through the real DecisionAttentionSignals path. An expired
+      # Command is non-actionable, so the reconcile must resolve (clear) the
+      # raised entry rather than leave it active forever — the feed must end up
+      # empty, not merely smaller (a count assertion would pass on today's code
+      # with one fewer entry).
+      {:ok, pid} =
+        DecisionExpiry.start_link(
+          name: nil,
+          initial_delay_ms: 0,
+          interval_ms: 60_000,
+          active_identifiers_fun: fn -> {:ok, []} end,
+          decisions_fun: fn -> {:ok, [decision]} end,
+          expire_fun: fn _decision_id, _reason_class, _occurred_at -> {:ok, %{status: :accepted}} end,
+          now: now
+        )
+
+      on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+
+      wait_for_feed_empty(log_root, topic)
+      assert case_attention_alerts(log_root, topic) == []
+    end
+
+    test "an expired-unanswerable Command stays visible as history when the sweep retires its alert", %{dir: dir} do
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "expired-visible-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
+
+      now = ~U[2026-08-24 12:00:00Z]
+      pid = start_store!(dir, dispatch_delay_ms: 5_000, reconcile_delay_ms: 5_000)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{
+                 "question" => "Which archival target?",
+                 "blocking" => false,
+                 "authority" => "human_required",
+                 "source_id" => "expired-visible"
+               })
+
+      assert {:ok, %{decision: expired}} = DecisionStore.expire(decision.decision_id, "agent_not_running", [now: now], pid)
+      assert expired.decision_status == :expired
+
+      # The boot sweep reconciles the expired-unanswerable backlog through the
+      # real store and the real DecisionAttentionSignals path. Retiring the
+      # alert is an alert-surface choice, not a liveness one: the expired
+      # Command must stay queryable as history on the decision surface.
+      assert {:ok, 0} =
+               DecisionExpiry.sweep(
+                 now: DateTime.add(now, 60, :second),
+                 grace_seconds: 300,
+                 active_identifiers_fun: fn -> {:ok, []} end,
+                 decisions_fun: fn -> {:ok, DecisionStore.list(pid)} end,
+                 expire_fun: fn _decision_id, _reason_class, _occurred_at -> {:ok, %{status: :accepted}} end
+               )
+
+      assert {:ok, current} = DecisionStore.get(decision.decision_id, pid)
+      assert current.decision_status == :expired
+
+      [row] = DecisionPresenter.rows([current])
+      assert row.decision_status == :expired
+      assert row.lifecycle == :expired
     end
 
     test "default terminal resolver identity extraction falls back to issue id when identifier is blank" do
@@ -4242,6 +4404,39 @@ defmodule Aiur.DecisionStoreTest do
 
   defp unique_coordinator_name(suffix) do
     Module.concat(__MODULE__, "#{suffix}#{System.unique_integer([:positive])}")
+  end
+
+  # A non-executor-answerable Command (human_required, no options) in the
+  # already-expired state, the shape whose `decision-expired-unanswerable`
+  # alert was the historical backlog #2458 retires.
+  defp expired_unanswerable_decision(now) do
+    {:ok, decision} =
+      DecisionValidation.normalize(
+        %{
+          "question" => "Which archival target?",
+          "blocking" => false,
+          "authority" => "human_required",
+          "source_id" => "expired-unanswerable-1"
+        },
+        ticket: %{@ticket | identifier: "979"},
+        source: @source,
+        now: DateTime.add(now, -3_600, :second)
+      )
+
+    %{decision | decision_status: :expired}
+  end
+
+  # Mirrors `Aiur.DecisionAttentionSignals.attention_topic/2` for the expired
+  # signal, so a test can seed and then read the exact topic the reconcile
+  # retires.
+  defp expired_unanswerable_topic(decision) do
+    digest =
+      :sha256
+      |> :crypto.hash(decision.decision_id)
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 16)
+
+    "ticket.#{decision.ticket.identifier}.agent.attention.decision-expired-unanswerable-#{digest}"
   end
 
   # #2343: each case's own store writes its delivery attention into the

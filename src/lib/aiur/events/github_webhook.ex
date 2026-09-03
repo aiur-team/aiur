@@ -88,6 +88,11 @@ defmodule Aiur.Events.GithubWebhook do
 
     * `:publish_fun` — 3-arity override for `Publisher.publish/3` (test seam)
     * `:reconcile_fun` — 1-arity override for the reconcile nudge
+    * `:orchestrator` — process name or pid to nudge for a targeted
+      `{:github_webhook_reconcile, hint}` review-thread wake; defaults to
+      `Aiur.Orchestrator`
+    * `:delivery_id` — admitted delivery id used as the reconcile generation
+      when a review-thread delivery omits the transition timestamp
     * `:request_refresh_fun` — 0-arity override for the dispatcher wake
       (test seam; defaults to `Aiur.Orchestrator.request_refresh/0`)
     * `:actionable_label_fun` — 1-arity `(label_name -> boolean)` deciding
@@ -111,6 +116,7 @@ defmodule Aiur.Events.GithubWebhook do
 
       {:reconcile, hint} ->
         if actionable_reconcile?(hint, payload, opts) do
+          hint = with_reconcile_generation(hint, opts)
           request_reconcile(hint, opts)
           %{status: :reconciled, hint: hint}
         else
@@ -154,7 +160,7 @@ defmodule Aiur.Events.GithubWebhook do
     case Normalizer.tracked_repo(payload, opts) do
       {:ok, repo} ->
         Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
-        Deposit.deposit(event_type, payload, repo)
+        Deposit.deposit(event_type, payload, repo, Keyword.take(opts, [:at, :delivery_id]))
         :ok
 
       _untracked_or_malformed ->
@@ -231,9 +237,23 @@ defmodule Aiur.Events.GithubWebhook do
   defp request_reconcile(hint, opts) do
     case Keyword.get(opts, :reconcile_fun) do
       fun when is_function(fun, 1) -> fun.(hint)
-      _other -> maybe_wake_orchestrator(opts)
+      _other -> nudge_orchestrator(hint, opts)
     end
   end
+
+  # Review-thread transitions are targeted: the hint carries the exact thread,
+  # action and generation the orchestrator's comment reconciliation needs, so
+  # it is handed straight to the orchestrator — no generic wake, no coalesce
+  # window. The poll cycle has nothing to discover that the delivery did not
+  # already carry, so a generic wake would only duplicate the targeted pass.
+  defp nudge_orchestrator(%{kind: :review_thread} = hint, opts) do
+    case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do
+      pid when is_pid(pid) -> send(pid, {:github_webhook_reconcile, hint})
+      nil -> :ok
+    end
+  end
+
+  defp nudge_orchestrator(_hint, opts), do: maybe_wake_orchestrator(opts)
 
   # A `:publish` delivery has already handed its event to the bus. Most of
   # those (comments, reviews) are their own wake — the orchestrator subscribes
@@ -285,6 +305,17 @@ defmodule Aiur.Events.GithubWebhook do
         :coalesced
     end
   end
+
+  defp with_reconcile_generation(%{kind: :review_thread, generation: generation} = hint, opts)
+       when not (is_binary(generation) and generation != "") do
+    Map.put(hint, :generation, Keyword.get(opts, :delivery_id))
+  end
+
+  defp with_reconcile_generation(hint, _opts), do: hint
+
+  defp resolve_orchestrator(pid) when is_pid(pid), do: pid
+  defp resolve_orchestrator(name) when is_atom(name), do: Process.whereis(name)
+  defp resolve_orchestrator(_target), do: nil
 
   # A newly-opened issue is only actionable when it already carries an active
   # state label (`agent:todo` at creation). Every other `:reconcile` delivery

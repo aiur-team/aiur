@@ -24,10 +24,22 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
   still paying, and is it paying because it missed or because the policy refuses
   to cache it". A refusal is counted with its reason, so
   `refused[:unsafe_kind]` standing at the top of the table reads as "this spend
-  is deliberate" rather than as a cache that is failing.
+  is deliberate" rather than as a cache that is failing. A REST refusal keys on
+  its shape (see `refused/2`), so the report names the call family instead of
+  folding every unrecognised read into one `unclassified` total.
   """
 
+  alias Aiur.GitHub.ReadCache.Policy
+
   @table :aiur_github_read_cache_metrics
+
+  # A refusal keyed on a path template is only bounded if the key set is.
+  # `Policy.classify/1` returns the route shape of a declined REST read, and the
+  # shapes that survive collapse to call families (`rest:GET /repos/:owner/:repo/
+  # issues/:n/comments`); a hostile or novel URL must not be able to grow the
+  # metric map without bound, so anything beyond the cap folds into `:overflow`.
+  @max_refused_shapes 200
+  @overflow :overflow
 
   @doc false
   @spec table() :: atom()
@@ -90,9 +102,79 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
   This is not a miss. A miss is a cache that could have helped and did not; a
   refusal is spend the policy has decided is correct. Folding them together
   would make an unsafe kind look like a tuning problem.
+
+  A REST refusal arrives as `{:unclassified, shape}` and is keyed on the
+  **shape** — `:issue_list`, `:pull_list`, `:repo_events`, `:comment_stream`,
+  `:pull_files` — so `aiur github-cost` resolves the one-time `unclassified`
+  total into the named call families instead of one opaque bucket. The key is
+  bounded by `Policy.shapes/0`: a shape the classifier cannot name (which would
+  mean a future classifier grew a dynamic shape) is folded back to
+  `:unclassified`, so a pathological URL can never grow the metric map.
+
+  A read the classifier cannot name at all arrives with a **route template
+  string** instead, and is handed to `refused_shape/2` — a separate, capped key
+  set — so the unnamed remainder is still attributable to a call family without
+  putting an unbounded key set into this bounded map.
   """
-  @spec refused(atom(), String.t() | nil) :: :ok
+  @spec refused(atom() | {atom(), atom() | String.t()}, String.t() | nil) :: :ok
+  def refused({:unclassified, shape}, caller) when is_binary(shape), do: refused_shape(shape, caller)
+
+  def refused({:unclassified, shape}, caller) do
+    key = if shape in Policy.shapes(), do: shape, else: :unclassified
+    bump([{:refused, key}, {:caller, caller, :refused}])
+  end
+
   def refused(reason, caller), do: bump([{:refused, reason}, {:caller, caller, :refused}])
+
+  @doc """
+  Records a REST refusal keyed on the request's path template, not the URL.
+
+  `Policy.classify/1` returns `{:no_cache, {:unclassified, shape}}` for a REST
+  read it declines, where `shape` is `GraphQLCost.route_shape/1` — the call
+  family (`rest:GET /repos/:owner/:repo/issues/:n/comments`), not the 5,000
+  distinct reads that pass through it. The key set is capped at
+  `#{@max_refused_shapes}` so a pathological URL cannot grow the metric map
+  without bound; a shape beyond the cap folds into `:overflow`.
+
+  The by-reason `refused/2` map keeps the non-shape reasons. Folding every
+  unrecognised REST call into one `:unclassified` total made the 5,000
+  reads/hr of unclassified REST read as a single number no call site could be
+  recovered from; this is what makes `aiur github-cost` report refusals by
+  shape (#2357).
+  """
+  @spec refused_shape(String.t(), String.t() | nil) :: :ok
+  def refused_shape(shape, caller) do
+    bucket =
+      if member?({:refused_shapes, shape}) or refused_shape_count() < @max_refused_shapes do
+        shape
+      else
+        @overflow
+      end
+
+    bump([{:refused_shapes, bucket}, {:caller, caller, :refused}])
+  end
+
+  defp member?(key) do
+    :ets.member(@table, key)
+  rescue
+    ArgumentError -> false
+  end
+
+  defp refused_shape_count do
+    # The stored object is `{{:refused_shapes, shape}, count}`, so a match spec
+    # would need a nested-tuple head (which the spec compiler rejects here);
+    # a fold over the table is unambiguous and refusals are low-frequency.
+    :ets.foldl(
+      fn
+        {{:refused_shapes, _shape}, _count}, acc -> acc + 1
+        _other, acc -> acc
+      end,
+      0,
+      @table
+    )
+  rescue
+    ArgumentError -> 0
+  end
 
   @doc "Records identities retired by a write or a delivery."
   @spec invalidation(non_neg_integer()) :: :ok
@@ -118,6 +200,7 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
           classes: %{},
           callers: %{},
           refused: %{},
+          refused_shapes: %{},
           not_deposited: %{},
           invalidations: %{},
           totals: empty_totals()
@@ -131,6 +214,7 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
           classes: group(entries, :class),
           callers: group(entries, :caller),
           refused: refusals(entries),
+          refused_shapes: refused_shapes(entries),
           not_deposited: reasons(entries, :not_deposited),
           invalidations: %{
             marks: value(entries, {:invalidations, :marks}),
@@ -206,11 +290,18 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
     |> Map.new(fn {{^scope, reason}, count} -> {reason, count} end)
   end
 
+  defp refused_shapes(entries) do
+    entries
+    |> Enum.filter(&match?({{:refused_shapes, _shape}, _count}, &1))
+    |> Map.new(fn {{:refused_shapes, shape}, count} -> {shape, count} end)
+  end
+
   # Hits, misses, deposits and not-deposits total across classes; refusals total
   # across reasons, because a refusal has no class — it is a read the policy
   # declined to classify as cacheable. Summing them from the class rows would
   # leave `refused` permanently at zero, which reads as "nothing was refused"
-  # rather than "refusals are not counted here". `not_deposited` totals from the
+  # rather than "refusals are not counted here". Shape-keyed REST refusals count
+  # toward the same total as the by-reason ones; `not_deposited` totals from the
   # class rows, because it is counted per class like the misses it follows.
   defp totals(entries) do
     counted =
@@ -220,7 +311,10 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
         Map.update(acc, event, count, &(&1 + count))
       end)
 
-    %{counted | refused: entries |> refusals() |> Map.values() |> Enum.sum()}
+    refused_total =
+      Enum.sum(Map.values(refusals(entries))) + Enum.sum(Map.values(refused_shapes(entries)))
+
+    %{counted | refused: refused_total}
   end
 
   defp value(entries, key) do

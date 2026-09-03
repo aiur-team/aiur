@@ -186,12 +186,12 @@ defmodule Aiur.Config.SchemaTest do
 
     test "defaults per-actor hourly ceilings and accepts explicit tuning" do
       assert {:ok, defaults} = Schema.parse(%{})
-      assert defaults.tracker.github.daemon_core_limit_per_hour == 1000
-      assert defaults.tracker.github.daemon_graphql_limit_per_hour == 3000
+      assert defaults.tracker.github.daemon_core_limit_per_hour == 3000
+      assert defaults.tracker.github.daemon_graphql_limit_per_hour == 4500
+      assert defaults.tracker.github.daemon_search_limit_per_hour == 600
       assert defaults.tracker.github.agent_core_limit_per_hour == 250
-      assert defaults.tracker.github.agent_graphql_limit_per_hour == 750
-      assert defaults.tracker.github.daemon_search_limit_per_hour == 1000
-      assert defaults.tracker.github.agent_search_limit_per_hour == 250
+      assert defaults.tracker.github.agent_graphql_limit_per_hour == 600
+      assert defaults.tracker.github.agent_search_limit_per_hour == 600
 
       assert {:ok, settings} =
                Schema.parse(%{
@@ -199,20 +199,20 @@ defmodule Aiur.Config.SchemaTest do
                    "github" => %{
                      "daemon_core_limit_per_hour" => 2000,
                      "daemon_graphql_limit_per_hour" => 1500,
+                     "daemon_search_limit_per_hour" => 900,
                      "agent_core_limit_per_hour" => 600,
                      "agent_graphql_limit_per_hour" => 300,
-                     "daemon_search_limit_per_hour" => 400,
-                     "agent_search_limit_per_hour" => 100
+                     "agent_search_limit_per_hour" => 450
                    }
                  }
                })
 
       assert settings.tracker.github.daemon_core_limit_per_hour == 2000
       assert settings.tracker.github.daemon_graphql_limit_per_hour == 1500
+      assert settings.tracker.github.daemon_search_limit_per_hour == 900
       assert settings.tracker.github.agent_core_limit_per_hour == 600
       assert settings.tracker.github.agent_graphql_limit_per_hour == 300
-      assert settings.tracker.github.daemon_search_limit_per_hour == 400
-      assert settings.tracker.github.agent_search_limit_per_hour == 100
+      assert settings.tracker.github.agent_search_limit_per_hour == 450
     end
 
     test "rejects a negative per-actor hourly ceiling" do
@@ -276,6 +276,29 @@ defmodule Aiur.Config.SchemaTest do
                Schema.parse(%{"tracker" => %{"github" => %{"human_mergers" => [""]}}})
 
       assert message =~ "tracker.github.human_mergers"
+    end
+  end
+
+  describe "GitHub identity_mode" do
+    test "defaults to separate_account so an existing install is unchanged" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.identity_mode == "separate_account"
+    end
+
+    test "accepts single_account" do
+      assert {:ok, settings} =
+               Schema.parse(%{"tracker" => %{"github" => %{"identity_mode" => "single_account"}}})
+
+      assert settings.tracker.github.identity_mode == "single_account"
+    end
+
+    test "rejects any other spelling rather than silently picking a mode" do
+      # Which mode is in effect decides which comments wake an agent, so a typo
+      # must fail loudly at config load, not resolve to a guess.
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"identity_mode" => "single"}}})
+
+      assert message =~ "tracker.github.identity_mode"
     end
   end
 

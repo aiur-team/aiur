@@ -9,16 +9,17 @@ defmodule Aiur.Orchestrator.ReworkGate do
   (#1844), and the flip can transiently leave the ticket carrying two state
   labels, silently undispatchable (#2075).
 
-  Since #2422 the gate also requires — when it can prove it — that the open
-  pull request still has at least one **unresolved review thread**. GitHub's
-  `reviewDecision` is sticky by design: a `CHANGES_REQUESTED` verdict never
-  clears when findings are addressed, so it cannot distinguish "has outstanding
-  findings" from "was once told to change something". Unresolved review threads
-  answer the real question, and routing `rework` off the sticky verdict alone is
-  what makes a completed rework re-enter `agent:rework` forever (#2422).
-
-  This module is the single place that verifies these preconditions. Each
-  rework writer calls it before writing `rework`, and each names the
+  Since #2422 / #2450 the gate also decides *whether a reviewer is currently
+  asking for a change*: routing on unresolved review threads, not on GitHub's
+  sticky `reviewDecision`. A `CHANGES_REQUESTED` verdict never clears when
+  findings are addressed, so it cannot distinguish "outstanding findings" from
+  "was once told to change something" — routing rework on it re-enters
+  `agent:rework` forever. Both rework writers route through this module's
+  unresolved-thread check: the comment-wake path (#2422) via
+  `verify_unresolved_review_threads/2` and the merged-ticket reconciler (#2450)
+  via `open_pull_request_rework_verdict/2`, so the rule lives in exactly one
+  place. This module is the single place that verifies these preconditions.
+  Each rework writer calls it before writing `rework`, and each names the
   precondition in a test so a future writer cannot be added without stating
   one.
   """
@@ -73,6 +74,93 @@ defmodule Aiur.Orchestrator.ReworkGate do
   end
 
   @doc """
+  Decides whether an open pull request is currently a rework target.
+
+  `rework` means "a reviewer is currently asking for a change", and the only
+  signal that reliably answers that is unresolved review threads: GitHub's
+  `reviewDecision` is sticky by design — a `CHANGES_REQUESTED` verdict never
+  clears when findings are addressed — so it cannot distinguish "outstanding
+  findings" from "was once told to change something" (#2422, #2450). A pull
+  request whose review threads are all resolved (or that has none) is not a
+  rework target, whatever its verdict says.
+
+  This is the per-PR form of the rule, for callers that already hold the
+  open-PR listing (e.g. `MergedTicketReconciler`). It shares the same default
+  thread read as `verify_unresolved_review_threads/2` — the rule lives here,
+  not in a second copy — and the read is injectable via
+  `:unresolved_threads_fetcher` for tests.
+
+  Returns:
+    * `{:ok, :rework}` — the PR has unresolved review threads, so routing it to
+      rework is justified;
+    * `{:skip, :no_unresolved_review_threads}` — the PR's threads are all
+      resolved (or it has none); the reviewer is not currently asking for a
+      change, so rework must be refused;
+    * `{:error, reason}` — the thread read failed transiently; callers decide
+      whether to retry or park.
+  """
+  @spec open_pull_request_rework_verdict(map(), keyword()) ::
+          {:ok, :rework} | {:skip, :no_unresolved_review_threads} | {:error, term()}
+  def open_pull_request_rework_verdict(pull_request, opts \\ []) do
+    threads_fetcher = Keyword.get(opts, :unresolved_threads_fetcher, &default_threads_fetcher/1)
+
+    case pull_request do
+      %{} ->
+        case threads_fetcher.(pull_request) do
+          {:ok, comments} when is_list(comments) and comments != [] -> {:ok, :rework}
+          {:ok, _no_unresolved_threads} -> no_thread_verdict(opts)
+          {:error, reason} -> {:error, reason}
+        end
+
+      # A PR that is not a map has nothing a reviewer could have rejected.
+      _non_map ->
+        {:skip, :no_unresolved_review_threads}
+    end
+  end
+
+  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # opens no review thread at all, so the thread read below reports zero
+  # unresolved threads and #2422's rule alone refuses a verdict a reviewer very
+  # much did make (#2473). Where the caller is routing *that review submission*
+  # itself, the submission is the outstanding finding, and this does not reopen
+  # the #2422 loop.
+  #
+  # What keeps it closed is that a review submission is delivered ONCE, not
+  # re-derived every cycle the way `reviewDecision` was. Read the guard in the
+  # publisher, not here:
+  #
+  #   * `Aiur.Events.Publisher` consults `resource_processed?/1` BEFORE its
+  #     volatile dedup window. A review publishes as
+  #     `{:pr_review, owner, repo, review_id}` at `resource_version =
+  #     submitted_at`, which is immutable for a review, and `ResourceStore`
+  #     keeps that identity for 72h across daemon restarts — sized to GitHub's
+  #     redelivery ceiling. A redelivered or duplicated `pull_request_review`
+  #     is dropped at publish and never reaches this gate.
+  #   * The poller's `poll_pr_review_submissions/6` applies the
+  #     `pr_review_seen_at` / `current_target_since` / boot cutoff, and
+  #     `review_submission_enabled?/2` only reads `/reviews` for tickets still
+  #     in `human-review` — so a ticket already moved to `agent:rework` is not
+  #     re-polled into rework again.
+  #   * `verify_rework_attempt/4`'s head-SHA bound applies on top of both.
+  #
+  # Do NOT justify this by `ReviewFreshness`. Its staleness half needs
+  # `pull_request.head_committed_at`, which only the poller's GraphQL batch
+  # populates; `Normalizer.review_context/1` reads it off the REST pull request
+  # object, which never carries it, so that half is structurally inert on every
+  # webhook delivery. The single-delivery identity gate above is the guard, and
+  # it is the one a refactor must not delete.
+  #
+  # The option defaults to `false`, so every caller that is *not* holding a live
+  # changes-requested review keeps the pre-#2473 behaviour exactly.
+  defp no_thread_verdict(opts) do
+    if Keyword.get(opts, :changes_requested_review?, false) do
+      {:ok, :rework}
+    else
+      {:skip, :no_unresolved_review_threads}
+    end
+  end
+
+  @doc """
   Verifies that the rework target has an open pull request with at least one
   unresolved review thread.
 
@@ -84,6 +172,12 @@ defmodule Aiur.Orchestrator.ReworkGate do
   threads are all resolved (or that has none) is not a rework target, whatever
   its verdict says.
 
+  This is the ticket-key form of the rule, for callers that hold only the issue
+  key (e.g. `CommentWake`). It shares the same default thread read as
+  `open_pull_request_rework_verdict/2` — the rule lives here, not in a second
+  copy — and the read is injectable via `:unresolved_threads_fetcher` for
+  tests.
+
   Returns:
     * `{:ok, pr}` — an open PR exists with unresolved review threads, so
       rework is justified; the PR is returned so the caller can also read its
@@ -94,6 +188,11 @@ defmodule Aiur.Orchestrator.ReworkGate do
       must not be routed to rework;
     * `{:error, reason}` — the PR or thread lookup failed transiently; callers
       decide whether to retry or park.
+
+  Pass `changes_requested_review?: true` when the caller is routing a live
+  `CHANGES_REQUESTED` review submission. A body-only review opens no review
+  thread, so the thread read cannot see it (#2473); the submission is itself
+  the outstanding finding and stands in for an unresolved thread.
   """
   @spec verify_unresolved_review_threads(String.t() | integer(), keyword()) ::
           {:ok, map()}
@@ -102,11 +201,9 @@ defmodule Aiur.Orchestrator.ReworkGate do
   def verify_unresolved_review_threads(issue_key, opts \\ []) do
     case open_pr(issue_key, opts) do
       {:ok, %{} = pr} ->
-        threads_fetcher = Keyword.get(opts, :unresolved_threads_fetcher, &default_threads_fetcher/1)
-
-        case threads_fetcher.(pr) do
-          {:ok, comments} when is_list(comments) and comments != [] -> {:ok, pr}
-          {:ok, _no_unresolved_threads} -> {:skip, :no_unresolved_review_threads}
+        case open_pull_request_rework_verdict(pr, opts) do
+          {:ok, :rework} -> {:ok, pr}
+          {:skip, reason} -> {:skip, reason}
           {:error, reason} -> {:error, reason}
         end
 

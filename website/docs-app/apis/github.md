@@ -63,6 +63,20 @@ The env token remains the fallback when no App credentials are present, followed
 The keyring lookup (`gh auth token`) is bounded at boot, so a `gh` that stalls — a locked keyring prompting for a passphrase, a slow host, or a missing GUI credential agent — cannot hang the daemon with no log line.
 
 The lookup logs before the shell-out and treats an unanswered lookup as "no keyring credential" (never a fatal error), naming `gh auth login` on timeout. The default bound is 5 seconds; set `AIUR_GH_KEYRING_TIMEOUT_MS` to a larger positive integer when a slow-but-succeeding unlock legitimately needs more time, or a smaller one to fail faster.
+### Organization repository access during init
+
+`aiur init` verifies that it can read the configured repository before it offers CI or label setup. GitHub deliberately returns `404 Not Found`, rather than `403 Forbidden`, for an inaccessible private repository, so a repository 404 is not proof that the repository or its base branch is missing.
+
+Aiur checks the owner namespace and, when it can confirm an organization, reports an authorization diagnostic for the exact credential used by the probe.
+
+The recovery depends on that credential:
+
+- A classic PAT (`ghp_…`) needs the `repo` scope and SAML SSO authorization for the organization under **Settings → Developer settings → Personal access tokens → Tokens (classic) → Configure SSO**.
+- A fine-grained PAT (`github_pat_…`) must use the organization as its resource owner, include the repository, and may need organization approval. A personal-owner token cannot be expanded to cover the organization's repositories.
+- An OAuth token (`gho_…`) must belong to an OAuth app authorized for the organization. The `gh` CLI commonly uses a separate OAuth token from its keyring, so a successful `gh api` request does not prove that Aiur's configured token has the same access.
+- A GitHub App installation token (`ghs_…`) requires the App to be installed on the repository with Contents read access.
+
+If Aiur cannot confirm that the owner is an organization, it keeps the 404 ambiguous and asks you to verify both the repository name and token access.
 
 ### Token lifecycle
 
@@ -473,6 +487,22 @@ different callers with different invalidation reach.
 
 An answer is kept for 60 seconds.
 
+**Conditional requests and 304s.** `gh api` reads carry a validator where the
+store holds one: a re-read sends `If-None-Match` with the entry's stored `ETag`,
+and an unchanged answer returns `304`, is served from the cache, and is
+reconciled free — the same contract as the daemon's REST reads.
+
+The high-level subcommand reads — `gh pr view`, `gh pr list`, `gh issue view`,
+`gh issue list` — hit GitHub's GraphQL endpoint, which returns no `ETag` and no
+`Last-Modified`, so there is no validator for the store to send. Those entries
+stay TTL-cached with invalidation markers.
+
+When a high-level read does return a `304` (an underlying REST read), the
+wrapper reconciles the lease as free rather than billing it full-price.
+
+The free share a TTL body cache cannot recover is GraphQL's — which no cache on
+either side can recover.
+
 The GitHub cache page reports whether this sharing is effective. Its **Agent gh
 exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
 alongside the raw hit and miss counts.
@@ -610,10 +640,13 @@ The webhook shortens reaction time for repository events while polling continues
 | Content type | `application/json` |
 | Secret | The same strong value exported as `AIUR_GITHUB_WEBHOOK_SECRET` to Aiur. |
 | Signature | GitHub `X-Hub-Signature-256`, HMAC-SHA256 over the raw request body. |
+| Events | `issues`, `issue_comment`, `pull_request`, `pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`, `check_run`, and `check_suite`. |
 
 The hostname is yours to choose — `hooks.aiur.dev` is this operator's setup, not a requirement. Without a domain, a quick tunnel (`cloudflared tunnel --url`) exposes the daemon on a temporary public URL, fine for a single session.
 
 `POST /api/v1/github/webhook` has no configuration keys and no bearer credential, authenticates every delivery by its `X-Hub-Signature-256` digest, and fails closed.
+
+Select every event listed above so a `pull_request_review_thread` delivery reconciles resolved or reopened threads immediately while the scheduled comment sweep remains the loss-recovery path.
 
 | Delivery | Result |
 | --- | --- |

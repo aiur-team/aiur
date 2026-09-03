@@ -25,30 +25,38 @@ defmodule Aiur.GitHub.Budget do
   @lease_grace_ms 5_000
   @retry_floor_ms 5
   @command_cleanup_ms 25
-  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL
-  # responses one actor (the daemon, or each agent workspace) may consume in a
-  # rolling hour before its own requests hold. A completed `304` is reconciled
-  # as free. These remain request counts, not GraphQL point budgets. `0`
-  # disables a ceiling.
+  # Per-actor hourly ceilings (#2181): how many billable Core / GraphQL /
+  # search responses one actor (the daemon, or each agent workspace) may consume
+  # in a rolling hour before its own requests hold. A completed `304` is
+  # reconciled as free. These remain request counts, not GraphQL point budgets.
+  # `0` disables a ceiling.
   #
-  # Re-derived against the corrected bucket counts (#2297): the measured
-  # trailing-hour ledger was 4,198 GraphQL admissions against 305 Core. The
-  # GraphQL windows are now the load-bearing ones — `daemon_graphql` covers the
-  # daemon's dominant share, `agent_graphql` must clear a single agent's normal
-  # loop (which crossed the old 375 and stalled it) — while the Core windows
-  # come down because the volume they were sized against was mostly miscounted
-  # GraphQL.
-  @default_daemon_core_limit_per_hour 1000
-  @default_daemon_graphql_limit_per_hour 3000
+  # The GraphQL defaults were raised in #2299 because the guard now books the
+  # high-level `gh` reads (`pr view|list|status|checks`, `issue view|list`,
+  # `gh api graphql`) to the GraphQL window: the App-token daemon measured
+  # ~3,400-4,300 GraphQL-wire requests/hour, so the pre-fix daemon default of
+  # 2,000 would have stalled the fleet on merge. The agent GraphQL ceiling is
+  # raised too so a single agent's normal loop has headroom under the re-booked
+  # window. These stay request counts, never GraphQL point budgets. `search` is
+  # a third, much lower GitHub window (~30 requests/minute), so it gets its own
+  # ceiling instead of folding into core or graphql.
+  @default_daemon_core_limit_per_hour 3000
+  @default_daemon_graphql_limit_per_hour 4500
+  @default_daemon_search_limit_per_hour 600
   @default_agent_core_limit_per_hour 250
-  @default_agent_graphql_limit_per_hour 750
-  # GitHub meters `/search/*` against a third pool (~30 req/min), so `search`
-  # has its own per-actor ceilings rather than folding into core (#2297).
-  @default_daemon_search_limit_per_hour 1000
-  @default_agent_search_limit_per_hour 250
+  @default_agent_graphql_limit_per_hour 600
+  @default_agent_search_limit_per_hour 600
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
+
+  @type release_outcome ::
+          :released
+          | :deadline_exceeded
+          | :github_budget_broker_unavailable
+          | :bypass
+
+  @release_topic "github:budget:lease_release"
 
   @spec enabled?(keyword()) :: boolean()
   def enabled?(opts \\ []) do
@@ -170,15 +178,63 @@ defmodule Aiur.GitHub.Budget do
     end
   end
 
+  @doc """
+  PubSub topic carrying a completion signal for every lease release.
+
+  Subscribers receive `{:github_budget_lease_released, %{lease_id: id,
+  token_key: key, budget_ms: non_neg_integer(), outcome: release_outcome()}}`,
+  where `budget_ms` is the time the release granted itself before running and
+  `outcome` is how it ended.
+  """
+  @spec release_topic() :: String.t()
+  def release_topic, do: @release_topic
+
   @spec release(lease(), keyword()) :: :ok
   def release(lease, opts \\ [])
 
   def release(%{id: id, token_key: key}, opts) when is_binary(id) and is_binary(key) do
-    _ = command(["release", "--lease-id", id], key, opts)
+    budget_ms = max(command_deadline(opts) - System.monotonic_time(:millisecond), 0)
+    publish_release(id, key, budget_ms, command(["release", "--lease-id", id], key, opts))
     :ok
   end
 
   def release(_lease, _opts), do: :ok
+
+  # `release/2` runs in the request's `after` block and is charged to the same
+  # absolute deadline as the request it closes, so it can be abandoned before
+  # the broker acknowledges it. That distinction is operationally real: an
+  # abandoned release leaves the lease inflight, holding shared budget headroom
+  # until the broker expires it on its own, while an acknowledged one returns
+  # the headroom immediately. Until now the broker result was discarded
+  # outright, so the only way to tell the two apart — in production or in a
+  # test — was to time the call and guess from elapsed wall-clock, which is a
+  # function of machine load rather than of the behaviour. Naming the outcome
+  # makes it assertable directly.
+  # `budget_ms` travels with the outcome because the two answer different
+  # questions. The outcome says whether the broker acknowledged the release;
+  # `budget_ms` says how long the release was ever *willing* to wait, which is
+  # decided by the caller's deadline and not by how loaded the machine is. A
+  # release that grants itself more than the request deadline is the bug — it
+  # parks the caller on the broker's SQLite lock — and that is visible in
+  # `budget_ms` alone, without timing anything.
+  defp publish_release(lease_id, token_key, budget_ms, result) do
+    event = %{lease_id: lease_id, token_key: token_key, budget_ms: budget_ms, outcome: release_outcome(result)}
+
+    if Process.whereis(Aiur.PubSub) do
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @release_topic, {:github_budget_lease_released, event})
+    end
+
+    :ok
+  rescue
+    error -> Logger.warning("github_budget_release_publish_failed #{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("github_budget_release_publish_exited #{inspect(reason)}")
+  end
+
+  defp release_outcome({:ok, _output}), do: :released
+  defp release_outcome({:error, :github_budget_broker_timeout}), do: :deadline_exceeded
+  defp release_outcome({:error, reason}), do: reason
+  defp release_outcome(:bypass), do: :bypass
 
   @doc "Observes a response before releasing its lease so accounting and rejections are global immediately."
   @spec observe(map(), lease(), {:ok, map()} | {:error, term()}, keyword()) :: :ok

@@ -64,6 +64,66 @@ defmodule Aiur.GitHubCostCLITest do
     assert output =~ "read cache refusals: unsafe_kind 60"
   end
 
+  test "prints REST refusals by path template, not one unclassified total" do
+    cache = fn ->
+      %{
+        available?: true,
+        entries: 0,
+        hit_rate: 0.0,
+        totals: %{hit: 0, miss: 0, deposit: 0, refused: 42},
+        refused: %{no_identity: 2},
+        refused_shapes: %{"rest:GET /repos/:owner/:repo/issues/:n/comments" => 40, overflow: 2},
+        classes: %{},
+        callers: %{},
+        invalidations: %{events: 0, marks: 0}
+      }
+    end
+
+    output =
+      capture_io(fn ->
+        assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, cache_fun: cache, format: :records)
+      end)
+
+    # The reads the classifier cannot name are named by call family instead of
+    # folding into a single number no call site can be recovered from.
+    # (Map iteration order is not stable, so assert per-key.)
+    assert output =~ "refused REST shapes:"
+    assert output =~ "rest:GET /repos/:owner/:repo/issues/:n/comments 40"
+    assert output =~ "overflow 2"
+    assert output =~ "read cache refusals: no_identity 2"
+  end
+
+  test "reports refusals by REST shape instead of one unclassified total" do
+    # #2352 acceptance: the 5,208 reads/hr resolve into the named rows. The
+    # `refused` map keys are the shapes themselves, and the CLI renders them
+    # beside the ranking so an operator can see which call family is paying.
+    cache = fn ->
+      %{
+        available?: true,
+        entries: 12,
+        hit_rate: 0.75,
+        totals: %{hit: 30, miss: 10, deposit: 10, refused: 2500},
+        refused: %{issue_list: 1200, pull_list: 700, comment_stream: 300, repo_events: 168, unsafe_kind: 103, unclassified: 29},
+        not_deposited: %{},
+        classes: %{},
+        callers: %{},
+        invalidations: %{events: 2, marks: 4}
+      }
+    end
+
+    output =
+      capture_io(fn ->
+        assert 0 == GitHubCostCLI.run(snapshot_fun: fn -> snapshot() end, cache_fun: cache, format: :records)
+      end)
+
+    assert output =~ "read cache refusals: "
+    assert output =~ "issue_list 1200"
+    assert output =~ "pull_list 700"
+    assert output =~ "comment_stream 300"
+    assert output =~ "repo_events 168"
+    assert output =~ "unclassified 29"
+  end
+
   test "prints why cacheable reads were not deposited, so the miss/deposit gap is attributable" do
     cache = fn ->
       %{

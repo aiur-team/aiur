@@ -196,6 +196,32 @@ defmodule Aiur.GitHub.Config do
   def bot_account, do: normalize_account(section_value("bot_account"))
 
   @doc """
+  Which identity arrangement this install runs: `:separate_account` (agents
+  post as a login no human uses) or `:single_account` (the operator's own login
+  is also the agents').
+
+  Read from `tracker.github.identity_mode`, which the schema constrains to those
+  two spellings. Anything else — an unloaded config, a hand-edited typo that
+  bypassed validation — resolves to `:separate_account`, because that mode
+  answers authorship from the author login and so cannot mistake an operator's
+  comment for an agent's.
+  """
+  @spec identity_mode() :: :separate_account | :single_account
+  def identity_mode do
+    case section_value("identity_mode") do
+      "single_account" -> :single_account
+      :single_account -> :single_account
+      _otherwise -> :separate_account
+    end
+  end
+
+  @doc """
+  Whether agents and the human operator share one GitHub login.
+  """
+  @spec single_account?() :: boolean()
+  def single_account?, do: identity_mode() == :single_account
+
+  @doc """
   The GitHub App bot login the daemon writes as, from
   `tracker.github.github_app.account`, or `nil` when no App identity is
   configured.

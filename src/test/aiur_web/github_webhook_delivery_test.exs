@@ -63,7 +63,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64), dashboard_auth_required: false)
     )
 
-    if is_nil(Process.whereis(AiurWeb.Endpoint)), do: start_supervised!({AiurWeb.Endpoint, []})
+    _endpoint = Aiur.TestSupport.start_owned_endpoint!()
     if is_nil(Process.whereis(Aiur.TaskSupervisor)), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
 
     Auth.reset_alert_throttle()
@@ -158,6 +158,27 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   end
 
   describe "W-4 admission runs ahead of the dispatch" do
+    test "the admitted delivery id reaches the asynchronous delivery tail" do
+      test_pid = self()
+      delivery_id = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"
+      previous_fun = Application.get_env(:aiur, :github_webhook_deliver_fun)
+
+      Application.put_env(:aiur, :github_webhook_deliver_fun, fn event_type, payload, admitted_delivery_id ->
+        send(test_pid, {:delivered, event_type, payload, admitted_delivery_id})
+      end)
+
+      on_exit(fn ->
+        if is_nil(previous_fun),
+          do: Application.delete_env(:aiur, :github_webhook_deliver_fun),
+          else: Application.put_env(:aiur, :github_webhook_deliver_fun, previous_fun)
+      end)
+
+      payload = review_thread_delivery()
+      assert deliver("pull_request_review_thread", payload, delivery: delivery_id).status == 202
+
+      assert_receive {:delivered, "pull_request_review_thread", ^payload, ^delivery_id}, 500
+    end
+
     test "a retried delivery publishes the wake exactly once" do
       :ok = Exchange.subscribe(@topic)
 
@@ -257,6 +278,19 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       },
       "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
       "sender" => %{"login" => "its-everdred"}
+    }
+  end
+
+  defp review_thread_delivery do
+    %{
+      "action" => "unresolved",
+      "repository" => %{"full_name" => @repo},
+      "thread" => %{"id" => 88_001, "node_id" => "PRRT_kwDOabc", "comments" => 1},
+      "updated_at" => nil,
+      "pull_request" => %{
+        "number" => 901,
+        "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef", "repo" => %{"full_name" => @repo}}
+      }
     }
   end
 

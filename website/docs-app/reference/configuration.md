@@ -83,12 +83,12 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.max_inflight_per_endpoint` | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
 | `tracker.github.requests_per_minute` | integer | 120 | Tracker request budget per minute (1-10000). Lower it when the tracker rate-limits Aiur. |
 | `tracker.github.stagger_ms` | integer | 75 | Delay inserted between tracker requests, in milliseconds (0-5000), so a poll cycle does not burst. |
-| `tracker.github.daemon_core_limit_per_hour` | integer | 1000 | Hourly billable Core (REST) response ceiling for the daemon actor. A `304` is reconciled as free. When the daemon hits the ceiling, only its requests hold until the rolling hour rolls back under it. `0` disables. Re-derived down against the corrected Core volume after GraphQL commands stopped booking to Core (#2297). |
-| `tracker.github.daemon_graphql_limit_per_hour` | integer | 3000 | Hourly billable GraphQL response ceiling for the daemon actor. `0` disables. Raised from 2000 because `gh pr view`/`gh issue view`/`gh search` are GraphQL on the wire and now book to the GraphQL window (#2297). |
-| `tracker.github.daemon_search_limit_per_hour` | integer | 1000 | Hourly billable `search` response ceiling for the daemon actor. GitHub meters `/search/*` against a third pool (~30 req/min), so `gh search repos|code|commits|users` books there and gets its own pacing rather than folding into core (#2297). `0` disables. |
-| `tracker.github.agent_core_limit_per_hour` | integer | 250 | Hourly billable Core (REST) response ceiling for each agent workspace. When one agent hits it, only that agent holds. `0` disables. Core volume is a small fraction of the measured ledger, so per-agent Core stays small. |
-| `tracker.github.agent_graphql_limit_per_hour` | integer | 750 | Hourly billable GraphQL response ceiling for each agent workspace. `0` disables. Raised from 375: a single agent's normal loop (`pr view`/`issue view`/`pr checks`) crossed the old ceiling in a rolling hour and stalled it, because high-level GraphQL commands now book to the GraphQL window (#2297). |
-| `tracker.github.agent_search_limit_per_hour` | integer | 250 | Hourly billable `search` response ceiling for each agent workspace. GitHub meters `/search/*` against a third pool (~30 req/min), so `gh search repos|code|commits|users` books there and gets its own pacing rather than folding into core (#2297). `0` disables. |
+| `tracker.github.daemon_core_limit_per_hour` | integer | 3000 | Hourly billable Core (REST) response ceiling for the daemon actor. A `304` is reconciled as free. When the daemon hits the ceiling, only its requests hold until the rolling hour rolls back under it. `0` disables. |
+| `tracker.github.daemon_graphql_limit_per_hour` | integer | 4500 | Hourly billable GraphQL response ceiling for the daemon actor. `0` disables. Raised from 2000 because the guard now books the high-level GraphQL-on-the-wire reads (`gh pr view/list/status/checks`, `gh issue view/list/status`, `gh search issues/prs`, `gh api graphql`) to the GraphQL window, and the App-token daemon alone measures ~3,400-4,300 such requests per hour. |
+| `tracker.github.daemon_search_limit_per_hour` | integer | 600 | Hourly billable ceiling for GitHub's separate `search` pool (`gh search repos/code/commits/users` hit REST `/search/*`, metered at roughly 30 requests per minute rather than 5,000/hour). `0` disables. |
+| `tracker.github.agent_core_limit_per_hour` | integer | 250 | Hourly billable Core (REST) response ceiling for each agent workspace. When one agent hits it, only that agent holds. `0` disables. |
+| `tracker.github.agent_graphql_limit_per_hour` | integer | 600 | Hourly billable GraphQL response ceiling for each agent workspace. `0` disables. Raised from 375 so a single agent's normal loop (`pr view`/`issue view`/`pr checks`) has headroom once high-level GraphQL commands book to the GraphQL window. |
+| `tracker.github.agent_search_limit_per_hour` | integer | 600 | Hourly billable ceiling against the `search` pool for each agent workspace. `0` disables. Kept separate from core and graphql because GitHub meters the search pool independently and it throttles first. |
 | `tracker.github.credentials` | array | `[]` | Additional GitHub credentials the daemon spreads read traffic across, so one exhausted budget does not stop the fleet. Empty — the default — means one credential resolved exactly as before. See [Credential pooling](/apis/github#credential-pooling). |
 | `tracker.github.credentials.id` | string | required | Lowercase identifier naming this credential in `aiur github-usage` and `aiur github-cost`. Must be unique. |
 | `tracker.github.credentials.kind` | string | `machine_user` | One of `app_installation`, `machine_user` or `human`. Set it to `human` for a real person's token so Aiur keeps writes off that identity. |
@@ -99,6 +99,7 @@ A ticket that becomes terminal or leaves the run scope resolves its active advis
 | `tracker.github.repo` | string | required for GitHub | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.bot_account` | string | nil | Login the **agents** publish as — the account that pushes branches, opens pull requests, and comments for a ticket. This is an identity, not the credential: the credential is `GITHUB_TOKEN`. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. In a non-interactive or `--force` run the wizard applies the detected token login, or omits the key entirely when no login can be detected. Re-running `aiur init` preserves an existing value. When no `tracker.github.github_app.account` is set this login also stands in as the daemon's own identity for self-loop suppression. |
+| `tracker.github.identity_mode` | string | `separate_account` | Whether the agents post as a login no human uses (`separate_account`) or share the operator's own login (`single_account`). Stated, never inferred: nothing compares `bot_account` against the token's viewer login to guess, because that guess is wrong in both directions and silently changes which comments wake an agent. Under `separate_account` the author login proves authorship and nothing else is needed. Under `single_account` it proves nothing, so Aiur appends an invisible HTML-comment marker to comments it writes and suppresses only comments carrying it — anything unmarked, including every comment posted before this existed, reads as human and wakes the agent. Any other value is rejected at config load. |
 | `tracker.github.github_app.account` | string | nil | Optional. The GitHub App bot login (`<app-slug>[bot]`) the **daemon** writes as when App credentials are configured (see [GitHub](/apis/github#github-app-authentication)). Set it only when the daemon's identity differs from the agents': an App installation token can never write as `tracker.github.bot_account`, so one key naming both would make every agent-authorship check demand a login no agent holds. Leave it unset for a single-identity install — self-loop suppression, PR command handling and the CODEOWNERS self-include then fall back to `tracker.github.bot_account` exactly as before. Only the login lives here; the App credentials stay in `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and `GITHUB_APP_PRIVATE_KEY_PATH`. |
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
 | `tracker.github.allowed_users` | array | `[]` | GitHub logins allowed to use trusted operator paths. |
@@ -140,14 +141,19 @@ Freshness thresholds follow this cadence. You do not set them separately.
   staleness against the effective interval of the class they mean: the
   orchestrator snapshot readers derive from `dispatch`, Build Order catalog and
   ticket history from `planning`.
-- Build Order's own refresh cadences follow the `planning` class, so an operator
-  can run the expensive Build Order reads on demand while dispatch stays at 2.
-  The catalog itself is event-sourced (#2325) and demand-gated (#2312): there
-  is no recurring sweep — reads happen when a page opens or a degradation needs
-  a re-list — and the `planning` cadence remains the base for its boot/mount/
-  degraded reads and its staleness window. With `planning: 0` the class has no
-  timer at all: a page mount or an explicit refresh is the only thing that
-  reads it.
+- Build Order's remaining `graph_catalog_refresh_ms` — the failure-backoff base
+  for the catalog scope, the window after which the catalog snapshot is shown
+  as ageing, and the floor the labelled-read cadence rides on — is derived from
+  the effective `planning` interval, so an idle fleet widens the Build Order
+  backoff exactly as it widens the tracker poll.
+- The catalog itself is event-sourced (#2313): the page renders the store
+  projection, there is no recurring sweep, and the only GitHub reads are the
+  rare reconciliation (daemon boot and degraded webhook delivery). It is not
+  demand-gated by who is looking — the reconciliation is the daemon-owned
+  writer that re-converges the store — and it needs no timer. A selected root's
+  staleness window and failure backoff are therefore re-based on delivery
+  latency (`webhooks.silence_threshold_seconds`), the gap after which
+  degradation triggers the reconciliation, rather than on a poll cadence.
 - So a change to an interval needs no matching threshold edit.
 - `aiur status` prints the effective value and the live interval per class, for
   example:
@@ -224,6 +230,9 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.capacity_starvation_alert_after_seconds` | integer | 60 | Minimum seconds a ready-work capacity-starvation condition must persist before `system.dispatch.capacity_starved` / `system.fleet.capacity.starved` raise. The below-target dispatch ramp clears itself within a few poll cycles, so this dwell keeps the intended ramp quiet while a genuine gate that outlives the bound still raises. |
+| `agent.budget_broker_rate_window_seconds` | integer | 300 | The sliding window over which budget-broker-timeout retries are counted for the retry-rate signal. The individual retry is uninteresting; the rate is the signal. |
+| `agent.budget_broker_degraded_retry_threshold` | integer | 5 | The retry count within the window above which the budget broker counts as degraded. Set from a measured quiet-period baseline — if the normal rate is zero, almost any sustained rate is worth surfacing — and kept above an isolated timeout, which must page nobody. |
+| `agent.budget_broker_degraded_alert_after_seconds` | integer | 600 | How long the degraded budget-broker retry rate must persist before the single `system.github.budget_broker_degraded` alert raises (the dwell): a momentary blip that clears within this bound produces nothing, a sustained degradation raises exactly once. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
 | `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
 | `agent.rate_limit_primary` | string | default backend | Deprecated primary backend watched for automatic rate-limit recovery; derived from `agent.priority` when set. |
@@ -634,6 +643,10 @@ These policy keys never grant transport access by themselves. The supervisor API
 | `server.host` | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
 
 When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
+
+A fixed `server.port` that is already bound — for example a second `aiur` instance on the same host — does not crash the daemon. The second instance logs an explicit startup message naming the port and the conflict, disables only its own dashboard, and keeps running agents.
+
+The durable repository Executor state also records every daemon start and stop in `<repo>.control-lifecycle.json`, with the invoking process's OS pid, parent pid, and hostname. All runs for that repository share the journal, so a second instance or a crash is identifiable after the fact even when each run has a different log directory.
 
 ## opencode
 
