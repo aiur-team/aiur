@@ -80,7 +80,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
-                  <span :if={present?(model_label(row))} class="u-pill u-model">{model_label(row)}</span>
+                  <span :if={model = model_version(row)} class="u-pill u-model" title={model.id}>{model.label}</span>
                   <span class={["u-pill", "u-prio", priority_class(row)]}>{priority_label(row)}</span>
                 </div>
               </td>
@@ -359,6 +359,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   end
 
   defp model_label(row), do: UnitsPresentation.model_label(row)
+  defp model_version(row), do: UnitsPresentation.model_version(row)
   defp priority_label(row), do: row |> UnitsPresentation.priority() |> elem(0)
   defp priority_class(row), do: row |> UnitsPresentation.priority() |> elem(1)
 

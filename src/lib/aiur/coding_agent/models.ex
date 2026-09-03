@@ -41,6 +41,16 @@ defmodule Aiur.CodingAgent.Models do
   @slug_family ~r/^[a-z]+/
   @slug_version ~r/\d+(?:\.\d+)*/
 
+  # Anthropic ids name the family before the version (`claude-opus-5-1`), so
+  # they never match `@model` above and need their own rule. The bare family
+  # form (`opus`, `opus-4-8`) is what a route writes, and reads the same way.
+  @claude_family ~r/^(?:claude-)?(?<family>opus|sonnet|haiku)(?:-(?<version>\d+(?:-\d+)*))?$/
+  # A trailing release date (`-20251001`) is noise in an operator label.
+  @date_suffix ~r/-\d{8}$/
+  # The harness a model is packaged for, not a variant of the model itself.
+  @harness_tiers ~w(codex)
+  @max_label_length 24
+
   @type parsed :: %{prefix: String.t(), version: [non_neg_integer()], tier: String.t() | nil}
 
   @doc """
@@ -110,6 +120,68 @@ defmodule Aiur.CodingAgent.Models do
   end
 
   def ambiguous_alias?(_models, _family), do: false
+
+  @doc """
+  Short upper-case operator label for a model id — the family and version an
+  operator recognises, without the packaging around it.
+
+      claude-opus-5-1          -> "OPUS 5.1"
+      claude-haiku-4-5-2025…   -> "HAIKU 4.5"
+      gpt-5.5-codex            -> "GPT-5.5"
+      deepseek-v4-flash        -> "DEEPSEEK V4 FLASH"
+
+  An id aiur has no rule for is still worth showing, so it degrades to the
+  upper-cased id, truncated to a chip-sized length rather than dropped. A
+  vendor namespace (`anthropic/claude-sonnet-5`) is stripped first: it names
+  who sells the model, not which model it is. `nil` only for a non-string or
+  an empty string, which is how a caller tells "unknown" from "unlabelled"
+  and omits the chip entirely.
+  """
+  @spec label(term()) :: String.t() | nil
+  def label(model) when is_binary(model) do
+    case model |> String.trim() |> String.downcase() do
+      "" -> nil
+      id -> id |> strip_vendor() |> String.replace(@date_suffix, "") |> do_label()
+    end
+  end
+
+  def label(_model), do: nil
+
+  defp do_label(id) do
+    case Regex.named_captures(@claude_family, id) do
+      %{"family" => family, "version" => version} -> truncate(join_version(String.upcase(family), version, " "))
+      nil -> generic_label(id)
+    end
+  end
+
+  defp generic_label(id) do
+    case parse(id) do
+      {:ok, %{prefix: prefix, version: version, tier: tier}} ->
+        truncate(join_version(String.upcase(prefix), Enum.join(version, "."), "-") <> tier_suffix(tier))
+
+      :error ->
+        truncate(id |> String.replace(["-", "_", "/"], " ") |> String.upcase())
+    end
+  end
+
+  defp join_version(head, "", _separator), do: head
+  defp join_version(head, version, separator), do: head <> separator <> String.replace(version, "-", ".")
+
+  defp tier_suffix(tier) when is_binary(tier) and tier not in @harness_tiers, do: " " <> String.upcase(tier)
+  defp tier_suffix(_tier), do: ""
+
+  defp truncate(label) do
+    if String.length(label) > @max_label_length,
+      do: String.slice(label, 0, @max_label_length - 1) <> "…",
+      else: label
+  end
+
+  defp strip_vendor(model) do
+    case Regex.named_captures(@slug, model) do
+      %{"model" => segment} -> segment
+      nil -> model
+    end
+  end
 
   defp slug_family(model) when is_binary(model) do
     with %{"model" => segment} <- Regex.named_captures(@slug, model),

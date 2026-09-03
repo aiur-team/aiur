@@ -1642,6 +1642,17 @@ defmodule Aiur.OrchestratorStatusTest do
     assert rerouted.backend == "claude"
     assert rerouted.requested_model == "sonnet"
     assert rerouted.effort == nil
+
+    # The route asked for a family; only the running agent can say which
+    # concrete version answered, and it arrives after the execution facts —
+    # so it has to merge in rather than replace what was already reported.
+    send(pid, {:session_resolved_model, running_issue.id, "gpt-5.6-terra-2026"})
+
+    assert %{running: [observed]} = Orchestrator.snapshot(orchestrator_name, 5_000)
+
+    assert observed.resolved_model == "gpt-5.6-terra-2026"
+    assert observed.backend == "codex"
+    assert observed.requested_model == "gpt-5.6-terra"
   end
 
   test "orchestrator snapshot reflects last codex update and session id" do

@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters, Overview}
+  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters, Overview, UnitsPresentation}
 
   attr(:fleet, :map, required: true)
   attr(:decisions, :list, default: [])
@@ -52,6 +52,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                   <span>
                     <strong>{row.title || row.issue_identifier}</strong>
                     <span class="ticket-id">{row.issue_identifier}</span>
+                    <span :if={model = model_version(row)} class="u-pill u-model" title={model.id}>{model.label}</span>
                   </span>
                 </div>
               </td>
@@ -108,6 +109,10 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
     </section>
     """
   end
+
+  # Fleet rows carry the same execution facts as Units rows, so the model chip
+  # is the one presentation rule rather than a second, drifting copy.
+  defp model_version(row), do: UnitsPresentation.model_version(row)
 
   defp decision_links(decisions) do
     Enum.reduce(decisions, %{}, fn decision, links ->
