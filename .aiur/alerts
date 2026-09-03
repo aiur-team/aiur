@@ -103,6 +103,12 @@ alerts:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
   "system.fleet.capacity.starved.resolved":
     message: Fleet capacity starvation recovered
+  "system.dispatch.decision_store_unavailable":
+    message: DecisionStore is unreachable and dispatch is held
+    sound:
+      - "~/alerts/advisor/advisor-under-attack.wav"
+  "system.dispatch.decision_store_unavailable.resolved":
+    message: DecisionStore reachable; dispatch resumed
   "system.github.budget_broker_degraded":
     message: GitHub budget broker is degraded
     sound:
