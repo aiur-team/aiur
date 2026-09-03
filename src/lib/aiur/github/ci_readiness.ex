@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.CiReadiness do
 
   alias Aiur.{Config, Workflow}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.{Credential, Errors, Transport}
 
   @ruleset_page_limit 20
   @workflow_page_limit 20
@@ -87,6 +87,21 @@ defmodule Aiur.GitHub.CiReadiness do
   @doc false
   @spec unavailable(String.t(), term()) :: result()
   def unavailable(base_branch, reason) when is_binary(base_branch), do: result(base_branch, [], [], [], [{:unavailable, reason}])
+
+  @doc "Formats a repository-readiness failure for an operator without exposing credentials."
+  @spec error_message(term()) :: String.t()
+  def error_message({:github_org_repository_not_accessible, %{organization: organization, repo: repo, token_type: token_type}}) do
+    "Cannot read #{repo} with the configured token. GitHub returns 404 (not 403) for inaccessible private organization resources, " <>
+      "so this may be an authorization problem rather than a missing repository or branch. " <>
+      token_authorization_guidance(token_type, organization)
+  end
+
+  def error_message({:github, :http, %{status: 404}}) do
+    "Cannot read the configured GitHub repository. GitHub may return 404 when a repository is absent or when the configured token cannot access it. " <>
+      "Verify the repository name and the configured token's repository access."
+  end
+
+  def error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
 
   @doc false
   @spec cache_result(result(), keyword()) :: :ok
@@ -396,8 +411,8 @@ defmodule Aiur.GitHub.CiReadiness do
       when is_function(request_fun, 1) and is_binary(token) and is_binary(base_branch) do
     base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
 
-    with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
-         {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
+    with {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url, owner, repo),
+         :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
          {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{encode_query_value(base_branch)}") do
       inspect_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries, opts)
     else
@@ -439,17 +454,43 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_default_branch(request_fun, token, base_url) do
+  defp fetch_default_branch(request_fun, token, base_url, owner, repo) do
     # #2298 item 5: repo-configuration reads carry `caller: "ci_readiness"` so
     # they are attributed. The bare `/repos/{owner}/{repo}` URL stays
     # unclassified in ReadCache (it is the auth-preflight probe), while the
     # config sub-paths (`/branches/…`, `/contents/.github/workflows`,
     # `/actions/workflows`, `/rulesets`) are classified as `:repo_config`.
-    case request_fun.(%{method: :get, url: base_url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: base_url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"default_branch" => branch}}} when is_binary(branch) -> {:ok, branch}
+      {:ok, %{status: 404} = response} -> classify_repository_not_found(request_fun, token, owner, repo, response)
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
       _ -> {:error, :invalid_repository_response}
+    end
+  end
+
+  defp classify_repository_not_found(request_fun, token, owner, repo, repository_response) do
+    organization_url = "#{Transport.base_url()}/orgs/#{encode_path_component(owner)}"
+
+    case request(request_fun, %{method: :get, url: organization_url, token: token, caller: "ci_readiness"}) do
+      {:ok, %{status: status}} when status in 200..299 ->
+        {:error, {:github_org_repository_not_accessible, %{organization: owner, repo: "#{owner}/#{repo}", token_type: Credential.token_type(token)}}}
+
+      {:ok, %{status: 404}} ->
+        {:error, Errors.github_status_error(repository_response)}
+
+      {:ok, %{status: _} = response} ->
+        organization_error = Errors.github_status_error(response)
+
+        if Errors.retryable_github_error?(organization_error),
+          do: {:error, organization_error},
+          else: {:error, Errors.github_status_error(repository_response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+
+      _ ->
+        {:error, :invalid_organization_response}
     end
   end
 
@@ -510,7 +551,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp branch_exists?(request_fun, token, url) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
       {:ok, %{status: 404}} -> {:error, :base_branch_missing}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
@@ -519,7 +560,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_list(request_fun, token, url) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: body}} when is_list(body) -> {:ok, body}
       {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
@@ -548,7 +589,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_workflow_state_page(request_fun, token, base_url, url, pages_left, seen, states) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"workflows" => workflows}} = response} when is_list(workflows) ->
         states =
           Map.merge(
@@ -617,7 +658,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp workflow_entries?(entries), do: Enum.any?(entries, &(Map.get(&1, "type") == "file" and workflow_path?(Map.get(&1, "path", ""))))
 
   defp fetch_workflow(request_fun, token, entry, base_branch) do
-    case request_fun.(%{method: :get, url: workflow_url(entry, base_branch), token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: workflow_url(entry, base_branch), token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"content" => content}}} when is_binary(content) ->
         decode_workflow(entry, content)
 
@@ -655,7 +696,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_protection_checks(request_fun, token, protection_url) do
-    case request_fun.(%{method: :get, url: protection_url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: protection_url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: protection}} -> {:ok, required_checks_from(protection)}
       {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
@@ -690,7 +731,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_ruleset_page(request_fun, token, base_url, url, pages_left, seen, acc) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: rulesets} = response} when is_list(rulesets) ->
         continue_ruleset_page(
           Transport.parse_next_page_url(Map.get(response, :headers, %{})),
@@ -738,7 +779,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_ruleset_detail(request_fun, token, base_url, %{"id" => id}) when is_integer(id) or is_binary(id) do
-    case request_fun.(%{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: detail}} when is_map(detail) -> {:ok, detail}
       {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
@@ -1052,6 +1093,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp encode_path_component(value), do: URI.encode(value, &URI.char_unreserved?/1)
   defp encode_query_value(value), do: URI.encode(value, &URI.char_unreserved?/1)
   defp valid_name?(value), do: is_binary(value) and String.trim(value) != ""
+  defp request(request_fun, request), do: request_fun.(Map.put(request, :credential_pinned?, true))
   defp maybe_add(issues, true, issue), do: issues ++ [issue]
   defp maybe_add(issues, false, _issue), do: issues
 
@@ -1076,6 +1118,31 @@ defmodule Aiur.GitHub.CiReadiness do
   defp format_issue({:required_check_not_produced, checks}), do: "required check is not produced: #{Enum.join(checks, ", ")}"
   defp format_issue({:required_check_integration_not_produced, checks}), do: "required check is pinned to a different GitHub App: #{Enum.join(checks, ", ")}"
   defp format_issue({:unavailable, reason}), do: "inspection unavailable: #{inspect(reason)}"
+
+  defp token_authorization_guidance(:classic_pat, organization) do
+    "Your token looks like a classic PAT (`ghp_…`). It needs the `repo` scope and SAML SSO authorization for #{organization}. " <>
+      "In GitHub, open Settings → Developer settings → Personal access tokens → Tokens (classic) → Configure SSO → Authorize. " <>
+      "If `gh api` succeeds, it may be using a different OAuth token (`gho_…`) from the `gh` keyring; that does not authorize this configured token."
+  end
+
+  defp token_authorization_guidance(:fine_grained_pat, organization) do
+    "Your token looks like a fine-grained PAT (`github_pat_…`). It must be created with #{organization} as its resource owner, include this repository, " <>
+      "and may require organization approval. A token owned by your personal account cannot be granted access to this organization repository. " <>
+      "If `gh api` succeeds, it may be using a different OAuth token (`gho_…`) from the `gh` keyring."
+  end
+
+  defp token_authorization_guidance(:oauth, organization) do
+    "Your token looks like an OAuth token (`gho_…`). Verify that the OAuth app access is authorized for #{organization} and that the token's user can read this repository."
+  end
+
+  defp token_authorization_guidance(:app_installation, organization) do
+    "Your token looks like a GitHub App installation token (`ghs_…`). Verify that the App is installed on this repository in #{organization} with Contents: Read access."
+  end
+
+  defp token_authorization_guidance(:unknown, organization) do
+    "The credential type is not recognized from its prefix. Verify its repository permissions and organization authorization for #{organization}; " <>
+      "also verify whether `gh api` is using a different credential from the `gh` keyring."
+  end
 
   defp format_check_identity(%{name: name, app_id: app_id}), do: "#{name} (app_id: #{app_id})"
 end
