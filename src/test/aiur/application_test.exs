@@ -169,6 +169,7 @@ defmodule Aiur.ApplicationTest do
       assert Aiur.ExecutorListener in plain, "a run without --executor must still record its wake stream"
       assert Aiur.ExecutorWakeInbox in plain, "a run without --executor must still record its wake stream"
       assert Aiur.Executor.Claims in plain, "consumption is a claim, so the claim store is always present"
+      refute Aiur.Executor.Principal in plain, "a run without --executor must not register Executor authority"
 
       executor =
         modules(
@@ -184,6 +185,7 @@ defmodule Aiur.ApplicationTest do
       assert Aiur.ExecutorListener in executor
       assert Aiur.ExecutorWakeInbox in executor
       assert Aiur.Executor.Claims in executor
+      assert Aiur.Executor.Principal in executor, "an --executor run must register its principal claim"
     end
 
     test "headless run starts the dashboard by default without reviving panes" do
