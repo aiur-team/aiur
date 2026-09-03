@@ -10,11 +10,10 @@ live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 ## Orientation
 
 Aiur's intended operating modes are documented in
-[README.md § Who drives Aiur?](README.md#who-drives-aiur). In short: every run has an
-**Executor** — the operator of the run — and that is either the human driving the CLI
-directly, or the human's coding agent operating Aiur on their behalf while they stay in
-conversation with it. Both are first-class. `README.md § What Aiur is not` records the
-misreadings this distinction commonly produces.
+[`src/README.md § Who operates a run`](src/README.md#who-operates-a-run). In short: every
+run has an **Executor** — the operator of the run — and that is either the human driving the
+CLI directly, or the human's coding agent operating Aiur on their behalf while they stay in
+conversation with it. Both are first-class.
 
 The Executor skills live at [`.claude/skills/aiur-run`](.claude/skills/aiur-run/SKILL.md)
 (operate a run end to end) and
@@ -138,9 +137,10 @@ aiurdev --host …              # explicitly override configured/default dashboa
 
 Every subcommand except `build` is handled by the shared engine, so the
 npm-installed `aiur` accepts the exact same set. When config omits `server.host`,
-the engine supplies a lower-precedence default: an authenticated Tailscale IPv4
-when safely available, otherwise `127.0.0.1`. A configured value wins over that
-default; explicit `--host` wins over both.
+the engine binds the dashboard on `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST`
+override) — there is no automatic Tailscale detection, so set `server.host`
+explicitly to serve the dashboard beyond the machine. A configured value wins over
+that default; explicit `--host` wins over both.
 
 Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
 Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
@@ -233,6 +233,13 @@ GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
 will run the agent.
 
+Agent processes do **not** inherit `GITHUB_TOKEN`/`GH_TOKEN`: the daemon
+scrubs them from every agent environment and the `gh` guard injects the
+credential from a file only for the duration of a governed call (#2356). A
+raw `curl` from an agent workspace is unauthenticated, so anything that
+speaks HTTP directly is metered by GitHub's anonymous limit, not by Aiur's
+guard — the ledger counts governed `gh`/`git` calls, and only those.
+
 **Before changing anything that talks to GitHub — polling, budgets, the read
 cache, webhooks, credentials — read
 [`website/docs-app/apis/github.md`](website/docs-app/apis/github.md).** It is
@@ -292,6 +299,15 @@ be run. The command matters: a scoped `mix test test/some_dir/` silently
 excludes `test/aiur/*.exs` one level up, so a run that exercised fewer tests
 than intended reads as passing coverage.
 
+When you revert for this check, the tree must be dirty **only** in the
+intended way: `git diff` shows the production hunk you meant to remove and
+nothing else. Run it in a worktree, never the live checkout, and before the
+run assert no *unintended* modifications are present (`git status --porcelain`
+must show exactly the revert you made and no stray files) — a dirty tree from
+another process is the wrong-checkout signature #2362 is about, and HEAD alone
+does not catch it. Report the exact command you ran in the PR body so a
+reviewer can see what actually executed.
+
 Recurring shapes to avoid — each has shipped and cost a review round:
 
 - `assert %{} = …` and other patterns that match anything. `%{}` matches any
@@ -307,6 +323,13 @@ Recurring shapes to avoid — each has shipped and cost a review round:
 - Reading real state. Any test that touches `~/.aiur`, the live ledger, or a
   shared global path must point at a temp path explicitly. Green in CI and red
   on a live host is worse than red everywhere.
+- An unknown or unavailable rendering branch asserted only through its rendered
+  string. Any rendering path for `nil`, `unknown`, `stale` or `unavailable`
+  needs a test that fails when that path is replaced with a plausible default —
+  write the test, then replace the unavailable branch with `0`, `"—"`, or the
+  most recent known value, and confirm it fails. If it still passes, it is not
+  constraining that branch: check the assertion *and* whether the fixture can
+  reach it.
 
 Keeping a test that already passes on `main` is fine when it is deliberately a
 guard against a *future* regression — but say so in the test name or a
@@ -316,6 +339,96 @@ The reviewer-side check lives in the `aiur-run` skill ("Mutation-testing
 discipline", `.claude/skills/aiur-run/SKILL.md`); this section is the
 author-side rule so the check happens before review, not for the first time in
 review.
+
+## Computed ages and collapsed causes — author-side checks
+
+Two more dashboard rules recur in review — an age computed but never rendered,
+and distinct causes collapsed into one state. (The companion unknown-path
+mutation guard is the last bullet in "Tests must fail without the production
+change they guard" above.) Run them before opening a PR; the review guidance in
+the `aiur-run` skill cross-links here rather than restating them.
+
+1. **If a surface computes an age, it renders the age.** Plumbing a timestamp
+   to a presenter and not displaying it is worse than not having it — it looks
+   handled in review while the surface keeps claiming freshness. The CLI emits
+   `observed_at`, `age_ms` and `freshness`; a web surface that computes the same
+   fields must render them, or the two surfaces the docs call equivalent
+   disagree about truth.
+2. **A collapsed cause names the collapse at the source.** Collapse an unknown
+   or heterogeneous cause to a cause-neutral atom at the point of collapse
+   (`_ -> :unknown`) — never to a specific cause. `_ -> :upstream` is a
+   confident lie when the failure is not upstream: the atom flows verbatim into
+   the JSON envelope and the logs whether or not a renderer prints "unknown",
+   so a render-side fixup protects none of the consumers. If a specific cause
+   *is* known, preserve it separately — a `reasons` list, as `analytics_cli.ex`
+   does — so it is carried without ever being mislabeled.
+
+## A claimed saving must be measured
+
+A PR claiming a quota, latency, or cost saving must state, in the PR body:
+
+1. **A number, with units and a baseline** — `X → Y pts/hr`, not "reduces
+   cost". A claim with no falsifiable figure cannot be reviewed, verified at
+   merge, or re-measured later.
+2. **How it was measured — against the running system or a census of real
+   data, never derived from the code.** An estimate from the mechanism is a
+   prediction, not a saving: the tests pass because they exercise the
+   mechanism against a fixture, and the fixture may be a shape production
+   never produces. `aiur github-cost` gives per-caller points, calls, and
+   rate; the local ledger and the App-token `/rate_limit` give the
+   credential-side view. Read
+   [`website/docs-app/apis/github.md`](website/docs-app/apis/github.md)
+   ("Reading these numbers without fooling yourself") before measuring.
+3. **What must be true at merge for the saving to occur.** If the saving needs
+   a config change, ship that change in the PR — or say plainly that the
+   saving is opt-in and currently zero. A config that ships commented out
+   measures zero at merge.
+4. **A test asserting the claimed figure**, so the PR body and the test cannot
+   diverge. When the figure is a steady-state rate no unit test can assert,
+   say so in the PR body and give the measured number instead — but a claim
+   with neither a test nor a measurement is not a saving. The escape hatch
+   covers the *test*, never item 5: a rate you cannot assert in a unit test is
+   still a rate you can count the population for.
+5. **The population the change will meet in production, counted.** How many
+   reads does the classifier remove, how many shipped configs have the gate
+   uncommented, how many stored bodies have the validator's shape. This is the
+   item the other four do not catch: a saving can carry a real number, a live
+   measurement, and no config dependency, and still be inert because the
+   mechanism never meets the data. Count it and state the count.
+
+**An instrumentation PR should claim no saving at all.** If the change makes
+cost *visible* rather than smaller, say what it makes visible — the saving it
+enables is a later PR's claim, with its own number. Reframing observability as
+a saving is how a PR gets reviewed as significant and measures zero.
+
+The failure this guards is the *inert* PR, not the broken one: the mechanism
+is usually correct, and still zero is saved because it never meets the
+production data the claim assumed. Three token-cost PRs were reviewed as
+significant savings and measured zero for exactly that reason:
+
+- **#2360** claimed the saving from classification alone, which is
+  observability — the 5,208 reads/hr were *classified*, not eliminated. It
+  only saves reads now because a later revision gave three of the shapes a
+  real TTL. Note that it satisfies items 1 through 4: a rate with a baseline,
+  measured live, needing no config at merge, and covered by item 4's
+  steady-state escape hatch. Only item 5 catches it — which is why item 5 is
+  in the list and not a footnote.
+- **#2399** shipped four configs with every `polling.intervals` gate
+  commented out, so no gate binds and the cadence never changes.
+- **#2417** rarely fires its cache validator: successive censuses of the live
+  store found 0 of 462 and 1 of 99 cached bodies with the shape it looks for —
+  roughly 1%, indistinguishable from zero. The store churns, so the exact
+  count moves while the direction does not; quote a census with its date and
+  size, not a single number as if it were constant.
+
+For reviewers: **check the population, not the mechanism** — item 5, verified
+rather than taken on faith. Before evaluating whether a cache, classifier, or
+cadence change is correct, count what it will actually see in production. That
+one question settled all three above without deep analysis. The reviewer-side
+check lives in the `aiur-run` skill
+("Saving claims are measured, not estimated", `.claude/skills/aiur-run/SKILL.md`);
+this section is the author-side rule so the check happens before review, not
+for the first time in review.
 
 ## Manual testing — the only definition
 

@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Config do
 
   require Logger
 
-  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, HostCommand, Transport}
 
   @default_label_prefix "agent"
 
@@ -109,18 +109,51 @@ defmodule Aiur.GitHub.Config do
     keyring = Keyword.get(opts, :keyring_fun, &keyring_token/0)
     env = normalize_secret(System.get_env("GITHUB_TOKEN"))
 
-    resolved =
+    {resolved, source} =
       cond do
-        is_binary(env) and validate.(env) -> env
-        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> kt
-        true -> env
+        is_binary(env) and validate.(env) -> {env, :env}
+        (kt = keyring.()) && is_binary(kt) && validate.(kt) -> {kt, :keyring}
+        true -> {env, if(is_binary(env), do: :env, else: :none)}
       end
 
     # Only cache a real token; caching nil would shadow a later GITHUB_TOKEN
     # (e.g. per-test env), since token/0 treats a cached nil as resolved.
-    if is_binary(resolved), do: :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+    if is_binary(resolved) do
+      :persistent_term.put({__MODULE__, :resolved_token}, resolved)
+      :persistent_term.put({__MODULE__, :resolved_token_source}, source)
+    end
+
     resolved
   end
+
+  @doc """
+  The source the currently-resolved GitHub token was obtained from:
+  `:github_app` (App installation token), `:env` (`GITHUB_TOKEN`), `:keyring`
+  (the `gh` keyring from `gh auth login`), or `:none`.
+
+  The env var is always the source of truth for a token read straight from
+  `GITHUB_TOKEN` before `resolve_token/1` runs; once a token has been resolved
+  this reports where that resolution actually found a usable credential.
+  """
+  @spec token_source() :: :github_app | :env | :keyring | :none
+  def token_source do
+    cond do
+      AppCredentials.configured?() ->
+        :github_app
+
+      (source = :persistent_term.get({__MODULE__, :resolved_token_source}, nil)) in [:env, :keyring] ->
+        source
+
+      nonblank_token?(System.get_env("GITHUB_TOKEN")) ->
+        :env
+
+      true ->
+        :none
+    end
+  end
+
+  defp nonblank_token?(value) when is_binary(value), do: String.trim(value) != ""
+  defp nonblank_token?(_value), do: false
 
   @spec label_prefix() :: String.t()
   def label_prefix do
@@ -161,6 +194,32 @@ defmodule Aiur.GitHub.Config do
   """
   @spec bot_account() :: String.t() | nil
   def bot_account, do: normalize_account(section_value("bot_account"))
+
+  @doc """
+  Which identity arrangement this install runs: `:separate_account` (agents
+  post as a login no human uses) or `:single_account` (the operator's own login
+  is also the agents').
+
+  Read from `tracker.github.identity_mode`, which the schema constrains to those
+  two spellings. Anything else — an unloaded config, a hand-edited typo that
+  bypassed validation — resolves to `:separate_account`, because that mode
+  answers authorship from the author login and so cannot mistake an operator's
+  comment for an agent's.
+  """
+  @spec identity_mode() :: :separate_account | :single_account
+  def identity_mode do
+    case section_value("identity_mode") do
+      "single_account" -> :single_account
+      :single_account -> :single_account
+      _otherwise -> :separate_account
+    end
+  end
+
+  @doc """
+  Whether agents and the human operator share one GitHub login.
+  """
+  @spec single_account?() :: boolean()
+  def single_account?, do: identity_mode() == :single_account
 
   @doc """
   The GitHub App bot login the daemon writes as, from
@@ -331,6 +390,28 @@ defmodule Aiur.GitHub.Config do
     Aiur.Config.settings!().pr_watch.command_prefix
   end
 
+  @doc """
+  Whether the PR-health scanner runs (`pr_health.enabled`). Opt-in so a repo
+  that has not configured thresholds pays no GitHub API budget.
+  """
+  @spec pr_health_enabled?() :: boolean()
+  def pr_health_enabled? do
+    Aiur.Config.settings!().pr_health.enabled
+  end
+
+  @doc "PR-health scan cadence, in milliseconds."
+  @spec pr_health_interval_ms() :: pos_integer()
+  def pr_health_interval_ms do
+    interval = Aiur.Config.settings!().pr_health.interval_seconds
+    max(interval, 1) * 1_000
+  end
+
+  @doc "A non-draft PR older than this many hours with no review is flagged."
+  @spec pr_health_stale_hours() :: pos_integer()
+  def pr_health_stale_hours do
+    Aiur.Config.settings!().pr_health.stale_hours
+  end
+
   @impl Aiur.TrackerConfig
   def validate! do
     cond do
@@ -389,14 +470,16 @@ defmodule Aiur.GitHub.Config do
   Returns the stored PAT as a trimmed string, or `nil` when gh is absent, not
   logged in via keyring (headless/CI), or the lookup fails.
 
-  This is the single source of truth for "does a gh keyring credential exist":
-  `resolve_pat_token/1` uses it as its runtime fallback, and the boot gate in
-  `Aiur.Env` consults the same function so a keyring-only `gh auth login`
-  satisfies the GitHub credential requirement before any env token is set.
+  Routed through the host guard so the keyring lookup is admitted and recorded
+  like every other gh call (#2353). This is the single source of truth for
+  "does a gh keyring credential exist": `resolve_pat_token/1` uses it as its
+  runtime fallback, and the boot gate in `Aiur.Env` consults the same function
+  so a keyring-only `gh auth login` satisfies the GitHub credential requirement
+  before any env token is set.
   """
   @spec keyring_token() :: String.t() | nil
   def keyring_token do
-    case System.cmd("gh", ["auth", "token", "--hostname", "github.com"],
+    case HostCommand.run(["auth", "token", "--hostname", "github.com"],
            env: [{"GITHUB_TOKEN", ""}, {"GH_TOKEN", ""}],
            stderr_to_stdout: true
          ) do

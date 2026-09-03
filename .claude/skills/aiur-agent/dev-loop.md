@@ -57,6 +57,54 @@ Ticket branches are named `aiur/<id>-<slug>` for new tickets, with legacy
 Executor helper for the reverse lookup: it queries the remote, prints the one
 matching branch, and exits non-zero when no branch or more than one branch exists.
 
+## Collision-proof worktrees
+
+Concurrent agents on one box share a scratchpad root, and a shared default
+write path is the failure: left to choose their own worktree name they pick
+the same obvious one — `wt`, `worktree`, `pr`, `build` — and the second
+silently repoints the first's checkout at a different branch *mid-run*, so a
+mutation test runs against a tree that never contained the change it just
+reverted — a confident wrong verdict that gates a merge (#2362). The
+contamination is bidirectional: another agent writing into your
+correctly-identified worktree is indistinguishable from your own tree. This is
+a cross-skill override: it applies to every worktree you create, however the
+CE skills frame it.
+
+- **Every agent-created worktree path carries the PR number AND a per-agent
+  unique component**, never a generic name. Two agents can legitimately review
+  the same PR, so the PR number alone is not enough. When the repo ships
+  `scripts/agent-worktree`, use it: `scripts/agent-worktree create <n>` fetches
+  the PR head onto a unique local branch and creates
+  `.worktrees/pr-<n>-<unique>`, refusing on collision. Without it, use the same
+  scheme by hand: `git fetch origin pull/<n>/head:pr-<n>-<unique>` then
+  `git worktree add .worktrees/pr-<n>-<unique> pr-<n>-<unique>`, deriving
+  `<unique>` per agent run (hostname + pid + random, or the agent's session id).
+- **Never persist the worktree path in a file.** Shell state does not survive
+  between your tool calls, and a file in a shared scratchpad is itself a
+  collision surface — several agents independently invented `scratchpad/wt.txt`
+  and clobbered each other. Recompute the path inline per command
+  (`scripts/agent-worktree path <n> --unique <component>` prints the same path
+  for the same component) instead of reading a stored value.
+- **Assert the worktree HEAD before every mutation batch.** `git -C <wt>
+  rev-parse HEAD` must equal the intended SHA and the batch aborts loudly on
+  drift. `scripts/agent-worktree head-check <wt> <sha>` makes this one command
+  and exits non-zero on mismatch. The tree must be clean too: the #2362
+  contamination overwrote a file in place without committing, so HEAD alone
+  proves nothing. Pass `--allow-dirty` only for the batch's own reverts,
+  asserted before the first mutation.
+- **Mutation testing requires a worktree.** Never run it in the live checkout:
+  `git checkout <sha> -- <files>` there mutates a tree other agents share and
+  corrupts their runs. A worktree is required, not optional.
+- **An existing path is an error, not a reuse opportunity.** If worktree
+  creation reports the target path already exists, stop and pick a fresh unique
+  path. Never `git -C <existing-worktree> checkout <other-branch>` or
+  `gh pr checkout <n>` inside an existing worktree to "reuse" it — that is the
+  exact repoint that corrupts another agent's run.
+- **Prune stale worktrees before creating.** `git worktree prune` (or
+  `scripts/agent-worktree prune` when available) clears registrations from
+  merged branches so a real collision is visible instead of hidden. Never
+  remove a worktree another live agent is using.
+
 ## Docs ship in the same PR
 
 Documentation is part of the change, not a follow-up ticket. Update
@@ -103,6 +151,14 @@ blocking finding is the only enforcement they have.
    context. Do not run Credo locally; CI's `make ci` is the authoritative full
    lint and full-suite gate.
 
+   **Use `--trace` only with a specific `file:line`, never with a bare file or
+   directory.** `--trace` silently forces `max_cases: 1` in ExUnit, overriding
+   an explicit `--max-cases N` — a `--trace` run on a whole file serializes
+   the suite and can hold a build-gate slot for tens of minutes while the rest
+   of the fleet queues behind it (#2311). The build guard strips `--trace`
+   when you also pass `--max-cases N` (N > 1), but the right fix is not to
+   combine them at all.
+
    **Renames and signature changes need an exhaustive test-tree audit before
    push.** For every old function name, option key, or changed identifier, run
    `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/` from the
@@ -141,33 +197,80 @@ blocking finding is the only enforcement they have.
    `its-everdred` already carry that credit and need no trailer. **Never** mention
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
-7. Push to the exact branch returned by `git -C "$workspace" branch --show-current`. On GitHub,
-   `GITHUB_TOKEN` is the push identity: verify that exact token resolves to the
-   configured `tracker.github.bot_account` before the first push, without
-   printing the token:
+7. Push to the exact branch returned by `git -C "$workspace" branch --show-current`.
+   Agent processes deliberately do not inherit `GITHUB_TOKEN` or `GH_TOKEN`;
+   that absence is the #2356 security contract, not an authentication failure.
+   The governed `gh` and `git` wrappers authenticate from the file named by
+   `AIUR_GITHUB_CREDENTIAL_FILE`. Before the first push, verify that variable is
+   set, its resolved path is a regular non-empty file, and the governed `gh`
+   wrapper resolves it to the configured `tracker.github.bot_account`, without
+   printing or exporting the token:
 
    ```bash
-   test "$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login)" = "<bot_account>"
+   test -n "${AIUR_GITHUB_CREDENTIAL_FILE:-}" || {
+     printf '%s\n' 'AIUR_GITHUB_CREDENTIAL_FILE is unset; the agent GitHub credential file cannot be located' >&2
+     exit 1
+   }
+   test -f "$AIUR_GITHUB_CREDENTIAL_FILE" && test -s "$AIUR_GITHUB_CREDENTIAL_FILE" || {
+     printf 'GitHub credential file is missing or empty: %s\n' "$AIUR_GITHUB_CREDENTIAL_FILE" >&2
+     exit 1
+   }
+   if github_auth_output="$(gh api user --jq .login 2>&1)"; then
+     github_auth_status=0
+   else
+     github_auth_status=$?
+   fi
+   if test "$github_auth_status" -ne 0; then
+     case "$github_auth_output" in
+       'aiur: github budget hold resource=core reset_at_ms='*|\
+       'aiur: github budget hold resource=graphql reset_at_ms='*)
+         printf '%s\n' "$github_auth_output" >&2
+         printf '%s\n' 'Follow the existing github_budget_hold pause.request protocol below; do not raise a credential attention.' >&2
+         ;;
+       *)
+         printf 'GitHub credential file could not authenticate: %s\n' "$AIUR_GITHUB_CREDENTIAL_FILE" >&2
+         ;;
+     esac
+     exit "$github_auth_status"
+   fi
+   actual_login="$github_auth_output"
+   test "$actual_login" = "<bot_account>" || {
+     printf 'GitHub credential file %s authenticates as %s; expected %s\n' \
+       "$AIUR_GITHUB_CREDENTIAL_FILE" "$actual_login" "<bot_account>" >&2
+     exit 1
+   }
    ```
 
-   Aiur's command sandbox passes that token through a fail-closed Git helper;
-   it never falls through to the Executor's cached `gh` account. If a manual
-   recovery push runs outside that sandbox, reset the helper list explicitly
-   and install a helper that reads only `GITHUB_TOKEN`:
+   Aiur's command sandbox reads that file through a fail-closed Git helper; it
+   never falls through to the Executor's cached `gh` account. If a manual
+   recovery push runs outside that sandbox, clear inherited GitHub credential
+   helpers and authorization headers, then install a helper that reads only
+   `AIUR_GITHUB_CREDENTIAL_FILE`:
 
    ```bash
-   agent_helper='!f() { if test "$1" = get; then if test -z "${GITHUB_TOKEN:-}"; then printf "quit=true\n"; else printf "username=x-access-token\npassword=%s\n" "$GITHUB_TOKEN"; fi; fi; }; f'
-   GIT_TERMINAL_PROMPT=0 git -C "$workspace" -c credential.helper= -c credential.helper="$agent_helper" push origin HEAD
+   agent_helper='!f() { if test "$1" = get; then t=""; f="${AIUR_GITHUB_CREDENTIAL_FILE:-}"; if test -n "$f" && test -f "$f"; then t=$(sed -n "1p" "$f" 2>/dev/null || true); fi; if test -z "$t"; then printf "quit=true\n"; else printf "username=x-access-token\npassword=%s\n" "$t"; fi; fi; }; f'
+   GIT_TERMINAL_PROMPT=0 git -C "$workspace" \
+     -c credential.https://github.com.helper= \
+     -c credential.https://github.com.helper="$agent_helper" \
+     -c http.https://github.com/.extraheader= \
+     push origin HEAD
    ```
 
    Do not put a token in a remote URL or rely on a lone inline helper override:
    token URLs leak credentials, and helper lists are additive unless an empty
    entry resets inherited helpers first. GitHub attributes the push to the
-   account owning the token, regardless of the URL username. If the token is
-   missing, invalid, or rate-limited, stop on the authentication failure; never
-   retry through the Executor keyring. An empty commit or API ref update does
-   not repair a prior attribution error because it contributes no reviewable
-   file change; the next real content push must use the correct identity.
+   account owning the token, regardless of the URL username. If the credential
+   file is missing, empty, invalid, or rate-limited, stop on the authentication
+   failure; never retry through the Executor keyring and never re-export its
+   contents as `GITHUB_TOKEN` or `GH_TOKEN`. Any failure message or attention
+   must name `AIUR_GITHUB_CREDENTIAL_FILE` and its resolved path, not a scrubbed
+   variable. This is an operational, reversible credential problem, not an
+   operator decision; if a Command is genuinely required, classify it
+   `supervisor_allowed` + `reversible`, never `human_required` or `irreversible`.
+   Do not pause or raise a Command merely because `GITHUB_TOKEN`/`GH_TOKEN` are
+   absent. An empty commit or API ref update does not repair a prior attribution
+   error because it contributes no reviewable file change; the next real content
+   push must use the correct identity.
 
    A guard refusal reading `aiur: github budget hold resource=<resource>
    reset_at_ms=<milliseconds>` is not an authentication failure. Do not emit a

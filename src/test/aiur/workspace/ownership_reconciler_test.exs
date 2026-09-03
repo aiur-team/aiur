@@ -5,7 +5,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   alias Aiur.Workspace.Ownership.{Reconciler, Store}
 
   test "a persisted unresolved group is reaped before a replacement lease after restart" do
-    root = Path.join(System.tmp_dir!(), "ownership-restart-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ownership-restart")
     ticket = "ownership-restart-ticket-#{System.unique_integer([:positive])}"
     process_group_id = System.unique_integer([:positive])
     parent = self()
@@ -71,7 +71,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   end
 
   test "a corrupt receipt store is quarantined and re-initialized instead of blocking startup" do
-    root = Path.join(System.tmp_dir!(), "ownership-corrupt-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ownership-corrupt")
     store_name = Module.concat(__MODULE__, :CorruptStore)
     path = Path.join(root, "workspace-ownership.receipts")
 
@@ -95,7 +95,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   end
 
   test "a v1 receipt reloads in a fresh BEAM before receipt atoms are loaded" do
-    root = Path.join(System.tmp_dir!(), "ownership-fresh-beam-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ownership-fresh-beam")
 
     on_exit(fn -> File.rm_rf(root) end)
 
@@ -162,7 +162,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   end
 
   test "malformed bytes are quarantined and re-initialized" do
-    root = Path.join(System.tmp_dir!(), "ownership-invalid-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ownership-invalid")
     path = Path.join(root, "workspace-ownership.receipts")
 
     on_exit(fn -> File.rm_rf(root) end)
@@ -177,7 +177,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   end
 
   test "a newer-version receipts file fails closed instead of being wiped" do
-    root = Path.join(System.tmp_dir!(), "ownership-newer-version-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ownership-newer-version")
     path = Path.join(root, "workspace-ownership.receipts")
 
     on_exit(fn -> File.rm_rf(root) end)
@@ -205,11 +205,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   end
 
   test "a newer-version receipts file carrying an unknown atom fails closed instead of being wiped" do
-    root =
-      Path.join(
-        System.tmp_dir!(),
-        "ownership-newer-version-new-atom-#{System.unique_integer([:positive])}"
-      )
+    root = Aiur.TestSupport.tmp_root!("ownership-newer-version-new-atom")
 
     path = Path.join(root, "workspace-ownership.receipts")
 
@@ -254,7 +250,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   end
 
   test "receipt operations report store loss instead of crashing callers" do
-    root = Path.join(System.tmp_dir!(), "ownership-store-loss-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ownership-store-loss")
     store_name = Module.concat(__MODULE__, :StoppedStore)
 
     on_exit(fn -> File.rm_rf(root) end)
@@ -270,7 +266,7 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
   end
 
   test "a claim is rejected when its ownership receipt cannot be made durable" do
-    root = Path.join(System.tmp_dir!(), "ownership-sync-failure-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("ownership-sync-failure")
     ticket = "ownership-sync-failure-ticket-#{System.unique_integer([:positive])}"
     store_name = Module.concat(__MODULE__, :FailingStore)
     {:ok, sync_calls} = Agent.start_link(fn -> 0 end)

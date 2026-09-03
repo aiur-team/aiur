@@ -1,11 +1,18 @@
 defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.{Issue, RecentMerge}
   alias Aiur.Orchestrator.{MergedTicketReconciler, State}
 
   @merged_at ~U[2026-08-10 00:00:00Z]
   @now ~U[2026-08-10 01:00:00Z]
+
+  # The reconciler consults the ticket's other open PRs before deciding `done`,
+  # so every reconcile must say what it sees: no open PRs keeps the legacy
+  # one-PR-per-ticket terminal path.
+  defp no_open_pull_requests, do: [open_pull_requests_fun: fn _identifier -> {:ok, []} end]
 
   test "closes an active issue linked by a merged PR body, resumes dependents, and emits a visible alert" do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
@@ -26,7 +33,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
           send(parent, {:resume_blockees, identifier})
           %{state | running: %{}}
         end,
-        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
     assert_receive {:transition, "1570", "done", "in-progress"}
@@ -49,7 +57,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         now_fun: fn -> @now end,
         update_issue_state_fun: fn _identifier, _state_name, _expected -> :ok end,
         resume_blockees_fun: fn state, _identifier -> state end,
-        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
     assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}
@@ -67,7 +76,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         now_fun: fn -> @now end,
         update_issue_state_fun: fn _identifier, _state_name, _expected -> :ok end,
         resume_blockees_fun: fn state, _identifier -> state end,
-        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
     assert issues == []
@@ -85,16 +95,17 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     parent = self()
     merges = [merged_pr("Closes #1570")]
 
-    opts = [
-      recent_merges_fun: fn -> merges end,
-      now_fun: fn -> @now end,
-      update_issue_state_fun: fn identifier, _state_name, _expected ->
-        send(parent, {:transition, identifier})
-        :ok
-      end,
-      resume_blockees_fun: fn state, _identifier -> state end,
-      emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
-    ]
+    opts =
+      [
+        recent_merges_fun: fn -> merges end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, _state_name, _expected ->
+          send(parent, {:transition, identifier})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+      ] ++ no_open_pull_requests()
 
     {state, []} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
     assert_receive {:transition, "1570"}
@@ -120,7 +131,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
           :ok
         end,
         resume_blockees_fun: fn state, _identifier -> state end,
-        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
     assert issues == [issue]
@@ -141,7 +153,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
         now_fun: fn -> @now end,
         update_issue_state_fun: fn _identifier, _state_name, _expected_state -> {:error, :forbidden} end,
-        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
     assert result.running == state.running
@@ -149,7 +162,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
 
     assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}
     assert opts[:needs_attention]
-    assert opts[:message] =~ "could not close ticket 1570"
+    assert opts[:message] =~ "could not reconcile ticket 1570"
     assert opts[:reason] =~ "PR #1600"
     assert opts[:reason] =~ "1 dependent agent(s) remain paused"
   end
@@ -158,12 +171,13 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "Todo"}
     parent = self()
 
-    opts = [
-      recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
-      now_fun: fn -> @now end,
-      update_issue_state_fun: fn _identifier, _state_name, _expected -> {:error, :forbidden} end,
-      emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
-    ]
+    opts =
+      [
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn _identifier, _state_name, _expected -> {:error, :forbidden} end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
+      ] ++ no_open_pull_requests()
 
     {state, [^issue]} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
 
@@ -187,6 +201,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
       update_issue_state_fun: fn _identifier, _state_name, _expected -> :ok end,
       resume_blockees_fun: fn state, _identifier -> state end,
       emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+      open_pull_requests_fun: fn _identifier -> {:ok, []} end,
       merger_allowed_fun: fn login ->
         send(parent, {:merger_checked, login})
         false
@@ -194,6 +209,295 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     )
 
     assert_receive {:merger_checked, "drive-by-bot"}
+  end
+
+  test "a merged PR routes a ticket to rework when its remaining open PR has unresolved review threads" do
+    # The acceptance regression: ticket #2307 had two open PRs; the first merged
+    # and the reconciler stamped `done`, abandoning the second PR's
+    # CHANGES_REQUESTED findings. The remaining PR's *unresolved review threads*
+    # must land the ticket in `rework` — asserting merely "not done" would pass
+    # if the reconciler wrote nothing at all, which is a different bug with the
+    # same symptom. This is also the #2450 control: genuinely unresolved threads
+    # must still route to rework, or "does not route" would be indistinguishable
+    # from "routing disabled".
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier ->
+          {:ok,
+           [
+             %{
+               "number" => 2318,
+               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "review_decision" => "CHANGES_REQUESTED"
+             }
+           ]}
+        end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
+      )
+
+    # The specific label, not a mere "not done".
+    assert_receive {:transition, "1570", "rework", "in-progress"}
+    refute_receive {:transition, "1570", "done", _expected}
+    assert issues == []
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert opts[:message] =~ "rework instead of done"
+  end
+
+  test "a CHANGES_REQUESTED remaining PR with zero unresolved review threads does not route the merged ticket to rework" do
+    # #2450 acceptance: `reviewDecision` is sticky — it stays CHANGES_REQUESTED
+    # after the requested changes are pushed, until a reviewer submits a new
+    # review. Routing on the verdict alone re-flips a finished ticket to rework
+    # on every poll (#2309, narrower path). The actionable signal is unresolved
+    # review threads: a PR whose threads are all resolved is merely awaiting a
+    # fresh review, so the merged ticket must keep its state rather than degrade
+    # to rework.
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "human-review"}
+    parent = self()
+
+    log =
+      capture_log(fn ->
+        {_state, issues} =
+          MergedTicketReconciler.reconcile(%State{}, [issue],
+            recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+            now_fun: fn -> @now end,
+            update_issue_state_fun: fn identifier, state_name, expected_state ->
+              send(parent, {:transition, identifier, state_name, expected_state})
+              :ok
+            end,
+            resume_blockees_fun: fn state, _identifier -> state end,
+            emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+            open_pull_requests_fun: fn _identifier ->
+              {:ok,
+               [
+                 %{
+                   "number" => 2318,
+                   "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+                   "review_decision" => "CHANGES_REQUESTED"
+                 }
+               ]}
+            end,
+            unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+          )
+
+        assert issues == []
+      end)
+
+    # The ticket is not routed to rework: it keeps its human-review state.
+    refute_receive {:transition, "1570", "rework", _expected}
+    assert_receive {:transition, "1570", "human-review", "human-review"}
+    refute_receive {:transition, "1570", "done", _expected}
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert opts[:message] =~ "human-review instead of done"
+
+    # The skip is a *named* reason, not a silent "not rework": the gate read the
+    # thread state and deliberately refused rework because the threads are clear.
+    assert log =~ ":no_unresolved_review_threads"
+  end
+
+  test "a merged PR routes a ticket to human-review when its remaining open PR merely awaits review" do
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier ->
+          {:ok,
+           [
+             %{
+               "number" => 2318,
+               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "review_decision" => "APPROVED"
+             }
+           ]}
+        end
+      )
+
+    assert_receive {:transition, "1570", "human-review", "in-progress"}
+    refute_receive {:transition, "1570", "done", _expected}
+    assert issues == []
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert opts[:message] =~ "human-review instead of done"
+  end
+
+  test "a stale draft left open after a merge does not pin the ticket out of done" do
+    # The mirror-image of the #2307 defect: a dead draft from a superseded
+    # attempt left open forever must not keep a ticket out of `done`. A draft
+    # with no update within the staleness window is treated as abandoned and
+    # does not block the terminal transition — the specific label `done` is
+    # asserted, not merely "not rework".
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier ->
+          {:ok,
+           [
+             %{
+               "number" => 2318,
+               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "draft" => true,
+               "updated_at" => "2026-07-30T00:00:00Z"
+             }
+           ]}
+        end
+      )
+
+    assert_receive {:transition, "1570", "done", "in-progress"}
+    refute_receive {:transition, "1570", "rework", _expected}
+    refute_receive {:transition, "1570", "human-review", _expected}
+    assert issues == []
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}
+    assert opts[:message] =~ "closed ticket 1570"
+  end
+
+  test "a draft with recent activity still blocks done and routes to human-review" do
+    # Only drafts with no update within the staleness window are treated as
+    # abandoned. A draft updated recently is live work: it must still block the
+    # terminal transition so the ticket's remaining PR is not abandoned.
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier ->
+          {:ok,
+           [
+             %{
+               "number" => 2318,
+               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "draft" => true,
+               "updated_at" => "2026-08-09T23:00:00Z"
+             }
+           ]}
+        end
+      )
+
+    assert_receive {:transition, "1570", "human-review", "in-progress"}
+    refute_receive {:transition, "1570", "done", _expected}
+    assert issues == []
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert opts[:message] =~ "human-review instead of done"
+  end
+
+  test "a stale non-draft open PR still blocks done" do
+    # The draft requirement matters: a stale PR that was actually submitted for
+    # review is still awaiting that review, so it must keep blocking the
+    # terminal transition rather than being dismissed alongside abandoned
+    # drafts.
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier ->
+          {:ok,
+           [
+             %{
+               "number" => 2318,
+               "head" => %{"ref" => "aiur/2307-agents-run-stale-budget"},
+               "draft" => false,
+               "updated_at" => "2026-07-30T00:00:00Z",
+               "review_decision" => "APPROVED"
+             }
+           ]}
+        end
+      )
+
+    assert_receive {:transition, "1570", "human-review", "in-progress"}
+    refute_receive {:transition, "1570", "done", _expected}
+    assert issues == []
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert opts[:message] =~ "human-review instead of done"
+  end
+
+  test "a failed open-PR lookup never closes a ticket" do
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:error, :github_api_status} end
+      )
+
+    refute_receive {:transition, "1570", _state_name, _expected}
+    assert issues == [issue]
+    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}
+    assert opts[:needs_attention]
+  end
+
+  test "an open-PR listing in an unexpected shape never closes a ticket" do
+    issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    parent = self()
+
+    {_state, issues} =
+      MergedTicketReconciler.reconcile(%State{}, [issue],
+        recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
+        now_fun: fn -> @now end,
+        update_issue_state_fun: fn identifier, state_name, expected_state ->
+          send(parent, {:transition, identifier, state_name, expected_state})
+          :ok
+        end,
+        resume_blockees_fun: fn state, _identifier -> state end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end,
+        open_pull_requests_fun: fn _identifier -> {:ok, %{"unexpected" => "shape"}} end
+      )
+
+    refute_receive {:transition, "1570", _state_name, _expected}
+    assert issues == [issue]
+    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}
+    assert opts[:needs_attention]
   end
 
   defp blocked_state(blocker, blockee) do

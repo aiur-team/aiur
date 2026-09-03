@@ -421,11 +421,7 @@ defmodule Aiur.Opencode.SessionWriterTest do
   # ----------------------------------------------------------------- helpers
 
   defp db_fixture(_ctx) do
-    db_path =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur-session-writer-test-#{System.unique_integer([:positive])}.db"
-      )
+    db_path = Aiur.TestSupport.tmp_root!("aiur-session-writer-test") <> ".db"
 
     initialize_schema!(db_path)
     Application.put_env(:aiur, :opencode_db_path_override, db_path)

@@ -9,7 +9,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
     previous_store_path = Application.get_env(:aiur, :ci_approval_store_path)
 
     store_path =
-      Path.join(System.tmp_dir!(), "github_ci_poller_#{System.unique_integer([:positive])}.json")
+      Aiur.TestSupport.tmp_root!("github_ci_poller") <> ".json"
 
     System.put_env("GITHUB_TOKEN", "test-gh-token")
     Application.put_env(:aiur, :ci_approval_store_path, store_path)
@@ -43,7 +43,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 71,
-                 "head" => %{"ref" => "aiur/42", "sha" => "current-sha"},
+                 "head" => pr_head("aiur/42", "current-sha"),
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -78,7 +78,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
         pull_request: %{
           "number" => 77,
           "state" => "open",
-          "head" => %{"ref" => "aiur/42-x", "sha" => "head-77"},
+          "head" => pr_head("aiur/42-x", "head-77"),
           "base" => %{"ref" => "main"},
           "merge_queue" => %{
             draft?: true,
@@ -108,7 +108,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
         pull_request: %{
           "number" => 77,
           "state" => "open",
-          "head" => %{"ref" => "aiur/42-x", "sha" => "head-77"},
+          "head" => pr_head("aiur/42-x", "head-77"),
           "base" => %{"ref" => "main"},
           "merge_queue" => %{
             draft?: false,
@@ -133,7 +133,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
       "42" => %{
         pull_request: %{
           "number" => 71,
-          "head" => %{"ref" => "aiur/71", "sha" => "parked-head"},
+          "head" => pr_head("aiur/71", "parked-head"),
           "base" => %{"ref" => "main"},
           "merge_queue" => %{
             draft?: false,
@@ -277,6 +277,90 @@ defmodule Aiur.Events.GithubCIPollerTest do
              GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
   end
 
+  # #2337 cause 4: a head sha carries check runs from both a superseded run and
+  # the current run of the same workflow. A superseded run's failure is not a
+  # failure of the head — the gate must consider the latest run per
+  # (workflow, name). GitHub re-runs of the same workflow reuse the
+  # `check_suite.id`, so same-suite runs are provably the same workflow.
+  describe "superseded runs on the same head sha" do
+    test "passes when the latest run per (workflow, name) is green despite an older failed run" do
+      check_runs = [
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "coverage (2/4)", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"},
+        %{"name" => "coverage (2/4)", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"}
+      ]
+
+      assert %{decision: :passed, failures: []} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+
+    test "fails when the latest run on a (workflow, name) is itself failed" do
+      check_runs = [
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T21:00:00Z"}
+      ]
+
+      assert %{decision: :failed} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+
+    test "waits when the latest run is still in progress" do
+      check_runs = [
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "in_progress", "conclusion" => nil, "started_at" => "2026-08-22T21:00:00Z"}
+      ]
+
+      assert %{decision: :pending, pending_reason: :check_runs_incomplete} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+
+    test "does not collapse same-named runs from different workflows (different check suites)" do
+      # ci.yml's `build` and streamdeck-package.yml's `build` land on one head
+      # sha under distinct check suites. The failing required `build` must not
+      # be dropped by the later-starting green one from the other workflow —
+      # a gate that reports green on a red required check is the failure this
+      # scoping exists to prevent.
+      check_runs = [
+        %{"name" => "build", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-23T01:41:39Z"},
+        %{"name" => "build", "check_suite_id" => 88_376_212_345, "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-23T01:42:00Z"}
+      ]
+
+      assert %{decision: :failed, failures: [%{name: "build"}]} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+
+    test "never collapses runs that carry no check-suite identity" do
+      # A run with no suite id is scoped by its own id, so a same-named failure
+      # is never dropped in favor of a later green run of unknown provenance.
+      check_runs = [
+        %{"id" => 1, "name" => "test", "status" => "completed", "conclusion" => "failure", "started_at" => "2026-08-22T20:00:00Z"},
+        %{"id" => 2, "name" => "test", "status" => "completed", "conclusion" => "success", "started_at" => "2026-08-22T21:00:00Z"}
+      ]
+
+      assert %{decision: :failed, failures: [%{name: "test"}]} =
+               GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+    end
+
+    test "recency by completed_at, not list order, when started_at is absent" do
+      # #2346 review: the previous fixture listed the success last, so a
+      # last-listed-wins implementation passed vacuously. The failure has the
+      # later completed_at; whichever order the list arrives in, recency must
+      # keep the failure, not the last-listed run.
+      success =
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "success", "completed_at" => "2026-08-22T20:00:00Z"}
+
+      failure =
+        %{"name" => "test", "check_suite_id" => 88_376_209_394, "status" => "completed", "conclusion" => "failure", "completed_at" => "2026-08-22T21:00:00Z"}
+
+      assert %{decision: :failed} =
+               GithubCIPoller.evaluate_for_test([success, failure], %{"state" => "pending", "statuses" => []})
+
+      assert %{decision: :failed} =
+               GithubCIPoller.evaluate_for_test([failure, success], %{"state" => "pending", "statuses" => []})
+    end
+  end
+
   test "waits for every check before reporting the complete failure set" do
     partial_snapshot = [
       %{"name" => "lint", "status" => "completed", "conclusion" => "failure"},
@@ -329,7 +413,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 91,
-                 "head" => %{"ref" => "aiur/91", "sha" => "partial-head"},
+                 "head" => pr_head("aiur/91", "partial-head"),
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -399,12 +483,12 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 42,
-                 "head" => %{"ref" => "aiur/42", "sha" => "head-42"},
+                 "head" => pr_head("aiur/42", "head-42"),
                  "base" => %{"ref" => "main"}
                },
                %{
                  "number" => 43,
-                 "head" => %{"ref" => "aiur/43", "sha" => "head-43"},
+                 "head" => pr_head("aiur/43", "head-43"),
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -461,7 +545,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 77,
-                 "head" => %{"ref" => "aiur/77", "sha" => head_sha},
+                 "head" => pr_head("aiur/77", head_sha),
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -508,7 +592,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 78,
-                 "head" => %{"ref" => "aiur/78", "sha" => head_sha},
+                 "head" => pr_head("aiur/78", head_sha),
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -547,7 +631,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 79,
-                 "head" => %{"ref" => "aiur/79", "sha" => "head-79"},
+                 "head" => pr_head("aiur/79", "head-79"),
                  "base" => %{"ref" => base}
                }
              ]
@@ -601,7 +685,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 88,
-                 "head" => %{"ref" => "aiur/88", "sha" => "head-88"},
+                 "head" => pr_head("aiur/88", "head-88"),
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -645,7 +729,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              %{
                "number" => 1144,
                "draft" => true,
-               "head" => %{"ref" => "aiur/1146", "sha" => "head-before-concurrent-push"},
+               "head" => pr_head("aiur/1146", "head-before-concurrent-push"),
                "base" => %{"ref" => "v2"}
              }
            ]
@@ -728,7 +812,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                %{
                  "number" => 1144,
                  "draft" => true,
-                 "head" => %{"ref" => "aiur/1146", "sha" => "unchanged-head"},
+                 "head" => pr_head("aiur/1146", "unchanged-head"),
                  "base" => %{"ref" => Agent.get(base, & &1)}
                }
              ]
@@ -864,7 +948,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 1174,
-                 "head" => %{"ref" => "aiur/1146", "sha" => "repaired-head"},
+                 "head" => pr_head("aiur/1146", "repaired-head"),
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -924,7 +1008,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            body: [
              %{
                "number" => 1144,
-               "head" => %{"ref" => "aiur/1146", "sha" => "journal-failure-head"},
+               "head" => pr_head("aiur/1146", "journal-failure-head"),
                "base" => %{"ref" => "v2"}
              }
            ]
@@ -979,7 +1063,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
            body: [
              %{
                "number" => 1144,
-               "head" => %{"ref" => "aiur/1146", "sha" => "pre-patch-head"},
+               "head" => pr_head("aiur/1146", "pre-patch-head"),
                "base" => %{"ref" => "v2"}
              }
            ]
@@ -1032,7 +1116,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 1144,
-                 "head" => %{"ref" => "aiur/1146", "sha" => "concurrent-head"},
+                 "head" => pr_head("aiur/1146", "concurrent-head"),
                  "base" => %{"ref" => "main"}
                }
              ]
@@ -1098,7 +1182,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              %{
                "number" => 1145,
                "draft" => true,
-               "head" => %{"ref" => "aiur/1146", "sha" => "head-1145"},
+               "head" => pr_head("aiur/1146", "head-1145"),
                "base" => %{"ref" => "v2"}
              }
            ]
@@ -1131,5 +1215,13 @@ defmodule Aiur.Events.GithubCIPollerTest do
     assert excerpt =~ ~s(targets "v2")
     assert excerpt =~ ~s(tracker.base_branch is "main")
     assert excerpt =~ "baseRefName"
+  end
+
+  defp pr_head(ref, sha) do
+    %{
+      "ref" => ref,
+      "sha" => sha,
+      "repo" => %{"full_name" => "owner/repo"}
+    }
   end
 end

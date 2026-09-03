@@ -14,7 +14,8 @@ defmodule Aiur.Claude.RemoteControl do
       session's `.jsonl` transcript so a re-dispatched agent resumes by cwd,
     * `graceful_kill/1` / `graceful_kill_tree/1` — SIGTERM→SIGKILL a tracked
       OS pid (and, for the headless `bash -c` wrapper, its orphaned subtree),
-    * `reap_orphaned_servers/0` — sweep RC debug files left by a crashed aiur.
+    * `reap_orphaned_servers/0` — sweep RC debug files left by a crashed aiur
+      (or `reap_orphaned_servers/1` against a caller-supplied debug dir),
 
   ## Workspace trust
 
@@ -296,72 +297,11 @@ defmodule Aiur.Claude.RemoteControl do
 
   @doc false
   @spec process_alive?(nil | integer()) :: boolean()
-  def process_alive?(os_pid) when is_integer(os_pid) and os_pid > 0 do
-    match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true))
-  rescue
-    # Assume alive if the probe cannot run, so a transient failure never spuriously
-    # reports the paused root as dead and triggers a reap.
-    _ -> true
-  end
-
-  def process_alive?(_os_pid), do: false
+  def process_alive?(os_pid), do: Aiur.ProcessIdentity.alive?(os_pid)
 
   @doc false
   @spec process_identity(nil | integer()) :: {:ok, term()} | :gone | :unknown
-  def process_identity(os_pid) when is_integer(os_pid) and os_pid > 0 do
-    case File.read("/proc/#{os_pid}/stat") do
-      {:ok, stat} -> procfs_process_identity(stat)
-      {:error, _reason} -> ps_process_identity(os_pid)
-    end
-  rescue
-    _ -> :unknown
-  end
-
-  def process_identity(_os_pid), do: :gone
-
-  defp procfs_process_identity(stat) do
-    case List.last(:binary.matches(stat, ")")) do
-      {closing_paren, _length} ->
-        stat
-        |> binary_part(closing_paren + 1, byte_size(stat) - closing_paren - 1)
-        |> String.split()
-        |> then(fn fields -> {Enum.at(fields, 3), Enum.at(fields, 19)} end)
-        |> procfs_fields_identity()
-
-      nil ->
-        :unknown
-    end
-  end
-
-  defp procfs_fields_identity({session, start_time})
-       when is_binary(session) and is_binary(start_time) and byte_size(session) > 0 and
-              byte_size(start_time) > 0,
-       do: {:ok, {:procfs_birth_and_session, start_time, session}}
-
-  defp procfs_fields_identity(_fields), do: :unknown
-
-  defp ps_process_identity(os_pid) do
-    case System.find_executable("ps") do
-      nil ->
-        :unknown
-
-      ps ->
-        ps
-        |> System.cmd(["-o", "lstart=", "-o", "sess=", "-p", Integer.to_string(os_pid)], stderr_to_stdout: true)
-        |> ps_process_result()
-    end
-  rescue
-    _ -> :unknown
-  end
-
-  defp ps_process_result({output, 0}) do
-    case String.trim(output) do
-      "" -> :gone
-      identity -> {:ok, {:ps_birth_and_session, identity}}
-    end
-  end
-
-  defp ps_process_result(_result), do: :gone
+  def process_identity(os_pid), do: Aiur.ProcessIdentity.resolve(os_pid)
 
   @doc false
   @spec graceful_kill_process_group(nil | integer()) :: {:ok, :gone | :reaped} | {:error, :group_alive}
@@ -559,9 +499,19 @@ defmodule Aiur.Claude.RemoteControl do
   never touched. Stray debug files for dead owners are swept too.
   """
   @spec reap_orphaned_servers() :: :ok
-  def reap_orphaned_servers do
-    dir = debug_dir()
+  def reap_orphaned_servers, do: reap_orphaned_servers(debug_dir())
 
+  @doc """
+  Same as `reap_orphaned_servers/0`, sweeping a caller-supplied debug
+  directory instead of the daemon's fixed `aiur-rc` root.
+
+  `reap_orphaned_servers/0` scans the stable per-daemon directory, which is
+  shared by nothing else in production. Tests pass a per-VM-unique root (see
+  `Aiur.TestSupport.tmp_root!/1`) so two concurrent `mix test` VMs never reap
+  each other's debug files.
+  """
+  @spec reap_orphaned_servers(Path.t()) :: :ok
+  def reap_orphaned_servers(dir) when is_binary(dir) do
     case File.ls(dir) do
       {:ok, entries} ->
         entries

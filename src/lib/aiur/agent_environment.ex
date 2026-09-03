@@ -4,7 +4,7 @@ defmodule Aiur.AgentEnvironment do
   """
 
   alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
-  alias Aiur.GitHub.{Budget, Credential}
+  alias Aiur.GitHub.{AgentMarker, Budget, Credential}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Workspace.Remote
 
@@ -41,6 +41,19 @@ defmodule Aiur.AgentEnvironment do
   # (`GITHUB_APP_CLIENT_SECRET`, …) is covered the day it is introduced.
   @app_credential_env_names ~w(GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_PRIVATE_KEY_PATH)
   @app_credential_env_pattern ~r/\AGITHUB_APP_/
+  # #2356: agents must not inherit the raw GitHub credential. A PAT in the agent
+  # environment authenticates ANY process that speaks HTTP directly — curl,
+  # Req, a Python script, a Node fetch — fully authenticated, unmetered and
+  # untraced. The `gh` guard injects the credential only for the duration of a
+  # governed call, from a file the daemon writes (see
+  # `AgentGitHubGuard.ensure_agent_token_file/1`); the environment itself
+  # carries no token. GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN are covered
+  # so an enterprise deployment cannot leak its credential through the same
+  # inheritance, and MISE_GITHUB_TOKEN (mise's ambient GitHub token, set by
+  # operators and CI) is covered so the acceptance check
+  # `env | grep -i -E 'GITHUB_TOKEN|GH_TOKEN'` returns nothing even when the
+  # daemon's own environment carries it.
+  @github_credential_env_names ~w(GITHUB_TOKEN GH_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN MISE_GITHUB_TOKEN)
   @scheduler_option ~r/(^|\s)\+S\s+\d+(?::\d+)?/
   @neutral_zdotdir "/dev/null"
 
@@ -52,7 +65,7 @@ defmodule Aiur.AgentEnvironment do
   @spec scrub_shell_command(String.t(), keyword()) :: String.t()
   def scrub_shell_command(command, opts \\ []) when is_binary(command) do
     exec_prefix = if Keyword.get(opts, :exec, false), do: "exec ", else: ""
-    "#{shell_startup_prefix(opts)}; #{scrub_shell_prefix()}; #{exec_prefix}#{command}"
+    "#{shell_startup_prefix(opts)}; #{scrub_shell_prefix(opts)}; #{exec_prefix}#{command}"
   end
 
   @doc """
@@ -100,21 +113,36 @@ defmodule Aiur.AgentEnvironment do
     "unset #{unset_names}; export ZDOTDIR=#{Aiur.Shell.escape(@neutral_zdotdir)}"
   end
 
-  @spec scrub_shell_prefix() :: String.t()
-  def scrub_shell_prefix do
+  @spec scrub_shell_prefix(keyword()) :: String.t()
+  def scrub_shell_prefix(opts \\ []) do
+    # The raw GitHub credential is scrubbed for every AGENT environment
+    # (#2356). Daemon-owned operations that are not agent scopes — the prewarm
+    # base build — opt out with `github_credential: false` so the operator's
+    # configured build command keeps whatever auth it already had.
+    github_credential_env_names =
+      if Keyword.get(opts, :github_credential, true), do: @github_credential_env_names, else: []
+
+    github_credential_case =
+      if github_credential_env_names == [],
+        do: "",
+        else: "|GITHUB_TOKEN|GH_TOKEN|GH_ENTERPRISE_TOKEN|GITHUB_ENTERPRISE_TOKEN|MISE_GITHUB_TOKEN"
+
     ("unset " <>
        Enum.join(
          @erlang_distribution_env_names ++
            @daemon_dump_env_names ++
            @restart_build_env_names ++
            @parent_log_env_names ++
-           @operator_only_env_names ++ @provider_credential_env_names ++ @app_credential_env_names,
+           @operator_only_env_names ++
+           @provider_credential_env_names ++
+           @app_credential_env_names ++
+           github_credential_env_names,
          " "
        ) <>
        "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
-      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|GITHUB_APP_*) unset \"$aiur_env_name\" ;; " <>
+      "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY|GITHUB_APP_*#{github_credential_case}) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
       release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
@@ -233,7 +261,10 @@ defmodule Aiur.AgentEnvironment do
           @restart_build_env_names ++
           @parent_log_env_names ++
           @operator_only_env_names ++
-          provider_credential_env_names() ++ app_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"],
+          provider_credential_env_names() ++
+          app_credential_env_names() ++
+          @github_credential_env_names ++
+          ["AIUR_GITHUB_BUDGET_KEY"],
         fn name -> {String.to_charlist(name), false} end
       )
 
@@ -261,6 +292,12 @@ defmodule Aiur.AgentEnvironment do
         {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
+        # Single-account mode only: the marker the `gh` guard appends to comment
+        # bodies the agent writes, so the daemon can later tell those comments
+        # from ones the operator typed under the same login. `false` (unset) on
+        # a separate-account install, where the author login already answers it
+        # and the guard must not touch any body.
+        {String.to_charlist(AgentMarker.env_var()), agent_comment_marker()},
         # The repository the agent was dispatched against, so the `gh` guard can
         # file a cached response under a resource identity (#2073 U6). `gh`
         # resolves the repo from the working directory, so the guard only trusts
@@ -268,6 +305,11 @@ defmodule Aiur.AgentEnvironment do
         # other repository must not have its answers filed under this one.
         {~c"AIUR_GITHUB_REPO", configured_repo_slug()},
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
+        # #2356: the path to the token file the daemon wrote for the `gh` guard.
+        # This is a PATH, not a credential — the raw token lives on disk and the
+        # wrapper injects it only into a governed call's real `gh` child, so the
+        # agent environment itself never carries `GITHUB_TOKEN`/`GH_TOKEN`.
+        {~c"AIUR_GITHUB_CREDENTIAL_FILE", AgentGitHubGuard.agent_token_path() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_IDENTITY_KEY", publication_credential_key(opts) |> String.to_charlist()},
@@ -396,12 +438,15 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
       remote_repo_slug_export() <>
+      agent_comment_marker_export() <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
       "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>
       "AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
+      "export AIUR_GITHUB_CREDENTIAL_FILE='~/.aiur/github-budget/agent-token'\n" <>
+      "AIUR_GITHUB_CREDENTIAL_FILE=\"$HOME/${AIUR_GITHUB_CREDENTIAL_FILE#\\~/}\"\nexport AIUR_GITHUB_CREDENTIAL_FILE\n" <>
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       publication_credential_export(opts) <>
       "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
@@ -532,6 +577,20 @@ defmodule Aiur.AgentEnvironment do
     case configured_repo_slug() do
       false -> "unset AIUR_GITHUB_REPO\n"
       slug -> "export AIUR_GITHUB_REPO=#{Aiur.Shell.escape(List.to_string(slug))}\n"
+    end
+  end
+
+  defp agent_comment_marker do
+    if GitHubConfig.single_account?(), do: String.to_charlist(AgentMarker.marker()), else: false
+  end
+
+  defp agent_comment_marker_export do
+    case agent_comment_marker() do
+      false ->
+        "unset #{AgentMarker.env_var()}\n"
+
+      marker ->
+        "export #{AgentMarker.env_var()}=#{Aiur.Shell.escape(List.to_string(marker))}\n"
     end
   end
 

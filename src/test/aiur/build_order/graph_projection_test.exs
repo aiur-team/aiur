@@ -133,12 +133,9 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 2}}}, 2_000
 
-    # Point the projection at a different repository. A new authority discards
-    # the catalog and its demanders, so the open page re-subscribes — exactly
-    # what `SourceRuntime.reset_projection/1` does on a projection reset.
+    # Point the projection at a different repository.
     Agent.update(authority, fn _ -> authority({"owner", "other-repo"}, 2, 4) end)
     send(projection, {:workflow_config_updated, 2})
-    GraphProjection.subscribe_catalog(projection)
 
     assert_receive {:catalog_read, true}, 2_000
   end
@@ -171,7 +168,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   # and it would also leave the catalog publishing nothing at all. So the retry
   # after a failed labelled read is the cheap variant, and the labelled read
   # comes back once its backoff elapses rather than being abandoned.
-  test "backs off a failed labelled catalog read instead of retrying it on every poll" do
+  test "retains a labelled-read budget failure across a cheap success and clears it on recovery" do
     parent = self()
     first = identity(1, "I1")
     {:ok, clock} = Agent.start_link(fn -> 0 end)
@@ -184,18 +181,48 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     {:ok, projection} = start_projection(clock: clock, catalog_reader: reader)
 
     assert_receive {:catalog_read, true}, 2_000
-    finish(await_reader(:catalog), {:error, ProviderResult.failed(:transport)})
+    finish(await_reader(:catalog), {:error, ProviderResult.failed(:call_budget_exhausted)})
     assert_receive {:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog}}}, 2_000
 
     # The catalog keeps publishing on the cheap query while the labelled one is
     # in backoff, rather than failing over and over on the expensive one.
     assert_receive {:catalog_read, false}, 3_000
-    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
-    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 1}}}, 2_000
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([counted_root(first)]))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 1} = fallback}}, 2_000
+    assert fallback.data.count_resolution_failure == :budget
 
     Agent.update(clock, fn _ -> 60_001 end)
     GraphProjection.refresh_catalog(projection)
     assert_receive {:catalog_read, true}, 2_000
+
+    resolved = counted_root(first, epic_count: 2, phase_count: 4)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([resolved]))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 2} = recovered}}, 2_000
+    assert recovered.data.count_resolution_failure == nil
+  end
+
+  test "retains a labelled-read timeout across a cheap success" do
+    parent = self()
+    first = identity(1, "I1")
+
+    reader = fn reader_opts ->
+      send(parent, {:catalog_read, Keyword.get(reader_opts, :member_labels)})
+      blocking_read(parent, :catalog)
+    end
+
+    {:ok, _projection} = start_projection(catalog_reader: reader)
+
+    assert_receive {:catalog_read, true}, 2_000
+    finish(await_reader(:catalog), {:error, ProviderResult.failed({:github, :timeout, %{reason: :timeout}})})
+    assert_receive {:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert_receive {:catalog_read, false}, 3_000
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([counted_root(first)]))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{} = fallback}}, 2_000
+    assert fallback.data.count_resolution_failure == :timeout
   end
 
   # A labelled read is authoritative. If it read the member labels and still
@@ -220,6 +247,86 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
     assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 2} = published}}, 2_000
     assert [%RootSummary{epic_count: nil, phase_count: nil}] = published.data.entries
+
+    # No error occurred: the read succeeded and simply ran past our own planning
+    # page bound. Reporting `:upstream` here blamed GitHub for an Aiur limit.
+    assert published.data.count_resolution_failure == :incomplete
+  end
+
+  # The branch that actually fires in production — permission, rate limit,
+  # schema, transport, quota hold — previously had zero coverage: every test
+  # drove a reason hitting one of the two whitelisted clauses, so the
+  # `:upstream` catch-all survived any mutation. This drives each class end to
+  # end through a failed labelled read and pins the atom the operator is shown.
+  for {reason, expected} <- [
+        {:call_budget_exhausted, :budget},
+        {:page_budget_exhausted, :budget},
+        {{:aiur, :locally_held, %{reason: :shared_budget, resource: "graphql"}}, :budget},
+        {{:aiur, :locally_held, %{resource: "graphql", remaining: 0, limit: 5000}}, :budget},
+        {{:github, :rate_limited, %{status: 403}}, :rate_limited},
+        {{:github, :timeout, %{reason: :timeout}}, :timeout},
+        {{:github, :timeout, %{reason: :econnrefused}}, :unreachable},
+        {:missing_github_token, :permission},
+        {{:github, :auth, %{status: 401}}, :permission},
+        {:provider_schema, :schema},
+        {:invalid_graphql_response, :schema},
+        {:pagination_mismatch, :incomplete},
+        {:graphql_partial, :incomplete},
+        {:catalog_overflow, :incomplete},
+        # Nothing we can name. The cell must keep admitting ignorance rather
+        # than inventing a cause an operator would act on.
+        {:something_unmapped, nil}
+      ] do
+    test "classifies a labelled-read #{inspect(reason)} as #{inspect(expected)}" do
+      reason = unquote(Macro.escape(reason))
+      expected = unquote(expected)
+      parent = self()
+      first = identity(1, "I1")
+
+      reader = fn reader_opts ->
+        send(parent, {:catalog_read, Keyword.get(reader_opts, :member_labels)})
+        blocking_read(parent, :catalog)
+      end
+
+      {:ok, _projection} = start_projection(catalog_reader: reader)
+
+      assert_receive {:catalog_read, true}, 2_000
+      finish(await_reader(:catalog), {:error, ProviderResult.failed(reason)})
+      assert_receive {:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog}}}, 2_000
+
+      assert_receive {:catalog_read, false}, 3_000
+      finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([counted_root(first)]))})
+
+      assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{} = fallback}}, 2_000
+      assert fallback.data.count_resolution_failure == expected
+    end
+  end
+
+  # "Budget exhausted" with no horizon leaves the operator unable to tell a
+  # minute from an hour. The hold already carries the reset; it must survive.
+  test "carries a budget hold's reset horizon through to the published catalog" do
+    parent = self()
+    first = identity(1, "I1")
+    reset_at = ~U[2026-08-23 15:30:00Z]
+
+    reader = fn reader_opts ->
+      send(parent, {:catalog_read, Keyword.get(reader_opts, :member_labels)})
+      blocking_read(parent, :catalog)
+    end
+
+    {:ok, _projection} = start_projection(catalog_reader: reader)
+
+    assert_receive {:catalog_read, true}, 2_000
+    hold = {:aiur, :locally_held, %{reason: :shared_budget, resource: "graphql", reset_at: reset_at}}
+    finish(await_reader(:catalog), {:error, ProviderResult.failed(hold)})
+    assert_receive {:projection_event, {:graph_projection_health, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert_receive {:catalog_read, false}, 3_000
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([counted_root(first)]))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{} = fallback}}, 2_000
+    assert fallback.data.count_resolution_failure == :budget
+    assert fallback.data.count_resolution_reset_at == reset_at
   end
 
   # Carrying bridges the gap between labelled reads; it is not a substitute for
@@ -602,11 +709,6 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     new_repository = {"other", "repo"}
     Agent.update(authority, fn _ -> authority(new_repository, 2, 4) end)
     send(projection, {:workflow_config_updated, 2})
-
-    # The new authority discarded the catalog and its demanders; the page
-    # re-subscribes, as `SourceRuntime.reset_projection/1` would on the reset.
-    GraphProjection.subscribe_catalog(projection)
-
     new_reader = await_reader(:catalog)
 
     old_candidate = catalog([root(identity(1, "I1"))])
@@ -686,6 +788,101 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     assert inflight == %{}
   end
 
+  # The event-sourced catalog re-converges from GitHub on daemon boot — the
+  # rare reconciliation that repairs whatever the dropped-delivery path could
+  # not, rather than the old every-60s poll (#2313).
+  test "boot starts the rare GraphQL reconciliation and serves a snapshot immediately" do
+    parent = self()
+    first = identity(1, "I1")
+
+    {:ok, _projection} =
+      start_projection(
+        reconciliation_fun: fn reader_opts ->
+          send(parent, {:reconciled, reader_opts})
+        end
+      )
+
+    # The reconciliation is spawned on boot with the catalog's reader options.
+    assert_receive {:reconciled, reconciled_opts}, 2_000
+    assert Keyword.get(reconciled_opts, :repository) == @repository
+
+    # Boot also requests the catalog from the store projection so the page has
+    # a snapshot before the reconciliation's store writes land.
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 1}}}, 2_000
+
+    # The reconciliation task completes and clears its inflight marker; no
+    # second reconciliation is owed until delivery mode degrades again.
+    refute_receive {:reconciled, _}, 100
+  end
+
+  # The dropped-delivery path: a degraded repo's event stream cannot be trusted
+  # to converge on its own, so the projection re-fetches the graph from GitHub.
+  # Triggered by the delivery-mode transition, not by a clock (#2313).
+  test "a degraded delivery mode reconciles the active repo from GitHub" do
+    parent = self()
+    first = identity(1, "I1")
+
+    {:ok, projection} =
+      start_projection(
+        reconciliation_fun: fn reader_opts ->
+          send(parent, {:reconciled, reader_opts})
+        end
+      )
+
+    # Drain boot's reconciliation and the first catalog read.
+    assert_receive {:reconciled, _}, 2_000
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 1}}}, 2_000
+
+    # The active repo degrades: deliveries are being dropped, so reconcile.
+    send(projection, {:webhook_mode_changed, %{repo: "owner/repo", state: :degraded}})
+    assert_receive {:reconciled, _}, 2_000
+
+    # Another repo's degradation is not this projection's business.
+    send(projection, {:webhook_mode_changed, %{repo: "someone/else", state: :degraded}})
+    refute_receive {:reconciled, _}, 200
+  end
+
+  # A dependency edge set outside Aiur must reflect on the page: the store
+  # change re-reads exactly the watched roots the edge touches, and nothing
+  # else (#2313).
+  test "a dependency-edge change re-reads the selected root it touches and no other" do
+    first = identity(1, "I1")
+    second = identity(2, "I2")
+
+    {:ok, projection} = start_projection()
+    _reader = await_reader(:catalog)
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    assert {:ok, _} = GraphProjection.demand(projection, second)
+
+    # An edge "1:7" touches root 1 (the blocked issue). The projection should
+    # re-read root 1's selected scope from the store projection...
+    send(
+      projection,
+      {:github_resource_changed,
+       %{
+         key: nil,
+         resource_type: :issue_dependency,
+         owner: "owner",
+         repo: "repo",
+         id: "1:7",
+         source: :webhook,
+         version: nil,
+         etag: nil,
+         data?: true,
+         data_version: nil,
+         recorded_at_ms: 1,
+         cleared: false
+       }}
+    )
+
+    assert {:selected, ^first} = await_selected_scope(first)
+    # ...and leave root 2, which the edge does not touch, alone.
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
+  end
+
   defp start_projection(opts \\ []) do
     parent = self()
 
@@ -706,29 +903,22 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
     clock_ms = if clock, do: fn -> Agent.get(clock, & &1) end, else: fn -> 0 end
 
-    {:ok, projection} =
-      GraphProjection.start_link(
-        name: nil,
-        task_supervisor: task_supervisor,
-        authority_snapshot: authority_snapshot,
-        configuration_subscriber: fn _pid -> :ok end,
-        catalog_reader: Keyword.get(opts, :catalog_reader, blocking_reader(parent, :catalog)),
-        selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
-        now: fn -> @now end,
-        clock_ms: clock_ms,
-        catalog_refresh_ms: 60_000,
-        refresh_timeout_ms: 30_000,
-        max_selected_roots: max_selected_roots,
-        max_inflight: 4,
-        after_broadcast: fn event -> send(parent, {:projection_event, event}) end
-      )
-
-    # The catalog is demand-gated since #2312: no viewer, no read. These tests
-    # all exercise catalog reads, so register the test process as the viewer,
-    # exactly as an open Build Order page would before the reads start.
-    GraphProjection.subscribe_catalog(projection)
-
-    {:ok, projection}
+    GraphProjection.start_link(
+      name: nil,
+      task_supervisor: task_supervisor,
+      authority_snapshot: authority_snapshot,
+      configuration_subscriber: fn _pid -> :ok end,
+      reconciliation_fun: Keyword.get(opts, :reconciliation_fun, fn _opts -> :ok end),
+      catalog_reader: Keyword.get(opts, :catalog_reader, blocking_reader(parent, :catalog)),
+      selected_reader: fn identity, _reader_opts -> blocking_read(parent, {:selected, identity}) end,
+      now: fn -> @now end,
+      clock_ms: clock_ms,
+      catalog_refresh_ms: 60_000,
+      refresh_timeout_ms: 30_000,
+      max_selected_roots: max_selected_roots,
+      max_inflight: 4,
+      after_broadcast: fn event -> send(parent, {:projection_event, event}) end
+    )
   end
 
   defp blocking_reader(parent, scope), do: fn _reader_opts -> blocking_read(parent, scope) end

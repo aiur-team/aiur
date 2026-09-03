@@ -46,7 +46,7 @@ Never put real credentials, customer data, repository history, or agent transcri
 
 ## Documentation and visual regression
 
-The public guide is `website/docs-app/guide/executor-control-center.md`. Its screenshots are produced by:
+The public guide is `website/docs-app/guide/gui.md`. Its screenshots are produced by:
 
 ```bash
 cd website

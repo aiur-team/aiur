@@ -2,15 +2,20 @@ defmodule Aiur.GitHub.AuthPreflightTest do
   use Aiur.TestSupport
 
   alias Aiur.GitHub.AuthPreflight
+  alias Aiur.GitHub.LocalHold
   alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.ReadCache
   alias Aiur.GitHub.Transport
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @source_cache_key {Aiur.GitHub.Config, :resolved_token_source}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
     prev_cached_token = :persistent_term.get(@token_cache_key, :unset)
+    prev_source = :persistent_term.get(@source_cache_key, :unset)
     :persistent_term.erase(@token_cache_key)
+    :persistent_term.erase(@source_cache_key)
     System.put_env("GITHUB_TOKEN", "preflight-token")
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -20,6 +25,13 @@ defmodule Aiur.GitHub.AuthPreflightTest do
 
     AuthPreflight.invalidate(:test_setup)
 
+    # A `default_request_fun` probe here asserts the transport outcome (a 401
+    # clearing the memo). `/issues/{n}` reads are now cacheable (`:issue`,
+    # #2352), and the read cache is a shared application child, so clear it so
+    # the probe reaches the transport rather than a deposit from an earlier
+    # test in the same partition.
+    ReadCache.reset()
+
     on_exit(fn ->
       AuthPreflight.invalidate(:test_teardown)
       restore_env("GITHUB_TOKEN", prev_token)
@@ -27,6 +39,11 @@ defmodule Aiur.GitHub.AuthPreflightTest do
       case prev_cached_token do
         :unset -> :persistent_term.erase(@token_cache_key)
         token -> :persistent_term.put(@token_cache_key, token)
+      end
+
+      case prev_source do
+        :unset -> :persistent_term.erase(@source_cache_key)
+        source -> :persistent_term.put(@source_cache_key, source)
       end
     end)
 
@@ -110,11 +127,312 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     refute inspect(diagnostic) =~ "preflight-token"
   end
 
+  test "a keyring-sourced credential is reported as the gh keyring, not GITHUB_TOKEN" do
+    # Simulate a boot where `gh auth login` was the only credential: resolve_pat_token
+    # cached the keyring token, so the diagnostic must name that source and give the
+    # matching recovery, never "refresh or unset GITHUB_TOKEN" — a variable the
+    # developer never set (#2374).
+    :persistent_term.put(@token_cache_key, "keyring-token")
+    :persistent_term.put(@source_cache_key, :keyring)
+
+    request_fun = fn %{url: "https://api.github.com/rate_limit"} ->
+      {:ok,
+       %{
+         status: 403,
+         headers: [{"x-ratelimit-remaining", "0"}],
+         body: %{"message" => "API rate limit exceeded"}
+       }}
+    end
+
+    assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+             AuthPreflight.preflight_auth(
+               request_fun: request_fun,
+               gh_auth_status_fun: fn -> {:ok, :available} end
+             )
+
+    assert diagnostic.token_source == "gh keyring"
+    assert diagnostic.message =~ "gh keyring"
+    assert diagnostic.message =~ "gh auth login"
+    refute diagnostic.message =~ "refresh or unset GITHUB_TOKEN"
+  end
+
   test "formats diagnostic maps and plain fallback reasons" do
     reason = {:github_auth_preflight_failed, %{message: "friendly"}}
 
     assert AuthPreflight.format_auth_preflight_error(reason) == "friendly"
     assert AuthPreflight.format_auth_preflight_error(:missing_github_token) == ":missing_github_token"
+  end
+
+  # #2429 F3 acceptance: a local budget hold during the preflight is a local
+  # counter trip, not an App or credential problem. The message must name the
+  # hold and point at the budget config — and must not emit the generic
+  # recovery guidance (App reinstallation / GITHUB_TOKEN rotation), which could
+  # never fix a local hold. `local_hold_message` short-circuits before the
+  # token-source branch, so this holds for both GITHUB_APP and GITHUB_TOKEN
+  # sources; pre-fix this diagnostic classified as `:transport` and carried the
+  # wrong recovery text.
+  #
+  # The reset is 30s out — within the hold wait-out ceiling — so this also
+  # exercises the re-armed cap (#2444): the request_fun keeps re-issuing the
+  # same hold, preflight waits `@local_hold_max_waits` times (each sleep
+  # injected to return immediately), and the final diagnostic still names the
+  # hold.
+  test "a local budget hold during preflight names the local hold, never App or token recovery" do
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
+    request_fun = fn _request -> {:error, {:aiur, :locally_held, hold}} end
+
+    assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+             AuthPreflight.preflight_auth(
+               request_fun: request_fun,
+               gh_auth_status_fun: fn -> {:ok, :available} end,
+               local_hold_sleep_fun: fn _ms -> :ok end
+             )
+
+    assert diagnostic.classification == :local_hold
+    assert diagnostic.message =~ "local budget hold"
+    assert diagnostic.message =~ "tracker.github.*_limit_per_hour"
+    refute diagnostic.message =~ "verify the App is installed"
+    refute diagnostic.message =~ "re-acquires a fresh installation token"
+    refute diagnostic.message =~ "Recovery: refresh or unset GITHUB_TOKEN"
+    refute diagnostic.message =~ "the request failed before GitHub returned a status"
+  end
+
+  test "local_hold_reason?/1 recognizes a held preflight but not other failures" do
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.utc_now()}
+    diagnostic = %{classification: :local_hold, endpoint: :rate_limit, repo: "owner/repo", token_source: "GITHUB_APP"}
+
+    assert AuthPreflight.local_hold_reason?({:github_auth_preflight_failed, diagnostic})
+    assert AuthPreflight.local_hold_reason?({:aiur, :locally_held, hold})
+    refute AuthPreflight.local_hold_reason?({:github_auth_preflight_failed, %{classification: :dns}})
+    refute AuthPreflight.local_hold_reason?(:missing_github_token)
+  end
+
+  describe "local budget hold wait-out (#2444)" do
+    # #2444 acceptance 1: a `:local_hold` whose `reset_at` is a couple of
+    # seconds out is waited out and the retry succeeds — preflight returns
+    # `:ok`, so the workspace provisioning path never produces
+    # `workspace_github_connectivity_failed` and the agent run survives. The
+    # sleep is injected so the test asserts on the run surviving (a `:ok`
+    # return) and on the wait actually happening (the sleep duration), not on
+    # a log line and not on a real 2s wall-clock wait.
+    test "a short local budget hold is waited out and the preflight succeeds" do
+      parent = self()
+      reset_at = DateTime.add(DateTime.utc_now(), 2, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      counter = start_counter()
+
+      request_fun = fn request ->
+        attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if attempt == 1 do
+          {:error, {:aiur, :locally_held, hold}}
+        else
+          ok_response(request)
+        end
+      end
+
+      sleep_fun = fn ms ->
+        send(parent, {:sleep, ms})
+        :ok
+      end
+
+      assert :ok =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :not_installed} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # One held attempt, then a full successful retry (three checks).
+      assert count(counter) == 4
+
+      # The hold was 2s out, so the wait honours `reset_at` plus up to 500ms of
+      # jitter — nothing more.
+      assert_receive {:sleep, wait_ms}
+      assert wait_ms >= 1_500 and wait_ms <= 2_500
+      refute_receive {:sleep, _}
+    end
+
+    # #2444 acceptance 2 (the mutation guard): a hold whose `reset_at` is
+    # beyond the ceiling is a genuine capacity problem and still fails
+    # preflight. Without this bound the wait-out fix is indistinguishable from
+    # swallowing the error. The request_fun is called exactly once — no wait,
+    # no retry — and the ordinary diagnostic is returned.
+    test "a local budget hold beyond the ceiling still fails preflight without waiting" do
+      parent = self()
+      # Two minutes out — beyond the 60s default ceiling.
+      reset_at = DateTime.add(DateTime.utc_now(), 120, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      counter = start_counter()
+
+      request_fun = counting_request_fun(counter, fn _ -> {:error, {:aiur, :locally_held, hold}} end)
+      sleep_fun = fn _ms -> send(parent, :slept) end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :available} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      assert diagnostic.classification == :local_hold
+      assert count(counter) == 1
+      refute_receive :slept
+    end
+
+    # #2444 acceptance 3: a pathologically re-armed hold (each wait produces a
+    # fresh hold) terminates after the configured cap rather than pinning the
+    # caller forever. Three waits by default, then the fourth attempt fails
+    # closed.
+    test "a repeatedly re-armed local hold terminates after the configured cap" do
+      reset_at = DateTime.add(DateTime.utc_now(), 1, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      counter = start_counter()
+      sleep_counter = start_counter()
+
+      request_fun = counting_request_fun(counter, fn _ -> {:error, {:aiur, :locally_held, hold}} end)
+      sleep_fun = fn _ms -> Agent.update(sleep_counter, &(&1 + 1)) end
+
+      assert {:error, {:github_auth_preflight_failed, %{classification: :local_hold}}} =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :available} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # 3 waits + the final failing attempt; it never waits forever.
+      assert count(counter) == 4
+      assert count(sleep_counter) == 3
+    end
+
+    # #2444 acceptance 4: a hold whose `reset_at` has already passed by the
+    # time the failure is produced (the daemon-restart burst) is retried
+    # immediately — zero sleep — and succeeds, so the restart does not fail
+    # the run for a hold that has already cleared.
+    test "a local hold whose reset_at has passed is retried immediately and succeeds" do
+      reset_at = DateTime.add(DateTime.utc_now(), -1, :second)
+      hold = %{reason: :shared_budget, resource: "core", reset_at: reset_at}
+      counter = start_counter()
+      sleep_counter = start_counter()
+
+      request_fun = fn request ->
+        attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if attempt == 1 do
+          {:error, {:aiur, :locally_held, hold}}
+        else
+          ok_response(request)
+        end
+      end
+
+      sleep_fun = fn _ms -> Agent.update(sleep_counter, &(&1 + 1)) end
+
+      assert :ok =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :not_installed} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # One held attempt, then a full successful retry (three checks).
+      assert count(counter) == 4
+      # Nothing to wait for — `reset_at` already passed.
+      assert count(sleep_counter) == 0
+    end
+  end
+
+  describe "budget broker timeout wait-out (#2457)" do
+    # #2457 acceptance 1: a preflight that meets a budget broker timeout is
+    # backed off and retried, so the run survives. `LocalHold.run/2` wraps the
+    # whole three-check attempt; the first attempt's rate-limit check times out
+    # at the broker (the `request_fun` returns the raw
+    # `:github_budget_broker_timeout` transport error), and the retry succeeds —
+    # preflight returns `:ok`, so the workspace provisioning path never
+    # produces `workspace_github_connectivity_failed` and the agent run
+    # survives. The sleep is injected so the assertion is on the run surviving,
+    # not on a log line.
+    test "a budget broker timeout is backed off and the preflight succeeds" do
+      parent = self()
+      counter = start_counter()
+
+      request_fun = fn request ->
+        attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if attempt == 1 do
+          {:error, :github_budget_broker_timeout}
+        else
+          ok_response(request)
+        end
+      end
+
+      sleep_fun = fn ms ->
+        send(parent, {:sleep, ms})
+        :ok
+      end
+
+      assert :ok =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :not_installed} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # One timed-out attempt, then a full successful retry (three checks).
+      assert count(counter) == 4
+
+      # The first backoff is `backoff_base_ms` plus up to `jitter_ms`.
+      assert_receive {:sleep, wait_ms}
+      assert wait_ms >= LocalHold.backoff_base_ms()
+      assert wait_ms <= LocalHold.backoff_base_ms() + LocalHold.jitter_ms()
+      refute_receive {:sleep, _}
+    end
+
+    # #2457 acceptance 3 at the preflight boundary: a persistently unreachable
+    # broker fails closed — preflight still fails (after the capped retries),
+    # so the run is terminated rather than the workspace being pinned forever.
+    test "a persistently unreachable broker still fails preflight after the cap" do
+      counter = start_counter()
+      sleep_counter = start_counter()
+
+      request_fun = counting_request_fun(counter, fn _ -> {:error, :github_budget_broker_timeout} end)
+      sleep_fun = fn _ms -> Agent.update(sleep_counter, &(&1 + 1)) end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :available} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # Transient per the shared classifier; the diagnostic names the timeout.
+      assert diagnostic.classification == :timeout
+      assert diagnostic.detail == %{reason: :github_budget_broker_timeout}
+      # `max_waits` waits + the final failing attempt; it never pins the caller.
+      assert count(sleep_counter) == LocalHold.max_waits()
+    end
+
+    # #2457 acceptance 2: a malformed broker reply (broker unavailable) is
+    # permanent and must still fail preflight on the first attempt — no
+    # waiting, no retrying. Without this the "no failures" of the fix would be
+    # indistinguishable from "errors swallowed".
+    test "a permanent broker-unavailable still fails preflight without waiting" do
+      counter = start_counter()
+
+      request_fun = counting_request_fun(counter, fn _ -> {:error, :github_budget_broker_unavailable} end)
+      sleep_fun = fn _ms -> flunk("must not sleep for a permanent broker fault") end
+
+      assert {:error, {:github_auth_preflight_failed, diagnostic}} =
+               AuthPreflight.preflight_auth(
+                 request_fun: request_fun,
+                 gh_auth_status_fun: fn -> {:ok, :available} end,
+                 local_hold_sleep_fun: sleep_fun
+               )
+
+      # Exactly one attempt — the permanent fault is not retried.
+      assert count(counter) == 1
+      assert diagnostic.classification == :transport
+      assert diagnostic.detail == %{reason: :github_budget_broker_unavailable}
+    end
   end
 
   describe "ensure_preflight/1 — what an idle hour costs" do

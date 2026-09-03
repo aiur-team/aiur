@@ -211,14 +211,31 @@ defmodule Aiur.RunTelemetry.Summaries do
   @doc "Loads every materialized prior boot (excluding the live boot) as datasets."
   @spec load_prior_datasets(String.t() | nil) :: [map()]
   def load_prior_datasets(current_boot) do
-    summary_boot_ids()
-    |> Enum.reject(&(&1 == current_boot))
-    |> Enum.flat_map(fn boot_id ->
-      case load_dataset(boot_id) do
-        {:ok, dataset} -> [dataset]
-        {:error, _reason} -> []
-      end
-    end)
+    {datasets, _unreadable?} = load_prior_datasets_with_state(current_boot)
+    datasets
+  end
+
+  @doc """
+  Loads every materialized prior boot (excluding the live boot) as datasets,
+  alongside whether any retained summary could not be decoded.
+
+  The `unreadable?` flag distinguishes "no retained data" from "retained data
+  that is corrupt": the Analytics latest-run view must not present a truncated
+  `run-summary.json` as an idle fleet.
+  """
+  @spec load_prior_datasets_with_state(String.t() | nil) :: {[map()], boolean()}
+  def load_prior_datasets_with_state(current_boot) do
+    {datasets, unreadable?} =
+      summary_boot_ids()
+      |> Enum.reject(&(&1 == current_boot))
+      |> Enum.reduce({[], false}, fn boot_id, {datasets, unreadable?} ->
+        case load_dataset(boot_id) do
+          {:ok, dataset} -> {[dataset | datasets], unreadable?}
+          {:error, _reason} -> {datasets, true}
+        end
+      end)
+
+    {Enum.reverse(datasets), unreadable?}
   end
 
   @doc """
@@ -259,7 +276,15 @@ defmodule Aiur.RunTelemetry.Summaries do
     cpu_percent rss_bytes fd_count read_bytes write_bytes
     read_bytes_per_second write_bytes_per_second
     system_fd_used system_fd_limit system_fd_available system_fd_headroom_ratio
+    fleet_agents_occupied fleet_agents_configured fleet_agents_max fleet_agents_effective
+    fleet_load fleet_load_threshold fleet_schedulers
+    build_gate_capacity build_gate_active build_gate_queued build_queue_oldest_wait_seconds
   )
+  @resource_evidence ~w(
+    fleet_capacity_status fleet_capacity_age_ms fleet_capacity_observed_at_ms
+    fleet_admission_signal
+    build_gate_enabled build_gate_status build_gate_observed_at_ms
+  )a
 
   defp decode_records(list) when is_list(list) do
     {:ok, Enum.map(list, &decode_record/1)}
@@ -327,7 +352,12 @@ defmodule Aiur.RunTelemetry.Summaries do
   defp decode_sample(map) when is_map(map) do
     metrics = Map.new(@resource_metrics, fn metric -> {metric, Map.get(map, metric)} end)
 
-    Map.merge(metrics, %{
+    evidence =
+      Map.new(@resource_evidence, fn field -> {field, Map.get(map, Atom.to_string(field))} end)
+
+    metrics
+    |> Map.merge(evidence)
+    |> Map.merge(%{
       actor: Map.get(map, "actor"),
       actor_type: Map.get(map, "actor_type"),
       ticket: Map.get(map, "ticket"),

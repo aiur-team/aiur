@@ -35,7 +35,15 @@ defmodule Aiur.Init.BotAccount do
 
   @prompt_label "GitHub account Aiur's agents post as (bot_account)"
 
-  @prompt_hint "The login Aiur recognizes as its own to suppress self-triggered comment/event loops. Under GitHub App auth this is the App bot login, `<app-slug>[bot]`."
+  # Corrected in #2501. The previous wording said this field is "the login Aiur
+  # recognizes as its own to suppress self-triggered comment/event loops",
+  # which is not what the field does. Self-loop suppression keys on
+  # `Aiur.GitHub.Config.daemon_account/0`
+  # (`Aiur.Events.Publisher.bot_self_loop?/1`) — which only reaches
+  # `bot_account` through a fallback, and not at all on a GitHub App install —
+  # while `bot_account` itself is added to the comment-*trust* allowlist by
+  # `Aiur.GitHub.CodeOwners`, the opposite of suppressed.
+  @prompt_hint "The login Aiur's agents post as: it is trusted for review comments and, under a separate bot account, is what tells an agent's comment from a human's. Under GitHub App auth this is the App bot login, `<app-slug>[bot]`."
 
   @doc """
   Prompts for and returns the tracker with `:bot_account` filled for a GitHub
@@ -57,12 +65,16 @@ defmodule Aiur.Init.BotAccount do
   defp explain(io) do
     io.puts.([
       "\nAiur separates two GitHub identities:\n",
-      "  • GITHUB_TOKEN — the credential used for GitHub API and inherited `gh` operations.\n",
-      "  • github.bot_account — the login Aiur uses to recognize and suppress its own\n",
-      "    comment/event loops (so an agent's own reply is never treated as human feedback).\n",
-      "A dedicated bot account is recommended when operators also comment from a trusted\n",
-      "CODEOWNER account. Reusing one login for agents and humans makes provenance\n",
-      "ambiguous and may require the stronger origin tracking tracked in #1151."
+      "  • GITHUB_TOKEN — the credential used for GitHub API and `gh` operations.\n",
+      "    Agents do not inherit it: the daemon writes it to the `gh` guard's file and\n",
+      "    injects it only for the duration of a governed call (#2356).\n",
+      "  • github.bot_account — the login Aiur's agents post as. Comments from it are\n",
+      "    trusted as review feedback, and it is how Aiur tells an agent's own reply\n",
+      "    from a human's when agents have a login of their own.\n",
+      "If you use your own account for the agents too, set tracker.github.identity_mode\n",
+      "to \"single_account\": Aiur then marks the comments it writes and reads provenance\n",
+      "from the mark, so your own comments still reach the agent. Leave it at\n",
+      "\"separate_account\" when the agents have a dedicated login."
     ])
   end
 
@@ -70,7 +82,7 @@ defmodule Aiur.Init.BotAccount do
   defp prompt(io, default) do
     case Edit.normalize_login(io.input.(@prompt_label, default, @prompt_hint)) do
       nil ->
-        io.puts.(Format.dim("Skipped bot_account. Set tracker.github.bot_account later to suppress agent self-loops."))
+        io.puts.(Format.dim("Skipped bot_account. Set tracker.github.bot_account later so agent comments are trusted as review feedback."))
         nil
 
       login ->

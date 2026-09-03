@@ -42,7 +42,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: @repo)
 
-    dir = Path.join(System.tmp_dir!(), "aiur-write-through-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-write-through")
     File.mkdir_p!(dir)
 
     on_exit(fn ->
@@ -714,7 +714,10 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     %{
       "action" => "resolved",
       "repository" => %{"full_name" => @repo},
-      "pull_request" => %{"number" => 7, "head" => %{"ref" => "aiur/42-slug"}},
+      "pull_request" => %{
+        "number" => 7,
+        "head" => %{"ref" => "aiur/42-slug", "repo" => %{"full_name" => @repo}}
+      },
       "thread" => %{"node_id" => "PRRT_thread", "is_resolved" => true, "updated_at" => "2026-08-17T16:00:00Z"}
     }
   end

@@ -8,14 +8,13 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
 
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.{ResourceFetch, ResourceStore}
-  alias Aiur.GitHub.Transport
   alias Aiur.Issue
   alias Aiur.Orchestrator.State
   alias Aiur.Tracker
 
   @human_review_comment_targets_per_poll 25
   @watch_comment_targets_per_poll 25
+  @reconcile_targets_per_poll 25
   @human_review_state "human-review"
   @merging_state "merging"
   @comment_poll_review_states [@human_review_state, @merging_state]
@@ -23,41 +22,86 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   @doc false
   @spec max_comment_poll_target_count(State.t(), keyword()) :: non_neg_integer()
   def max_comment_poll_target_count(%State{} = state, opts) do
-    map_size(state.running) + human_review_comment_target_limit(opts) + watch_comment_target_limit(opts)
+    if reconcile_only?(opts) do
+      state |> reconcile_targets_for_poll(opts) |> MapSet.size()
+    else
+      map_size(state.running) +
+        human_review_comment_target_limit(opts) +
+        watch_comment_target_limit(opts) +
+        (state |> reconcile_targets_for_poll(opts) |> MapSet.size())
+    end
+  end
+
+  @doc false
+  @spec reconcile_targets_for_poll(State.t(), keyword()) :: MapSet.t(String.t())
+  def reconcile_targets_for_poll(%State{github_comment_reconcile_targets: targets}, opts) do
+    targets
+    |> MapSet.to_list()
+    |> normalize_comment_targets()
+    |> Enum.sort()
+    |> Enum.take(reconcile_target_limit(opts))
+    |> MapSet.new()
   end
 
   @spec github_comment_poll_targets(State.t(), keyword()) ::
           {:ok, [String.t()], [map()], [map()]} | {:error, term()}
   def github_comment_poll_targets(%State{} = state, opts) do
-    with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts),
-         {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
-      running_targets = running_comment_poll_targets(state)
+    if reconcile_only?(opts) do
+      {:ok, forced_reconcile_targets(state, opts), [], []}
+    else
+      with {:ok, human_review_targets} <- human_review_comment_poll_targets(state, opts),
+           {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
+        running_targets = running_comment_poll_targets(state)
 
-      targets =
-        running_targets
-        |> Kernel.++(Enum.map(human_review_targets, & &1.target))
-        |> Kernel.++(Enum.map(watch_targets, & &1.target))
-        |> Enum.uniq()
+        targets =
+          running_targets
+          |> Kernel.++(Enum.map(human_review_targets, & &1.target))
+          |> Kernel.++(Enum.map(watch_targets, & &1.target))
+          |> Kernel.++(forced_reconcile_targets(state, opts))
+          |> Enum.uniq()
 
-      {:ok, targets, human_review_targets, watch_targets}
+        {:ok, targets, human_review_targets, watch_targets}
+      end
     end
   end
 
   @spec github_comment_poll_targets_with_cache(State.t(), keyword()) ::
           {:ok, [String.t()], [map()], [map()], map()} | {:error, term()}
   def github_comment_poll_targets_with_cache(%State{} = state, opts) do
-    with {:ok, human_review_targets, cache} <-
-           human_review_comment_poll_targets_with_cache(state, opts),
-         {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
-      running_targets = running_comment_poll_targets(state)
+    if reconcile_only?(opts) do
+      {:ok, forced_reconcile_targets(state, opts), [], [], state.github_comment_issue_list_cache}
+    else
+      with {:ok, human_review_targets, cache} <-
+             human_review_comment_poll_targets_with_cache(state, opts),
+           {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
+        running_targets = running_comment_poll_targets(state)
 
-      targets =
-        running_targets
-        |> Kernel.++(Enum.map(human_review_targets, & &1.target))
-        |> Kernel.++(Enum.map(watch_targets, & &1.target))
-        |> Enum.uniq()
+        targets =
+          running_targets
+          |> Kernel.++(Enum.map(human_review_targets, & &1.target))
+          |> Kernel.++(Enum.map(watch_targets, & &1.target))
+          |> Kernel.++(forced_reconcile_targets(state, opts))
+          |> Enum.uniq()
 
-      {:ok, targets, human_review_targets, watch_targets, cache}
+        {:ok, targets, human_review_targets, watch_targets, cache}
+      end
+    end
+  end
+
+  defp reconcile_only?(opts), do: Keyword.get(opts, :reconcile_only, false) == true
+
+  defp forced_reconcile_targets(%State{} = state, opts) do
+    state
+    |> reconcile_targets_for_poll(opts)
+    |> MapSet.to_list()
+  end
+
+  @doc false
+  @spec reconcile_target_limit(keyword()) :: pos_integer()
+  def reconcile_target_limit(opts) do
+    case Keyword.get(opts, :reconcile_target_limit, @reconcile_targets_per_poll) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _other -> @reconcile_targets_per_poll
     end
   end
 
@@ -70,9 +114,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   # feature is disabled so the rest of the poll cycle is untouched.
   defp watch_comment_poll_targets(%State{} = _state, opts) do
     if GitHubConfig.pr_watch_enabled?() do
-      fetcher = watch_pull_request_fetcher(opts)
-
-      case fetcher.(GitHubConfig.watch_label()) do
+      case watch_pull_requests(GitHubConfig.watch_label(), opts) do
         {:ok, pull_requests} when is_list(pull_requests) ->
           {:ok, build_watch_targets(pull_requests, opts)}
 
@@ -89,43 +131,23 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
 
   defp watch_pull_request_fetcher(opts) do
     Keyword.get_lazy(opts, :watch_pull_request_fetcher, fn ->
-      fn label -> conditional_open_pull_requests_by_label(label, opts) end
+      fn label -> GitHubClient.fetch_open_pull_requests_by_label(label, opts) end
     end)
   end
 
-  # One conditional read of the open-pull-request collection per cycle (#2069).
-  # In steady state GitHub answers `304` — a request the primary REST limit does
-  # not bill — and `ResourceFetch` serves the held list back, so watch-target
-  # discovery stops being a full-price re-read of every open PR every cycle. A
-  # `200` means something actually changed and the fresh list replaces the held
-  # one. The key is the watch label because that is the only identity the caller
-  # holds before the lookup answers.
-  defp conditional_open_pull_requests_by_label(label, opts) do
-    key = ResourceStore.key_for_repo(:labelled_pull_requests, repo_full_name(opts), label)
-
-    fetcher = fn fetch_opts ->
-      GitHubClient.fetch_open_pull_requests_by_label_conditional(
-        label,
-        Keyword.merge(opts, etag: Keyword.get(fetch_opts, :etag))
-      )
-    end
-
-    case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "comment poll watch targets") do
-      {:ok, pull_requests, _meta} -> {:ok, pull_requests}
+  # Watch-target discovery reads the open-pull-request collection every cycle
+  # (one `GET /pulls?state=open&per_page=100`). It used to be conditional
+  # (#2069) so steady state was a budget-free `304` — but the listing is
+  # `created` desc, so a page-1 validator cannot answer the multi-page question
+  # once the listing grows past 100: a watch label added to an older PR on
+  # page 2+ would be hidden by a page-1 `304` forever. The read is now
+  # unconditional — correct beats quietly wrong, and the read is one per cycle
+  # (website/docs-app/apis/github.md, #2330).
+  defp watch_pull_requests(label, opts) do
+    case watch_pull_request_fetcher(opts).(label) do
+      {:ok, pull_requests} when is_list(pull_requests) -> {:ok, pull_requests}
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp repo_full_name(opts) do
-    case Keyword.get(opts, :repo) do
-      repo when is_binary(repo) and repo != "" ->
-        repo
-
-      _other ->
-        case Transport.parse_repo() do
-          {:ok, {owner, repo}} -> "#{owner}/#{repo}"
-          _other -> nil
-        end
+      other -> {:error, {:unexpected_watch_targets, other}}
     end
   end
 

@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.ResourceStoreTest do
   alias Aiur.GitHub.{ResourceFetch, ResourceStore}
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-resource-store-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-resource-store")
     File.mkdir_p!(dir)
     path = Path.join(dir, "github_resources.json")
 
@@ -491,6 +491,137 @@ defmodule Aiur.GitHub.ResourceStoreTest do
                "2026-08-14T00:00:00Z"
              )
     end
+
+    # The boot filter must agree with the sweep and with `fetch/1` about what is
+    # outdated. The trap this pins: `recorded_at_ms` is refreshed by every write,
+    # so a body past retention whose entry was re-touched would reload from disk
+    # and survive the next checkpoint too. The reload must not resurrect the
+    # unservable body — but it must not throw away the entry either, because the
+    # processed mark on it is the only thing that stops a duplicate dispatch
+    # right after a restart. So the entry reloads *without* its body: `data` is
+    # gone, `processed?` still answers. A fresh body is asserted present, so an
+    # over-aggressive filter fails the test too.
+    test "an expired body reloads without its body when recorded_at is fresh", %{path: path} do
+      now = System.system_time(:millisecond)
+      body_ms = now - 73 * 60 * 60 * 1000
+
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue|owner|repo|5155" => %{
+              "data" => %{"number" => 5155},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "fetched_at_ms" => body_ms,
+              "recorded_at_ms" => now,
+              "processed_at_ms" => now - 1000,
+              "version" => "2026-08-14T00:00:00Z"
+            },
+            "issue|owner|repo|5156" => %{
+              "data" => %{"number" => 5156},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "fetched_at_ms" => now - 1000,
+              "recorded_at_ms" => now
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      key = ResourceStore.key(:issue, "owner", "repo", 5155)
+
+      # Asserted on the entry, not through `data/1`/`fetch/1`: both readers
+      # declined an expired body on main already, so only the entry itself can
+      # prove the body did not reload.
+      assert [{^key, kept}] = :ets.lookup(ResourceStore.Table, key),
+             "the entry must survive the restart; only the body goes"
+
+      refute Map.has_key?(kept, :data),
+             "an expired body must not survive a restart on the strength of a fresh recorded_at"
+
+      refute Map.has_key?(kept, :data_version),
+             "the body's version must not survive the restart either"
+
+      assert ResourceStore.processed?(key, "2026-08-14T00:00:00Z"),
+             "the processed mark on the entry must survive the restart"
+
+      assert ResourceStore.fetch(ResourceStore.key(:issue, "owner", "repo", 5156)) != :miss,
+             "a body inside the retention window must still reload"
+    end
+
+    # The nil edge of the same agreement. `fetch/1` reads a body with no
+    # `fetched_at_ms` as expired (`nil` is treated as the epoch, long past the
+    # window), so a boot filter that reloaded such a body would hold one the
+    # read can never serve — "stale" forever, at the one age no record exists
+    # for. A corrupt or hand-written checkpoint is exactly where this lands: the
+    # body is dropped, and the entry's mark — if it has one — is the only thing
+    # a restart keeps.
+    test "a body with no fetched_at_ms reloads without its body", %{path: path} do
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue|owner|repo|5157" => %{
+              "data" => %{"number" => 5157},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "recorded_at_ms" => System.system_time(:millisecond)
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      key = ResourceStore.key(:issue, "owner", "repo", 5157)
+
+      # Asserted on the entry, not through `data/1`/`fetch/1`: the readers
+      # already decline a body with no `fetched_at_ms` on main, so only the
+      # entry can prove the boot filter dropped it.
+      assert [{^key, kept}] = :ets.lookup(ResourceStore.Table, key),
+             "the entry must survive the restart; only the body goes"
+
+      refute Map.has_key?(kept, :data),
+             "a body with no fetched_at_ms must be dropped at boot, matching fetch/1's decline"
+
+      refute Map.has_key?(kept, :data_version),
+             "the body's version must not survive the restart either"
+    end
+
+    # The other half of the boot filter's decision: an entry whose
+    # `recorded_at_ms` is itself past cutoff has had no write in the whole
+    # window, so *nothing* in it is in use any more — the whole entry is
+    # skipped, body and mark together. Nothing before this rework covered this
+    # direction, which is why the `:skip` mutant survived.
+    test "an entry whose recorded_at is itself past cutoff is not resurrected at boot", %{path: path} do
+      now = System.system_time(:millisecond)
+
+      File.write!(
+        path,
+        Jason.encode!(%{
+          "version" => 1,
+          "entries" => %{
+            "issue|owner|repo|5158" => %{
+              "data" => %{"number" => 5158},
+              "data_version" => "2026-08-14T00:00:00Z",
+              "fetched_at_ms" => now,
+              "recorded_at_ms" => now - 73 * 60 * 60 * 1000,
+              "processed_at_ms" => now - 73 * 60 * 60 * 1000,
+              "version" => "2026-08-14T00:00:00Z"
+            }
+          }
+        })
+      )
+
+      restart_store!(path)
+
+      key = ResourceStore.key(:issue, "owner", "repo", 5158)
+
+      assert :ets.lookup(ResourceStore.Table, key) == [],
+             "a whole entry whose recorded_at is itself past cutoff must not be resurrected at boot"
+    end
   end
 
   describe "degrading" do
@@ -785,6 +916,51 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert log =~ "processed: true with no version"
       assert ResourceStore.processed?(key, "v1"), "the earlier versioned mark must stand"
       refute ResourceStore.processed?(key, nil)
+    end
+  end
+
+  describe "list_type/2 — enumerating a type's held bodies" do
+    test "lists only the bodies of one type within one repository" do
+      ResourceStore.reset()
+
+      ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", 1), %{"number" => 1})
+      ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", 2), %{"number" => 2})
+      # Same type, different repo; and same repo, different type — neither may
+      # leak into the answer.
+      ResourceStore.put_resource(ResourceStore.key(:issue, "other", "repo", 3), %{"number" => 3})
+      ResourceStore.put_resource(ResourceStore.key(:issue_labels, "owner", "repo", 2), [%{"name" => "x"}])
+
+      assert ResourceStore.list_type(:issue, "owner/repo")
+             |> Enum.sort_by(&elem(&1, 0)) == [
+               {ResourceStore.key(:issue, "owner", "repo", 1), %{"number" => 1}},
+               {ResourceStore.key(:issue, "owner", "repo", 2), %{"number" => 2}}
+             ]
+    end
+
+    test "an entry holding no body and an expired entry are both omitted" do
+      ResourceStore.reset()
+
+      body_key = ResourceStore.key(:issue, "owner", "repo", 1)
+      ResourceStore.put_resource(body_key, %{"number" => 1})
+      # A validator with no body is legitimate and must not be served here.
+      ResourceStore.put_etag(ResourceStore.key(:issue, "owner", "repo", 2), "W/\"v2\"")
+      # An expired body must be omitted exactly as `fetch/1` omits it. The body's
+      # `fetched_at_ms` is what `fetch/1` judges, so age it past the 72-hour
+      # retention window directly.
+      expired_key = ResourceStore.key(:issue, "owner", "repo", 3)
+
+      :ets.insert(Aiur.GitHub.ResourceStore.Table, {expired_key, %{data: %{"number" => 3}, fetched_at_ms: 0}})
+
+      assert [{^body_key, %{"number" => 1}}] = ResourceStore.list_type(:issue, "owner/repo")
+    end
+
+    test "answers [] for a malformed repo or an unlisted type" do
+      ResourceStore.reset()
+      ResourceStore.put_resource(ResourceStore.key(:issue, "owner", "repo", 1), %{"number" => 1})
+
+      assert ResourceStore.list_type(:issue, "owner") == []
+      assert ResourceStore.list_type(:issue, nil) == []
+      assert ResourceStore.list_type(:not_a_type, "owner/repo") == []
     end
   end
 
@@ -1446,17 +1622,144 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       assert [_kept] = :ets.lookup(ResourceStore.Table, fresh)
     end
 
-    # The hard backstop. Asserted as "evicts down to exactly the ceiling", which
-    # fails both ways: a lower ceiling leaves fewer entries, a higher one leaves
-    # the overflow in place.
-    test "the entry ceiling evicts the oldest down to exactly its limit" do
+    # The other half of the same decision: an entry whose `recorded_at_ms` is
+    # itself past cutoff has had no write in the whole window, so *nothing* in
+    # it is in use any more — the body goes with the mark and the validator, as
+    # a whole entry. The body's own age does not matter here: it is the
+    # recorded_at that says whether the entry is dead.
+    test "the sweep deletes a body-holding entry whose recorded_at is itself past retention" do
+      ResourceStore.reset()
+      now = System.system_time(:millisecond)
+      store = Process.whereis(ResourceStore)
+
+      key = {:issue_comment, "owner", "repo", "9100"}
+
+      :ets.insert(ResourceStore.Table, {key, %{data: %{"body" => "ancient"}, recorded_at_ms: now - 73 * 60 * 60 * 1000}})
+
+      send(store, :sweep)
+      _state = :sys.get_state(store)
+
+      assert :ets.lookup(ResourceStore.Table, key) == [],
+             "a whole entry past retention is deleted, body and mark together"
+    end
+
+    # The trap the old sweep fell into: `recorded_at_ms` is bumped by *every*
+    # write, so a body past retention whose entry a later non-body write touched
+    # (a poll republish re-marking a processed comment, a `304` re-recording a
+    # validator) never looked old to a sweep that judged the entry by that field.
+    # The body must be judged by `fetched_at_ms` — the same field `fetch/1`
+    # refuses on — so "past retention" means the same thing to the sweep, the
+    # read and the page.
+    #
+    # Dropping the body is not the same as deleting the entry: the processed
+    # mark and the ETag live on the same map, and both are still in use. Losing
+    # the mark would make the poller republish a comment it already handled; the
+    # ETag is what makes the next read free. So the sweep must remove the body
+    # and keep everything else — the entry stands, `processed?` still answers,
+    # and the validator still answers change detection by name.
+    test "the sweep drops a body past retention but keeps the mark and the ETag" do
+      ResourceStore.reset()
+      now = System.system_time(:millisecond)
+      store = Process.whereis(ResourceStore)
+
+      key = ResourceStore.key(:issue_comment, "owner", "repo", 9101)
+      ResourceStore.put_resource(key, %{"body" => "ancient"}, source: :webhook, version: "v1", etag: ~s("v1"))
+
+      # Age the body past retention, then let a non-body write touch the entry —
+      # exactly what a steady-state republish does to a long-lived comment.
+      [{^key, entry}] = :ets.lookup(ResourceStore.Table, key)
+      aged = Map.put(entry, :fetched_at_ms, now - 73 * 60 * 60 * 1000)
+      :ets.insert(ResourceStore.Table, {key, aged})
+      ResourceStore.mark_processed(key, :webhook, "v1")
+
+      send(store, :sweep)
+      _state = :sys.get_state(store)
+
+      # Asserted on the entry, not through `data/1`/`fetch/1`: both readers
+      # declined an expired body on main already, so only the entry can prove
+      # the sweep actually removed the body. `:1600` binds `kept` and then
+      # discards it — that binding is now load-bearing.
+      assert [{^key, kept}] = :ets.lookup(ResourceStore.Table, key),
+             "the entry itself must survive; only the body goes"
+
+      refute Map.has_key?(kept, :data),
+             "the expired body must actually leave the entry, not merely be hidden on read"
+
+      refute Map.has_key?(kept, :data_version),
+             "the body's version must leave with the body"
+
+      assert ResourceStore.processed?(key, "v1"),
+             "the processed mark must survive the sweep, or the poller republishes"
+
+      assert ResourceStore.change_validator(key) == ~s("v1"),
+             "the ETag must survive the sweep, or the next read pays full price"
+    end
+
+    # The nil/absent edge of pass 2. `body_expired?/2` reads a missing
+    # `fetched_at_ms` as the epoch (`|| 0`), and pass 2's key collection must
+    # agree with that predicate — otherwise a body the read declines is never
+    # swept, "stale" forever. The match spec has explicit arms for the nil and
+    # absent shapes, because Erlang's term order sorts atoms after numbers, so
+    # `nil < cutoff` is `false` and a plain `:<` guard skips them.
+    test "the sweep drops a body whose fetched_at_ms is nil or absent" do
+      ResourceStore.reset()
+      store = Process.whereis(ResourceStore)
+
+      nil_key = {:issue_comment, "owner", "repo", "9102"}
+      absent_key = {:issue_comment, "owner", "repo", "9103"}
+
+      :ets.insert(ResourceStore.Table, {nil_key, %{data: %{"body" => "nil age"}, fetched_at_ms: nil}})
+      :ets.insert(ResourceStore.Table, {absent_key, %{data: %{"body" => "no age"}}})
+
+      send(store, :sweep)
+      _state = :sys.get_state(store)
+
+      assert [{^nil_key, nil_kept}] = :ets.lookup(ResourceStore.Table, nil_key),
+             "the nil-aged entry must survive; only its body goes"
+
+      refute Map.has_key?(nil_kept, :data),
+             "a body with a nil fetched_at_ms must be dropped by the sweep, matching body_expired?/2"
+
+      assert [{^absent_key, absent_kept}] = :ets.lookup(ResourceStore.Table, absent_key),
+             "the absent-aged entry must survive; only its body goes"
+
+      refute Map.has_key?(absent_kept, :data),
+             "a body with an absent fetched_at_ms must be dropped by the sweep, matching body_expired?/2"
+    end
+
+    # The hard backstop. It used to delete whole entries, which destroyed the
+    # `:etag` and `:processed_at_ms` beside the body — a comment an agent had
+    # already handled would republish once the in-memory dedup window closed or
+    # the daemon restarted, which is the one loss the retention window does not
+    # cause. The backstop now sheds only the body, so the state that is still
+    # correct survives, and the newest entries keep their answers.
+    #
+    # Asserted as "drops bodies from the oldest down to exactly the ceiling",
+    # which fails both ways: a lower ceiling leaves more bodies, a higher one
+    # leaves the overflow body in place.
+    test "the entry ceiling drops the oldest bodies and keeps their marks and validators" do
       ResourceStore.reset()
       now = System.system_time(:millisecond)
       store = Process.whereis(ResourceStore)
 
       rows =
         for index <- 1..100_001 do
-          {{:issue, "owner", "repo", Integer.to_string(index)}, %{recorded_at_ms: now - (100_001 - index)}}
+          {{:issue, "owner", "repo", Integer.to_string(index)},
+           %{
+             data: %{"number" => index, "state" => "open"},
+             etag: ~s("e#{index}"),
+             processed_at_ms: now,
+             # `:version` is the version the pipe processed; `:data_version` is
+             # the version of the body held (`fetch/1` reports it as the answer's
+             # `:version`). Both must be present so the eviction assertion can
+             # pin that `:data_version` is shed with its body.
+             version: "v1",
+             data_version: "v1",
+             # `fetch/1` judges freshness on the body's own stamp, so a body
+             # with no `fetched_at_ms` reads as ancient and is declined.
+             fetched_at_ms: now,
+             recorded_at_ms: now - (100_001 - index)
+           }}
         end
 
       :ets.insert(ResourceStore.Table, rows)
@@ -1467,9 +1770,28 @@ defmodule Aiur.GitHub.ResourceStoreTest do
       # so the sweep has finished by the time it answers.
       _state = :sys.get_state(store)
 
-      assert ResourceStore.size() == 100_000
-      assert :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "1"}) == []
-      assert [_kept] = :ets.lookup(ResourceStore.Table, {:issue, "owner", "repo", "2"})
+      # The oldest entry is spared as an entry: its body is shed, but the
+      # validator and the processed mark survive the eviction. The body is
+      # asserted on the entry itself, not through `fetch/1` — the reader API
+      # declines an absent body on its own, so only the entry map proves the
+      # eviction actually dropped `:data` rather than merely hiding it.
+      oldest = {:issue, "owner", "repo", "1"}
+      assert [{^oldest, kept}] = :ets.lookup(ResourceStore.Table, oldest)
+      refute Map.has_key?(kept, :data)
+      refute Map.has_key?(kept, :data_version)
+      assert ResourceStore.fetch(oldest) == :miss
+      assert ResourceStore.change_validator(oldest) == ~s("e1")
+      assert ResourceStore.processed?(oldest, "v1")
+
+      # Exactly the ceiling worth of bodies is left: only the overflow body was
+      # shed, so the second-oldest entry still serves its `:data` — pinning the
+      # count, so shedding 50,001 bodies instead of one could not pass — and the
+      # newest entry is served without anyone paying for it again.
+      second = {:issue, "owner", "repo", "2"}
+      assert [{^second, kept2}] = :ets.lookup(ResourceStore.Table, second)
+      assert Map.has_key?(kept2, :data)
+      assert ResourceStore.size() == 100_001
+      assert {:ok, %{data: %{"number" => 100_001}}} = ResourceStore.fetch({:issue, "owner", "repo", "100001"})
     end
 
     # The bound an unversioned mark suppresses for. `view_state_sweep_test.exs`

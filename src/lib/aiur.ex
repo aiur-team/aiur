@@ -43,12 +43,21 @@ defmodule Aiur.Application do
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     :ok = log_base_branch(settings)
     :ok = log_route_credentials(settings)
-    log_process_identity()
+    # Durable daemon-lifecycle journal: record this boot's start (and its
+    # invoking process) before any child can fail, so an incident's journal
+    # always names the instance that started. Best-effort — a journal write
+    # failure must never crash boot.
+    record_daemon_start()
     Aiur.Shutdown.record_workspace_root()
     Aiur.Shutdown.record_alert_ledger_path()
     install_signal_handlers()
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
+    # #2356: keep the bot PAT out of every agent environment. The daemon writes
+    # it to the guard's credential file so a governed `gh` call can inject it
+    # for its own duration, while a bare `curl` or a dependency build script
+    # finds no token in the environment.
+    _ = AgentGitHubGuard.ensure_agent_token_file()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
     Budget.warn_metering_unavailable()
 
@@ -206,7 +215,7 @@ defmodule Aiur.Application do
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
-    _executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
+    executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
 
     # Always true for a real run. The unit-test singleton turns it off so the
@@ -215,8 +224,7 @@ defmodule Aiur.Application do
     # own pair against their own isolated state directory.
     recording? = Keyword.get(opts, :recording?, Application.get_env(:aiur, :executor_recording?, true))
 
-    recording_children =
-      if recording?, do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener], else: []
+    recording_children = recording_children(recording?)
 
     cli_children =
       if interactive_cli? do
@@ -278,6 +286,11 @@ defmodule Aiur.Application do
       # a miss is the full price. Reads never call this process.
       Aiur.GitHub.ReadCache,
       Aiur.GitHub.Quota,
+      # Turns the budget-broker-timeout retry rate into a signal (#2464): a
+      # queryable retry event per backoff plus one dwelled degraded alert. The
+      # retry path it observes lives in `Aiur.GitHub.LocalHold`; this process
+      # owns the sliding-window rate and alert latch.
+      Aiur.GitHub.BrokerTimeout,
       # The ElevenLabs account credit quota, read on its own schedule. Absent an
       # API key it observes nothing at all, so an unconfigured account costs a
       # boot-time config read and never a request.
@@ -371,14 +384,18 @@ defmodule Aiur.Application do
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
       {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
       {Aiur.OpenTicketSource, poll_on_start: Application.get_env(:aiur, :open_ticket_poll?, dashboard?)},
-      # The single view-state cadence. Starts after the three sources it sweeps
-      # so its first tick never races their boot fill.
+      # The single view-state cadence, now reconciling only the pack-status
+      # writer (OpenTicketSource and AdHocSource are event-sourced and hold no
+      # timer). Starts after its sources so its first tick never races their
+      # boot fill.
       Aiur.GitHub.ViewStateSweep,
       {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
       maybe_ls_remote_ticker(ls_remote_ticker?),
+      Aiur.Orchestrator.PRHealthScanner,
+      Aiur.Orchestrator.ReworkRequeue,
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
@@ -393,6 +410,7 @@ defmodule Aiur.Application do
       # block. `Claims` starts first: it arbitrates who may advance the shared
       # cursor the inbox owns.
       recording_children,
+      executor_principal_child(recording?, executor_mode?),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
       if(dashboard?, do: AiurWeb.ControlCenterCache),
@@ -426,6 +444,12 @@ defmodule Aiur.Application do
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil
   defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
+  defp recording_children(true), do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
+  defp recording_children(false), do: []
+
+  defp executor_principal_child(true, true), do: Aiur.Executor.Principal
+  defp executor_principal_child(_recording?, _executor_mode?), do: nil
+
   @impl true
   def prep_stop(state) do
     # SIGTERM / `:init.stop` path, BEFORE the supervision tree comes down —
@@ -443,6 +467,23 @@ defmodule Aiur.Application do
     # and individually error-wrapped, so this is harmless after prep_stop.
     Aiur.Shutdown.cleanup()
     :ok
+  end
+
+  @doc false
+  @spec record_daemon_start() :: :ok
+  def record_daemon_start do
+    process_identity = Aiur.DaemonLifecycle.process_identity()
+    log_process_identity(process_identity)
+    Aiur.DaemonLifecycle.record_start(Map.to_list(process_identity))
+  rescue
+    error ->
+      # Best-effort by contract: identity resolution and the journal write both
+      # sit on the boot path. `process_identity/0` builds its record from a hard
+      # hostname match and `Boot.run_id/0`, and `record_start/1` takes the
+      # journal lock — none of that may take the application down, so the whole
+      # call is wrapped here, not just the write.
+      Logger.warning("aiur_boot phase=daemon_start_failed error=#{inspect(error)}")
+      :ok
   end
 
   @doc """
@@ -502,31 +543,11 @@ defmodule Aiur.Application do
   # so when the wrapper trap fires and writes `wrapper_pid=N` to
   # `/tmp/aiur-trap.N.log`, the pair tells you which wrapper invocation
   # owned which BEAM. Without this, post-mortems have to guess.
-  defp log_process_identity do
-    os_pid = System.pid()
-    {ppid, ppid_comm} = read_parent_identity()
+  defp log_process_identity(identity) do
+    os_pid = identity.os_pid
+    ppid = identity.ppid || "unknown"
+    ppid_comm = identity.ppid_comm || "unknown"
     Logger.info("aiur_boot phase=pids os_pid=#{os_pid} ppid=#{ppid} ppid_comm=#{ppid_comm}")
-  end
-
-  defp read_parent_identity do
-    ppid =
-      case File.read("/proc/self/status") do
-        {:ok, contents} ->
-          case Regex.run(~r/^PPid:\s+(\d+)/m, contents) do
-            [_, pid_str] -> pid_str
-            _ -> "unknown"
-          end
-
-        _ ->
-          "unknown"
-      end
-
-    ppid_comm =
-      case File.read("/proc/#{ppid}/comm") do
-        {:ok, comm} -> String.trim(comm)
-        _ -> "unknown"
-      end
-
-    {ppid, ppid_comm}
+    :ok
   end
 end

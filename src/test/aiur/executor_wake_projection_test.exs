@@ -136,7 +136,7 @@ defmodule Aiur.ExecutorWakeProjectionTest do
         {:existing, pid, previous}
 
       nil ->
-        path = Path.join(System.tmp_dir!(), "executor-wake-codeowners-#{System.unique_integer([:positive])}")
+        path = Aiur.TestSupport.tmp_root!("executor-wake-codeowners")
         File.write!(path, "* @#{author}\n")
         {:ok, pid} = CodeOwners.start_link(path: path, refresh_seconds: 3_600)
         {:owned, pid, path}

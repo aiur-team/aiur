@@ -3,6 +3,15 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   A1, asserted by call count and run on every CI build: opening a dashboard page
   against a cold store reaches GitHub **zero** times.
 
+  There are no exceptions: every dashboard route, including `/` and
+  `/build-orders`, reaches GitHub zero times on open. The ticket backlog, Ad
+  Hoc overlay and Build Order catalog are event-sourced (#2325) — they
+  subscribe to `ResourceStore` changes and keep one listing per daemon boot, so
+  a page opens onto the held snapshot and costs nothing. The two routes that
+  used to be the deliberate one-request exceptions (a first demander buying a
+  view-originated refresh) are now asserted as zeros below, with the
+  github-tracker path proven explicitly so that zero means something.
+
   ## Why this file is hermetic and the `:external` one is not
 
   There is a companion measurement that reads real `x-ratelimit-used` deltas from
@@ -35,18 +44,20 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.BuildOrder.TicketDetail
-  alias Aiur.GitHub.{Issues, ResourceStore}
+  alias Aiur.GitHub.{Issues, ReadCache, ResourceStore}
   alias Aiur.TrackerIdentity
   alias AiurWeb.ControlCenterCache
 
   @endpoint AiurWeb.Endpoint
 
-  # Every dashboard route an operator can open directly, paired with a marker
-  # only that route renders. `/build-orders` and `/build-orders/:root_number`
-  # are the routes whose data path this change actually rewrote; without them
-  # every assertion in this file evaluated identically before the change, since
-  # the other four read local GenServer state and could never have fetched.
-  @pages [
+  # The dashboard routes that must never fetch when opened, paired with a marker
+  # only that route renders. `/` and `/build-orders` (+ `/build-orders/:root_number`)
+  # used to be the two deliberate exceptions — a first demander buying a
+  # view-originated refresh — but they are event-sourced (#2325) now and open
+  # onto the held snapshot, so they join the zero set. The github-tracker path
+  # for `/` is proven separately below, since the route test runs the env's
+  # Linear tracker where `OpenTicketSource` is `:unsupported`.
+  @zero_fetch_pages [
     {"/", "usage-watch"},
     {"/commands", "control-panel"},
     {"/analytics", "analytics-page"},
@@ -59,6 +70,14 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   @repository {"owner", "repo"}
 
   setup do
+    # The positive control (`assert_egress_open!`) drives a `/issues/{n}` read
+    # and asserts it reaches the transport. That URL is now cacheable
+    # (`:issue`, #2352), and the read cache is a shared application child, so a
+    # deposit made by an earlier test would make the control's "must always
+    # send" request a cache hit and the zero below unproven. Start clean so the
+    # control really exercises the egress seam.
+    ReadCache.reset()
+
     previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
     cache = start_supervised!({ControlCenterCache, name: nil})
 
@@ -82,7 +101,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       end
     end)
 
-    start_supervised!({AiurWeb.Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
 
     {:ok, counter} = Agent.start_link(fn -> [] end)
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
@@ -108,8 +127,34 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
   end
 
   describe "opening a dashboard page" do
+    setup do
+      # The Build Order page's one view-originated refresh must be deterministic,
+      # so the transport has to be open for it: `require_token/0` answers from
+      # GITHUB_TOKEN, which CI does not set. Without this, "opening /build-orders
+      # makes one request" would silently become "zero" on a tokenless runner and
+      # the assertion would mean nothing.
+      previous_token = System.get_env("GITHUB_TOKEN")
+      previous_cached = :persistent_term.get(@token_cache_key, :unset)
+      :persistent_term.erase(@token_cache_key)
+      System.put_env("GITHUB_TOKEN", "test-gh-token")
+
+      on_exit(fn ->
+        case previous_token do
+          nil -> System.delete_env("GITHUB_TOKEN")
+          value -> System.put_env("GITHUB_TOKEN", value)
+        end
+
+        case previous_cached do
+          :unset -> :persistent_term.erase(@token_cache_key)
+          token -> :persistent_term.put(@token_cache_key, token)
+        end
+      end)
+
+      :ok
+    end
+
     test "reaches GitHub zero times on every route", %{counter: counter} do
-      Enum.each(@pages, fn {path, marker} ->
+      Enum.each(@zero_fetch_pages, fn {path, marker} ->
         assert {:ok, view, html} = live(build_conn(), path)
 
         # A page that failed to render is also a page that made no requests, so
@@ -130,7 +175,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       requests = Agent.get(counter, & &1)
 
       assert requests == [],
-             "opening #{length(@pages)} dashboard pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
+             "opening #{length(@zero_fetch_pages)} dashboard pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
 
       # The zero above and a zero caused by an exhausted budget look identical:
       # `Transport` short-circuits a quota hold before the plug is ever reached.
@@ -140,13 +185,61 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       assert_egress_open!(counter)
     end
 
+    # The two routes that used to be the deliberate exceptions to "viewing never
+    # fetches" are now event-sourced (#2325): opening the dashboard or the Build
+    # Order page subscribes to the projection's PubSub topic and renders held
+    # state, with no fetch. The generic route test above runs under the env's
+    # Linear tracker, where `OpenTicketSource` is `:unsupported` — so the github
+    # tracker path is proven explicitly here, or the zero would be trivially
+    # true for the wrong reason (the "zero, provably" trap the reviewer flagged).
+
+    test "opening the dashboard under a github tracker reaches GitHub zero times", %{counter: counter} do
+      workflow_path = Aiur.Workflow.workflow_file_path()
+      :ok = Aiur.TestSupport.write_workflow_file!(workflow_path, tracker_kind: "github")
+
+      assert {:ok, view, html} = live(build_conn(), "/")
+      assert html =~ "dashboard-shell", "/ did not render the dashboard shell"
+      assert html =~ "usage-watch", "/ rendered a shell but not its own content"
+      assert render(view) =~ "usage-watch"
+
+      requests = Agent.get(counter, & &1)
+
+      assert requests == [],
+             "opening / under a github tracker made #{length(requests)} GitHub requests: #{inspect(requests)}"
+
+      assert_egress_open!(counter)
+    end
+
+    test "opening the Build Order pages reaches GitHub zero times", %{counter: counter} do
+      for path <- ["/build-orders", "/build-orders/2073"] do
+        assert {:ok, view, html} = live(build_conn(), path)
+        assert html =~ "dashboard-shell", "#{path} did not render the dashboard shell"
+        assert html =~ "build-order-page", "#{path} rendered a shell but not its own page"
+        assert render(view) =~ "build-order-page"
+      end
+
+      requests = Agent.get(counter, & &1)
+
+      assert requests == [],
+             "opening the Build Order pages made #{length(requests)} GitHub requests: #{inspect(requests)}"
+
+      # A view-originated refresh that quietly stopped firing would have shown
+      # up as a disappearing request here; asserting the egress path is open
+      # keeps the zero meaningful instead.
+      assert_egress_open!(counter)
+    end
+
     test "holding a page open past its refresh ticks reaches GitHub zero times", %{counter: counter} do
       assert {:ok, view, html} = live(build_conn(), "/")
       assert html =~ "dashboard-shell"
 
-      # The dashboard's own periodic ticks: a 1s clock, a 15s GitHub-quota read
-      # and a 60s ElevenLabs read. Driving them directly is deterministic where
-      # sleeping for 60s would be slow and still racy. If any of them ever
+      # This env runs a Linear tracker, so the dashboard's open-time
+      # OpenTicketSource refresh is gated to :unsupported and makes no request;
+      # the `/` deliberate-exception test covers that one request under a github
+      # tracker. What this test asserts is narrower: the dashboard's own
+      # periodic ticks — a 1s clock, a 15s GitHub-quota read and a 60s
+      # ElevenLabs read — never fetch. Driving them directly is deterministic
+      # where sleeping for 60s would be slow and still racy. If any of them ever
       # starts fetching rather than reading local GenServer state, this fails.
       Enum.each([:runtime_tick, :github_quota_tick, :elevenlabs_quota_tick], fn tick ->
         send(view.pid, tick)
@@ -228,7 +321,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
       # The REST half of the ticket-detail read. Proving the counter still catches
       # it is also what makes the zeros above meaningful rather than vacuous.
       _ignored =
-        Issues.fetch_issue_raw(2073,
+        Issues.fetch_issue_raw_conditional(2073,
           repository: {"aiur-team", "aiur"},
           token: "test-token-not-used-the-plug-intercepts"
         )
@@ -249,7 +342,7 @@ defmodule AiurWeb.ZeroFetchPageOpenTest do
     before = length(Agent.get(counter, & &1))
 
     _ignored =
-      Issues.fetch_issue_raw(4242,
+      Issues.fetch_issue_raw_conditional(4242,
         repository: @repository,
         token: "test-token-not-used-the-plug-intercepts"
       )

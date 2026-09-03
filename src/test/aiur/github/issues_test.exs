@@ -37,20 +37,25 @@ defmodule Aiur.GitHub.IssuesTest do
     test "fetches issues for each state label" do
       request_fun = fn %{method: :get, url: url} ->
         if URI.decode(url) =~ "labels=sym:todo" do
-          body = [
-            %{
-              "number" => 7,
-              "title" => "A todo issue",
-              "body" => nil,
-              "html_url" => "https://github.com/owner/repo/issues/7",
-              "labels" => [%{"name" => "sym:todo"}],
-              "assignee" => nil,
-              "created_at" => "2026-01-01T00:00:00Z",
-              "updated_at" => "2026-01-02T00:00:00Z"
-            }
-          ]
+          issue = %{
+            "number" => 7,
+            "title" => "A todo issue",
+            "body" => nil,
+            "html_url" => "https://github.com/owner/repo/issues/7",
+            "labels" => [%{"name" => "sym:todo"}],
+            "assignee" => nil,
+            "created_at" => "2026-01-01T00:00:00Z",
+            "updated_at" => "2026-01-02T00:00:00Z"
+          }
 
-          {:ok, %{status: 200, headers: [{"etag", "\"issue-list-v1\""}], body: body}}
+          pull_request =
+            issue
+            |> Map.put("number", 8)
+            |> Map.put("title", "A pull request with the same label")
+            |> Map.put("html_url", "https://github.com/owner/repo/pull/8")
+            |> Map.put("pull_request", %{"url" => "https://api.github.com/repos/owner/repo/pulls/8"})
+
+          {:ok, %{status: 200, headers: [{"etag", "\"issue-list-v1\""}], body: [issue, pull_request]}}
         else
           {:ok, %{status: 200, body: []}}
         end
@@ -258,16 +263,107 @@ defmodule Aiur.GitHub.IssuesTest do
         end
       end
 
-      assert {:ok, [%Issue{id: "42", state: "in-progress"}], cache} =
+      # The conditional path (the orchestrator's dispatch poll) partitions
+      # rather than discards: the zero-label issue 44 is returned alongside the
+      # authorized dispatch candidate 42 so the repair pass can heal it (#2420).
+      # The terminal-labelled issue 43 is still dropped.
+      assert {:ok, issues, cache} =
                Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
 
-      assert {:ok, [%Issue{id: "42", state: "todo"}], cache} =
+      assert Enum.map(issues, & &1.id) == ["42", "44"]
+      assert Enum.find(issues, &(&1.id == "42")).state == "in-progress"
+      assert Enum.find(issues, &(&1.id == "44")).state_labels == []
+
+      assert {:ok, issues, cache} =
                Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
 
-      assert {:ok, [%Issue{id: "42", state: "todo"}], _cache} =
+      assert Enum.map(issues, & &1.id) == ["42", "44"]
+      assert Enum.find(issues, &(&1.id == "42")).state == "todo"
+
+      assert {:ok, issues, _cache} =
                Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+
+      assert Enum.map(issues, & &1.id) == ["42", "44"]
 
       assert Agent.get(list_step, & &1) == 3
+    end
+
+    test "the conditional path surfaces degenerate tickets for repair but excludes pull requests" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["todo", "in-progress"]
+      )
+
+      issue = fn number, labels ->
+        %{
+          "number" => number,
+          "title" => "Issue #{number}",
+          "body" => nil,
+          "html_url" => "https://github.com/owner/repo/issues/#{number}",
+          "labels" => labels,
+          "assignee" => nil,
+          "created_at" => "2026-01-01T00:00:00Z",
+          "updated_at" => "2026-01-02T00:00:00Z"
+        }
+      end
+
+      page = [
+        issue.(50, [%{"name" => "sym:todo"}]),
+        issue.(51, []),
+        issue.(52, [%{"name" => "sym:in-progress"}, %{"name" => "sym:rework"}]),
+        Map.put(issue.(53, []), "pull_request", %{"url" => "https://api.github.com/repos/owner/repo/pulls/53"})
+      ]
+
+      {:ok, list_step} = Agent.start_link(fn -> 0 end)
+
+      # Dispatch authorization needs a labeled timeline event for the
+      # dispatchable candidate; the degenerate tickets must not be authorized.
+      request_fun = fn request ->
+        if String.ends_with?(request.url, "/timeline?per_page=100") do
+          labeled_event = %{
+            "id" => 1,
+            "event" => "labeled",
+            "label" => %{"name" => "sym:todo"},
+            "actor" => %{"login" => "its-everdred"},
+            "created_at" => "2026-01-01T00:00:00Z"
+          }
+
+          {:ok, %{status: 200, headers: [], body: [labeled_event]}}
+        else
+          assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+
+          Agent.get_and_update(list_step, fn
+            0 -> {{:ok, %{status: 200, headers: [{"etag", "v1"}], body: page}}, 1}
+            1 -> {{:ok, %{status: 304}}, 2}
+          end)
+        end
+      end
+
+      assert {:ok, issues, cache} =
+               Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+
+      ids = Enum.map(issues, & &1.id)
+      assert "50" in ids
+      assert "51" in ids
+      assert "52" in ids
+      refute "53" in ids
+
+      # The zero-label (51) and contradictory-label (52) tickets keep their
+      # degenerate state_labels so the orchestrator's repair pass can heal
+      # them; only the dispatch candidate (50) is authorized.
+      assert Enum.find(issues, &(&1.id == "51")).state_labels == []
+      assert Enum.find(issues, &(&1.id == "52")).state_labels == ["in-progress", "rework"]
+      assert Enum.find(issues, &(&1.id == "50")).dispatch_authorized?
+      refute Enum.find(issues, &(&1.id == "51")).dispatch_authorized?
+      refute Enum.find(issues, &(&1.id == "52")).dispatch_authorized?
+
+      assert {:ok, cached_issues, _cache} =
+               Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+
+      assert Enum.map(cached_issues, & &1.id) == ids
+      assert Agent.get(list_step, & &1) == 2
     end
   end
 
@@ -466,31 +562,31 @@ defmodule Aiur.GitHub.IssuesTest do
     end
   end
 
-  describe "fetch_issue_raw/2" do
-    test "returns raw map on 200" do
+  describe "fetch_issue_raw_conditional/2" do
+    test "returns raw map on 200 with the :fetched outcome" do
       raw_body = %{"number" => 5, "title" => "Raw"}
 
       request_fun = fn %{method: :get, url: url} ->
         assert url =~ "/issues/5"
-        {:ok, %{status: 200, body: raw_body}}
+        {:ok, %{status: 200, body: raw_body, headers: []}}
       end
 
-      assert {:ok, ^raw_body} = Issues.fetch_issue_raw(5, request_fun: request_fun)
+      assert {:ok, ^raw_body, :fetched} = Issues.fetch_issue_raw_conditional(5, request_fun: request_fun)
     end
 
     test "returns error on non-200 status" do
-      request_fun = fn _ -> {:ok, %{status: 404, body: %{"message" => "Not Found"}}} end
-      assert {:error, _} = Issues.fetch_issue_raw(999, request_fun: request_fun)
+      request_fun = fn _ -> {:ok, %{status: 404, body: %{"message" => "Not Found"}, headers: []}} end
+      assert {:error, _} = Issues.fetch_issue_raw_conditional(999, request_fun: request_fun)
     end
 
     test "uses an explicit validated repository instead of the configured fallback" do
       request_fun = fn %{url: url} ->
         assert url == "https://api.github.com/repos/explicit/repository/issues/5"
-        {:ok, %{status: 200, body: %{}}}
+        {:ok, %{status: 200, body: %{}, headers: []}}
       end
 
-      assert {:ok, %{}} =
-               Issues.fetch_issue_raw(5,
+      assert {:ok, %{}, _outcome} =
+               Issues.fetch_issue_raw_conditional(5,
                  repository: {"explicit", "repository"},
                  request_fun: request_fun
                )
@@ -505,7 +601,7 @@ defmodule Aiur.GitHub.IssuesTest do
             {"..", "repository"}
           ] do
         assert {:error, :invalid_github_repository} =
-                 Issues.fetch_issue_raw(5,
+                 Issues.fetch_issue_raw_conditional(5,
                    repository: repository,
                    request_fun: fn _request -> flunk("transport must not be called") end
                  )
@@ -582,6 +678,18 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
     end
 
+    # Quarantined for #2397: this integration test reads `configured_repo/0`
+    # through the shared `WorkflowStore` singleton, and under load the store can
+    # serve the previous (valid) config for this path right after the malformed
+    # write + `force_reload` — CI run 32630000223 caught it returning a
+    # `:joinable` identity with `owner/repo`. The same shape reproduces locally
+    # (~2%) when this module runs immediately after `workflow_store_test.exs`,
+    # which manipulates the shared cache directly. The exact residual-state
+    # mechanism is not yet pinned down; the behavior stays covered by the
+    # deterministic pure-layer test in `tracker_identity_test.exs`, and the
+    # quarantine job keeps this integration path exercised non-blockingly so a
+    # regression still surfaces.
+    @tag :quarantine
     test "marks malformed configured repositories explicitly nonjoinable" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
@@ -655,7 +763,11 @@ defmodule Aiur.GitHub.IssuesTest do
       refute "parked" in issue.state_labels
     end
 
-    test "does not choose between contradictory workflow state labels" do
+    test "resolves contradictory workflow state labels deterministically" do
+      # A ticket carrying two `agent:*` state labels is a broken lifecycle state.
+      # `extract_state` resolves it deterministically (todo wins; otherwise the
+      # most-outstanding-work non-ci-wait label wins) so no consumer sees a nil
+      # state and a stale `agent:ci-wait` can never outlive its CI run (#2366).
       gh = %{
         "number" => 18,
         "title" => "Contradictory labels",
@@ -665,8 +777,46 @@ defmodule Aiur.GitHub.IssuesTest do
 
       issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
 
-      assert issue.state == nil
+      assert issue.state == "todo"
       assert issue.state_labels == ["error", "todo"]
+    end
+
+    test "resolves two real dispositions by most-outstanding-work precedence" do
+      # Mirror of `DispatchPolicy.resolve_state_labels/1` (#2366): two labels
+      # that both assert a real disposition resolve by the explicit precedence
+      # order, not alphabetical order — `done` + `rework` is `rework`, never
+      # `done`, so the heal never closes a ticket whose work is outstanding.
+      for {labels, expected} <- [
+            {["done", "rework"], "rework"},
+            {["rework", "done"], "rework"},
+            {["error", "rework"], "rework"},
+            {["done", "in-progress"], "in-progress"},
+            {["rework", "in-progress"], "rework"}
+          ] do
+        gh = %{
+          "number" => 21,
+          "title" => "Real dispositions",
+          "labels" => Enum.map(labels, &%{"name" => "sym:#{&1}"}),
+          "state" => "open"
+        }
+
+        assert Issues.extract_state(gh, Enum.map(labels, &"sym:#{&1}"), "sym") == expected
+        assert Issues.normalize_issue(gh, "owner", "repo", "sym").state == expected
+      end
+    end
+
+    test "resolves a ci-wait pair to the real disposition, never ci-wait" do
+      # `ci-wait` is a transient sub-state and never wins a resolution: a
+      # `ci-wait`+`rework` ticket is really rework, a `ci-wait`+`human-review`
+      # ticket is really in review (#2366).
+      for {labels, expected} <- [
+            {["rework", "ci-wait"], "rework"},
+            {["ci-wait", "human-review"], "human-review"},
+            {["ci-wait"], "ci-wait"}
+          ] do
+        gh = %{"number" => 20, "title" => "ci-wait pair", "labels" => Enum.map(labels, &%{"name" => "sym:#{&1}"}), "state" => "open"}
+        assert Issues.normalize_issue(gh, "owner", "repo", "sym").state == expected
+      end
     end
 
     test "keeps the fallback marker out of workflow state selection" do

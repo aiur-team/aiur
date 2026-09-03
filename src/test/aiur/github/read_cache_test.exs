@@ -82,6 +82,25 @@ defmodule Aiur.GitHub.ReadCacheTest do
       end
     end
 
+    test "the cached single-pull-request body is a routing source, never a merge verdict source" do
+      # Row 5 of #2352 gives `/pulls/{n}` a body cache, and that body carries
+      # merge-gating fields (`mergeable`, `mergeable_state`, `merged`,
+      # `requested_reviewers`, `auto_merge`) that the safety section refuses on
+      # content. The cache exists for the routing decision — "is there an open
+      # PR, what is its head ref/title/body" — and the `:pull` moduledoc names
+      # the fields a reader must not take from it. This pins the policy
+      # boundary: the parent stays cacheable for routing while every REST
+      # endpoint that answers the verdict fields stays refused, so a call site
+      # cannot reach a merge verdict through the REST family either.
+      assert {:cache, :pull, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073"))
+
+      for path <- ["/pulls/2073/merge", "/pulls/2073/requested_reviewers", "/pulls/2073/reviews"] do
+        assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur#{path}")),
+               "#{path} must not acquire a cacheable TTL"
+      end
+    end
+
     test "does not cache a read it has no classification for" do
       request = graphql("an_unheard_of_caller", safe_document(2073))
 
@@ -179,6 +198,34 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert %{totals: %{hit: 1, miss: 1, deposit: 1}, refused: %{}} = Metrics.snapshot()
       assert ReadCache.snapshot().hit_rate > 0
+    end
+
+    # #2352 acceptance: rows 1, 4 and 5 show cache hits. Each of the three
+    # genuinely cacheable families serves its second read from the meter.
+    test "a repeated timeline read is served from cache" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/timeline?per_page=100")
+      assert {:cache, :issue_timeline, _ttl} = Policy.classify(request)
+
+      assert {:ok, %{body: "timeline"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "timeline"}} end)
+      assert {:ok, %{body: "timeline"}} = ReadCache.through(request, fn -> flunk("a timeline hit must not fetch") end)
+    end
+
+    test "a repeated single-issue read is served from cache" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/issues/2073")
+      assert {:cache, :issue, _ttl} = Policy.classify(request)
+
+      assert {:ok, %{body: "issue"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "issue"}} end)
+      assert {:ok, %{body: "issue"}} = ReadCache.through(request, fn -> flunk("an issue hit must not fetch") end)
+    end
+
+    test "a repeated single-pull-request read is served from cache" do
+      request = rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073")
+      assert {:cache, :pull, _ttl} = Policy.classify(request)
+
+      assert {:ok, %{body: "pr"}} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "pr"}} end)
+      assert {:ok, %{body: "pr"}} = ReadCache.through(request, fn -> flunk("a pull hit must not fetch") end)
+
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
     end
   end
 
@@ -328,6 +375,154 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
 
       assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    test "a numbered write retires a numbers-free enumerating read" do
+      # The `build_order_catalog` document names no numbers, so its identity set
+      # is only [:root, {:repo, ...}, {:collections, ...}] — the collections
+      # marker is the one identity a numbered write can write that retires it.
+      # Before #2372 the catalog was retired *structurally*, by the `{:repo, ...}`
+      # marker every numbered write then wrote; precise retirement must still
+      # retire it, or a comment added to a ticket would serve pre-write bytes for
+      # the whole webhook TTL.
+      catalog = graphql("build_order_catalog", catalog_document())
+      assert {:ok, _response} = ReadCache.through(catalog, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2073/comments", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(catalog, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    test "a repo-named write with no number still retires a numbered read" do
+      # The `numbers == [] -> [repo]` branch: a write that names a repository
+      # but no number (a git-ref write, a repo-config write) still retires
+      # repository-wide. A numbered read carries `{:repo, ...}` but not
+      # `{:collections, ...}`, so the repo marker is the only identity that
+      # holds this; weakening the branch to the collections marker would let a
+      # repo-wide write leave every numbered read of the repository cached.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/labels", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    # Regression for #2372: the read cache reported 0.0% hits with a full,
+    # freshly-deposited table because invalidation was repository-wide. A write
+    # or a CI delivery that changed *one* numbered resource marked `{:repo, ...}`,
+    # which every read of the repository carries, so on a repo the daemon writes
+    # to continuously nothing ever survived to be served. These pin the
+    # precision: a change to one number must not retire a read of a different
+    # number, and a deposit followed by an identical cacheable read within the
+    # TTL must produce a hit.
+    test "a write to one issue does not retire a cached read of a different issue" do
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2070/comments", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a write to issue 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a check_run delivery retires only the pull requests it names, not the whole repository" do
+      # A check_run delivery names the pull requests it belongs to, but
+      # `Deposit.invalidate_read_cache` used to fall through to
+      # `invalidate_repo`, retiring *every* read of the repository. CI
+      # check-run deliveries are effectively continuous on an active repo, so
+      # that wiped the cache faster than anything could be served from it.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("check_run", check_run_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a check_run for PR 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a check_run delivery with a malformed pull_requests element still retires the valid ones" do
+      # `delivery_numbers` reads the numbers from `check_run.pull_requests`, and
+      # a malformed element (not a map) must not abort the whole read: the old
+      # `Enum.map` raised, `deposit/3`'s rescue swallowed the entire
+      # `invalidate_read_cache/3` call, and the delivery retired *nothing* —
+      # silently leaving the cache stale. The valid elements must still be
+      # retired.
+      read = graphql("issue_relationships", safe_document(2070))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      malformed = %{
+        "check_run" => %{
+          "id" => 55_03,
+          "name" => "test",
+          "status" => "completed",
+          "conclusion" => "success",
+          "head_sha" => "deadbeef",
+          "output" => %{},
+          "pull_requests" => ["not-a-map", %{"number" => 2070, "head" => %{"ref" => "aiur/42-a-ticket"}}]
+        }
+      }
+
+      Deposit.deposit("check_run", malformed, @repo)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    test "a check_suite delivery retires only the pull requests it names, not the whole repository" do
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("check_suite", check_suite_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a check_suite for PR 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a pull_request_review_thread delivery retires the pull request it names" do
+      # A `pull_request_review_thread` delivery names its pull request in
+      # `pull_request.number`, and `Deposit.delivery_numbers` must retire that
+      # number. Before #2372 this event type fell through to "no nameable
+      # number" and retired the *whole repository* on every thread delivery.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("pull_request_review_thread", review_thread_delivery(2073), @repo)
+
+      assert {:ok, %{body: "second"}} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "second"}} end)
+    end
+
+    test "a pull_request_review_thread delivery does not retire a read of a different number" do
+      # The other half of the pin: a thread delivery for one pull request must
+      # not retire a read of a different number. If `delivery_numbers` fell back
+      # to `[]` for this event type, `invalidate_read_cache` would call
+      # `invalidate_repo` and a read of issue 2073 would be retired by a thread
+      # delivery about PR 2070.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _response} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      Deposit.deposit("pull_request_review_thread", review_thread_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("a review-thread delivery for PR 2070 must not retire a read of issue 2073") end)
+      assert %{totals: %{hit: 1, miss: 1, deposit: 1}} = Metrics.snapshot()
+    end
+
+    test "a deposited read survives unrelated writes and deliveries, so the hit rate stays above zero" do
+      # The hit-rate guard for #2372: the cache used to serve 0.0% of cacheable
+      # reads on this repository because both the daemon's own writes and CI
+      # deliveries retired the whole repository. A deposit followed by unrelated
+      # activity followed by an identical read within the TTL must still hit.
+      read = graphql("issue_relationships", safe_document(2073))
+      assert {:ok, _one} = ReadCache.through(read, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      write = %{method: :post, url: "https://api.github.com/repos/aiur-team/aiur/issues/2070/comments", body: %{}}
+      assert {:ok, _written} = ReadCache.through(write, fn -> {:ok, %{status: 201, body: %{}}} end)
+      Deposit.deposit("check_run", check_run_delivery(2070), @repo)
+
+      assert {:ok, %{body: "first"}} = ReadCache.through(read, fn -> flunk("hit") end)
+      assert ReadCache.snapshot().hit_rate > 0
     end
 
     test "an invalidation written during a slow fetch retires the entry that fetch deposits" do
@@ -482,6 +677,45 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert %{hit: 1, miss: 1, deposit: 1} = snapshot.callers["issue_relationships"]
     end
 
+    test "counts a response refused at deposit as unsuccessful, not as a silent gap" do
+      request = graphql("issue_relationships", safe_document(2073))
+
+      partial = {:ok, %{status: 200, body: %{"data" => %{}, "errors" => [%{"type" => "RATE_LIMITED"}]}}}
+
+      assert ^partial = ReadCache.through(request, fn -> partial end)
+
+      snapshot = Metrics.snapshot()
+
+      assert %{unsuccessful: 1} = snapshot.not_deposited
+      assert %{not_deposited: 1, deposit: 0, miss: 1} = snapshot.classes[:issue_graph]
+      assert %{not_deposited: 1} = snapshot.callers["issue_relationships"]
+      # The accounting remainder closes: this miss deposited nothing and said why.
+      assert %{not_deposited: 1, miss: 1, deposit: 0} = snapshot.totals
+    end
+
+    test "counts a good response refused at the entry ceiling as no_room" do
+      request = graphql("issue_relationships", safe_document(2073))
+
+      # Fill the table to the ceiling; the deposit refusal is the backstop
+      # answering "the cache could not hold it", and it must be counted as
+      # `no_room` rather than folded into the unsuccessful bucket.
+      ceiling = ReadCache.max_entries()
+      now = System.monotonic_time(:millisecond)
+      rows = for n <- 1..ceiling, do: {{:filler, n}, "x", now}
+      :ets.insert(:aiur_github_read_cache_entries, rows)
+      assert :ets.info(:aiur_github_read_cache_entries, :size) == ceiling
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, _response} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "good"}} end)
+      end)
+
+      snapshot = Metrics.snapshot()
+
+      assert %{no_room: 1} = snapshot.not_deposited
+      assert %{not_deposited: 1, deposit: 0} = snapshot.classes[:issue_graph]
+      assert %{not_deposited: 1} = snapshot.totals
+    end
+
     test "counts a refusal against its caller with a reason, not as a miss" do
       assert {:ok, _response} = ReadCache.through(graphql("ci_poll_batch", ci_document()), fn -> {:ok, %{status: 200, body: "x"}} end)
 
@@ -489,6 +723,99 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert %{refused: 1, miss: 0} = snapshot.callers["ci_poll_batch"]
       assert %{unsafe_kind: 1} = snapshot.refused
+    end
+
+    test "a REST read with no declared caller is named by route shape, not unattributed" do
+      # `Quota` bills the same request `rest:GET /repos/...` via
+      # `GraphQLCost.derive/1`; the cache used to fall back to a single
+      # `unattributed` bucket that hid every REST call site. The two must use
+      # the same derivation, so the cache metric names the shape the way the
+      # spend ranking does (#2357).
+      request = rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/comments?per_page=100")
+
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{miss: 1, deposit: 1} = snapshot.callers["rest:GET /repos/aiur-team/aiur/issues/:n/comments"]
+      refute Map.has_key?(snapshot.callers, "unattributed")
+    end
+
+    test "keys a REST refusal on its path template, not one unclassified total" do
+      # An unclassified REST GET is refused with its route shape, so
+      # `github-cost` can name the call family instead of folding every
+      # unrecognised read into a single `unclassified` total (#2357). Same
+      # derivation `Quota` bills spend by.
+      request = rest("https://api.github.com/repos/aiur-team/aiur/labels?per_page=100")
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/labels"}} = Policy.classify(request)
+
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+      assert {:ok, _two} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "second"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{"rest:GET /repos/aiur-team/aiur/labels" => 2} = snapshot.refused_shapes
+      refute Map.has_key?(snapshot.refused, :unclassified)
+      assert snapshot.totals.refused == 2
+    end
+
+    test "a GraphQL read the policy cannot name stays a bare :unclassified refusal" do
+      # There is no REST URL to shape a GraphQL read by, so the unknown-caller
+      # fallback keeps its plain reason rather than being forced into the shape
+      # map.
+      request = graphql("an_unheard_of_caller", safe_document(2073))
+
+      assert {:no_cache, :unclassified} = Policy.classify(request)
+      assert {:ok, _one} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: "first"}} end)
+
+      snapshot = Metrics.snapshot()
+      assert %{unclassified: 1} = snapshot.refused
+      assert snapshot.refused_shapes == %{}
+    end
+
+    test "folds a refusal beyond the 200-shape cap into :overflow" do
+      # The refusal map is only bounded if the key set is: 200 distinct shapes
+      # fill the map, the 201st distinct shape must not add a key, and a repeat
+      # of an existing shape keeps accumulating under its own key.
+      Metrics.init()
+
+      Enum.each(1..200, fn i -> Metrics.refused_shape("rest:GET /path/#{i}", "x") end)
+      assert map_size(Metrics.snapshot().refused_shapes) == 200
+
+      Metrics.refused_shape("rest:GET /path/201", "x")
+      snapshot = Metrics.snapshot()
+      assert snapshot.refused_shapes.overflow == 1
+
+      Metrics.refused_shape("rest:GET /path/1", "x")
+      snapshot = Metrics.snapshot()
+      assert snapshot.refused_shapes["rest:GET /path/1"] == 2
+      assert snapshot.refused_shapes.overflow == 1
+    end
+
+    test "keys a REST refusal on its shape, not one unclassified total" do
+      # #2352 acceptance: the refusal metric resolves the 5,208 reads/hr into
+      # the named rows instead of one `unclassified` bucket, so `github-cost`
+      # can say *which* call family a refusal belongs to.
+      for url <- [
+            "/issues?labels=build-order&state=open",
+            "/pulls?state=open&per_page=100",
+            "/events",
+            "/pulls/2073/files?per_page=100"
+          ] do
+        request = rest("https://api.github.com/repos/aiur-team/aiur#{url}")
+        assert {:ok, _} = ReadCache.through(request, fn -> {:ok, %{status: 200, body: []}} end)
+      end
+
+      assert %{issue_list: 1, pull_list: 1, repo_events: 1, pull_files: 1} = Metrics.snapshot().refused
+    end
+
+    test "folds an unknown shape back to a bounded :unclassified bucket" do
+      # The refusal keys are bounded by `Policy.shapes/0`; a shape the
+      # classifier cannot name (which would mean a future classifier grew a
+      # dynamic shape) must not grow the metric map without bound.
+      Metrics.refused({:unclassified, :some_pathological_shape}, "x")
+
+      assert %{unclassified: 1} = Metrics.snapshot().refused
+      refute Map.has_key?(Metrics.snapshot().refused, :some_pathological_shape)
     end
 
     test "reports nothing observed as nothing observed, never as zero" do
@@ -524,6 +851,17 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert :comments in Policy.classes()
       assert :unsafe_kind in Policy.no_cache_reasons()
       assert :unclassified in Policy.no_cache_reasons()
+    end
+
+    test "the shape set is small and bounded, so the refusal metric cannot grow" do
+      # #2352 defect: a pathological URL must not be able to grow the refusal
+      # metric map. The shapes come from a fixed classifier list (well under the
+      # ~200 cap), and `Metrics.refused/2` folds anything else to
+      # `:unclassified`, so the cap is structural rather than aspirational.
+      assert length(Policy.shapes()) < 200
+      assert :unclassified in Policy.shapes()
+      assert :issue_list in Policy.shapes()
+      assert :pull in Policy.shapes()
     end
 
     test "declares no class that identity cannot reach" do
@@ -569,20 +907,149 @@ defmodule Aiur.GitHub.ReadCacheTest do
       end
     end
 
-    test "the bare repository read and the candidate issue list stay unclassified" do
+    test "the bare repository read stays unclassified while the candidate list is named" do
       # The bare `/repos/{owner}/{repo}` is the auth-preflight probe, which must
       # exercise the current credential rather than be answered from a cache;
       # the open-issue candidate list is dispatch authority and must not be
-      # served stale. Both are correctly left uncached.
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur"))
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues?state=open&per_page=100"))
+      # served stale. Both are correctly left uncached, and neither disappears
+      # into one opaque total: #2352 names the candidate list `:issue_list`,
+      # and the probe — which the table deliberately does not name — is refused
+      # with its route template (#2357) so the refusal report can still say
+      # which call family paid.
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur"))
+
+      assert {:no_cache, {:unclassified, :issue_list}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues?state=open&per_page=100"))
     end
 
     test "caches a numbered comment read but not the repo-wide comment stream" do
       # The stream already revalidates with an ETag, so holding its body would
-      # trade a free 304 for staleness.
+      # trade a free 304 for staleness. It is still *classified* as
+      # `:comment_stream` so the refusal report can name it.
       assert {:cache, :comments, _ttl} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/comments?per_page=100"))
-      assert {:no_cache, :unclassified} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
+
+      assert {:no_cache, {:unclassified, :comment_stream}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/comments?per_page=100"))
+    end
+
+    test "classifies the ten REST families and gives rows 1, 4 and 5 a real TTL" do
+      # #2352 acceptance: the 5,208 reads/hr of unclassified REST resolve into
+      # the named rows. Only rows 1 (timeline), 4 (single issue) and 5 (single
+      # PR) earn a body cache; every conditional row stays refused but named.
+      assert {:cache, :issue_timeline, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073/timeline?per_page=100"))
+
+      assert {:cache, :issue, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/issues/2073"))
+
+      assert {:cache, :pull, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073"))
+
+      # Repository configuration is cacheable only in its anchored forms —
+      # `.github/workflows` contents, branch protection, rulesets — never a
+      # bare `/contents/{path}` or `/branches` list. The tail row was narrowed
+      # to the forms anyone actually reads (review #2360), so an arbitrary
+      # `/contents/{path}` read stays unclassified.
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/.github/workflows"))
+
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches/main"))
+
+      assert {:cache, :repo_config, _ttl} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/rulesets"))
+
+      refute match?({:cache, _class, _ttl}, Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/foo/bar")))
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/contents/foo/bar"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/contents/foo/bar"))
+
+      refute match?({:cache, _class, _ttl}, Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches")))
+
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/branches"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/branches"))
+
+      for {url, shape} <- [
+            {"/issues?labels=build-order&state=open", :issue_list},
+            {"/pulls?state=open&per_page=100", :pull_list},
+            {"/issues?state=open&per_page=100", :issue_list},
+            {"/events", :repo_events},
+            {"/issues/comments?since=2026-01-01", :comment_stream},
+            {"/pulls/comments?since=2026-01-01", :comment_stream},
+            {"/pulls/2073/files?per_page=100", :pull_files}
+          ] do
+        assert {:no_cache, {:unclassified, ^shape}} =
+                 Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur#{url}"))
+      end
+    end
+
+    test "the conditional rows are not body-cached" do
+      # #2352 acceptance: rows 2, 3, 6, 7, 8, 9 and 10 are already
+      # ETag-conditional at their call sites and answer 304 for free. Holding
+      # their bodies here would trade a free revalidation for staleness, so a
+      # later change must not be able to silently convert one. Each read runs
+      # its fetch twice — the cache never answers it.
+      for url <- [
+            "/issues?labels=build-order&state=open",
+            "/pulls?state=open&per_page=100",
+            "/issues?state=open&per_page=100",
+            "/events",
+            "/issues/comments?since=2026-01-01",
+            "/pulls/comments?since=2026-01-01",
+            "/pulls/2073/files?per_page=100"
+          ] do
+        request = rest("https://api.github.com/repos/aiur-team/aiur#{url}")
+        assert match?({:no_cache, {:unclassified, _shape}}, Policy.classify(request))
+        assert 2 = counted_fetches(request)
+      end
+    end
+
+    # #2326: a commit's timestamp is immutable per sha, so the bare commit read
+    # is cacheable without ever serving a verdict that has moved. The sha is
+    # matched exactly — a commit read by branch ref is highly mutable, and a
+    # PR's changed paths carry no sha in their URL, so neither is cached (review
+    # #2332).
+    test "caches a commit read keyed by a real sha, and nothing keyed by ref or by PR" do
+      commit = rest("https://api.github.com/repos/aiur-team/aiur/commits/abc1234")
+      assert {:cache, :comments, _ttl} = Policy.classify(commit)
+
+      # The verdict refusal is not weakened: a commit *status* read — CI — is
+      # still refused even though the bare commit read is now cacheable.
+      assert {:no_cache, :unsafe_kind} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/abc1234/status"))
+
+      # A branch ref is not a sha: `/commits/main` returns the mutable head
+      # commit, so it must not be cached under a key that never changes.
+      assert {:no_cache, {:unclassified, "rest:GET /repos/aiur-team/aiur/commits/main"}} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/commits/main"))
+
+      # `/pulls/:n/files` carries no head sha, so a push changes the response
+      # under a fixed cache key; it is deliberately left uncached, named so the
+      # refusal report says which call family it was.
+      assert {:no_cache, {:unclassified, :pull_files}} = Policy.classify(rest("https://api.github.com/repos/aiur-team/aiur/pulls/2073/files?per_page=100"))
+    end
+
+    # Acceptance #2326: no verdict field becomes cacheable. Every selection the
+    # policy refuses on content is asserted to stay refused, whichever call site
+    # sends it.
+    test "no verdict field becomes cacheable" do
+      for selection <- [
+            "statusCheckRollup { state }",
+            "checkSuites(first: 1) { nodes { status } }",
+            "CheckRun(id: 1) { status }",
+            "StatusContext { state }",
+            "reviewDecision",
+            "mergeStateStatus",
+            "mergeable",
+            "reviewThreads(first: 10) { nodes { id } }",
+            "latestReviews(first: 1) { nodes { state } }",
+            "reviews(first: 1) { nodes { state } }"
+          ] do
+        request = graphql("issue_relationships", "query Q { repository(owner: $o, name: $r) { t0: issueOrPullRequest(number: 2073) { ... on PullRequest { #{selection} } } } }")
+
+        assert {:no_cache, :unsafe_kind} = Policy.classify(request),
+               "#{selection} must not become cacheable"
+      end
     end
 
     test "a declared cacheable caller is still refused on unsafe content" do
@@ -596,7 +1063,6 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # overrides freshness the call site thought it controlled, so the *short*
       # bucket must never outrun the tightest cadence a caller can be on. The
       # long bucket is a different thing: see the mode test below.
-      #
       # The poll-cadence classes (Build Order detail, comments) stay at or below
       # the Build Order detail freshness derived from the default poll interval.
       # `:repo_config` rides the CIReadiness assessment cadence instead (its
@@ -605,10 +1071,70 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # name rather than in one loop.
       assert Policy.ttl_ms(:issue_graph) <= 30_000
       assert Policy.ttl_ms(:comments) <= 30_000
+      assert Policy.ttl_ms(:issue_timeline) <= 30_000
+      assert Policy.ttl_ms(:issue) <= 30_000
+      assert Policy.ttl_ms(:pull) <= 30_000
       assert Policy.ttl_ms(:repo_config) <= 3_600_000
 
       # No class may be left without a bound when one is added.
-      assert Enum.sort(Policy.classes()) == [:comments, :issue_graph, :repo_config]
+      assert Enum.sort(Policy.classes()) == [:comments, :issue, :issue_graph, :issue_timeline, :pull, :repo_config]
+    end
+
+    test "every unsafe selection is refused however high the TTL is set" do
+      # #2327 raised the TTLs a webhook-backed repo can earn to an hour. The
+      # safety half of that change is that the refusal is decided by content,
+      # never by a number that happens to be small — so each term in
+      # `@unsafe_selections` is asserted against a TTL far above anything
+      # shipped, and above the sweep bound, to prove the refusal cannot be
+      # bought off by raising one.
+      previous = Application.get_env(:aiur, :github_read_cache_ttls)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:aiur, :github_read_cache_ttls, previous),
+          else: Application.delete_env(:aiur, :github_read_cache_ttls)
+      end)
+
+      Application.put_env(:aiur, :github_read_cache_ttls, %{comments: 3_600_000, issue_graph: 3_600_000})
+
+      # The override is live, so a safe read IS cacheable at the raised TTL —
+      # the loop below is only meaningful if the raised value actually applies.
+      assert {:cache, :issue_graph, 3_600_000} = Policy.classify(graphql("issue_relationships", safe_document(2073)))
+
+      selections = [
+        "statusCheckRollup { state }",
+        "checkSuites(first: 1) { nodes { status } }",
+        # The `CheckRun` and `StatusContext` terms are GraphQL *type* names,
+        # so they appear in documents as inline-fragment guards, exactly as the
+        # CI poll batch writes them.
+        "... on CheckRun { name status conclusion }",
+        "... on StatusContext { state }",
+        "reviewDecision",
+        "mergeStateStatus",
+        "mergeable",
+        "reviewThreads(first: 1) { nodes { id } }",
+        "latestReviews(first: 1) { nodes { id } }",
+        "reviews(first: 1) { nodes { id } }"
+      ]
+
+      for selection <- selections do
+        request = graphql("issue_relationships", unsafe_document(2073, selection))
+
+        assert {:no_cache, :unsafe_kind} = Policy.classify(request),
+               "a high TTL must not make a cacheable-looking read of #{selection} servable"
+      end
+    end
+
+    test "no class TTL, in either bucket, reaches the sweep bound" do
+      # `@max_ttl_ms` is the retention bound the sweep deletes past. A TTL at
+      # or above it would mean the sweep deletes entries still inside their own
+      # validity window and turns the backstop into a silent miss generator —
+      # so both the polling bucket and the webhook-backed bucket must stay
+      # below it.
+      for class <- Policy.classes() do
+        assert Policy.ttl_ms(class) < ReadCache.max_ttl_ms()
+        assert Policy.ttl_ms(class, :webhook) < ReadCache.max_ttl_ms()
+      end
     end
 
     test "the TTL widens for a webhook-backed repo and collapses when it degrades" do
@@ -631,6 +1157,15 @@ defmodule Aiur.GitHub.ReadCacheTest do
       assert {:cache, :repo_config, 3_600_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
 
+      assert {:cache, :issue_timeline, 3_600_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/timeline?per_page=100"))
+
+      assert {:cache, :issue, 3_600_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073"))
+
+      assert {:cache, :pull, 3_600_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/pulls/2073"))
+
       ModeTable.put(@ttl_repo, degraded_mode())
 
       assert {:cache, :issue_graph, 30_000} =
@@ -641,6 +1176,15 @@ defmodule Aiur.GitHub.ReadCacheTest do
 
       assert {:cache, :repo_config, 300_000} =
                Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/actions/workflows?per_page=100"))
+
+      assert {:cache, :issue_timeline, 30_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073/timeline?per_page=100"))
+
+      assert {:cache, :issue, 30_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/issues/2073"))
+
+      assert {:cache, :pull, 30_000} =
+               Policy.classify(rest("https://api.github.com/repos/aiur-team/ttl-test-repo/pulls/2073"))
     end
 
     test "a webhook-backed entry is still a hit past the old 30-second TTL" do
@@ -764,6 +1308,10 @@ defmodule Aiur.GitHub.ReadCacheTest do
     "query C($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: 2073) { ... on PullRequest { commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } } }"
   end
 
+  defp unsafe_document(number, selection) do
+    "query Q($owner: String!, $repo: String!) { repository(owner: $owner, name: $repo) { t0: issueOrPullRequest(number: #{number}) { ... on PullRequest { #{selection} } } } }"
+  end
+
   defp issue_comment_delivery(number) do
     %{
       "action" => "created",
@@ -775,6 +1323,49 @@ defmodule Aiur.GitHub.ReadCacheTest do
         "updated_at" => "2026-06-24T12:00:00Z",
         "user" => %{"login" => "its-everdred"}
       }
+    }
+  end
+
+  # A `check_run` delivery carrying the pull request it belongs to. GitHub's
+  # real payload puts the PR `number` on each entry of `check_run.pull_requests`;
+  # that is what lets a delivery retire exactly the PR it changed rather than
+  # the whole repository.
+  defp check_run_delivery(number) do
+    %{
+      "check_run" => %{
+        "id" => 55_01,
+        "name" => "test",
+        "status" => "completed",
+        "conclusion" => "success",
+        "head_sha" => "deadbeef",
+        "started_at" => "2026-06-24T12:00:00Z",
+        "completed_at" => "2026-06-24T12:01:00Z",
+        "output" => %{},
+        "pull_requests" => [%{"number" => number, "head" => %{"ref" => "aiur/42-a-ticket"}}]
+      }
+    }
+  end
+
+  defp check_suite_delivery(number) do
+    %{
+      "check_suite" => %{
+        "id" => 55_02,
+        "status" => "completed",
+        "conclusion" => "success",
+        "head_sha" => "deadbeef",
+        "pull_requests" => [%{"number" => number, "head" => %{"ref" => "aiur/42-a-ticket"}}]
+      }
+    }
+  end
+
+  # A `pull_request_review_thread` delivery carrying the pull request it names.
+  # `Deposit.delivery_numbers/2` reads the PR number from
+  # `pull_request.number`, which is what lets a thread delivery retire exactly
+  # the PR it changed rather than the whole repository.
+  defp review_thread_delivery(number) do
+    %{
+      "action" => "unresolved",
+      "pull_request" => %{"number" => number, "head" => %{"ref" => "aiur/42-a-ticket"}}
     }
   end
 

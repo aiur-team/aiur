@@ -12,3 +12,10 @@
   from = "/docs/concepts/what-is-aiur"
   to = "/docs/"
   status = 301
+
+# The GUI rename changes the canonical guide URL, but existing bookmarks and
+# external links must continue to reach the same interface documentation.
+[[redirects]]
+  from = "/docs/guide/executor-control-center"
+  to = "/docs/guide/gui"
+  status = 301

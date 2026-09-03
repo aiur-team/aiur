@@ -18,7 +18,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubWebhook, Publisher}
-  alias Aiur.GitHub.{PollSnapshots, ResourceFetch, ResourceStore}
+  alias Aiur.GitHub.{DependenciesApi, PollSnapshots, ResourceFetch, ResourceStore}
   alias Aiur.Workflow
 
   @repo "owner/repo"
@@ -179,7 +179,9 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # `:pull_request` used to be deposited keyed by **pull request number** while
   # the only pull-request consumer read `:branch_pull_request` keyed by **ticket
   # number** — two pipes keyed so they could never meet. `Deposit` now files the
-  # PR under both keys (#2126).
+  # PR under both keys (#2126), and #2352's row-5 conditional read
+  # (`Client.fetch_open_pull_request/2`) addresses the `:pull_request` key by PR
+  # number, so the two halves meet at last.
   #
   # Nothing caught that, because nothing asserted the two halves address the
   # same entry. This table does, in both directions:
@@ -205,19 +207,35 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
   # only prove that both call `key/4`.
   defp reachability,
     do: %{
-      issue: {:read_by, "Aiur.GitHub.Issues.fetch_issue_raw_conditional/2 (issues.ex:179)", [ResourceStore.key(:issue, "owner", "repo", 42)]},
+      issue:
+        {:read_by, "Aiur.GitHub.Issues.fetch_issue_raw_conditional/2 (issues.ex:179)",
+         [
+           ResourceStore.key(:issue, "owner", "repo", 42),
+           # The sub_issues delivery also carries the sub-issue, which shares the
+           # `:issue` reader's generic addressing.
+           ResourceStore.key(:issue, "owner", "repo", 41)
+         ]},
       issue_comment: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:602)", [ResourceStore.key_for_repo(:issue_comment, @repo, 9401)]},
       pr_review: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:587)", [ResourceStore.key_for_repo(:pr_review, @repo, 9403)]},
       pr_review_comment: {:read_by, "Aiur.Events.GithubCommentsPoller suppression marks (github_comments_poller.ex:650)", [ResourceStore.key_for_repo(:pr_review_comment, @repo, 9402)]},
       issue_labels:
-        {:signal_only,
-         "retires the agent `gh` wrapper's cache through AgentCacheBridge's @invalidating_types; " <>
-           "no module builds an :issue_labels key to read one"},
-      pull_request:
-        {:signal_only,
-         "retires the agent cache by PR number through AgentCacheBridge's @invalidating_types, and the " <>
-           "same delivery's :branch_pull_request sibling is what the human-review gate reads (#2126)"},
-      branch_pull_request: {:read_by, "Aiur.GitHub.HumanReviewGate.open_pull_request/1 (human_review_gate.ex:106)", [ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)]}
+        {:read_by,
+         "OpenTicketSource and AdHocSource refresh a held ticket/member's labels " <>
+           "(open_ticket_source.ex, ad_hoc_source.ex), and the Build Order " <>
+           "Reconciliation re-deposits each root's label set during the rare " <>
+           "catalog reconciliation (reconciliation.ex:143)",
+         [
+           ResourceStore.key(:issue_labels, "owner", "repo", 42),
+           # The sub_issues delivery also carries the sub-issue's labels, which
+           # share the same label reader's generic addressing.
+           ResourceStore.key(:issue_labels, "owner", "repo", 41)
+         ]},
+      pull_request: {:read_by, "Aiur.GitHub.Client.fetch_open_pull_request/2 (client.ex), the #2352 row-5 conditional read", [ResourceStore.key_for_repo(:pull_request, @repo, 77)]},
+      branch_pull_request: {:read_by, "Aiur.GitHub.HumanReviewGate.open_pull_request/1 (human_review_gate.ex:106)", [ResourceStore.key_for_repo(:branch_pull_request, @repo, 42)]},
+      issue_blocked_by: {:read_by, "Aiur.GitHub.DependenciesApi.dependency_get/3 (dependencies_api.ex)", [ResourceStore.key(:issue_blocked_by, "owner", "repo", 42)]},
+      sub_issue: {:read_by, "Aiur.BuildOrder.CatalogStore rebuilds each root's membership from the held edges (catalog_store.ex)", [ResourceStore.key(:sub_issue, "owner", "repo", "42:41")]},
+      issue_dependency:
+        {:read_by, "Aiur.BuildOrder.CatalogStore rebuilds each root's dependency set from the held edges (catalog_store.ex)", [ResourceStore.key(:issue_dependency, "owner", "repo", "42:80")]}
     }
 
   describe "every deposit is addressable by whoever wants it" do
@@ -304,6 +322,74 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert {:ok, %{data: %{"state" => "CHANGES_REQUESTED"}, version: "2026-06-24T12:30:00Z"}} =
                ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review, @repo, 9204))
+    end
+
+    test "pull_request_review_thread deposits its resolution generation" do
+      payload = %{
+        "action" => "unresolved",
+        "repository" => %{"full_name" => @repo},
+        "thread" => %{"id" => 88_001, "node_id" => "PRRT_kwDOabc", "comments" => 1},
+        "updated_at" => "2026-08-21T12:00:00Z",
+        "pull_request" => %{
+          "number" => 77,
+          "head" => %{"ref" => "aiur/42-a-ticket", "repo" => %{"full_name" => @repo}}
+        }
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok,
+              %{
+                data: %{
+                  "webhook_action" => "unresolved",
+                  "generation" => "2026-08-21T12:00:00Z",
+                  "latest_unresolved_generation" => "2026-08-21T12:00:00Z",
+                  "updated_at" => "2026-08-21T12:00:00Z"
+                }
+              }} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
+
+      # The transition keeps its own clock in the marker data, never the entry's
+      # version slot (which the comment pipe also writes on this same key).
+      assert {:ok, %{version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOabc"))
+    end
+
+    test "a null review-thread timestamp uses the admitted delivery id as its generation" do
+      payload = %{
+        "action" => "unresolved",
+        "repository" => %{"full_name" => @repo},
+        "thread" => %{"id" => 88_002, "node_id" => "PRRT_kwDOnull", "comments" => 1},
+        "updated_at" => nil,
+        "pull_request" => %{
+          "number" => 77,
+          "head" => %{"ref" => "aiur/42-a-ticket", "repo" => %{"full_name" => @repo}}
+        }
+      }
+
+      assert %{status: :reconciled, hint: %{generation: "delivery-fallback"}} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 delivery_id: "delivery-fallback",
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok, %{data: %{"generation" => "delivery-fallback"}, version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOnull"))
+
+      assert %{status: :reconciled, hint: %{generation: "manual-redelivery"}} =
+               GithubWebhook.handle_delivery("pull_request_review_thread", payload,
+                 repo: @repo,
+                 delivery_id: "manual-redelivery",
+                 reconcile_fun: fn _hint -> :ok end
+               )
+
+      assert {:ok, %{data: %{"generation" => "delivery-fallback"}, version: nil}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_kwDOnull"))
     end
 
     test "pull_request deposits the pull request even when the event only reconciles" do
@@ -433,7 +519,16 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         }
       }
 
-      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+      # A thread delivery also deposits the full PR it carries — the half that
+      # feeds `DeliveredPullRequest` (#2326) — alongside the snapshot merge and
+      # the transition marker (#2279) that records the resolve/unresolve
+      # generation.
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               ResourceStore.key_for_repo(:branch_pull_request, @repo, 42),
+               PollSnapshots.review_threads_key(@repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5502")
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
       assert {:ok,
@@ -455,7 +550,14 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         "thread" => %{"node_id" => "PRRT_unknown", "updated_at" => "2026-06-24T12:01:00Z"}
       }
 
-      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+      # The unknown thread is not merged into the empty snapshot, but the PR the
+      # delivery carries is still deposited (#2326) and the transition marker is
+      # still recorded (#2279).
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               PollSnapshots.review_threads_key(@repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_unknown")
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
       assert :miss = PollSnapshots.review_threads(@repo, 77)
@@ -473,7 +575,11 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => true, "updated_at" => "2026-06-24T12:01:00Z"}
       }
 
-      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               PollSnapshots.review_threads_key(@repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5504")
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", resolved, @repo)
 
       assert {:ok, [%{"isResolved" => true}]} = PollSnapshots.review_threads(@repo, 77)
@@ -487,14 +593,20 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         "thread" => %{"node_id" => "PRRT_5504", "is_resolved" => false, "updated_at" => "2026-06-24T12:02:00Z"}
       }
 
-      # An invalidation writes no body, so it reports no key.
-      assert [] == GithubWebhook.Deposit.deposit("pull_request_review_thread", unresolved, @repo)
+      # An invalidation writes no body, so it reports no thread key — but the
+      # delivery's PR half is still deposited (#2326) and the transition marker
+      # still advances (#2279).
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5504")
+             ] ==
+               GithubWebhook.Deposit.deposit("pull_request_review_thread", unresolved, @repo)
 
       assert :miss = PollSnapshots.review_threads(@repo, 77)
     end
 
     test "a delivered thread collection survives a store restart and is still delivery-fresh" do
-      path = Path.join(System.tmp_dir!(), "aiur-resource-store-#{System.unique_integer([:positive])}.json")
+      path = Aiur.TestSupport.tmp_root!("aiur-resource-store") <> ".json"
       on_exit(fn -> File.rm_rf!(path) end)
 
       # Run against a real checkpoint file before depositing: an in-memory store
@@ -525,7 +637,17 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         }
       }
 
-      assert [PollSnapshots.review_threads_key(@repo, 77)] ==
+      # A thread delivery also deposits the full PR it carries — including its
+      # `:branch_pull_request` sibling when the head branch is a ticket — which
+      # is what keeps `DeliveredPullRequest` from falling into the per-PR
+      # `review_threads_unaddressed` fallback (#2326), plus the transition
+      # marker (#2279).
+      assert [
+               ResourceStore.key_for_repo(:pull_request, @repo, 77),
+               ResourceStore.key_for_repo(:branch_pull_request, @repo, 42),
+               PollSnapshots.review_threads_key(@repo, 77),
+               ResourceStore.key_for_repo(:pr_review_thread, @repo, "PRRT_5503")
+             ] ==
                GithubWebhook.Deposit.deposit("pull_request_review_thread", delivery, @repo)
 
       :ok = ResourceStore.flush()
@@ -543,6 +665,150 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
       assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 42))
+    end
+
+    # Acceptance #2313: a `sub_issues` delivery carries one parent↔sub-issue
+    # edge, and the Build Order catalog rebuilds each root's membership from the
+    # store rather than polling GitHub. The edge is deposited keyed by the
+    # `"parent:sub"` number pair, with `present` holding the operation and the
+    # delivery's arrival time as its ordering version.
+    test "sub_issues sub_issue_added deposits the edge keyed parent:sub" do
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_added_delivery(), repo: @repo)
+
+      key = ResourceStore.key_for_repo(:sub_issue, @repo, "42:21")
+      assert {:ok, %{data: data, source: :webhook}} = ResourceStore.fetch(key)
+      assert data["present"] == true
+      assert data["parent_issue_number"] == 42
+      assert data["sub_issue_number"] == 21
+    end
+
+    test "sub_issues sub_issue_removed tombstones the edge" do
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_added_delivery(), repo: @repo)
+      key = ResourceStore.key_for_repo(:sub_issue, @repo, "42:21")
+      assert {:ok, %{data: %{"present" => true}}} = ResourceStore.fetch(key)
+
+      GithubWebhook.handle_delivery("sub_issues", sub_issue_removed_delivery(), repo: @repo)
+      assert {:ok, %{data: %{"present" => false}}} = ResourceStore.fetch(key)
+    end
+
+    # Acceptance #2313: a blocked-by relationship added outside Aiur is likewise
+    # reflected. The `issue_dependencies` delivery carries the edge facts and
+    # the deposit writes the canonical `"blocked:blocker"` edge the catalog
+    # reads, tombstoned by a `*_removed` action.
+    test "issue_dependencies blocked_by_added deposits the edge keyed blocked:blocker" do
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_created_delivery(), repo: @repo)
+
+      key = ResourceStore.key_for_repo(:issue_dependency, @repo, "42:99")
+      assert {:ok, %{data: data, source: :webhook}} = ResourceStore.fetch(key)
+      assert data["present"] == true
+      assert data["blocked_issue_number"] == 42
+      assert data["blocking_issue_number"] == 99
+    end
+
+    test "issue_dependencies blocked_by_removed tombstones the edge" do
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_created_delivery(), repo: @repo)
+      key = ResourceStore.key_for_repo(:issue_dependency, @repo, "42:99")
+      assert {:ok, %{data: %{"present" => true}}} = ResourceStore.fetch(key)
+
+      GithubWebhook.handle_delivery("issue_dependencies", dependency_removed_delivery(), repo: @repo)
+      assert {:ok, %{data: %{"present" => false}}} = ResourceStore.fetch(key)
+    end
+
+    test "pull_request_review_thread deposits the pull request under both keys" do
+      keys = GithubWebhook.Deposit.deposit("pull_request_review_thread", pull_request_review_thread_delivery(), @repo)
+
+      assert ResourceStore.key_for_repo(:pull_request, @repo, 77) in keys
+      assert ResourceStore.key_for_repo(:branch_pull_request, @repo, 42) in keys
+
+      assert {:ok, %{data: %{"number" => 77}, source: :webhook}} =
+               ResourceStore.fetch(ResourceStore.key_for_repo(:pull_request, @repo, 77))
+    end
+
+    test "sub_issues deposits the sub-issue and the parent issue" do
+      GithubWebhook.handle_delivery("sub_issues", sub_issues_delivery(), repo: @repo)
+
+      assert {:ok, %{data: %{"number" => 41}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 41))
+      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
+      assert {:ok, %{data: [_label]}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_labels, @repo, 41))
+    end
+
+    test "issue_dependencies deposits the issue; a lone blocked_by_added invents no blocker list" do
+      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
+
+      assert {:ok, %{data: %{"number" => 42}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:issue, @repo, 42))
+
+      # The delivery names one edge, which is not a complete answer: the store
+      # must not fabricate a `:issue_blocked_by` list from it (review #2332), so
+      # a cold entry stays absent and the reader pays for the full list.
+      assert :miss = ResourceStore.fetch(ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42))
+    end
+
+    test "blocked_by_added merges into an existing blocker list rather than replacing it" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
+
+      # The baseline a full `GET blocked_by` 200 writes: a complete list the
+      # reader already holds, which is the only shape a merge may grow.
+      ResourceStore.put_resource(key, [%{"id" => 90_001, "number" => 90}], source: :fetch, etag: ~s("base"))
+
+      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
+
+      assert {:ok, %{data: blockers}} = ResourceStore.fetch(key)
+      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
+    end
+
+    test "a second issue_dependencies edge merges into the held blocker list rather than replacing it" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
+      ResourceStore.put_resource(key, [], source: :fetch, etag: ~s("base"))
+
+      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
+      second = %{issue_dependencies_delivery() | "blocked_by_issue" => %{"id" => 90_001, "number" => 90}}
+
+      GithubWebhook.handle_delivery("issue_dependencies", second, repo: @repo)
+
+      assert {:ok, %{data: blockers}} = ResourceStore.fetch(key)
+      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
+    end
+
+    test "blocked_by_removed drops the held blocker list rather than merging the edge in" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
+      ResourceStore.put_resource(key, [%{"id" => 80_001, "number" => 80}], source: :fetch, etag: ~s("base"))
+
+      removal = %{issue_dependencies_delivery() | "action" => "blocked_by_removed"}
+
+      GithubWebhook.handle_delivery("issue_dependencies", removal, repo: @repo)
+
+      # The death of the edge invalidates the whole held list: the next
+      # `fetch_blocked_by` pays for the truth instead of serving a stale answer.
+      assert :miss = ResourceStore.fetch(key)
+    end
+
+    test "a lone blocked_by_removed on a cold entry fabricates nothing" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
+      removal = %{issue_dependencies_delivery() | "action" => "blocked_by_removed"}
+
+      GithubWebhook.handle_delivery("issue_dependencies", removal, repo: @repo)
+
+      # The old code merged the delivery's edge in regardless of action, so a
+      # removal announced the death of an edge and then re-added it (review
+      # #2332, Probe B). A removal must never write.
+      assert :miss = ResourceStore.fetch(key)
+    end
+
+    # The deposit→read link the reachability table only proves by key equality:
+    # a webhook `blocked_by_added` onto a held list is served by the next
+    # `fetch_blocked_by` with zero upstream calls (review #2332, structural gap).
+    test "a webhook blocked_by_added onto a held list is served by the next fetch_blocked_by" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
+      ResourceStore.put_resource(key, [%{"id" => 90_001, "number" => 90}], source: :fetch, etag: ~s("base"))
+
+      GithubWebhook.handle_delivery("issue_dependencies", issue_dependencies_delivery(), repo: @repo)
+
+      assert {:ok, blockers} =
+               DependenciesApi.fetch_blocked_by(42,
+                 request_fun: fn _request -> flunk("the merged list must be served, not fetched") end
+               )
+
+      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
     end
 
     test "a delivery for an untracked repository deposits nothing" do
@@ -875,7 +1141,10 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
     {"issues", :issues_delivery},
     {"pull_request_review_comment", :review_comment_delivery},
     {"pull_request_review", :review_delivery},
-    {"pull_request", :pull_request_delivery}
+    {"pull_request", :pull_request_delivery},
+    {"pull_request_review_thread", :pull_request_review_thread_delivery},
+    {"sub_issues", :sub_issues_delivery},
+    {"issue_dependencies", :issue_dependencies_delivery}
   ]
 
   defp deposited_keys do
@@ -905,12 +1174,30 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
         :review_comment_delivery -> review_comment_delivery(9402)
         :review_delivery -> review_delivery(9403)
         :pull_request_delivery -> pull_request_delivery()
+        :pull_request_review_thread_delivery -> pull_request_review_thread_delivery()
+        :sub_issues_delivery -> sub_issues_delivery()
+        :issue_dependencies_delivery -> issue_dependencies_delivery()
       end
+
+    seed_for_fixture(fixture)
 
     event
     |> GithubWebhook.Deposit.deposit(payload, @repo)
     |> Enum.map(fn {type, _owner, _repo, id} = key -> {type, id, key} end)
   end
+
+  # A lone `blocked_by_added` merge never starts a list from one edge (review
+  # #2332): the deposit→read link the reachability table asserts exists only
+  # once the store holds a complete list — the baseline a full `GET blocked_by`
+  # 200 writes. Seed that baseline so the fixture's merge lands and the table
+  # keeps proving the two pipes share a key.
+  defp seed_for_fixture(:issue_dependencies_delivery) do
+    key = ResourceStore.key_for_repo(:issue_blocked_by, @repo, 42)
+    ResourceStore.put_resource(key, [], source: :fetch, etag: ~s("baseline"))
+    :ok
+  end
+
+  defp seed_for_fixture(_fixture), do: :ok
 
   # Every module that constructs a key of `type` in order to *use* one, which is
   # every construction site outside the writers. Scanning the source is the only
@@ -1026,6 +1313,142 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
       "action" => "opened",
       "repository" => %{"full_name" => @repo},
       "pull_request" => pull_request(),
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp sub_issue_added_delivery do
+    %{
+      "action" => "sub_issue_added",
+      "repository" => %{"full_name" => @repo},
+      "parent_issue_id" => "IS_parent",
+      "sub_issue_id" => "IS_sub_1",
+      "parent_issue_number" => 42,
+      "parent_issue_repo" => @repo,
+      "sub_issue_number" => 21,
+      "sub_issue_repo" => @repo,
+      "sub_issue" => %{
+        "node_id" => "IS_sub_1",
+        "number" => 21,
+        "title" => "a sub-issue",
+        "state" => "open",
+        "updated_at" => "2026-06-24T13:00:00Z"
+      },
+      "parent_issue" => %{
+        "node_id" => "IS_parent",
+        "number" => 42,
+        "title" => "a build order root",
+        "state" => "open",
+        "updated_at" => "2026-06-24T12:00:00Z"
+      },
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  # GitHub's `pull_request_review_thread` delivery (resolved/unresolved) carries
+  # the thread and a full pull request; only the PR half is deposited.
+  defp pull_request_review_thread_delivery do
+    %{
+      "action" => "resolved",
+      "repository" => %{"full_name" => @repo},
+      "thread" => %{"id" => "PRRT_kwDOTHREAD1"},
+      "pull_request" => pull_request(),
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp sub_issue_removed_delivery do
+    %{
+      "action" => "sub_issue_removed",
+      "repository" => %{"full_name" => @repo},
+      "parent_issue_id" => "IS_parent",
+      "sub_issue_id" => "IS_sub_1",
+      "parent_issue_number" => 42,
+      "parent_issue_repo" => @repo,
+      "sub_issue_number" => 21,
+      "sub_issue_repo" => @repo,
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp dependency_created_delivery do
+    %{
+      "action" => "blocked_by_added",
+      "repository" => %{"full_name" => @repo},
+      "blocked_issue_number" => 42,
+      "blocked_issue_repo" => @repo,
+      "blocking_issue_number" => 99,
+      "blocking_issue_repo" => @repo,
+      "dependency" => %{
+        "dependency_id" => "DI_1",
+        "dependant_id" => "IS_parent",
+        "dependency" => %{
+          "node_id" => "IS_99",
+          "number" => 99,
+          "title" => "a blocker",
+          "state" => "open",
+          "updated_at" => "2026-06-24T13:30:00Z"
+        },
+        "dependant" => %{
+          "node_id" => "IS_parent",
+          "number" => 42,
+          "title" => "a build order root",
+          "state" => "open",
+          "updated_at" => "2026-06-24T12:00:00Z"
+        }
+      },
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  # GitHub's `sub_issues` delivery carries the full sub-issue and parent issue,
+  # plus the top-level edge facts (`parent_issue_number`/`sub_issue_number`)
+  # the #2313 edge deposit keys the `:sub_issue` entry by.
+  defp sub_issues_delivery do
+    %{
+      "action" => "created",
+      "repository" => %{"full_name" => @repo},
+      "sub_issue" => %{issue() | "number" => 41, "updated_at" => "2026-06-24T10:30:00Z"},
+      "parent_issue" => issue(),
+      "parent_issue_id" => "DI_parent_42",
+      "parent_issue_number" => 42,
+      "parent_issue_repo" => @repo,
+      "sub_issue_id" => "DI_sub_41",
+      "sub_issue_number" => 41,
+      "sub_issue_repo" => @repo,
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  defp dependency_removed_delivery do
+    %{
+      "action" => "blocked_by_removed",
+      "repository" => %{"full_name" => @repo},
+      "blocked_issue_number" => 42,
+      "blocked_issue_repo" => @repo,
+      "blocking_issue_number" => 99,
+      "blocking_issue_repo" => @repo,
+      "dependency" => %{"dependency_id" => "DI_1"},
+      "sender" => %{"login" => @human}
+    }
+  end
+
+  # GitHub's `issue_dependencies` delivery carries the issue whose dependency
+  # edge changed, plus the blocker edge, and the action tells the direction. The
+  # top-level `blocked_issue_number`/`blocking_issue_number` edge facts are what
+  # the #2313 edge deposit keys the `:issue_dependency` entry by.
+  defp issue_dependencies_delivery do
+    %{
+      "action" => "blocked_by_added",
+      "repository" => %{"full_name" => @repo},
+      "issue" => issue(),
+      "blocked_by_issue" => %{"id" => 80_001, "number" => 80, "updated_at" => "2026-06-24T10:00:00Z"},
+      "blocked_issue_id" => "DI_blocked_42",
+      "blocked_issue_number" => 42,
+      "blocked_issue_repo" => @repo,
+      "blocking_issue_id" => "DI_blocker_80",
+      "blocking_issue_number" => 80,
+      "blocking_issue_repo" => @repo,
       "sender" => %{"login" => @human}
     }
   end

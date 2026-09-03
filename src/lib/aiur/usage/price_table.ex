@@ -18,6 +18,7 @@ defmodule Aiur.Usage.PriceTable do
           currency: String.t(),
           context_tier: :short_context | :long_context | :not_applicable,
           cache_write_duration: :five_minutes | :one_hour | :not_applicable,
+          window: :flat | :peak | :off_peak,
           price: Decimal.t(),
           token_unit: pos_integer(),
           effective_date: Date.t(),
@@ -42,12 +43,24 @@ defmodule Aiur.Usage.PriceTable do
   def lookup(%{version: @version, entries: entries}, query) when is_list(entries) and is_map(query) do
     with {:ok, date} <- lookup_date(value_of(query, :pricing_effective_date)),
          {:ok, series} <- exact_series(entries, query),
-         {:ok, entry, next_date} <- interval(series, date) do
+         {:ok, entry, next_date} <- interval(series, date, pricing_window(query)) do
       {:ok, Map.put(entry, :expires_before, next_date)}
     end
   end
 
   def lookup(_catalog, _query), do: {:error, :invalid_price_table}
+
+  # The billing window the query asks to price under. Omitted — the aggregate
+  # path has no occurrence time, and a caller whose window could not be
+  # determined upstream — defaults to `:peak`, the conservative rate that can
+  # never hide overspend. `:flat` revisions are always eligible regardless of
+  # window, so a provider with no windowed schedule is unaffected.
+  defp pricing_window(query) do
+    case value_of(query, :pricing_window) do
+      window when window in [:peak, :off_peak] -> window
+      _ -> :peak
+    end
+  end
 
   defp exact_series(entries, query) do
     filters = [
@@ -70,12 +83,32 @@ defmodule Aiur.Usage.PriceTable do
     end)
   end
 
-  defp interval(series, date) do
+  defp interval(series, date, window) do
     sorted = Enum.sort_by(series, & &1.effective_date, Date)
 
-    case Enum.split_while(sorted, &(Date.compare(&1.effective_date, date) in [:lt, :eq])) do
-      {[], _future} -> {:error, :price_not_yet_effective}
-      {eligible, future} -> {:ok, List.last(eligible), next_date(future)}
+    eligible =
+      Enum.filter(sorted, fn entry ->
+        Date.compare(entry.effective_date, date) in [:lt, :eq] and
+          (entry.window == :flat or entry.window == window)
+      end)
+
+    available = Enum.filter(sorted, &(Date.compare(&1.effective_date, date) in [:lt, :eq]))
+    future = Enum.filter(sorted, &(Date.compare(&1.effective_date, date) == :gt))
+
+    cond do
+      eligible == [] and available == [] ->
+        # No revision exists on or before the query date at all.
+        {:error, :price_not_yet_effective}
+
+      eligible == [] ->
+        # The price IS effective, but no revision covers the requested
+        # window (e.g. only a `:peak` revision exists and `:off_peak` was
+        # asked for). A different failure than "not yet effective": it would
+        # send a caller down the wrong path.
+        {:error, :price_window_uncovered}
+
+      true ->
+        {:ok, List.last(eligible), next_date(future)}
     end
   end
 

@@ -56,6 +56,12 @@ defmodule Aiur.Orchestrator do
 
   def handle_info(:run_poll_cycle, %State{} = state), do: Dispatcher.run_poll_cycle(state)
 
+  def handle_info({:github_webhook_reconcile, %{kind: :review_thread} = hint}, %State{} = state),
+    do: {:noreply, CommentPolling.request_reconcile(state, hint)}
+
+  def handle_info({:run_github_comment_reconcile, token}, %State{} = state),
+    do: {:noreply, CommentPolling.run_scheduled_reconcile(state, token)}
+
   def handle_info({:ci_readiness_result, token, result}, state) when is_reference(token) do
     state = Dispatcher.handle_ci_readiness_result(state, token, result)
     StatusReport.notify_dashboard(state)
@@ -67,6 +73,12 @@ defmodule Aiur.Orchestrator do
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end
+
+  def handle_info({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _phase}} = stalled}, state) do
+    {:noreply, Dispatcher.clear_prewarm_blocked_alert(state, stalled)}
+  end
+
+  def handle_info({:prewarm_phase, _phase}, state), do: {:noreply, state}
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case CommentPolling.apply_async_down(state, ref) do
@@ -237,6 +249,8 @@ defmodule Aiur.Orchestrator do
   @doc false
   @spec connectivity_detail(term()) :: map()
   def connectivity_detail({:github, _classification, detail}) when is_map(detail), do: detail
+
+  def connectivity_detail({:aiur, :locally_held, hold}) when is_map(hold), do: %{hold: hold}
 
   def connectivity_detail({:github_api_status, status}) when is_integer(status),
     do: %{status: status}
@@ -483,10 +497,10 @@ defmodule Aiur.Orchestrator do
   latched ticket returns to dispatchable. The supported operator exit from
   the #1453 latch — `aiurdev reset-budget <id>` routes here.
   """
-  @spec reset_dispatch_budget(String.t()) :: {:ok, :queued} | {:error, term()}
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(identifier), do: PauseResume.reset_dispatch_budget(identifier)
 
-  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :queued} | {:error, term()}
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
   def reset_dispatch_budget(server, identifier),
     do: PauseResume.reset_dispatch_budget(server, identifier)
 

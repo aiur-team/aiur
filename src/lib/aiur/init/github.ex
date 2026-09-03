@@ -9,6 +9,7 @@ defmodule Aiur.Init.GitHub do
   alias Aiur.GitHub.BotIdentity
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.Transport
 
@@ -72,6 +73,16 @@ defmodule Aiur.Init.GitHub do
             {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
         end
 
+      {:error, {:ci_readiness_plan_limit, message}} ->
+        io.puts.(
+          "GitHub reports: #{message}\n" <>
+            "This repository plan does not support the ruleset or classic branch-protection checks needed for full CI readiness verification. " <>
+            "Make the repository public, upgrade the plan, or continue without ruleset verification. " <>
+            "aiur init is continuing without ruleset verification and will not save a CI-readiness assessment."
+        )
+
+        :ok
+
       {:error, reason} ->
         {:error, readiness_error_message(reason)}
     end
@@ -105,7 +116,7 @@ defmodule Aiur.Init.GitHub do
     "Repository CI readiness found a pull-request workflow but needs an operator-only #{CiReadiness.operator_token_env()} to inspect workflow state, branch protection, and rulesets. Do not grant those permissions to GITHUB_TOKEN."
   end
 
-  defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
+  defp readiness_error_message(reason), do: CiReadiness.error_message(reason)
 
   defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}) do
     if io.confirm.("No pull-request CI workflow found — scaffold .github/workflows/ci.yml?", true) do
@@ -208,7 +219,7 @@ defmodule Aiur.Init.GitHub do
 
   @spec detect_github_login() :: String.t() | nil
   def detect_github_login do
-    case System.cmd("gh", ["api", "user", "--jq", ".login"], stderr_to_stdout: true) do
+    case HostCommand.run(["api", "user", "--jq", ".login"], stderr_to_stdout: true, bot_token: true) do
       {output, 0} ->
         output
         |> String.trim()
@@ -256,7 +267,7 @@ defmodule Aiur.Init.GitHub do
   @doc false
   @spec detect_default_branch(String.t() | nil) :: String.t() | nil
   @spec detect_default_branch(String.t() | nil, (String.t(), [String.t()], keyword() -> {String.t(), non_neg_integer()})) :: String.t() | nil
-  def detect_default_branch(repo, command_fun \\ &System.cmd/3)
+  def detect_default_branch(repo, command_fun \\ &host_command/3)
 
   def detect_default_branch(nil, _command_fun), do: nil
 
@@ -274,6 +285,12 @@ defmodule Aiur.Init.GitHub do
   rescue
     _error -> nil
   end
+
+  # The default `command_fun` for `detect_default_branch/2`: `gh` goes through
+  # the budget guard and names the daemon's credential, so the wizard's repo
+  # probe is admitted and recorded like every other call (#2353).
+  defp host_command("gh", args, opts), do: HostCommand.run(args, Keyword.put(opts, :bot_token, true))
+  defp host_command(command, args, opts), do: System.cmd(command, args, opts)
 
   @doc false
   @spec parse_repo(String.t()) :: String.t() | nil

@@ -4,7 +4,7 @@ defmodule Aiur.JsonStoreTest do
   alias Aiur.JsonStore
 
   setup do
-    tmp_dir = Path.join(System.tmp_dir!(), "aiur_json_store_test_#{System.unique_integer([:positive])}")
+    tmp_dir = Aiur.TestSupport.tmp_root!("aiur_json_store_test")
     File.mkdir_p!(tmp_dir)
     on_exit(fn -> File.rm_rf!(tmp_dir) end)
     %{tmp_dir: tmp_dir}

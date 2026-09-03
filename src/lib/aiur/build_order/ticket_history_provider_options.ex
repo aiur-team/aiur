@@ -66,7 +66,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProvider.Options do
   defp stale_after_ms(opts) do
     configured_ms = bounded_positive(opts, :stale_after_ms, @default_stale_after_ms, @max_stale_after_ms)
 
-    PollCadence.stale_after_ms(@stale_after_intervals, floor_ms: configured_ms)
+    PollCadence.stale_after_ms(@stale_after_intervals, class: :planning, floor_ms: configured_ms)
   end
 
   defp bounded_positive(opts, key, default, maximum) do

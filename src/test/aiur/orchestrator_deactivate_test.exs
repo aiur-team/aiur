@@ -243,7 +243,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       previous_issues = Application.get_env(:aiur, :ci_watcher_issues)
       previous_update_result = Application.get_env(:aiur, :ci_watcher_update_result)
       previous_ci_approval_store_path = Application.get_env(:aiur, :ci_approval_store_path)
-      ci_approval_store_path = Path.join(System.tmp_dir!(), "aiur_ci_approvals_#{System.unique_integer([:positive])}.json")
+      ci_approval_store_path = Aiur.TestSupport.tmp_root!("aiur_ci_approvals") <> ".json"
 
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
@@ -1148,11 +1148,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "reconcile on agent:human-review label" do
     test "human-review state keeps the running entry, kills the task, marks :deactivated" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-deactivate-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-deactivate")
 
       issue_id = "issue-deactivate-1"
       issue_identifier = "DA-1"
@@ -1228,11 +1224,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "human-review on an already-deactivated entry is a no-op" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-deactivate-noop-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-deactivate-noop")
 
       issue_id = "issue-deactivate-2"
       issue_identifier = "DA-2"
@@ -1284,11 +1276,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "human-review with unverified review threads is reverted to rework instead of deactivated" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-human-review-guard-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-human-review-guard")
 
       issue_id = "57"
       issue_identifier = "57"
@@ -1368,11 +1356,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "human-review with a transient verification error is left for a later poll" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-human-review-transient-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-human-review-transient")
 
       issue_id = "58"
       issue_identifier = "58"
@@ -1452,11 +1436,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "human-review with transient GraphQL verification errors is left for a later poll" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-human-review-graphql-transient-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-human-review-graphql-transient")
 
       previous_github_client = Application.get_env(:aiur, :github_client_module)
       previous_guard_recipient = Application.get_env(:aiur, :human_review_guard_recipient)
@@ -1523,12 +1503,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
-    test "human-review with a non-transient GraphQL verification error reverts to rework" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-human-review-graphql-permanent-#{System.unique_integer([:positive])}"
-        )
+    test "human-review with a non-verdict GraphQL verification error is left for a later poll" do
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-human-review-graphql-nonverdict")
 
       issue_id = "62"
       previous_github_client = Application.get_env(:aiur, :github_client_module)
@@ -1556,6 +1532,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
         Application.put_env(:aiur, :github_client_module, HumanReviewGuardGitHubClient)
         Application.put_env(:aiur, :human_review_guard_recipient, self())
 
+        # A FORBIDDEN threads read is an authorization/operational fault, not a
+        # reviewer verdict: it says nothing about whether the reviewer's findings
+        # were addressed (#2400). The ticket must rest in `human-review` and
+        # re-verify on the next poll, never revert to `rework` (a state whose
+        # turn has nothing to fix).
         Application.put_env(
           :aiur,
           :human_review_ready_result,
@@ -1568,12 +1549,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         updated_state = Reconciler.reconcile_running_issue_states([issue], state)
 
         receive_barrier({:human_review_verify, ^issue_id})
-        receive_barrier({:human_review_update, ^issue_id, "rework"})
+        refute_received {:human_review_update, ^issue_id, "rework"}
         assert Process.alive?(agent_pid)
 
         entry = Map.fetch!(updated_state.running, issue_id)
         assert entry.pid == agent_pid
-        assert entry.issue.state == "rework"
+        assert entry.issue.state == "in-progress"
         assert get_in(entry, [:control, :status]) == :working
       after
         if Process.alive?(agent_pid), do: Process.exit(agent_pid, :kill)
@@ -1585,11 +1566,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "terminate (terminal label) also broadcasts aiur_turn_done for every active chat stream" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-terminate-stream-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-terminate-stream")
 
       issue_id = "issue-terminate-stream"
       issue_identifier = "TS-1"
@@ -1657,11 +1634,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "deactivate broadcasts aiur_turn_done for every active chat-completion stream" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-deactivate-stream-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-deactivate-stream")
 
       issue_id = "issue-deactivate-stream"
       issue_identifier = "DS-1"
@@ -1734,11 +1707,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "terminal label still terminates and cleans workspace (not intercepted by deactivate)" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-deactivate-terminal-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-deactivate-terminal")
 
       issue_id = "issue-deactivate-3"
       issue_identifier = "DA-3"
@@ -2326,11 +2295,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "slot counting on the public status snapshot" do
     test "deactivated entries do not consume a slot in the (N/M) counter" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-slot-counting-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-slot-counting")
 
       issue_working = "issue-slot-working"
       issue_paused = "issue-slot-paused"
@@ -2393,11 +2358,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "all-:deactivated running map frees every slot" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-slot-all-deact-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-slot-all-deact")
 
       try do
         write_workflow_file!(Workflow.workflow_file_path(),
@@ -2443,11 +2404,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "label-flip back to active reactivates a :deactivated entry" do
     test "human-review → in-progress on a :deactivated entry routes through reactivate_issue" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-relabel-active-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-relabel-active")
 
       issue_id = "issue-relabel-1"
       issue_identifier = "RL-1"
@@ -2546,11 +2503,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "reactivates a :deactivated entry on ticket.<N>.issue.commented when refreshed state is active" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-issue-commented-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-issue-commented")
 
       issue_id = "issue-issue-commented-1"
       # The firehose resolves PR-conversation comments back to the ticket
@@ -2643,11 +2596,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "reactivates a :deactivated entry on ticket.<N>.pr.review_comment when refreshed state is active" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-pr-review-comment-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-pr-review-comment")
 
       issue_id = "issue-pr-review-comment-1"
       issue_identifier = "44"
@@ -2722,11 +2671,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "persists an actionable alert when trusted issue feedback cannot claim a rework slot" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-issue-commented-capacity-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-issue-commented-capacity")
 
       issue_id = "issue-issue-commented-capacity"
       issue_identifier = "45"
@@ -2844,11 +2789,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "does not reactivate a human-review entry on ticket.<N>.issue.commented" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-issue-commented-human-review-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-issue-commented-human-review")
 
       issue_id = "issue-issue-commented-hr"
       issue_identifier = "43"
@@ -2913,11 +2854,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "review-pass PR comment stays human-review until successful merge marks issue done" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-review-pass-merge-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-review-pass-merge")
 
       issue_id = "560"
       issue_identifier = "560"
@@ -3022,11 +2959,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "does not reactivate when refreshed issue is missing" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-issue-commented-missing-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-issue-commented-missing")
 
       issue_id = "issue-issue-commented-missing"
       issue_identifier = "45"
@@ -3091,11 +3024,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "does not reactivate when tracker refresh fails" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-issue-commented-refresh-error-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-issue-commented-refresh-error")
 
       issue_id = "issue-issue-commented-refresh-error"
       issue_identifier = "46"
@@ -3227,11 +3156,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "trusted idle review comment dispatches a todo ticket without flipping it to rework" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-direct-comment-dispatch-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-direct-comment-dispatch")
 
       issue_identifier = "58"
       fake_codex = Path.join(test_root, "fake-codex")
@@ -3532,7 +3457,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 61, "head" => %{"ref" => "aiur/57"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 61, "head" => %{"ref" => "aiur/57", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -3686,7 +3615,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
           # open pull request and lets `TicketBranch.ticket_branch?/2` do the
           # filtering: ticket 57 matches `aiur/57`, ticket 42 matches nothing.
           String.contains?(url, "/pulls?") ->
-            {:ok, %{status: 200, body: [%{"number" => 61, "head" => %{"ref" => "aiur/57"}}]}}
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 61, "head" => %{"ref" => "aiur/57", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
 
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
@@ -5391,7 +5324,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # test's persisted `ticket.99.agent.unblocked` subscription leaks back in
       # and wrongly auto-resumes a blockee that should stay paused.
       tmp_dir =
-        Path.join(System.tmp_dir!(), "aiur_blockee_subscr_#{System.unique_integer([:positive])}")
+        Aiur.TestSupport.tmp_root!("aiur_blockee_subscr")
 
       File.mkdir_p!(tmp_dir)
       original_log_file = Application.get_env(:aiur, :log_file)
@@ -6494,11 +6427,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
     end
 
     test "deactivate tears down a tracked REPL session and still deactivates the entry" do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-orch-repl-teardown-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-repl-teardown")
 
       issue_id = "issue-repl-teardown"
       issue_identifier = "RPT-1"
@@ -6841,11 +6770,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "PR-anchored comment routing (U4)" do
     setup do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-pr-anchored-route-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-pr-anchored-route")
 
       File.mkdir_p!(test_root)
       on_exit(fn -> File.rm_rf(test_root) end)
@@ -7044,11 +6969,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
   describe "PR-anchored lifecycle teardown (U6)" do
     setup do
-      test_root =
-        Path.join(
-          System.tmp_dir!(),
-          "aiur-pr-anchored-teardown-#{System.unique_integer([:positive])}"
-        )
+      test_root = Aiur.TestSupport.tmp_root!("aiur-pr-anchored-teardown")
 
       File.mkdir_p!(test_root)
       on_exit(fn -> File.rm_rf(test_root) end)

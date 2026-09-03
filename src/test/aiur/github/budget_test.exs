@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.BudgetTest do
   alias Aiur.GitHub.{Budget, CredentialHeadroom}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-github-budget-#{System.unique_integer([:positive])}")
+    root = Aiur.TestSupport.tmp_root!("aiur-github-budget")
     File.mkdir_p!(root)
 
     previous = Application.get_env(:aiur, :github_budget_enabled?)
@@ -193,7 +193,10 @@ defmodule Aiur.GitHub.BudgetTest do
 
     started_at = System.monotonic_time(:millisecond)
 
-    assert {:error, :github_budget_broker_unavailable} =
+    # The broker never answers within the 300 ms deadline, so this is the
+    # distinguishable timeout verdict rather than the malformed-reply
+    # `:github_budget_broker_unavailable` (#2286).
+    assert {:error, :github_budget_broker_timeout} =
              Budget.acquire(
                request(token, "/repos/owner/repo/issues/1477"),
                opts |> Keyword.put(:python, python) |> Keyword.put(:timeout_ms, 300)
@@ -279,13 +282,19 @@ defmodule Aiur.GitHub.BudgetTest do
     File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'wait malformed'\n")
     File.chmod!(fake_python, 0o755)
 
+    # The deadline is generous so the fake broker is allowed to answer: this
+    # assertion tests that a malformed `wait` reply classifies as
+    # `:github_budget_broker_unavailable`, not that the subprocess can start
+    # within a deadline competitive with `python3` startup under CI load — a
+    # tight deadline would degrade the verdict to `:github_budget_broker_timeout`
+    # and fail the wrong assertion (#2286).
     assert {:error, :github_budget_broker_unavailable} =
              Budget.acquire(
                request("shared-token", "/repos/owner/repo/issues/1477"),
                state_dir: root,
                enabled?: true,
                python: fake_python,
-               timeout_ms: 10
+               timeout_ms: 1_000
              )
   end
 
@@ -348,6 +357,69 @@ defmodule Aiur.GitHub.BudgetTest do
     assert :ok = Budget.release(lease, opts)
   end
 
+  # #2409 root cause: GitHub meters `/search/*` against its own ~30 req/min
+  # pool, so a search response must be classified as `search` — never folded
+  # into `core`. Before this fix a search-pool exhaustion (a `search` header
+  # with `remaining: 0`) fell through `response_resource` to the request's
+  # bucket and created a *core* hold, which then denied every core request —
+  # including dispatch-authorization timeline fetches — until the search pool
+  # reset.
+  test "a search-pool exhaustion holds only search, never core", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    search = request("shared-token", "/search/issues?q=repo:owner/repo+label:agent")
+    reset_at = System.system_time(:second) + 60
+
+    assert Budget.request_resource(search) == "search"
+    assert Budget.request_resource(core) == "core"
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "search"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    # The search pool is held...
+    assert {:hold, %{reason: :shared_budget, resource: "search"}} =
+             Budget.acquire(search, Keyword.put(opts, :timeout_ms, 1_000))
+
+    # ...but core is untouched: the timeline fetch that dispatch authorization
+    # relies on still goes through.
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
+  test "a rate-limit pool the guard does not model never becomes a core hold", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    reset_at = System.system_time(:second) + 60
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "integration_manifest"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    # No modeled pool was exhausted, so no resource hold is issued — a core
+    # request must not be held because some other GitHub pool reset.
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
   test "simultaneous fan-out is staggered and reports the measured burst width", %{root: root} do
     opts = [state_dir: root, max_inflight: 6, max_inflight_per_endpoint: 6, requests_per_minute: 20, stagger_ms: 10]
     request = request("shared-token", "/repos/owner/repo/pulls/1477/reviews")
@@ -373,6 +445,38 @@ defmodule Aiur.GitHub.BudgetTest do
     refute key =~ "secret"
     assert Budget.endpoint_family(request("token", "/repos/owner/repo/issues/1477/comments")) == "issues"
     assert Budget.endpoint_family(request("token", "/graphql")) == "graphql"
+  end
+
+  test "a daemon /rate_limit poll is recorded non-billable with its own family", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0, credential_key: Budget.identity_key("machine_user:primary:aiur-daemon[bot]")]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/rate_limit"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # GitHub meters `/rate_limit` at zero quota, so the ledger must not report
+    # it as spend: family `rate_limit` (not `rest`), resource `none` (not a
+    # pool), billable false (#2353).
+    assert %{admissions: [%{endpoint_family: "rate_limit", resource: "none", billable: false}]} =
+             Budget.snapshot("token", opts)
+
+    # And the pool usage the acceptance reconciles against never counts it.
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 0
+    assert actor.graphql.used == 0
+    assert actor.search.used == 0
+  end
+
+  test "a billable core call stays billable in the ledger", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+
+    assert {:ok, lease} = Budget.acquire(request("token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert %{admissions: [%{endpoint_family: "issues", resource: "core", billable: true}]} =
+             Budget.snapshot("token", opts)
+
+    assert %{actors: [actor]} = Budget.usage(state_dir: root)
+    assert actor.core.used == 1
   end
 
   test "resolves the broker from the installed application private directory" do
@@ -404,9 +508,13 @@ defmodule Aiur.GitHub.BudgetTest do
       end
 
     # The fourth request from the same agent holds because it hit the Core
-    # ceiling, and the hold names the actor budget as the reason.
+    # ceiling, and the hold names the actor budget as the reason. The verdict
+    # is returned as soon as the broker answers, so the only race is `python3`
+    # subprocess startup under parallel CI load. The broker reports that
+    # deadline expiry distinctly as `:github_budget_broker_timeout`, and the
+    # assertion retries it instead of failing on runner load (#2286).
     assert {:hold, %{reason: :actor_budget, resource: "core"}} =
-             Budget.acquire(request, Keyword.put(opts, :timeout_ms, 200))
+             acquire_retrying_timeout(request, Keyword.put(opts, :timeout_ms, 1_000))
 
     Enum.each(leases, &Budget.release(&1, opts))
 
@@ -435,16 +543,20 @@ defmodule Aiur.GitHub.BudgetTest do
     assert {:ok, c1} = Budget.acquire(core, opts)
     assert {:ok, c2} = Budget.acquire(core, opts)
 
-    # Core is at its ceiling of 2.
+    # Core is at its ceiling of 2. The hold is returned as soon as the broker
+    # answers, but `python3` subprocess startup can race a single deadline
+    # under parallel CI load; the broker reports that expiry distinctly as
+    # `:github_budget_broker_timeout`, which the assertion retries instead of
+    # failing on runner load (#2286).
     assert {:hold, %{reason: :actor_budget, resource: "core"}} =
-             Budget.acquire(core, Keyword.put(opts, :timeout_ms, 200))
+             acquire_retrying_timeout(core, Keyword.put(opts, :timeout_ms, 1_000))
 
     # GraphQL still has headroom (0 of 1 used), so it is admitted.
     assert {:ok, g1} = Budget.acquire(graphql, opts)
 
     # Now GraphQL is at its ceiling of 1, and the hold names the graphql resource.
     assert {:hold, %{reason: :actor_budget, resource: "graphql"}} =
-             Budget.acquire(graphql, Keyword.put(opts, :timeout_ms, 200))
+             acquire_retrying_timeout(graphql, Keyword.put(opts, :timeout_ms, 1_000))
 
     :ok = Budget.release(c1, opts)
     :ok = Budget.release(c2, opts)
@@ -497,6 +609,11 @@ defmodule Aiur.GitHub.BudgetTest do
     assert :ok = Budget.observe(request, second, {:ok, %{status: 304, headers: [], body: ""}}, opts)
     assert :ok = Budget.release(second, opts)
 
+    # The snapshot says *why* each admission stopped being billable, so a bare
+    # `billable = false` is distinguishable from any other unbilled state.
+    assert %{admissions: [%{billable: false, billable_reason: "304"}, %{billable: false, billable_reason: "304"}]} =
+             Budget.snapshot("shared-token", state_dir: root)
+
     actor =
       opts
       |> Budget.usage()
@@ -504,6 +621,144 @@ defmodule Aiur.GitHub.BudgetTest do
       |> Enum.find(&(&1.consumer_key == Budget.token_key("workspace:/conditional-reader")))
 
     assert actor.core.used == 0
+  end
+
+  test "a reconcile failure against a broker without the reconcile subcommand is logged", %{root: root} do
+    # A pre-#2284 broker copy: it can admit and release, but has no `reconcile`
+    # subcommand, so the daemon's reconcile call on a 304 exits non-zero the
+    # way argparse's "invalid choice" does. The failure must be visible in the
+    # daemon log, not read as "reconciliation did not fire".
+    stale_broker = Path.join(root, "stale-broker.py")
+
+    File.write!(stale_broker, """
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "reconcile":
+        sys.stderr.write("usage: aiur-github-budget ... invalid choice: 'reconcile'\\n")
+        sys.exit(2)
+    sys.exit(0)
+    """)
+
+    File.chmod!(stale_broker, 0o755)
+
+    opts = [state_dir: root, broker_path: stale_broker, stagger_ms: 0]
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+    # A lease the current broker would have granted; only the reconcile call
+    # matters here, and it must fail against the stale broker.
+    lease = %{id: "lease-1", token_key: Budget.token_key("shared-token")}
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = Budget.observe(request, lease, {:ok, %{status: 304, headers: [], body: ""}}, opts)
+      end)
+
+    assert log =~ "github_budget_reconcile_failed"
+  end
+
+  test "a lease-less admission stays billable in the actor ledger", %{root: root} do
+    opts = [
+      state_dir: root,
+      max_inflight: 10,
+      max_inflight_per_endpoint: 10,
+      requests_per_minute: 100,
+      stagger_ms: 0,
+      consumer_key: "workspace:/lease-less-reader",
+      agent_core_limit_per_hour: 3,
+      agent_graphql_limit_per_hour: 1
+    ]
+
+    request = request("lease-less-token", "/repos/owner/repo/issues/1477")
+
+    # `acquire` writes the actor's policy row (the `usage` inventory) and one
+    # leased, billable admission. Then inject the exact row a pre-#2284 writer
+    # (one that wrote the admission without taking a lease) leaves behind. Its
+    # status is unknown, so it must stay billable and count as spend: GitHub
+    # was charged for it, and no lease means nothing can ever prove it was a
+    # 304.
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    assert :ok = Budget.release(lease, opts)
+
+    db = Budget.database_path(state_dir: root)
+
+    assert :ok =
+             insert_lease_less_admission(
+               db,
+               "lease-less-token",
+               Budget.token_key("workspace:/lease-less-reader"),
+               "issues",
+               1
+             )
+
+    actor =
+      opts
+      |> Budget.usage()
+      |> Map.fetch!(:actors)
+      |> Enum.find(&(&1.consumer_key == Budget.token_key("workspace:/lease-less-reader")))
+
+    # Both the leased admission and the lease-less one count: dropping the
+    # lease-less row from the ledger would report only 1.
+    assert actor.core.used == 2
+  end
+
+  test "a non-billable rate_limit admission still consumes a rate-per-minute pacing slot", %{root: root} do
+    # The #2328 shape: a probe the caller knows GitHub bills at zero is written
+    # to the ledger non-billable but still occupies a pacing slot, exactly as a
+    # billed call would (#2284's "a request that costs no quota can still cost
+    # a slot").
+    db = Budget.database_path(state_dir: root)
+    broker = Budget.broker_path()
+    token = "rate-limit-pacing-token"
+    key = Budget.token_key(token)
+
+    assert {"granted " <> _lease, 0} =
+             System.cmd("python3", [
+               broker,
+               "acquire",
+               "--db",
+               db,
+               "--token-key",
+               key,
+               "--resource",
+               "core",
+               "--consumer-key",
+               Budget.token_key("workspace:/agent-2328"),
+               "--consumer-label",
+               "workspace:/agent-2328",
+               "--endpoint-family",
+               "rate_limit",
+               "--billable",
+               "0",
+               "--max-inflight",
+               "4",
+               "--max-inflight-per-endpoint",
+               "2",
+               "--requests-per-minute",
+               "1",
+               "--stagger-ms",
+               "0",
+               "--lease-ttl-ms",
+               "35000",
+               "--core-limit",
+               "0",
+               "--graphql-limit",
+               "0"
+             ])
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", db, "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "rate_limit", "billable" => false}]} = Jason.decode!(snapshot)
+
+    # One free admission fills the single requests-per-minute slot, so a second
+    # admission in the same minute is paced even though the first cost nothing.
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(
+               request(token, "/repos/owner/repo/issues/1477"),
+               state_dir: root,
+               requests_per_minute: 1,
+               stagger_ms: 0,
+               timeout_ms: 300
+             )
   end
 
   test "an existing admissions table migrates before response reconciliation", %{root: root} do
@@ -595,21 +850,24 @@ defmodule Aiur.GitHub.BudgetTest do
 
     hold_opts = Keyword.put(opts, :timeout_ms, 200)
 
-    assert {:hold, %{reason: :actor_budget}} = Budget.acquire(request, hold_opts)
+    # The actor is already at its ceiling, so every attempt either holds or
+    # times out; the retry never grants a lease it could double-consume
+    # (#2286).
+    assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
     assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}
     assert alert_opts[:needs_attention]
     assert alert_opts[:reason] =~ "local billed=2/2"
     assert alert_opts[:reason] =~ "GitHub used=0/10"
 
-    assert {:hold, %{reason: :actor_budget}} = Budget.acquire(request, hold_opts)
+    assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
     refute_receive {:budget_alert, _, _}
 
     observe_headroom(request, limit: 10, remaining: 8, reset: reset)
-    assert {:hold, %{reason: :actor_budget}} = Budget.acquire(request, hold_opts)
+    assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
     refute_receive {:budget_alert, _, _}
 
     observe_headroom(request, limit: 10, remaining: 10, reset: reset)
-    assert {:hold, %{reason: :actor_budget}} = Budget.acquire(request, hold_opts)
+    assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
     assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}
   end
 
@@ -635,33 +893,36 @@ defmodule Aiur.GitHub.BudgetTest do
 
     # The cooldown the broker sets from a rate-limited response, standing while
     # the credential's own fresh window still reports the whole limit unspent —
-    # the exact contradiction that stalled the fleet in #2278.
+    # the exact contradiction that stalled the fleet in #2278. This write must
+    # land for the cooldown to exist at all, so it gets a deadline that is not
+    # competitive with `python3` subprocess startup under CI load (a retry on
+    # `acquire` cannot recover a cooldown that was never recorded) (#2286).
     assert :ok =
              Budget.observe(
                issues,
                {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "5"}], body: %{"message" => "rate limit exceeded"}}},
-               opts
+               Keyword.put(opts, :timeout_ms, 5_000)
              )
 
     observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
 
-    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
     assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}
     assert alert_opts[:needs_attention]
     assert alert_opts[:reason] =~ "shared budget hold contradicts"
     assert alert_opts[:reason] =~ "remaining=100/100"
 
-    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
     refute_receive {:budget_alert, _, _}
 
     # GitHub agreeing that the credential really is spent clears the signal, so
     # the next genuine divergence is still able to speak.
     observe_headroom(pulls, limit: 100, remaining: 0, reset: reset)
-    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
     refute_receive {:budget_alert, _, _}
 
     observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
-    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, opts)
+    assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
     assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}
   end
 
@@ -702,7 +963,141 @@ defmodule Aiur.GitHub.BudgetTest do
     assert Enum.any?(usage.actors, &(&1.consumer_label == "workspace:/stale"))
   end
 
+  test "a current broker stamps the ledger with its version", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+    assert {:ok, lease} = Budget.acquire(request("stamp-token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert {"1\n", 0} =
+             System.cmd("python3", [
+               "-c",
+               "import sqlite3,sys; print(sqlite3.connect(sys.argv[1]).execute(\"SELECT value FROM broker_meta WHERE key='broker_version'\").fetchone()[0])",
+               Budget.database_path(state_dir: root)
+             ])
+  end
+
+  test "a read-only command does not stamp the ledger or install the trigger", %{root: root} do
+    db = Budget.database_path(state_dir: root)
+    key = Budget.token_key("read-token")
+
+    # snapshot is a read command; it must not take a schema write (the version
+    # stamp or the lease trigger) on the shared ledger just to report on it
+    # (#2307 review).
+    assert {_output, 0} =
+             System.cmd("python3", [Budget.broker_path(), "snapshot", "--db", db, "--token-key", key], stderr_to_stdout: true)
+
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "print(c.execute(\"SELECT COUNT(*) FROM broker_meta\").fetchone()[0]); " <>
+        "print(c.execute(\"SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='admissions_require_lease'\").fetchone()[0])"
+
+    assert {"0\n0\n", 0} = System.cmd("python3", ["-c", script, db], stderr_to_stdout: true)
+
+    # The first write installs both.
+    opts = [state_dir: root, stagger_ms: 0]
+    assert {:ok, lease} = Budget.acquire(request("read-token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    assert {"1\n1\n", 0} = System.cmd("python3", ["-c", script, db], stderr_to_stdout: true)
+  end
+
+  test "a broker older than the ledger version stamp refuses to write with a clear message", %{root: root} do
+    opts = [state_dir: root, stagger_ms: 0]
+    db = Budget.database_path(state_dir: root)
+    request = request("stamp-token", "/repos/owner/repo/issues/1477")
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # Stamp the ledger past this broker's version, exactly as the next release's
+    # broker would when it opens the shared ledger. This broker is now stale.
+    bump_broker_version(db, 99)
+
+    key = Budget.token_key("stamp-token")
+
+    {output, status} =
+      System.cmd(
+        "python3",
+        [
+          Budget.broker_path(),
+          "acquire",
+          "--db",
+          db,
+          "--token-key",
+          key,
+          "--resource",
+          "core",
+          "--consumer-key",
+          Budget.token_key("stale-writer"),
+          "--endpoint-family",
+          "issues",
+          "--max-inflight",
+          "2",
+          "--max-inflight-per-endpoint",
+          "2",
+          "--requests-per-minute",
+          "20",
+          "--stagger-ms",
+          "0",
+          "--lease-ttl-ms",
+          "35000"
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status != 0
+    assert output =~ "refusing to write: ledger is stamped version 99"
+    assert output =~ "this broker is version"
+
+    # Nothing was written by the stale broker: the ledger still holds only the
+    # admission the current broker created before the stamp was bumped.
+    snapshot = Budget.snapshot("stamp-token", state_dir: root)
+    assert length(snapshot.admissions) == 1
+  end
+
+  test "a broker that omits the lease id cannot write an admission", %{root: root} do
+    db = Budget.database_path(state_dir: root)
+    opts = [state_dir: root, stagger_ms: 0]
+    assert {:ok, lease} = Budget.acquire(request("lease-trigger-token", "/repos/owner/repo/issues/1477"), opts)
+    assert :ok = Budget.release(lease, opts)
+
+    # A pre-#2284 broker's INSERT names no `lease_id`; the schema trigger must
+    # refuse it loudly instead of leaving a row the current broker can never
+    # reconcile or refund (#2307).
+    {output, status} =
+      System.cmd(
+        "python3",
+        [
+          "-c",
+          "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+            "c.execute(\"INSERT INTO admissions(token_key, consumer_key, endpoint_family, admitted_at_ms) VALUES ('k','c','issues',1)\"); c.commit()",
+          db
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert status != 0
+    assert output =~ "refusing admission without a lease_id"
+  end
+
   defp request(token, path), do: %{method: :get, url: "https://api.github.com#{path}", token: token}
+
+  # A hold verdict is returned as soon as the broker answers
+  # `wait actor <ms>` / `wait <ms>`, so the only load-sensitive part is
+  # `python3` subprocess startup. When that races the per-attempt deadline the
+  # broker now reports `:github_budget_broker_timeout` distinctly from a
+  # malformed reply (`:github_budget_broker_unavailable`), and this retries the
+  # former: the condition behind a hold (an actor already at its ceiling, or a
+  # standing shared cooldown) persists, so a timed-out attempt grants nothing
+  # and a retry cannot double-consume (#2286).
+  defp acquire_retrying_timeout(request, opts, attempts \\ 40) do
+    case Budget.acquire(request, opts) do
+      {:error, :github_budget_broker_timeout} when attempts > 0 ->
+        acquire_retrying_timeout(request, opts, attempts - 1)
+
+      result ->
+        result
+    end
+  end
 
   defp secondary_response(seconds) do
     {:ok,
@@ -781,6 +1176,44 @@ defmodule Aiur.GitHub.BudgetTest do
     assert {_output, 0} = System.cmd("python3", ["-c", script, db], stderr_to_stdout: true)
   end
 
+  # Advances the ledger's `broker_meta` version stamp, simulating a newer broker
+  # release having opened the shared ledger before this broker ran.
+  defp bump_broker_version(db, version) do
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute(\"INSERT INTO broker_meta(key,value) VALUES('broker_version',?) " <>
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value\", (sys.argv[2],)); c.commit()"
+
+    assert {_output, 0} = System.cmd("python3", ["-c", script, db, Integer.to_string(version)], stderr_to_stdout: true)
+  end
+
+  # The admission a pre-#2284 writer produced: linked to no lease, still flagged
+  # billable. Injected straight into the broker database so the "lease-less rows
+  # stay billable" contract is exercised against real storage.
+  #
+  # The `admissions_require_lease` trigger (#2307) refuses exactly this insert:
+  # that is its job, since a live stale broker must never write a lease-less
+  # row. The row this fixture needs is one written *before* the trigger existed,
+  # so the trigger is dropped for the insert; the next writable broker open
+  # reinstalls it (`_prepare_writable` is `CREATE TRIGGER IF NOT EXISTS`). Both
+  # contracts hold: stale brokers are still refused, and the legacy rows they
+  # left behind are still read as billable spend.
+  defp insert_lease_less_admission(db, token, consumer_key, endpoint_family, billable) do
+    key = Budget.token_key(token)
+    now = System.system_time(:millisecond)
+
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); " <>
+        "c.execute('DROP TRIGGER IF EXISTS admissions_require_lease'); " <>
+        "c.execute('INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, admitted_at_ms, billable) " <>
+        "VALUES (?,?,NULL,?,?,?)', (sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]), int(sys.argv[6]))); c.commit()"
+
+    case System.cmd("python3", ["-c", script, db, key, consumer_key, endpoint_family, Integer.to_string(now), Integer.to_string(billable)], stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("could not inject lease-less admission: #{status}: #{output}")
+    end
+  end
+
   defp close_port(port) do
     if Port.info(port), do: Port.close(port)
   rescue
@@ -801,7 +1234,12 @@ defmodule Aiur.GitHub.BudgetTest do
     end
   end
 
-  defp wait_until(predicate, attempts \\ 100) do
+  # The window is generous (3s at 10ms a tick) because every caller waits on
+  # broker-subprocess lifecycle — spawning, or reaping after a deadline kill —
+  # and each `ps`/`File` probe is itself a subprocess that can stall under the
+  # four-way parallel coverage load that this file's flakes were filed against
+  # (#2286).
+  defp wait_until(predicate, attempts \\ 300) do
     cond do
       predicate.() -> :ok
       attempts <= 0 -> flunk("condition never held")

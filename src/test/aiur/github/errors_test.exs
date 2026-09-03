@@ -12,8 +12,27 @@ defmodule Aiur.GitHub.ErrorsTest do
 
     assert Errors.classify_error({:error, :other}) == {:github, :transport, %{reason: :other}}
 
+    # #2427: the budget broker distinguishes a timeout from a malformed reply,
+    # and the transport taxonomy must keep them apart — a broker timeout is a
+    # `:timeout` (transient), a malformed reply stays `:transport` with its
+    # distinctive reason so the shared classifier can treat it as permanent.
+    assert Errors.classify_error({:error, :github_budget_broker_timeout}) ==
+             {:github, :timeout, %{reason: :github_budget_broker_timeout}}
+
     assert Errors.classify_error({:error, :github_budget_broker_unavailable}) ==
              {:github, :transport, %{reason: :github_budget_broker_unavailable}}
+  end
+
+  # #2429: a local GitHub budget hold is not a network failure. `Errors`
+  # classifying it as `:transport` is what turned a seconds-long local counter
+  # trip into "lost GitHub connectivity" and a minutes-long backoff. It gets its
+  # own `:local_hold` classification carrying both the raw tuple (for
+  # visibility) and the hold map (for `reset_at`-bounded backoff).
+  test "classifies a local budget hold as :local_hold, never :transport" do
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.utc_now()}
+
+    assert Errors.classify_error({:error, {:aiur, :locally_held, hold}}) ==
+             {:github, :local_hold, %{reason: {:aiur, :locally_held, hold}, hold: hold}}
   end
 
   test "classifies HTTP auth, rate-limit, and generic statuses" do
@@ -95,8 +114,42 @@ defmodule Aiur.GitHub.ErrorsTest do
 
   test "identifies retryable GitHub errors" do
     assert Errors.retryable_github_error?({:github, :dns, %{}})
+    assert Errors.retryable_github_error?({:github, :timeout, %{}})
+    assert Errors.retryable_github_error?({:github, :transport, %{reason: :closed}})
     assert Errors.retryable_github_error?({:github, :rate_limited, %{}})
+    assert Errors.retryable_github_error?({:github, :local_hold, %{}})
+    assert Errors.retryable_github_error?({:github, :http, %{status: 500}})
     refute Errors.retryable_github_error?({:github, :auth, %{}})
+    refute Errors.retryable_github_error?({:github, :http, %{status: 403}})
     refute Errors.retryable_github_error?(:other)
+
+    # #2427: a budget-broker *timeout* is transient, but a *malformed reply*
+    # (broker unavailable) is a bug — retrying it wastes the budget and hides
+    # the defect. Pin the specific atoms, since a test asserting only "some
+    # error was returned" passes against the old catch-all that classified both
+    # as retryable `:transport`.
+    assert Errors.retryable_github_error?(Errors.classify_error({:error, :github_budget_broker_timeout}))
+    refute Errors.retryable_github_error?(Errors.classify_error({:error, :github_budget_broker_unavailable}))
+  end
+
+  test "classifies transient GitHub errors including auth-preflight shapes" do
+    # The shared taxonomy (same set `retryable_github_error?/1` covers).
+    assert Errors.transient_github_error?({:github, :timeout, %{reason: :closed}})
+    assert Errors.transient_github_error?({:github, :transport, %{reason: :econnrefused}})
+    assert Errors.transient_github_error?({:github, :http, %{status: 500}})
+    refute Errors.transient_github_error?({:github, :auth, %{status: 401}})
+    refute Errors.transient_github_error?({:github, :http, %{status: 403}})
+
+    # Bare 408/429/5xx statuses.
+    assert Errors.transient_github_error?({:github_api_status, 429})
+    assert Errors.transient_github_error?({:github_api_status, 502})
+    refute Errors.transient_github_error?({:github_api_status, 401})
+
+    # The auth-preflight diagnostic the claim-release path surfaces on a
+    # transport fault (#2361): the taxonomy is embedded in `detail`, or the
+    # diagnostic carries its own transient status.
+    assert Errors.transient_github_error?({:github_auth_preflight_failed, %{detail: {:github, :timeout, %{reason: :closed}}}})
+    assert Errors.transient_github_error?({:github_auth_preflight_failed, %{reason: :http_status, status: 502}})
+    refute Errors.transient_github_error?({:github_auth_preflight_failed, %{reason: :invalid_or_expired_token, status: 401}})
   end
 end

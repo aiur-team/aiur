@@ -3,6 +3,7 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
 
   alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.{Options, Policy}
+  alias Aiur.GitHub.Errors
   alias Aiur.TrackerIdentity
 
   @repository {"owner", "repo"}
@@ -36,8 +37,10 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
     assert policy |> Map.keys() |> Enum.sort() == [
              :catalog_labels_refresh_ms,
              :catalog_refresh_ms,
+             :delivery_staleness_ms,
              :max_inflight,
              :max_selected_roots,
+             :reconciliation_cooldown_ms,
              :refresh_timeout_ms
            ]
   end
@@ -211,6 +214,35 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
 
     # A genuinely malformed graph must still report as malformed.
     assert Policy.failure_class(:structurally_invalid) == :structurally_invalid
+  end
+
+  test "classifies bounded count-resolution failures without provider payloads" do
+    for {reason, expected} <- [call_budget_exhausted: :call_budget, page_budget_exhausted: :page_budget] do
+      assert Policy.failure_class(reason) == expected
+    end
+
+    for hold_reason <- [:shared_budget, :actor_budget] do
+      assert Policy.failure_class({:aiur, :locally_held, %{reason: hold_reason, resource: "graphql"}}) == :budget
+    end
+
+    # The Quota preflight hold carries no `:reason` at all — only the observed
+    # window. It is the most common cause of an unresolved planning read, and
+    # matching on `:reason` alone silently missed it.
+    assert Policy.failure_class({:aiur, :locally_held, %{resource: "graphql", remaining: 0, limit: 5000}}) == :budget
+
+    assert Policy.failure_class({:github, :timeout, %{reason: :timeout}}) == :timeout
+
+    # `Errors.classify_transport_reason/1` tags the whole unreachable family
+    # `:timeout` because they retry alike. They do not diagnose alike, so the
+    # preserved `:reason` separates them. These are the shapes `errors.ex`
+    # actually produces — the previous assertion used a `{:github, :transport,
+    # %{reason: :closed}}` tuple it never emits for these reasons.
+    for reason <- [:closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset] do
+      assert Policy.failure_class({:github, :timeout, %{reason: reason}}) == :unreachable
+    end
+
+    assert Errors.classify_transport_reason(:econnrefused) |> Policy.failure_class() == :unreachable
+    assert Errors.classify_transport_reason(:timeout) |> Policy.failure_class() == :timeout
   end
 
   test "a provider-sourced candidate defect is reported as a read fault, not a malformed graph" do

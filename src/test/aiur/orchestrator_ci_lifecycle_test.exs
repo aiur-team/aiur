@@ -1,8 +1,9 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore, TrackerIdentity}
-  alias Aiur.Events.Exchange
+  alias Aiur.{AgentQueueStore, CIApprovalStore, Orchestrator, PollCadence, TrackerIdentity}
+  alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{CiLifecycle, State}
 
   defmodule RecordingGitHubClient do
@@ -29,6 +30,17 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       record_update(issue_id, state_name, opts)
     end
 
+    def remove_label(issue_id, label) when is_binary(issue_id) and is_binary(label) do
+      case recipient() do
+        recipient when is_pid(recipient) ->
+          send(recipient, {:label_removed, issue_id, label})
+          Process.get(@update_result_key, :ok)
+
+        _other ->
+          {:error, :unscoped_test_call}
+      end
+    end
+
     defp record_update(issue_id, state_name, opts) do
       case recipient() do
         recipient when is_pid(recipient) ->
@@ -47,11 +59,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
     previous_client = Application.get_env(:aiur, :github_client_module)
     previous_store_path = Application.get_env(:aiur, :ci_approval_store_path)
 
-    store_path =
-      Path.join(
-        System.tmp_dir!(),
-        "aiur_ci_lifecycle_#{System.unique_integer([:positive])}.json"
-      )
+    store_path = Aiur.TestSupport.tmp_root!("aiur_ci_lifecycle") <> ".json"
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
@@ -297,6 +305,99 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                Map.drop(state.ci_lifecycle, [:poll_cache, :parked_ready_alerts, :draft_stall_alerts])
 
       assert MapSet.member?(next.claimed, identifier)
+    end
+
+    test "terminal CI clears ci-wait on a ticket carrying contradictory state labels" do
+      identifier = unique_identifier("ci-contradictory-failure")
+      recorder = start_recorder("ticket.#{identifier}.ci.failed")
+
+      # Two `agent:*` state labels make `extract_state` resolve to the real
+      # disposition (rework, not the transient ci-wait). The lifecycle must not
+      # let the pair strand the ticket: the terminal swap replaces the whole
+      # label set, so exactly one state label survives (#2366).
+      issue = %{issue(identifier, nil) | state_labels: ["ci-wait", "rework"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "failed-head",
+          pr_number: 941,
+          failures: [%{name: "lint", result: "failure", excerpt: "failed"}]
+        })
+
+      sync_recorder(recorder)
+
+      # The transition resolves the contradictory pair to its real disposition
+      # (`rework`) for the `expected_state` guard instead of passing `nil`
+      # (which used to fail validation and skip the swap entirely).
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "rework"]}}
+      assert next.running[identifier].issue.state == "rework"
+    end
+
+    test "passing CI on a human-review + stale ci-wait pair keeps review and clears ci-wait" do
+      identifier = unique_identifier("ci-contradictory-review")
+      recorder = start_recorder()
+
+      issue = %{issue(identifier, nil) | state_labels: ["ci-wait", "human-review"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: "reviewed-head",
+          pr_number: 941
+        })
+
+      sync_recorder(recorder)
+
+      # The pair resolves to human-review, so the review disposition is kept and
+      # the stale `ci-wait` marker is removed directly — the ticket must end with
+      # exactly one state label (#2366).
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      assert_received {:recorded, _position, {:label_removed, ^identifier, "agent:ci-wait"}}
+      assert next.running[identifier].issue.state == "human-review"
+    end
+
+    test "a failed stale ci-wait removal leaves the ticket untouched and keeps the poll alive" do
+      identifier = unique_identifier("ci-stale-remove-error")
+      recorder = start_recorder()
+
+      issue = %{issue(identifier, nil) | state_labels: ["ci-wait", "human-review"]}
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      # The stale-label removal is best-effort: a transient GitHub failure must
+      # not take down the poll loop. It logs and leaves the state untouched so
+      # the next terminal observation retries (#2366).
+      RecordingGitHubClient.return({:error, :github_down})
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: "reviewed-head",
+          pr_number: 941
+        })
+
+      sync_recorder(recorder)
+
+      # The poll completed without raising and the review disposition is
+      # retained; no terminal transition happened.
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      assert next.running[identifier].issue.state == "human-review"
     end
 
     test "passing CI records the head and publishes after the active-state write" do
@@ -666,6 +767,74 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute_received {:recorded, _position, _message}
     end
 
+    test "an unclassified worker pause preserves the pending CI-wait cause" do
+      identifier = unique_identifier("ci-unclassified-pause")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+      ci_wait_topic = "ticket.#{identifier}.ci.wait"
+      operator_pause_topic = "ticket.#{identifier}.agent.attention.paused-operator_pause"
+
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(ci_wait_topic)
+      :ok = Exchange.subscribe(operator_pause_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      pending =
+        issue
+        |> running_state(recorder, :working, [])
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      assert_receive {:recorded, 1, {:pause_agent, request_id, 101}}
+      assert pending.running[identifier].pending_pause_reason == %{request_id: request_id, reason: :ci_wait}
+
+      MessageHandler.send_control_state(self(), issue, :paused, %{})
+      assert_receive {:worker_control_state, ^identifier, :paused, payload}
+
+      assert {:noreply, paused} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, identifier, :paused, payload},
+                 pending
+               )
+
+      assert paused.running[identifier].control.status == :paused
+      assert paused.running[identifier].paused_reason == :ci_wait
+
+      assert_receive {:event,
+                      %{
+                        "needs_attention" => false,
+                        "severity" => "info",
+                        topic: ^ci_wait_topic
+                      }},
+                     500
+
+      refute_receive {:event, %{topic: ^operator_pause_topic}}, 100
+    end
+
+    test "an explicit worker pause cause overrides pending CI wait" do
+      identifier = unique_identifier("ci-explicit-pause")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      pending =
+        issue
+        |> running_state(recorder, :working, [])
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      assert_receive {:recorded, 1, {:pause_agent, _request_id, 101}}
+
+      assert {:noreply, paused} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, identifier, :paused, %{kind: :usage_limit_exhausted}},
+                 pending
+               )
+
+      assert paused.running[identifier].paused_reason == :usage_limit_exhausted
+    end
+
     test "a matching fallback token revalidates, queues one-check guidance, and resumes" do
       identifier = unique_identifier("ci-rewake")
       recorder = start_recorder()
@@ -902,6 +1071,71 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
       refute_received {:recorded, _position, _message}
+    end
+  end
+
+  describe "CI poll :ci-cadence throttle" do
+    setup do
+      PollCadence.forget_effective_interval_ms()
+      on_exit(&PollCadence.forget_effective_interval_ms/0)
+      :ok
+    end
+
+    # The throttle returns the state untouched — no issue fetch, no GraphQL
+    # poll — so the injected fetchers/pollers must never fire. This is the
+    # whole point: an expensive CI read must not run at the dispatch rate once
+    # an operator gives `:ci` its own (wider) cadence.
+    test "skips the poll while within the published ci cadence" do
+      PollCadence.publish_effective_interval_ms(300_000, class: :ci)
+      state = %State{last_ci_poll_started_at_ms: System.monotonic_time(:millisecond)}
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn _states -> flunk("throttled poll must not fetch issues") end,
+          ci_poller: fn _targets, _opts -> flunk("throttled poll must not poll") end,
+          token: "test-gh-token"
+        )
+
+      assert next == state
+    end
+
+    # A recent poll is never throttled before the dispatcher has published a
+    # live `:ci` cadence (cold start, harnesses): the first read of a freshly
+    # in-flight PR must not be held back by a cadence nobody has observed yet.
+    test "a recent poll is not throttled before the ci cadence is published" do
+      PollCadence.forget_effective_interval_ms()
+      issue = issue(unique_identifier("ci-unthrottled"), "ci-wait")
+      state = %State{last_ci_poll_started_at_ms: System.monotonic_time(:millisecond)}
+
+      next = poll_ci(state, issue, %{status: "pending", head_sha: "head-1", pr_number: 1})
+
+      assert next.last_ci_poll_started_at_ms != nil
+      assert is_map(next.ci_lifecycle.poll_cache)
+    end
+
+    # Mutant #1 (review #2309): the CI throttle timestamp must NOT advance when
+    # there are no in-flight targets. The loop is demand-scoped — it only polls
+    # pull requests with work in flight — so a no-target tick is the "there is
+    # nothing to read yet" state, and advancing the timestamp there would hold a
+    # PR that enters `ci-wait` between polls back for the previous poll's full
+    # cadence. This drives the production path and fails if the timestamp is
+    # hoisted out of the `targets == []` guard.
+    test "the ci throttle timestamp does not advance when no targets are in flight" do
+      PollCadence.publish_effective_interval_ms(300_000, class: :ci)
+
+      # Last polled long enough ago that the class cadence has elapsed, so the
+      # loop is due to run — and then finds nothing in flight.
+      state = %State{last_ci_poll_started_at_ms: System.monotonic_time(:millisecond) - 600_000}
+
+      next =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn _states -> {:ok, []} end,
+          ci_poller: fn _targets, _opts -> flunk("no in-flight targets: the CI poll must not run") end,
+          token: "test-gh-token"
+        )
+
+      # The demand-scoping rule: no targets read, so the throttle clock stays put.
+      assert next.last_ci_poll_started_at_ms == state.last_ci_poll_started_at_ms
     end
   end
 

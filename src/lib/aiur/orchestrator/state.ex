@@ -93,6 +93,14 @@ defmodule Aiur.Orchestrator.State do
             alerted: [String.t()]
           },
           fleet_capacity_starvation: %{since_ms: integer() | nil, alert_active: boolean(), effective_cap: pos_integer() | nil},
+          # Monotonic ms when the DecisionStore first read as `:unavailable`
+          # while dispatchable work was queued (nil when no such hold is in
+          # progress). The `system.dispatch.decision_store_unavailable` alert is
+          # only raised once the outage has persisted past the capacity-
+          # starvation dwell, so a momentary blip raises nothing (#2453).
+          decision_store_unavailable_since_ms: integer() | nil,
+          decision_store_unavailable_alert_active: boolean(),
+          decision_store_unavailable_alert_resolution_emitted: boolean(),
           dependency_circular_wait: %{
             optional(String.t()) => %{identifier: String.t(), waiting_count: pos_integer(), since_ms: integer(), alerted?: boolean()}
           },
@@ -122,11 +130,23 @@ defmodule Aiur.Orchestrator.State do
           codex_rate_limits: map() | nil,
           events_etag: String.t() | nil,
           events_last_id: String.t() | nil,
+          firehose_partial_streak: non_neg_integer(),
+          firehose_truncation_alert_active: boolean(),
+          firehose_truncation_alert_resolution_emitted: boolean(),
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
           github_comment_issue_list_cache: map(),
           github_comment_poll: map() | nil,
+          github_comment_reconcile_targets: MapSet.t(String.t()),
+          github_comment_reconcile_timer: map() | nil,
+          # Monotonic time the asynchronous comment poll last started, used to
+          # throttle it to the `:review` class cadence (#2309). `nil` until the
+          # first start.
+          last_comment_poll_started_at_ms: integer() | nil,
+          # Monotonic time the CI poll last ran, used to throttle it to the
+          # `:ci` class cadence (#2309). `nil` until the first run.
+          last_ci_poll_started_at_ms: integer() | nil,
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
@@ -149,13 +169,26 @@ defmodule Aiur.Orchestrator.State do
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           merged_ticket_reconciliations: MapSet.t(),
           merged_ticket_reconciliation_failures: MapSet.t(),
+          # `{issue_id, head_sha}` -> count of times that head SHA has been
+          # routed into `agent:rework`, and the `{issue_id, head_sha}`
+          # signatures already alerted on. The bound turns a same-head rework
+          # loop into a single attention (#2422); see `ReworkGate`.
+          rework_attempts: %{{String.t(), String.t()} => pos_integer()},
+          rework_attempt_alerted: MapSet.t(),
           orphaned_agent_reap_count: non_neg_integer(),
           control_lifecycle: ControlLifecycle.t(),
           # Consecutive poll ticks the prewarm gate has held dispatch for a
           # warming base. Drives the at-most-once-per-N-ticks hold log so a
           # slow/stuck base build stays visible in the daemon log without
           # spamming it (see Dispatcher.log_prewarm_hold/2).
-          prewarm_hold_ticks: non_neg_integer()
+          prewarm_hold_ticks: non_neg_integer(),
+          # Monotonic ms when the current consecutive prewarm hold began (nil
+          # when no hold is in progress). The `system.dispatch.prewarm_blocked`
+          # alert is only raised once a hold has persisted past
+          # `Dispatcher.@prewarm_blocked_alert_after_ms`, so a routine refresh
+          # probe — a hold that self-clears in seconds — is never reported while
+          # a genuine block still is (see Dispatcher.maybe_emit_prewarm_blocked_alert/3).
+          prewarm_hold_since_ms: non_neg_integer() | nil
         }
 
   # The Orchestrator is the single owner of the correlated control lifecycle;
@@ -214,7 +247,17 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
+    decision_store_unavailable_since_ms: nil,
+    decision_store_unavailable_alert_active: false,
+    decision_store_unavailable_alert_resolution_emitted: false,
     dependency_circular_wait: %{},
+    # Fleet aggregate for tickets carrying more than one `agent:*` state label
+    # (`contradictory_state_label_tickets` maps issue id -> %{identifier, labels,
+    # since_ms}; `contradictory_state_label_alert_active` latches the single
+    # fleet alert until the set clears). Kept on State so the orchestrator is the
+    # single writer and `aiur alerts`/`aiur status` can read it back (#2366).
+    contradictory_state_label_tickets: %{},
+    contradictory_state_label_alert_active: false,
     running: %{},
     running_issue_cache: %{},
     completed: MapSet.new(),
@@ -235,6 +278,9 @@ defmodule Aiur.Orchestrator.State do
     codex_rate_limits: nil,
     events_etag: nil,
     events_last_id: nil,
+    firehose_partial_streak: 0,
+    firehose_truncation_alert_active: false,
+    firehose_truncation_alert_resolution_emitted: false,
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
@@ -245,6 +291,14 @@ defmodule Aiur.Orchestrator.State do
     # In-flight marker for the asynchronous comment poll. The pid and monitor
     # let lifecycle shutdown reap the poll and its owned descendants.
     github_comment_poll: nil,
+    # Tickets named by review-thread webhooks. A poll claims this set when it
+    # starts; hints arriving during that poll stay here for the follow-up.
+    github_comment_reconcile_targets: MapSet.new(),
+    # At most one delayed reconcile wake is live. Its token fences stale timer
+    # messages after a later GitHub backoff extends the due time.
+    github_comment_reconcile_timer: nil,
+    last_comment_poll_started_at_ms: nil,
+    last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},
@@ -261,6 +315,8 @@ defmodule Aiur.Orchestrator.State do
     # alerted on, so a permanently failing transition raises its attention
     # once instead of once per poll.
     merged_ticket_reconciliation_failures: MapSet.new(),
+    rework_attempts: %{},
+    rework_attempt_alerted: MapSet.new(),
     snapshot_ready?: false,
     candidate_snapshot_fresh?: true,
     # Full poll cycles completed since this daemon started. The idle poll
@@ -270,7 +326,8 @@ defmodule Aiur.Orchestrator.State do
     poll_cycles_completed: 0,
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
-    prewarm_hold_ticks: 0
+    prewarm_hold_ticks: 0,
+    prewarm_hold_since_ms: nil
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}
@@ -854,4 +911,72 @@ defmodule Aiur.Orchestrator.State do
   end
 
   def effective_runtime_seconds(_entry, _now), do: 0
+
+  # --- Rework-attempt bound (#2422) ------------------------------------------
+  #
+  # The same head SHA must not re-enter `agent:rework` more than
+  # `rework_attempt_limit/0` times: when rework completes and the gating signal
+  # has not moved, the next routing is a stuck condition, and the bound raises
+  # a single attention instead of looping. A new head SHA starts a fresh count,
+  # so a genuine rework push is never affected. All helpers are nil-safe on the
+  # head SHA — when the head cannot be read the bound is skipped rather than
+  # refusing a rework the writer cannot key.
+
+  @rework_attempt_limit 3
+
+  @doc false
+  @spec rework_attempt_limit() :: pos_integer()
+  def rework_attempt_limit do
+    case Application.get_env(:aiur, :rework_attempt_limit) do
+      limit when is_integer(limit) and limit > 0 -> limit
+      _ -> @rework_attempt_limit
+    end
+  end
+
+  @doc false
+  @spec rework_attempt_count(t(), String.t(), String.t() | nil) :: non_neg_integer()
+  def rework_attempt_count(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) do
+    if is_binary(head_sha) do
+      Map.get(state.rework_attempts, {issue_id, head_sha}, 0)
+    else
+      0
+    end
+  end
+
+  @doc false
+  @spec rework_attempt_limit_reached?(t(), String.t(), String.t() | nil) :: boolean()
+  def rework_attempt_limit_reached?(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) do
+    rework_attempt_count(state, issue_id, head_sha) >= rework_attempt_limit()
+  end
+
+  @doc false
+  # Records that the ticket was routed to rework for `head_sha`. Called by the
+  # rework writers only after the `rework` write actually succeeded, so a failed
+  # tracker write never consumes the bound.
+  @spec bump_rework_attempt(t(), String.t(), String.t() | nil) :: t()
+  def bump_rework_attempt(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) do
+    if is_binary(head_sha) do
+      count = rework_attempt_count(state, issue_id, head_sha)
+      %{state | rework_attempts: Map.put(state.rework_attempts, {issue_id, head_sha}, count + 1)}
+    else
+      state
+    end
+  end
+
+  @doc false
+  @spec rework_attempt_alerted?(t(), String.t(), String.t()) :: boolean()
+  def rework_attempt_alerted?(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) and is_binary(head_sha) do
+    MapSet.member?(state.rework_attempt_alerted, {issue_id, head_sha})
+  end
+
+  @doc false
+  @spec mark_rework_attempt_alerted(t(), String.t(), String.t()) :: t()
+  def mark_rework_attempt_alerted(%__MODULE__{} = state, issue_id, head_sha)
+      when is_binary(issue_id) and is_binary(head_sha) do
+    %{state | rework_attempt_alerted: MapSet.put(state.rework_attempt_alerted, {issue_id, head_sha})}
+  end
 end

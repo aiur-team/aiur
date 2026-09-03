@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.DependenciesApiTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.DependenciesApi
+  alias Aiur.GitHub.{DependenciesApi, ResourceStore}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @dependencies_api_version "2026-03-10"
@@ -26,6 +26,8 @@ defmodule Aiur.GitHub.DependenciesApiTest do
       tracker_repo: "owner/repo"
     )
 
+    ResourceStore.reset()
+    on_exit(&ResourceStore.reset/0)
     :ok
   end
 
@@ -68,6 +70,94 @@ defmodule Aiur.GitHub.DependenciesApiTest do
       end
 
       assert {:ok, ^response} = DependenciesApi.add_dependency(5, 8, request_fun: request_fun)
+    end
+  end
+
+  # Acceptance #2326: a dependency mutation issues no confirming read. The
+  # mutation records the edge it created, and the next `fetch_blocked_by` for the
+  # blocked issue is served from the store with zero upstream calls.
+  describe "the edge is served from the store after a mutation" do
+    test "a blocked-by list fetched once is served from the store on the next read" do
+      blockers = [%{"id" => 80_001, "number" => 80}]
+
+      request_fun = fn %{method: :get, url: url, api_version: api_version} ->
+        assert url =~ "/issues/5/dependencies/blocked_by"
+        assert api_version == @dependencies_api_version
+        {:ok, %{status: 200, body: blockers, headers: [{"etag", ~s("e1")}]}}
+      end
+
+      assert {:ok, ^blockers} = DependenciesApi.fetch_blocked_by(5, request_fun: request_fun)
+
+      assert {:ok, ^blockers} =
+               DependenciesApi.fetch_blocked_by(5,
+                 request_fun: fn _request -> flunk("a held list must be served, not fetched") end
+               )
+    end
+
+    test "the mutation's own edge is served by the next blocked_by read, with zero confirming calls" do
+      blocker = %{"id" => 80_001, "number" => 80, "updated_at" => "2026-06-24T10:00:00Z"}
+
+      # The declare path fetches the full list for its idempotency check *before*
+      # mutating, so the store already holds a complete list when the mutation's
+      # edge is merged onto it — the only shape the merge may grow (review #2332).
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)
+      ResourceStore.put_resource(key, [%{"id" => 90_001, "number" => 90}], source: :fetch, etag: ~s("e1"))
+
+      request_fun = fn %{method: :post} -> {:ok, %{status: 201, body: blocker, headers: []}} end
+
+      assert {:ok, ^blocker} = DependenciesApi.add_dependency(7, 80_001, request_fun: request_fun)
+
+      # The confirming read — what `IssueDependencies.declare`'s post-write
+      # verification would issue — is served from the store, now holding both edges.
+      assert {:ok, blockers} =
+               DependenciesApi.fetch_blocked_by(7,
+                 request_fun: fn _request -> flunk("the confirming read must be served from the store") end
+               )
+
+      assert Enum.map(blockers, & &1["number"]) |> Enum.sort() == [80, 90]
+    end
+
+    test "a mutation on a cold store does not fabricate a partial list" do
+      blocker = %{"id" => 80_001, "number" => 80, "updated_at" => "2026-06-24T10:00:00Z"}
+      request_fun = fn %{method: :post} -> {:ok, %{status: 201, body: blocker, headers: []}} end
+
+      assert {:ok, ^blocker} = DependenciesApi.add_dependency(7, 80_001, request_fun: request_fun)
+
+      # The mutation response is one blocker issue, never a full answer: on a
+      # cold store it must leave the entry absent (review #2332) so the next
+      # read pays for the complete list instead of serving `[blocker]` as it.
+      assert ResourceStore.fetch(ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)) == :miss
+    end
+
+    test "a 304 revalidates the held list without a full read" do
+      blockers = [%{"id" => 80_001, "number" => 80}]
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)
+      ResourceStore.put_resource(key, blockers, source: :fetch, etag: ~s("e1"))
+
+      assert {:ok, ^blockers} =
+               DependenciesApi.fetch_blocked_by(7,
+                 request_fun: fn %{etag: etag} ->
+                   assert etag == ~s("e1")
+                   {:ok, %{status: 304, headers: [{"etag", ~s("e1")}]}}
+                 end
+               )
+    end
+
+    test "a delete invalidates the held list so the next read revalidates" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)
+      ResourceStore.put_resource(key, [%{"id" => 80_001, "number" => 80}], source: :fetch, etag: ~s("e1"))
+
+      request_fun = fn %{method: :delete} -> {:ok, %{status: 204, body: ""}} end
+      assert {:ok, :removed} = DependenciesApi.remove_dependency(7, 80_001, request_fun: request_fun)
+
+      # The stale entry is gone, so the next read goes upstream rather than
+      # serving a list that still names the removed blocker.
+      assert ResourceStore.fetch(key) == :miss
+
+      assert {:ok, []} =
+               DependenciesApi.fetch_blocked_by(7,
+                 request_fun: fn %{method: :get} -> {:ok, %{status: 200, body: [], headers: []}} end
+               )
     end
   end
 

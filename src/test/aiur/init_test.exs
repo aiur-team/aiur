@@ -50,7 +50,7 @@ defmodule Aiur.InitTest do
   ]
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "aiur-init-test-#{System.unique_integer([:positive])}")
+    dir = Aiur.TestSupport.tmp_root!("aiur-init-test")
     target = Path.join([dir, ".aiur", "config"])
     File.mkdir_p!(Path.dirname(target))
     # The wizard writes `prompt_file: prompt.md`; Workflow.load resolves it, so
@@ -1267,7 +1267,12 @@ defmodule Aiur.InitTest do
       log = Enum.join(puts_log(), "\n")
       assert log =~ "GITHUB_TOKEN"
       assert log =~ "github.bot_account"
-      assert log =~ ~r/dedicated bot account/i
+      # #2501: the wizard now names both identity modes and the key that
+      # selects them, in place of the "dedicated bot account" recommendation
+      # that treated a shared login as an unsupported ambiguity.
+      assert log =~ "identity_mode"
+      assert log =~ "single_account"
+      assert log =~ "separate_account"
     end
 
     test "a blank answer skips bot_account and writes no key", %{dir: dir, target: target} do

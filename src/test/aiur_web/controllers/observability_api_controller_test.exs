@@ -111,11 +111,8 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
     Application.put_env(:aiur, AiurWeb.Endpoint, test_config)
 
-    if is_nil(Process.whereis(AiurWeb.Endpoint)) do
-      start_supervised!({AiurWeb.Endpoint, []})
-    else
-      AiurWeb.Endpoint.config_change([dashboard_auth_required: false], [])
-    end
+    Aiur.TestSupport.start_owned_endpoint!()
+    AiurWeb.Endpoint.config_change([dashboard_auth_required: false], [])
 
     on_exit(fn ->
       Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
@@ -326,7 +323,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
   test "GET /api/v1/:issue_identifier/events returns a bounded durable feed" do
     original_log_file = Application.get_env(:aiur, :log_file)
-    tmp = Path.join(System.tmp_dir!(), "aiur-events-api-#{System.unique_integer([:positive])}")
+    tmp = Aiur.TestSupport.tmp_root!("aiur-events-api")
     Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
 
     on_exit(fn ->
