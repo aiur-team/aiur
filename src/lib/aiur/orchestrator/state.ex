@@ -36,6 +36,10 @@ defmodule Aiur.Orchestrator.State do
               signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
               measured: term(),
               threshold: term(),
+              # When `measured`/`threshold` were last re-sampled. A hold that is
+              # extended without a fresh probe keeps its original stamp, so every
+              # reader can tell a current measurement from a latched one (#2527).
+              measured_at: DateTime.t(),
               held_since_ms: integer(),
               alerted?: boolean()
             }

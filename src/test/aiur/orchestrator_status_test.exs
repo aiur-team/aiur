@@ -771,10 +771,51 @@ defmodule Aiur.OrchestratorStatusTest do
            } = snapshot.capacity_hold
   end
 
+  # How long the hold has lasted and how old its measurement is are independent:
+  # a hold extended by a fresh probe keeps ageing while its figure does not. Only
+  # the sample age says whether `measured` still describes the host (#2527).
+  test "a capacity hold projects its sample age separately from how long it has held" do
+    state = %State{
+      capacity_hold: %{
+        signal: :load,
+        measured: 24.14,
+        threshold: 24.0,
+        held_since_ms: System.monotonic_time(:millisecond) - 600_000,
+        measured_at: DateTime.add(DateTime.utc_now(), -30, :second),
+        alerted?: true
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert snapshot.capacity_hold.held_for_seconds == 600
+    assert snapshot.capacity_hold.sample_age_seconds == 30
+  end
+
+  # A hold recorded before #2527 carries no stamp. Projecting `0` would claim it
+  # was measured this instant, which is the false reassurance the field exists to
+  # remove, so it projects as absent instead.
+  test "a capacity hold with no stamp projects a nil sample age rather than zero" do
+    state = %State{
+      capacity_hold: %{
+        signal: :load,
+        measured: 24.14,
+        threshold: 24.0,
+        held_since_ms: System.monotonic_time(:millisecond) - 5_000,
+        alerted?: true
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert snapshot.capacity_hold.held?
+    assert snapshot.capacity_hold.sample_age_seconds == nil
+  end
+
   test "an absent capacity hold projects a not-held block" do
     snapshot = %State{} |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
 
-    assert %{held?: false, signal: nil, threshold: nil} = snapshot.capacity_hold
+    assert %{held?: false, signal: nil, threshold: nil, sample_age_seconds: nil} = snapshot.capacity_hold
   end
 
   test "an old projector cannot replace a same-name orchestrator snapshot" do
