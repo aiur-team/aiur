@@ -397,6 +397,39 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.id == "42"
       assert issue.assignee_id == "dev"
     end
+
+    test "does not authorize a closed terminal issue during dispatch revalidation" do
+      parent = self()
+
+      request_fun = fn %{method: :get, url: url} ->
+        if String.ends_with?(url, "/timeline?per_page=100") do
+          send(parent, :timeline_requested)
+          {:ok, %{status: 200, headers: [], body: []}}
+        else
+          body = %{
+            "number" => 1766,
+            "title" => "Already completed",
+            "body" => nil,
+            "html_url" => "https://github.com/owner/repo/issues/1766",
+            "state" => "closed",
+            "labels" => [%{"name" => "sym:done"}, %{"name" => "sym:rate-limit-fallback"}],
+            "assignee" => nil,
+            "created_at" => "2026-01-01T00:00:00Z",
+            "updated_at" => "2026-01-02T00:00:00Z"
+          }
+
+          {:ok, %{status: 200, body: body}}
+        end
+      end
+
+      assert {:ok, [issue]} =
+               Issues.fetch_issue_states_by_ids(["1766"], request_fun: request_fun)
+
+      assert issue.state == "Closed"
+      assert issue.state_labels == ["done"]
+      refute_received :timeline_requested
+      refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous"}}, 100
+    end
   end
 
   describe "hydrate_blocked_by/1" do
