@@ -2413,18 +2413,26 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     lock = lock_database(database)
 
+    numbers = [1670, 1671, 1672, 1673, 1674, 1675]
+
     tasks =
-      for number <- [1670, 1671, 1672, 1673] do
+      for number <- numbers do
         Task.async(fn -> run_guard(context, ["api", "repos/owner/repo/issues/#{number}"], env) end)
       end
 
-    # The marker is written as each broker process starts. From there to the
-    # blocked `ALTER` nothing else can block: the exclusive lock excludes
-    # writers, and every step in between — the journal-mode pragma, the
-    # `CREATE TABLE IF NOT EXISTS` script against tables that already exist, and
-    # the column probe itself — only reads. So four markers means four readers
-    # have taken their decision and are queued behind the lock.
-    wait_until(fn -> length(File.ls!(markers)) >= 4 end)
+    # A marker means that reader's broker has the ledger open and has already
+    # read its schema once, so it is a short stretch of pure CPU away from its
+    # own column probe — and it cannot get past the probe, because the exclusive
+    # lock stops the `ALTER` that follows it. The settle covers that last stretch
+    # for every reader at once.
+    #
+    # It only ever widens the window a regression has to be caught in. With the
+    # migration correct, all six are admitted no matter when the lock drops, so
+    # this cannot make the test flaky in the direction that matters; without it,
+    # a reader that had not yet probed would read the winner's migrated schema
+    # and pass for the wrong reason (measured: 2 runs in 10 missed the defect).
+    wait_until(fn -> length(File.ls!(markers)) >= length(numbers) end)
+    Process.sleep(200)
     close_port(lock)
 
     results = Enum.map(tasks, &Task.await(&1, 30_000))
@@ -5344,17 +5352,29 @@ defmodule Aiur.AgentGitHubGuardTest do
     path
   end
 
-  # The installed broker, wrapped so each process announces itself before it
-  # touches the ledger. `runpy` runs the real file as `__main__`, so the broker's
-  # own argument parsing, output and exit status are exactly what the wrapper
-  # would have seen without the shim.
+  # The installed broker, wrapped so each process announces itself just before it
+  # takes its migration decision. `runpy` runs the real file as `__main__`, so
+  # the broker's own argument parsing, output and exit status are exactly what
+  # the wrapper would have seen without the shim.
+  #
+  # The shim opens the ledger and reads the schema before writing its marker.
+  # That is not the broker's probe — it is what makes the marker mean something:
+  # the interpreter is up, `sqlite3` is imported and the file's pages are warm,
+  # so a marker says this process is close to its probe rather than a few
+  # milliseconds of cold start away from it.
   defp start_marking_broker(context, marker_dir) do
     path = Path.join(context.state_path, "start-marking-broker.py")
     real = AgentGitHubGuard.budget_broker_path(context.workspace)
     File.mkdir_p!(marker_dir)
 
     File.write!(path, """
-    import os, runpy
+    import os, runpy, sqlite3, sys
+
+    database = sys.argv[sys.argv.index("--db") + 1]
+    warm = sqlite3.connect(database)
+    warm.execute("PRAGMA table_info(admissions)").fetchall()
+    warm.close()
+
     open(os.path.join(#{inspect(marker_dir)}, str(os.getpid())), "w").close()
     runpy.run_path(#{inspect(real)}, run_name="__main__")
     """)
@@ -5398,16 +5418,21 @@ defmodule Aiur.AgentGitHubGuardTest do
     port
   end
 
+  # Killing the holder is what releases the ledger, and it is also what makes the
+  # port die — so between reading its pid and closing it the port may already be
+  # gone, and `Port.close/1` on a dead port raises. Both the test body and the
+  # `on_exit` cleanup call this, so a second call must be a no-op rather than an
+  # error.
   defp close_port(port) do
     case Port.info(port, :os_pid) do
-      {:os_pid, pid} ->
-        _ = System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
-        _ = Port.close(port)
-        :ok
-
-      nil ->
-        :ok
+      {:os_pid, pid} -> _ = System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+      nil -> :ok
     end
+
+    if Port.info(port), do: Port.close(port)
+    :ok
+  rescue
+    ArgumentError -> :ok
   end
 
   defp wait_until(predicate, attempts \\ 500) do
