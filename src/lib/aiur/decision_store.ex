@@ -3006,8 +3006,10 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_info({:reconcile_dispatches, fences}, state) do
-    next_state =
-      Enum.reduce(fences, state, &reconcile_scheduled_decision/2)
+    {next_state, dispatched} =
+      Enum.reduce(fences, {state, []}, &reconcile_scheduled_decision/2)
+
+    DecisionPubSub.broadcast_dispatches_reconciled(self(), length(fences), Enum.reverse(dispatched))
 
     {:noreply, next_state}
   end
@@ -3105,30 +3107,56 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp reconcile_scheduled_decision(%{decision_id: decision_id} = fence, state) do
+  defp reconcile_scheduled_decision(%{decision_id: decision_id} = fence, {state, dispatched}) do
     case fetch_decision(state, decision_id) do
       {:ok, current} ->
         dispatch_current? = dispatch_fence_current?(fence, current, :normal)
         reconcile_queue? = dispatch_current? and fence.request_version == current.version
-        reconcile_decision(current, state, dispatch_current?, reconcile_queue?)
+        reconcile_decision(current, state, dispatch_current?, reconcile_queue?, dispatched)
 
       {:error, _reason} ->
-        state
+        {state, dispatched}
     end
   end
 
-  defp reconcile_decision(decision, state, dispatch_current?, reconcile_queue?) do
+  defp reconcile_decision(decision, state, dispatch_current?, reconcile_queue?, dispatched) do
     state = ensure_revision_follow_up_required(state, decision)
     current = Map.fetch!(state.current, decision.decision_id)
     state = ensure_superseded_revision_follow_ups(state, current)
     current = Map.fetch!(state.current, decision.decision_id)
     state = schedule_revision_follow_up_work(state, current)
 
+    # The pass reports what it scheduled, decision by decision, so that
+    # "reconciliation dispatched this answer exactly once" is a claim a caller
+    # can read off the report rather than infer from a quiet mailbox. The
+    # predicates below are the same ones the schedulers themselves consult, so
+    # the report cannot drift from the scheduling it describes.
+    dispatched =
+      if dispatch_current? and answer_dispatch_schedulable?(state, current, false),
+        do: [reconcile_entry(current, :dispatch) | dispatched],
+        else: dispatched
+
+    dispatched =
+      if reconcile_queue? and queue_reconciliation_schedulable?(state, current),
+        do: [reconcile_entry(current, :reconcile_queue) | dispatched],
+        else: dispatched
+
     state = if dispatch_current?, do: maybe_schedule_after_answer(state, current, false), else: state
 
     # Request enrichment may advance the version without changing delivery state.
     # Pending first delivery can follow it; queued reconciliation cannot.
-    if reconcile_queue?, do: maybe_schedule_queue_reconciliation(state, current), else: state
+    state = if reconcile_queue?, do: maybe_schedule_queue_reconciliation(state, current), else: state
+
+    {state, dispatched}
+  end
+
+  defp reconcile_entry(decision, kind) do
+    %{
+      decision_id: decision.decision_id,
+      action_id: decision.active_action_id,
+      version: decision.version,
+      kind: kind
+    }
   end
 
   defp schedule_revision_follow_up_work(state, decision) do
@@ -3227,42 +3255,36 @@ defmodule Aiur.DecisionStore do
   defp revision_follow_up_message(:resolve, decision_id, action_id),
     do: {:resolve_revision_follow_up, decision_id, action_id}
 
-  defp maybe_schedule_after_answer(state, %Decision{} = decision, retry_failed?) do
-    active_answer = Decision.active_answer(decision)
+  defp answer_dispatch_schedulable?(state, %Decision{} = decision, retry_failed?) do
+    state.writable? and dispatchable?(decision, retry_failed?) and
+      answer_free_for_dispatch?(state, decision)
+  end
 
-    cond do
-      not state.writable? ->
-        state
+  defp queue_reconciliation_schedulable?(state, %Decision{} = decision) do
+    state.writable? and queue_reconcilable?(decision) and answer_free_for_dispatch?(state, decision)
+  end
 
-      not dispatchable?(decision, retry_failed?) ->
-        state
-
-      is_nil(active_answer) or dispatch_active?(state, active_answer.action_id) ->
-        state
-
-      true ->
-        schedule_dispatch(state, decision, retry_failed?, state.dispatch_delay_ms)
-        state
+  defp answer_free_for_dispatch?(state, %Decision{} = decision) do
+    case Decision.active_answer(decision) do
+      nil -> false
+      active_answer -> not dispatch_active?(state, active_answer.action_id)
     end
   end
 
-  defp maybe_schedule_queue_reconciliation(state, %Decision{} = decision) do
-    active_answer = Decision.active_answer(decision)
-
-    cond do
-      not state.writable? ->
-        state
-
-      not queue_reconcilable?(decision) ->
-        state
-
-      is_nil(active_answer) or dispatch_active?(state, active_answer.action_id) ->
-        state
-
-      true ->
-        schedule_dispatch_work(state, {:reconcile_queue_action, dispatch_fence(decision)}, 0)
-        state
+  defp maybe_schedule_after_answer(state, %Decision{} = decision, retry_failed?) do
+    if answer_dispatch_schedulable?(state, decision, retry_failed?) do
+      schedule_dispatch(state, decision, retry_failed?, state.dispatch_delay_ms)
     end
+
+    state
+  end
+
+  defp maybe_schedule_queue_reconciliation(state, %Decision{} = decision) do
+    if queue_reconciliation_schedulable?(state, decision) do
+      schedule_dispatch_work(state, {:reconcile_queue_action, dispatch_fence(decision)}, 0)
+    end
+
+    state
   end
 
   defp schedule_dispatch(state, decision, retry_failed?, delay_ms) do

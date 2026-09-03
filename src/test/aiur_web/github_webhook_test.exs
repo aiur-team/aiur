@@ -32,7 +32,7 @@ defmodule AiurWeb.GithubWebhookTest do
       Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64), dashboard_auth_required: false)
     )
 
-    if is_nil(Process.whereis(AiurWeb.Endpoint)), do: start_supervised!({AiurWeb.Endpoint, []})
+    _endpoint = Aiur.TestSupport.start_owned_endpoint!()
 
     System.put_env(@secret_env, @secret)
     Auth.reset_alert_throttle()

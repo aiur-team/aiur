@@ -74,6 +74,7 @@ defmodule Aiur.GitHub.ReadCache do
 
   use GenServer
 
+  alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.ReadCache.{Identity, Metrics, Policy}
 
   require Logger
@@ -370,12 +371,22 @@ defmodule Aiur.GitHub.ReadCache do
     end
   end
 
-  defp collections_identity({:repo, owner, repo}), do: {:collections, owner, repo}
+  # A REST refusal the policy could name arrives as a fixed `Policy.shape/0`
+  # atom and is counted by `Metrics.refused/2`, whose key set `Policy.shapes/0`
+  # bounds. One it could not name arrives as a route template string
+  # (`"rest:GET /repos/:owner/:repo/labels"`); that key set is unbounded by
+  # construction, so it goes to `Metrics.refused_shape/2`, which caps it.
+  defp refuse(fetch, {:unclassified, shape}, caller) when is_binary(shape) do
+    Metrics.refused_shape(shape, caller)
+    fetch.()
+  end
 
   defp refuse(fetch, reason, caller) do
     Metrics.refused(reason, caller)
     fetch.()
   end
+
+  defp collections_identity({:repo, owner, repo}), do: {:collections, owner, repo}
 
   # A cache is not allowed to be the reason a GitHub read fails. If the tables
   # are not there — a CLI process, a restart in flight — the answer is a miss,
@@ -477,6 +488,17 @@ defmodule Aiur.GitHub.ReadCache do
   defp answered?({:ok, %{status: status}}) when is_integer(status), do: true
   defp answered?(_result), do: false
 
+  # The cache counts by caller the same way `Quota` attributes spend: the
+  # declared call site, falling through to the GraphQL operation name and then
+  # to the REST route shape (`GraphQLCost.derive/1`). Reading only
+  # `request[:caller]` made the whole `unattributed` bucket a single asymmetry
+  # — `Quota` names the same request `rest:GET /repos/...` while the cache
+  # called it `unattributed` — so a REST read without a declared caller is
+  # counted under its route shape, not under a bucket that hides every REST
+  # call (#2357).
+  defp declared_caller(request) when is_map(request), do: GraphQLCost.derive(request)
+  defp declared_caller(_request), do: "unattributed"
+
   # Identity decides invalidation; the shape decides which bytes are served. A
   # digest rather than the document itself because these documents are tens of
   # kilobytes and there is one per poll chunk.
@@ -497,15 +519,6 @@ defmodule Aiur.GitHub.ReadCache do
   rescue
     ArgumentError -> :ok
   end
-
-  defp declared_caller(request) when is_map(request) do
-    case Map.get(request, :caller) do
-      caller when is_binary(caller) and caller != "" -> caller
-      _undeclared -> "unattributed"
-    end
-  end
-
-  defp declared_caller(_request), do: "unattributed"
 
   defp split_repo(full_name) when is_binary(full_name) do
     case full_name |> String.downcase() |> String.split("/") do

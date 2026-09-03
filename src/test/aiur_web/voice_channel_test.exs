@@ -103,11 +103,8 @@ defmodule AiurWeb.VoiceChannelTest do
     if is_nil(Process.whereis(VoiceSessionLimiter)), do: start_supervised!(VoiceSessionLimiter)
     if is_nil(Process.whereis(Aiur.PubSub)), do: start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
 
-    if is_nil(Process.whereis(Endpoint)) do
-      start_supervised!({Endpoint, []})
-    else
-      Endpoint.config_change([{Endpoint, config}], [])
-    end
+    Aiur.TestSupport.start_owned_endpoint!()
+    Endpoint.config_change([{Endpoint, config}], [])
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, previous_endpoint)
