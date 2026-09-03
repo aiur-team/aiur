@@ -63,6 +63,16 @@ defmodule Aiur.GitHub.CredentialSelector do
   @spec assign(map(), keyword()) :: map()
   def assign(request, opts \\ [])
 
+  def assign(%{credential_pinned?: true, token: token} = request, opts) when is_binary(token) do
+    opts
+    |> CredentialRegistry.credentials()
+    |> Enum.find(&(Credential.token(&1) == token))
+    |> then(fn
+      %Credential{} = credential -> attach_pinned_identity(request, credential)
+      _unregistered -> request
+    end)
+  end
+
   def assign(%{credential_pinned?: true} = request, _opts), do: request
 
   def assign(%{token: token} = request, opts) when is_binary(token) do
@@ -279,5 +289,11 @@ defmodule Aiur.GitHub.CredentialSelector do
     if Credential.token(credential) == Map.get(request, :token),
       do: Map.put(request, :credential_key, Credential.identity_key(credential)),
       else: request
+  end
+
+  defp attach_pinned_identity(request, credential) do
+    request
+    |> Map.put(:credential_id, credential.id)
+    |> Map.put(:credential_key, Credential.identity_key(credential))
   end
 end

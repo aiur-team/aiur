@@ -320,6 +320,17 @@ defmodule Aiur.GitHub.CiReadinessTest do
              CiReadiness.inspect_repository(request_fun, "github_pat_test", "person", "private-repo", "main")
   end
 
+  test "keeps the repository 404 when the organization probe is forbidden" do
+    request_fun = fn %{url: url, credential_pinned?: true} ->
+      if String.ends_with?(url, "/orgs/acme"),
+        do: {:ok, %{status: 403, body: %{}}},
+        else: {:ok, %{status: 404, body: %{}}}
+    end
+
+    assert {:error, {:github, :http, %{status: 404}}} =
+             CiReadiness.inspect_repository(request_fun, "ghp_test", "acme", "private-repo", "main")
+  end
+
   test "classifies the pinned credential by its documented prefix without returning its value" do
     for {token, token_type} <- [
           {"ghp_classic-secret", :classic_pat},
