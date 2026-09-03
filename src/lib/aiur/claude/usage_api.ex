@@ -29,14 +29,42 @@ defmodule Aiur.Claude.UsageApi do
   # A 429 means no reading at all; wait before asking again.
   @rate_limited_backoff_ms 5 * 60_000
 
-  # Windows the endpoint reports. The worst-consumed one is what will stop work
-  # first, so it is the honest single number for a meter.
-  @windows ~w(five_hour seven_day seven_day_opus seven_day_sonnet)
+  # Windows the endpoint reports, in the order an operator plans against. The
+  # weekly windows come first because they are the ones that actually constrain
+  # a day's work; the five-hour session window resets so often that it is a
+  # poor planning signal on its own. Every reported window is carried through —
+  # the presentation layer decides what to lead with, not this module.
+  #
+  # The list order is the window priority, so a window is selected by its
+  # identifier and never by a rendered string.
+  @window_specs [
+    {"seven_day", "Weekly (all models)", :weekly},
+    {"seven_day_opus", "Weekly (Opus)", :weekly},
+    {"seven_day_sonnet", "Weekly (Sonnet)", :weekly},
+    {"five_hour", "Session (5-hour)", :session}
+  ]
+
+  # A weekly window the endpoint did not report must still render, as words
+  # saying it was not reported. Dropping it silently would leave the card
+  # showing only the session bar, which reads as a healthy weekly standing that
+  # was never actually observed.
+  @required_windows ["seven_day"]
+
+  @type window_reading :: %{
+          window: String.t(),
+          label: String.t(),
+          scope: :weekly | :session,
+          priority: non_neg_integer(),
+          coverage: :supported | :empty_supported,
+          used_percent: number() | nil,
+          resets_at: DateTime.t() | nil
+        }
 
   @type reading :: %{
           used_percent: number(),
           resets_at: DateTime.t() | nil,
-          window: String.t()
+          window: String.t(),
+          windows: [window_reading()]
         }
 
   @doc """
@@ -174,27 +202,73 @@ defmodule Aiur.Claude.UsageApi do
 
   # --- parsing -------------------------------------------------------------
 
-  @doc false
+  @doc """
+  Every window the body reports, in priority order, plus the worst-consumed one
+  promoted to the top level for callers that want a single number.
+
+  A required window the body omits is still returned, carrying
+  `coverage: :empty_supported` and no percentage, so it can be rendered as
+  "not reported" instead of vanishing.
+  """
   @spec select_window(map()) :: {:ok, reading()} | {:error, :no_utilization}
   def select_window(body) when is_map(body) do
-    @windows
-    |> Enum.flat_map(&window_reading(body, &1))
-    |> Enum.max_by(& &1.used_percent, fn -> nil end)
-    |> case do
-      nil -> {:error, :no_utilization}
-      reading -> {:ok, reading}
+    windows =
+      @window_specs
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {{name, label, scope}, priority} ->
+        window_reading(body, name, label, scope, priority)
+      end)
+
+    case Enum.filter(windows, &is_number(&1.used_percent)) do
+      [] ->
+        {:error, :no_utilization}
+
+      observed ->
+        worst = Enum.max_by(observed, & &1.used_percent)
+
+        {:ok,
+         %{
+           used_percent: worst.used_percent,
+           resets_at: worst.resets_at,
+           window: worst.window,
+           windows: windows
+         }}
     end
   end
 
   def select_window(_body), do: {:error, :no_utilization}
 
-  defp window_reading(body, name) do
+  defp window_reading(body, name, label, scope, priority) do
     case Map.get(body, name) do
       %{"utilization" => percent} = window when is_number(percent) and percent >= 0 ->
-        [%{used_percent: min(percent, 100), resets_at: parse_reset(Map.get(window, "resets_at")), window: name}]
+        [
+          %{
+            window: name,
+            label: label,
+            scope: scope,
+            priority: priority,
+            coverage: :supported,
+            used_percent: min(percent, 100),
+            resets_at: parse_reset(Map.get(window, "resets_at"))
+          }
+        ]
 
       _absent_or_unusable ->
-        []
+        if name in @required_windows do
+          [
+            %{
+              window: name,
+              label: label,
+              scope: scope,
+              priority: priority,
+              coverage: :empty_supported,
+              used_percent: nil,
+              resets_at: nil
+            }
+          ]
+        else
+          []
+        end
     end
   end
 

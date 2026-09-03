@@ -73,6 +73,16 @@ defmodule Aiur.Init.GitHub do
             {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
         end
 
+      {:error, {:ci_readiness_plan_limit, message}} ->
+        io.puts.(
+          "GitHub reports: #{message}\n" <>
+            "This repository plan does not support the ruleset or classic branch-protection checks needed for full CI readiness verification. " <>
+            "Make the repository public, upgrade the plan, or continue without ruleset verification. " <>
+            "aiur init is continuing without ruleset verification and will not save a CI-readiness assessment."
+        )
+
+        :ok
+
       {:error, reason} ->
         {:error, readiness_error_message(reason)}
     end
@@ -106,7 +116,7 @@ defmodule Aiur.Init.GitHub do
     "Repository CI readiness found a pull-request workflow but needs an operator-only #{CiReadiness.operator_token_env()} to inspect workflow state, branch protection, and rulesets. Do not grant those permissions to GITHUB_TOKEN."
   end
 
-  defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
+  defp readiness_error_message(reason), do: CiReadiness.error_message(reason)
 
   defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}) do
     if io.confirm.("No pull-request CI workflow found — scaffold .github/workflows/ci.yml?", true) do

@@ -37,20 +37,25 @@ defmodule Aiur.GitHub.IssuesTest do
     test "fetches issues for each state label" do
       request_fun = fn %{method: :get, url: url} ->
         if URI.decode(url) =~ "labels=sym:todo" do
-          body = [
-            %{
-              "number" => 7,
-              "title" => "A todo issue",
-              "body" => nil,
-              "html_url" => "https://github.com/owner/repo/issues/7",
-              "labels" => [%{"name" => "sym:todo"}],
-              "assignee" => nil,
-              "created_at" => "2026-01-01T00:00:00Z",
-              "updated_at" => "2026-01-02T00:00:00Z"
-            }
-          ]
+          issue = %{
+            "number" => 7,
+            "title" => "A todo issue",
+            "body" => nil,
+            "html_url" => "https://github.com/owner/repo/issues/7",
+            "labels" => [%{"name" => "sym:todo"}],
+            "assignee" => nil,
+            "created_at" => "2026-01-01T00:00:00Z",
+            "updated_at" => "2026-01-02T00:00:00Z"
+          }
 
-          {:ok, %{status: 200, headers: [{"etag", "\"issue-list-v1\""}], body: body}}
+          pull_request =
+            issue
+            |> Map.put("number", 8)
+            |> Map.put("title", "A pull request with the same label")
+            |> Map.put("html_url", "https://github.com/owner/repo/pull/8")
+            |> Map.put("pull_request", %{"url" => "https://api.github.com/repos/owner/repo/pulls/8"})
+
+          {:ok, %{status: 200, headers: [{"etag", "\"issue-list-v1\""}], body: [issue, pull_request]}}
         else
           {:ok, %{status: 200, body: []}}
         end
@@ -283,7 +288,7 @@ defmodule Aiur.GitHub.IssuesTest do
       assert Agent.get(list_step, & &1) == 3
     end
 
-    test "the conditional path surfaces a zero-label and a contradictory-label ticket for repair" do
+    test "the conditional path surfaces degenerate tickets for repair but excludes pull requests" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -307,8 +312,11 @@ defmodule Aiur.GitHub.IssuesTest do
       page = [
         issue.(50, [%{"name" => "sym:todo"}]),
         issue.(51, []),
-        issue.(52, [%{"name" => "sym:in-progress"}, %{"name" => "sym:rework"}])
+        issue.(52, [%{"name" => "sym:in-progress"}, %{"name" => "sym:rework"}]),
+        Map.put(issue.(53, []), "pull_request", %{"url" => "https://api.github.com/repos/owner/repo/pulls/53"})
       ]
+
+      {:ok, list_step} = Agent.start_link(fn -> 0 end)
 
       # Dispatch authorization needs a labeled timeline event for the
       # dispatchable candidate; the degenerate tickets must not be authorized.
@@ -325,17 +333,22 @@ defmodule Aiur.GitHub.IssuesTest do
           {:ok, %{status: 200, headers: [], body: [labeled_event]}}
         else
           assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
-          {:ok, %{status: 200, headers: [], body: page}}
+
+          Agent.get_and_update(list_step, fn
+            0 -> {{:ok, %{status: 200, headers: [{"etag", "v1"}], body: page}}, 1}
+            1 -> {{:ok, %{status: 304}}, 2}
+          end)
         end
       end
 
-      assert {:ok, issues, _cache} =
+      assert {:ok, issues, cache} =
                Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
 
       ids = Enum.map(issues, & &1.id)
       assert "50" in ids
       assert "51" in ids
       assert "52" in ids
+      refute "53" in ids
 
       # The zero-label (51) and contradictory-label (52) tickets keep their
       # degenerate state_labels so the orchestrator's repair pass can heal
@@ -345,6 +358,12 @@ defmodule Aiur.GitHub.IssuesTest do
       assert Enum.find(issues, &(&1.id == "50")).dispatch_authorized?
       refute Enum.find(issues, &(&1.id == "51")).dispatch_authorized?
       refute Enum.find(issues, &(&1.id == "52")).dispatch_authorized?
+
+      assert {:ok, cached_issues, _cache} =
+               Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+
+      assert Enum.map(cached_issues, & &1.id) == ids
+      assert Agent.get(list_step, & &1) == 2
     end
   end
 
@@ -692,6 +711,18 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
     end
 
+    # Quarantined for #2397: this integration test reads `configured_repo/0`
+    # through the shared `WorkflowStore` singleton, and under load the store can
+    # serve the previous (valid) config for this path right after the malformed
+    # write + `force_reload` — CI run 32630000223 caught it returning a
+    # `:joinable` identity with `owner/repo`. The same shape reproduces locally
+    # (~2%) when this module runs immediately after `workflow_store_test.exs`,
+    # which manipulates the shared cache directly. The exact residual-state
+    # mechanism is not yet pinned down; the behavior stays covered by the
+    # deterministic pure-layer test in `tracker_identity_test.exs`, and the
+    # quarantine job keeps this integration path exercised non-blockingly so a
+    # regression still surfaces.
+    @tag :quarantine
     test "marks malformed configured repositories explicitly nonjoinable" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",

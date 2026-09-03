@@ -270,6 +270,43 @@ defmodule Aiur.GitHub.ResourceEvents do
 
   def publish(_key, _entry), do: :ok
 
+  @doc """
+  Announces that every resource of `type` in one repository was cleared.
+
+  `Aiur.GitHub.ResourceStore.clear/3` deletes whole entries directly (there is
+  no single key to announce), so it calls this on the type's topics instead.
+  Subscribers receive the same `{:github_resource_changed, change}` shape with
+  `cleared: true` and no `key`, which is what tells a set-reconciliation reader
+  — the Build Order projection — that the type changed and it should re-read
+  the store (#2313).
+  """
+  @spec publish_cleared(ResourceStore.resource_type(), String.t(), String.t()) :: :ok
+  def publish_cleared(type, owner, repo) when is_atom(type) and is_binary(owner) and is_binary(repo) do
+    message =
+      {:github_resource_changed,
+       %{
+         key: nil,
+         resource_type: type,
+         owner: owner,
+         repo: repo,
+         id: nil,
+         source: nil,
+         version: nil,
+         etag: nil,
+         data?: false,
+         data_version: nil,
+         recorded_at_ms: System.system_time(:millisecond),
+         cleared: true
+       }}
+
+    broadcast(type_topic(type, "#{owner}/#{repo}"), message)
+    broadcast(type_topic(type), message)
+
+    :ok
+  end
+
+  def publish_cleared(_type, _owner, _repo), do: :ok
+
   # -- internals ------------------------------------------------------------
 
   defp do_subscribe(nil), do: :ok

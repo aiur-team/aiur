@@ -12,6 +12,10 @@ on:
     branches:
       - main
       - v2
+  # Manual re-run path: lets an operator (or an agent) trigger CI on a branch
+  # head directly when the pull_request synchronize path is not creating runs
+  # (#2397). Checks attach to the head commit either way.
+  workflow_dispatch:
 
 # Initial PR runs share a stable group; reruns and every non-PR event get a
 # unique group so they cannot replace another pending or in-progress run.
@@ -87,6 +91,8 @@ jobs:
         run: bash scripts/test-pr-merge-gate-diagnostic.sh
       - name: Test CI failure diagnostics
         run: bash scripts/test-report-ci-failures.sh
+      - name: Test known-flaky reporter
+        run: bash scripts/test-report-known-flaky-tests.sh
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
       - name: Test rename preflight
@@ -183,6 +189,12 @@ jobs:
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)
     runs-on: ubuntu-latest
+    # Last-resort backstop only (#2461's measured value). The effective bound is
+    # the `timeout` wrapper on the test step below: a job-level timeout CANCELS
+    # the job, and a cancelled job skips its remaining steps, so the partition
+    # log and the known-flaky report never run and the wedge reports as a red
+    # with zero diagnostics -- observed on run 32790770281, coverage (3/4),
+    # which burned 45 minutes and printed not one test name.
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -204,7 +216,37 @@ jobs:
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
           TEST_PARTITIONS: 4
-        run: make coverage-partition
+        # Capture the full log for the known-flaky reporter below, but write it
+        # to a file instead of piping through `tee`: tests that leave orphaned
+        # background processes (opencode/sleep CLI harnesses) hold the pipe's
+        # write end open, so `tee` never sees EOF and the step hangs until the
+        # job dies as a non-informative cancelled red (#2397). A file redirect
+        # lets those orphans inherit the file FD harmlessly while the step
+        # completes the moment `make` exits.
+        #
+        # The bound lives here, in the step, not on the job. A job-level
+        # timeout cancels the job and a cancelled job skips every remaining
+        # step, so `Print partition log` and the known-flaky report are lost
+        # exactly when a wedge makes them most valuable. `timeout` makes the
+        # step exit normally with 124, which is an ordinary step *failure*, so
+        # the `failure()` steps below still run and the red names what it is.
+        run: |
+          status=0
+          timeout --signal=TERM --kill-after=60s 20m \
+            make coverage-partition > "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" 2>&1 || status=$?
+          if [ "$status" -eq 124 ] || [ "$status" -eq 137 ]; then
+            echo "::error::coverage partition ${{ matrix.partition }} exceeded its 20m bound and was terminated; partial log follows in the next step"
+          fi
+          exit "$status"
+      - name: Print partition log
+        if: ${{ failure() }}
+        working-directory: .
+        run: cat "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
+      - name: Report known-flaky test names
+        if: ${{ failure() }}
+        shell: bash
+        working-directory: .
+        run: bash scripts/report-known-flaky-tests.sh "$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log" "$GITHUB_STEP_SUMMARY"
       - name: Upload partition coverage
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -445,6 +487,8 @@ jobs:
       - name: Set up mise tools
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
+          # Pin mise itself; bump only in a CI-validated commit.
+          version: "2026.8.8"
           install: true
           cache: true
       - name: Cache Elixir dependencies

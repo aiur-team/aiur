@@ -666,6 +666,6 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   defp normalize_control_payload(status, payload), do: maybe_put_control_pause_kind(payload, status)
 
-  defp maybe_put_control_pause_kind(payload, :paused), do: Map.put_new(payload, :kind, :operator_pause)
+  defp maybe_put_control_pause_kind(payload, :paused), do: Map.put_new(payload, :kind, :worker_pause_unknown)
   defp maybe_put_control_pause_kind(payload, _status), do: payload
 end

@@ -63,7 +63,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64), dashboard_auth_required: false)
     )
 
-    if is_nil(Process.whereis(AiurWeb.Endpoint)), do: start_supervised!({AiurWeb.Endpoint, []})
+    _endpoint = Aiur.TestSupport.start_owned_endpoint!()
     if is_nil(Process.whereis(Aiur.TaskSupervisor)), do: start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
 
     Auth.reset_alert_throttle()
