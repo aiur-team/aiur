@@ -1585,7 +1585,7 @@ defmodule Aiur.InitTest do
       refute_received {:labels, _tracker, _labels}
     end
 
-    test "no-token instructions give explicit classic and fine-grained click-paths", %{
+    test "no-token instructions prefer least-privilege credentials and explain the one-shot check", %{
       dir: dir,
       target: target
     } do
@@ -1594,15 +1594,22 @@ defmodule Aiur.InitTest do
       log = puts_log()
       joined = Enum.join(log, "\n")
 
-      assert joined =~ "Generate new token (classic)"
+      {fine_grained_position, _length} = :binary.match(joined, "Recommended — fine-grained token")
+      {classic_position, _length} = :binary.match(joined, "Classic fallback")
+
+      assert fine_grained_position < classic_position
       assert joined =~ "Administration: Read-only"
-      assert joined =~ "repo` scope"
+      assert joined =~ "check `repo`"
+      assert joined =~ "Classic `repo` cannot be narrowed"
       assert joined =~ "Only select repositories"
       assert joined =~ "Read and write"
       assert joined =~ "Issues"
       assert joined =~ "Contents: Read and write"
       assert joined =~ "Pull requests"
       assert joined =~ "write access to this repo"
+      assert joined =~ "AIUR_CI_READINESS_TOKEN=<token> aiur init"
+      assert joined =~ "Never add that one-shot token to `~/.aiur/.env`, .env, or the daemon environment"
+      assert joined =~ "agents running with bypassed permissions"
     end
 
     test "with a token: creates labels and shows the ready screen", %{dir: dir, target: target} do

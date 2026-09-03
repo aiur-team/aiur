@@ -52,7 +52,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 
-When `aiur init` creates `.github/workflows/ci.yml`, the workflow only makes GitHub run `ci / required`; it does not yet prevent a failed check from merging. In GitHub, open **Settings → Rules → Rulesets**, require the `ci / required` status check for the configured base branch, then rerun `aiur init` to verify the complete gate.
+When `aiur init` creates `.github/workflows/ci.yml`, the workflow makes GitHub run `ci / required` but does not prevent a failed check from merging; open **Settings → Rules → Rulesets**, require that check for the configured base branch, then rerun `aiur init` to verify the complete gate.
 
 | Launch choice | Behavior |
 | --- | --- |
@@ -287,7 +287,7 @@ Dismissing a Command closes it and moves it to history. If the Command's agent i
 | --- | --- |
 | **Dispatch needs `agent:todo`.** | `AGENTS 0/32 (binding: ticket supply)` means a recent poll found no queued ticket. If it instead reads `has not polled yet (POLL backed off...)`, the daemon has not looked recently — run `aiur --todo <id>`, add the label, or trigger a refresh so the work is seen. |
 | **Global pause is durable.** | Use `aiur status` and `aiur resume` before treating a silent restarted fleet as broken. |
-| **CI readiness uses an operator-only token.** | Put `AIUR_CI_READINESS_TOKEN` with GitHub `workflow` scope in the daemon environment, restart, and never expose it to agent workspaces. |
+| **CI readiness uses a one-shot operator token.** | Run `AIUR_CI_READINESS_TOKEN=<token> aiur init` once with a fine-grained token granting Contents, Actions, and Administration: Read-only; never save it in `~/.aiur/.env`, the repository `.env`, or the daemon environment. |
 | **A base refresh affects approval ownership.** | With `require_last_push_approval`, route a base refresh through the ticket agent so the Executor does not become the ineligible last pusher. |
 
 ## `aiurdev`, for developing Aiur itself

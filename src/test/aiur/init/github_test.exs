@@ -262,7 +262,13 @@ defmodule Aiur.Init.GitHubTest do
 
       assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "o/r"})
       assert message =~ "operator-only AIUR_CI_READINESS_TOKEN"
-      assert message =~ "GITHUB_TOKEN"
+      assert message =~ "can only confirm that the workflow exists"
+      assert message =~ "not that failed checks block merging"
+      assert message =~ "AIUR_CI_READINESS_TOKEN=<token> aiur init"
+      assert message =~ "fine-grained token"
+      assert message =~ "Contents, Actions, and Administration: Read-only"
+      assert message =~ "Never save it in `~/.aiur/.env`, the repository `.env`, or the daemon environment"
+      assert message =~ "agents running with bypassed permissions"
     end
 
     test "skips the CI scaffold when a workflow already exists" do

@@ -51,40 +51,43 @@ defmodule Aiur.Init.GitHub do
     tracker = resolve_repo_for_readiness(tracker, deps)
     check_tracker = Map.drop(tracker, [:config_path])
 
-    case readiness_check.(check_tracker) do
-      {:ok, %{ready?: true} = readiness} ->
-        case persist_operator_assessment(readiness, tracker) do
-          :ok ->
-            io.puts.(CiReadiness.format(readiness))
-            :ok
-
-          {:error, reason} ->
-            {:error, "Repository CI readiness was verified but could not be saved for the daemon: #{inspect(reason)}"}
-        end
-
-      {:ok, %{issues: [:base_branch_missing]} = readiness} ->
-        {:error, missing_base_branch_message(tracker, readiness)}
-
-      {:ok, readiness} ->
-        case persist_operator_assessment(readiness, tracker) do
-          :ok ->
-            io.puts.(ci_readiness_purpose() <> "\n" <> CiReadiness.format(readiness))
-            maybe_scaffold_ci(io, deps, readiness, tracker)
-            {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
-
-          {:error, reason} ->
-            {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
-        end
-
-      {:error, {:repository_access_failed, reason}} ->
-        {:error, repository_access_message(tracker, reason)}
-
-      {:error, reason} ->
-        {:error, readiness_error_message(reason)}
-    end
+    readiness_check.(check_tracker)
+    |> handle_readiness_result(io, deps, tracker)
   end
 
   def ensure_ci_readiness(_io, _deps, _tracker), do: :ok
+
+  defp handle_readiness_result({:ok, %{ready?: true} = readiness}, io, _deps, tracker) do
+    case persist_operator_assessment(readiness, tracker) do
+      :ok ->
+        io.puts.(CiReadiness.format(readiness))
+        :ok
+
+      {:error, reason} ->
+        {:error, "Repository CI readiness was verified but could not be saved for the daemon: #{inspect(reason)}"}
+    end
+  end
+
+  defp handle_readiness_result({:ok, %{issues: [:base_branch_missing]} = readiness}, _io, _deps, tracker),
+    do: {:error, missing_base_branch_message(tracker, readiness)}
+
+  defp handle_readiness_result({:ok, readiness}, io, deps, tracker) do
+    case persist_operator_assessment(readiness, tracker) do
+      :ok ->
+        io.puts.(ci_readiness_purpose() <> "\n" <> CiReadiness.format(readiness))
+        maybe_scaffold_ci(io, deps, readiness, tracker)
+        {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+
+      {:error, reason} ->
+        {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
+    end
+  end
+
+  defp handle_readiness_result({:error, {:repository_access_failed, reason}}, _io, _deps, tracker),
+    do: {:error, repository_access_message(tracker, reason)}
+
+  defp handle_readiness_result({:error, reason}, _io, _deps, _tracker),
+    do: {:error, readiness_error_message(reason)}
 
   defp resolve_repo_for_readiness(%{repo: repo} = tracker, _deps) when is_binary(repo), do: tracker
   defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())
@@ -105,17 +108,24 @@ defmodule Aiur.Init.GitHub do
 
   defp readiness_error_message({:github, :http, %{status: 403}}) do
     "Repository CI readiness could not be inspected: GitHub denied access to the readiness endpoints. " <>
-      "Run init with an operator-only #{CiReadiness.operator_token_env()} that has Contents, Actions, and Administration: Read-only; do not grant those permissions to GITHUB_TOKEN."
+      operator_readiness_token_guidance()
   end
 
   defp readiness_error_message(:ci_readiness_operator_token_required) do
-    "Repository CI readiness found a pull-request workflow but needs an operator-only #{CiReadiness.operator_token_env()} to inspect workflow state, branch protection, and rulesets. Do not grant those permissions to GITHUB_TOKEN."
+    "Repository CI readiness found a pull-request workflow, but without an operator-only #{CiReadiness.operator_token_env()} it can only confirm that the workflow exists, not that failed checks block merging. " <>
+      operator_readiness_token_guidance()
   end
 
   defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
 
   defp ci_readiness_purpose do
     "Pull-request workflows run checks, while making `ci / required` a required status check prevents failed work from merging."
+  end
+
+  defp operator_readiness_token_guidance do
+    "Use a fine-grained token with Contents, Actions, and Administration: Read-only for this one init command: " <>
+      "`#{CiReadiness.operator_token_env()}=<token> aiur init`. Never save it in `~/.aiur/.env`, the repository `.env`, " <>
+      "or the daemon environment; keeping this admin-capable credential one-shot prevents agents running with bypassed permissions from accessing it."
   end
 
   defp missing_base_branch_message(tracker, readiness) do
