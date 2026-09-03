@@ -2061,6 +2061,137 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert map_size(ready_state.running) == 0
     end
 
+    # The reported binding is read from the daemon's persisted `capacity_hold`,
+    # and before #2527 the prewarm branch sampled host pressure without ever
+    # reconciling it. A base build that runs for minutes therefore froze the
+    # last pre-build measurement: `status` reported `load=24.14` against a
+    # `threshold=24.0` for the build's whole duration while the live `LOAD` line
+    # beside it read 6-7. The recovery direction is the whole defect, so the
+    # sequence here is high-then-low; a one-directional test passes against the
+    # bug.
+    test "a prewarm hold re-samples host pressure so a high load figure cannot latch" do
+      with_prewarm_enabled_config()
+
+      ready = [issue("prewarm-stale-load")]
+
+      # 45% reclaimable in both windows: only the load average moves, so the
+      # recovery is attributable to the re-sample and not to CPU corroboration
+      # incidentally clearing the gate.
+      first_cpu = %{total: 1_100, idle: 545, nice: 0, runnable: 2}
+      second_cpu = %{total: 1_200, idle: 590, nice: 0, runnable: 2}
+
+      quiet = [emit_fun: fn _name, _reason -> :ok end, telemetry_fun: fn _event, _payload -> :ok end]
+
+      # The high sample is taken on a normal dispatch tick, before the base build
+      # starts — the hold this leaves behind is the one that used to latch.
+      held =
+        Dispatcher.maybe_choose_under_load(
+          contended_state(%{total: 1_000, idle: 500, nice: 0, runnable: 2}),
+          ready,
+          fn admitted, _issues -> admitted end,
+          [admission_probes_fun: contended_probes(24.14, first_cpu), now_ms: 0] ++ quiet
+        )
+
+      assert %{signal: :load, measured: 24.14, threshold: 24.0, reclaimable_cpu_percent: 45.0} = held.capacity_hold
+      assert %DateTime{} = held.capacity_hold.measured_at
+
+      # Same prewarm hold, next tick, host now idle. The build is still running,
+      # so nothing external clears the gate — only the re-sample can.
+      recovered =
+        Dispatcher.dispatch_or_hold(
+          contended_state(first_cpu, held),
+          ready,
+          fn -> :building end,
+          [admission_probes_fun: contended_probes(6.34, second_cpu), now_ms: 1_000] ++ quiet
+        )
+
+      assert recovered.capacity_hold == nil
+    end
+
+    # The measurement and the hold's own age are different quantities. An
+    # extended hold must carry this tick's probe, or the age reported beside it
+    # describes how long the fleet has been held rather than how fresh the
+    # number is.
+    test "an extended admission hold carries the newest measurement and stamp" do
+      first_at = ~U[2026-09-02 22:00:00Z]
+      later_at = ~U[2026-09-02 22:00:30Z]
+
+      quiet = [emit_fun: fn _name, _reason -> :ok end, telemetry_fun: fn _event, _payload -> :ok end]
+
+      state =
+        contended_state(%{total: 1_000, idle: 500, nice: 0, runnable: 2})
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [issue("hold-restamp")],
+          fn admitted, _issues -> admitted end,
+          [
+            admission_probes_fun: contended_probes(30.0, %{total: 1_100, idle: 545, nice: 0, runnable: 2}),
+            now_ms: 0,
+            utc_now_fun: fn -> first_at end
+          ] ++ quiet
+        )
+
+      assert %{measured: 30.0, measured_at: ^first_at} = held.capacity_hold
+
+      extended =
+        Dispatcher.maybe_choose_under_load(
+          contended_state(%{total: 1_100, idle: 545, nice: 0, runnable: 2}, held),
+          [issue("hold-restamp")],
+          fn admitted, _issues -> admitted end,
+          [
+            admission_probes_fun: contended_probes(27.0, %{total: 1_200, idle: 590, nice: 0, runnable: 2}),
+            now_ms: 1_000,
+            utc_now_fun: fn -> later_at end
+          ] ++ quiet
+        )
+
+      assert %{measured: 27.0, measured_at: ^later_at} = extended.capacity_hold
+      assert extended.capacity_hold.held_since_ms == 0
+    end
+
+    # The admission direction of the same recovery: a high sample must not keep
+    # new work out once the host has quietened.
+    test "a low sample after a high one admits new work" do
+      quiet = [emit_fun: fn _name, _reason -> :ok end, telemetry_fun: fn _event, _payload -> :ok end]
+
+      test_pid = self()
+
+      choose = fn admitted, _issues ->
+        send(test_pid, :admitted)
+        admitted
+      end
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          contended_state(%{total: 1_000, idle: 500, nice: 0, runnable: 2}),
+          [issue("admission-recovery")],
+          choose,
+          [
+            admission_probes_fun: contended_probes(24.14, %{total: 1_100, idle: 545, nice: 0, runnable: 2}),
+            now_ms: 0
+          ] ++ quiet
+        )
+
+      assert %{signal: :load, measured: 24.14} = held.capacity_hold
+      refute_received :admitted
+
+      admitted =
+        Dispatcher.maybe_choose_under_load(
+          contended_state(%{total: 1_100, idle: 545, nice: 0, runnable: 2}, held),
+          [issue("admission-recovery")],
+          choose,
+          [
+            admission_probes_fun: contended_probes(6.34, %{total: 1_200, idle: 590, nice: 0, runnable: 2}),
+            now_ms: 1_000
+          ] ++ quiet
+        )
+
+      assert admitted.capacity_hold == nil
+      assert_received :admitted
+    end
+
     test "fails open to a cold clone on a base-build error and resets the hold counter" do
       with_prewarm_enabled_config()
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
@@ -2532,6 +2663,38 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   defp issue(id), do: %Issue{id: id, identifier: "repo##{id}", title: id, state: "todo"}
+
+  # A load hold is only recorded when CPU corroborates it, and the corroboration
+  # is a delta between two `/proc/stat` snapshots. Seeding the previous snapshot
+  # explicitly — rather than relying on the one the prior tick happened to
+  # remember — keeps each window's reclaimable percentage a property of the
+  # test rather than of internal bookkeeping. `total: 1_000, idle: 500` against
+  # `total: 1_100, idle: 545` is 45% reclaimable, under the 60% clear bar.
+  defp contended_state(previous_cpu, state \\ %State{max_concurrent_agents: 8, effective_concurrent_agents: 8}) do
+    put_in(state.load_envelope_state, %{last_decrease_ms: nil, cpu_snapshot: previous_cpu, bootstrap_complete?: true})
+  end
+
+  # `load_threshold` is per scheduler, so 1.5 x 16 is the 24.0 an operator reads
+  # on the status line.
+  defp contended_probes(load, cpu_snapshot) do
+    fn ->
+      %{
+        memory_mb: :unavailable,
+        memory_threshold_mb: nil,
+        fd_sample: :unavailable,
+        runnable: :unavailable,
+        run_queue_threshold: nil,
+        schedulers: 16,
+        load: load,
+        load_threshold: 1.5,
+        build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+        provider_backends: [],
+        github_quota: :available,
+        cpu_snapshot: cpu_snapshot,
+        target: nil
+      }
+    end
+  end
 
   defp dispatch_decision!(issue) do
     test_pid = self()
