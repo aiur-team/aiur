@@ -1,8 +1,9 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore, PollCadence, TrackerIdentity}
-  alias Aiur.Events.Exchange
+  alias Aiur.{AgentQueueStore, CIApprovalStore, Orchestrator, PollCadence, TrackerIdentity}
+  alias Aiur.AgentRunner.MessageHandler
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{CiLifecycle, State}
 
   defmodule RecordingGitHubClient do
@@ -764,6 +765,74 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute Map.has_key?(next.running[identifier], :pending_auto_resume)
       assert next.ci_lifecycle.rewakes == %{}
       refute_received {:recorded, _position, _message}
+    end
+
+    test "an unclassified worker pause preserves the pending CI-wait cause" do
+      identifier = unique_identifier("ci-unclassified-pause")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+      ci_wait_topic = "ticket.#{identifier}.ci.wait"
+      operator_pause_topic = "ticket.#{identifier}.agent.attention.paused-operator_pause"
+
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(ci_wait_topic)
+      :ok = Exchange.subscribe(operator_pause_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      pending =
+        issue
+        |> running_state(recorder, :working, [])
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      assert_receive {:recorded, 1, {:pause_agent, request_id, 101}}
+      assert pending.running[identifier].pending_pause_reason == %{request_id: request_id, reason: :ci_wait}
+
+      MessageHandler.send_control_state(self(), issue, :paused, %{})
+      assert_receive {:worker_control_state, ^identifier, :paused, payload}
+
+      assert {:noreply, paused} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, identifier, :paused, payload},
+                 pending
+               )
+
+      assert paused.running[identifier].control.status == :paused
+      assert paused.running[identifier].paused_reason == :ci_wait
+
+      assert_receive {:event,
+                      %{
+                        "needs_attention" => false,
+                        "severity" => "info",
+                        topic: ^ci_wait_topic
+                      }},
+                     500
+
+      refute_receive {:event, %{topic: ^operator_pause_topic}}, 100
+    end
+
+    test "an explicit worker pause cause overrides pending CI wait" do
+      identifier = unique_identifier("ci-explicit-pause")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      pending =
+        issue
+        |> running_state(recorder, :working, [])
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      assert_receive {:recorded, 1, {:pause_agent, _request_id, 101}}
+
+      assert {:noreply, paused} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, identifier, :paused, %{kind: :usage_limit_exhausted}},
+                 pending
+               )
+
+      assert paused.running[identifier].paused_reason == :usage_limit_exhausted
     end
 
     test "a matching fallback token revalidates, queues one-check guidance, and resumes" do

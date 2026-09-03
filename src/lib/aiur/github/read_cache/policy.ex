@@ -177,6 +177,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   this runs on every GitHub request the daemon makes.
   """
 
+  alias Aiur.GitHub.GraphQLCost
   alias Aiur.GitHub.ReadCache.Identity
   alias Aiur.Webhooks.ModeTable
 
@@ -199,7 +200,17 @@ defmodule Aiur.GitHub.ReadCache.Policy do
           | :pull_files
           | :unclassified
 
-  @type decision :: {:cache, class(), pos_integer()} | {:no_cache, atom() | {atom(), shape()}}
+  # A refused REST read carries the shape it was refused as. A shape the
+  # classifier *names* is one of the fixed `shape()` atoms, and the refusal
+  # metric keys on it directly. A read it cannot name is not folded into a
+  # single `unclassified` total: it carries its route template instead
+  # (`GraphQLCost.route_shape/1` — `"rest:GET /repos/:owner/:repo/labels"`),
+  # so the 5,000 reads/hr that reach the fallback stay attributable to a call
+  # family. `Metrics.refused_shape/2` caps that string key set, so a
+  # pathological URL still cannot grow the metric map without bound (#2357).
+  @type decision ::
+          {:cache, class(), pos_integer()}
+          | {:no_cache, atom() | {atom(), shape() | String.t()}}
 
   # The short bucket, in force for any repo that is not proven webhook-backed:
   # never configured, configured-but-unproven, or degraded from silence. For
@@ -432,16 +443,19 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   #     silently convert a free revalidation into a stale read without the
   #     refusal disappearing from the report.
   #
-  # The bare `/repos/{owner}/{repo}` repository read is deliberately left as
-  # the `:unclassified` fallback: it is the auth-preflight probe, which must
-  # exercise the current credential rather than be answered from a cache.
+  # The bare `/repos/{owner}/{repo}` repository read is deliberately left to
+  # the fallback: it is the auth-preflight probe, which must exercise the
+  # current credential rather than be answered from a cache. The fallback is
+  # not a single opaque bucket, though — a read the table cannot name is
+  # refused with its route template (`GraphQLCost.route_shape/1`), the same
+  # derivation `Quota` bills spend by, so the refusal report still names the
+  # call family rather than folding every unrecognised read into one
+  # `unclassified` total (#2357).
   defp classify_rest(%{method: :get, url: url} = request) when is_binary(url) do
-    shape = rest_shape(url)
-
-    if shape in @cached_rest_shapes do
-      cache(shape, request)
-    else
-      {:no_cache, {:unclassified, shape}}
+    case rest_shape(url) do
+      shape when shape in @cached_rest_shapes -> cache(shape, request)
+      :unclassified -> {:no_cache, {:unclassified, GraphQLCost.route_shape(request)}}
+      shape -> {:no_cache, {:unclassified, shape}}
     end
   end
 

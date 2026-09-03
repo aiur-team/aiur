@@ -838,7 +838,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp apply_worker_control_state(state, issue_id, running_entry, status, pause_payload, request) do
     previous_status = get_in(running_entry, [:control, :status]) || :working
     previous_pause_reason = Map.get(running_entry, :paused_reason)
-    pause_reason = worker_pause_reason(running_entry, pause_payload, request)
+    pause_reason = worker_pause_reason(state, running_entry, pause_payload, request)
     transition_cause = control_transition_cause(request, status, pause_reason)
 
     updated_running_entry =
@@ -1774,12 +1774,25 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp maybe_auto_resume_spurious_worker_pause(state, _running_entry, _status), do: state
 
-  defp worker_pause_reason(running_entry, pause_payload, request) do
+  defp worker_pause_reason(state, running_entry, pause_payload, request) do
     pending_pause_reason(running_entry, request) ||
       Map.get(running_entry, :paused_reason) ||
+      pending_unclassified_pause_reason(state, running_entry, pause_payload) ||
       Map.get(pause_payload, :kind) ||
       Map.get(pause_payload, "kind") ||
       request_pause_reason(request, pause_payload)
+  end
+
+  defp pending_unclassified_pause_reason(state, running_entry, pause_payload) do
+    if (Map.get(pause_payload, :kind) || Map.get(pause_payload, "kind")) in [nil, :worker_pause_unknown, "worker_pause_unknown"] do
+      with reason when not is_nil(reason) and reason != :operator_pause <-
+             get_in(running_entry, [:pending_pause_reason, :reason]),
+           %{action: :pause} <- matching_pending_pause(state, running_entry, reason) do
+        reason
+      else
+        _ -> nil
+      end
+    end
   end
 
   defp request_pause_reason(%{action: :pause, requester: :operator}, _pause_payload), do: :operator_pause
