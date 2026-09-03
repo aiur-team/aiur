@@ -38,7 +38,7 @@ defmodule Aiur.Workspace.Provisioner do
           :ok | {:error, term()}
   def maybe_install_agent_support(workspace, worker_host, runner)
       when is_binary(workspace) and is_binary(worker_host) and is_function(runner, 3) do
-    script = remote_agent_support_script(workspace)
+    script = remote_agent_support_script(workspace, worker_host)
 
     case runner.(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} ->
@@ -50,8 +50,21 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  defp remote_agent_support_script(workspace) do
-    Enum.map_join(@remote_agent_support_modules, "\n", & &1.remote_install_script(workspace))
+  # `worker_host` is passed to the modules that accept install options so the
+  # host-credential cleanup only ever runs on a genuinely remote install (#2478);
+  # the same script executed locally must not touch the operator's own `$HOME`.
+  defp remote_agent_support_script(workspace, worker_host) do
+    Enum.map_join(@remote_agent_support_modules, "\n", fn module ->
+      # `Code.ensure_loaded?/1` first: on a not-yet-loaded module
+      # `function_exported?/3` answers false, which would silently fall back to
+      # the arity-1 call and drop the remote credential cleanup rather than
+      # failing loudly.
+      if Code.ensure_loaded?(module) and function_exported?(module, :remote_install_script, 2) do
+        module.remote_install_script(workspace, remote_host: worker_host)
+      else
+        module.remote_install_script(workspace)
+      end
+    end)
   end
 
   @type worker_host :: String.t() | nil

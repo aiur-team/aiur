@@ -248,15 +248,8 @@ defmodule Aiur.DecisionApiIntegrationTest do
 
   defp maybe_put_mutation_headers(conn, _method), do: conn
 
-  # This test always starts and owns its own `AiurWeb.Endpoint`, so it never
-  # depends on another test's process. `start_supervised/1` (not `!`) returns
-  # `{:error, {:already_started, pid}}` when a prior test's `start_supervised!`
-  # endpoint is still registered while its ExUnit supervisor tears it down
-  # (#2288): the registered name can outlive the endpoint's config ETS table
-  # for a short window, and relying on that pid would hit a missing table
-  # mid-test (`Endpoint.call/2` raising `ArgumentError`). Instead of betting on
-  # a wall-clock grace window, wait deterministically for the dying endpoint's
-  # DOWN (guaranteed to arrive — it is mid-teardown) and then start our own.
+  # Ownership of `AiurWeb.Endpoint` is never inferred from the process registry
+  # here; see `Aiur.TestSupport.start_owned_endpoint!/0` for why (#2288).
   defp ensure_endpoint_running do
     endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
@@ -266,27 +259,10 @@ defmodule Aiur.DecisionApiIntegrationTest do
       Keyword.merge(endpoint_config, server: false, secret_key_base: String.duplicate("s", 64))
     )
 
-    {:ok, _pid} = start_owned_endpoint()
+    Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn -> Application.put_env(:aiur, Endpoint, endpoint_config) end)
     true
-  end
-
-  defp start_owned_endpoint do
-    case start_supervised({Endpoint, []}) do
-      {:ok, pid} ->
-        {:ok, pid}
-
-      {:error, {:already_started, pid}} ->
-        ref = Process.monitor(pid)
-
-        receive do
-          {:DOWN, ^ref, :process, ^pid, _reason} -> start_owned_endpoint()
-        end
-
-      {:error, reason} ->
-        raise "failed to start AiurWeb.Endpoint under the test supervisor: #{inspect(reason)}"
-    end
   end
 
   defp configure_endpoint(changed) do

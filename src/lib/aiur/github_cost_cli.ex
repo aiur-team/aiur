@@ -350,7 +350,7 @@ defmodule Aiur.GitHubCostCLI do
         "#{value(cache["entries"])} entries, #{totals_line(cache["totals"])}"
     )
 
-    print_refusals(cache["refused"])
+    print_refusals(cache["refused"], cache["refused_shapes"])
     print_not_deposited(cache["not_deposited"])
   end
 
@@ -364,12 +364,17 @@ defmodule Aiur.GitHubCostCLI do
 
   defp totals_line(_totals), do: "no totals"
 
-  defp print_refusals(refused) when is_map(refused) and map_size(refused) > 0 do
-    line = Enum.map_join(refused, ", ", fn {reason, count} -> "#{reason} #{count}" end)
-    IO.puts("read cache refusals: #{line}")
+  defp print_refusals(refused, refused_shapes) do
+    print_refusal_line("read cache refusals", refused)
+    print_refusal_line("refused REST shapes", refused_shapes)
   end
 
-  defp print_refusals(_refused), do: :ok
+  defp print_refusal_line(label, map) when is_map(map) and map_size(map) > 0 do
+    line = Enum.map_join(map, ", ", fn {key, count} -> "#{key} #{count}" end)
+    IO.puts("#{label}: #{line}")
+  end
+
+  defp print_refusal_line(_label, _map), do: :ok
 
   # The accounting remainder: every miss either deposited or did not, and the
   # not-deposited side is split by why. Without it, `misses` minus `deposits`
