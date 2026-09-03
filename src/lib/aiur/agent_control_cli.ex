@@ -739,11 +739,23 @@ defmodule Aiur.AgentControlCLI do
     Application.get_env(:aiur, :agent_control_cli_busy_mailbox_threshold, @orchestrator_busy_mailbox_threshold)
   end
 
+  # `--todo` is the one control command whose runtime scales with its arguments
+  # and the tracker's size rather than with daemon state: every requested ID is
+  # a GitHub issue fetch, and `--only` adds an active-ticket enumeration plus up
+  # to @max_cleanup_batch serial label DELETEs. Against a repo with a deep
+  # `agent:todo` queue that is far more than the launcher's shared 10s control
+  # budget, so the watchdog killed the RPC mid-flight and printed "outcome is
+  # unknown" while labels were half-applied — `--only` scoping was unusable
+  # (#2519). The launcher now sizes its watchdog to the requested work and hands
+  # us a slightly shorter `budget_ms`. Stop ourselves at that budget so the
+  # summary and the exit marker always reach the operator, and a partial run
+  # reports exactly what it did instead of nothing at all.
   @spec todo([String.t()], keyword()) :: 0 | 1
   def todo(issue_ids, opts \\ []) when is_list(issue_ids) do
     deps = Keyword.get(opts, :deps, todo_runtime_deps())
     only? = Keyword.get(opts, :only, false)
     emit_exit_marker? = Keyword.get(opts, :emit_exit_marker, false)
+    budget = todo_budget(Keyword.get(opts, :budget_ms), deps)
 
     exit_code =
       case deps.ensure_started.() do
@@ -753,8 +765,8 @@ defmodule Aiur.AgentControlCLI do
               {:ok, config} ->
                 issue_ids
                 |> normalize_todo_ids()
-                |> queue_todo_issues(config, deps)
-                |> maybe_clear_other_todos(only?, config, deps)
+                |> queue_todo_issues(config, deps, budget)
+                |> maybe_clear_other_todos(only?, config, deps, budget)
                 |> maybe_request_todo_refresh(deps)
 
               {:error, reason} ->
@@ -786,9 +798,82 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.uniq()
   end
 
-  defp queue_todo_issues(issue_ids, config, deps) do
-    Enum.reduce(issue_ids, todo_result(), &queue_todo_issue(&1, &2, config, deps))
+  defp queue_todo_issues(issue_ids, config, deps, budget) do
+    issue_ids
+    |> Enum.with_index()
+    |> Enum.reduce_while(todo_result(), fn {issue_id, index}, result ->
+      if todo_budget_exhausted?(budget) do
+        {:halt, todo_budget_queue_halt(result, Enum.drop(issue_ids, index), budget)}
+      else
+        {:cont, queue_todo_issue(issue_id, result, config, deps)}
+      end
+    end)
   end
+
+  # A budget stop must read as a definite partial outcome, never as the silent
+  # truncation the 10s watchdog produced: name the tickets that were never
+  # touched and count them as failures so the exit code, the printed summary and
+  # the tracker all agree. Counting them also fails `--only` cleanup closed via
+  # the existing failure guard, so a half-queued request can never go on to
+  # dequeue everything else.
+  defp todo_budget_queue_halt(result, [], _budget), do: result
+
+  defp todo_budget_queue_halt(result, not_reached, budget) do
+    IO.puts(
+      :stderr,
+      "aiur: --todo stopped after its #{todo_budget_seconds(budget)}s daemon budget; #{length(not_reached)} requested ticket(s) not reached (#{todo_id_summary(not_reached)})"
+    )
+
+    IO.puts(:stderr, todo_budget_retry_hint())
+    Map.update!(result, :failures, &(&1 + length(not_reached)))
+  end
+
+  # Unlike @max_cleanup_batch — a documented, deterministic bound an operator can
+  # predict — a budget stop breaks `--only`'s contract that no other ticket is
+  # left queued. Exit non-zero so a script can tell the difference.
+  defp todo_budget_cleanup_halt(result, [], _budget), do: result
+
+  defp todo_budget_cleanup_halt(result, not_reached, budget) do
+    IO.puts(
+      :stderr,
+      "aiur: --only cleanup stopped after its #{todo_budget_seconds(budget)}s daemon budget; #{length(not_reached)} other ticket(s) left untouched"
+    )
+
+    IO.puts(:stderr, todo_budget_retry_hint())
+    Map.update!(result, :failures, &(&1 + length(not_reached)))
+  end
+
+  defp todo_budget_retry_hint do
+    "aiur: rerun to continue, or raise AIUR_CONTROL_RPC_TIMEOUT_SECONDS to allow a longer run"
+  end
+
+  # Keep the diagnostic one readable line even when a large batch is cut short.
+  @todo_id_summary_limit 10
+
+  defp todo_id_summary(ids) do
+    case Enum.split(ids, @todo_id_summary_limit) do
+      {shown, []} -> Enum.map_join(shown, ", ", &"##{&1}")
+      {shown, rest} -> Enum.map_join(shown, ", ", &"##{&1}") <> ", … and #{length(rest)} more"
+    end
+  end
+
+  defp todo_budget(budget_ms, deps) when is_integer(budget_ms) and budget_ms > 0 do
+    now_ms = todo_now_ms_fun(deps)
+    %{budget_ms: budget_ms, deadline_ms: now_ms.() + budget_ms, now_ms: now_ms}
+  end
+
+  defp todo_budget(_budget_ms, deps) do
+    %{budget_ms: nil, deadline_ms: nil, now_ms: todo_now_ms_fun(deps)}
+  end
+
+  defp todo_now_ms_fun(deps), do: Map.get(deps, :now_ms, &monotonic_now_ms/0)
+
+  defp monotonic_now_ms, do: System.monotonic_time(:millisecond)
+
+  defp todo_budget_seconds(%{budget_ms: budget_ms}), do: div(budget_ms + 999, 1000)
+
+  defp todo_budget_exhausted?(%{deadline_ms: nil}), do: false
+  defp todo_budget_exhausted?(%{deadline_ms: deadline_ms, now_ms: now_ms}), do: now_ms.() >= deadline_ms
 
   defp queue_todo_issue(issue_id, result, config, deps) do
     case deps.fetch_issue.(issue_id) do
@@ -846,9 +931,9 @@ defmodule Aiur.AgentControlCLI do
     Map.update!(result, :failures, &(&1 + 1))
   end
 
-  defp maybe_clear_other_todos(result, false, _config, _deps), do: result
+  defp maybe_clear_other_todos(result, false, _config, _deps, _budget), do: result
 
-  defp maybe_clear_other_todos(%{failures: failures} = result, true, _config, _deps)
+  defp maybe_clear_other_todos(%{failures: failures} = result, true, _config, _deps, _budget)
        when failures > 0 do
     IO.puts(
       :stderr,
@@ -858,12 +943,12 @@ defmodule Aiur.AgentControlCLI do
     result
   end
 
-  defp maybe_clear_other_todos(result, true, config, deps) do
+  defp maybe_clear_other_todos(result, true, config, deps, budget) do
     case deps.fetch_active.(config.active_states) do
       {:ok, issues} ->
         issues
         |> Enum.filter(&clearable_todo?(&1, result, config))
-        |> clear_other_todos(result, config, deps)
+        |> clear_other_todos(result, config, deps, budget)
 
       {:error, reason} ->
         IO.puts(:stderr, "aiur: failed to enumerate active tickets (#{format_reason(reason)})")
@@ -887,7 +972,7 @@ defmodule Aiur.AgentControlCLI do
   @max_cleanup_batch 50
   @max_consecutive_rate_limit_failures 3
 
-  defp clear_other_todos(candidates, result, config, deps) do
+  defp clear_other_todos(candidates, result, config, deps, budget) do
     {batch, skipped} = Enum.split(candidates, @max_cleanup_batch)
 
     if skipped != [] do
@@ -898,7 +983,15 @@ defmodule Aiur.AgentControlCLI do
     end
 
     {result, _consecutive_rate_limited} =
-      Enum.reduce_while(batch, {result, 0}, &clear_other_todo_step(&1, &2, config, deps))
+      batch
+      |> Enum.with_index()
+      |> Enum.reduce_while({result, 0}, fn {issue, index}, {result, consecutive_rate_limited} ->
+        if todo_budget_exhausted?(budget) do
+          {:halt, {todo_budget_cleanup_halt(result, Enum.drop(batch, index), budget), consecutive_rate_limited}}
+        else
+          clear_other_todo_step(issue, {result, consecutive_rate_limited}, config, deps)
+        end
+      end)
 
     result
   end
@@ -978,7 +1071,8 @@ defmodule Aiur.AgentControlCLI do
       fetch_active: &GitHubTracker.fetch_issues_by_states/1,
       add_label: &GitHubTracker.add_label/2,
       remove_label: &GitHubTracker.remove_label/2,
-      request_refresh: &Orchestrator.request_refresh/0
+      request_refresh: &Orchestrator.request_refresh/0,
+      now_ms: &monotonic_now_ms/0
     }
   end
 
