@@ -154,8 +154,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         working-directory: .
@@ -201,6 +199,13 @@ jobs:
           if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
             echo "No comparison base is available; checking the declared release."
           else
+            # Checkout is shallow and, for pull_request, lands on the merge ref,
+            # so neither comparison commit is guaranteed present. Fetch both
+            # explicitly and fail closed rather than skipping the npm lookup.
+            if ! git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"; then
+              echo "Could not fetch the comparison commits for the Claude adapter minimum-version diff." >&2
+              exit 1
+            fi
             if ! declaration_diff="$(git diff --unified=0 "$BASE_SHA" "$HEAD_SHA" -- src/lib/aiur/claude/adapter_health.ex)"; then
               echo "Could not read the Claude adapter minimum-version diff." >&2
               exit 1

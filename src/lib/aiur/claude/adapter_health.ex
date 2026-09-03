@@ -185,8 +185,9 @@ defmodule Aiur.Claude.AdapterHealth do
       "Aiur coordination tools (#{@missing_tools}). #{remediation(release_status)}"
   end
 
-  defp command_tokens(command) when is_binary(command), do: String.split(String.trim(command), ~r/\s+/, trim: true)
-  defp command_tokens(_command), do: []
+  # ClaudeConfig.command/0 always returns a binary; a surprise value raises and
+  # is caught by installed_version/1's rescue.
+  defp command_tokens(command), do: String.split(String.trim(command), ~r/\s+/, trim: true)
 
   defp find_executable(executable, opts) do
     Keyword.get(opts, :find_executable_fun, &System.find_executable/1).(executable)

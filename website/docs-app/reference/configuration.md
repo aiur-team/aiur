@@ -416,9 +416,11 @@ npm uninstall -g aiur-claude
 An adapter older than 1.1.0 can still run local headless Claude agents, but it
 does not provide Aiur's coordination tools. When Aiur observes that degraded
 session, it writes a durable needs-attention alert. A later healthy local
-headless Claude observation resolves the alert. This runtime check does not
-apply to Claude REPL, Remote Control, remote-worker, or custom-command sessions
-whose adapter capability Aiur cannot establish.
+headless Claude observation resolves the alert.
+
+This runtime check does not apply to Claude REPL, Remote Control,
+remote-worker, or custom-command sessions whose adapter capability Aiur cannot
+establish.
 
 ## agent.codex
 
