@@ -197,11 +197,30 @@ defmodule Aiur.Workflow do
     else
       case File.read(path) do
         {:ok, content} ->
-          parse(content, path)
+          load_content(content, path)
 
         {:error, reason} ->
           {:error, {:missing_workflow_file, path, reason}}
       end
+    end
+  end
+
+  @doc """
+  Loads a workflow from config bytes the caller has already read.
+
+  `Aiur.WorkflowStore` needs this because it also has to hash the config to
+  decide whether its cached workflow is still current. Reading the file once
+  for the workflow and again for the hash lets a write land between the two,
+  which pairs the pre-write workflow with the post-write hash — after which
+  every staleness check agrees the cache is fresh and the superseded config is
+  served until the file changes again.
+  """
+  @spec load_content(binary(), Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
+  def load_content(content, path) when is_binary(content) and is_binary(path) do
+    if legacy_config_path?(path) do
+      {:error, legacy_config_error(path)}
+    else
+      parse(content, path)
     end
   end
 

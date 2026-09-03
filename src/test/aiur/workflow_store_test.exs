@@ -38,6 +38,65 @@ defmodule Aiur.WorkflowStoreTest do
     assert {:ok, %{prewarm: %{base_build: "echo rebuilt"}}} = Config.settings()
   end
 
+  # Regression for #2519, and the concurrent-write sibling of #1214 above: the
+  # workflow and the digest that certifies it have to come from the *same* read
+  # of the config. `load_state/2` read the file twice — once through
+  # `Workflow.load/1` for the workflow, once through the stamp — so a write
+  # landing between the two paired the pre-write workflow with the post-write
+  # digest. From then on the store agreed with itself that its cache was
+  # current: every stamp comparison matched, `reload_current_path/2` skipped
+  # the reload, and it published the superseded config until the file happened
+  # to change again.
+  #
+  # The #2133 path fence cannot catch this one. It refuses a cache entry
+  # published under a *different* path, and here the path is entirely correct —
+  # only the content is a version behind.
+  #
+  # A companion process keeps the store loading the same file so the writes
+  # below have a window to land in; the assertion is simply that the store
+  # never serves a config older than the write that was awaited.
+  test "a write that lands between the load and the stamp cannot latch a stale config" do
+    ensure_workflow_store_running()
+
+    path = Workflow.workflow_file_path()
+    test_process = self()
+
+    reloader =
+      spawn(fn ->
+        send(test_process, :reloading)
+        reload_until_stopped()
+      end)
+
+    on_exit(fn ->
+      Process.exit(reloader, :kill)
+    end)
+
+    assert_receive :reloading, 5_000
+
+    for round <- 1..300 do
+      account = "latch-probe-#{round}"
+
+      write_workflow_file!(path,
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_bot_account: account
+      )
+
+      assert GitHubConfig.bot_account() == account,
+             "round #{round}: store served #{inspect(GitHubConfig.bot_account())} after an awaited " <>
+               "write of #{inspect(account)}; the config on disk is " <>
+               inspect(path |> File.read!() |> String.split("\n") |> Enum.find(&(&1 =~ "bot_account")))
+    end
+  end
+
+  defp reload_until_stopped do
+    if Process.whereis(WorkflowStore) do
+      _ = WorkflowStore.force_reload(5_000)
+    end
+
+    reload_until_stopped()
+  end
+
   # Regression for #1684: the store is a cache over one small config file, so a
   # stalled store must degrade to reading that file, never kill its caller. When
   # `:timeout` fell through the catch, `Config.settings!/0` — reached from the

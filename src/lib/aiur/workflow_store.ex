@@ -344,25 +344,56 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
+  # Read the config exactly once. The workflow and the digest that certifies it
+  # have to come from the same bytes: loading the workflow with one read and
+  # stamping with a second let an operator's save (or a test's rewrite) land
+  # between them, which paired the pre-write workflow with the post-write
+  # digest. From then on every `current_stamp/2` comparison matched, so
+  # `reload_current_path/2` skipped the reload and the superseded config was
+  # published — permanently, until the file happened to change again.
+  #
+  # `File.stat/2` still precedes the read, so mtime and size can be a beat
+  # behind the content. That direction is safe: a stale mtime can only make the
+  # next poll reload redundantly, never make it skip a reload it owed.
   defp load_state(path, attempts \\ @reload_attempts) do
-    with {:ok, workflow} <- Workflow.load(path),
-         {:ok, stamp, digest, aux} <- stamp_with_context(path, nil, nil) do
-      {:ok,
-       %State{
-         path: path,
-         stamp: stamp,
-         workflow: workflow,
-         config_digest: digest,
-         aux_paths: aux,
-         base_branch: base_branch_from(workflow)
-       }}
-    else
+    case read_and_parse(path) do
+      {:ok, stat, content, workflow} ->
+        digest = :erlang.phash2(content)
+        aux = resolve_aux_paths(path)
+
+        {:ok,
+         %State{
+           path: path,
+           stamp: stamp_for(stat, digest, aux),
+           workflow: workflow,
+           config_digest: digest,
+           aux_paths: aux,
+           base_branch: base_branch_from(workflow)
+         }}
+
       {:error, {:workflow_parse_error, _reason}} when attempts > 1 ->
         Process.sleep(@reload_retry_delay_ms)
         load_state(path, attempts - 1)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp read_and_parse(path) do
+    if Workflow.legacy_config_path?(path) do
+      {:error, Workflow.legacy_config_error(path)}
+    else
+      with {:ok, stat} <- File.stat(path, time: :posix),
+           {:ok, content} <- File.read(path),
+           {:ok, workflow} <- Workflow.load_content(content, path) do
+        {:ok, stat, content, workflow}
+      else
+        # Preserve the shape `Workflow.load/1` reported for an unreadable
+        # config, which callers and logs already match on.
+        {:error, reason} when is_atom(reason) -> {:error, {:missing_workflow_file, path, reason}}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -388,13 +419,17 @@ defmodule Aiur.WorkflowStore do
       digest = :erlang.phash2(content)
       aux = if digest == known_digest and is_map(known_aux), do: known_aux, else: resolve_aux_paths(path)
 
-      stamp =
-        {stat.mtime, stat.size, digest, file_stamp(aux.prompt), file_stamp(aux.hooks), file_stamp(aux.prewarm)}
-
-      {:ok, stamp, digest, aux}
+      {:ok, stamp_for(stat, digest, aux), digest, aux}
     else
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # The staleness stamp. `digest` must be the hash of the very bytes the
+  # accompanying workflow was parsed from — see `load_state/2` for what goes
+  # wrong when it is the hash of a later read of the same file.
+  defp stamp_for(stat, digest, aux) do
+    {stat.mtime, stat.size, digest, file_stamp(aux.prompt), file_stamp(aux.hooks), file_stamp(aux.prewarm)}
   end
 
   defp resolve_aux_paths(path) do
