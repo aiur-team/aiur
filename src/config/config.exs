@@ -70,6 +70,12 @@ if config_env() == :test do
   # tests start their own paused instances with injected ls_remote functions.
   config :aiur, :ls_remote_ticker_enabled?, false
 
+  # The shared app's BrokerTimeout monitor must not self-poll across sequential
+  # test boundaries (its periodic check would read retries recorded by other
+  # tests and emit degraded alerts into an unrelated test's isolated ledger).
+  # Tests drive `check/1` deterministically on their own instances.
+  config :aiur, :broker_timeout_check_interval_ms, 0
+
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
   config :aiur, :build_order_pack_status_poll?, false
