@@ -1194,7 +1194,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
           "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
       )
 
-      state
+      # Record the decline instead of only logging it. A ticket held here sits in
+      # "awaiting-dispatch" for as long as its blocker is open, and with nothing
+      # in `dispatch_declines` the status board and alert feed showed no reason at
+      # all — the operator saw an idle fleet and a stuck ticket with no link
+      # between them (#2545). Non-attention (info): a blocked ticket is normal
+      # dependency ordering, not a fault.
+      emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
     else
       do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
     end

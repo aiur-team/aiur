@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.{GitHub.Issues, Issue}
+  alias Aiur.{GitHub.Issues, Issue, Orchestrator.DispatchPolicy}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @origin_cache_key {Aiur.GitHub.Config, :resolved_origin_repo}
@@ -554,6 +554,28 @@ defmodule Aiur.GitHub.IssuesTest do
                  url: "https://github.com/owner/repo/issues/4"
                }
              ]
+    end
+
+    test "a hydrated closed blocker clears the dependency gate (#2545)" do
+      request_fun = fn %{method: :get, url: _url} ->
+        blockers = [
+          %{"number" => 3, "html_url" => "u3", "state" => "closed", "labels" => [%{"name" => "sym:done"}]},
+          %{"number" => 7, "html_url" => "u7", "state" => "closed", "labels" => []}
+        ]
+
+        {:ok, %{status: 200, body: blockers}}
+      end
+
+      issue = %Issue{id: "12", identifier: "12", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: blockers} = hydrated} =
+               Issues.hydrate_blocked_by(issue, request_fun: request_fun)
+
+      assert Enum.map(blockers, & &1.state) == ["Closed", "Closed"]
+
+      # The configured terminal set has no "closed" entry — the gate must still
+      # let the ticket through, or a closed GitHub blocker strands its blockee.
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     test "an open blocker with no agent state label hydrates as unknown (fail-closed at the gate)" do

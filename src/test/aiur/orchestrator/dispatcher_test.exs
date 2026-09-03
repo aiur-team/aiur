@@ -292,6 +292,83 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert log =~ "blocked by a non-terminal dependency"
     end
 
+    test "records a non-attention dependency decline instead of skipping silently" do
+      candidate = issue("dependency-held")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      hydrated = %{candidate | blocked_by: [%{id: "5", identifier: "5", state: "in-progress"}]}
+
+      declined =
+        Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> {:ok, hydrated} end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :dependency
+      refute Map.has_key?(declined.running, candidate.id)
+
+      assert_receive {:alert,
+                      %{
+                        name: "dispatch.candidate_declined",
+                        reason: reason,
+                        needs_attention: false,
+                        severity: "info"
+                      }},
+                     2_000
+
+      assert reason =~ "dependency"
+    end
+
+    test "a GitHub-closed blocker no longer holds dispatch" do
+      # The shipped default terminal set carries no "closed" entry — that is the
+      # whole defect. Pin it here so the test cannot pass on a fixture that
+      # happens to list "Closed".
+      restore_workflow_file_after_test()
+
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        max_concurrent_agents: 4,
+        tracker_terminal_states: ["Done", "Cancelled", "Canceled"]
+      )
+
+      test_pid = self()
+
+      candidate = %Issue{
+        id: "closed-blocker-ticket",
+        identifier: "repo#closed-blocker-ticket",
+        title: "ticket whose blockers are closed",
+        state: "todo",
+        selected_backend: "codex"
+      }
+
+      # Exactly the live shape `Aiur.GitHub.Client.hydrate_blocked_by/1` returns
+      # for blockers closed on GitHub.
+      hydrated = %{
+        candidate
+        | blocked_by: [%{id: "3", identifier: "3", state: "Closed"}, %{id: "7", identifier: "7", state: "Closed"}]
+      }
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.dispatch_issue(
+          %State{max_concurrent_agents: 4, effective_concurrent_agents: 4},
+          candidate,
+          nil,
+          nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> {:ok, hydrated} end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert dispatched.id == candidate.id
+      assert Map.has_key?(next_state.running, candidate.id)
+      refute Map.has_key?(next_state.dispatch_declines, candidate.id)
+    end
+
     test "holds dispatch (fail-closed) with an attention decline when hydration fails" do
       candidate = issue("hydration-failed")
       :ok = AgentPubSub.subscribe_agent(candidate.identifier)

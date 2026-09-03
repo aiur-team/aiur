@@ -781,6 +781,47 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
              )
     end
 
+    test "a GitHub-closed blocker is terminal and does not block a todo issue" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+
+      # `Aiur.GitHub.Issues.extract_state/2` resolves a closed GitHub issue to
+      # "Closed", which is not an `agent:*` label and so is absent from the
+      # configured terminal set. It must still count as terminal.
+      for closed_state <- ["Closed", "closed", "  CLOSED  "] do
+        blocked = issue("blocked", state: "todo", blocked_by: [%{state: closed_state}])
+
+        assert DispatchPolicy.terminal_issue_state?(closed_state, terminal_states)
+
+        refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states),
+               "expected blocker state #{inspect(closed_state)} to be terminal"
+      end
+    end
+
+    test "a closed blocker is terminal even when the terminal set is empty" do
+      blocked = issue("blocked", state: "todo", blocked_by: [%{state: "Closed"}])
+
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, MapSet.new())
+    end
+
+    test "configured terminal label states still clear the dependency gate" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+      blocked = issue("blocked", state: "todo", blocked_by: [%{state: "Done"}, %{state: "cancelled"}])
+
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states)
+
+      still_blocked = issue("blocked", state: "todo", blocked_by: [%{state: "Closed"}, %{state: "in-progress"}])
+
+      assert DispatchPolicy.todo_issue_blocked_by_non_terminal?(still_blocked, terminal_states)
+    end
+
+    test "a nil blocker state is still non-terminal alongside a closed blocker" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+      blocked = issue("blocked", state: "todo", blocked_by: [%{state: "Closed"}, %{state: nil}])
+
+      refute DispatchPolicy.terminal_issue_state?(nil, terminal_states)
+      assert DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states)
+    end
+
     test "normalizes issue state and slugs mixed case and whitespace" do
       assert DispatchPolicy.normalize_issue_state("  In Progress ") == "in progress"
       assert DispatchPolicy.normalize_issue_state(nil) == ""
