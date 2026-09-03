@@ -674,7 +674,7 @@ defmodule Aiur.AgentControlCLITest do
 
       {stdout, stderr, exit_code} =
         capture_todo(["11"],
-          deps: todo_deps(issues, active: active, now_ms: scripted_clock([0, 0, 0, 0, 100])),
+          deps: todo_deps(issues, active: active, now_ms: scripted_clock([0, 0, 0, 0, 0, 100])),
           budget_ms: 100,
           only: true,
           emit_exit_marker: true
@@ -689,6 +689,26 @@ defmodule Aiur.AgentControlCLITest do
       assert_received {:todo_remove_label, "20", "sym:todo"}
       assert_received {:todo_remove_label, "21", "sym:todo"}
       refute_received {:todo_remove_label, "22", _}
+    end
+
+    test "skips the active-ticket enumeration when queueing consumed the whole budget" do
+      issues =
+        Map.new(~w(11 12), fn id ->
+          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
+        end)
+
+      {stdout, stderr, exit_code} =
+        capture_todo(~w(11 12),
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 0, 100])),
+          budget_ms: 100,
+          only: true
+        )
+
+      assert exit_code == 1
+      assert stdout =~ "queued 2 ticket(s); cleared 0 other(s)"
+      assert stderr =~ "aiur: --only cleanup skipped; the 1s daemon budget elapsed while queueing the requested tickets"
+      refute_received {:todo_fetch_active, _}
+      refute_received {:todo_remove_label, _, _}
     end
 
     test "a budget that outlasts the work changes nothing about the outcome" do

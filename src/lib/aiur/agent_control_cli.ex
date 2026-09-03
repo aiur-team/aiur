@@ -944,6 +944,28 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp maybe_clear_other_todos(result, true, config, deps, budget) do
+    if todo_budget_exhausted?(budget) do
+      todo_budget_enumeration_halt(result, budget)
+    else
+      fetch_and_clear_other_todos(result, config, deps, budget)
+    end
+  end
+
+  # The active-ticket enumeration is the most expensive call on this path — a
+  # paginated search across every active state. Once the budget is gone, paying
+  # for it only to halt at the first DELETE would burn the grace window the
+  # launcher left us for reporting the outcome.
+  defp todo_budget_enumeration_halt(result, budget) do
+    IO.puts(
+      :stderr,
+      "aiur: --only cleanup skipped; the #{todo_budget_seconds(budget)}s daemon budget elapsed while queueing the requested tickets"
+    )
+
+    IO.puts(:stderr, todo_budget_retry_hint())
+    Map.update!(result, :failures, &(&1 + 1))
+  end
+
+  defp fetch_and_clear_other_todos(result, config, deps, budget) do
     case deps.fetch_active.(config.active_states) do
       {:ok, issues} ->
         issues
