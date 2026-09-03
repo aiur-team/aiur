@@ -51,7 +51,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
       |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
-    start_supervised!({Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, previous_endpoint)

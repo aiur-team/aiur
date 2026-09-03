@@ -139,7 +139,7 @@ defmodule AiurWeb.GithubCacheLiveTest do
       |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
-    start_supervised!({Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
 
     on_exit(fn ->
       Source.uninstall()

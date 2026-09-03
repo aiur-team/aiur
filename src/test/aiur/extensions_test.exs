@@ -1590,7 +1590,7 @@ defmodule Aiur.ExtensionsTest do
       |> Keyword.merge(overrides)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
-    start_supervised!({AiurWeb.Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
   end
 
   defp start_static_payload_provider(id, responses) do
