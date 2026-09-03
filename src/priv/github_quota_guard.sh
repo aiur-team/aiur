@@ -1915,6 +1915,20 @@ budget_diagnostic_line() {
   unset budget_diagnostic
 }
 
+# Whether the broker's own diagnostic says it could not reach its storage. Only
+# then is the ownership/permissions/writableRoots recovery text the right advice:
+# it IS the fix for a budget root the sandbox never granted, and it is noise for
+# a broker that opened the ledger fine and aborted on something else. Matching on
+# what the broker actually reported is what keeps this from becoming the blanket
+# misdiagnosis it replaced (#2499).
+budget_storage_failure() {
+  case "$1" in
+    *"unable to open database file"*|*"readonly database"*|*"read-only database"*) return 0 ;;
+    *"Permission denied"*|*"permission denied"*|*"Errno 13"*|*"disk I/O error"*) return 0 ;;
+  esac
+  return 1
+}
+
 valid_budget_lease() {
   case "$1" in ''|*[!0-9abcdef]*) return 1 ;; esac
   [ "${#1}" -eq 32 ]
@@ -1995,9 +2009,19 @@ budget_acquire() {
       # that aborted on its own — a SQLite error, a Python traceback — that is a
       # confident misdiagnosis, and it sent readers to repair a directory the
       # caller had just created successfully (#2499). The captured output is the
-      # evidence; the root is a locator, not a diagnosis.
-      printf 'aiur: GitHub budget broker unavailable (%s; budget root %s); refusing uncoordinated request\n' \
-        "$(budget_diagnostic_line "$budget_result")" "$budget_root" >&2
+      # evidence; the root is a locator, not a diagnosis. The recovery text is
+      # kept for the one case it actually diagnoses — a broker that could not
+      # reach its storage — so a genuinely ungranted budget root still tells the
+      # operator how to repair it.
+      budget_failure=$(budget_diagnostic_line "$budget_result")
+      if budget_storage_failure "$budget_failure"; then
+        printf 'aiur: GitHub budget broker unavailable (%s; %s); refusing uncoordinated request\n' \
+          "$budget_failure" "$budget_recovery" >&2
+      else
+        printf 'aiur: GitHub budget broker unavailable (%s; budget root %s); refusing uncoordinated request\n' \
+          "$budget_failure" "$budget_root" >&2
+      fi
+      unset budget_failure
       return 75
     fi
     unset budget_ignore_flag budget_cache_flags
