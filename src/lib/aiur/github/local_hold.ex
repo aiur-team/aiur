@@ -62,7 +62,7 @@ defmodule Aiur.GitHub.LocalHold do
 
   require Logger
 
-  alias Aiur.GitHub.Errors
+  alias Aiur.GitHub.{BrokerTimeout, Errors}
 
   @max_wait_ms 60_000
   @max_waits 3
@@ -95,14 +95,17 @@ defmodule Aiur.GitHub.LocalHold do
   an exponential backoff starting at `backoff_base_ms/0`.
 
   `opts` accepts `:sleep_fun` (default `&Process.sleep/1`), `:max_wait_ms`
-  and `:max_waits` for test injection and per-site tuning.
+  and `:max_waits` for test injection and per-site tuning, and
+  `:broker_timeout_recorder` (default `&BrokerTimeout.record/0`) which is
+  called on every broker-timeout backoff to feed the retry-rate signal (#2464).
   """
   @spec run((-> term()), keyword()) :: term()
   def run(attempt_fun, opts \\ []) when is_function(attempt_fun, 0) do
     max_wait_ms = Keyword.get(opts, :max_wait_ms, @max_wait_ms)
     max_waits = Keyword.get(opts, :max_waits, @max_waits)
     sleep_fun = Keyword.get(opts, :sleep_fun, &Process.sleep/1)
-    do_run(attempt_fun, max_wait_ms, max_waits, sleep_fun, 0)
+    recorder = Keyword.get(opts, :broker_timeout_recorder, &BrokerTimeout.record/0)
+    do_run(attempt_fun, max_wait_ms, max_waits, sleep_fun, 0, recorder)
   end
 
   @doc false
@@ -115,7 +118,8 @@ defmodule Aiur.GitHub.LocalHold do
     [
       sleep_fun: Keyword.get(opts, :local_hold_sleep_fun, &Process.sleep/1),
       max_wait_ms: Keyword.get(opts, :local_hold_max_wait_ms, max_wait_ms()),
-      max_waits: Keyword.get(opts, :local_hold_max_waits, max_waits())
+      max_waits: Keyword.get(opts, :local_hold_max_waits, max_waits()),
+      broker_timeout_recorder: Keyword.get(opts, :local_hold_broker_timeout_recorder, &BrokerTimeout.record/0)
     ]
   end
 
@@ -137,13 +141,14 @@ defmodule Aiur.GitHub.LocalHold do
 
   # `retries` is the number of waits already consumed, so the broker-timeout
   # backoff can grow exponentially across consecutive retries.
-  defp do_run(attempt_fun, max_wait_ms, max_waits, sleep_fun, retries) do
+  defp do_run(attempt_fun, max_wait_ms, max_waits, sleep_fun, retries, recorder) do
     case attempt_fun.() do
       {:error, error} = full_error ->
         case retry_plan(error, max_wait_ms, max_waits, retries) do
           {:wait, wait_ms, detail} ->
+            maybe_record_broker_timeout(detail, recorder)
             log_and_sleep(detail, wait_ms, sleep_fun)
-            do_run(attempt_fun, max_wait_ms, max_waits - 1, sleep_fun, retries + 1)
+            do_run(attempt_fun, max_wait_ms, max_waits - 1, sleep_fun, retries + 1, recorder)
 
           :keep ->
             full_error
@@ -153,6 +158,18 @@ defmodule Aiur.GitHub.LocalHold do
         other
     end
   end
+
+  # Every broker-timeout backoff feeds the retry-rate signal (#2464): the
+  # individual retry is uninteresting, the rate is the whole signal. Local holds
+  # carry a `hold` map and are deliberately not recorded — they are a different
+  # fault with their own visibility. The recorder is injectable so the signal
+  # stays observable in tests without coupling to the running monitor.
+  defp maybe_record_broker_timeout(%{reason: :github_budget_broker_timeout}, recorder)
+       when is_function(recorder, 0) do
+    recorder.()
+  end
+
+  defp maybe_record_broker_timeout(_detail, _recorder), do: :ok
 
   # Decides whether a budget-layer fault is worth waiting out. The transient
   # verdict routes through `Errors.retryable_github_error?/1` — the single

@@ -268,5 +268,44 @@ defmodule Aiur.GitHub.LocalHoldTest do
       assert Agent.get(counter, & &1) == 2
       assert_receive {:sleep, _}
     end
+
+    # #2464: every broker-timeout backoff feeds the retry-rate signal; the
+    # individual retry is uninteresting but it is the raw count a future
+    # investigation queries. The recorder is injectable so the assertion is on
+    # the retry path calling it, not on the running monitor.
+    test "each broker-timeout backoff records the retry-rate signal" do
+      {:ok, records} = Agent.start_link(fn -> 0 end)
+
+      recorder = fn -> Agent.update(records, &(&1 + 1)) end
+
+      # Always times out: the operation fails closed after the cap, and every
+      # wait along the way is a broker-timeout backoff that must record.
+      assert {:error, {:github, :timeout, %{reason: :github_budget_broker_timeout}}} =
+               LocalHold.run(
+                 fn -> broker_timeout_error() end,
+                 sleep_fun: fn _ -> :ok end,
+                 broker_timeout_recorder: recorder
+               )
+
+      # One record per wait, i.e. `max_waits` total — the fail-closed final
+      # attempt is not a retry and records nothing.
+      assert Agent.get(records, & &1) == LocalHold.max_waits()
+    end
+
+    # #2464: the retry-rate signal is specific to the broker timeout. A local
+    # hold is a different fault with its own visibility; counting it as a
+    # broker-timeout retry would inflate the rate with a benign condition.
+    test "a local hold backoff does not record the broker-timeout signal" do
+      reset_at = DateTime.add(DateTime.utc_now(), 1, :second)
+      error = classified_error(reset_at)
+
+      LocalHold.run(
+        fn -> error end,
+        sleep_fun: fn _ -> :ok end,
+        broker_timeout_recorder: fn -> flunk("a local hold must not record the broker-timeout signal") end
+      )
+
+      assert true
+    end
   end
 end
