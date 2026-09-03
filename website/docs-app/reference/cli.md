@@ -52,7 +52,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 
-When `aiur init` creates `.github/workflows/ci.yml`, its placeholder `ci / required` job fails closed. Replace the placeholder with the repository's real test command and confirm it passes on a pull request before opening **Settings → Rules → Rulesets** and requiring that check for the configured base branch. Then rerun `aiur init` to verify the complete gate.
+When `aiur init` creates `.github/workflows/ci.yml`, its placeholder `ci / required` job fails closed. Replace the placeholder with the real test command and confirm it passes on a pull request before opening **Settings → Rules → Rulesets** and requiring that check for the configured base branch. Then rerun `aiur init` to verify the complete gate.
 
 | Launch choice | Behavior |
 | --- | --- |
