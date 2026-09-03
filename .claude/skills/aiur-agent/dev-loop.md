@@ -197,33 +197,80 @@ blocking finding is the only enforcement they have.
    `its-everdred` already carry that credit and need no trailer. **Never** mention
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
-7. Push to the exact branch returned by `git -C "$workspace" branch --show-current`. On GitHub,
-   `GITHUB_TOKEN` is the push identity: verify that exact token resolves to the
-   configured `tracker.github.bot_account` before the first push, without
-   printing the token:
+7. Push to the exact branch returned by `git -C "$workspace" branch --show-current`.
+   Agent processes deliberately do not inherit `GITHUB_TOKEN` or `GH_TOKEN`;
+   that absence is the #2356 security contract, not an authentication failure.
+   The governed `gh` and `git` wrappers authenticate from the file named by
+   `AIUR_GITHUB_CREDENTIAL_FILE`. Before the first push, verify that variable is
+   set, its resolved path is a regular non-empty file, and the governed `gh`
+   wrapper resolves it to the configured `tracker.github.bot_account`, without
+   printing or exporting the token:
 
    ```bash
-   test "$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login)" = "<bot_account>"
+   test -n "${AIUR_GITHUB_CREDENTIAL_FILE:-}" || {
+     printf '%s\n' 'AIUR_GITHUB_CREDENTIAL_FILE is unset; the agent GitHub credential file cannot be located' >&2
+     exit 1
+   }
+   test -f "$AIUR_GITHUB_CREDENTIAL_FILE" && test -s "$AIUR_GITHUB_CREDENTIAL_FILE" || {
+     printf 'GitHub credential file is missing or empty: %s\n' "$AIUR_GITHUB_CREDENTIAL_FILE" >&2
+     exit 1
+   }
+   if github_auth_output="$(gh api user --jq .login 2>&1)"; then
+     github_auth_status=0
+   else
+     github_auth_status=$?
+   fi
+   if test "$github_auth_status" -ne 0; then
+     case "$github_auth_output" in
+       'aiur: github budget hold resource=core reset_at_ms='*|\
+       'aiur: github budget hold resource=graphql reset_at_ms='*)
+         printf '%s\n' "$github_auth_output" >&2
+         printf '%s\n' 'Follow the existing github_budget_hold pause.request protocol below; do not raise a credential attention.' >&2
+         ;;
+       *)
+         printf 'GitHub credential file could not authenticate: %s\n' "$AIUR_GITHUB_CREDENTIAL_FILE" >&2
+         ;;
+     esac
+     exit "$github_auth_status"
+   fi
+   actual_login="$github_auth_output"
+   test "$actual_login" = "<bot_account>" || {
+     printf 'GitHub credential file %s authenticates as %s; expected %s\n' \
+       "$AIUR_GITHUB_CREDENTIAL_FILE" "$actual_login" "<bot_account>" >&2
+     exit 1
+   }
    ```
 
-   Aiur's command sandbox passes that token through a fail-closed Git helper;
-   it never falls through to the Executor's cached `gh` account. If a manual
-   recovery push runs outside that sandbox, reset the helper list explicitly
-   and install a helper that reads only `GITHUB_TOKEN`:
+   Aiur's command sandbox reads that file through a fail-closed Git helper; it
+   never falls through to the Executor's cached `gh` account. If a manual
+   recovery push runs outside that sandbox, clear inherited GitHub credential
+   helpers and authorization headers, then install a helper that reads only
+   `AIUR_GITHUB_CREDENTIAL_FILE`:
 
    ```bash
-   agent_helper='!f() { if test "$1" = get; then if test -z "${GITHUB_TOKEN:-}"; then printf "quit=true\n"; else printf "username=x-access-token\npassword=%s\n" "$GITHUB_TOKEN"; fi; fi; }; f'
-   GIT_TERMINAL_PROMPT=0 git -C "$workspace" -c credential.helper= -c credential.helper="$agent_helper" push origin HEAD
+   agent_helper='!f() { if test "$1" = get; then t=""; f="${AIUR_GITHUB_CREDENTIAL_FILE:-}"; if test -n "$f" && test -f "$f"; then t=$(sed -n "1p" "$f" 2>/dev/null || true); fi; if test -z "$t"; then printf "quit=true\n"; else printf "username=x-access-token\npassword=%s\n" "$t"; fi; fi; }; f'
+   GIT_TERMINAL_PROMPT=0 git -C "$workspace" \
+     -c credential.https://github.com.helper= \
+     -c credential.https://github.com.helper="$agent_helper" \
+     -c http.https://github.com/.extraheader= \
+     push origin HEAD
    ```
 
    Do not put a token in a remote URL or rely on a lone inline helper override:
    token URLs leak credentials, and helper lists are additive unless an empty
    entry resets inherited helpers first. GitHub attributes the push to the
-   account owning the token, regardless of the URL username. If the token is
-   missing, invalid, or rate-limited, stop on the authentication failure; never
-   retry through the Executor keyring. An empty commit or API ref update does
-   not repair a prior attribution error because it contributes no reviewable
-   file change; the next real content push must use the correct identity.
+   account owning the token, regardless of the URL username. If the credential
+   file is missing, empty, invalid, or rate-limited, stop on the authentication
+   failure; never retry through the Executor keyring and never re-export its
+   contents as `GITHUB_TOKEN` or `GH_TOKEN`. Any failure message or attention
+   must name `AIUR_GITHUB_CREDENTIAL_FILE` and its resolved path, not a scrubbed
+   variable. This is an operational, reversible credential problem, not an
+   operator decision; if a Command is genuinely required, classify it
+   `supervisor_allowed` + `reversible`, never `human_required` or `irreversible`.
+   Do not pause or raise a Command merely because `GITHUB_TOKEN`/`GH_TOKEN` are
+   absent. An empty commit or API ref update does not repair a prior attribution
+   error because it contributes no reviewable file change; the next real content
+   push must use the correct identity.
 
    A guard refusal reading `aiur: github budget hold resource=<resource>
    reset_at_ms=<milliseconds>` is not an authentication failure. Do not emit a

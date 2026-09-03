@@ -449,6 +449,15 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
       assert_receive {:worker_control_state, "gid-sc-03", :paused, ^pause_payload}, 2_000
     end
 
+    test "uses a cause-neutral fallback when a worker pause has no reason" do
+      issue = %Issue{id: "gid-sc-unknown"}
+
+      MessageHandler.send_control_state(self(), issue, :paused, %{})
+
+      assert_receive {:worker_control_state, "gid-sc-unknown", :paused, %{kind: :worker_pause_unknown}},
+                     2_000
+    end
+
     test "no-ops for a nil recipient" do
       issue = %Issue{id: "gid-sc-03"}
       assert :ok = MessageHandler.send_control_state(nil, issue, :paused)

@@ -2,7 +2,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, Publisher}
-  alias Aiur.GitHub.CodeOwners
+  alias Aiur.GitHub.{CodeOwners, ResourceStore}
   alias Aiur.Workflow
 
   setup do
@@ -23,6 +23,20 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       for pattern <- Exchange.bindings_for(self()) do
         Exchange.unsubscribe(pattern)
+      end
+
+      # This suite publishes reviews and comments through the shared
+      # `Publisher`, which marks them in `ResourceStore` and records their
+      # dedup keys in the volatile `Publisher.Dedup` window. Neither is cleared
+      # per test anywhere else, so a sibling suite that publishes the same
+      # review ids (e.g. `WebhookPollReconciliationTest`) would be silently
+      # suppressed by the leaked marks/keys when this suite runs first. Clean
+      # both up so the shared state is self-contained per module.
+      ResourceStore.reset()
+
+      case :ets.whereis(Aiur.Events.Publisher.Dedup) do
+        :undefined -> :ok
+        table -> :ets.delete_all_objects(table)
       end
     end)
 
