@@ -4,7 +4,7 @@ defmodule Aiur.Init.Resume do
   """
 
   alias Aiur.Config
-  alias Aiur.Init.{ElevenLabs, Format, Prewarm, Questions}
+  alias Aiur.Init.{ElevenLabs, Format, Prewarm, Questions, ResumeSummary}
 
   @spec print_saved_summary(Aiur.Init.io(), map()) :: :ok
   def print_saved_summary(io, config) do
@@ -27,7 +27,7 @@ defmodule Aiur.Init.Resume do
        github_summary_lines(tracker["github"] || %{}) ++
        [
          "agent: #{agent["kind"]}",
-         "routing: #{format_routing(agent["routing"])}",
+         "routing: #{ResumeSummary.format_routing(agent["routing"])}",
          permission_mode && "permission_mode: #{permission_mode}",
          "max_concurrent_agents: #{agent["max_concurrent_agents"]}",
          "max_turns: #{agent["max_turns"]}",
@@ -35,8 +35,9 @@ defmodule Aiur.Init.Resume do
          "workspace_root: #{workspace["root"]}",
          "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
          "polling_interval_seconds: #{polling["interval_seconds"]}",
-         alerts_summary_line(config),
-         config["elevenlabs"] && "elevenlabs_voice_input: #{elevenlabs_key_state(config["elevenlabs"])}",
+         ResumeSummary.prewarm_line(config["prewarm"]),
+         ResumeSummary.alerts_line(config),
+         ResumeSummary.optional_section_line("elevenlabs_voice_input", config["elevenlabs"], &ResumeSummary.elevenlabs_key_state/1),
          config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
        ])
     |> Enum.reject(&is_nil/1)
@@ -52,28 +53,11 @@ defmodule Aiur.Init.Resume do
     ]
   end
 
-  @spec alerts_summary_line(map()) :: String.t() | nil
-  def alerts_summary_line(config) do
-    case config["alerts"] do
-      %{"enabled" => enabled} -> "alerts: #{enabled}"
-      _ -> nil
-    end
-  end
-
-  # The ElevenLabs credential is a secret, so the readback reports only whether
-  # one is configured — never the value (nor the env reference's resolved key).
-  @spec elevenlabs_key_state(map() | term()) :: String.t()
-  def elevenlabs_key_state(%{"api_key" => key}) when is_binary(key) and key != "", do: "api_key set"
-  def elevenlabs_key_state(_elevenlabs), do: "api_key not set"
-
   @spec format_routing(map() | term()) :: String.t()
-  def format_routing(routing) when is_map(routing) do
-    routing
-    |> Enum.sort_by(fn {level, _} -> to_string(level) end)
-    |> Enum.map_join(", ", fn {level, value} -> "#{level}:#{value}" end)
-  end
+  defdelegate format_routing(routing), to: ResumeSummary
 
-  def format_routing(_routing), do: ""
+  @spec alerts_summary_line(map()) :: String.t() | nil
+  defdelegate alerts_summary_line(config), to: ResumeSummary, as: :alerts_line
 
   @spec tracker_from_config(Aiur.Init.deps(), map(), keyword()) :: map()
   def tracker_from_config(deps, config, context \\ []) do
@@ -133,7 +117,7 @@ defmodule Aiur.Init.Resume do
   #   * `label`     — human name for the "Added …" confirmation line
   #   * `prompt`    — `(io, deps, location) -> answer`; the fresh-setup prompt
   #   * `opted_in?` — `(answer) -> boolean`; did the user choose to add it?
-  #   * `to_yaml`   — `(answer) -> iodata`; the YAML block to append on opt-in
+  #   * `to_yaml`   — `(answer) -> iodata`; the accepted or declined YAML block
   #   * `first_run` — `(io, deps, target, tracker, answer) -> any`; one-time side
   #                   effect after the block is appended (gets the config target
   #                   so it can write sibling files, e.g. the `prewarm` script)
@@ -160,9 +144,9 @@ defmodule Aiur.Init.Resume do
   end
 
   # For each registered section the saved config lacks, reuse its fresh-setup
-  # prompt to offer adding it. On opt-in, append the rendered block to the
-  # existing file (never regenerate — hand-tuned settings stay put) and run the
-  # section's one-time side effect. Declining leaves the config untouched.
+  # prompt to offer adding it. Append the accepted or declined block to the
+  # existing file (never regenerate — hand-tuned settings stay put), and run
+  # the section's one-time side effect only for accepted answers.
   @spec backfill_missing_sections(Aiur.Init.io(), Aiur.Init.deps(), atom(), map(), map(), Path.t()) :: :ok
   def backfill_missing_sections(io, deps, location, tracker, config, target) do
     promptable_sections()
@@ -177,9 +161,9 @@ defmodule Aiur.Init.Resume do
   def offer_section(io, deps, location, tracker, target, section) do
     answer = section.prompt.(io, deps, location)
 
-    # Only run the one-time side effect once the section actually persisted —
-    # mirrors fresh setup, which builds the warm base only on a successful write.
-    if section.opted_in?.(answer) and append_section(io, deps, target, section, answer) == :ok do
+    # Only run the one-time side effect for an accepted answer after the section
+    # actually persisted — mirrors fresh setup's warm-base behavior.
+    if append_section(io, deps, target, section, answer) == :ok and section.opted_in?.(answer) do
       section.first_run.(io, deps, target, tracker, answer)
     end
   end

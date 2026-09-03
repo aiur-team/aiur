@@ -121,18 +121,11 @@ defmodule Aiur.Init.Templates do
 
   defp prewarm_base_build_file_line(_), do: ""
 
-  # The whole section, from the one renderer the resume backfill also uses, so
-  # both init paths write the same block. Declining renders nothing — the
-  # written config then has no `elevenlabs` key at all, which is what lets a
-  # later `aiur init` resume offer voice input again. The token sits alone at
-  # column 0 in the example, so the block owns its own comments, indentation and
-  # trailing newline and starts with the blank line that separates it from the
-  # section above; declining collapses the token line to that separator alone.
+  # The whole section comes from the renderer shared with resume backfill, so
+  # both init paths persist the same accepted-or-declined state. The token sits
+  # alone at column 0; the block owns its comments, indentation and newline.
   defp elevenlabs_section(answer) do
-    case IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(answer)) do
-      "" -> ""
-      block -> "\n" <> block
-    end
+    "\n" <> IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(answer))
   end
 
   defp tracker_provider_block(%{kind: "github"} = github) do

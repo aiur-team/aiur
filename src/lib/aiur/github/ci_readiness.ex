@@ -9,7 +9,7 @@ defmodule Aiur.GitHub.CiReadiness do
 
   alias Aiur.{Config, Workflow}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.GitHub.{Errors, Transport}
+  alias Aiur.GitHub.{Errors, RepositoryAccess, Transport}
 
   @ruleset_page_limit 20
   @workflow_page_limit 20
@@ -87,6 +87,11 @@ defmodule Aiur.GitHub.CiReadiness do
   @doc false
   @spec unavailable(String.t(), term()) :: result()
   def unavailable(base_branch, reason) when is_binary(base_branch), do: result(base_branch, [], [], [], [{:unavailable, reason}])
+
+  @doc "Formats a repository-readiness failure for an operator without exposing credentials."
+  @spec error_message(term()) :: String.t()
+  def error_message(reason),
+    do: RepositoryAccess.error_message(reason) || "Repository CI readiness could not be inspected: #{inspect(reason)}"
 
   @doc false
   @spec cache_result(result(), keyword()) :: :ok
@@ -396,8 +401,8 @@ defmodule Aiur.GitHub.CiReadiness do
       when is_function(request_fun, 1) and is_binary(token) and is_binary(base_branch) do
     base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
 
-    with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
-         {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url),
+    with {:ok, default_branch} <- fetch_default_branch(request_fun, token, base_url, owner, repo),
+         :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{encode_path_component(base_branch)}"),
          {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{encode_query_value(base_branch)}") do
       inspect_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries, opts)
     else
@@ -439,19 +444,36 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_default_branch(request_fun, token, base_url) do
+  defp fetch_default_branch(request_fun, token, base_url, owner, repo) do
     # #2298 item 5: repo-configuration reads carry `caller: "ci_readiness"` so
     # they are attributed. The bare `/repos/{owner}/{repo}` URL stays
     # unclassified in ReadCache (it is the auth-preflight probe), while the
     # config sub-paths (`/branches/…`, `/contents/.github/workflows`,
     # `/actions/workflows`, `/rulesets`) are classified as `:repo_config`.
-    case request_fun.(%{method: :get, url: base_url, token: token, caller: "ci_readiness"}) do
-      {:ok, %{status: 200, body: %{"default_branch" => branch}}} when is_binary(branch) -> {:ok, branch}
-      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
-      {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
-      _ -> {:error, :invalid_repository_response}
+    case request(request_fun, %{method: :get, url: base_url, token: token, caller: "ci_readiness"}) do
+      {:ok, %{status: 200, body: %{"default_branch" => branch}}} when is_binary(branch) ->
+        {:ok, branch}
+
+      {:ok, %{status: 404} = response} ->
+        RepositoryAccess.classify_not_found(fn request -> request(request_fun, request) end, token, owner, repo, response)
+
+      {:ok, %{status: _} = response} ->
+        response
+        |> Errors.github_status_error()
+        |> classify_repository_error()
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+
+      _ ->
+        {:error, :invalid_repository_response}
     end
   end
+
+  defp classify_repository_error({:github, :http, %{status: 403}} = reason),
+    do: {:error, {:repository_access_failed, reason}}
+
+  defp classify_repository_error(reason), do: {:error, reason}
 
   @doc "Pure readiness decision used by the HTTP adapter and tests."
   @spec evaluate(String.t(), [{String.t(), String.t()}], [String.t() | map()]) :: result()
@@ -505,12 +527,12 @@ defmodule Aiur.GitHub.CiReadiness do
         name: #{required_check_name}
         runs-on: ubuntu-latest
         steps:
-          - run: echo 'Replace this with your project test command.'
+          - run: echo 'Replace this with your project test command.' >&2; exit 1
     """
   end
 
   defp branch_exists?(request_fun, token, url) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: status}} when status in 200..299 -> :ok
       {:ok, %{status: 404}} -> {:error, :base_branch_missing}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
@@ -519,7 +541,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_list(request_fun, token, url) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: body}} when is_list(body) -> {:ok, body}
       {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
@@ -548,7 +570,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_workflow_state_page(request_fun, token, base_url, url, pages_left, seen, states) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"workflows" => workflows}} = response} when is_list(workflows) ->
         states =
           Map.merge(
@@ -617,7 +639,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp workflow_entries?(entries), do: Enum.any?(entries, &(Map.get(&1, "type") == "file" and workflow_path?(Map.get(&1, "path", ""))))
 
   defp fetch_workflow(request_fun, token, entry, base_branch) do
-    case request_fun.(%{method: :get, url: workflow_url(entry, base_branch), token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: workflow_url(entry, base_branch), token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: %{"content" => content}}} when is_binary(content) ->
         decode_workflow(entry, content)
 
@@ -655,7 +677,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_protection_checks(request_fun, token, protection_url) do
-    case request_fun.(%{method: :get, url: protection_url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: protection_url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: protection}} -> {:ok, required_checks_from(protection)}
       {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
@@ -690,7 +712,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_ruleset_page(request_fun, token, base_url, url, pages_left, seen, acc) do
-    case request_fun.(%{method: :get, url: url, token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: rulesets} = response} when is_list(rulesets) ->
         continue_ruleset_page(
           Transport.parse_next_page_url(Map.get(response, :headers, %{})),
@@ -738,7 +760,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp fetch_ruleset_detail(request_fun, token, base_url, %{"id" => id}) when is_integer(id) or is_binary(id) do
-    case request_fun.(%{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token, caller: "ci_readiness"}) do
+    case request(request_fun, %{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: detail}} when is_map(detail) -> {:ok, detail}
       {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
@@ -1052,6 +1074,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp encode_path_component(value), do: URI.encode(value, &URI.char_unreserved?/1)
   defp encode_query_value(value), do: URI.encode(value, &URI.char_unreserved?/1)
   defp valid_name?(value), do: is_binary(value) and String.trim(value) != ""
+  defp request(request_fun, request), do: request_fun.(Map.put(request, :credential_pinned?, true))
   defp maybe_add(issues, true, issue), do: issues ++ [issue]
   defp maybe_add(issues, false, _issue), do: issues
 

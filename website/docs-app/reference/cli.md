@@ -34,8 +34,8 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | --- | --- | --- |
 | `aiur` | Attaches to this repository's live tmux session when one exists; otherwise starts a foreground interactive run. Attachment does not create a second run or take teardown ownership, so detaching leaves the daemon healthy. | `aiur` |
 | `aiur run` | Explicit foreground launch form. `--bg` makes it headless; `--interactive` restores terminal panes in a background session. | `aiur run --bg` |
-| `aiur init` | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. It also asks whether to enable Stream Deck voice input with ElevenLabs speech-to-text; answering yes writes the `elevenlabs` section, defaulting the key to the `$ELEVENLABS_API_KEY` environment reference. A resumed `aiur init` offers the same question when the saved config predates the section. | `aiur init` |
-| `aiur init --force` | Recreates generated configuration. Re-running without it preserves existing scaffold files. | `aiur init --force` |
+| `aiur init` | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. Optional choices are recorded when accepted or declined, so resumed setup reports and skips decisions already made. Claude adapter setup preserves an installed version that meets Aiur's minimum and uses a version-safe source when installation is needed. For GitHub repositories, init explains that a pull-request workflow runs checks while a required status check blocks failed work from merging; it stops on repository-access or base-branch errors before offering downstream CI scaffolding, and authorization-masked organization 404s produce token-specific recovery guidance. | `aiur init` |
+| `aiur init --force` | Recreates generated configuration and explicitly re-runs setup choices. Re-running without it preserves existing scaffold files and recorded declines. | `aiur init --force` |
 | `aiur --todo 142 143` | Requires a running daemon and one or more numeric IDs, with commas also accepted. A stopped daemon exits nonzero. | `aiur --todo 142,143` |
 | `aiur --todo 142 --only` | Queues the named IDs and asks GitHub to remove `agent:todo` from other pending tickets. It is GitHub-only, is bounded to 50 cleanup targets, and stops after three consecutive rate-limit failures. Cleanup is skipped if a requested ID fails, so the operation does not silently dequeue work after a bad request. | `aiur --todo 142 --only` |
 | `aiur --bg` | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
@@ -51,6 +51,8 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --logs-root /var/log/aiur` | Overrides the daemon log root for this launch. | `aiur --logs-root /var/log/aiur` |
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
+
+When `aiur init` creates `.github/workflows/ci.yml`, its placeholder `ci / required` job fails closed. Replace the placeholder with the real test command and confirm it passes on a pull request before opening **Settings → Rules → Rulesets** and requiring that check for the configured base branch. Then rerun `aiur init` to verify the complete gate.
 
 | Launch choice | Behavior |
 | --- | --- |
@@ -285,7 +287,7 @@ Dismissing a Command closes it and moves it to history. If the Command's agent i
 | --- | --- |
 | **Dispatch needs `agent:todo`.** | `AGENTS 0/32 (binding: ticket supply)` means a recent poll found no queued ticket. If it instead reads `has not polled yet (POLL backed off...)`, the daemon has not looked recently — run `aiur --todo <id>`, add the label, or trigger a refresh so the work is seen. |
 | **Global pause is durable.** | Use `aiur status` and `aiur resume` before treating a silent restarted fleet as broken. |
-| **CI readiness uses an operator-only token.** | Put `AIUR_CI_READINESS_TOKEN` with GitHub `workflow` scope in the daemon environment, restart, and never expose it to agent workspaces. |
+| **CI readiness uses an operator-only token.** | This is a one-shot credential: with a fine-grained token granting Contents, Actions, and Administration: Read-only, use `read -rsp 'AIUR_CI_READINESS_TOKEN: ' AIUR_CI_READINESS_TOKEN; echo`, then `export AIUR_CI_READINESS_TOKEN`, `aiur init`, and `unset AIUR_CI_READINESS_TOKEN`; never save it in `~/.aiur/.env`, the repository `.env`, or the daemon environment. |
 | **A base refresh affects approval ownership.** | With `require_last_push_approval`, route a base refresh through the ticket agent so the Executor does not become the ineligible last pusher. |
 
 ## `aiurdev`, for developing Aiur itself

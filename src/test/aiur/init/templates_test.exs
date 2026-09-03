@@ -183,17 +183,25 @@ defmodule Aiur.Init.TemplatesTest do
     test "opting in fills the whole section from the shared renderer" do
       rendered = render_elevenlabs(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
 
-      assert {:ok, %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng", "voice_id" => nil}}} =
+      assert {:ok,
+              %{
+                "elevenlabs" => %{
+                  "enabled" => true,
+                  "api_key" => "$ELEVENLABS_API_KEY",
+                  "language_code" => "eng",
+                  "voice_id" => nil
+                }
+              }} =
                YamlElixir.read_from_string(rendered)
 
       assert rendered ==
                "\n" <> IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}))
     end
 
-    test "declining renders nothing at all" do
+    test "declining renders a valid disabled section" do
       rendered = render_elevenlabs(%{enabled: false, api_key: nil})
 
-      assert rendered == ""
+      assert {:ok, %{"elevenlabs" => %{"enabled" => false}}} = YamlElixir.read_from_string(rendered)
     end
 
     test "the shipped example renders as valid YAML with the section when opted in" do
@@ -202,21 +210,26 @@ defmodule Aiur.Init.TemplatesTest do
       refute rendered =~ "{{ELEVENLABS_SECTION}}"
 
       assert {:ok, config} = YamlElixir.read_from_string(rendered)
-      assert %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng", "voice_id" => nil}} = config
+
+      assert %{
+               "elevenlabs" => %{
+                 "enabled" => true,
+                 "api_key" => "$ELEVENLABS_API_KEY",
+                 "language_code" => "eng",
+                 "voice_id" => nil
+               }
+             } = config
     end
 
-    # Regression: a declined question used to leave an `elevenlabs:` header (with
-    # only `language_code`) in the config, so `Resume.missing_section?/2` never saw
-    # the section as missing and voice input could never be backfilled later.
-    test "the shipped example omits the elevenlabs key entirely when declined" do
+    test "the shipped example records an explicit ElevenLabs decline" do
       rendered = render_example(%{enabled: false, api_key: nil})
 
       refute rendered =~ "{{ELEVENLABS_SECTION}}"
       refute rendered =~ "\n\n\n"
 
       assert {:ok, config} = YamlElixir.read_from_string(rendered)
-      refute Map.has_key?(config, "elevenlabs")
-      assert Resume.missing_section?(config, "elevenlabs")
+      assert config["elevenlabs"] == %{"enabled" => false}
+      refute Resume.missing_section?(config, "elevenlabs")
     end
   end
 

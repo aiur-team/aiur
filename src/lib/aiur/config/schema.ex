@@ -218,15 +218,22 @@ defmodule Aiur.Config.Schema do
 
     agent = %{settings.agent | codex: codex, mix_scheduler_cap: settings.agent.mix_scheduler_cap || 4}
 
-    elevenlabs = %{
-      settings.elevenlabs
+    elevenlabs = resolve_elevenlabs(settings.elevenlabs)
+
+    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs}
+  end
+
+  defp resolve_elevenlabs(%ElevenLabs{enabled: false} = elevenlabs),
+    do: %{elevenlabs | api_key: nil}
+
+  defp resolve_elevenlabs(elevenlabs) do
+    %{
+      elevenlabs
       | api_key:
           EnvResolver.resolve_secret_setting(
-            settings.elevenlabs.api_key,
+            elevenlabs.api_key,
             System.get_env("ELEVENLABS_API_KEY")
           )
     }
-
-    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs}
   end
 end
