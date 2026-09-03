@@ -106,15 +106,20 @@ defmodule Aiur.Init.BotAccountTest do
     assert puts_output(pid) =~ "Skipped bot_account"
   end
 
-  test "explains the credential-vs-identity distinction and the dedicated-account recommendation" do
+  test "explains the credential-vs-identity distinction and names both identity modes" do
+    # #2501 replaced the "#1151 stronger origin tracking" caveat — which
+    # described reusing one login as an unsupported ambiguity — with the
+    # supported single-account mode and the config key that turns it on.
     {io, pid} = io([""])
     BotAccount.maybe_prompt(io, deps(nil), %{kind: "github", repo: "o/r"})
     output = puts_output(pid)
     assert output =~ "GITHUB_TOKEN"
     assert output =~ "bot_account"
     assert output =~ "credential"
-    assert output =~ ~r/dedicated bot account/i
-    assert output =~ "#1151"
+    assert output =~ "identity_mode"
+    assert output =~ "single_account"
+    assert output =~ "separate_account"
+    refute output =~ "#1151"
   end
 
   test "passes a non-github tracker through untouched" do

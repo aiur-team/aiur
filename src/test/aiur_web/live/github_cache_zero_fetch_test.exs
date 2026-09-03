@@ -72,7 +72,7 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       )
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
-    start_supervised!({Endpoint, []})
+    Aiur.TestSupport.start_owned_endpoint!()
 
     {:ok, counter} = Agent.start_link(fn -> [] end)
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
