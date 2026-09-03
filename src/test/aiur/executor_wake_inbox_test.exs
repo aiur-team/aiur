@@ -1,6 +1,7 @@
 defmodule Aiur.ExecutorWakeInboxTest do
   use Aiur.TestSupport
 
+  alias Aiur.Executor.Claims
   alias Aiur.ExecutorWakeInbox
 
   setup do
@@ -108,6 +109,128 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert :ok = ExecutorWakeInbox.acknowledge(first, __MODULE__)
     assert {:ok, %{"last_seen_wake_id" => 2}} = Aiur.JsonStore.read(opts[:cursor_path])
     assert ExecutorWakeInbox.pending(__MODULE__) == []
+  end
+
+  test "fast-forwards only through an existing durable wake under the owner lease", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 20)
+    pid = start_supervised!({ExecutorWakeInbox, opts})
+
+    for id <- 1..3, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+    send(pid, :flush)
+    :sys.get_state(pid)
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 0, pending_count: 3}}
+
+    assert {:ok, _claim} = Claims.claim("covered-window")
+
+    assert {:error, {:not_owner, owner}} =
+             ExecutorWakeInbox.fast_forward_as("observer", 2, __MODULE__)
+
+    assert owner["id"] == "covered-window"
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 0
+
+    assert {:ok, %{from: 0, through: 2, acknowledged_count: 2}} =
+             ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 2
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 2, pending_count: 1}}
+    assert Enum.map(ExecutorWakeInbox.pending(__MODULE__), & &1["wake_id"]) == [3]
+
+    assert {:ok, %{from: 2, through: 2, acknowledged_count: 0, pending_count: 1}} =
+             ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
+
+    assert {:error, {:beyond_latest_wake, 3}} =
+             ExecutorWakeInbox.fast_forward_as("covered-window", 4, __MODULE__)
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 2
+  end
+
+  test "includes buffered wakes in status and fast-forward recovery", %{opts: opts} do
+    start_supervised!({ExecutorWakeInbox, Keyword.put(opts, :debounce_ms, 60_000)})
+    :ok = ExecutorWakeInbox.enqueue(record(1, "1"), __MODULE__)
+
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 0, pending_count: 1}}
+    assert {:ok, _claim} = Claims.claim("covered-window")
+
+    assert {:ok, %{from: 0, through: 1, acknowledged_count: 1, pending_count: 0}} =
+             ExecutorWakeInbox.fast_forward_as("covered-window", 1, __MODULE__)
+
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 1, pending_count: 0}}
+  end
+
+  test "observes a peer daemon's cursor advance written after boot", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 20)
+    pid = start_supervised!({ExecutorWakeInbox, opts})
+
+    for id <- 1..3, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+    send(pid, :flush)
+    :sys.get_state(pid)
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 0, pending_count: 3}}
+
+    # The journal, cursor and pending files are per repository, so a peer
+    # Executor on the same host consumes these wakes by advancing the very same
+    # cursor file. This process must see that advance without a restart.
+    :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 3})
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 3
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 3, pending_count: 0}}
+    assert ExecutorWakeInbox.pending(__MODULE__) == []
+  end
+
+  test "never lets a peer's stale cursor rewind the cached one", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 20)
+    pid = start_supervised!({ExecutorWakeInbox, opts})
+
+    for id <- 1..3, do: :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+    send(pid, :flush)
+    :sys.get_state(pid)
+
+    assert {:ok, _claim} = Claims.claim("rewind-guard")
+    assert {:ok, %{through: 3}} = ExecutorWakeInbox.fast_forward_as("rewind-guard", 3, __MODULE__)
+
+    :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 1})
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 3
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 3, pending_count: 0}}
+  end
+
+  test "restores cached stats from a persisted cursor and backlog", %{opts: opts} do
+    :ok = Aiur.DecisionLog.prepare(Path.dirname(opts[:path]), opts[:path])
+
+    for id <- 1..3 do
+      :ok = Aiur.DecisionLog.append(opts[:path], Map.put(record(id, Integer.to_string(id)), "wake_id", id))
+    end
+
+    :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 1})
+    start_supervised!({ExecutorWakeInbox, opts})
+
+    assert ExecutorWakeInbox.stats(__MODULE__) == {:ok, %{cursor: 1, pending_count: 2}}
+  end
+
+  test "refuses a missing wake id inside the durable range", %{opts: opts} do
+    :ok = Aiur.DecisionLog.prepare(Path.dirname(opts[:path]), opts[:path])
+
+    for id <- [1, 3] do
+      :ok = Aiur.DecisionLog.append(opts[:path], Map.put(record(id, Integer.to_string(id)), "wake_id", id))
+    end
+
+    start_supervised!({ExecutorWakeInbox, opts})
+    assert {:ok, _claim} = Claims.claim("covered-window")
+
+    assert {:error, {:wake_not_found, 2}} =
+             ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
+
+    assert ExecutorWakeInbox.cursor(__MODULE__) == 0
+  end
+
+  test "refuses an absent wake id below the cursor", %{opts: opts} do
+    :ok = Aiur.DecisionLog.prepare(Path.dirname(opts[:path]), opts[:path])
+    :ok = Aiur.DecisionLog.append(opts[:path], Map.put(record(3, "3"), "wake_id", 3))
+    :ok = Aiur.JsonStore.write!(opts[:cursor_path], %{"last_seen_wake_id" => 3})
+    start_supervised!({ExecutorWakeInbox, opts})
+    assert {:ok, _claim} = Claims.claim("covered-window")
+
+    assert {:error, {:wake_not_found, 2}} =
+             ExecutorWakeInbox.fast_forward_as("covered-window", 2, __MODULE__)
   end
 
   test "normal shutdown flushes a debounce window for restart", %{opts: opts} do

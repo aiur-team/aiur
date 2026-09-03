@@ -186,6 +186,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
+    print_executor_wake_status()
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -491,6 +492,54 @@ defmodule Aiur.AgentControlCLI do
 
   defp executor_wait_result({:error, reason}, _consumer_id, _role, _json?) do
     control_error("aiur: executor wake inbox unavailable (#{format_reason(reason)})")
+    exit_marker(1)
+  end
+
+  @doc "Fast-forwards the owner cursor through an externally covered durable wake id."
+  @spec executor_fast_forward(pos_integer(), keyword()) :: :ok
+  def executor_fast_forward(wake_id, opts \\ []) when is_integer(wake_id) and wake_id > 0 do
+    consumer_id = Claims.resolve_consumer_id(opts)
+
+    case Claims.claim(consumer_id) do
+      {:ok, _entry} ->
+        executor_fast_forward_result(ExecutorWakeInbox.fast_forward_as(consumer_id, wake_id))
+
+      {:error, {:held_by, owner}} ->
+        executor_fast_forward_observer(owner)
+
+      {:error, reason} ->
+        control_error("aiur: could not claim the wake stream (#{format_reason(reason)}); fast-forward refused and the cursor did not advance")
+        exit_marker(1)
+    end
+  end
+
+  defp executor_fast_forward_result({:ok, result}) do
+    IO.puts(
+      "FAST-FORWARDED from=#{result.from} through=#{result.through} " <>
+        "acknowledged=#{result.acknowledged_count} pending=#{result.pending_count}"
+    )
+
+    exit_marker(0)
+  end
+
+  defp executor_fast_forward_result({:error, {:beyond_latest_wake, latest}}) do
+    control_error("aiur: cannot fast-forward beyond latest durable wake #{latest}")
+    exit_marker(1)
+  end
+
+  defp executor_fast_forward_result({:error, {:wake_not_found, wake_id}}) do
+    control_error("aiur: wake #{wake_id} is not present in the durable inbox")
+    exit_marker(1)
+  end
+
+  defp executor_fast_forward_result({:error, reason}) do
+    control_error("aiur: executor fast-forward failed (#{format_reason(reason)}); the cursor did not advance")
+    exit_marker(1)
+  end
+
+  defp executor_fast_forward_observer(owner) do
+    owner_id = (owner && owner["id"]) || "another consumer"
+    control_error("aiur: wake stream is held by #{owner_id}; fast-forward refused and the cursor did not advance")
     exit_marker(1)
   end
 
@@ -2072,6 +2121,15 @@ defmodule Aiur.AgentControlCLI do
       true ->
         IO.puts("LISTENER degraded (#{length(defaults) - length(missing)}/#{length(defaults)} bindings; MISSING: #{Enum.join(missing, ", ")})")
     end
+  end
+
+  defp print_executor_wake_status do
+    case ExecutorWakeInbox.stats() do
+      {:ok, stats} -> IO.puts("WAKES CURSOR #{stats.cursor} PENDING #{stats.pending_count}")
+      {:error, _reason} -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
+    end
+  catch
+    :exit, _reason -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
   end
 
   defp print_codeowners_trust do

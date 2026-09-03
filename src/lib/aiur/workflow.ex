@@ -190,6 +190,24 @@ defmodule Aiur.Workflow do
     load(workflow_file_path())
   end
 
+  @doc """
+  Parses config content that the caller has already read, as if it had been
+  loaded from `path`.
+
+  A caller that must pair the loaded workflow with a freshness stamp derived
+  from the *same* bytes reads the file once and calls this, rather than calling
+  `load/1` and re-reading the file to stamp it. See
+  `Aiur.WorkflowStore.load_state/2`.
+  """
+  @spec parse_config(binary(), Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
+  def parse_config(content, path) when is_binary(content) and is_binary(path) do
+    if legacy_config_path?(path) do
+      {:error, legacy_config_error(path)}
+    else
+      parse(content, path)
+    end
+  end
+
   @spec load(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}
   def load(path) when is_binary(path) do
     if legacy_config_path?(path) do
