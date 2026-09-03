@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.IssuesTest do
   alias Aiur.{GitHub.Issues, Issue}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @origin_cache_key {Aiur.GitHub.Config, :resolved_origin_repo}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -677,15 +678,40 @@ defmodule Aiur.GitHub.IssuesTest do
         tracker_label_prefix: "sym"
       )
 
-      origin = Aiur.Git.origin_repo()
-      assert is_binary(origin), "this checkout must have an origin remote for the fallback path"
-      [owner, repository] = String.split(origin, "/")
+      # Stub the shell boundary rather than reading the checkout's real remote,
+      # so the assertion is the identity contract and not "this build has an
+      # origin". `normalize_issue/4` has no option seam, so seed the resolved
+      # value the production path reads.
+      :persistent_term.put(@origin_cache_key, "acme/widgets")
+      on_exit(fn -> :persistent_term.erase(@origin_cache_key) end)
 
       issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
-      identity = Issues.normalize_issue(issue, owner, repository, "sym").tracker_identity
+      identity = Issues.normalize_issue(issue, "acme", "widgets", "sym").tracker_identity
 
-      assert %{status: :joinable, owner: ^owner, repository: ^repository, identifier: "16"} = identity
+      assert %{status: :joinable, owner: "acme", repository: "widgets", identifier: "16"} = identity
       assert Aiur.TrackerIdentity.joinable?(identity)
+    end
+
+    # The auto-detected repository is still only a default: an explicitly
+    # configured one must keep winning, or the trusted cross-repository setup
+    # (daemon in checkout A tracking repo B) silently retargets.
+    test "an explicitly configured repository still wins over a differing checkout origin" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym"
+      )
+
+      :persistent_term.put(@origin_cache_key, "acme/widgets")
+      on_exit(fn -> :persistent_term.erase(@origin_cache_key) end)
+
+      issue = %{"number" => 19, "node_id" => "I_kwDOIssue19", "labels" => []}
+
+      assert %{status: :joinable, owner: "owner", repository: "repo"} =
+               Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
+
+      assert %{status: :unjoinable, reason: :repository_mismatch} =
+               Issues.normalize_issue(issue, "acme", "widgets", "sym").tracker_identity
     end
 
     # Quarantined for #2397: this integration test reads `configured_repo/0`

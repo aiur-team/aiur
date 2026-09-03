@@ -3,12 +3,18 @@ defmodule Aiur.GitHub.ConfigTest do
   # :persistent_term cache, so they must not run concurrently.
   use ExUnit.Case, async: false
 
-  import Aiur.TestSupport, only: [write_workflow_file!: 2]
+  import Aiur.TestSupport,
+    only: [
+      write_workflow_file!: 2,
+      write_workflow_file_atomic!: 2,
+      ensure_workflow_store_running: 0
+    ]
 
   alias Aiur.GitHub.Config
   alias Aiur.Workflow
 
   @cache_key {Config, :resolved_token}
+  @origin_cache_key {Config, :resolved_origin_repo}
   @source_cache_key {Config, :resolved_token_source}
 
   setup do
@@ -197,12 +203,21 @@ defmodule Aiur.GitHub.ConfigTest do
   # dispatch failed `:missing_tracker_identity` (#2518).
   describe "configured_repo/1" do
     setup do
+      # The active workflow file is a VM-global path every async: false module
+      # shares, so restore the exact bytes this module found rather than a
+      # hardcoded value that would leave a different repo behind for whatever
+      # runs next.
+      path = Workflow.workflow_file_path()
+      original = File.read!(path)
+
       on_exit(fn ->
-        write_workflow_file!(Workflow.workflow_file_path(),
-          tracker_kind: "github",
-          tracker_repo: "owner/repo"
-        )
+        write_workflow_file_atomic!(path, original)
+        ensure_workflow_store_running()
+        :ok = Aiur.WorkflowStore.force_reload(5_000)
+        :persistent_term.erase(@origin_cache_key)
       end)
+
+      :persistent_term.erase(@origin_cache_key)
 
       :ok
     end
@@ -237,17 +252,48 @@ defmodule Aiur.GitHub.ConfigTest do
       assert {:error, :invalid_configured_repository} = Config.configured_repo(refuting_origin())
     end
 
+    # An auto-detected slug is not operator-typed, so it gets the same parse as
+    # a configured one rather than being trusted into an identity.
+    test "a malformed origin remote is rejected rather than trusted" do
+      write_tracker_repo!(nil)
+
+      assert {:error, :invalid_configured_repository} = Config.configured_repo(origin("not-a-slug"))
+    end
+
+    # The #2518 defect was `repo/0` and `configured_repo/0` disagreeing about
+    # which repository this daemon is on. Pin the agreement against an injected
+    # origin so the property holds regardless of the checkout the suite runs in.
     test "configured_repo/0 and repo/0 resolve the same repository when the key is omitted" do
       write_tracker_repo!(nil)
 
-      case Config.repo() do
-        nil ->
-          assert {:error, :missing_configured_repository} = Config.configured_repo()
+      assert Config.repo(origin("acme/widgets")) == "acme/widgets"
+      assert Config.configured_repo(origin("acme/widgets")) == {:ok, {"acme", "widgets"}}
+    end
 
-        slug ->
-          assert [owner, repository] = String.split(slug, "/")
-          assert {:ok, {^owner, ^repository}} = Config.configured_repo()
-      end
+    test "configured_repo/0 and repo/0 resolve the same repository when the key is set" do
+      write_tracker_repo!("  acme/widgets  ")
+
+      assert Config.repo(refuting_origin()) == "acme/widgets"
+      assert Config.configured_repo(refuting_origin()) == {:ok, {"acme", "widgets"}}
+    end
+
+    test "repo/0 falls back to the origin remote for a blank key, like configured_repo/0" do
+      write_tracker_repo!("   ")
+
+      assert Config.repo(origin("acme/widgets")) == "acme/widgets"
+      assert Config.repo(origin(nil)) == nil
+    end
+
+    # `explicit_configured_repo/0` is what durable on-disk scoping reads, so it
+    # must never take the fallback — see `Aiur.IssueLog.configured_repository_scope/0`.
+    test "explicit_configured_repo/0 never falls back to the origin remote" do
+      write_tracker_repo!(nil)
+
+      assert {:error, :missing_configured_repository} = Config.explicit_configured_repo()
+
+      write_tracker_repo!("acme/widgets")
+
+      assert {:ok, {"acme", "widgets"}} = Config.explicit_configured_repo()
     end
   end
 
