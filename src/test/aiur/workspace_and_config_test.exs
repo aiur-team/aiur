@@ -2583,6 +2583,39 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
+  test "broker-timeout retry-rate signal keys default safely and validate tuning (#2464)" do
+    assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
+    assert settings.agent.budget_broker_rate_window_seconds == 300
+    assert settings.agent.budget_broker_degraded_retry_threshold == 5
+    assert settings.agent.budget_broker_degraded_alert_after_seconds == 600
+
+    assert {:ok, settings} =
+             Schema.parse(%{
+               "tracker" => %{"kind" => "memory"},
+               "agent" => %{
+                 "budget_broker_rate_window_seconds" => 120,
+                 "budget_broker_degraded_retry_threshold" => 3,
+                 "budget_broker_degraded_alert_after_seconds" => 300
+               }
+             })
+
+    assert settings.agent.budget_broker_rate_window_seconds == 120
+    assert settings.agent.budget_broker_degraded_retry_threshold == 3
+    assert settings.agent.budget_broker_degraded_alert_after_seconds == 300
+
+    for invalid_agent <- [
+          %{budget_broker_rate_window_seconds: 0},
+          %{budget_broker_rate_window_seconds: -1},
+          %{budget_broker_degraded_retry_threshold: 0},
+          %{budget_broker_degraded_retry_threshold: -1},
+          %{budget_broker_degraded_alert_after_seconds: 0},
+          %{budget_broker_degraded_alert_after_seconds: -1}
+        ] do
+      assert {:error, {:invalid_workflow_config, _}} =
+               Schema.parse(%{tracker: %{kind: "memory"}, agent: invalid_agent})
+    end
+  end
+
   test "agent.synthetic_load_process_cap defaults to derived nil and validates non-negative" do
     assert {:ok, settings} = Schema.parse(%{tracker: %{kind: "memory"}})
     assert settings.agent.synthetic_load_process_cap == nil
