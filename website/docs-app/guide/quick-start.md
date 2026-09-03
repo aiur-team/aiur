@@ -28,11 +28,11 @@ Run `aiur init` in the repository Aiur should operate.
 | Detect tools | Finds available agent toolchains. |
 | Scaffold | Writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and `.aiur/alerts`. |
 | Prepare state | Creates the repository state node and optional `.aiur/prewarm`. |
-| GitHub auth | Writes `./.env` guidance for `GITHUB_TOKEN` without prompting for the secret. A `gh auth login` keyring credential also satisfies the boot gate. |
+| GitHub auth | Defaults to `GITHUB_TOKEN` and offers GitHub App setup as an optional upgrade when agents are hitting rate limits. A `gh auth login` keyring credential also satisfies the boot gate. |
 | Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
 | Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
-Add `agent:todo` to the issues you want worked. Prefer GitHub App installation-token authentication over a personal access token; see [GitHub](/apis/github#github-app-authentication) to set it up.
+Add `agent:todo` to the issues you want worked. If agents are hitting rate limits, consider the optional [GitHub App setup](/apis/github#github-app-authentication).
 
 ## First run
 

@@ -1,8 +1,9 @@
 # Daemon token posture
 
-The daemon must use a GitHub App installation token, rather than a personal
-access token. Installation tokens identify the machine integration, are scoped
-to an installation's repositories, and expire after roughly one hour.
+`GITHUB_TOKEN` is the default daemon credential. A GitHub App installation
+token is an optional upgrade, recommended if agents are hitting rate limits.
+Installation tokens identify the machine integration, are scoped to an
+installation's repositories, and expire after roughly one hour.
 
 The App must be granted only:
 
@@ -90,34 +91,33 @@ reacting to its own writes.
   `<app-slug>[bot]` (for example `aiur-daemon[bot]`). Every API-created
   comment, label change, review and pull request is attributed to that login.
 
-`tracker.github.bot_account` is the single place Aiur records "this is me", and
-it is load-bearing for:
+Set `tracker.github.github_app.account` to the App bot login. Keep
+`tracker.github.bot_account` set to the account agents use to push branches,
+open pull requests, and comment on tickets. The separate daemon identity is
+load-bearing for:
 
 - **Self-loop suppression** — `Aiur.Events.Publisher` drops events whose actor
-  equals `bot_account` (except authoritative `.pr.merged` events, which publish
+  equals the daemon account (except authoritative `.pr.merged` events, which publish
   regardless of actor). Left pointing at the PAT account, the App bot's own
   comments are not recognized as self and are republished back into the
   orchestrator.
 - **PR command self-loop drop** — `Aiur.Events.PrCommandScanner` ignores `/aiur`
-  comments authored by `bot_account`; a mismatch lets an agent re-trigger itself.
-- **CODEOWNERS self-include** — the trust allowlist always unions in
-  `bot_account`, so a wrong login drops that fail-closed safety net.
-- **Review-thread reply verification** compares against `bot_account` when it is
-  set, falling back to the token's own viewer login when it is nil. A *wrong*
-  `bot_account` therefore breaks it; an unset one does not.
+  comments authored by the daemon account; a mismatch lets Aiur re-trigger itself.
+- **CODEOWNERS self-include and review-thread verification** — identity-aware
+  trust checks distinguish the daemon's App bot from the agents' account.
 
-**So: when you enable App auth, set `tracker.github.bot_account` to the App bot
-login, `<app-slug>[bot]`.** The daemon checks this at startup and emits a
+**So: when you enable App auth, set `tracker.github.github_app.account` to the
+App bot login, `<app-slug>[bot]`.** The daemon checks this at startup and emits a
 needs-attention `system.github_app_token.identity_mismatch` alert when App
-credentials are configured and `bot_account` is unset or is not a `[bot]`
-login. Confirm the exact login by looking at the author of any comment the
-daemon posts after the switch.
+credentials are configured and the daemon account is unset or is not a
+`[bot]` login. Confirm the exact login by looking at the author of any comment
+the daemon posts after the switch.
 
 One asymmetry is expected and is not a misconfiguration: **git commits keep
 their configured author** (the installation token is used only as the HTTPS
 credential for push, not as the commit author), while **GitHub API objects are
 authored by the App bot**. Add the App bot login to `trusted_accounts` if any
-gate needs to trust it beyond the `bot_account` self-include.
+gate needs to trust it beyond the configured daemon identity.
 
 ### 5. Verifying least privilege
 

@@ -23,19 +23,16 @@ defmodule Aiur.Init.BotAccount do
   # GitHub login: 1–39 chars, alphanumeric with single internal hyphens, never
   # leading/trailing hyphen. Matched after `Edit.normalize_login/1` lowercases.
   #
-  # The optional `[bot]` suffix is the GitHub App bot form (`<app-slug>[bot]`),
-  # which is the correct bot_account whenever the daemon authenticates with a
-  # GitHub App installation token (see docs/security/daemon-token-posture.md).
-  # Without it the wizard rejects the very login App auth requires, and a
-  # non-interactive run degrades that default to nil — leaving self-loop
-  # suppression off.
+  # The optional `[bot]` suffix is the GitHub App bot form (`<app-slug>[bot]`).
+  # It remains valid here when agents publish as an App bot; the daemon App's
+  # identity is configured separately under `tracker.github.github_app.account`.
   @login_regex ~r/^[a-z\d](?:-?[a-z\d])*(?:\[bot\])?$/
   @bot_suffix "[bot]"
   @max_login_length 39
 
   @prompt_label "GitHub account Aiur's agents post as (bot_account)"
 
-  @prompt_hint "The login Aiur recognizes as its own to suppress self-triggered comment/event loops. Under GitHub App auth this is the App bot login, `<app-slug>[bot]`."
+  @prompt_hint "The agents' publishing login that Aiur recognizes as its own to suppress self-triggered comment/event loops."
 
   @doc """
   Prompts for and returns the tracker with `:bot_account` filled for a GitHub

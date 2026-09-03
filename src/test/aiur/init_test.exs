@@ -76,8 +76,9 @@ defmodule Aiur.InitTest do
         send(parent, {:input_label, label})
         Map.get(Map.get(answers, :input, %{}), label, default)
       end,
-      select: fn label, _opts, default ->
+      select: fn label, opts, default ->
         send(parent, {:io_trace, {:select, label}})
+        send(parent, {:select_prompt, label, opts, default})
         Map.get(Map.get(answers, :select, %{}), label, default)
       end,
       multiselect: fn label, _opts, defaults ->
@@ -305,6 +306,15 @@ defmodule Aiur.InitTest do
     end
   end
 
+  defp select_prompts(acc \\ []) do
+    receive do
+      {:select_prompt, label, options, default} ->
+        select_prompts([{label, options, default} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   # Flattened labels across every staged create_labels call.
   defp labels_created(acc \\ []) do
     receive do
@@ -336,6 +346,10 @@ defmodule Aiur.InitTest do
   @base_build_command_label "Base build command"
   @alert_sounds_label "Add sound effects for alerts (e.g. an agent is stuck or needs your input)?"
   @gitignore_label "Add .aiur/ to .gitignore?"
+
+  @github_app_label "Use a GitHub App for the daemon? (recommended if agents are hitting rate limits)"
+  @github_token_choice "No — use my GITHUB_TOKEN"
+  @github_app_choice "Yes — I'll set up a GitHub App"
 
   defp github_answers(overrides \\ %{}) do
     base = %{
@@ -1510,6 +1524,75 @@ defmodule Aiur.InitTest do
   end
 
   describe "closing steps (github)" do
+    test "offers GitHub App auth once and defaults to GITHUB_TOKEN", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert :ok = Init.run(%{force: false}, io(self()), deps(self(), dir, target))
+
+      app_prompts =
+        select_prompts()
+        |> Enum.filter(fn {label, _options, _default} -> label == @github_app_label end)
+
+      assert app_prompts == [
+               {@github_app_label, [@github_token_choice, @github_app_choice], @github_token_choice}
+             ]
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "Higher rate limits for busy fleets."
+      assert log =~ "Tighter daemon permissions than a classic PAT."
+      refute log =~ "docs/security/daemon-token-posture.md"
+
+      events_after_choice =
+        io_trace()
+        |> Enum.drop_while(&(&1 != {:select, @github_app_label}))
+        |> Enum.drop(1)
+
+      refute Enum.any?(events_after_choice, fn
+               {:puts, message} -> String.contains?(message, "GitHub App")
+               _event -> false
+             end)
+    end
+
+    test "GitHub App choice points to setup steps without inlining the PAT walkthrough", %{
+      dir: dir,
+      target: target
+    } do
+      answers = github_answers(%{select: %{@github_app_label => @github_app_choice}})
+      parent = self()
+      base_io = io(parent, answers)
+
+      capturing_io = %{
+        base_io
+        | input: fn label, default, hint ->
+            send(parent, {:input_hint, label, hint})
+            Map.get(Map.get(answers, :input, %{}), label, default)
+          end
+      }
+
+      deps =
+        deps(parent, dir, target, %{
+          github_token: fn -> "ghp_existing" end,
+          check_ci_readiness: fn _tracker -> flunk("App choice must not provision through a PAT") end,
+          list_labels: fn _tracker -> flunk("App choice must not list labels through a PAT") end,
+          create_labels: fn _tracker, _labels -> flunk("App choice must not create labels through a PAT") end
+        })
+
+      assert :ok = Init.run(%{force: false}, capturing_io, deps)
+
+      log = Enum.join(puts_log(), "\n")
+      hints = input_hints()
+
+      assert {@bot_account_label, "The agents' publishing login that Aiur recognizes as its own to suppress self-triggered comment/event loops."} in hints
+
+      refute Enum.any?(hints, fn {_label, hint} ->
+               is_binary(hint) and String.contains?(hint, "App bot login")
+             end)
+
+      assert log =~ "docs/security/daemon-token-posture.md"
+      refute log =~ "Generate new token (classic)"
+      refute File.exists?(Path.join(dir, ".env"))
+      refute_received {:labels, _tracker, _labels}
+    end
+
     test "scaffolds only .env and walks through the bot-account token", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
