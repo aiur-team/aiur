@@ -1292,6 +1292,15 @@ cmd_executor_wait --timeout 2 --as agent-b|,
     {roster, 0} = run_sourced_engine(~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_roster --json|, [])
     assert roster =~ "executor_roster(json: true)"
 
+    {fast_forward, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }
+aiur_engine_main executor-fast-forward 2832 --as agent-a|,
+        []
+      )
+
+    assert fast_forward =~ ~s|executor_fast_forward(2832, [as: "agent-a"])|
+
     # A revoke must name the owner: the operator decides, so there is no
     # "revoke whoever holds it" form.
     {missing, 64} = run_sourced_engine("cmd_executor_revoke", [])
@@ -1299,6 +1308,15 @@ cmd_executor_wait --timeout 2 --as agent-b|,
 
     {bad_id, 64} = run_sourced_engine("cmd_executor_claim --as 'not a/id'", [])
     assert bad_id =~ "executor-claim --as expects"
+
+    {bad_wake_id, 64} = run_sourced_engine("cmd_executor_fast_forward nope", [])
+    assert bad_wake_id =~ "executor-fast-forward expects a positive wake id"
+
+    {missing_as, 64} = run_sourced_engine("cmd_executor_fast_forward 2832 --as", [])
+    assert missing_as =~ "executor-fast-forward --as requires a consumer id"
+
+    {empty_as, 64} = run_sourced_engine("cmd_executor_fast_forward 2832 --as=", [])
+    assert empty_as =~ "executor-fast-forward --as requires a consumer id"
   end
 
   test "streaming control rpc preserves an unexpected crash marker" do
