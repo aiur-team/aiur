@@ -1575,6 +1575,7 @@ defmodule Aiur.InitTest do
 
       deps =
         deps(parent, dir, target, %{
+          detect_default_branch: fn _repo -> "release" end,
           github_token: fn -> "ghp_existing" end,
           check_ci_readiness: fn _tracker -> flunk("App choice must not provision through a PAT") end,
           list_labels: fn _tracker -> flunk("App choice must not list labels through a PAT") end,
@@ -1593,7 +1594,7 @@ defmodule Aiur.InitTest do
              end)
 
       assert log =~
-               "GitHub App setup steps: https://github.com/aiur-team/aiur/blob/main/docs/security/daemon-token-posture.md"
+               "GitHub App setup steps: https://github.com/aiur-team/aiur/blob/release/docs/security/daemon-token-posture.md"
 
       refute log =~ "Generate new token (classic)"
       refute log =~ "GITHUB_APP_ID"
