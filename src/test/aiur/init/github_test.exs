@@ -127,6 +127,15 @@ defmodule Aiur.Init.GitHubTest do
     end
 
     test "explains organization authorization by token type before offering CI setup" do
+      previous_token = System.get_env("AIUR_CI_READINESS_TOKEN")
+      System.delete_env("AIUR_CI_READINESS_TOKEN")
+
+      on_exit(fn ->
+        if previous_token,
+          do: System.put_env("AIUR_CI_READINESS_TOKEN", previous_token),
+          else: System.delete_env("AIUR_CI_READINESS_TOKEN")
+      end)
+
       cases = [
         classic_pat: ["classic PAT", "`repo` scope", "Configure SSO", "different OAuth token"],
         fine_grained_pat: ["fine-grained PAT", "resource owner", "organization approval", "different OAuth token"],
@@ -150,9 +159,33 @@ defmodule Aiur.Init.GitHubTest do
         assert message =~ "Cannot read acme/private-repo"
         assert message =~ "GitHub returns 404"
         assert message =~ "rather than a missing repository or branch"
+        assert message =~ "This check used GITHUB_TOKEN"
         assert Enum.all?(fragments, &String.contains?(message, &1))
         refute message =~ "ghp_secret-sentinel"
       end
+    end
+
+    test "organization authorization names the one-shot readiness token without exposing it" do
+      previous_token = System.get_env("AIUR_CI_READINESS_TOKEN")
+      System.put_env("AIUR_CI_READINESS_TOKEN", "operator-supersecret")
+
+      on_exit(fn ->
+        if previous_token,
+          do: System.put_env("AIUR_CI_READINESS_TOKEN", previous_token),
+          else: System.delete_env("AIUR_CI_READINESS_TOKEN")
+      end)
+
+      io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> flunk("authorization failure must not offer CI setup") end}
+
+      deps = %{
+        check_ci_readiness: fn _ ->
+          {:error, {:github_org_repository_not_accessible, %{organization: "acme", repo: "acme/private-repo", token_type: :fine_grained_pat}}}
+        end
+      }
+
+      assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "acme/private-repo"})
+      assert message =~ "This check used AIUR_CI_READINESS_TOKEN"
+      refute message =~ "operator-supersecret"
     end
 
     test "keeps an unclassified repository 404 ambiguous" do
@@ -174,7 +207,10 @@ defmodule Aiur.Init.GitHubTest do
 
       assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "o/r"})
       assert message =~ "AIUR_CI_READINESS_TOKEN"
-      assert message =~ "AIUR_CI_READINESS_TOKEN=<token> aiur init"
+      assert message =~ "read -rsp 'AIUR_CI_READINESS_TOKEN: '"
+      assert message =~ "export AIUR_CI_READINESS_TOKEN"
+      assert message =~ "unset AIUR_CI_READINESS_TOKEN"
+      refute message =~ "AIUR_CI_READINESS_TOKEN=<token>"
       assert message =~ "Never save it"
       assert message =~ "bypassed permissions"
     end
@@ -275,6 +311,9 @@ defmodule Aiur.Init.GitHubTest do
 
       assert_received {:io_puts, created_msg}
       assert created_msg =~ "Created"
+      assert created_msg =~ "placeholder fails closed"
+      assert created_msg =~ "real test command"
+      assert created_msg =~ "confirm `ci / required` passes"
       assert created_msg =~ "Settings → Rules → Rulesets"
       assert created_msg =~ "ci / required"
       assert created_msg =~ "main"
@@ -336,7 +375,10 @@ defmodule Aiur.Init.GitHubTest do
       assert message =~ "operator-only AIUR_CI_READINESS_TOKEN"
       assert message =~ "can only confirm that the workflow exists"
       assert message =~ "not that failed checks block merging"
-      assert message =~ "AIUR_CI_READINESS_TOKEN=<token> aiur init"
+      assert message =~ "read -rsp 'AIUR_CI_READINESS_TOKEN: '"
+      assert message =~ "export AIUR_CI_READINESS_TOKEN"
+      assert message =~ "unset AIUR_CI_READINESS_TOKEN"
+      refute message =~ "AIUR_CI_READINESS_TOKEN=<token>"
       assert message =~ "fine-grained token"
       assert message =~ "Contents, Actions, and Administration: Read-only"
       assert message =~ "Never save it in `~/.aiur/.env`, the repository `.env`, or the daemon environment"

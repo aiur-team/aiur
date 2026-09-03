@@ -1,7 +1,7 @@
 defmodule Aiur.Init.AgentCliTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Init.AgentCli
+  alias Aiur.Init.{AgentCli, ClaudeAdapter}
 
   describe "install_hint/2" do
     test "claude hint mentions npm install -g aiur-claude" do
@@ -36,36 +36,57 @@ defmodule Aiur.Init.AgentCliTest do
 
   describe "min_claude_version/0" do
     test "is the first adapter release that serves dynamicTools" do
-      assert AgentCli.min_claude_version() == "1.1.0"
+      assert ClaudeAdapter.min_version() == "1.1.0"
+    end
+  end
+
+  describe "claude_version/3" do
+    test "appends --version to the configured adapter command arguments" do
+      find_executable = fn "env" -> "/usr/bin/env" end
+
+      command_runner = fn path, args, opts ->
+        assert path == "/usr/bin/env"
+        assert args == ["aiur-claude", "--stdio", "--version"]
+        assert opts == [stderr_to_stdout: true]
+        {"aiur-claude 1.4.0\n", 0}
+      end
+
+      assert ClaudeAdapter.version("env aiur-claude --stdio", find_executable, command_runner) == {:ok, "1.4.0"}
+    end
+  end
+
+  describe "bounded_command/2" do
+    test "returns a timeout instead of waiting indefinitely" do
+      assert ClaudeAdapter.bounded_command(fn -> Process.sleep(:infinity) end, 1) == {:error, :timeout}
     end
   end
 
   describe "classify_claude_install/1" do
     test "classifies missing, satisfying, outdated, and unreadable installs" do
-      assert AgentCli.classify_claude_install(:missing) == :missing
-      assert AgentCli.classify_claude_install({:ok, "1.1.0"}) == {:satisfying, "1.1.0"}
-      assert AgentCli.classify_claude_install({:ok, "2.0.0"}) == {:satisfying, "2.0.0"}
-      assert AgentCli.classify_claude_install({:ok, "1.0.9"}) == {:outdated, "1.0.9"}
-      assert AgentCli.classify_claude_install({:ok, "1.1.0-rc.1"}) == {:outdated, "1.1.0-rc.1"}
+      assert ClaudeAdapter.classify(:missing) == :missing
+      assert ClaudeAdapter.classify({:ok, "1.1.0"}) == {:satisfying, "1.1.0"}
+      assert ClaudeAdapter.classify({:ok, "2.0.0"}) == {:satisfying, "2.0.0"}
+      assert ClaudeAdapter.classify({:ok, "1.0.9"}) == {:outdated, "1.0.9"}
+      assert ClaudeAdapter.classify({:ok, "1.1.0-rc.1"}) == {:outdated, "1.1.0-rc.1"}
 
-      assert AgentCli.classify_claude_install({:ok, "nightly"}) ==
+      assert ClaudeAdapter.classify({:ok, "nightly"}) ==
                {:unknown, "unparseable version: nightly"}
 
-      assert AgentCli.classify_claude_install({:error, "permission denied"}) ==
+      assert ClaudeAdapter.classify({:error, "permission denied"}) ==
                {:unknown, "permission denied"}
     end
   end
 
   describe "claude_install_spec/1" do
     test "pins a satisfying registry version exactly" do
-      assert AgentCli.claude_install_spec({:ok, "1.4.2"}) == "aiur-claude@1.4.2"
+      assert ClaudeAdapter.install_spec({:ok, "1.4.2"}) == "aiur-claude@1.4.2"
     end
 
     test "uses the reviewed immutable release when npm is old, unreadable, or unavailable" do
       fallback = "github:aiur-team/aiur-claude#v1.1.0"
-      assert AgentCli.claude_install_spec({:ok, "1.0.0"}) == fallback
-      assert AgentCli.claude_install_spec({:ok, "latest"}) == fallback
-      assert AgentCli.claude_install_spec({:error, "registry offline"}) == fallback
+      assert ClaudeAdapter.install_spec({:ok, "1.0.0"}) == fallback
+      assert ClaudeAdapter.install_spec({:ok, "latest"}) == fallback
+      assert ClaudeAdapter.install_spec({:error, "registry offline"}) == fallback
     end
   end
 
@@ -132,6 +153,33 @@ defmodule Aiur.Init.AgentCliTest do
       assert_received {:install, "github:aiur-team/aiur-claude#v1.1.0"}
       assert message =~ "installed aiur-claude 1.0.0"
       assert message =~ "requires 1.1.0 or newer"
+    end
+
+    test "a missing post-install adapter is terminal" do
+      {:ok, versions} = Agent.start_link(fn -> [:missing, :missing] end)
+
+      deps =
+        claude_deps(self(), %{
+          claude_version: fn -> Agent.get_and_update(versions, fn [next | rest] -> {next, rest} end) end
+        })
+
+      assert {:error, message} = AgentCli.check_agent_clis(test_io(), deps, ["claude"])
+      assert message =~ "still missing after installation"
+      refute_received {:auth, "claude"}
+    end
+
+    test "an unreadable post-install adapter is terminal" do
+      {:ok, versions} = Agent.start_link(fn -> [:missing, {:error, "permission denied"}] end)
+
+      deps =
+        claude_deps(self(), %{
+          claude_version: fn -> Agent.get_and_update(versions, fn [next | rest] -> {next, rest} end) end
+        })
+
+      assert {:error, message} = AgentCli.check_agent_clis(test_io(), deps, ["claude"])
+      assert message =~ "couldn't verify aiur-claude after installation"
+      assert message =~ "permission denied"
+      refute_received {:auth, "claude"}
     end
 
     test "an install failure is terminal" do

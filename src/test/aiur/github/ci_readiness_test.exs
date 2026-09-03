@@ -179,7 +179,11 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "accepts the unconfigured pull request trigger emitted by the scaffold" do
-    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", CiReadiness.scaffold()}], ["ci / required"]).ready?
+    scaffold = CiReadiness.scaffold()
+
+    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", scaffold}], ["ci / required"]).ready?
+    assert scaffold =~ "exit 1"
+    refute scaffold =~ "exit 0"
   end
 
   test "does not treat a workflow excluded from the base branch as a PR workflow" do

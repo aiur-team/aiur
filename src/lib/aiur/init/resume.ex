@@ -4,7 +4,7 @@ defmodule Aiur.Init.Resume do
   """
 
   alias Aiur.Config
-  alias Aiur.Init.{ElevenLabs, Format, Prewarm, Questions}
+  alias Aiur.Init.{ElevenLabs, Format, Prewarm, Questions, ResumeSummary}
 
   @spec print_saved_summary(Aiur.Init.io(), map()) :: :ok
   def print_saved_summary(io, config) do
@@ -27,7 +27,7 @@ defmodule Aiur.Init.Resume do
        github_summary_lines(tracker["github"] || %{}) ++
        [
          "agent: #{agent["kind"]}",
-         "routing: #{format_routing(agent["routing"])}",
+         "routing: #{ResumeSummary.format_routing(agent["routing"])}",
          permission_mode && "permission_mode: #{permission_mode}",
          "max_concurrent_agents: #{agent["max_concurrent_agents"]}",
          "max_turns: #{agent["max_turns"]}",
@@ -35,9 +35,9 @@ defmodule Aiur.Init.Resume do
          "workspace_root: #{workspace["root"]}",
          "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
          "polling_interval_seconds: #{polling["interval_seconds"]}",
-         prewarm_summary_line(config["prewarm"]),
-         alerts_summary_line(config),
-         optional_section_state("elevenlabs_voice_input", config["elevenlabs"], &elevenlabs_key_state/1),
+         ResumeSummary.prewarm_line(config["prewarm"]),
+         ResumeSummary.alerts_line(config),
+         ResumeSummary.optional_section_line("elevenlabs_voice_input", config["elevenlabs"], &ResumeSummary.elevenlabs_key_state/1),
          config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
        ])
     |> Enum.reject(&is_nil/1)
@@ -53,38 +53,11 @@ defmodule Aiur.Init.Resume do
     ]
   end
 
-  @spec alerts_summary_line(map()) :: String.t() | nil
-  def alerts_summary_line(config) do
-    case config["alerts"] do
-      %{"enabled" => enabled} -> "alerts: #{enabled}"
-      _ -> nil
-    end
-  end
-
-  defp prewarm_summary_line(nil), do: nil
-  defp prewarm_summary_line(%{"enabled" => true}), do: "prewarm: enabled"
-  defp prewarm_summary_line(_prewarm), do: "prewarm: declined"
-
-  # ElevenLabs predates its enabled key, so a present legacy section remains
-  # enabled unless it explicitly records enabled: false.
-  defp optional_section_state(_label, nil, _detail), do: nil
-  defp optional_section_state(label, %{"enabled" => false}, _detail), do: "#{label}: declined"
-  defp optional_section_state(label, section, detail), do: "#{label}: enabled (#{detail.(section)})"
-
-  # The ElevenLabs credential is a secret, so the readback reports only whether
-  # one is configured — never the value (nor the env reference's resolved key).
-  @spec elevenlabs_key_state(map() | term()) :: String.t()
-  def elevenlabs_key_state(%{"api_key" => key}) when is_binary(key) and key != "", do: "api_key set"
-  def elevenlabs_key_state(_elevenlabs), do: "api_key not set"
-
   @spec format_routing(map() | term()) :: String.t()
-  def format_routing(routing) when is_map(routing) do
-    routing
-    |> Enum.sort_by(fn {level, _} -> to_string(level) end)
-    |> Enum.map_join(", ", fn {level, value} -> "#{level}:#{value}" end)
-  end
+  defdelegate format_routing(routing), to: ResumeSummary
 
-  def format_routing(_routing), do: ""
+  @spec alerts_summary_line(map()) :: String.t() | nil
+  defdelegate alerts_summary_line(config), to: ResumeSummary, as: :alerts_line
 
   @spec tracker_from_config(Aiur.Init.deps(), map(), keyword()) :: map()
   def tracker_from_config(deps, config, context \\ []) do

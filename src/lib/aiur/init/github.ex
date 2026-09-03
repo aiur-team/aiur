@@ -86,6 +86,10 @@ defmodule Aiur.Init.GitHub do
   defp handle_readiness_result({:error, {:repository_access_failed, reason}}, _io, _deps, tracker),
     do: {:error, repository_access_message(tracker, reason)}
 
+  defp handle_readiness_result({:error, {:github_org_repository_not_accessible, _detail} = reason}, _io, _deps, _tracker) do
+    {:error, CiReadiness.error_message(reason) <> " This check used #{active_readiness_credential_source()}."}
+  end
+
   defp handle_readiness_result({:error, {:ci_readiness_plan_limit, message}}, io, _deps, _tracker) do
     io.puts.(
       "GitHub reports: #{message}\n" <>
@@ -134,8 +138,11 @@ defmodule Aiur.Init.GitHub do
   end
 
   defp operator_readiness_token_guidance do
-    "Use a fine-grained token with Contents, Actions, and Administration: Read-only for this one init command: " <>
-      "`#{CiReadiness.operator_token_env()}=<token> aiur init`. Never save it in `~/.aiur/.env`, the repository `.env`, " <>
+    env = CiReadiness.operator_token_env()
+
+    "Use a fine-grained token with Contents, Actions, and Administration: Read-only for this one init command. " <>
+      "In bash or zsh, run `read -rsp '#{env}: ' #{env}; echo`, `export #{env}`, `aiur init`, then `unset #{env}`. " <>
+      "Never save it in `~/.aiur/.env`, the repository `.env`, " <>
       "or the daemon environment; keeping this admin-capable credential one-shot prevents agents running with bypassed permissions from accessing it."
   end
 
@@ -193,8 +200,9 @@ defmodule Aiur.Init.GitHub do
 
   defp report_scaffold_write(io, path, base_branch, :ok) do
     io.puts.(
-      "Created #{path}. After the workflow runs on a pull request, open GitHub Settings → Rules → Rulesets for branch `#{base_branch}` " <>
-        "and make `ci / required` a required status check so failed work cannot merge; then rerun `aiur init`."
+      "Created #{path}. Its placeholder fails closed: replace it with the repository's real test command and confirm `ci / required` passes on a pull request. " <>
+        "Then open GitHub Settings → Rules → Rulesets for branch `#{base_branch}` and make that check required so failed work cannot merge; " <>
+        "finally rerun `aiur init`."
     )
   end
 

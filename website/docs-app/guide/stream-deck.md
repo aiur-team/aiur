@@ -161,6 +161,7 @@ The Dashboard [agent conversation](/concepts/units#agent-conversation-and-voice)
 
 | Setting | Value |
 | --- | --- |
+| Enable voice input | `elevenlabs.enabled: true` |
 | API key | `ELEVENLABS_API_KEY` in a private environment file. |
 | Config reference | `elevenlabs.api_key: $ELEVENLABS_API_KEY` |
 | Language | `elevenlabs.language_code: eng` |
@@ -169,6 +170,7 @@ The Dashboard [agent conversation](/concepts/units#agent-conversation-and-voice)
 
 ```yaml
 elevenlabs:
+  enabled: true
   api_key: $ELEVENLABS_API_KEY
   language_code: eng
   voice_id: null # optional; enables Dashboard spoken replies when set
@@ -181,16 +183,17 @@ Prefer the environment reference over a literal key. See [Configuration](/refere
 | State | What the operator can expect |
 | --- | --- |
 | Key configured | Held microphone audio goes to Aiur, then to ElevenLabs; returned text goes to the selected agent. |
-| Key absent | Device selection, waveform, and level meters work; transcription does not; no audio leaves the machine. |
+| Voice input declined (`enabled: false`) | Device selection, waveform, and level meters work; transcription and ElevenLabs metering are disabled; no audio leaves the machine. |
+| Enabled, key absent | Device selection, waveform, and level meters work; transcription does not; no audio leaves the machine. |
 | Capture released | Audio capture stops; there is no always-on listener or wake word. |
 | Transcript returned | Text stays in memory until sent or discarded; nothing writes it to disk. |
 | Coding agent launched | `ELEVENLABS_API_KEY` is removed from its environment and never logged. |
 
-The Units meter reads the ElevenLabs credit quota as percentage used and the amount due on the next invoice, not speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures).
+When voice input is enabled, the Units meter reads the ElevenLabs credit quota as percentage used and the amount due on the next invoice, not speech-to-text audio-minute spend; see [ElevenLabs metering](/apis/elevenlabs#what-the-units-meter-measures). Declining voice input disables this provider meter.
 
 ### Without a key
 
-The key is optional and its absence is not an error.
+The key is optional and its absence is not an error. This differs from `elevenlabs.enabled: false`, which records that voice input was declined and disables the provider integration; see [Configuration](/reference/configuration#elevenlabs).
 
 | Surface | Behavior with no key |
 | --- | --- |
