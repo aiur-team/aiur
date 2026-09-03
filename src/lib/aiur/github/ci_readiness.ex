@@ -19,6 +19,7 @@ defmodule Aiur.GitHub.CiReadiness do
   @default_timeout_ms 30_000
   @github_actions_app_id 15_368
   @operator_token_env "AIUR_CI_READINESS_TOKEN"
+  @plan_limit_message "Upgrade to GitHub Pro or make this repository public"
   @matrix_ref_regex ~r/\$\{\{\s*matrix\.([A-Za-z0-9_.-]+)\s*\}\}/
 
   @type issue ::
@@ -685,7 +686,7 @@ defmodule Aiur.GitHub.CiReadiness do
     case request(request_fun, %{method: :get, url: protection_url, token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: protection}} -> {:ok, required_checks_from(protection)}
       {:ok, %{status: 404}} -> {:ok, []}
-      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
+      {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
     end
   end
@@ -731,7 +732,7 @@ defmodule Aiur.GitHub.CiReadiness do
         )
 
       {:ok, %{status: _} = response} ->
-        {:error, Errors.github_status_error(response)}
+        {:error, required_check_error(response)}
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}
@@ -767,13 +768,27 @@ defmodule Aiur.GitHub.CiReadiness do
   defp fetch_ruleset_detail(request_fun, token, base_url, %{"id" => id}) when is_integer(id) or is_binary(id) do
     case request(request_fun, %{method: :get, url: "#{base_url}/rulesets/#{URI.encode(to_string(id))}", token: token, caller: "ci_readiness"}) do
       {:ok, %{status: 200, body: detail}} when is_map(detail) -> {:ok, detail}
-      {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
+      {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
       _ -> {:error, :invalid_ruleset_response}
     end
   end
 
   defp fetch_ruleset_detail(_request_fun, _token, _base_url, _summary), do: {:error, :invalid_ruleset_summary}
+
+  defp required_check_error(%{status: 403} = response) do
+    case Errors.response_message(response) do
+      message when is_binary(message) ->
+        if String.contains?(message, @plan_limit_message),
+          do: {:ci_readiness_plan_limit, message},
+          else: Errors.github_status_error(response)
+
+      _ ->
+        Errors.github_status_error(response)
+    end
+  end
+
+  defp required_check_error(response), do: Errors.github_status_error(response)
 
   defp required_checks_from(value) when is_map(value) do
     checks =

@@ -1366,6 +1366,104 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:error, {:github, :http, %{status: 500}}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
   end
 
+  test "preserves GitHub's plan-limit message when rulesets are unavailable" do
+    encoded = Base.encode64(@workflow)
+    plan_limit_message = "Upgrade to GitHub Pro or make this repository public to enable this feature."
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 404, body: %{}}}
+
+        url =~ "/rulesets" ->
+          {:ok, %{status: 403, body: %{"message" => plan_limit_message}}}
+      end
+    end
+
+    assert {:error, {:ci_readiness_plan_limit, ^plan_limit_message}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "preserves GitHub's plan-limit message when branch protection is unavailable" do
+    encoded = Base.encode64(@workflow)
+    plan_limit_message = "Upgrade to GitHub Pro or make this repository public to enable this feature."
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 403, body: %{"message" => plan_limit_message}}}
+
+        url =~ "/rulesets" ->
+          flunk("rulesets should not be fetched after branch protection reports a plan limit")
+      end
+    end
+
+    assert {:error, {:ci_readiness_plan_limit, ^plan_limit_message}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "keeps ordinary ruleset 403 responses classified as permission failures" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 404, body: %{}}}
+
+        url =~ "/rulesets" ->
+          {:ok, %{status: 403, body: %{"message" => "Resource not accessible by personal access token"}}}
+      end
+    end
+
+    assert {:error, {:github, :http, %{status: 403}}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
   test "round-trips an unavailable operator assessment through persistence" do
     path = Aiur.TestSupport.tmp_root!("aiur-ci-readiness") <> ".json"
     readiness = CiReadiness.unavailable("develop", :ci_readiness_operator_token_required)
