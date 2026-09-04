@@ -885,7 +885,8 @@ defmodule Aiur.GitHub.Config do
   # later is still reached.
   #
   # Seams (tests only): `:signal_fun` observes the signals, `:pgrep_fun`
-  # supplies the raw child-enumeration output.
+  # supplies the raw child-enumeration output, `:pgid_fun` supplies the pgid so
+  # both the leader and the non-leader topology can be exercised off-host.
   @doc false
   @spec kill_os_process(term(), keyword()) :: :ok
   def kill_os_process(pid, opts \\ [])
