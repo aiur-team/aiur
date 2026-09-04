@@ -80,8 +80,10 @@ defmodule Aiur.Application do
 
       # `:rest_for_one`, not `:one_for_one`: the children above are written in
       # dependency order, and several of them genuinely depend on the ones
-      # before them. `Aiur.PubSub` is first because 17 lib modules subscribe to
-      # it; six application children hold a live link to it at boot.
+      # before them. `Aiur.PubSub` leads the dependent block because 17 lib
+      # modules subscribe to it; six application children hold a live link to it
+      # at boot. Only `Aiur.Webhooks.ModeTable` precedes it — a dependency-free
+      # ETS owner that must not be restarted by anyone else's crash (#2531).
       #
       # Elixir's `Registry` links every registered process to its partition, and
       # `Phoenix.PubSub.subscribe/2` registers — so each subscribing sibling is
@@ -261,6 +263,28 @@ defmodule Aiur.Application do
       end
 
     [
+      # First, ahead of `Aiur.PubSub` itself. `ModeTable` reads no config,
+      # subscribes to nothing and calls no sibling — its `init/1` creates one
+      # named ETS table and stops — so under `:rest_for_one` every child placed
+      # ahead of it declares a dependency it does not have, and pays for it: an
+      # ETS table dies with the process that created it, so a crash anywhere in
+      # front of `ModeTable` restarted it and silently emptied the entire
+      # delivery-mode view (#2531).
+      #
+      # That is not a bounded cost. Nothing republishes a proven mode on
+      # `ModeTable`'s boot — `ModeRegistry` restarts in the same cascade and
+      # rebuilds `state.repos` from config as configured-*unproven* — so every
+      # webhook-backed repo silently fell back to the 30-second polling TTL and
+      # stayed there until a fresh delivery re-proved it. Ordered first, no
+      # sibling's crash can reach it.
+      #
+      # Going first also means a `ModeTable` crash would now restart the whole
+      # tree behind it, which is only acceptable because it has no way to crash:
+      # `put/2`, `transport/1` and `delete/1` all run in the *caller's* process
+      # against a `:public` table, so the server itself exposes no `handle_call`
+      # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
+      # Give it a failing callback and this ordering stops being free.
+      Aiur.Webhooks.ModeTable,
       {Phoenix.PubSub, name: Aiur.PubSub},
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
@@ -346,15 +370,14 @@ defmodule Aiur.Application do
       # so a repo always has a mode to read; with no configured repos every
       # lookup answers "polling", which is exactly the pre-webhook behavior.
       #
-      # `ModeTable` owns the ETS view the read-cache TTL consults on every
-      # cacheable request, and starts first so the registry has somewhere to
-      # publish the moment it records its first mode. The reverse is not
-      # guaranteed: if the registry crashes, its `state.repos` rebuilds as
-      # configured-unproven while the table briefly keeps its old `:webhook`
+      # The ETS view it publishes into (`Aiur.Webhooks.ModeTable`) is the first
+      # child of the whole tree, so the registry always has somewhere to publish
+      # and the table outlives every restart the registry can take part in. The
+      # reverse is not guaranteed: if the registry crashes, its `state.repos`
+      # rebuilds as configured-unproven while the table keeps its old `:webhook`
       # records, so a repo can hold the long TTL until the next sweep
       # republishes. Bounded (the TTL is a backstop, never a freshness claim)
       # and corrected automatically, so it is a note, not a fix.
-      Aiur.Webhooks.ModeTable,
       Aiur.Webhooks.ModeRegistry,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
