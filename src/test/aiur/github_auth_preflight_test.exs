@@ -127,7 +127,15 @@ defmodule Aiur.GitHubAuthPreflightTest do
 
     same_outage = Dispatcher.maybe_dispatch(first, & &1, preflight_fun)
     assert same_outage.tracker_preflight_alert_signature == first.tracker_preflight_alert_signature
-    refute_receive {:event, %{topic: "system.tracker.auth_preflight_failed"}}, 100
+    # `refute_received`, not `refute_receive ..., 100`. `Alerts.emit_system/2`
+    # reaches `Exchange.publish/3`, which fans out with a direct `send` from the
+    # *calling* process — so a re-alert from the line above is already in this
+    # mailbox by the time `maybe_dispatch/3` returns, and a zero-width mailbox
+    # check catches it just as surely. All a 100ms window added was 100ms in
+    # which unrelated traffic on this system topic, from the application running
+    # alongside the suite, could land and fail the test: a wall-clock race that
+    # got likelier the busier the partition was (#2548).
+    refute_received {:event, %{topic: "system.tracker.auth_preflight_failed"}}
 
     # The same orchestrator must clear both the attention and its dashboard
     # hold as soon as the preflight succeeds.

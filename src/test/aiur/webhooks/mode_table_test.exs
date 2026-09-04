@@ -14,8 +14,13 @@ defmodule Aiur.Webhooks.ModeTableTest do
 
   alias Aiur.Webhooks.{DeliveryMode, ModeTable}
 
-  @repo "aiur-team/aiur"
-  @key_repo "aiur-team/ttl-test-repo"
+  # Deliberately not the live `aiur-team/aiur`. `ModeTable` is a process-global
+  # ETS keyed by repo string, and ten test modules write it; any of them that
+  # records the live repo and lands in this partition makes the unrecorded-repo
+  # case below read back `:webhook`. Keys unique to this module cannot collide,
+  # whichever partition each module is packed into (#2548).
+  @repo "aiur-team/mode-table-test-repo"
+  @key_repo "aiur-team/mode-table-key-test-repo"
 
   setup do
     on_exit(fn -> ModeTable.delete(@repo) && ModeTable.delete(@key_repo) end)
@@ -49,9 +54,9 @@ defmodule Aiur.Webhooks.ModeTableTest do
     # `ModeRegistry` normalizes its keys, so a delivery-cased publish and a
     # config-cased read must land on the same entry or the TTL would see two
     # different repos.
-    ModeTable.put("AIUR-Team/Aiur", webhook_backed())
+    ModeTable.put("AIUR-Team/Mode-Table-Test-Repo", webhook_backed())
     assert ModeTable.transport(@repo) == :webhook
-    assert ModeTable.transport("Aiur-Team/AIUR") == :webhook
+    assert ModeTable.transport("Aiur-Team/MODE-TABLE-TEST-REPO") == :webhook
   end
 
   defp webhook_backed do
