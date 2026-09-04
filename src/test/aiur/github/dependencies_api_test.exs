@@ -161,6 +161,81 @@ defmodule Aiur.GitHub.DependenciesApiTest do
     end
   end
 
+  # Regression for #2550 / #2552. GitHub's validator for
+  # `/issues/:n/dependencies/blocked_by` tracks the blocked issue, not the
+  # blocker objects embedded in the response, so a conditional read is answered
+  # `304` even after a blocker closed or an edge was deleted — and the held body,
+  # carrying each blocker's original state, is served in its place. On a
+  # repository without webhooks nothing ever corrected it but an explicit
+  # `ResourceStore.forget/1`.
+  describe "a revalidating read is unconditional" do
+    test "a blocker that has closed since the list was stored is visible without an explicit forget" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)
+      held = [%{"id" => 80_001, "number" => 80, "state" => "open", "labels" => [%{"name" => "sym:todo"}]}]
+      ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+
+      closed = [%{"id" => 80_001, "number" => 80, "state" => "closed", "labels" => [%{"name" => "sym:done"}], "updated_at" => "2026-09-04T10:00:00Z"}]
+
+      assert {:ok, ^closed} =
+               DependenciesApi.fetch_blocked_by(7, revalidate: true, request_fun: stale_validator_endpoint(closed))
+
+      assert ResourceStore.data(key) == closed
+    end
+
+    test "a dependency edge deleted outside Aiur's own write is visible without an explicit forget" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)
+      ResourceStore.put_resource(key, [%{"id" => 80_001, "number" => 80}], source: :fetch, etag: ~s("e1"))
+
+      assert {:ok, []} =
+               DependenciesApi.fetch_blocked_by(7, revalidate: true, request_fun: stale_validator_endpoint([]))
+
+      assert ResourceStore.data(key) == []
+    end
+
+    # The confirming reads #2326 exists for do not ask for freshness, so they
+    # still answer from the held body with no request at all.
+    test "a read that did not ask for freshness is still served from the store" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)
+      held = [%{"id" => 80_001, "number" => 80}]
+      ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+
+      assert {:ok, ^held} =
+               DependenciesApi.fetch_blocked_by(7,
+                 request_fun: fn _request -> flunk("a held list must be served, not fetched") end
+               )
+    end
+
+    # #2552: the deposit carries a marker, so the store's stale-delivery guard
+    # has something to compare a late `blocked_by_added` against.
+    test "the fetched list is deposited with the newest blocker updated_at as its version" do
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 7)
+
+      body = [
+        %{"id" => 80_001, "number" => 80, "updated_at" => "2026-09-04T10:00:00Z"},
+        %{"id" => 90_001, "number" => 90, "updated_at" => "2026-09-04T12:00:00Z"}
+      ]
+
+      assert {:ok, ^body} =
+               DependenciesApi.fetch_blocked_by(7,
+                 request_fun: fn %{method: :get} -> {:ok, %{status: 200, body: body, headers: [{"etag", ~s("e1")}]}} end
+               )
+
+      assert {:ok, %{version: "2026-09-04T12:00:00Z"}} = ResourceStore.fetch(key)
+    end
+  end
+
+  # A double of the endpoint as observed on the reported run: it answers `304`
+  # to anything carrying a validator, and the truth to an unconditional read.
+  defp stale_validator_endpoint(fresh) do
+    fn request ->
+      if Map.has_key?(request, :etag) do
+        {:ok, %{status: 304, headers: [{"etag", ~s("e1")}]}}
+      else
+        {:ok, %{status: 200, body: fresh, headers: [{"etag", ~s("e2")}]}}
+      end
+    end
+  end
+
   describe "remove_dependency/3" do
     test "sends the blocker id in the full delete URL and accepts no-content success" do
       request_fun = fn %{method: :delete, url: url, api_version: api_version} = request ->
