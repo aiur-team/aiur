@@ -1,7 +1,21 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.{GitHub.Issues, Issue, Orchestrator.DispatchPolicy}
+  alias Aiur.{GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
+
+  # A double of `/issues/:n/dependencies/blocked_by` as observed on the reported
+  # run: it answers `304` to anything carrying a validator — its ETag tracks the
+  # blocked issue, not the blocker state it embeds — and the truth to an
+  # unconditional read (#2550, #2552).
+  defp stale_validator_endpoint(fresh) do
+    fn request ->
+      if Map.has_key?(request, :etag) do
+        {:ok, %{status: 304, headers: [{"etag", ~s("e1")}]}}
+      else
+        {:ok, %{status: 200, body: fresh, headers: [{"etag", ~s("e2")}]}}
+      end
+    end
+  end
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @origin_cache_key {Aiur.GitHub.Config, :resolved_origin_repo}
@@ -575,6 +589,51 @@ defmodule Aiur.GitHub.IssuesTest do
 
       # The configured terminal set has no "closed" entry — the gate must still
       # let the ticket through, or a closed GitHub blocker strands its blockee.
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+    end
+
+    # Regression for #2550 / #2552, from the aiur-team/architecture-docs run:
+    # eighteen `agent:todo` tickets sat at `dispatch_decline=:dependency` against
+    # blockers that had closed hours earlier. `hydrate_blocked_by/1` asks for
+    # freshness, but the endpoint's validator tracks the *blocked* issue rather
+    # than the blocker objects it embeds, so a conditional read was answered
+    # `304` and the store's original body — with the blocker's original labels —
+    # was handed to the gate. Only `ResourceStore.forget/1` cleared it.
+    #
+    # The double below is that endpoint: `304` to anything conditional, the truth
+    # to an unconditional read.
+    test "a blocker closed since the list was stored clears the gate without an explicit forget (#2550)" do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 24)
+      held = [%{"number" => 14, "html_url" => "u14", "state" => "open", "labels" => [%{"name" => "sym:todo"}]}]
+      ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+
+      closed = [%{"number" => 14, "html_url" => "u14", "state" => "closed", "labels" => [%{"name" => "sym:done"}], "updated_at" => "2026-09-04T10:00:00Z"}]
+
+      issue = %Issue{id: "24", identifier: "24", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: [blocker]} = hydrated} =
+               Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint(closed))
+
+      assert blocker.state == "Closed"
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+    end
+
+    test "a dependency edge deleted on GitHub clears the gate without an explicit forget (#2552)" do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 25)
+      held = [%{"number" => 14, "html_url" => "u14", "state" => "open", "labels" => [%{"name" => "sym:todo"}]}]
+      ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+
+      issue = %Issue{id: "25", identifier: "25", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: []} = hydrated} =
+               Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint([]))
+
       refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
