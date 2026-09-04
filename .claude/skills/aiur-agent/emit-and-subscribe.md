@@ -328,7 +328,12 @@ was created with.
 > `branch.force-push`.
 
 For a declared blocker, `ticket.N.agent.unblocked` is the readiness signal that
-resumes a parked consumer through the mid-turn checkpoint drain. Load
+resumes a parked consumer through the mid-turn checkpoint drain, and
+`ticket.N.pr.merged` is the second one: the blocker's work can land because an
+Executor merged its pull request rather than because its agent announced a
+release, and that merge advances the base branch (`system.<base>.branch.push`)
+without ever raising `ticket.N.branch.push`. Both topics are drain-eligible, so
+either reaches you mid-turn without an operator relaying it. Load
 `stub-then-fetch.md`, then use the latest `ticket.N.branch.push` payload only to
 fetch and inspect its validated ref (never a guessed `origin/aiur/N`; use
 `scripts/resolve-ticket-branch N` when no event ref is available). Do not infer

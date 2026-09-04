@@ -273,10 +273,24 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
 
   defp blocker_critical_event?(_event, _direct_blockers), do: false
 
+  # `pr.merged` is a readiness signal exactly like `agent.unblocked`, and it is
+  # the ONLY one on the path where the Executor merges the blocker's pull
+  # request rather than the blocker's own agent announcing its release. Merging
+  # advances the base branch, so it raises `system.<base>.branch.push` and never
+  # `ticket.<blocker>.branch.push` — leaving that Executor-driven path with no
+  # drain-eligible topic at all. A blockee waiting inside a live turn then held
+  # its subscription, received the digest, and was never interrupted with it:
+  # the wake sat pending until a turn boundary the agent never reached, and only
+  # an operator relaying the news in prose released it (#2556).
+  #
+  # Fan-out stays bounded by `direct_blockers`, not by binding count: a ticket
+  # with many bindings across three blockers can be woken at most once per
+  # blocker merge, and the merge itself is deduped at the publisher.
   defp blocker_critical_topic?(topic, direct_blockers) do
     case String.split(topic, ".") do
       ["ticket", id, "branch", "push"] -> id in direct_blockers
       ["ticket", id, "branch", "force-push"] -> id in direct_blockers
+      ["ticket", id, "pr", "merged"] -> id in direct_blockers
       ["ticket", id, "agent", "unblocked"] -> id in direct_blockers
       ["ticket", id, "agent", "decision", _slug] -> id in direct_blockers
       _ -> false
