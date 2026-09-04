@@ -39,6 +39,14 @@ defmodule Aiur.Executor.TakeoverAlert.SnapshotTest do
     }
   end
 
+  defp fork_pr_body do
+    %{pr_body() | "head" => %{"ref" => "aiur/101", "sha" => "abc123", "repo" => %{"full_name" => "contributor/repo"}}}
+  end
+
+  defp repoless_pr_body do
+    %{pr_body() | "head" => %{"ref" => "aiur/101", "sha" => "abc123"}}
+  end
+
   defp request_fun_returning(pull_requests) do
     fn %{method: :get, url: url} ->
       cond do
@@ -103,6 +111,17 @@ defmodule Aiur.Executor.TakeoverAlert.SnapshotTest do
               mergeable_state: "clean",
               ci_state: nil
             }} = Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun_returning([pr_body()]))
+  end
+
+  test "refuses a fork pull request that reuses the ticket branch name" do
+    assert {:ok, nil} == Snapshot.fetch_open_pr(%{identifier: "101"}, request_fun: request_fun_returning([fork_pr_body()]))
+  end
+
+  test "refuses a pull request that names no head repository" do
+    assert {:ok, nil} ==
+             Snapshot.fetch_open_pr(%{identifier: "101"},
+               request_fun: request_fun_returning([repoless_pr_body()])
+             )
   end
 
   test "returns nil when no open PR exists for the ticket" do
