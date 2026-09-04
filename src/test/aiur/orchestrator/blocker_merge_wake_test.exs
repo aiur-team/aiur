@@ -25,10 +25,13 @@ defmodule Aiur.Orchestrator.BlockerMergeWakeTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentQueueStore
+  alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.Orchestrator.AutoSubscriptions
   alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.Orchestrator.State
+  alias Aiur.TestSupport
 
   setup do
     blockee = "blockee-#{System.unique_integer([:positive])}"
@@ -188,6 +191,69 @@ defmodule Aiur.Orchestrator.BlockerMergeWakeTest do
         end)
 
       assert {:empty, _state} = claim_blocker_critical(state, blockee)
+    end
+  end
+
+  describe "on a tracker whose poll never carries the dependency" do
+    # GitHub's issue list poll never populates `blocked_by`, and neither of the
+    # two places that hydrate it writes the hydrated issue back into
+    # `last_polled_issues`. The blocker set must therefore also be readable
+    # from the durable subscription bindings that `aiur_declare_blocker` wrote.
+    setup do
+      :ok = TestSupport.ensure_subscription_store_supervisor_running()
+    end
+
+    test "a declared blocker read from the subscription bindings still wakes the agent", context do
+      %{blockee: blockee, blocker: blocker} = context
+      :ok = AutoSubscriptions.subscribe_for_declared_blocker(blockee, blocker)
+      on_exit(fn -> SubscriptionStore.stop(blockee) end)
+      on_exit(fn -> SubscriptionStore.stop(blocker) end)
+
+      # The polled issue knows nothing about the dependency — the GitHub shape.
+      state = blocked_state(blockee, [])
+      assert AutoSubscriptions.direct_blockers_for(state, blockee) == [blocker]
+
+      state = enqueue(state, blockee, "ticket.#{blocker}.pr.merged")
+
+      [item] = queued_items(state)
+      assert item.body.urgent == true
+      assert item.delivery.interrupt_requested == true
+      assert {{:ok, _claimed}, _next} = claim_blocker_critical(state, blockee)
+    end
+
+    test "a sibling an agent chose to watch is not a blocker and never interrupts", context do
+      %{blockee: blockee} = context
+      sibling = "sibling-#{System.unique_integer([:positive])}"
+      :ok = SubscriptionStore.attach(blockee)
+      on_exit(fn -> SubscriptionStore.stop(blockee) end)
+
+      :ok =
+        SubscriptionStore.add_subscription(
+          blockee,
+          "ticket.#{sibling}.pr.merged",
+          "manual:agent"
+        )
+
+      state = blocked_state(blockee, [])
+      refute sibling in AutoSubscriptions.direct_blockers_for(state, blockee)
+
+      state = enqueue(state, blockee, "ticket.#{sibling}.pr.merged")
+
+      [item] = queued_items(state)
+      refute item.body.urgent
+      refute item.delivery.interrupt_requested
+      assert {:empty, _state} = claim_blocker_critical(state, blockee)
+    end
+
+    test "an unavailable subscription store degrades to the polled blockers", context do
+      # No store is attached for this blockee: the snapshot answers `:not_found`
+      # and the polled set still stands, so behaviour is exactly what it was
+      # before the bindings were consulted — never an exception, never worse.
+      %{blockee: blockee, blocker: blocker} = context
+      state = blocked_state(blockee, [blocker])
+
+      assert AutoSubscriptions.direct_blockers_for(state, blockee) == [blocker]
+      assert AutoSubscriptions.direct_blockers_for(blocked_state(blockee, []), blockee) == []
     end
   end
 end
