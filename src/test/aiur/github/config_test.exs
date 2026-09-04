@@ -385,28 +385,26 @@ defmodule Aiur.GitHub.ConfigTest do
         _other -> {"", 1}
       end
 
-      assert Config.kill_os_process(4242,
-               signal_fun: signal_fun,
-               pgrep_fun: pgrep_fun,
-               pgid_fun: fn 4242 -> 4242 end
-             ) == :ok
+      assert Config.kill_os_process(4242, signal_fun: signal_fun, pgrep_fun: pgrep_fun) == :ok
 
       signals = drain_signals()
 
       assert {"TERM", 4242} in signals, "the direct pid was never TERMed: #{inspect(signals)}"
       assert {"KILL", 4242} in signals, "the direct pid was never KILLed: #{inspect(signals)}"
-      assert {"TERM", -4242} in signals
       assert {"KILL", 4343} in signals, "the parseable child pid was dropped: #{inspect(signals)}"
     end
 
-    test "a child that does not lead its own group is never signalled as a group" do
-      # #2560: `-pid` is not "the group led by pid", it is "process group number
-      # pid" — and a pgid is just the pid of whichever process leads that group.
-      # Where the BEAM's port spawn leaves the child in its parent's group (the
-      # CI topology), signalling `-pid` reaches an unrelated group that merely
-      # carries that number. On a CI runner that group was the Actions runner's
-      # own: the job took a SIGTERM mid-step and died as an exit 143 with no
-      # test output. Only a VERIFIED group leader may be signalled as a group.
+    test "no signal is ever aimed at a process group" do
+      # #2560. On a GitHub-hosted runner the whole job shares one process
+      # group: Runner.Listener, Runner.Worker and the step shell all sat in
+      # pgid 2034 on the runner that failed. A `kill -<sig> -<pgid>` from
+      # inside the suite therefore SIGTERMs the Actions runner itself. The job
+      # died mid-step with exit 143, "the runner has received a shutdown
+      # signal", and no test output at all; an instrumented run put 8 ms
+      # between this function's group signal and the runner's death.
+      #
+      # A process group is not this code's to signal. Every target must be a
+      # pid the descendant walk actually found.
       test_pid = self()
 
       signal_fun = fn signal, target ->
@@ -414,55 +412,25 @@ defmodule Aiur.GitHub.ConfigTest do
         :ok
       end
 
-      # The child's pgid is its parent's, not its own — it leads nothing.
-      pgid_fun = fn 4242 -> 4242 - 17 end
-
       pgrep_fun = fn
         4242 -> {"4343\n", 0}
+        4343 -> {"4344\n", 0}
         _other -> {"", 1}
       end
 
-      assert Config.kill_os_process(4242,
-               signal_fun: signal_fun,
-               pgrep_fun: pgrep_fun,
-               pgid_fun: pgid_fun
-             ) == :ok
+      assert Config.kill_os_process(4242, signal_fun: signal_fun, pgrep_fun: pgrep_fun) == :ok
 
       signals = drain_signals()
 
       assert {"TERM", 4242} in signals, "the direct pid was never TERMed: #{inspect(signals)}"
       assert {"KILL", 4242} in signals, "the direct pid was never KILLed: #{inspect(signals)}"
 
-      assert {"KILL", 4343} in signals,
-             "the descendant must still be reaped: #{inspect(signals)}"
+      assert {"TERM", 4343} in signals, "the descendant was never TERMed: #{inspect(signals)}"
+      assert {"KILL", 4343} in signals, "the descendant was never KILLed: #{inspect(signals)}"
+      assert {"KILL", 4344} in signals, "the grandchild was never KILLed: #{inspect(signals)}"
 
       refute Enum.any?(signals, fn {_signal, target} -> target < 0 end),
-             "signalled a process group it does not lead: #{inspect(signals)}"
-    end
-
-    test "an unresolvable pgid fails closed and signals no group" do
-      # No `ps`, a process already gone, unparseable output: all nil, and nil is
-      # never a pid. Fail closed rather than guessing at a group.
-      test_pid = self()
-
-      signal_fun = fn signal, target ->
-        send(test_pid, {:signal, signal, target})
-        :ok
-      end
-
-      assert Config.kill_os_process(4242,
-               signal_fun: signal_fun,
-               pgrep_fun: fn _pid -> {"", 1} end,
-               pgid_fun: fn _pid -> nil end
-             ) == :ok
-
-      signals = drain_signals()
-
-      assert {"TERM", 4242} in signals
-      assert {"KILL", 4242} in signals
-
-      refute Enum.any?(signals, fn {_signal, target} -> target < 0 end),
-             "an unknown pgid must not be signalled: #{inspect(signals)}"
+             "a process group was signalled: #{inspect(signals)}"
     end
 
     test "a stalled gh that is the DIRECT port child is killed (the CI topology)" do

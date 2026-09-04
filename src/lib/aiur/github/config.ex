@@ -828,42 +828,38 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
-  # Kills the port child and everything it spawned, without depending on the
-  # child leading a process group. Whether the BEAM's port spawn places the
-  # child in its own group is environment-dependent: it does on a dev host
-  # (os_pid == pgid == sid), but NOT on CI, where the child shares the parent's
-  # group. The group signal is therefore sent ONLY when the child is verified
-  # to lead the group named by its own pid.
+  # Kills the port child and everything it spawned, BY PID ONLY. Never a
+  # process group.
   #
-  # `-pid` does not mean "the group led by pid". It means "process group number
-  # pid", and a pgid is just the pid of whichever process leads that group. So
-  # where the child does NOT lead a group, `-pid` is not the harmless ESRCH
-  # this code used to assume — it is a signal to whatever unrelated group
-  # happens to carry that number. On a fresh CI runner the Actions runner's own
-  # processes sit in the same low pid range as the port children this reaps, so
-  # a `kill -TERM -<pid>` that missed could SIGTERM `Runner.Worker` and take the
-  # whole job down mid-step: exit 143, "the runner has received a shutdown
-  # signal", and no test output (#2560). Which pid the port child draws depends
-  # on how many processes the partition spawned before this test, so adding one
-  # test file anywhere earlier in the sorted file list was enough to move the
-  # collision in or out of range and flip CI red or green.
+  # A process group is not a safe unit to signal from inside a CI job. On a
+  # GitHub-hosted runner the whole job shares one group — measured on the
+  # runner that failed #2560:
   #
-  # Verified leader -> group signal; anything else (unknown or mismatched pgid)
-  # narrows to the pid and its enumerated descendants and never widens. Same
-  # fail-closed probe `Aiur.Opencode.Server.reap_opencode_children/1` uses.
-  # Nothing is lost where the child does not lead a group: the group signal was
-  # a no-op there by construction, and the descendant walk is what does the
-  # reaping.
+  #     PID   PGID   PPID    SID  COMMAND
+  #    2108   2034   2034   2034  Runner.Listener
+  #    2128   2034   2108   2034  Runner.Worker
+  #    2428   2034    ...   2034  the step shell (-> timeout -> make -> beam.smp)
   #
-  # The kill targets the direct child pid AND every descendant pid (enumerated
-  # BEFORE any signal, so a child reparented by the direct TERM is still found)
-  # — reaching a guard wrapper, the real `gh` it spawned and any background
-  # lease renewer in one sweep. TERM is sent first so a wrapper's cleanup trap can release
-  # the budget lease (SIGKILL is untrappable), then, after a brief bound for
-  # that trap to run, KILL clears anything that ignored TERM. The kill runs
-  # BEFORE the task is torn down: Task.shutdown closes the port,
-  # erl_child_setup may reap the child, and the OS could recycle the pid
-  # before a later kill landed on an unrelated process.
+  # so a `kill -<sig> -<pgid>` that lands on that group SIGTERMs the Actions
+  # runner itself. That is what #2560 looked like from outside: the job died
+  # mid-step with exit 143 and "the runner has received a shutdown signal", no
+  # test output at all, and no remaining step ran — including the one that
+  # would have printed the partition log. An instrumented run put 8 ms between
+  # this function's group signal and the runner's death.
+  #
+  # The group signal was never load-bearing: the descendant walk below already
+  # reaches the guard wrapper, the real `gh` it spawned and any background
+  # lease renewer, because it enumerates them from the live process table.
+  # Signalling a group only added a way to hit processes this code never
+  # spawned. Every target here is now a pid that walk actually found.
+  #
+  # TERM is sent first — to the root and to every descendant already
+  # enumerated — so a wrapper's cleanup trap can release the budget lease
+  # (SIGKILL is untrappable), then, after a brief bound for that trap to run,
+  # KILL clears anything that ignored TERM. The kill runs BEFORE the task is
+  # torn down: Task.shutdown closes the port, erl_child_setup may reap the
+  # child, and the OS could recycle the pid before a later kill landed on an
+  # unrelated process.
   #
   # NO STEP MAY SWALLOW ANOTHER. The kill used to compute
   # `[pid | descendant_os_pids(pid)]` before signalling anything, and the walk
@@ -873,8 +869,7 @@ defmodule Aiur.GitHub.Config do
   # orphan accumulation this exists to prevent. The walk is now defensive at
   # both levels: `child_os_pids/2` parses with `Integer.parse/1` and drops
   # non-pids, and `safe_descendant_os_pids/2` degrades any walk failure to []
-  # rather than aborting the kill, so the direct-pid and group signals always
-  # land.
+  # rather than aborting the kill, so the direct-pid signals always land.
   #
   # The walk still runs BEFORE the TERM, and that ordering is load-bearing in
   # the other direction: TERM kills the direct child immediately, its children
@@ -885,8 +880,7 @@ defmodule Aiur.GitHub.Config do
   # later is still reached.
   #
   # Seams (tests only): `:signal_fun` observes the signals, `:pgrep_fun`
-  # supplies the raw child-enumeration output, `:pgid_fun` supplies the pgid so
-  # both the leader and the non-leader topology can be exercised off-host.
+  # supplies the raw child-enumeration output.
   @doc false
   @spec kill_os_process(term(), keyword()) :: :ok
   def kill_os_process(pid, opts \\ [])
@@ -894,13 +888,12 @@ defmodule Aiur.GitHub.Config do
   def kill_os_process(pid, opts) when is_integer(pid) and pid > 0 do
     signal = Keyword.get(opts, :signal_fun, &signal_os_pid/2)
 
-    # Probed BEFORE the TERM, while the child is still in the process table:
-    # after it dies `ps` reports nothing and the group could never be verified.
-    leads_group? = leads_own_process_group?(pid, opts)
+    # Enumerated BEFORE the TERM: once the root dies its children reparent to
+    # init and `pgrep -P <root>` finds nothing.
     before_term = safe_descendant_os_pids(pid, opts)
 
     signal.("TERM", pid)
-    if leads_group?, do: signal.("TERM", -pid)
+    Enum.each(before_term, &signal.("TERM", &1))
 
     Process.sleep(150)
 
@@ -908,7 +901,6 @@ defmodule Aiur.GitHub.Config do
 
     signal.("KILL", pid)
     Enum.each(descendants, &signal.("KILL", &1))
-    if leads_group?, do: signal.("KILL", -pid)
     :ok
   rescue
     _ -> :ok
@@ -916,34 +908,8 @@ defmodule Aiur.GitHub.Config do
 
   def kill_os_process(_pid, _opts), do: :ok
 
-  # True only when `pid` is confirmed to lead the process group numbered `pid`.
-  # Fails closed: an unknown pgid (process already gone, no `ps` on the host,
-  # unparseable output) is nil, nil never equals a positive pid, and the caller
-  # then signals no group at all.
-  defp leads_own_process_group?(pid, opts) do
-    pgid = Keyword.get(opts, :pgid_fun, &process_group_id/1)
-    pgid.(pid) == pid
-  end
-
-  defp process_group_id(pid) when is_integer(pid) and pid > 0 do
-    case System.cmd("ps", ["-o", "pgid=", "-p", Integer.to_string(pid)], stderr_to_stdout: true) do
-      {out, 0} ->
-        case out |> String.trim() |> Integer.parse() do
-          {pgid, _rest} -> pgid
-          :error -> nil
-        end
-
-      _ ->
-        nil
-    end
-  rescue
-    _ -> nil
-  catch
-    _, _ -> nil
-  end
-
   # The descendant walk can never abort the kill: any failure degrades to "no
-  # descendants found" and the direct-pid and group signals still land.
+  # descendants found" and the direct-pid signals still land.
   defp safe_descendant_os_pids(pid, opts) do
     descendant_os_pids(pid, opts)
   rescue
