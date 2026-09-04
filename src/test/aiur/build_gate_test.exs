@@ -557,10 +557,55 @@ defmodule Aiur.BuildGateTest do
     missing_command_context =
       context
       |> with_command_wrappers!()
-      |> Map.merge(%{bin_dir: empty_bin, system_path: "/usr/bin:/bin"})
+      |> Map.merge(%{
+        bin_dir: empty_bin,
+        system_path: "/usr/bin:/bin",
+        # Resolution now falls back to the toolchain manager (#2542), so an
+        # installed `mise` must be pointed at an empty data directory for this
+        # fixture to still be a machine with no Mix on it at all.
+        extra_env: [{"MISE_DATA_DIR", Path.join(context.gate_dir, "no-mise-data")}]
+      })
 
     assert {output, 127} = run_sh("timeout --kill-after=1 2 mix test", missing_command_context)
-    assert output =~ "gate_error reason=command_unavailable command=mix status=127"
+    assert output =~ "gate_error reason=command_unavailable command=mix"
+    assert output =~ "status=127"
+    # The 127 names the wrapper and the self-check, so the next reader knows
+    # which file shadowed the toolchain (#2542).
+    assert output =~ "wrapper=#{Path.join(missing_command_context.wrapper_bin, "mix")}"
+    assert output =~ "__aiur_build_gate_self_check__"
+  end
+
+  test "the command wrapper resolves the toolchain through mise when PATH holds only wrappers", context do
+    # #2542: a `mise reshim` can leave ~/.local/share/mise/shims/mix as a copy of
+    # this wrapper, so PATH holds no real Mix at all and a PATH-order-only
+    # resolution exits 127. Resolution asks the toolchain manager instead, and
+    # refuses to hand the command to another copy of itself.
+    %{shim_dir: shim_dir, toolchain: toolchain, context: shadowed} = shadowed_toolchain_context(context)
+
+    assert {_output, 0} = run_sh("mix format", shadowed)
+    assert File.read!(context.log_path) == "format\n"
+
+    assert {output, 0} = run_sh("mix __aiur_build_gate_self_check__", shadowed)
+    assert output =~ "self_check command=mix"
+    assert output =~ "source=mise"
+    assert output =~ "real=#{Path.join(toolchain, "mix")}"
+    assert output =~ "status=0"
+    refute output =~ "real=#{Path.join(shim_dir, "mix")}"
+
+    assert {erl_output, 0} = run_sh("erl __aiur_build_gate_self_check__", shadowed)
+    assert erl_output =~ "self_check command=erl"
+    assert erl_output =~ "real=#{Path.join(toolchain, "erl")}"
+  end
+
+  test "the command wrapper self-check reports the PATH binary it wraps", context do
+    guarded = with_command_wrappers!(context)
+
+    assert {output, 0} = run_sh("mix __aiur_build_gate_self_check__", guarded)
+    assert output =~ "self_check command=mix"
+    assert output =~ "wrapper=#{Path.join(guarded.wrapper_bin, "mix")}"
+    assert output =~ "source=path"
+    assert output =~ "real=#{Path.join(context.bin_dir, "mix")}"
+    refute File.exists?(context.log_path)
   end
 
   test "elixir -S mix commands resolve the real Mix script and gate build work", context do
@@ -2586,6 +2631,40 @@ defmodule Aiur.BuildGateTest do
     System.cmd("sh", ["-c", command], env: build_gate_env(context), stderr_to_stdout: true)
   end
 
+  # A machine where the only `mix` on PATH is a copy of the gate wrapper — the
+  # #2542 shape — with a `mise` that can still name the real one.
+  defp shadowed_toolchain_context(context) do
+    guarded = with_command_wrappers!(context)
+    shim_dir = Path.join(context.gate_dir, "mise-shims")
+    toolchain = Path.join(context.gate_dir, "toolchain-bin")
+    mise_dir = Path.join(context.gate_dir, "mise-bin")
+    Enum.each([shim_dir, toolchain, mise_dir], &File.mkdir_p!/1)
+
+    # `mise reshim` overwrites its shim directory with links to whatever it found
+    # on PATH, which is how a wrapper ends up standing in for `mix` — and for
+    # `erl`, a name the guard never installs a wrapper for at all (#2542).
+    for name <- ["mix", "erl"] do
+      shim = Path.join(shim_dir, name)
+      File.cp!(Path.join(guarded.wrapper_bin, "mix"), shim)
+      File.chmod!(shim, 0o755)
+    end
+
+    write_fake_mix!(Path.join(toolchain, "mix"))
+    File.write!(Path.join(toolchain, "erl"), "#!/bin/sh\nexit 0\n")
+    File.chmod!(Path.join(toolchain, "erl"), 0o755)
+    write_fake_mise!(Path.join(mise_dir, "mise"))
+
+    shadowed =
+      Map.merge(guarded, %{
+        bin_dir: shim_dir,
+        system_path: Enum.join([mise_dir, "/usr/bin", "/bin"], ":"),
+        mise_which_dir: toolchain,
+        bash_env: Path.join(context.gate_dir, "missing-hook")
+      })
+
+    %{shim_dir: shim_dir, toolchain: toolchain, context: shadowed}
+  end
+
   defp with_command_wrappers!(context) do
     workspace = Path.join(context.gate_dir, "agent-workspace")
     File.mkdir_p!(workspace)
@@ -2612,6 +2691,7 @@ defmodule Aiur.BuildGateTest do
       {"AIUR_BUILD_GATE_TIMEOUT_SECONDS", Integer.to_string(Map.get(context, :timeout_seconds, 5))},
       {"AIUR_MIN_FREE_MEMORY_MB", Integer.to_string(Map.get(context, :min_free_memory_mb, 0))},
       {"AIUR_MEMINFO_PATH", Map.get(context, :meminfo_path, Path.join(gate_dir, "meminfo"))},
+      {"FAKE_MISE_WHICH_DIR", Map.get(context, :mise_which_dir, "")},
       {"FAKE_MIX_LOG", log_path},
       {"FAKE_MIX_STARTED", Map.get(context, :started_path, "")},
       {"FAKE_MIX_TIMING_LOG", Map.get(context, :timing_log_path, "")},
@@ -3084,6 +3164,12 @@ defmodule Aiur.BuildGateTest do
   defp write_fake_mise!(path) do
     File.write!(path, """
     #!/usr/bin/env bash
+    if [[ $1 == which ]]; then
+      target="${FAKE_MISE_WHICH_DIR:-}/$2"
+      [[ -n ${FAKE_MISE_WHICH_DIR:-} && -x $target ]] || exit 1
+      printf '%s\\n' "$target"
+      exit 0
+    fi
     if [[ $1 =~ ^(exec|x)$ ]]; then
       shift
       while (($#)); do
