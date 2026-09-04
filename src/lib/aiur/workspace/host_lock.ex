@@ -45,14 +45,27 @@ defmodule Aiur.Workspace.HostLock do
 
   @type t :: %{path: Path.t(), workspace: Path.t(), holder: holder()}
 
+  @typedoc """
+  Every outcome of taking the lock.
+
+  `{:error, {:workspace_locked, holder}}` is the refusal that matters — it
+  always carries the holder, so no caller can report a collision without
+  naming who holds it. `{:error, {:workspace_lock_unavailable, reason}}` means
+  the lock could not be evaluated at all (an unwritable path, an unresolvable
+  layout); it is a failure, not a refusal, and must not be read as "free".
+  """
+  @type acquisition ::
+          {:ok, t()}
+          | {:error, {:workspace_locked, holder()}}
+          | {:error, {:workspace_lock_unavailable, term()}}
+
   @doc """
   Resolves the local workspace for `identifier` and takes its host lock.
 
   Returns `:not_applicable` for remote worker hosts, whose workspace is not on
   this filesystem.
   """
-  @spec acquire_for_issue(String.t(), worker_host(), keyword()) ::
-          {:ok, t()} | :not_applicable | {:error, {:workspace_locked, holder()}} | {:error, term()}
+  @spec acquire_for_issue(String.t(), worker_host(), keyword()) :: acquisition() | :not_applicable
   def acquire_for_issue(identifier, worker_host \\ nil, opts \\ [])
 
   def acquire_for_issue(_identifier, worker_host, _opts) when is_binary(worker_host), do: :not_applicable
@@ -72,8 +85,7 @@ defmodule Aiur.Workspace.HostLock do
   Fails with `{:error, {:workspace_locked, holder}}` — never silently — when a
   live process on this host already holds it.
   """
-  @spec acquire(Path.t(), String.t(), keyword()) ::
-          {:ok, t()} | {:error, {:workspace_locked, holder()}} | {:error, term()}
+  @spec acquire(Path.t(), String.t(), keyword()) :: acquisition()
   def acquire(workspace, ticket, opts \\ []) when is_binary(workspace) and is_binary(ticket) do
     alive_fun = Keyword.get(opts, :alive_fun, &ProcessIdentity.alive?/1)
     holder = new_holder(ticket, opts)
@@ -185,7 +197,13 @@ defmodule Aiur.Workspace.HostLock do
   end
 
   defp contended_holder({:ok, holder}), do: holder
-  defp contended_holder(_other), do: %{node: "unknown", os_pid: nil}
+
+  # A refusal always carries a full holder, even when the lock file could not
+  # be read: callers pattern-match on the shape to build the message that names
+  # who is holding the workspace, and must not have to special-case a partial
+  # one.
+  defp contended_holder(_other),
+    do: %{node: "unknown", os_pid: nil, ticket: "unknown", owner_id: "unknown", acquired_at: "unknown"}
 
   # A holder whose pid cannot be read names no process to check, so it is not
   # evidence of a live session; a holder with a pid is honoured whenever the
@@ -193,16 +211,20 @@ defmodule Aiur.Workspace.HostLock do
   defp live?({:ok, %{os_pid: os_pid}}, alive_fun) when is_integer(os_pid) and os_pid > 0, do: alive_fun.(os_pid)
   defp live?(_existing, _alive_fun), do: false
 
+  # `:file` rather than `File`/`IO`: the whole point of this call is the
+  # `:eexist` that `:exclusive` returns when someone already holds the lock,
+  # and `IO.binwrite/2` is specced to return `:ok` alone, so a write failure
+  # there is unreportable.
   defp create_exclusive(path, holder) do
-    case File.open(path, [:write, :binary, :exclusive]) do
+    case :file.open(path, [:write, :binary, :exclusive]) do
       {:ok, io} -> write_and_close(path, io, holder)
       {:error, reason} -> {:error, reason}
     end
   end
 
   defp write_and_close(path, io, holder) do
-    result = IO.binwrite(io, encode(holder))
-    File.close(io)
+    result = :file.write(io, encode(holder))
+    _ = :file.close(io)
 
     case result do
       :ok ->

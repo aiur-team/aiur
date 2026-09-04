@@ -109,6 +109,58 @@ defmodule Aiur.Workspace.HostLockTest do
       assert {:ok, holder} = HostLock.holder(workspace)
       assert holder.owner_id == live.holder.owner_id
     end
+
+    test "release tolerates anything that is not a lock" do
+      assert :ok = HostLock.release(nil)
+      assert :ok = HostLock.release(%{path: "/nonexistent/24.lock", holder: %{owner_id: "gone"}})
+    end
+  end
+
+  describe "reporting an absent or damaged lock" do
+    test "an unlocked workspace has no holder" do
+      assert :none = HostLock.holder(workspace_path("host-lock-none"))
+    end
+
+    test "a lock whose fields are the wrong types degrades to a nameable holder" do
+      workspace = workspace_path("host-lock-wrong-types")
+      File.mkdir_p!(Path.dirname(workspace))
+      File.write!(HostLock.lock_path(workspace), Jason.encode!(%{node: 123, os_pid: "not-a-pid"}))
+
+      assert {:ok, holder} = HostLock.holder(workspace)
+      assert holder.node == "unknown"
+      assert holder.os_pid == nil
+      assert holder.ticket == "unknown"
+
+      # A pid that cannot be read names no process to probe, so the workspace
+      # is not treated as live-owned.
+      assert {:ok, _reclaimed} = HostLock.acquire(workspace, "24", os_pid: 7777, alive_fun: fn _pid -> true end)
+    end
+
+    test "describe/1 still produces a message for something that is not a holder" do
+      assert HostLock.describe(:nothing) == "an unidentified holder"
+    end
+  end
+
+  describe "the lock cannot be evaluated" do
+    test "a workspace whose parent is not a directory reports unavailable, never free" do
+      root = Aiur.TestSupport.tmp_root!("host-lock-enotdir")
+      blocker = Path.join(root, "blocker")
+      File.mkdir_p!(root)
+      File.write!(blocker, "not a directory")
+
+      assert {:error, {:workspace_lock_unavailable, _reason}} =
+               HostLock.acquire(Path.join(blocker, "24"), "24")
+    end
+
+    test "an unwritable workspace parent reports unavailable, never free" do
+      root = Aiur.TestSupport.tmp_root!("host-lock-eacces")
+      File.mkdir_p!(root)
+      File.chmod!(root, 0o500)
+      on_exit(fn -> File.chmod(root, 0o700) end)
+
+      assert {:error, {:workspace_lock_unavailable, _reason}} =
+               HostLock.acquire(Path.join(root, "24"), "24")
+    end
   end
 
   describe "acquire_for_issue" do
