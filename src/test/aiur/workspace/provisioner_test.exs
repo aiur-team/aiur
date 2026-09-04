@@ -62,7 +62,11 @@ defmodule Aiur.Workspace.ProvisionerTest do
     bin_dir = Path.join(test_root, "bin")
     active_path = Path.join(test_root, "active")
     max_path = Path.join(test_root, "max")
-    on_exit(fn -> File.rm_rf!(test_root) end)
+    # `File.rm_rf/1`, not the bang: this test deliberately leaves external child
+    # builds running under `test_root`, and one still writing when teardown
+    # walks the tree makes `rm_rf!` raise `:eexist` and fail the test on its
+    # cleanup rather than on its subject — likelier the busier the box (#2548).
+    on_exit(fn -> File.rm_rf(test_root) end)
 
     File.mkdir_p!(bin_dir)
     File.write!(active_path, "0\n")

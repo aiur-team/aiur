@@ -652,7 +652,16 @@ defmodule Aiur.ApplicationTest do
     # this test fails: the supervisor is gone by the first assertion.
     @tag timeout: 60_000
     test "a crashing Aiur.PubSub does not topple the application supervision tree" do
-      on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+      # #2548: when this test's premise fails the tree really is gone, and
+      # everything after it in the partition inherits a VM with no `Aiur.PubSub`
+      # — 21 unrelated reds that named nothing. Assert the restore instead of
+      # attempting it, so a failed recovery is reported here, against the test
+      # that broke the VM, and the partition is not left poisoned.
+      on_exit(fn ->
+        assert Aiur.TestSupport.ensure_runtime_children_running() == :ok,
+               "application children could not be restored after the PubSub crash; " <>
+                 "later tests in this partition would have failed instead of this one"
+      end)
 
       supervisor = Process.whereis(Aiur.Supervisor)
       assert is_pid(supervisor)
