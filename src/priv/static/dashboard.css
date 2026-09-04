@@ -543,6 +543,14 @@ textarea:focus-visible,
   gap: 0.6rem;
 }
 
+/* The catalog card is full-bleed, so its one control re-inserts the padding the
+   surface dropped rather than sitting flush against the rounded corner. */
+.bo-catalog-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.6rem 0.9rem 0;
+}
+
 /* Full-bleed catalog: drop the card's horizontal padding so the table fills the
    whole card at width:100% (no width math that could overflow), and clip to the
    rounded corners. The outer cells re-inset their content by the old padding. */

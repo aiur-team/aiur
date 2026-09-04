@@ -195,6 +195,12 @@ defmodule AiurWeb.BuildOrderLive do
     {:noreply, ContextRuntime.close(socket)}
   end
 
+  # The only way an operator can ask the catalog to re-converge from GitHub
+  # without restarting the daemon (#2544).
+  def handle_event("refresh-catalog", _params, socket) do
+    {:noreply, SourceRuntime.refresh_catalog(socket)}
+  end
+
   def handle_event("usage-drill-down", %{"dimension" => dimension}, socket) do
     {:noreply, UsageRuntime.open_drill(socket, dimension)}
   end

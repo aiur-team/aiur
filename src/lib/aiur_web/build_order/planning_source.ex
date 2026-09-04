@@ -56,6 +56,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     }
   end
 
+  # A planning catalog is read from the pack files on every `catalog/0`, so
+  # there is no upstream re-converge to buy here (#2544).
+  @impl true
+  def refresh_catalog, do: :ok
+
   # --- selected root ---------------------------------------------------------
 
   @impl true
