@@ -1009,9 +1009,13 @@ defmodule Aiur.GitHub.Issues do
   def hydrate_blocked_by(%Issue{} = issue) do
     # The dispatch gate must never be served a blocked-by list the store holds
     # that has silently gone stale — a blocker added on GitHub's side without
-    # Aiur's own write or a webhook delivery must still hold dispatch. So this
-    # entry point always revalidates with the stored ETag (a free 304 when
-    # unchanged) instead of serving the held body blind (#2326).
+    # Aiur's own write or a webhook delivery must still hold dispatch, and a
+    # blocker that has since closed must stop holding it. So this entry point
+    # always revalidates instead of serving the held body blind (#2326), and
+    # that revalidation is unconditional: the endpoint's own ETag tracks the
+    # blocked issue, not the blocker state embedded in its response, so a
+    # conditional read is answered `304` by a blocker that merged hours ago
+    # (#2550, #2552). See `DependenciesApi.revalidation_etag/2`.
     hydrate_blocked_by(issue, revalidate: true)
   end
 
