@@ -3142,7 +3142,13 @@ defmodule Aiur.DecisionStoreTest do
       assert hd(settled.dispatch_attempts).failure_reason_class == "orchestrator_unavailable"
     end
 
-    test "target-agent failure waits for an explicit idempotent retry", %{dir: dir} do
+    # #2558 half one. A recorded answer whose delivery failed because the target
+    # agent was momentarily unreachable used to sit at `failed` forever: the
+    # class was not on the answer's retry ladder, and — being non-actionable —
+    # it was not raised either, so the answer was dropped with no operator-
+    # visible trace. The recorded answer must reach the agent without an
+    # operator touching anything.
+    test "an unreachable target is retried automatically without an operator retry", %{dir: dir} do
       parent = self()
       counter = :counters.new(1, [])
       original_log_file = Application.get_env(:aiur, :log_file)
@@ -3173,29 +3179,67 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
 
       assert_receive {:target_attempt, 1, false}, 1_000
-      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
-      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+
+      # The bounded ladder — not an operator — schedules the second attempt.
+      assert_receive {:target_attempt, 2, false}, 1_000
+
+      settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
+      assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
+      assert List.first(settled.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
 
       topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
 
-      # A structurally-unreachable target is never raised as needs-attention
-      # (#2419): the delivery topic is cleared via its `.resolved` record — the
-      # only form `AlertFeed` treats as a clear — so the feed stays empty.
+      # Recovered before the ladder was spent, so nothing is left demanding
+      # operator attention (#2419's non-actionable suppression still holds
+      # while automatic recovery is still possible).
       assert case_attention_alerts(log_root, topic) == []
+    end
 
-      assert [%{"topic" => resolved_topic, "needs_attention" => false}] =
-               AlertFeed.list(roots: [], log_roots: [log_root])
-               |> Enum.filter(&(&1["topic"] == topic <> ".resolved"))
+    # #2558 half one, the other acceptance branch: when the bounded ladder is
+    # spent the answer really is stuck, so it must be raised. The
+    # non-actionable suppression that keeps `target_agent_unavailable` off the
+    # feed is what made this failure mode invisible in the first place.
+    test "an exhausted delivery ladder raises instead of going quiet", %{dir: dir} do
+      parent = self()
+      counter = :counters.new(1, [])
+      original_log_file = Application.get_env(:aiur, :log_file)
+      log_root = Path.join(dir, "target-exhausted-alert-log")
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
 
-      assert resolved_topic == topic <> ".resolved"
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+      end)
 
-      refute_receive {:target_attempt, _, _}, 100
+      dispatcher = fn _decision, _opts ->
+        :ok = :counters.add(counter, 1, 1)
+        send(parent, {:exhausted_attempt, :counters.get(counter, 1)})
+        {:error, :no_running_agent}
+      end
 
-      assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, action.action_id, pid)
-      assert_receive {:target_attempt, 2, true}, 1_000
-      settled = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :queued))
-      assert Enum.map(settled.dispatch_attempts, & &1.status) == [:failed, :queued]
-      assert case_attention_alerts(log_root, topic) == []
+      pid = start_store!(dir, dispatcher: dispatcher, dispatch_delay_ms: 0, retry_delays_ms: [0])
+      assert {:ok, %{decision: decision}} = request(pid, answerable_request("answer-exhausted-retry"))
+      payload = %{"idempotency_key" => "retry-3", "expected_version" => 1, "custom_response" => "Proceed"}
+      assert {:ok, %{action: action}} = answer(pid, decision.decision_id, payload)
+
+      assert_receive {:exhausted_attempt, 1}, 1_000
+      assert_receive {:exhausted_attempt, 2}, 1_000
+
+      # A one-rung ladder is spent after the retry: no third attempt, so the
+      # bound holds and there is no retry storm.
+      refute_receive {:exhausted_attempt, _}, 200
+
+      failed = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      assert length(failed.dispatch_attempts) == 2
+
+      topic = "ticket.979.agent.attention.decision-delivery-#{String.replace(action.action_id, "_", "-")}"
+
+      assert [%{"needs_attention" => true} = alert] = case_attention_alerts(log_root, topic)
+      assert alert["reason"] =~ action.action_id
+      assert alert["reason"] =~ "exhausted its bounded delivery retries"
     end
 
     test "projection repair failure after answer append suppresses dispatch", %{dir: dir} do
