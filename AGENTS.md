@@ -286,9 +286,18 @@ already did — fix it to assert the specific behavior the change adds, or
 delete it. If you cannot revert cleanly, say so in the PR body rather than
 skipping the check.
 
-Name the result in the PR body: one line per new test ("`sweep_once` test
-fails with the production hunk reverted") or an explicit statement of why the
-check could not be run.
+**Confirm the revert actually landed in the tree you run.** At the moment of
+the run, `git diff` must show the hunk removed — a revert that "passes"
+because the change was never in this checkout is a wrong-checkout artifact,
+not coverage. When the work happens in a worktree, assert `git rev-parse HEAD`
+matches the intended SHA before the batch.
+
+Name the result in the PR body, including the exact command that ran: one line
+per new test ("`sweep_once` test fails with the production hunk reverted via
+`mix test test/aiur/...`") or an explicit statement of why the check could not
+be run. The command matters: a scoped `mix test test/some_dir/` silently
+excludes `test/aiur/*.exs` one level up, so a run that exercised fewer tests
+than intended reads as passing coverage.
 
 When you revert for this check, the tree must be dirty **only** in the
 intended way: `git diff` shows the production hunk you meant to remove and
