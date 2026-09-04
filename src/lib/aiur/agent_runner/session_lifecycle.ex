@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   require Logger
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
   alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
-  alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
+  alias Aiur.Claude.{AdapterHealth, DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.Ownership
@@ -408,6 +408,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
          ownership,
          session_context
        ) do
+    maybe_report_claude_adapter_health(issue, workspace, worker_host, session_backend_label(session), opts)
     report_session_execution(codex_update_recipient, issue, session)
 
     # Persist the live session handle so the next aiur restart can resume it.
@@ -432,9 +433,11 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # heavyweight cold-start prompt — mirroring the in-process turn N+1 flow.
     opts = Keyword.put(opts, :resumed, SessionResume.session_resumed?(session))
 
+    turn_loop_fun = Keyword.get(opts, :turn_loop_fun, &TurnLoop.run_turns/10)
+
     try do
       result =
-        TurnLoop.run_turns(
+        turn_loop_fun.(
           session,
           workspace,
           issue,
@@ -469,7 +472,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         :erlang.raise(kind, reason, __STACKTRACE__)
     after
       stop_display_tailer(display_tailer)
-      stop_session_with_ownership(session, ownership)
+      stop_session_with_ownership(session, ownership, Keyword.get(opts, :stop_session_fun, &CodingAgent.stop_session/1))
     end
   end
 
@@ -1018,6 +1021,26 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   def maybe_alert_unsupported_model(_issue, _workspace, _worker_host, _backend, _model), do: :ok
+
+  @doc false
+  @spec maybe_report_claude_adapter_health(Issue.t(), Path.t() | nil, worker_host(), String.t(), keyword()) :: :ok
+  def maybe_report_claude_adapter_health(issue, workspace, nil, "claude", opts) do
+    task_start = Keyword.get(opts, :adapter_health_task_start, &Task.start/1)
+    reporter = Keyword.get(opts, :adapter_health_reporter, &AdapterHealth.report_runtime/2)
+
+    case task_start.(fn -> reporter.(issue, workspace) end) do
+      {:ok, _pid} -> :ok
+      _other -> Logger.warning("could not start aiur-claude adapter health check; continuing the Claude session")
+    end
+
+    :ok
+  rescue
+    _error ->
+      Logger.warning("could not start aiur-claude adapter health check; continuing the Claude session")
+      :ok
+  end
+
+  def maybe_report_claude_adapter_health(_issue, _workspace, _worker_host, _backend, _opts), do: :ok
 
   defp unsupported_model_reason(backend, model) do
     generic = List.first(CodingAgent.model_aliases(backend)) || List.first(CodingAgent.seedable_models(backend))

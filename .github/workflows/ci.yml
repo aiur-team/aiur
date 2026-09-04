@@ -103,6 +103,8 @@ jobs:
         run: bash scripts/test-check-config-docs.sh
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
+      - name: Test Claude adapter release checker
+        run: node --test packaging/scripts/test/check-claude-adapter-release.test.mjs
       - name: Test hourly retrospective visual check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
       - name: Test hourly dashboard analyzer
@@ -187,6 +189,35 @@ jobs:
       - name: Platform publish/pin drift check
         working-directory: .
         run: node packaging/scripts/check-platform-drift.mjs
+      # The live npm lookup is merge-blocking only when this PR/push changes
+      # Aiur's declared minimum. Every other PR stays independent of npm; the
+      # scheduled monitor below catches registry drift after merge.
+      - name: Required Claude adapter release is published
+        working-directory: .
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "No comparison base is available; checking the declared release."
+          else
+            # Checkout is shallow and, for pull_request, lands on the merge ref,
+            # so neither comparison commit is guaranteed present. Fetch both
+            # explicitly and fail closed rather than skipping the npm lookup.
+            if ! git fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"; then
+              echo "Could not fetch the comparison commits for the Claude adapter minimum-version diff." >&2
+              exit 1
+            fi
+            if ! declaration_diff="$(git diff --unified=0 "$BASE_SHA" "$HEAD_SHA" -- src/lib/aiur/claude/adapter_health.ex)"; then
+              echo "Could not read the Claude adapter minimum-version diff." >&2
+              exit 1
+            fi
+            if ! grep -Eq '^[+-][[:space:]]*@min_version[[:space:]]+' <<<"$declaration_diff"; then
+              echo "Claude adapter minimum unchanged; skipping live npm lookup."
+              exit 0
+            fi
+          fi
+          node packaging/scripts/check-claude-adapter-release.mjs
 
   coverage-partition:
     name: coverage (${{ matrix.partition }}/4)

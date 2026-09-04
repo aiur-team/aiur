@@ -388,6 +388,41 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 | `agent.claude.model` | string or nil | nil | Optional Claude model override. |
 | `agent.claude.permission_mode` | string | `bypassPermissions` | Claude permission mode. |
 
+The default local headless Claude command requires `aiur-claude` 1.1.0 or
+newer. Aiur keeps initialization and agent execution fail-open when an adapter
+install, registry lookup, version check, or alert write fails.
+
+When npm serves the exact required release, install it without relying on the
+floating `latest` tag:
+
+```bash
+npm install -g aiur-claude@1.1.0
+```
+
+If npm reports that 1.1.0 is missing, or its availability cannot be verified,
+use the GitHub fallback pinned to the reviewed release commit:
+
+```bash
+npm install -g github:aiur-team/aiur-claude#3478281243bfec8b9e1719461ff17c836c07c5b8
+```
+
+Before upgrading an older global installation or switching between npm and
+GitHub sources, remove the old package and then run the applicable exact
+install command:
+
+```bash
+npm uninstall -g aiur-claude
+```
+
+An adapter older than 1.1.0 can still run local headless Claude agents, but it
+does not provide Aiur's coordination tools. When Aiur observes that degraded
+session, it writes a durable needs-attention alert. A later healthy local
+headless Claude observation resolves the alert.
+
+This runtime check does not apply to Claude REPL, Remote Control,
+remote-worker, or custom-command sessions whose adapter capability Aiur cannot
+establish.
+
 ## agent.codex
 
 | Key | Type | Default | Controls |

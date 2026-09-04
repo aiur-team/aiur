@@ -177,7 +177,8 @@ defmodule Aiur.InitTest do
           end
         end,
         check_agent_auth: fn _kind -> :ok end,
-        install_claude_app_server: fn -> :ok end,
+        install_claude_app_server: fn _spec -> :ok end,
+        claude_release_status: fn -> :available end,
         claude_version: fn -> {:ok, "1.1.0"} end,
         # No installed CLI to ask in the wizard tests; discovery degrading to an
         # error is the offline path, and init must finish through it.
@@ -1861,8 +1862,12 @@ defmodule Aiur.InitTest do
             "claude" -> if Agent.get(present, & &1), do: :ok, else: @missing_claude
             _ -> :ok
           end,
-          install_claude_app_server: fn ->
-            send(parent, {:install, :claude})
+          # An absent adapter has no readable version until the install lands.
+          claude_version: fn ->
+            if Agent.get(present, & &1), do: {:ok, "1.1.0"}, else: {:error, :custom_or_unavailable_command}
+          end,
+          install_claude_app_server: fn spec ->
+            send(parent, {:install, :claude, spec})
             Agent.update(present, fn _ -> true end)
             :ok
           end
@@ -1870,8 +1875,62 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
-      assert_received {:install, :claude}
+      assert_received {:install, :claude, "aiur-claude@1.1.0"}
       refute Enum.any?(puts_log(), &(&1 =~ ~r/not found on PATH/))
+    end
+
+    test "a missing npm release installs the reviewed GitHub commit instead of latest", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+
+      d =
+        deps(parent, dir, target, %{
+          check_agent_auth: fn
+            "claude" -> @missing_claude
+            _kind -> :ok
+          end,
+          claude_release_status: fn -> :not_found end,
+          claude_version: fn -> {:error, :custom_or_unavailable_command} end,
+          install_claude_app_server: fn spec ->
+            send(parent, {:install, spec})
+            {:error, "expected test stop"}
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      assert_received {:install, "github:aiur-team/aiur-claude#3478281243bfec8b9e1719461ff17c836c07c5b8"}
+      assert Enum.any?(puts_log(), &(&1 =~ "github:aiur-team/aiur-claude#3478281243bfec8b9e1719461ff17c836c07c5b8"))
+      refute Enum.any?(puts_log(), &(&1 =~ "npm install -g aiur-claude@1.1.0"))
+    end
+
+    # An exact-pin install over a newer adapter is a downgrade: the wizard must
+    # never leave the machine with less capability than it found.
+    test "keeps an adapter that already satisfies the minimum instead of reinstalling", %{
+      dir: dir,
+      target: target
+    } do
+      parent = self()
+
+      d =
+        deps(parent, dir, target, %{
+          check_agent_auth: fn
+            "claude" -> @missing_claude
+            _kind -> :ok
+          end,
+          claude_version: fn -> {:ok, "2.3.1"} end,
+          install_claude_app_server: fn spec ->
+            send(parent, {:install, spec})
+            :ok
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      refute_received {:install, _spec}
+      assert Enum.any?(puts_log(), &(&1 =~ "already satisfies 1.1.0"))
     end
 
     test "skips the install when aiur-claude already resolves", %{dir: dir, target: target} do
@@ -1880,7 +1939,7 @@ defmodule Aiur.InitTest do
       d =
         deps(parent, dir, target, %{
           check_agent_auth: fn _kind -> :ok end,
-          install_claude_app_server: fn ->
+          install_claude_app_server: fn _spec ->
             send(parent, {:install, :claude})
             :ok
           end
@@ -1898,7 +1957,7 @@ defmodule Aiur.InitTest do
       d =
         deps(parent, dir, target, %{
           check_agent_auth: fn _kind -> :ok end,
-          install_claude_app_server: fn ->
+          install_claude_app_server: fn _spec ->
             send(parent, {:install, :claude})
             :ok
           end
@@ -1944,12 +2003,18 @@ defmodule Aiur.InitTest do
             "claude" -> @missing_claude
             _ -> :ok
           end,
-          install_claude_app_server: fn -> {:error, "npm not found on PATH"} end
+          claude_version: fn -> {:error, :custom_or_unavailable_command} end,
+          install_claude_app_server: fn _spec -> {:error, "npm not found on PATH"} end
         })
 
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/npm install -g aiur-claude/))
+      # The hint has to name the uninstall too: a bare global install over a
+      # half-removed package is the ENOTEMPTY that just failed.
+      assert Enum.any?(
+               puts_log(),
+               &(&1 =~ "npm uninstall -g aiur-claude, then npm install -g aiur-claude@1.1.0")
+             )
     end
 
     # A failed install already told the operator how to install it by hand; a
@@ -1963,7 +2028,7 @@ defmodule Aiur.InitTest do
             "claude" -> @missing_claude
             _ -> :ok
           end,
-          install_claude_app_server: fn -> {:error, "npm not found on PATH"} end,
+          install_claude_app_server: fn _spec -> {:error, "npm not found on PATH"} end,
           claude_version: fn -> {:error, "aiur-claude unavailable"} end
         })
 

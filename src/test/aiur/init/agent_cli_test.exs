@@ -34,9 +34,9 @@ defmodule Aiur.Init.AgentCliTest do
     end
   end
 
-  describe "check_claude_version/1" do
+  describe "check_claude_version/2" do
     test "a version below the minimum warns about the missing coordination tools" do
-      assert {:error, message} = AgentCli.check_claude_version({:ok, "1.0.0"})
+      assert {:error, message} = AgentCli.check_claude_version({:ok, "1.0.0"}, :available)
       assert message =~ "aiur-claude 1.0.0 is older than 1.1.0"
       assert message =~ "without Aiur coordination tools"
       assert message =~ "aiur_declare_blocker"
@@ -44,29 +44,34 @@ defmodule Aiur.Init.AgentCliTest do
     end
 
     test "a version at the minimum is silent" do
-      assert AgentCli.check_claude_version({:ok, "1.1.0"}) == :ok
+      assert AgentCli.check_claude_version({:ok, "1.1.0"}, :not_found) == :ok
     end
 
     test "a version above the minimum is silent" do
-      assert AgentCli.check_claude_version({:ok, "2.3.1"}) == :ok
+      assert AgentCli.check_claude_version({:ok, "2.3.1"}, :not_found) == :ok
     end
 
     test "an unparseable version degrades to a hedged warning" do
-      assert {:error, message} = AgentCli.check_claude_version({:ok, "nightly"})
-      assert message =~ "couldn't parse the aiur-claude version (nightly)"
+      assert {:error, message} =
+               AgentCli.check_claude_version({:ok, "nightly"}, {:unknown, :timeout})
+
+      assert message =~ "couldn't determine the aiur-claude version"
       assert message =~ "if it's older than 1.1.0"
       assert message =~ "npm install -g aiur-claude@1.1.0"
     end
 
-    test "an undetectable version degrades to a hedged warning naming the reason" do
-      assert {:error, message} = AgentCli.check_claude_version({:error, "aiur-claude unavailable"})
-      assert message =~ "couldn't check the aiur-claude version (aiur-claude unavailable)"
+    test "an undetectable version degrades without echoing raw diagnostics" do
+      assert {:error, message} =
+               AgentCli.check_claude_version({:error, "token=super-secret"}, {:unknown, :timeout})
+
+      assert message =~ "couldn't determine the aiur-claude version"
       assert message =~ "if it's older than 1.1.0"
       assert message =~ "without Aiur coordination tools"
+      refute message =~ "super-secret"
     end
 
     test "a prerelease of the minimum counts as below it" do
-      assert {:error, message} = AgentCli.check_claude_version({:ok, "1.1.0-rc.1"})
+      assert {:error, message} = AgentCli.check_claude_version({:ok, "1.1.0-rc.1"}, :available)
       assert message =~ "older than 1.1.0"
     end
   end
@@ -74,6 +79,74 @@ defmodule Aiur.Init.AgentCliTest do
   describe "min_claude_version/0" do
     test "is the first adapter release that serves dynamicTools" do
       assert AgentCli.min_claude_version() == "1.1.0"
+    end
+  end
+
+  describe "install_claude_app_server/2" do
+    test "a clean install runs npm once and never uninstalls" do
+      parent = self()
+
+      cmd_fun = fn _npm, args, _opts ->
+        send(parent, {:npm, args})
+        {"added 1 package", 0}
+      end
+
+      assert :ok =
+               AgentCli.install_claude_app_server("aiur-claude@1.1.0", npm_path: "/usr/bin/npm", cmd_fun: cmd_fun)
+
+      assert_received {:npm, ["install", "-g", "aiur-claude@1.1.0"]}
+      refute_received {:npm, ["uninstall" | _rest]}
+    end
+
+    # A global install over a half-removed package fails with ENOTEMPTY, and
+    # the documented remedy is to uninstall first — so do it, rather than
+    # handing the operator a failure they would have to fix by hand.
+    test "a failed install retries once after uninstalling the leftover package" do
+      parent = self()
+      {:ok, attempts} = Agent.start_link(fn -> 0 end)
+      on_exit(fn -> Aiur.TestSupport.safe_stop(attempts) end)
+
+      cmd_fun = fn _npm, args, _opts ->
+        send(parent, {:npm, args})
+
+        case args do
+          ["install" | _rest] ->
+            if Agent.get_and_update(attempts, &{&1, &1 + 1}) == 0,
+              do: {"ENOTEMPTY: directory not empty", 1},
+              else: {"added 1 package", 0}
+
+          ["uninstall" | _rest] ->
+            {"removed 1 package", 0}
+        end
+      end
+
+      assert :ok =
+               AgentCli.install_claude_app_server("aiur-claude@1.1.0", npm_path: "/usr/bin/npm", cmd_fun: cmd_fun)
+
+      assert_received {:npm, ["install", "-g", "aiur-claude@1.1.0"]}
+      assert_received {:npm, ["uninstall", "-g", "aiur-claude"]}
+      assert_received {:npm, ["install", "-g", "aiur-claude@1.1.0"]}
+    end
+
+    test "a retry that still fails reports the original install error" do
+      cmd_fun = fn _npm, args, _opts ->
+        case args do
+          ["install" | _rest] -> {"ENOTEMPTY: directory not empty", 1}
+          ["uninstall" | _rest] -> {"EACCES: permission denied", 1}
+        end
+      end
+
+      assert {:error, message} =
+               AgentCli.install_claude_app_server("aiur-claude@1.1.0", npm_path: "/usr/bin/npm", cmd_fun: cmd_fun)
+
+      assert message =~ "ENOTEMPTY"
+    end
+
+    test "a missing npm never shells out" do
+      cmd_fun = fn _npm, _args, _opts -> flunk("npm must not run when it is absent") end
+
+      assert {:error, "npm not found on PATH"} =
+               AgentCli.install_claude_app_server("aiur-claude@1.1.0", npm_path: nil, cmd_fun: cmd_fun)
     end
   end
 
