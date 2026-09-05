@@ -694,6 +694,66 @@ defmodule Aiur.ApplicationTest do
       # dependents PubSub took down with it were restarted, not abandoned.
       for id <- running_before, do: assert(await_child(id), "#{inspect(id)} never came back")
     end
+
+    # The test above asserts the property; this one pins the race that decided
+    # it (#2557). `Aiur.PubSub` is a partitioned `Registry`, and its partitions
+    # own registered names of their own. Killing the registry kills them over
+    # their links — asynchronously, whenever the scheduler next runs them —
+    # while the restart above them is synchronous and retried with no backoff
+    # at all. So the restart can find `Aiur.PubSub.PIDPartition0` still holding
+    # its name, fail three times inside a millisecond, and take the whole
+    # ~90-child tree down; whether it does was decided by scheduling alone,
+    # which is why the suite passed for months and then began failing when
+    # partition membership shifted the load around it.
+    #
+    # Suspending the partition makes that window explicit instead of hoping to
+    # land in it: the name is *guaranteed* to still be held when the restart
+    # comes round. The 300ms release models a slow partition — it is the
+    # stimulus, not a timing assertion; every assertion below is signal-based.
+    @tag timeout: 60_000
+    test "a crashing Aiur.PubSub recovers even when its old partition is slow to release its name" do
+      on_exit(fn ->
+        assert Aiur.TestSupport.ensure_runtime_children_running() == :ok,
+               "application children could not be restored after the PubSub crash"
+      end)
+
+      assert Aiur.TestSupport.ensure_runtime_children_running() == :ok
+
+      partition = Process.whereis(:"Elixir.Aiur.PubSub.PIDPartition0")
+      assert is_pid(partition), "the PubSub registry always owns partition 0"
+
+      supervisor = Process.whereis(Aiur.Supervisor)
+      ref = Process.monitor(supervisor)
+
+      # `:erlang.suspend_process/1` and `resume_process/1` are paired per
+      # suspender, so one process has to do both — and it cannot be this one,
+      # which is about to block on the tree.
+      test_pid = self()
+
+      holder =
+        spawn(fn ->
+          :erlang.suspend_process(partition)
+          send(test_pid, :suspended)
+
+          receive do
+            :release -> :erlang.resume_process(partition)
+          after
+            30_000 -> :ok
+          end
+        end)
+
+      on_exit(fn -> send(holder, :release) end)
+      assert_receive :suspended, 5_000
+
+      Process.exit(Process.whereis(Aiur.PubSub), :kill)
+      Process.send_after(holder, :release, 300)
+
+      refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 10_000
+      assert Process.whereis(Aiur.Supervisor) == supervisor
+      assert await_registered(Aiur.PubSub)
+      assert :ok = Telemetry.subscribe()
+      Phoenix.PubSub.unsubscribe(Aiur.PubSub, "claude_telemetry:events")
+    end
   end
 
   # Signal-based, never a duration: polls the registry rather than sleeping for

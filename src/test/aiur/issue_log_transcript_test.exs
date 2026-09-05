@@ -63,6 +63,42 @@ defmodule Aiur.IssueLogTranscriptTest do
     assert Map.fetch!(record, "role") == "assistant"
   end
 
+  # #2557. `Phoenix.PubSub.subscribe/2` registers, and `Registry` links every
+  # registered process to the partition it registered in — so every live writer
+  # holds a link to an `Aiur.PubSub` partition. Before this guard that link was
+  # fatal: one PubSub crash killed every writer at once and
+  # `Aiur.IssueLog.Supervisor` restarted one per active ticket, so any run with
+  # more than three open tickets blew that `DynamicSupervisor`'s 3-in-5 budget
+  # and it exited `:shutdown`. That is a *second*, independent child death
+  # inside `Aiur.Supervisor` while `Aiur.PubSub` is still restarting, and it
+  # arrives from child #6 rather than from PubSub at child #1 — which defeats
+  # `:rest_for_one`'s ordering guarantee (#2525) and takes the application tree
+  # down with it.
+  #
+  # The signal is delivered directly rather than by crashing the shared
+  # registry: this asserts the writer's own contract — an exit signal from a
+  # dependency does not kill it, and it still has its subscription afterwards —
+  # without making the case's result depend on what else in the partition
+  # happens to be subscribed.
+  test "a writer outlives an exit signal from its PubSub partition and stays subscribed", %{identifier: identifier} do
+    :ok = IssueLog.attach(identifier)
+    pid = writer_pid(identifier)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
+    ref = Process.monitor(pid)
+
+    Process.exit(pid, :killed)
+
+    refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 500
+    assert Process.alive?(pid)
+
+    Aiur.AgentPubSub.broadcast_transcript(identifier, AgentEvents.transcript_event(:assistant, "after the partition died"))
+    _ = :sys.get_state(pid)
+
+    assert identifier
+           |> IssueLog.transcript_path()
+           |> File.read!() =~ "after the partition died"
+  end
+
   defp write_transcript(identifier, event) do
     :ok = IssueLog.attach(identifier)
     pid = writer_pid(identifier)
