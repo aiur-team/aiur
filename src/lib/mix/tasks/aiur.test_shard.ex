@@ -29,6 +29,12 @@ defmodule Mix.Tasks.Aiur.TestShard do
   Exits non-zero when the requested shard resolves to zero files: an empty list
   handed to `mix test` silently runs the *entire* suite, which would turn a
   discovery bug into a four-times-duplicated CI run rather than a red.
+
+  Also refuses to emit a path containing whitespace. The shard runner in
+  `src/Makefile` word-splits this list deliberately (`xargs` would remap a test
+  failure's exit status onto the code CI reads as a timeout), so a path that
+  cannot survive word-splitting has to fail here rather than silently run the
+  wrong files.
   """
 
   @switches [shard: :integer, shards: :integer, output: :string, map: :boolean, counts: :boolean]
@@ -47,8 +53,23 @@ defmodule Mix.Tasks.Aiur.TestShard do
     files != [] ||
       Mix.raise("aiur.test_shard: no test files discovered under #{inspect(Mix.Project.config()[:test_paths] || ["test"])}")
 
+    reject_unsplittable_paths(files)
+
     lines = lines(opts, files, shards)
     emit(opts[:output], lines)
+  end
+
+  defp reject_unsplittable_paths(files) do
+    case Enum.filter(files, &String.match?(&1, ~r/\s/)) do
+      [] ->
+        :ok
+
+      offenders ->
+        Mix.raise(
+          "aiur.test_shard: the shard runner word-splits this list, so a test path may not contain whitespace: " <>
+            Enum.map_join(offenders, ", ", &inspect/1)
+        )
+    end
   end
 
   defp lines(opts, files, shards) do

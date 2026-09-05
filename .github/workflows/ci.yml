@@ -274,6 +274,26 @@ jobs:
             echo "::error::coverage partition ${{ matrix.partition }} failed with status $status; full log follows in the next step"
           fi
           exit "$status"
+      # Shard balance is no longer guaranteed by construction (#2568), so it has
+      # to be visible on green runs, not only in the failure log: an imbalance
+      # that is drifting toward the 20m step bound should be readable before it
+      # becomes a timeout. `make coverage-partition` prints every shard's file
+      # count as its first lines, but the step above redirects all of its output
+      # to a file, so surface just that header here.
+      - name: Report shard composition
+        if: ${{ always() }}
+        shell: bash
+        working-directory: .
+        run: |
+          log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
+          [ -s "$log" ] || exit 0
+          {
+            echo "### coverage (${{ matrix.partition }}/4) shard composition"
+            echo
+            echo '```'
+            grep '^coverage-partition:' "$log" || echo "(no shard header; see the partition log)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Print partition log
         if: ${{ failure() }}
         working-directory: .

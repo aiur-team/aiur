@@ -31,18 +31,25 @@ coverage:
 #
 # `mix test --partitions N` shards round-robin over the sorted file list, so a
 # file's shard depends on how many files sort before it and adding one test file
-# renumbers the rest of the suite (measured: 159 files churned in and out of
-# shard 2). A green `main` then stops predicting a green PR, because an
-# unrelated diff inherits a brand-new test grouping.
+# renumbers the rest of the suite: measured on an 819-file tree, inserting one
+# file moved 320 of them, churning each shard by ~160 files. A green `main`
+# then stops predicting a green PR, because the PR runs a grouping that has
+# never run anywhere.
 #
 # So the file list is computed here instead, keyed on each file's own path
 # (`Aiur.TestShard`), and passed to `mix test` explicitly. `--export-coverage`
 # reproduces exactly the `cover/<n>.coverdata` name that `--partitions` used to
 # derive from MIX_TEST_PARTITION, so the aggregate `coverage` job is unchanged.
 #
-# `xargs -x` rather than a bare expansion: it fails loudly if the argument list
-# ever outgrows one invocation instead of quietly running `mix test` twice and
-# leaving the second export overwriting the first.
+# The file list is word-split rather than piped through `xargs`, so that a test
+# failure stays exit 1: `xargs` remaps its child's status (1..125 becomes 123,
+# 255 becomes 124), and 124 is precisely the code the CI step reads as "this
+# shard timed out". `mix aiur.test_shard` refuses to emit a path containing
+# whitespace, which is what makes the unquoted expansion safe.
+#
+# Both counts are printed on every run: shard balance is no longer guaranteed by
+# construction, so it has to be observable in the log rather than discovered as
+# a timeout.
 coverage-partition:
 	@set -eu; \
 	shard="$${MIX_TEST_PARTITION:?MIX_TEST_PARTITION must be set to the 1-based shard number}"; \
@@ -52,7 +59,7 @@ coverage-partition:
 	echo "coverage-partition: shard $$shard/$(TEST_PARTITIONS) -> $$(wc -l < "$$list") test files"; \
 	MIX_ENV=test $(MIX) aiur.test_shard --shards $(TEST_PARTITIONS) --counts \
 	  | while IFS="$$(printf '\t')" read -r s n; do echo "coverage-partition: shard $$s holds $$n files"; done; \
-	xargs -x -a "$$list" $(MIX) test --cover --export-coverage "$$shard"
+	$(MIX) test --cover --export-coverage "$$shard" $$(cat "$$list")
 
 test:
 	$(MIX) test
