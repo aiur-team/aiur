@@ -5,6 +5,7 @@ defmodule Aiur.ApplicationTest do
 
   alias Aiur.Application, as: AiurApp
   alias Aiur.Claude.Telemetry
+  alias Aiur.PubSub.Boot, as: PubSubBoot
 
   defmodule SuccessStubDistribution do
     @moduledoc false
@@ -693,6 +694,64 @@ defmodule Aiur.ApplicationTest do
       # Every child that was up before the crash is up again afterwards: the
       # dependents PubSub took down with it were restarted, not abandoned.
       for id <- running_before, do: assert(await_child(id), "#{inspect(id)} never came back")
+    end
+
+    # The test above asserts the property. These two pin the race that decided
+    # it (#2557). `Aiur.PubSub` is a partitioned `Registry`, and its partitions
+    # own registered names of their own. Killing the registry kills them over
+    # their links — asynchronously, whenever the scheduler next runs them —
+    # while the restart above them is synchronous and retried with no backoff
+    # at all. So the restart could find `Aiur.PubSub.PIDPartition0` still
+    # holding its name, fail three times inside a millisecond, and take the
+    # whole ~90-child tree down; whether it did was decided by scheduling
+    # alone, which is why this suite passed for months and then began failing
+    # when partition membership shifted the load around it.
+    #
+    # Holding the name with an ordinary process makes that window explicit
+    # instead of hoping to land in it — and does it beside the shared tree
+    # rather than inside it, so the guard cannot itself become the thing that
+    # takes a partition down.
+    test "the PubSub child waits for a previous incarnation's registry names" do
+      name = Module.concat(__MODULE__, :"BootProbe#{System.unique_integer([:positive])}")
+      held = Module.concat(name, "PIDPartition0")
+      test_pid = self()
+
+      squatter =
+        spawn(fn ->
+          Process.register(self(), held)
+          send(test_pid, :holding)
+
+          receive do
+            :release -> :ok
+          after
+            30_000 -> :ok
+          end
+        end)
+
+      on_exit(fn -> send(squatter, :release) end)
+      assert_receive :holding, 5_000
+
+      task = Task.async(fn -> PubSubBoot.start_link(name: name) end)
+
+      # Nothing is started while the name is still held. The bound belongs to
+      # the negative assertion; it is not a guessed recovery window.
+      assert Task.yield(task, 250) == nil
+      assert Process.whereis(name) == nil
+
+      send(squatter, :release)
+      assert {:ok, pid} = Task.await(task, 10_000)
+      assert is_pid(pid)
+    end
+
+    test "the application starts PubSub through that child, not Phoenix.PubSub directly" do
+      specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+
+      assert Enum.any?(specs, &match?({Aiur.PubSub.Boot, [name: Aiur.PubSub]}, &1)),
+             "a bare {Phoenix.PubSub, name: Aiur.PubSub} restarts into its own dying partitions"
+
+      assert {Aiur.PubSub.Boot, [name: Aiur.PubSub]} |> Supervisor.child_spec([]) |> Map.fetch!(:id) ==
+               Phoenix.PubSub.Supervisor,
+             "the child id is contract: TestSupport and SupervisionHealth address this child by it"
     end
   end
 
