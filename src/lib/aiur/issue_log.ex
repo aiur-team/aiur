@@ -39,6 +39,10 @@ defmodule Aiur.IssueLog do
   # capped records, while retaining a fixed ceiling independent of log size.
   @max_tail_page_events 50
   @max_tail_bytes (@max_transcript_record_bytes + 1) * @max_tail_page_events
+  # How long a writer waits before trying its subscription again while
+  # `Aiur.PubSub` is restarting. Short enough that the gap costs at most a
+  # couple of transcript rows, long enough not to spin.
+  @resubscribe_delay_ms 100
   @truncated_body_chars 1_000
   @truncated_diff_chars 2_000
 
@@ -358,27 +362,98 @@ defmodule Aiur.IssueLog do
     transcript_path = Keyword.get(opts, :transcript_path, transcript_path(identifier))
     :ok = File.mkdir_p(Path.dirname(path))
 
+    # #2557. A writer's subscription links it to an `Aiur.PubSub` partition —
+    # `Phoenix.PubSub.subscribe/2` registers, and `Registry` links every
+    # registered process to the partition it registered in. Without
+    # `trap_exit`, one PubSub crash therefore kills *every* live writer at
+    # once, and `Aiur.IssueLog.Supervisor` restarts each one: N simultaneous
+    # deaths blow a `DynamicSupervisor`'s 3-in-5 budget for any N > 3
+    # (a daemon holds one writer per active ticket), so the supervisor itself
+    # exits `:shutdown`. That death is a *second*, independent child death in
+    # `Aiur.Supervisor`, arriving from child #6 rather than from PubSub at
+    # child #1 — which defeats the whole point of `:rest_for_one`: the
+    # cascade then restarts PubSub's dependents while PubSub is still absent,
+    # they raise `unknown registry: Aiur.PubSub`, and the retry loop takes the
+    # application tree down (`Aiur.ApplicationTest`, "a crashing Aiur.PubSub
+    # does not topple the application supervision tree").
+    #
+    # Trapping exits makes the link informational instead of fatal: the writer
+    # keeps its files and its history, and re-subscribes when the registry is
+    # back. Nothing restarts, so no budget anywhere is spent.
+    Process.flag(:trap_exit, true)
+
     case open_log_files(path, event_path, transcript_path) do
       {:ok, file, event_file, transcript_file} ->
-        :ok = AgentPubSub.subscribe_agent(identifier)
         Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
 
-        {:ok,
-         %{
-           identifier: identifier,
-           file: file,
-           event_file: event_file,
-           transcript_file: transcript_file,
-           transcript_path: transcript_path,
-           path: path,
-           event_path: event_path,
-           history: :queue.new(),
-           history_size: 0
-         }}
+        state = %{
+          identifier: identifier,
+          file: file,
+          event_file: event_file,
+          transcript_file: transcript_file,
+          transcript_path: transcript_path,
+          path: path,
+          event_path: event_path,
+          history: :queue.new(),
+          history_size: 0,
+          subscribed?: false,
+          writer_key: Keyword.get(opts, :writer_key, writer_key(identifier))
+        }
+
+        {:ok, subscribe_agent(state)}
 
       {:error, reason} ->
         {:stop, reason}
     end
+  end
+
+  # Best-effort, and deliberately not a startup precondition: a writer that is
+  # restarted (or attached) inside the window where `Aiur.PubSub` is down would
+  # otherwise raise `unknown registry: Aiur.PubSub` out of `init/1` and count a
+  # failed start against `Aiur.IssueLog.Supervisor`. Unsubscribe-then-subscribe
+  # keeps it idempotent: `Phoenix.PubSub` subscriptions stack, so a re-entry
+  # after a spurious `:EXIT` must not leave the writer receiving each event
+  # twice.
+  defp subscribe_agent(state) do
+    _ = AgentPubSub.unsubscribe_agent(state.identifier)
+    :ok = AgentPubSub.subscribe_agent(state.identifier)
+    %{state | subscribed?: true}
+  rescue
+    ArgumentError -> schedule_resubscribe(state)
+  catch
+    :exit, _reason -> schedule_resubscribe(state)
+  end
+
+  # The writer is registered under `writer_key` in `Aiur.IssueLog.Registry`,
+  # which links it to that registry's partition too. A writer that outlives its
+  # partition would otherwise be *unregistered* and invisible to `attach/1`,
+  # holding its files open while a replacement writes the same log — so
+  # surviving the signal has to include putting the name back. If some other
+  # process already holds the name, this incarnation is the redundant one and
+  # stops normally (`restart: :transient`, so nothing restarts it).
+  defp ensure_registered(state) do
+    case Registry.lookup(Aiur.IssueLog.Registry, state.writer_key) do
+      [{pid, _value}] when pid == self() -> :ok
+      [{_other, _value}] -> :taken
+      [] -> register_writer_key(state)
+    end
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp register_writer_key(state) do
+    case Registry.register(Aiur.IssueLog.Registry, state.writer_key, nil) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_registered, pid}} when pid == self() -> :ok
+      {:error, {:already_registered, _pid}} -> :taken
+    end
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp schedule_resubscribe(state) do
+    Process.send_after(self(), :resubscribe, @resubscribe_delay_ms)
+    %{state | subscribed?: false}
   end
 
   @impl true
@@ -440,6 +515,20 @@ defmodule Aiur.IssueLog do
       when kind in [:emit, :emit_alert, :consumed, :self] do
     write_event_and_continue(state, format_event_marker(kind, event))
   end
+
+  # The registry partition this writer subscribed through went down (see the
+  # `trap_exit` note in `init/1`). The writer stays up; it just has to get its
+  # subscription back once `Aiur.PubSub` is running again. A `gen_server`
+  # routes its parent's exit to `terminate/2` before this clause is reached, so
+  # a supervisor shutdown still shuts the writer down.
+  def handle_info({:EXIT, _pid, _reason}, state) do
+    case ensure_registered(state) do
+      :ok -> {:noreply, subscribe_agent(state)}
+      :taken -> {:stop, :normal, state}
+    end
+  end
+
+  def handle_info(:resubscribe, state), do: {:noreply, subscribe_agent(state)}
 
   def handle_info(_other, state), do: {:noreply, state}
 
