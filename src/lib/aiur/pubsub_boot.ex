@@ -38,7 +38,6 @@ defmodule Aiur.PubSub.Boot do
 
   require Logger
 
-  @name Aiur.PubSub
   # Generous: the observed window is single-digit milliseconds, and the only
   # cost of a high ceiling is how long a genuinely wedged name delays boot.
   @await_ms 5_000
@@ -59,12 +58,13 @@ defmodule Aiur.PubSub.Boot do
 
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts) do
-    await_names_released(System.monotonic_time(:millisecond) + @await_ms)
+    name = Keyword.fetch!(opts, :name)
+    await_names_released(name, System.monotonic_time(:millisecond) + @await_ms)
     Phoenix.PubSub.Supervisor.start_link(opts)
   end
 
-  defp await_names_released(deadline) do
-    case held_names() do
+  defp await_names_released(name, deadline) do
+    case held_names(name) do
       [] ->
         :ok
 
@@ -74,18 +74,18 @@ defmodule Aiur.PubSub.Boot do
           :ok
         else
           Process.sleep(@poll_ms)
-          await_names_released(deadline)
+          await_names_released(name, deadline)
         end
     end
   end
 
   # Every name the registry and its partitions register, without depending on
   # the partition count (`Phoenix.PubSub` derives it from `schedulers_online`).
-  defp held_names do
-    prefix = Atom.to_string(@name) <> "."
+  defp held_names(name) do
+    prefix = Atom.to_string(name) <> "."
 
-    Enum.filter(Process.registered(), fn name ->
-      name == @name or String.starts_with?(Atom.to_string(name), prefix)
+    Enum.filter(Process.registered(), fn registered ->
+      registered == name or String.starts_with?(Atom.to_string(registered), prefix)
     end)
   end
 end
