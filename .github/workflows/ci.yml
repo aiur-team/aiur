@@ -103,6 +103,8 @@ jobs:
         run: bash scripts/test-check-config-docs.sh
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
+      - name: Test coverage-shard parity guard
+        run: bash scripts/test-check-test-shard-parity.sh
       - name: Test hourly retrospective visual check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
       - name: Test hourly dashboard analyzer
@@ -178,6 +180,13 @@ jobs:
       - name: .env.example matches the env-var schema
         working-directory: .
         run: python3 scripts/check-env-example.py
+      # Same rationale as the two guards above. The coverage-shard rule is
+      # implemented in Elixir (what CI runs) and in Python (what the rename
+      # preflight reports); a preflight naming a shard CI does not use is worse
+      # than no preflight, so the parity gate has to be merge-blocking.
+      - name: Coverage-shard rule agrees across implementations
+        working-directory: .
+        run: python3 scripts/check-test-shard-parity.py
       # Platform publish/pin drift (#2110): the platform packages the release
       # workflow publishes must equal the packages aiur-cli pins as
       # optionalDependencies, and both must match the shared PUBLISH_TARGETS
@@ -214,6 +223,13 @@ jobs:
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Set up Elixir
         uses: ./.github/actions/setup-elixir
+      # MIX_TEST_PARTITION still names the shard, but it is no longer read by
+      # `mix test --partitions`: that rule shards round-robin over the sorted
+      # file list, so inserting one test file renumbered the rest of the suite
+      # and a green `main` stopped predicting a green PR (#2568). The shard
+      # membership now comes from each file's own path via `Aiur.TestShard`;
+      # see the `coverage-partition` target in src/Makefile. The variable also
+      # still isolates per-shard resources inside the tests themselves.
       - name: Test coverage partition
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
@@ -258,6 +274,26 @@ jobs:
             echo "::error::coverage partition ${{ matrix.partition }} failed with status $status; full log follows in the next step"
           fi
           exit "$status"
+      # Shard balance is no longer guaranteed by construction (#2568), so it has
+      # to be visible on green runs, not only in the failure log: an imbalance
+      # that is drifting toward the 20m step bound should be readable before it
+      # becomes a timeout. `make coverage-partition` prints every shard's file
+      # count as its first lines, but the step above redirects all of its output
+      # to a file, so surface just that header here.
+      - name: Report shard composition
+        if: ${{ always() }}
+        shell: bash
+        working-directory: .
+        run: |
+          log="$RUNNER_TEMP/coverage-partition-${{ matrix.partition }}.log"
+          [ -s "$log" ] || exit 0
+          {
+            echo "### coverage (${{ matrix.partition }}/4) shard composition"
+            echo
+            echo '```'
+            grep '^coverage-partition:' "$log" || echo "(no shard header; see the partition log)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Print partition log
         if: ${{ failure() }}
         working-directory: .
