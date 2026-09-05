@@ -30,7 +30,7 @@ def shard_of(src_relative: str, total: int) -> int:
 
     The key is the src/-relative test path, hashed with SHA-256; the first 8
     bytes, big-endian, are taken modulo the shard count. Keep the two
-    implementations byte-identical -- `scripts/check-test-shard-parity.sh`
+    implementations byte-identical -- `scripts/check-test-shard-parity.py`
     fails CI when they disagree.
     """
     digest = hashlib.sha256(src_relative.encode()).digest()

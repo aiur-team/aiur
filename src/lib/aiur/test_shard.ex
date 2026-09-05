@@ -29,7 +29,7 @@ defmodule Aiur.TestShard do
 
   The hashed key is the **`src/`-relative** test path with forward slashes
   (`test/aiur/foo_test.exs`). Any other implementation must hash exactly that
-  string; `scripts/check-test-shard-parity.sh` enforces it in CI.
+  string; `scripts/check-test-shard-parity.py` enforces it in CI.
 
   ## Balance
 
