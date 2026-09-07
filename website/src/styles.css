@@ -627,6 +627,82 @@
     .feat p { max-width: none; }
   }
 
+  /* ---------- secondary CTA: sibling-project announcement strip ----------
+     Deliberately quiet: it sits after the feature grid, in flow, so it can
+     never compete with the hero install command or shift the layout. It reuses
+     the pill treatment from the theme toggle so it reads as page furniture. */
+  .announce {
+    width: min(1000px, 100%);
+    margin-top: clamp(46px, 7vh, 78px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    padding: 13px 14px 13px 18px;
+    border: 1px solid var(--pill-bd);
+    background: var(--pill-bg);
+    border-radius: 12px;
+    transition: background-color 0.5s ease, border-color 0.5s ease;
+  }
+  html[data-archon-banner="dismissed"] .announce { display: none; }
+  .announce-copy {
+    font-size: clamp(13.5px, 1.1vw, 15px);
+    line-height: 1.5;
+    color: var(--muted);
+    text-wrap: pretty;
+  }
+  .announce-copy strong {
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .announce-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+  }
+  .announce-link {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    color: var(--accent);
+    text-decoration: none;
+    white-space: nowrap;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 38%, transparent);
+    transition: border-color 0.2s ease;
+  }
+  .announce-link:hover { border-bottom-color: var(--accent); }
+  .announce-dismiss {
+    flex: none;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  .announce-dismiss svg { width: 15px; height: 15px; display: block; }
+  .announce-dismiss:hover {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+  }
+  .announce-link:focus-visible,
+  .announce-dismiss:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  @media (max-width: 440px) {
+    .announce { padding: 14px; }
+    .announce-copy { flex: 1 1 100%; }
+    .announce-actions { margin-left: 0; width: 100%; justify-content: space-between; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .announce, .announce-link, .announce-dismiss { transition: none; }
+  }
+
   .signoff {
     width: min(1000px, 100%);
     margin-top: clamp(84px, 13vh, 156px);
