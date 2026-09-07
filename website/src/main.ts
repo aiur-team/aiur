@@ -4,10 +4,27 @@ import { initTerminal } from "./terminal";
 
 const root = document.documentElement;
 
+// storage is unavailable outright in browsers with site data blocked, and every
+// access throws there — the page has to keep working without it
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeStored(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* preference simply is not persisted */
+  }
+}
+
 // theme — restore saved choice, toggle + persist
-const saved = localStorage.getItem("aiur-theme");
+const saved = readStored("aiur-theme");
 if (saved === "dark" || saved === "light") root.setAttribute("data-theme", saved);
-localStorage.setItem("aiur-theme", root.getAttribute("data-theme") ?? "dark");
+writeStored("aiur-theme", root.getAttribute("data-theme") ?? "dark");
 
 const field = createFlowField();
 
@@ -15,7 +32,7 @@ const themeToggle = document.getElementById("themeToggle");
 themeToggle?.addEventListener("click", () => {
   const next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
   root.setAttribute("data-theme", next);
-  localStorage.setItem("aiur-theme", next);
+  writeStored("aiur-theme", next);
   field.redraw();
 });
 
@@ -52,6 +69,15 @@ copyBtn?.addEventListener("click", () => {
   installWrap?.classList.add("show-next");
   nextSteps?.setAttribute("aria-hidden", "false");
   document.getElementById("scrollcue")?.classList.add("gone");
+});
+
+// announcement strip — dismissal survives reloads, and still works (for this
+// page view only) when the browser refuses storage access entirely
+document.getElementById("archonDismiss")?.addEventListener("click", () => {
+  root.setAttribute("data-archon-banner", "dismissed");
+  // when site data is blocked the write is a no-op and the strip simply
+  // returns on the next page load, rather than the dismiss control failing
+  writeStored("aiur-archon-banner", "dismissed");
 });
 
 initTerminal();

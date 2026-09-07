@@ -5,9 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <script>
   (() => {
-    const savedTheme = localStorage.getItem("aiur-theme");
+    let savedTheme = null;
+    // reading storage throws outright when site data is blocked; fall back to
+    // the default theme rather than leaving the document unthemed
+    try { savedTheme = localStorage.getItem("aiur-theme"); } catch {}
     const theme = savedTheme === "dark" || savedTheme === "light" ? savedTheme : "dark";
     document.documentElement.setAttribute("data-theme", theme);
+  })();
+</script>
+<script>
+  // Mark a previously dismissed announcement before first paint so the strip
+  // never flashes in and then vanishes. Storage access can throw outright when
+  // site data is blocked, in which case the strip simply renders.
+  (() => {
+    try {
+      if (localStorage.getItem("aiur-archon-banner") === "dismissed") {
+        document.documentElement.setAttribute("data-archon-banner", "dismissed");
+      }
+    } catch {}
   })();
 </script>
 <title>aiur</title>
@@ -158,6 +173,18 @@
         <p>A shareable web dashboard tracks every agent, event, and progress bar live.</p>
       </div>
     </div>
+
+    <aside class="announce" id="archonBanner" aria-label="Project announcement">
+      <p class="announce-copy">Introducing <strong>Archon</strong>: Always-on Architecture Docs.</p>
+      <div class="announce-actions">
+        <a class="announce-link" href="https://archon.aiur.team">Learn More</a>
+        <button class="announce-dismiss" id="archonDismiss" type="button" aria-label="Dismiss the Archon announcement">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18"></path>
+          </svg>
+        </button>
+      </div>
+    </aside>
 
     <div class="signoff">
       <p><span class="hl">Command</span> macro, <span class="hl">delegate</span> micro, <span class="hl">maximize</span> APM.</p>
