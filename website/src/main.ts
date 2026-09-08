@@ -82,13 +82,22 @@ document.getElementById("archonDismiss")?.addEventListener("click", () => {
 
 initTerminal();
 
-// fade the scroll cue out once scrolling begins
+// fade the scroll cue out once scrolling begins, and hand the top bar over
+// from sticky to fixed once the announcement strip has scrolled away, so it
+// keeps floating over the rest of the page the way it always has. The two
+// positions coincide at the hand-over point, so the bar never jumps; without
+// this the bar would simply stop following at the end of the first screen.
 const scrollcue = document.getElementById("scrollcue");
-window.addEventListener(
-  "scroll",
-  () => {
-    const s = window.scrollY || window.pageYOffset || 0;
-    scrollcue?.classList.toggle("gone", s > 60);
-  },
-  { passive: true },
-);
+const topbar = document.querySelector(".topbar");
+const announce = document.getElementById("archonBanner");
+function onScroll(): void {
+  const s = window.scrollY || window.pageYOffset || 0;
+  scrollcue?.classList.toggle("gone", s > 60);
+  // a dismissed strip is display:none, so its rect collapses to zero and the
+  // bar pins from the very top, exactly as it did before the strip existed
+  const stripBottom = announce?.getBoundingClientRect().bottom ?? 0;
+  topbar?.classList.toggle("pinned", stripBottom <= 0);
+}
+window.addEventListener("scroll", onScroll, { passive: true });
+// the browser may restore a scroll position before any scroll event fires
+onScroll();
