@@ -772,9 +772,10 @@ run_session() {
   # supplied. `aiur --bg --interactive` opts back into the full terminal stack
   # for an attachable background session.
   build_run_argv "$mode" "$@"
-  local no_dashboard=0
+  local no_dashboard=0 surface_mode=interactive
   for run_arg in "${run_argv[@]}"; do
     [ "$run_arg" = "--no-dashboard" ] && no_dashboard=1
+    [ "$run_arg" = "--headless" ] && surface_mode=headless
   done
   write_argv "${run_argv[@]}"
   export AIUR_ARGV_FILE="$argv_file"
@@ -967,7 +968,7 @@ run_session() {
     exit 1
   fi
 
-  write_aiur_instance_record "$session" "$socket"
+  write_aiur_instance_record "$session" "$socket" replace "$surface_mode"
   release_aiur_launch_lock "$launch_lock"
   _session_launch_lock=""
   print_config_status "$startup_capture"
@@ -1472,7 +1473,7 @@ release_aiur_launch_lock() {
 }
 
 write_aiur_instance_record() {
-  local session="$1" socket="$2" write_mode="${3:-replace}" record_dir record tmp root
+  local session="$1" socket="$2" write_mode="${3:-replace}" surface_mode="${4:-unknown}" record_dir record tmp root
   record_dir="$(aiur_instances_dir)"
   record="$(aiur_instance_record_path)"
   root="$(canonical_workspace_root "${AIUR_PROJECT_ROOT:-}")"
@@ -1483,6 +1484,7 @@ write_aiur_instance_record() {
     printf 'AIUR_RECORD_INSTANCE_KEY=%q\n' "$AIUR_INSTANCE_KEY"
     printf 'AIUR_RECORD_SESSION=%q\n' "$session"
     printf 'AIUR_RECORD_SOCKET=%q\n' "$socket"
+    printf 'AIUR_RECORD_SURFACE_MODE=%q\n' "$surface_mode"
     printf 'AIUR_RECORD_WORKSPACE_ROOT_FILE=%q\n' "${AIUR_WORKSPACE_ROOT_FILE:-}"
     printf 'AIUR_RECORD_PROJECT_ROOT=%q\n' "$root"
     printf 'AIUR_RECORD_PROJECT_ROOT_SOURCE=%q\n' "${AIUR_PROJECT_ROOT_SOURCE:-}"
