@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "build_order_id": "aiur-team/aiur:aiur-paseo",
+  "target_ref": "refs/heads/main",
+  "wave_label_prefix": "phase:",
+  "readiness_authority": "native_blocked_by_edges",
+  "waves": {
+    "1": ["PSO-001", "PSO-002", "PSO-003", "PSO-004"],
+    "2": ["PSO-005", "PSO-006", "PSO-007", "PSO-008"],
+    "3": ["PSO-009", "PSO-010", "PSO-011"],
+    "4": ["PSO-012", "PSO-013"],
+    "5": ["PSO-014", "PSO-015"]
+  }
+}

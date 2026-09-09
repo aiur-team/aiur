@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "build_order_id": "aiur-team/aiur:aiur-paseo",
+  "plan_version": 1,
+  "title": "BO: aiur-paseo — chat with any aiur agent from the Paseo app",
+  "root_document": "root-issue.md",
+  "design_document": "00-design.md",
+  "label_projection": {
+    "model": "model:claude",
+    "lane_prefix": "build-lane:",
+    "phase_prefix": "phase:",
+    "complexity_prefix": "complexity:",
+    "forbidden_labels": ["agent:todo", "agent:in-progress", "agent:rework", "agent:merging", "agent:paused", "agent:parked", "build-order"]
+  },
+  "lanes": ["paseo-core", "paseo-sidecar", "paseo-integration"],
+  "tickets": [
+    {"id": "PSO-001", "title": "Generic app-server backend module", "document": "tickets/PSO-001-generic-app-server-backend.md", "lane": "paseo-core", "phase_hint": 1, "complexity_points": 3, "depends_on": [], "serializes_with": ["PSO-007"]},
+    {"id": "PSO-002", "title": "Registry entries paseo-claude and paseo-codex plus config docs", "document": "tickets/PSO-002-registry-entries-and-config-docs.md", "lane": "paseo-core", "phase_hint": 1, "complexity_points": 2, "depends_on": [], "serializes_with": []},
+    {"id": "PSO-003", "title": "Generic surface indicator for any backend that reports a surface", "document": "tickets/PSO-003-generic-surface-indicator.md", "lane": "paseo-core", "phase_hint": 1, "complexity_points": 3, "depends_on": [], "serializes_with": ["PSO-015"]},
+    {"id": "PSO-004", "title": "Scaffold packages/aiur-paseo", "document": "tickets/PSO-004-scaffold-aiur-paseo-package.md", "lane": "paseo-sidecar", "phase_hint": 1, "complexity_points": 2, "depends_on": [], "serializes_with": []},
+    {"id": "PSO-005", "title": "App-server JSON-RPC server (protocol layer)", "document": "tickets/PSO-005-app-server-protocol-layer.md", "lane": "paseo-sidecar", "phase_hint": 2, "complexity_points": 4, "depends_on": ["PSO-004"], "serializes_with": []},
+    {"id": "PSO-006", "title": "Paseo client layer and fake daemon", "document": "tickets/PSO-006-paseo-client-layer-and-fake-daemon.md", "lane": "paseo-sidecar", "phase_hint": 2, "complexity_points": 4, "depends_on": ["PSO-004"], "serializes_with": []},
+    {"id": "PSO-007", "title": "Resume passthrough in GenericBackend", "document": "tickets/PSO-007-resume-passthrough.md", "lane": "paseo-core", "phase_hint": 2, "complexity_points": 2, "depends_on": ["PSO-001"], "serializes_with": ["PSO-001"]},
+    {"id": "PSO-008", "title": "Documentation: Paseo guide page and config reference", "document": "tickets/PSO-008-paseo-guide-and-config-docs.md", "lane": "paseo-integration", "phase_hint": 2, "complexity_points": 2, "depends_on": ["PSO-002"], "serializes_with": []},
+    {"id": "PSO-009", "title": "Turn mapping: turn/start to Paseo agent, timeline to item/created", "document": "tickets/PSO-009-turn-mapping.md", "lane": "paseo-sidecar", "phase_hint": 3, "complexity_points": 4, "depends_on": ["PSO-005", "PSO-006"], "serializes_with": ["PSO-010", "PSO-011"]},
+    {"id": "PSO-010", "title": "Dynamic tool bridge for Paseo-owned agents", "document": "tickets/PSO-010-dynamic-tool-bridge.md", "lane": "paseo-sidecar", "phase_hint": 3, "complexity_points": 3, "depends_on": ["PSO-005", "PSO-006"], "serializes_with": ["PSO-009"]},
+    {"id": "PSO-011", "title": "Sidecar resume, re-attach, and surface reporting", "document": "tickets/PSO-011-sidecar-resume-reattach-surface.md", "lane": "paseo-sidecar", "phase_hint": 3, "complexity_points": 2, "depends_on": ["PSO-005", "PSO-006", "PSO-007", "PSO-003"], "serializes_with": ["PSO-009", "PSO-010"]},
+    {"id": "PSO-012", "title": "Integration proof: end to end, fallback, restart re-attach", "document": "tickets/PSO-012-integration-proof.md", "lane": "paseo-integration", "phase_hint": 4, "complexity_points": 3, "depends_on": ["PSO-001", "PSO-002", "PSO-003", "PSO-007", "PSO-009", "PSO-010", "PSO-011"], "serializes_with": []},
+    {"id": "PSO-013", "title": "aiur init offers Paseo backends when the sidecar is installed", "document": "tickets/PSO-013-init-wizard-offers-paseo.md", "lane": "paseo-integration", "phase_hint": 4, "complexity_points": 2, "depends_on": ["PSO-002", "PSO-004"], "serializes_with": []},
+    {"id": "PSO-014", "title": "Permission bridge: Paseo permission requests as aiur Decisions (optional)", "document": "tickets/PSO-014-permission-bridge.md", "lane": "paseo-integration", "phase_hint": 5, "complexity_points": 3, "depends_on": ["PSO-009", "PSO-012"], "serializes_with": [], "optional": true},
+    {"id": "PSO-015", "title": "Mid-run move of an agent to and from Paseo (optional)", "document": "tickets/PSO-015-mid-run-move.md", "lane": "paseo-integration", "phase_hint": 5, "complexity_points": 3, "depends_on": ["PSO-003", "PSO-012"], "serializes_with": ["PSO-003"], "optional": true}
+  ]
+}
