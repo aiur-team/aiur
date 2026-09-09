@@ -5,6 +5,8 @@ defmodule Aiur.Init.RuntimeTest do
   alias Aiur.Init.Templates
   alias Aiur.RepoBase
 
+  @github_env_names ~w(GITHUB_TOKEN GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY AIUR_CI_READINESS_TOKEN)
+
   setup do
     dir = Aiur.TestSupport.tmp_root!("aiur-init-runtime-test")
     File.mkdir_p!(dir)
@@ -38,6 +40,43 @@ defmodule Aiur.Init.RuntimeTest do
     assert Map.has_key?(deps, :load_config)
     assert Map.has_key?(deps, :setup_repo_state)
     assert Map.has_key?(deps, :create_labels)
+  end
+
+  test "runtime token dependency keeps the selected PAT when GitHub App credentials are present" do
+    previous = Map.new(@github_env_names, &{&1, System.get_env(&1)})
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+    end)
+
+    System.put_env("GITHUB_TOKEN", "  explicit-init-token  ")
+    System.put_env("GITHUB_APP_ID", "123")
+    System.put_env("GITHUB_APP_INSTALLATION_ID", "456")
+    System.put_env("GITHUB_APP_PRIVATE_KEY", "configured-for-daemon")
+
+    assert Runtime.runtime_deps().github_token.() == "explicit-init-token"
+    assert Aiur.Init.GitHub.require_github_token() == {:ok, "explicit-init-token"}
+  end
+
+  test "runtime token dependency never substitutes the CI readiness credential" do
+    previous = Map.new(@github_env_names, &{&1, System.get_env(&1)})
+
+    on_exit(fn ->
+      Enum.each(previous, fn
+        {name, nil} -> System.delete_env(name)
+        {name, value} -> System.put_env(name, value)
+      end)
+    end)
+
+    Enum.each(@github_env_names, &System.delete_env/1)
+    System.put_env("AIUR_CI_READINESS_TOKEN", "operator-only-token")
+
+    assert Runtime.runtime_deps().github_token.() == nil
+    assert {:error, message} = Aiur.Init.GitHub.require_github_token()
+    assert message =~ "GITHUB_TOKEN not set"
   end
 
   test "setup_repo_state seeds an Executor handoff during init", %{dir: dir} do

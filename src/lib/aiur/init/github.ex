@@ -6,9 +6,9 @@ defmodule Aiur.Init.GitHub do
   """
 
   alias Aiur.{Codeowners.Edit, Config, Workflow}
+  alias Aiur.Config.EnvRef
   alias Aiur.GitHub.BotIdentity
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.Transport
@@ -193,10 +193,17 @@ defmodule Aiur.Init.GitHub do
   @doc false
   @spec require_github_token() :: {:ok, String.t()} | {:error, String.t()}
   def require_github_token do
-    case GitHubConfig.token() do
+    case github_token() do
       token when is_binary(token) and token != "" -> {:ok, token}
       _ -> {:error, "GITHUB_TOKEN not set — add it to #{@env_file_name} (#{@token_url})"}
     end
+  end
+
+  @doc false
+  @spec github_token() :: String.t() | nil
+  def github_token do
+    System.get_env("GITHUB_TOKEN")
+    |> EnvRef.normalize_secret()
   end
 
   @doc false
