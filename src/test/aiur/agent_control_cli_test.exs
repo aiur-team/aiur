@@ -139,8 +139,23 @@ defmodule Aiur.AgentControlCLITest do
       request_refresh: fn ->
         send(parent, :todo_request_refresh)
         %{queued: true}
-      end
+      end,
+      now_ms: Keyword.get(opts, :now_ms, fn -> 0 end)
     }
+  end
+
+  # A monotonic clock the budget tests drive by hand: it returns each element of
+  # `readings` once, then pins to the last one. Every real `--todo` clock read is
+  # a budget check, so a scripted list places the deadline at an exact call.
+  defp scripted_clock(readings) do
+    {:ok, agent} = Agent.start_link(fn -> readings end)
+
+    fn ->
+      Agent.get_and_update(agent, fn
+        [last] -> {last, [last]}
+        [head | rest] -> {head, rest}
+      end)
+    end
   end
 
   # Tests that overwrite the shared workflow config must put it back: `Config`
@@ -601,6 +616,135 @@ defmodule Aiur.AgentControlCLITest do
       assert_received {:todo_remove_label, "21", "sym:todo"}
       assert_received {:todo_remove_label, "22", "sym:todo"}
       refute_received {:todo_remove_label, "23", "sym:todo"}
+    end
+
+    test "stops queueing at the daemon budget and reports the tickets it never reached" do
+      issues =
+        Map.new(~w(11 12 13), fn id ->
+          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
+        end)
+
+      {stdout, stderr, exit_code} =
+        capture_todo(~w(11 12 13),
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 0, 100])),
+          budget_ms: 100,
+          emit_exit_marker: true
+        )
+
+      assert exit_code == 1
+      assert stdout =~ "✓ #11 → sym:todo"
+      assert stdout =~ "✓ #12 → sym:todo"
+      assert stdout =~ "queued 2 ticket(s); cleared 0 other(s)"
+      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
+      assert stderr =~ "aiur: --todo stopped after its 1s daemon budget; 1 requested ticket(s) not reached (#13)"
+      assert stderr =~ "raise AIUR_CONTROL_RPC_TIMEOUT_SECONDS"
+      assert_received {:todo_add_label, "11", "sym:todo"}
+      assert_received {:todo_add_label, "12", "sym:todo"}
+      refute_received {:todo_add_label, "13", _}
+    end
+
+    test "fails --only cleanup closed when the budget stops the queueing phase" do
+      issues =
+        Map.new(~w(11 12), fn id ->
+          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
+        end)
+
+      {_stdout, stderr, exit_code} =
+        capture_todo(~w(11 12),
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 100])),
+          budget_ms: 100,
+          only: true
+        )
+
+      assert exit_code == 1
+      assert stderr =~ "--only cleanup skipped because 1 requested ticket(s) failed"
+      refute_received {:todo_fetch_active, _}
+    end
+
+    test "stops --only cleanup at the daemon budget and counts what it left queued" do
+      issues = %{
+        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
+      }
+
+      active =
+        [issues["11"]] ++
+          Enum.map(~w(20 21 22), fn id ->
+            %Issue{id: id, identifier: id, state: "todo", labels: ["sym:todo"]}
+          end)
+
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"],
+          deps: todo_deps(issues, active: active, now_ms: scripted_clock([0, 0, 0, 0, 0, 100])),
+          budget_ms: 100,
+          only: true,
+          emit_exit_marker: true
+        )
+
+      assert exit_code == 1
+      assert stdout =~ "– #20 cleared sym:todo"
+      assert stdout =~ "– #21 cleared sym:todo"
+      assert stdout =~ "queued 1 ticket(s); cleared 2 other(s)"
+      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
+      assert stderr =~ "aiur: --only cleanup stopped after its 1s daemon budget; 1 other ticket(s) left untouched"
+      assert_received {:todo_remove_label, "20", "sym:todo"}
+      assert_received {:todo_remove_label, "21", "sym:todo"}
+      refute_received {:todo_remove_label, "22", _}
+    end
+
+    test "skips the active-ticket enumeration when queueing consumed the whole budget" do
+      issues =
+        Map.new(~w(11 12), fn id ->
+          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
+        end)
+
+      {stdout, stderr, exit_code} =
+        capture_todo(~w(11 12),
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 0, 100])),
+          budget_ms: 100,
+          only: true
+        )
+
+      assert exit_code == 1
+      assert stdout =~ "queued 2 ticket(s); cleared 0 other(s)"
+      assert stderr =~ "aiur: --only cleanup skipped; the 1s daemon budget elapsed while queueing the requested tickets"
+      refute_received {:todo_fetch_active, _}
+      refute_received {:todo_remove_label, _, _}
+    end
+
+    test "a budget that outlasts the work changes nothing about the outcome" do
+      issues = %{
+        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]},
+        "12" => %Issue{id: "12", identifier: "12", state: nil, labels: []}
+      }
+
+      active = [issues["11"], issues["12"], %Issue{id: "20", identifier: "20", state: "todo", labels: ["sym:todo"]}]
+
+      {stdout, stderr, exit_code} =
+        capture_todo(~w(11 12),
+          deps: todo_deps(issues, active: active, now_ms: scripted_clock([0])),
+          budget_ms: 120_000,
+          only: true
+        )
+
+      assert exit_code == 0
+      assert stderr == ""
+      assert stdout =~ "queued 2 ticket(s); cleared 1 other(s)"
+      assert_received {:todo_remove_label, "20", "sym:todo"}
+    end
+
+    test "truncates a long not-reached list into one readable line" do
+      ids = Enum.map(1..14, &to_string/1)
+      issues = Map.new(ids, fn id -> {id, %Issue{id: id, identifier: id, state: nil, labels: []}} end)
+
+      {_stdout, stderr, exit_code} =
+        capture_todo(ids,
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 100])),
+          budget_ms: 100
+        )
+
+      assert exit_code == 1
+      assert stderr =~ "14 requested ticket(s) not reached (#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, … and 4 more)"
+      refute_received {:todo_add_label, _, _}
     end
   end
 

@@ -908,7 +908,59 @@ defmodule AiurEngineTest do
       )
 
     assert out =~
-             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
+             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, budget_ms: 104000, emit_exit_marker: true)"
+  end
+
+  # #2519: the shared 10s control budget killed `--todo … --only` every time,
+  # because its work is proportional to the request and to the tracker's queue
+  # depth rather than to daemon state. The watchdog must scale with that work,
+  # and the daemon's own budget must stay strictly inside the watchdog so its
+  # summary is never the thing that gets discarded.
+  test "todo sizes its rpc watchdog to the requested work and stays inside it" do
+    for {argv, expected_timeout, expected_budget_ms} <- [
+          {"--todo 11", 18, 8000},
+          {"--todo 11 12 13", 24, 14_000},
+          {"--todo 11 --only", 108, 98_000},
+          {"--todo 1 2 3 5 --only", 117, 107_000}
+        ] do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo #{argv}|,
+          []
+        )
+
+      assert out =~ "TIMEOUT:#{expected_timeout}"
+      assert out =~ "budget_ms: #{expected_budget_ms}"
+    end
+  end
+
+  test "an explicit todo timeout override wins and still bounds the daemon" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo --todo 11 --only|,
+        [{"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "300"}]
+      )
+
+    assert out =~ "TIMEOUT:300"
+    assert out =~ "budget_ms: 290000"
+  end
+
+  # An override shorter than the grace window must still produce a positive
+  # budget: a zero or negative one would read as "unlimited" on the daemon side
+  # and put us straight back to a watchdog kill with an unknown outcome. An
+  # unusable override falls back to work-proportional sizing rather than to the
+  # shared 10s default, which is the very budget #2519 is about.
+  test "a todo timeout override below the grace window still bounds the daemon" do
+    for {override, expected_timeout, expected_budget_ms} <- [{"3", 3, 1000}, {"0", 18, 8000}, {"bogus", 18, 8000}, {"", 18, 8000}] do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo --todo 11|,
+          [{"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", override}]
+        )
+
+      assert out =~ "TIMEOUT:#{expected_timeout}"
+      assert out =~ "budget_ms: #{expected_budget_ms}"
+    end
   end
 
   test "commands routes filters and encoded detail arguments through the control rpc" do
