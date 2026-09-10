@@ -282,9 +282,17 @@ const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   // because it commits: a dial that silently does nothing and a green key that
   // sends must never read alike.
   const live = (face.icon === "mic" && face.subLabel.toUpperCase() === "LIVE") || face.icon === "approve";
+  // The Commands key asks for attention while the focused agent owes an answer.
+  // Read the same way `live` is read — from the face the descriptor composed —
+  // and painted from the key-face contract's alert tokens the descriptor put on
+  // it, so the deck has one amber for "needs input" instead of a second one
+  // invented here.
+  const attention = !live && face.icon === "alert" && face.subLabel.toUpperCase().endsWith("PENDING");
   roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
   context.fillStyle = live
     ? createPaint(context, "linear-gradient(180deg,#37d97e,#1f9c56)", 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE)
+    : attention
+    ? createPaint(context, face.glow, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE)
     : "#1b1e25";
   context.fill();
 
@@ -292,7 +300,7 @@ const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   roundedPath(context, FACE_INSET, FACE_INSET, inner, inner, FACE_RADIUS);
   context.fillStyle = createPaint(
     context,
-    live ? "linear-gradient(180deg,#17402a,#0f1a13)" : "linear-gradient(180deg,#1a1d24,#111318)",
+    live ? "linear-gradient(180deg,#17402a,#0f1a13)" : attention ? face.face : "linear-gradient(180deg,#1a1d24,#111318)",
     FACE_INSET,
     FACE_INSET,
     inner,
@@ -303,21 +311,26 @@ const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   const glyph = 38;
   drawIcon(
     context,
-    commandFragment(face.icon),
+    // The warning triangle is a lane glyph, not a command glyph: the Commands
+    // key reuses the deck's one triangle rather than a second copy in the
+    // command set, and `commandFragment` would fall back to the log bars for it.
+    face.icon === "alert" ? iconFragment(face.icon) : commandFragment(face.icon),
     (KEY_IMAGE_SIZE - glyph) / 2,
     26,
     glyph,
-    live ? "#eafff3" : "#ffffff",
-    commandIsFilled(face.icon),
+    live ? "#eafff3" : attention ? face.accent : "#ffffff",
+    // A pending key fills the triangle: at arm's length a solid shape is the
+    // difference the operator sees before they can read the caption.
+    commandIsFilled(face.icon) || attention,
   );
 
   context.textAlign = "center";
   context.font = "700 15px sans-serif";
-  context.fillStyle = live ? "#eafff3" : TEXT_PRIMARY;
+  context.fillStyle = live ? "#eafff3" : attention ? face.accent : TEXT_PRIMARY;
   context.fillText(face.title, KEY_IMAGE_SIZE / 2, 88);
   if (face.subLabel !== "") {
     context.font = "700 9px monospace";
-    context.fillStyle = live ? "rgba(234,255,243,0.85)" : "rgba(240,242,246,0.55)";
+    context.fillStyle = live ? "rgba(234,255,243,0.85)" : attention ? face.accent : "rgba(240,242,246,0.55)";
     context.fillText(face.subLabel.toUpperCase(), KEY_IMAGE_SIZE / 2, 103);
   }
   context.textAlign = "left";

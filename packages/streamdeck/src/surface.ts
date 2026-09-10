@@ -1,6 +1,7 @@
 import type { HidBackend } from "./backend.js";
 import { BLACK, buildKeyFillReport, DEFAULT_FILL_INDEX_BASE, type RgbColor } from "./keys/keyFill.js";
 import { layoutKeys, layoutPhysicalKeys, type AgentInput, type KeyDescriptor } from "./keys.js";
+import type { BucketId } from "./key-face-contract.js";
 import { KeyRenderer } from "./keys/keyRenderer.js";
 import { KeyWriteQueue } from "./keys/writeQueue.js";
 import { createKeyReportWriter } from "./keys/keyWriter.js";
@@ -23,6 +24,7 @@ import {
   detailPanel,
   historyKeyDescriptors,
   historyPanel,
+  pendingCommandCount,
 } from "./commands.js";
 import type { StreamDeckCommand, StreamDeckCommandsPage } from "./channel.js";
 
@@ -180,15 +182,24 @@ export const descriptorEvents = (
   return slots;
 };
 
-/** One command key face; `identifier` namespaces it so two agents never share a cache entry. */
-const commandKey = (identifier: string, name: string, title: string, icon: string, subLabel: string): AgentInput => ({
+/**
+ * One command key face; `identifier` namespaces it so two agents never share a
+ * cache entry.
+ *
+ * `bucket` is how a command key asks for attention. Command keys are normally
+ * neutral (`queued`), and passing `alert` hands the key the shared key-face
+ * contract's alert tokens — the same amber an agent that needs input wears on
+ * the grid — so the deck has one vocabulary for "answer me" rather than a
+ * second colour invented for this surface.
+ */
+const commandKey = (identifier: string, name: string, title: string, icon: string, subLabel: string, bucket: BucketId = "queued"): AgentInput => ({
   identifier: `${identifier}:${name}`,
   title,
   vendor: "command",
   icon,
   role: "command",
   subLabel,
-  bucket: "queued",
+  bucket,
   progress_percent: null,
   priority: false,
   dependency_ready: true,
@@ -212,21 +223,30 @@ export const descriptorCommands = (
   agent: Readonly<Record<string, unknown>> | null | undefined,
   micHeld: boolean,
   hasTranscript: boolean,
+  pendingCommands = 0,
 ): (AgentInput | undefined)[] => {
   const identifier = String(agent?.identifier ?? "focused");
   // Only a paused agent offers Resume. Keying this off `bucket === "running"`
   // instead made every alert/stuck/queued agent show a Resume key that the
   // controller then had no action for, so pressing it did nothing at all.
   const paused = agent?.bucket === "paused";
-  const command = (name: string, title: string, icon: string, subLabel: string): AgentInput =>
-    commandKey(identifier, name, title, icon, subLabel);
+  const command = (name: string, title: string, icon: string, subLabel: string, bucket: BucketId = "queued"): AgentInput =>
+    commandKey(identifier, name, title, icon, subLabel, bucket);
+  // The Commands key is a warning triangle rather than a question mark, and it
+  // counts the decisions the focused agent is waiting on: an operator reading
+  // the deck from across the room has to see that an answer is owed without
+  // opening the page to find out. With nothing pending it stays neutral and
+  // reads OPEN, so the loud state means something.
+  const pending = Math.max(0, Math.trunc(pendingCommands));
 
   return [
     command("pause", paused ? "Resume" : "Pause", paused ? "play" : "pause", paused ? "RESUME" : "HOLD"),
     command("logs", "Logs", "logs", "OPEN"),
     command("mic", "Mic", "mic", micHeld ? "LIVE" : "HOLD"),
     command("settings", "Settings", "settings", "OPEN"),
-    command("commands", "Commands", "question", "OPEN"),
+    pending > 0
+      ? command("commands", "Commands", "alert", `${pending} PENDING`, "alert")
+      : command("commands", "Commands", "alert", "OPEN"),
     hasTranscript ? command("send", "Send", "send", "TO AGENT") : undefined,
     hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : undefined,
     undefined,
@@ -338,7 +358,7 @@ export const createPhysicalSurface = () => {
       const visibleGrid = state.mode === "logs"
         ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null, focused))
         : state.mode === "cmd"
-        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true))
+        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier)))
         : state.mode === "settings"
         ? layoutPhysicalKeys(descriptorSettings(mics, state.micHeld === true))
         : state.mode === "commands"
