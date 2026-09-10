@@ -29,6 +29,19 @@ const inkFraction = async (jpeg: Uint8Array): Promise<number> => {
   return inked / (120 * 120);
 };
 
+/** Fraction of pixels inside one rectangle of a decoded key that carry ink. */
+const regionInk = async (jpeg: Uint8Array, x: number, y: number, width: number, height: number): Promise<number> => {
+  const canvas = createCanvas(120, 120);
+  const context = canvas.getContext("2d");
+  context.drawImage(await loadImage(Buffer.from(jpeg)), 0, 0);
+  const { data } = context.getImageData(x, y, width, height);
+  let inked = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i] > 60 || data[i + 1] > 60 || data[i + 2] > 60) inked += 1;
+  }
+  return inked / (width * height);
+};
+
 /** One decoded key pixel, used to pin geometry that a whole-image diff cannot name. */
 const keyPixel = async (jpeg: Uint8Array, x: number, y: number): Promise<number[]> => {
   const canvas = createCanvas(120, 120);
@@ -124,6 +137,25 @@ describe("createRasterizer key", () => {
     const ready = rasterizer.key(layoutKeys([agent({ bucket: "queued", dependency_ready: true })], 0)[0]);
     const blocked = rasterizer.key(layoutKeys([agent({ bucket: "queued", dependency_ready: false })], 0)[0]);
     expect(Buffer.from(ready).equals(Buffer.from(blocked))).toBe(false);
+  });
+
+  // The two dependency states differ by shape, not by spelling. Only the held
+  // side gets a pill on the left of the footer band; the ready side gets the
+  // open padlock in the bottom-right corner and no pill at all, so an operator
+  // glancing at the deck does not have to read a word to tell them apart.
+  it("marks an unblocked queued key with a corner glyph rather than a pill", async () => {
+    const rasterizer = createRasterizer();
+    const queued = (dependencyReady: boolean): Uint8Array =>
+      rasterizer.key(layoutKeys([agent({ bucket: "queued", dependency_ready: dependencyReady })], 0)[0]);
+    // The left half of the footer band, where the pill is painted.
+    const pill = (jpeg: Uint8Array): Promise<number> => regionInk(jpeg, 9, 98, 50, 12);
+    // The bottom-right corner, where the glyph is painted.
+    const corner = (jpeg: Uint8Array): Promise<number> => regionInk(jpeg, 96, 95, 15, 15);
+
+    expect(await pill(queued(false))).toBeGreaterThan(0.3);
+    expect(await pill(queued(true))).toBeLessThan(0.02);
+    expect(await corner(queued(true))).toBeGreaterThan(0.1);
+    expect(await corner(queued(false))).toBeLessThan(0.02);
   });
 
   // The mock marks a prioritised ticket with a gold star. It is omitted by

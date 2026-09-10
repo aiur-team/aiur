@@ -27,7 +27,7 @@ import type { SegmentContent } from "./touchStrip/stripLayout.js";
 import { KEY_IMAGE_SIZE } from "./keys/keyImage.js";
 import { SEGMENT_WIDTH, STRIP_HEIGHT as SEGMENT_HEIGHT } from "./touchStrip/geometry.js";
 import { createPaint } from "./art/gradient.js";
-import { commandFragment, commandIsFilled, drawIcon, iconFragment } from "./art/icons.js";
+import { commandFragment, commandIsFilled, drawIcon, iconFragment, UNBLOCKED_ICON } from "./art/icons.js";
 import { KEY_FACE_CONTRACT } from "./key-face-contract.js";
 import { drawVendorMark } from "./art/vendorMark.js";
 import { drawSegmentContent } from "./art/segments.js";
@@ -59,6 +59,11 @@ const FOOTER_BASE = 110;
 const BAR_HEIGHT = 6;
 const DOT_SIZE = 9;
 const TAG_HEIGHT = 13;
+/**
+ * Open-padlock glyph on an unblocked queued key, sized to the tag band it
+ * replaces so the footer keeps the same two-row height either way.
+ */
+const UNBLOCKED_ICON_SIZE = 15;
 /** Width of the left rail that marks the active event key. */
 const SELECTION_RAIL = 5;
 
@@ -68,7 +73,7 @@ const TEXT_TITLE = "rgba(240,242,246,0.92)";
 const CHIP_FILL = "rgba(255,255,255,0.08)";
 const CHIP_BORDER = "rgba(255,255,255,0.12)";
 const BAR_TRACK = "rgba(255,255,255,0.14)";
-const TAG_READY_FILL = "rgba(74,200,130,0.2)";
+/** Ink for the unblocked padlock glyph; the ready pill it replaced used the same green. */
 const TAG_READY_TEXT = "#88e0a6";
 const TAG_BLOCKED_FILL = "rgba(224,86,78,0.2)";
 const TAG_BLOCKED_TEXT = "#ff9a90";
@@ -208,10 +213,10 @@ const drawKeyHeader = (context: SKRSContext2D, face: AgentKeyFace): void => {
 /**
  * Wrapped title, using real glyph metrics rather than a character count.
  *
- * A queued key's footer is two stacked rows (status label above the
- * blocked/unblocked pill) where every other state's is a single row, so a
- * queued title gets one line fewer. Without that the third line runs straight
- * through the status label.
+ * A queued key's footer is two stacked rows (status label above the blocked
+ * pill, or above the unblocked glyph) where every other state's is a single
+ * row, so a queued title gets one line fewer. Without that the third line runs
+ * straight through the status label.
  */
 const drawKeyTitle = (context: SKRSContext2D, face: AgentKeyFace): void => {
   context.font = `600 ${TITLE_SIZE}px sans-serif`;
@@ -227,19 +232,37 @@ const drawKeyTitle = (context: SKRSContext2D, face: AgentKeyFace): void => {
 const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   if (face.footer.kind === "queued") {
     // Two stacked rows (the mock's `.sd-ag-foot.col`): status label above, the
-    // blocked/unblocked pill below it. They must not share a baseline band.
+    // dependency state below it. They must not share a baseline band.
     context.font = `700 11px sans-serif`;
     context.fillStyle = face.accent;
     context.fillText(face.footer.label, PAD_X, FOOTER_BASE - TAG_HEIGHT - 5);
 
+    const tagTop = FOOTER_BASE - TAG_HEIGHT;
+
+    // Unblocked is a glyph in the bottom-right corner rather than a pill.
+    // `statusLabel` stays on the descriptor -- the emulator and the parity
+    // vectors still carry the word -- but a key that is ready to start says so
+    // with the open padlock, which reads at a glance where a second pill of
+    // small caps did not.
+    if (face.footer.unblocked) {
+      drawIcon(
+        context,
+        UNBLOCKED_ICON,
+        KEY_IMAGE_SIZE - PAD_X - UNBLOCKED_ICON_SIZE,
+        FOOTER_BASE - UNBLOCKED_ICON_SIZE,
+        UNBLOCKED_ICON_SIZE,
+        TAG_READY_TEXT,
+      );
+      return;
+    }
+
     const tag = face.footer.statusLabel;
     context.font = `700 9px monospace`;
     const tagWidth = context.measureText(tag).width + 10;
-    const tagTop = FOOTER_BASE - TAG_HEIGHT;
     roundedPath(context, PAD_X, tagTop, tagWidth, TAG_HEIGHT, TAG_HEIGHT / 2);
-    context.fillStyle = face.footer.unblocked ? TAG_READY_FILL : TAG_BLOCKED_FILL;
+    context.fillStyle = TAG_BLOCKED_FILL;
     context.fill();
-    context.fillStyle = face.footer.unblocked ? TAG_READY_TEXT : TAG_BLOCKED_TEXT;
+    context.fillStyle = TAG_BLOCKED_TEXT;
     context.fillText(tag, PAD_X + 5, tagTop + TAG_HEIGHT - 3.5);
     return;
   }
