@@ -400,7 +400,10 @@ defmodule AiurWeb.StreamdeckLive do
                 <span :if={!key.empty?} class="sd-ag-title">{key.title}</span>
                 <div :if={!key.empty? and key.bucket == "queued"} class="sd-ag-foot col">
                   <span class="sd-ag-stat">{key.label}</span>
-                  <span class={["sd-ag-tag", key.dependency_ready? && "ready", !key.dependency_ready? && "blocked"]}>{key.dependency}</span>
+                  <span :if={key.dependency_ready?} class="sd-ag-unblocked" role="img" aria-label={key.dependency}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="12" height="9.5" rx="2" /><path d="M13 11V7a4 4 0 0 1 8 0v2" /></svg>
+                  </span>
+                  <span :if={!key.dependency_ready?} class="sd-ag-tag blocked">{key.dependency}</span>
                 </div>
                 <div
                   :if={!key.empty? and key.bucket != "queued"}

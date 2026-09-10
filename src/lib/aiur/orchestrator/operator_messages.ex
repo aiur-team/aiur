@@ -434,6 +434,9 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   defp enqueue_validated_operator_message(state, issue_identifier, text, request) do
     case replay_existing_correlated_message(state, issue_identifier, text, request) do
+      {:handled, {{:ok, _duplicate}, _replayed_state} = result} ->
+        wake_target_for_replayed_message(result, issue_identifier)
+
       {:handled, result} ->
         result
 
@@ -489,6 +492,35 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   defp replay_existing_correlated_message(_state, _issue_identifier, _text, _request),
     do: :continue
+
+  # A correlated answer that resolves to an already-enqueued item short-circuits
+  # `enqueue_for_running_entry/5` — and with it the paused-agent wake that path
+  # performs. The queue item is a duplicate, but the *work* is not done: the
+  # target may have paused again since the first enqueue (an agent that
+  # re-raises its Command does exactly this), and nothing else will wake it. The
+  # Decision was then recorded queued-and-delivered while the agent sat paused on
+  # an answer it never saw, with no failure anywhere for an operator to find
+  # (#2558).
+  #
+  # Idempotent and safe by construction: a correlated message exists only
+  # because an answer was durably recorded, so this can never resume an agent
+  # whose Decision was not answered; it fires only for an entry that is
+  # currently paused; and it routes through `resume_paused_issue/2`, so the
+  # active-cap and per-state slot gates are the same ones the explicit operator
+  # resume obeys. A refused wake is reported as a delivery failure rather than
+  # a silent success, which puts it on `DecisionStore`'s bounded retry ladder.
+  defp wake_target_for_replayed_message({reply, state}, issue_identifier) do
+    with running_entry when is_map(running_entry) <-
+           State.find_running_by_identifier(state.running, issue_identifier),
+         true <- State.paused_running_entry?(running_entry),
+         {{:ok, :resumed}, resumed_state} <-
+           Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
+      {reply, resumed_state}
+    else
+      {{:error, _reason} = error, next_state} -> {error, next_state}
+      _not_paused -> {reply, state}
+    end
+  end
 
   # Chatting with a paused agent auto-resumes it — but only if a slot is
   # free. Routing through `resume_paused_issue/2` reuses the same

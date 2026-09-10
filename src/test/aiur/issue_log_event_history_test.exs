@@ -144,6 +144,42 @@ defmodule Aiur.IssueLogEventHistoryTest do
     assert Aiur.IssueLog.event_log_path(identity.identifier) == Aiur.IssueLog.event_log_path(identity)
   end
 
+  # `Config.configured_repo/0` gained an origin-remote fallback in #2518 so a
+  # shared `~/.aiur/config` can serve several repositories for tracker identity.
+  # Log filenames must NOT follow it: an install that never set
+  # `tracker.github.repo` would have every transcript renamed on the first
+  # restart after the upgrade, leaving its history on disk but unreachable
+  # through `history/2` and `read_tail/2`.
+  test "durable log paths do not move when the repository is auto-detected" do
+    origin_cache_key = {GitHubConfig, :resolved_origin_repo}
+    previous = :persistent_term.get(origin_cache_key, :unset)
+
+    on_exit(fn ->
+      case previous do
+        :unset -> :persistent_term.erase(origin_cache_key)
+        value -> :persistent_term.put(origin_cache_key, value)
+      end
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: nil)
+    :persistent_term.put(origin_cache_key, "acme/widgets")
+
+    # Identity resolves the auto-detected repository...
+    assert {:ok, {"acme", "widgets"}} = GitHubConfig.configured_repo()
+
+    # ...but the durable path keeps the unscoped `repo_name()` form it had
+    # before the fallback existed, rather than switching to `github-<base64>`.
+    refute Aiur.IssueLog.log_path("4242") =~ "github-"
+    assert Path.basename(Aiur.IssueLog.log_path("4242")) == "widgets.4242.log"
+    assert Path.basename(Aiur.IssueLog.event_log_path("4242")) == "widgets.4242.events.log"
+
+    # An explicitly configured repository still gets the qualified scope, so
+    # this is a narrowing of the fallback, not a removal of repository scoping.
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "acme/widgets")
+
+    assert Aiur.IssueLog.log_path("4242") =~ "github-"
+  end
+
   test "transcript text cannot forge a structured event", %{identifier: id} do
     identity = identity(identifier: System.unique_integer([:positive]) |> Integer.to_string())
     transcript_path = Aiur.IssueLog.log_path(identity)

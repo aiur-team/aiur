@@ -186,6 +186,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp print_status_report(statuses, snapshot, opts) do
     print_executor_listener_status()
+    print_executor_wake_status()
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -491,6 +492,54 @@ defmodule Aiur.AgentControlCLI do
 
   defp executor_wait_result({:error, reason}, _consumer_id, _role, _json?) do
     control_error("aiur: executor wake inbox unavailable (#{format_reason(reason)})")
+    exit_marker(1)
+  end
+
+  @doc "Fast-forwards the owner cursor through an externally covered durable wake id."
+  @spec executor_fast_forward(pos_integer(), keyword()) :: :ok
+  def executor_fast_forward(wake_id, opts \\ []) when is_integer(wake_id) and wake_id > 0 do
+    consumer_id = Claims.resolve_consumer_id(opts)
+
+    case Claims.claim(consumer_id) do
+      {:ok, _entry} ->
+        executor_fast_forward_result(ExecutorWakeInbox.fast_forward_as(consumer_id, wake_id))
+
+      {:error, {:held_by, owner}} ->
+        executor_fast_forward_observer(owner)
+
+      {:error, reason} ->
+        control_error("aiur: could not claim the wake stream (#{format_reason(reason)}); fast-forward refused and the cursor did not advance")
+        exit_marker(1)
+    end
+  end
+
+  defp executor_fast_forward_result({:ok, result}) do
+    IO.puts(
+      "FAST-FORWARDED from=#{result.from} through=#{result.through} " <>
+        "acknowledged=#{result.acknowledged_count} pending=#{result.pending_count}"
+    )
+
+    exit_marker(0)
+  end
+
+  defp executor_fast_forward_result({:error, {:beyond_latest_wake, latest}}) do
+    control_error("aiur: cannot fast-forward beyond latest durable wake #{latest}")
+    exit_marker(1)
+  end
+
+  defp executor_fast_forward_result({:error, {:wake_not_found, wake_id}}) do
+    control_error("aiur: wake #{wake_id} is not present in the durable inbox")
+    exit_marker(1)
+  end
+
+  defp executor_fast_forward_result({:error, reason}) do
+    control_error("aiur: executor fast-forward failed (#{format_reason(reason)}); the cursor did not advance")
+    exit_marker(1)
+  end
+
+  defp executor_fast_forward_observer(owner) do
+    owner_id = (owner && owner["id"]) || "another consumer"
+    control_error("aiur: wake stream is held by #{owner_id}; fast-forward refused and the cursor did not advance")
     exit_marker(1)
   end
 
@@ -1749,49 +1798,13 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
-  defp capacity_binding_label(
-         {:admission,
-          %{
-            signal: :load,
-            measured: load,
-            threshold: threshold,
-            reclaimable_cpu_percent: reclaimable,
-            reclaimable_cpu_threshold: reclaimable_threshold
-          }}
-       ),
-       do:
-         "load+cpu contention, load=#{load} threshold=#{threshold} " <>
-           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+  # Every admission measurement is rendered with the age of the sample it came
+  # from. The figure alone is indistinguishable from a current one, which is how
+  # a `load=24.14` taken minutes earlier sat unnoticed beside a live `LOAD 7.23`
+  # line four times smaller (#2527).
+  defp capacity_binding_label({:admission, hold}),
+    do: admission_detail(hold) <> admission_sample_age(hold)
 
-  defp capacity_binding_label({:admission, %{signal: :load, measured: load, threshold: threshold}}),
-    do: "load, load=#{load} threshold=#{threshold}"
-
-  defp capacity_binding_label(
-         {:admission,
-          %{
-            signal: :run_queue,
-            measured: runnable,
-            threshold: threshold,
-            reclaimable_cpu_percent: reclaimable,
-            reclaimable_cpu_threshold: reclaimable_threshold
-          }}
-       ),
-       do:
-         "run_queue+cpu contention, runnable=#{runnable} threshold=#{threshold} " <>
-           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
-
-  defp capacity_binding_label({:admission, %{signal: :run_queue, measured: runnable, threshold: threshold}}),
-    do: "run_queue, runnable=#{runnable} threshold=#{threshold}"
-
-  defp capacity_binding_label({:admission, %{signal: :github_quota, measured: measured}}) do
-    case github_quota_measurement(measured) do
-      {:current, detail} -> "github_quota, #{detail}"
-      {:stale, detail} -> "github_quota stale, #{detail}"
-      :unavailable -> "github_quota, measurement unavailable"
-    end
-  end
-
-  defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
   defp capacity_binding_label({:none, %{ceiling: ceiling}}), do: "none; ceiling: #{ceiling}"
   defp capacity_binding_label({:none, _detail}), do: "none"
 
@@ -1810,6 +1823,57 @@ defmodule Aiur.AgentControlCLI do
     do: "has not polled yet (ceiling: #{ceiling})"
 
   defp capacity_binding_label({:has_not_polled, _detail}), do: "has not polled yet"
+
+  defp admission_detail(%{
+         signal: :load,
+         measured: load,
+         threshold: threshold,
+         reclaimable_cpu_percent: reclaimable,
+         reclaimable_cpu_threshold: reclaimable_threshold
+       }),
+       do:
+         "load+cpu contention, load=#{load} threshold=#{threshold} " <>
+           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+
+  defp admission_detail(%{signal: :load, measured: load, threshold: threshold}),
+    do: "load, load=#{load} threshold=#{threshold}"
+
+  defp admission_detail(%{
+         signal: :run_queue,
+         measured: runnable,
+         threshold: threshold,
+         reclaimable_cpu_percent: reclaimable,
+         reclaimable_cpu_threshold: reclaimable_threshold
+       }),
+       do:
+         "run_queue+cpu contention, runnable=#{runnable} threshold=#{threshold} " <>
+           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+
+  defp admission_detail(%{signal: :run_queue, measured: runnable, threshold: threshold}),
+    do: "run_queue, runnable=#{runnable} threshold=#{threshold}"
+
+  defp admission_detail(%{signal: :github_quota, measured: measured}) do
+    case github_quota_measurement(measured) do
+      {:current, detail} -> "github_quota, #{detail}"
+      {:stale, detail} -> "github_quota stale, #{detail}"
+      :unavailable -> "github_quota, measurement unavailable"
+    end
+  end
+
+  defp admission_detail(%{signal: signal}), do: to_string(signal)
+  defp admission_detail(_hold), do: "admission"
+
+  # A hold carrying no stamp predates #2527 and gets no age clause: an invented
+  # "0s" would be the very false reassurance this line exists to remove.
+  defp admission_sample_age(%{stale_sample?: true} = hold), do: sample_age_clause(hold, " STALE")
+  defp admission_sample_age(hold), do: sample_age_clause(hold, "")
+
+  defp sample_age_clause(hold, suffix) do
+    case CapacityBinding.sample_age_seconds(hold) do
+      age when is_integer(age) -> " sampled=#{age}s ago#{suffix}"
+      nil -> ""
+    end
+  end
 
   defp github_quota_measurement(%{resource: resource, remaining: remaining, limit: limit, observed_at: observed_at}) do
     if stale_github_quota_measurement?(observed_at) do
@@ -2072,6 +2136,15 @@ defmodule Aiur.AgentControlCLI do
       true ->
         IO.puts("LISTENER degraded (#{length(defaults) - length(missing)}/#{length(defaults)} bindings; MISSING: #{Enum.join(missing, ", ")})")
     end
+  end
+
+  defp print_executor_wake_status do
+    case ExecutorWakeInbox.stats() do
+      {:ok, stats} -> IO.puts("WAKES CURSOR #{stats.cursor} PENDING #{stats.pending_count}")
+      {:error, _reason} -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
+    end
+  catch
+    :exit, _reason -> IO.puts("WAKES unavailable (cursor and pending count could not be read)")
   end
 
   defp print_codeowners_trust do

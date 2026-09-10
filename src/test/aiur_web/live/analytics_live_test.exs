@@ -1012,6 +1012,137 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
   end
 
+  # --- rtk output-compression panel -----------------------------------------
+
+  describe "agent output compression panel" do
+    setup do
+      Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+      previous = Application.get_env(:aiur, :analytics_rtk_opts)
+      on_exit(fn -> reset_env(:analytics_rtk_opts, previous) end)
+      :ok
+    end
+
+    defp render_rtk_panel(rtk_opts) do
+      Application.put_env(:aiur, :analytics_rtk_opts, rtk_opts)
+      {:ok, _view, html} = live(build_conn(), "/analytics")
+      html
+    end
+
+    defp rtk_runner(responses), do: fn _rtk, args -> Map.fetch!(responses, args) end
+
+    defp admitted_rtk(gain_response) do
+      [
+        enabled?: true,
+        rtk_path: "/usr/bin/rtk",
+        runner:
+          rtk_runner(%{
+            ["--version"] => {"rtk 0.47.0\n", 0},
+            ["hook", "check", "gh pr view 1"] => {"No rewrite for: gh pr view 1\n", 1},
+            ["gain", "-f", "json"] => gain_response
+          })
+      ]
+    end
+
+    defp gain_json(summary), do: {Jason.encode!(%{"summary" => summary}), 0}
+
+    test "reports the recorded saving" do
+      html =
+        render_rtk_panel(
+          admitted_rtk(
+            gain_json(%{
+              "total_commands" => 2,
+              "total_input" => 469,
+              "total_output" => 106,
+              "total_saved" => 363,
+              "avg_savings_pct" => 77.39872068230277
+            })
+          )
+        )
+
+      assert html =~ "Agent output compression"
+      assert html =~ ~s(class="an-rtk-val")
+      assert html =~ "77.4%"
+      assert html =~ "469"
+      assert html =~ "363"
+    end
+
+    # An empty rtk history reports `total_commands: 0` beside
+    # `avg_savings_pct: 0.0`. The panel must say so in words: "0%" would claim
+    # rtk filtered agent output and removed none of it.
+    test "says no commands were filtered instead of rendering 0%" do
+      html =
+        render_rtk_panel(
+          admitted_rtk(
+            gain_json(%{
+              "total_commands" => 0,
+              "total_input" => 0,
+              "total_output" => 0,
+              "total_saved" => 0,
+              "avg_savings_pct" => 0.0
+            })
+          )
+        )
+
+      assert html =~ "No commands filtered yet"
+      assert html =~ "no saving to report"
+      # The class name also appears in the page's inlined stylesheet, so the
+      # assertion has to look for the rendered element, not the string.
+      refute html =~ ~s(class="an-rtk-val")
+    end
+
+    test "says rtk is off rather than showing an empty chart" do
+      html = render_rtk_panel(enabled?: false)
+
+      assert html =~ "Output compression is off"
+      assert html =~ "agent.rtk.enabled"
+      # The class name also appears in the page's inlined stylesheet, so the
+      # assertion has to look for the rendered element, not the string.
+      refute html =~ ~s(class="an-rtk-val")
+    end
+
+    test "says rtk is missing when it is enabled but not installed" do
+      html = render_rtk_panel(enabled?: true, rtk_path: nil)
+
+      assert html =~ "rtk is not installed"
+      # The class name also appears in the page's inlined stylesheet, so the
+      # assertion has to look for the rendered element, not the string.
+      refute html =~ ~s(class="an-rtk-val")
+    end
+
+    # The operator has to be able to see *why* an enabled rtk is reporting
+    # nothing, and "held back to protect the gh guard" is a different fact from
+    # "not installed".
+    test "names the gh-guard refusal on the page" do
+      opts = [
+        enabled?: true,
+        rtk_path: "/usr/bin/rtk",
+        runner:
+          rtk_runner(%{
+            ["--version"] => {"rtk 0.47.0\n", 0},
+            ["hook", "check", "gh pr view 1"] => {"rtk gh pr view 1\n", 0}
+          })
+      ]
+
+      html = render_rtk_panel(opts)
+
+      assert html =~ "rtk is enabled but held back"
+      assert html =~ "would rewrite"
+      # The class name also appears in the page's inlined stylesheet, so the
+      # assertion has to look for the rendered element, not the string.
+      refute html =~ ~s(class="an-rtk-val")
+    end
+
+    test "reports an unreadable summary as unknown rather than zero" do
+      html = render_rtk_panel(admitted_rtk({"not json", 0}))
+
+      assert html =~ "Savings could not be read"
+      assert html =~ "unknown rather than zero"
+      # The class name also appears in the page's inlined stylesheet, so the
+      # assertion has to look for the rendered element, not the string.
+      refute html =~ ~s(class="an-rtk-val")
+    end
+  end
+
   # --- awaiting-Commands banner ---------------------------------------------
 
   defp awaiting_commands_config(context) do

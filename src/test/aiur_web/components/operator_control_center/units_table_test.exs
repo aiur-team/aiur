@@ -107,6 +107,33 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute blocked_complete =~ ~s(class="ut-progress-fill is-complete is-blocked")
   end
 
+  test "names the model and version beside the backend, titled with the raw id" do
+    # The provider chip says which vendor is running the ticket; an operator
+    # comparing two units also needs to know which model of that vendor, and
+    # the exact id has to stay recoverable for a bug report.
+    row = row() |> Map.put(:requested_model, "opus") |> Map.put(:resolved_model, "claude-opus-5-1")
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    assert html =~ ~s(class="u-pill u-model" title="claude-opus-5-1">OPUS 5.1</span>)
+  end
+
+  test "omits the model chip entirely when no source names a model" do
+    row = row() |> Map.merge(%{backend: nil, agent_family: :codex, requested_model: nil, resolved_model: nil})
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    refute html =~ ~s(class="u-pill u-model")
+  end
+
   test "resolves string-backed registry families and backends" do
     row = row() |> Map.put(:agent_family, "fake") |> Map.put(:backend, "fake")
 

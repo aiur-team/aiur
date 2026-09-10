@@ -34,6 +34,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # so dispatch is re-evaluated against the new state.
   @no_agent_work_states ["merging", "ci-wait"]
 
+  # A tracker-closed ticket is terminal no matter what `tracker.terminal_states`
+  # lists. The GitHub tracker resolves a `state: "closed"` payload to the state
+  # "Closed" (`Aiur.GitHub.Issues.extract_state/2`), which is not an `agent:*`
+  # label and therefore never appears in the configured terminal set. Without
+  # this, a `blocked_by` blocker that is CLOSED on GitHub reads as non-terminal
+  # and holds its blockee undispatchable forever (#2545) — a closed issue cannot
+  # be blocking anything.
+  @closed_issue_state "closed"
+
   @doc false
   # Reads the host 1-min load only when the hard gate or adaptive target is
   # enabled, so explicit-disable configs never touch /proc. Exposed for
@@ -992,9 +1001,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def blocked_on_decision?(_issue, :unavailable), do: true
   def blocked_on_decision?(_issue, _blocked), do: false
 
+  @doc """
+  True when the state is terminal: either configured in `tracker.terminal_states`
+  or the tracker's own closed state (see `@closed_issue_state`).
+
+  A non-binary state (an unlabeled ticket, or a blocker whose payload carried no
+  derivable state) is NOT terminal — dependency and lifecycle callers stay
+  fail-closed on incomplete data.
+  """
   @spec terminal_issue_state?(term(), MapSet.t()) :: boolean()
   def terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do
-    MapSet.member?(terminal_states, normalize_issue_state(state_name))
+    normalized = normalize_issue_state(state_name)
+
+    normalized == @closed_issue_state or MapSet.member?(terminal_states, normalized)
   end
 
   def terminal_issue_state?(_state_name, _terminal_states), do: false

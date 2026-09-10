@@ -10,6 +10,7 @@ defmodule Aiur.Init do
   alias Aiur.Init.Alerts
   alias Aiur.Init.ElevenLabs
   alias Aiur.Init.Format
+  alias Aiur.Init.GitHubApp
   alias Aiur.Init.Prewarm
   alias Aiur.Init.Questions
   alias Aiur.Init.Resume
@@ -108,6 +109,7 @@ defmodule Aiur.Init do
 
     case deps.setup_repo_state.(tracker) do
       :ok ->
+        daemon_auth = GitHubApp.prompt(io, tracker)
         agents = Questions.prompt_agents(io)
         routing = Questions.prompt_routing(io, agents)
         permission_mode = Questions.prompt_permission_mode(io)
@@ -153,7 +155,7 @@ defmodule Aiur.Init do
             Scaffold.ensure_aiurhooks(io, deps, path)
             Alerts.ensure_alerts(io, deps, path, alerts)
             Prewarm.ensure_prewarm_file(io, deps, path, prewarm)
-            Scaffold.setup_env(io, deps, tracker)
+            maybe_setup_env(io, deps, tracker, daemon_auth)
             Scaffold.maybe_offer_gitignore(io, deps, location)
             Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
 
@@ -163,7 +165,9 @@ defmodule Aiur.Init do
               tracker
               |> Map.put(:base_branch, Aiur.Config.base_branch(tracker))
               |> Map.put(:config_path, path),
-              agents
+              agents,
+              default_rate_limit_pair(),
+              daemon_auth
             )
 
           {:error, reason} ->
@@ -175,31 +179,40 @@ defmodule Aiur.Init do
     end
   end
 
-  defp provision(io, deps, tracker, agents, pair \\ default_rate_limit_pair())
+  defp provision(io, deps, tracker, agents, pair, daemon_auth \\ :github_token)
 
-  defp provision(io, deps, %{kind: "github"} = tracker, agents, pair) do
+  defp provision(io, deps, %{kind: "github"} = tracker, agents, pair, daemon_auth) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
 
-    if github_token_present?(deps) do
-      provision_github_with_token(io, deps, tracker, agents, pair)
-    else
-      token_setup_instructions(io)
-      :ok
+    case daemon_auth do
+      :github_app ->
+        :ok
+
+      :github_token ->
+        if github_token_present?(deps) do
+          provision_github_with_token(io, deps, tracker, agents, pair)
+        else
+          token_setup_instructions(io)
+          :ok
+        end
     end
   end
 
-  defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair) do
+  defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair, _daemon_auth) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     linear_walkthrough(io, tracker)
     final_screen(io)
     :ok
   end
 
-  defp provision(io, deps, _tracker, agents, _pair) do
+  defp provision(io, deps, _tracker, agents, _pair, _daemon_auth) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     final_screen(io)
     :ok
   end
+
+  defp maybe_setup_env(io, deps, tracker, :github_token), do: Scaffold.setup_env(io, deps, tracker)
+  defp maybe_setup_env(_io, _deps, _tracker, :github_app), do: :ok
 
   defp provision_github_with_token(io, deps, tracker, agents, pair) do
     case Aiur.Init.GitHub.ensure_ci_readiness(io, deps, tracker) do
@@ -265,18 +278,18 @@ defmodule Aiur.Init do
   defdelegate parse_dotenv(content), to: Aiur.Init.Dotenv, as: :parse
 
   defp token_setup_instructions(io) do
-    io.puts.("\nNext — give aiur a GitHub token so it can create labels and act as its bot account:")
+    io.puts.("\nNext — give aiur a GitHub token so it can create labels and access GitHub:")
     io.puts.("  1. Create a token at #{@token_url}")
-    io.puts.("     Classic token:")
-    io.puts.("       • Click `Generate new token (classic)`")
-    io.puts.("       • Check the `repo` scope (Full control of private repositories)")
-    io.puts.("     Fine-grained token:")
+    io.puts.("     Fine-grained token (recommended):")
     io.puts.("       • Repository access → `Only select repositories` → choose this repo")
     io.puts.("       • Permissions → Repository permissions:")
     io.puts.("           – Issues: Read and write  (creating labels needs this)")
     io.puts.("           – Contents: Read and write (agent branch pushes need this)")
     io.puts.("           – Pull requests: Read and write")
-    io.puts.("     Keep Administration and Actions permissions disabled for the daemon token.")
+    io.puts.("       • Keep Administration and Actions disabled")
+    io.puts.("     Classic token (compatibility fallback):")
+    io.puts.("       • Click `Generate new token (classic)`")
+    io.puts.("       • Check `repo` (broad access that includes Administration)")
     io.puts.("     For the one-shot CI readiness preflight, use an operator-only #{Aiur.GitHub.CiReadiness.operator_token_env()} with Contents, Actions, and Administration: Read-only.")
     io.puts.("     Do not add that operator token to #{@env_file_name} or the daemon environment.")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))

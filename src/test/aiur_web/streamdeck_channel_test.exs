@@ -909,6 +909,60 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert reason =~ ~r/^[a-z_]+$/
   end
 
+  describe "control: implement" do
+    test "queues the ticket through the CLI todo seam and reports it queued" do
+      test_pid = self()
+      put_endpoint_config(streamdeck_implement_fun: fn identifier -> send(test_pid, {:queued, identifier}) && 0 end)
+
+      socket = joined_socket()
+      implement = push(socket, "control", %{"identifier" => "AIUR-1", "action" => "implement"})
+
+      assert_reply(implement, :ok, %{"identifier" => "AIUR-1", "action" => "implement", "result" => "queued"})
+      assert_received {:queued, "AIUR-1"}
+    end
+
+    test "reports a ticket that cannot be queued as an error rather than a silent success" do
+      # `Aiur.AgentControlCLI.todo/2` answers with the CLI's own exit code: 1 is
+      # a ticket it refused (closed, terminal, or a failed label write).
+      put_endpoint_config(streamdeck_implement_fun: fn _identifier -> 1 end)
+
+      socket = joined_socket()
+      implement = push(socket, "control", %{"identifier" => "AIUR-1", "action" => "implement"})
+
+      assert_reply(implement, :error, %{reason: "queue_failed"})
+    end
+
+    test "reports a queue path that raises as an error instead of taking the channel down" do
+      put_endpoint_config(streamdeck_implement_fun: fn _identifier -> raise "tracker unreachable" end)
+
+      socket = joined_socket()
+      implement = push(socket, "control", %{"identifier" => "AIUR-1", "action" => "implement"})
+
+      assert_reply(implement, :error, %{reason: reason})
+      assert reason =~ "queue_failed"
+    end
+
+    test "rejects a malformed implement payload without queueing anything" do
+      test_pid = self()
+      put_endpoint_config(streamdeck_implement_fun: fn identifier -> send(test_pid, {:queued, identifier}) && 0 end)
+
+      socket = joined_socket()
+
+      for payload <- [%{"action" => "implement"}, %{"identifier" => "", "action" => "implement"}, %{"identifier" => 7, "action" => "implement"}] do
+        assert_reply(push(socket, "control", payload), :error, %{reason: "invalid_control"})
+      end
+
+      refute_received {:queued, _identifier}
+    end
+
+    test "rejects an unauthenticated socket the way say does" do
+      unauthenticated = %Phoenix.Socket{assigns: %{streamdeck_authenticated: false}}
+
+      assert {:reply, {:error, %{reason: "unauthorized"}}, ^unauthenticated} =
+               StreamdeckChannel.handle_in("control", %{"identifier" => "AIUR-1", "action" => "implement"}, unauthenticated)
+    end
+  end
+
   describe "say (voice input)" do
     test "delivers the spoken message through the AgentChat seam and replies with the request id" do
       test_pid = self()

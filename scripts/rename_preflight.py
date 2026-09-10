@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -24,9 +25,21 @@ def boundary(value: str) -> re.Pattern[str]:
     return re.compile(r"(?<![A-Za-z0-9_-])" + re.escape(value) + r"(?![A-Za-z0-9_-])")
 
 
+def shard_of(src_relative: str, total: int) -> int:
+    """Mirror of `Aiur.TestShard.shard_of/2` (src/lib/aiur/test_shard.ex).
+
+    The key is the src/-relative test path, hashed with SHA-256; the first 8
+    bytes, big-endian, are taken modulo the shard count. Keep the two
+    implementations byte-identical -- `scripts/check-test-shard-parity.py`
+    fails CI when they disagree.
+    """
+    digest = hashlib.sha256(src_relative.encode()).digest()
+    return int.from_bytes(digest[:8], "big") % total + 1
+
+
 def partition_map(files: list[str], total: int) -> dict[str, int]:
     tests = sorted(path for path in files if path.startswith("src/test/") and fnmatch.fnmatch(path, "*_test.exs"))
-    return {path: index % total + 1 for index, path in enumerate(tests)}
+    return {path: shard_of(path.removeprefix("src/"), total) for path in tests}
 
 
 def partition_label(relative: str, partitions: dict[str, int]) -> str:
@@ -111,7 +124,7 @@ def run(root: Path, old: str, new: str, total: int) -> int:
 
     print(f"Rename preflight: {old} -> {new}")
     print(f"Repository root: {root}")
-    print(f"Test partitions: {total} (sorted src/test/**/*_test.exs, round-robin)")
+    print(f"Test partitions: {total} (src/test/**/*_test.exs, content-stable sha256(path) shards)")
     print(f"Literal joined-value matches: {literal_matches}")
     print(f"Potential literal-pass misses: {len(hits)}")
     if not hits:

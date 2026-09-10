@@ -28,6 +28,67 @@ defmodule Aiur.Orchestrator.CapacityBindingTest do
     assert CapacityBinding.short_label({:admission, hold}) == "admission: load"
   end
 
+  # A well-formed figure with no timestamp is indistinguishable from a fresh
+  # one, which is how a `load=24.14` that had been current eight minutes earlier
+  # read as authoritative beside a live `LOAD 6.34` line (#2527).
+  describe "admission sample freshness" do
+    @sampled_at ~U[2026-09-02 22:00:00Z]
+
+    defp held(hold_overrides \\ %{}) do
+      Map.put(
+        @full,
+        :capacity_hold,
+        Map.merge(%{signal: :load, measured: 24.14, threshold: 24.0, measured_at: @sampled_at}, hold_overrides)
+      )
+    end
+
+    test "a sample taken within the poll window is reported without a stale marker" do
+      now = DateTime.add(@sampled_at, 30, :second)
+
+      assert {:admission, hold} = CapacityBinding.binding(held(), %{effective_interval_ms: 30_000}, now)
+      refute Map.has_key?(hold, :stale_sample?)
+      assert CapacityBinding.sample_age_seconds(hold, now) == 30
+      assert CapacityBinding.short_label({:admission, hold}) == "admission: load"
+    end
+
+    test "a sample older than the poll cadence allows is marked stale" do
+      now = DateTime.add(@sampled_at, 8 * 60, :second)
+
+      assert {:admission, hold} = CapacityBinding.binding(held(), %{effective_interval_ms: 30_000}, now)
+      assert hold.stale_sample? == true
+      assert CapacityBinding.sample_age_seconds(hold, now) == 480
+      assert CapacityBinding.short_label({:admission, hold}) == "admission: load (stale sample)"
+    end
+
+    # A very wide cadence must not license an ancient figure: the bound is capped
+    # at five minutes whatever the poll interval is.
+    test "a widely-spaced poll cannot make an eight-minute-old sample read as fresh" do
+      now = DateTime.add(@sampled_at, 8 * 60, :second)
+
+      assert {:admission, hold} = CapacityBinding.binding(held(), %{effective_interval_ms: 600_000}, now)
+      assert hold.stale_sample? == true
+    end
+
+    # The stamp survives a JSON round trip through the status snapshot.
+    test "an ISO-8601 stamp is read the same as a DateTime" do
+      hold = held(%{measured_at: DateTime.to_iso8601(@sampled_at)})
+      now = DateTime.add(@sampled_at, 8 * 60, :second)
+
+      assert {:admission, %{stale_sample?: true}} = CapacityBinding.binding(hold, %{}, now)
+      assert CapacityBinding.sample_age_seconds(hold.capacity_hold, now) == 480
+    end
+
+    # An unstamped hold predates #2527. Judging it fresh would restate the bug;
+    # judging it stale would flag a hold nobody can date.
+    test "a hold with no stamp is neither aged nor called stale" do
+      hold = %{signal: :load, measured: 24.14, threshold: 24.0}
+
+      assert CapacityBinding.binding(Map.put(@full, :capacity_hold, hold)) == {:admission, hold}
+      assert CapacityBinding.sample_age_seconds(hold) == nil
+      refute CapacityBinding.stale_sample?(hold)
+    end
+  end
+
   test "an AIMD backoff below the session ceiling is an envelope, not a full config cap" do
     capacity = %{@full | max: 8, configured: 8, effective: 2}
 

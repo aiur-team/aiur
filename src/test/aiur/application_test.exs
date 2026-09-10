@@ -4,6 +4,13 @@ defmodule Aiur.ApplicationTest do
   import ExUnit.CaptureLog
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Claude.Telemetry
+  alias Aiur.PubSub.Boot, as: PubSubBoot
+  alias Aiur.Webhooks.{DeliveryMode, ModeTable}
+
+  # This module's own delivery-mode key. Repository-keyed global state needs a
+  # per-module key or one module's teardown erases another's fixture.
+  @mode_repo "aiur-team/application-test-repo"
 
   defmodule SuccessStubDistribution do
     @moduledoc false
@@ -633,6 +640,231 @@ defmodule Aiur.ApplicationTest do
       Aiur.RunTelemetry.start_boot()
 
       assert Aiur.RunTelemetry.telemetry_enabled?() == false
+    end
+  end
+
+  describe "shared-child supervision contract" do
+    # Regression guard for #2525. `Aiur.PubSub` is the first child of
+    # `Aiur.Supervisor`, and Elixir's `Registry` links every registered process
+    # to its partition — so `Phoenix.PubSub.subscribe/2` links each subscribing
+    # sibling to it. Under `:one_for_one` a PubSub crash therefore kills its
+    # subscribers too and restarts them with no ordering guarantee: they
+    # resubscribe in `init/1` before PubSub is back, fail to start, and the
+    # resulting hot restart loop exhausts the restart budget and terminates all
+    # ~90 children with no crash report. `:rest_for_one` is what makes the
+    # ordering real — PubSub is restarted first, then everything after it.
+    #
+    # Flip the strategy in `Aiur.Application.start/2` back to `:one_for_one` and
+    # this test fails: the supervisor is gone by the first assertion.
+    @tag timeout: 60_000
+    test "a crashing Aiur.PubSub does not topple the application supervision tree" do
+      # #2548: when this test's premise fails the tree really is gone, and
+      # everything after it in the partition inherits a VM with no `Aiur.PubSub`
+      # — 21 unrelated reds that named nothing. Assert the restore instead of
+      # attempting it, so a failed recovery is reported here, against the test
+      # that broke the VM, and the partition is not left poisoned.
+      on_exit(fn ->
+        assert Aiur.TestSupport.ensure_runtime_children_running() == :ok,
+               "application children could not be restored after the PubSub crash; " <>
+                 "later tests in this partition would have failed instead of this one"
+      end)
+
+      supervisor = Process.whereis(Aiur.Supervisor)
+      assert is_pid(supervisor)
+
+      # Only children that are actually running now: sibling tests legitimately
+      # stop shared children (`Aiur.HttpServer`, `ResourceStore`, …) and leave
+      # them down, so asserting over the whole child list would make this test
+      # pass or fail on partition membership — the very disease under repair.
+      running_before =
+        for {id, pid, _type, _modules} <- Supervisor.which_children(Aiur.Supervisor),
+            is_pid(pid),
+            do: id
+
+      ref = Process.monitor(supervisor)
+      Process.exit(Process.whereis(Aiur.PubSub), :kill)
+
+      refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 5_000
+      assert Process.whereis(Aiur.Supervisor) == supervisor
+
+      # The shared children a consumer actually reaches for come back...
+      assert await_registered(Aiur.PubSub)
+      assert await_registered(Aiur.GitHub.ReadCache)
+
+      # ...and the exact consumer that reported `unknown registry: Aiur.PubSub`
+      # can subscribe again rather than raising.
+      assert :ok = Telemetry.subscribe()
+      Phoenix.PubSub.unsubscribe(Aiur.PubSub, "claude_telemetry:events")
+
+      # Every child that was up before the crash is up again afterwards: the
+      # dependents PubSub took down with it were restarted, not abandoned.
+      for id <- running_before, do: assert(await_child(id), "#{inspect(id)} never came back")
+    end
+
+    # Regression guard for #2531. `ModeTable` publishes into a named ETS table,
+    # and an ETS table dies with the process that created it. Ordered behind
+    # ~90 unrelated children in a `:rest_for_one` tree, *every* one of those
+    # children's crashes restarted `ModeTable` and silently emptied the whole
+    # delivery-mode view: in production a repo proven webhook-backed fell back
+    # to the 30-second polling TTL until a fresh delivery re-proved it, and in
+    # the suite `Aiur.GitHub.ReadCacheTest` had a mode it had written erased
+    # before it could read it back, so a webhook-backed entry refetched at 31 s.
+    #
+    # `ModeTable` reads no config and subscribes to nothing, so it depends on no
+    # sibling and now starts ahead of all of them. Move it back behind
+    # `Aiur.PubSub` in `Aiur.Application.child_specs/1` and this test fails: the
+    # cascade takes `ModeTable` down and the recorded mode is gone.
+    #
+    # Ordering only protects against a *sibling's* restart. It cannot protect
+    # against the parent giving up: before #2570, the PubSub restart raced its
+    # own dying registry partitions, exhausted `Aiur.Supervisor`'s budget and
+    # toppled the whole tree — `ModeTable` included, first child or not. That
+    # is what this test observed on CI (`:polling` at read time, alongside the
+    # contract test above). The supervisor check below is the discriminator:
+    # a toppled tree is #2570's fault class, a live tree with an empty table
+    # would mean the reorder missed a path.
+    @tag timeout: 60_000
+    test "a crashing shared child does not erase the recorded delivery modes" do
+      on_exit(fn ->
+        ModeTable.delete(@mode_repo)
+        Aiur.TestSupport.ensure_runtime_children_running()
+      end)
+
+      ModeTable.put(@mode_repo, webhook_backed_mode())
+      assert ModeTable.transport(@mode_repo) == :webhook
+
+      # Same barrier discipline as the sibling test above: a test that returns
+      # while a `:rest_for_one` cascade is still restarting leaks that restart
+      # into whichever test runs next, which is the exact fault this file is
+      # guarding against.
+      running_before =
+        for {id, pid, _type, _modules} <- Supervisor.which_children(Aiur.Supervisor),
+            is_pid(pid),
+            do: id
+
+      supervisor = Process.whereis(Aiur.Supervisor)
+      assert is_pid(supervisor)
+
+      mode_table = Process.whereis(ModeTable)
+      assert is_pid(mode_table)
+      ref = Process.monitor(mode_table)
+
+      Process.exit(Process.whereis(Aiur.PubSub), :kill)
+
+      # A `:rest_for_one` cascade reaches its later children in microseconds, so
+      # a `ModeTable` ordered behind the crash is already down well inside this
+      # window. The surviving mode below is the property; this is the mechanism.
+      refute_receive {:DOWN, ^ref, :process, _pid, _reason}, 5_000
+
+      assert await_registered(Aiur.PubSub)
+      for id <- running_before, do: assert(await_child(id), "#{inspect(id)} never came back")
+
+      # The tree itself survived: the same supervisor, not a replacement booted
+      # by `:application_controller` after a topple.
+      assert Process.whereis(Aiur.Supervisor) == supervisor
+
+      # Never restarted, so the ETS table it created is the same table.
+      assert Process.whereis(ModeTable) == mode_table
+      assert ModeTable.transport(@mode_repo) == :webhook
+    end
+
+    # The test above asserts the property. These two pin the race that decided
+    # it (#2557). `Aiur.PubSub` is a partitioned `Registry`, and its partitions
+    # own registered names of their own. Killing the registry kills them over
+    # their links — asynchronously, whenever the scheduler next runs them —
+    # while the restart above them is synchronous and retried with no backoff
+    # at all. So the restart could find `Aiur.PubSub.PIDPartition0` still
+    # holding its name, fail three times inside a millisecond, and take the
+    # whole ~90-child tree down; whether it did was decided by scheduling
+    # alone, which is why this suite passed for months and then began failing
+    # when partition membership shifted the load around it.
+    #
+    # Holding the name with an ordinary process makes that window explicit
+    # instead of hoping to land in it — and does it beside the shared tree
+    # rather than inside it, so the guard cannot itself become the thing that
+    # takes a partition down.
+    test "the PubSub child waits for a previous incarnation's registry names" do
+      name = Module.concat(__MODULE__, :"BootProbe#{System.unique_integer([:positive])}")
+      held = Module.concat(name, "PIDPartition0")
+      test_pid = self()
+
+      squatter =
+        spawn(fn ->
+          Process.register(self(), held)
+          send(test_pid, :holding)
+
+          receive do
+            :release -> :ok
+          after
+            30_000 -> :ok
+          end
+        end)
+
+      on_exit(fn -> send(squatter, :release) end)
+      assert_receive :holding, 5_000
+
+      task = Task.async(fn -> PubSubBoot.start_link(name: name) end)
+
+      # Nothing is started while the name is still held. The bound belongs to
+      # the negative assertion; it is not a guessed recovery window.
+      assert Task.yield(task, 250) == nil
+      assert Process.whereis(name) == nil
+
+      send(squatter, :release)
+      assert {:ok, pid} = Task.await(task, 10_000)
+      assert is_pid(pid)
+    end
+
+    test "the application starts PubSub through that child, not Phoenix.PubSub directly" do
+      specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+
+      assert Enum.any?(specs, &match?({Aiur.PubSub.Boot, [name: Aiur.PubSub]}, &1)),
+             "a bare {Phoenix.PubSub, name: Aiur.PubSub} restarts into its own dying partitions"
+
+      assert {Aiur.PubSub.Boot, [name: Aiur.PubSub]} |> Supervisor.child_spec([]) |> Map.fetch!(:id) ==
+               Phoenix.PubSub.Supervisor,
+             "the child id is contract: TestSupport and SupervisionHealth address this child by it"
+    end
+  end
+
+  # A proven, webhook-backed mode: configured, then proven by a delivery.
+  defp webhook_backed_mode do
+    {mode, :proven} = DeliveryMode.new(@mode_repo, configured?: true) |> DeliveryMode.record_delivery(~U[2026-01-01 00:00:00Z])
+
+    mode
+  end
+
+  # Signal-based, never a duration: polls the registry rather than sleeping for
+  # a guessed recovery window, so the result cannot change with machine load.
+  # The bound only decides how long a genuine failure takes to report.
+  defp await_registered(name, attempts \\ 200)
+  defp await_registered(_name, 0), do: false
+
+  defp await_registered(name, attempts) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) ->
+        true
+
+      nil ->
+        Process.sleep(25)
+        await_registered(name, attempts - 1)
+    end
+  end
+
+  defp await_child(id, attempts \\ 200)
+  defp await_child(_id, 0), do: false
+
+  defp await_child(id, attempts) do
+    running? =
+      Enum.any?(Supervisor.which_children(Aiur.Supervisor), fn {child_id, pid, _type, _modules} ->
+        child_id == id and is_pid(pid)
+      end)
+
+    if running? do
+      true
+    else
+      Process.sleep(25)
+      await_child(id, attempts - 1)
     end
   end
 end

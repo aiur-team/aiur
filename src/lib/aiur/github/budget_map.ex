@@ -84,6 +84,13 @@ defmodule Aiur.GitHub.BudgetMap do
   # `@free_by_nature` renders `:unclassified`.
   @reuse_hint %{
     "issue_relationships" => %{store?: true, etag?: false},
+    # `etag?: false` is the honest classification for `issue_dependencies`, not
+    # an oversight: GitHub's validator for `/dependencies/blocked_by` tracks the
+    # blocked issue rather than the blocker state the response embeds, so a
+    # blocker that closed is answered `304` and the dispatch gate is served the
+    # stale list. The revalidating read is therefore deliberately unconditional
+    # (`DependenciesApi.revalidation_etag/2`, #2550/#2552); the store still
+    # answers the confirming reads free.
     "issue_dependencies" => %{store?: true, etag?: false},
     "review_threads_verify" => %{store?: true, etag?: false},
     "review_thread_reply" => %{store?: true, etag?: false},

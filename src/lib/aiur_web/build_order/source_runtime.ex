@@ -11,11 +11,22 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   alias AiurWeb.OperatorControlCenter.BuildOrderBreakdown
   alias Phoenix.LiveView.Socket
 
+  # A stated catalog re-converge buys a GraphQL round trip, so a held button
+  # must not become a stream of them. The projection already coalesces
+  # concurrent reads the way it does for the selected root; this is the same
+  # bound applied one socket earlier, so a single operator cannot spend the
+  # rate limit on their own (#2544).
+  @catalog_refresh_min_interval_ms 5_000
+
+  @spec catalog_refresh_min_interval_ms() :: pos_integer()
+  def catalog_refresh_min_interval_ms, do: @catalog_refresh_min_interval_ms
+
   @spec initialize(Socket.t(), module() | {module(), term()}) :: Socket.t()
   def initialize(socket, source) do
     socket
     |> assign(:source, source)
     |> assign(:source_authority_epoch, nil)
+    |> assign(:catalog_refresh_at_ms, nil)
     |> assign(:sources, Runtime.unavailable_sources())
     |> assign(:source_reload_loading?, false)
     |> assign(:source_reload_queued?, false)
@@ -116,6 +127,33 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
       _identity -> schedule_reload(socket)
     end
   end
+
+  @doc """
+  Buys a catalog re-converge, because an operator asked for one.
+
+  The counterpart of the selected root's `refresh`: on a repository with no
+  webhooks configured the store only holds what boot deposited, so a store-only
+  rebuild republishes the boot-time world for ever and new sub-issue and
+  dependency edges never appear. Rate-limited per socket (#2544).
+  """
+  @spec refresh_catalog(Socket.t()) :: Socket.t()
+  def refresh_catalog(socket) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    if catalog_refresh_allowed?(socket.assigns[:catalog_refresh_at_ms], now_ms) do
+      _ = Runtime.safe_source_call(socket.assigns.source, :refresh_catalog, [], :ok)
+      assign(socket, :catalog_refresh_at_ms, now_ms)
+    else
+      socket
+    end
+  end
+
+  defp catalog_refresh_allowed?(nil, _now_ms), do: true
+
+  defp catalog_refresh_allowed?(last_ms, now_ms) when is_integer(last_ms),
+    do: now_ms - last_ms >= @catalog_refresh_min_interval_ms
+
+  defp catalog_refresh_allowed?(_last_ms, _now_ms), do: true
 
   @spec complete_reload(Socket.t(), term(), term()) :: Socket.t()
   def complete_reload(socket, token, sources) do

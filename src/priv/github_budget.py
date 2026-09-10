@@ -153,32 +153,53 @@ def connection(path):
     return conn
 
 
+# SQLite has no `ALTER TABLE ADD COLUMN IF NOT EXISTS`, so adding one is a read
+# of `PRAGMA table_info` followed by a write — and the daemon plus up to sixteen
+# agents run this on the same file, in separate processes, with nothing between
+# them. On a cold start they all read the same column set before any of them
+# writes, so they all decide the column is missing and all try to add it. One
+# wins; every other one is handed `duplicate column name` for a column that is
+# now, by the only definition that matters, present.
+#
+# That is the outcome this comment has always claimed was "ignored" — it was
+# not, and the exception aborted the broker with exit 1. The guard collapsed
+# that into `GitHub budget broker unavailable` and refused the call, which is
+# how a fresh ledger could refuse most of a simultaneous fleet's first reads
+# (#2499). Losing this race is success: the column exists and the loser's own
+# check would now agree.
+def _add_column(conn, table, column, definition):
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    except sqlite3.OperationalError as error:
+        if "duplicate column name" not in str(error).lower():
+            raise
+
+
 # `CREATE TABLE IF NOT EXISTS` does not add columns to a table that predates
 # them. Existing broker databases were created without the per-actor columns, so
-# they must be migrated in place; a duplicate-column error is the normal "already
-# migrated" outcome and is ignored.
+# they must be migrated in place.
 def migrate(conn):
     admissions_columns = {row[1] for row in conn.execute("PRAGMA table_info(admissions)").fetchall()}
     if "consumer_key" not in admissions_columns:
-        conn.execute("ALTER TABLE admissions ADD COLUMN consumer_key TEXT NOT NULL DEFAULT ''")
+        _add_column(conn, "admissions", "consumer_key", "TEXT NOT NULL DEFAULT ''")
     if "lease_id" not in admissions_columns:
-        conn.execute("ALTER TABLE admissions ADD COLUMN lease_id TEXT")
+        _add_column(conn, "admissions", "lease_id", "TEXT")
     if "billable" not in admissions_columns:
-        conn.execute("ALTER TABLE admissions ADD COLUMN billable INTEGER NOT NULL DEFAULT 1")
+        _add_column(conn, "admissions", "billable", "INTEGER NOT NULL DEFAULT 1")
     # The resource the guard booked this admission to (core / graphql / unknown).
     # The broker's accounting buckets on `endpoint_family`, so this column does
     # not change how a row is counted; it records what the caller *said* it was
     # spending, which makes a guard that books a GraphQL call to core detectable
     # from the ledger instead of only inferable from the family-to-bucket map.
     if "resource" not in admissions_columns:
-        conn.execute("ALTER TABLE admissions ADD COLUMN resource TEXT")
+        _add_column(conn, "admissions", "resource", "TEXT")
     # A lease-less admission is of unknown status, not free: no lease means
     # nothing can ever prove it was a `304`, and the safe default for unknown is
     # billable. Stale pre-#2284 writers that could not take a lease are stopped
     # at the schema (version stamp + lease trigger, #2307) rather than by
     # redefining what counts as spend.
     if "billable_reason" not in admissions_columns:
-        conn.execute("ALTER TABLE admissions ADD COLUMN billable_reason TEXT")
+        _add_column(conn, "admissions", "billable_reason", "TEXT")
     # The per-actor hourly query filters by (token, consumer, time), so the
     # column gets its own index. It cannot live in the CREATE TABLE script
     # above: on a pre-#2181 database the table predates the column and the index
@@ -191,13 +212,13 @@ def migrate(conn):
 
     policies_columns = {row[1] for row in conn.execute("PRAGMA table_info(policies)").fetchall()}
     if "consumer_label" not in policies_columns:
-        conn.execute("ALTER TABLE policies ADD COLUMN consumer_label TEXT NOT NULL DEFAULT ''")
+        _add_column(conn, "policies", "consumer_label", "TEXT NOT NULL DEFAULT ''")
     if "core_limit_per_hour" not in policies_columns:
-        conn.execute("ALTER TABLE policies ADD COLUMN core_limit_per_hour INTEGER NOT NULL DEFAULT 0")
+        _add_column(conn, "policies", "core_limit_per_hour", "INTEGER NOT NULL DEFAULT 0")
     if "graphql_limit_per_hour" not in policies_columns:
-        conn.execute("ALTER TABLE policies ADD COLUMN graphql_limit_per_hour INTEGER NOT NULL DEFAULT 0")
+        _add_column(conn, "policies", "graphql_limit_per_hour", "INTEGER NOT NULL DEFAULT 0")
     if "search_limit_per_hour" not in policies_columns:
-        conn.execute("ALTER TABLE policies ADD COLUMN search_limit_per_hour INTEGER NOT NULL DEFAULT 0")
+        _add_column(conn, "policies", "search_limit_per_hour", "INTEGER NOT NULL DEFAULT 0")
 
 
 def _ledger_version(conn):

@@ -912,8 +912,9 @@ describe("physical controller composition", () => {
 /**
  * The voice half of the command surface, driven entirely through real HID
  * reports: key 2 is the mic, key 3 opens settings, keys 4 and 5 are Send and
- * Cancel, and on the settings surface keys 0-5 are microphones, 6 is TestMic
- * and 7 pages.
+ * Cancel, and on the settings surface key 2 is TestMic — the same slot as the
+ * command surface's mic — keys 0, 1, 3, 4, 5 and 6 are the microphones, and 7
+ * pages.
  */
 describe("voice keys", () => {
   const fakeVoice = (over: Partial<ControllerVoice> = {}) => {
@@ -1047,15 +1048,35 @@ describe("voice keys", () => {
     expect(voice.select).not.toHaveBeenCalled();
   });
 
-  it("holds TestMic on key 6 and releases it on key 6 up", () => {
+  it("holds TestMic on key 2 and releases it on key 2 up", () => {
     const voice = fakeVoice();
     const controller = inSettings(voice);
-    controller.handleReport(keyReport(6, true));
+    controller.handleReport(keyReport(2, true));
     expect(voice.hold).toHaveBeenCalledOnce();
     expect(controller.state().micHeld).toBe(true);
-    controller.handleReport(keyReport(6, false));
+    controller.handleReport(keyReport(2, false));
     expect(voice.release).toHaveBeenCalledOnce();
     expect(controller.state().micHeld).toBe(false);
+  });
+
+  /**
+   * The move is only real if both halves moved together: key 2 must capture and
+   * key 6 — TestMic's old home — must now select the sixth microphone.
+   */
+  it("captures on key 2 and selects the sixth microphone on key 6", () => {
+    const voice = fakeVoice();
+    voice.setDevices(Array.from({ length: 6 }, (_, index) => ({ id: `m${index}`, label: `Mic ${index}` })));
+    const controller = inSettings(voice);
+
+    controller.handleReport(keyReport(2, true));
+    expect(voice.hold).toHaveBeenCalledOnce();
+    expect(voice.select).not.toHaveBeenCalled();
+    controller.handleReport(keyReport(2, false));
+
+    controller.handleReport(keyReport(6, true));
+    expect(voice.select).toHaveBeenCalledWith("m5");
+    expect(controller.state()).toMatchObject({ selectedMicId: "m5", micHeld: false });
+    expect(voice.hold).toHaveBeenCalledOnce();
   });
 
   it("pages the microphone list with key 7, wrapping past the last page", () => {
@@ -1286,5 +1307,63 @@ describe("Commands answer path", () => {
     controller.handleReport(keyReport(5, false));
     await settle();
     expect(answerCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe("the Implement key", () => {
+  const channelWith = (control: (identifier: string, action: "pause" | "resume" | "implement") => void) => () => ({
+    focus: vi.fn(),
+    control,
+    say: vi.fn(),
+    commandsPage: vi.fn(),
+    answerCommand: vi.fn(),
+  });
+
+  /** Focuses key 0, which is `agent-0` — a queued ticket in the shared fixture. */
+  const focusQueued = (controller: ReturnType<typeof createPhysicalController>): void => {
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+  };
+
+  it("asks the channel to queue the focused agent-less ticket", () => {
+    const control = vi.fn<(identifier: string, action: "pause" | "resume" | "implement") => void>();
+    const controller = createPhysicalController({ grid, channel: channelWith(control), stateChanged: vi.fn() });
+    focusQueued(controller);
+    expect(controller.state().focusedIdentifier).toBe("agent-0");
+
+    controller.handleReport(keyReport(7, true));
+    expect(control).toHaveBeenCalledWith("agent-0", "implement");
+    expect(controller.state().implementQueued).toBe(true);
+  });
+
+  it("does nothing on the last key for a ticket an agent already holds", () => {
+    const control = vi.fn<(identifier: string, action: "pause" | "resume" | "implement") => void>();
+    const controller = createPhysicalController({ grid, channel: channelWith(control), stateChanged: vi.fn() });
+    // Key 3 is `agent-6`, the fixture's running agent.
+    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(3, false));
+    controller.handleReport(keyReport(7, true));
+    expect(control).not.toHaveBeenCalled();
+    expect(controller.state().implementQueued).toBe(false);
+  });
+
+  // The surface paints no Pause key for a ticket with no agent, so a press
+  // there must not send the action the missing key would have sent.
+  it("sends no pause for a ticket with no agent", () => {
+    const control = vi.fn<(identifier: string, action: "pause" | "resume" | "implement") => void>();
+    const controller = createPhysicalController({ grid, channel: channelWith(control), stateChanged: vi.fn() });
+    focusQueued(controller);
+    controller.handleReport(keyReport(0, true));
+    expect(control).not.toHaveBeenCalled();
+  });
+
+  it("retires the QUEUED label on the next grid push", () => {
+    const controller = createPhysicalController({ grid, channel: channelWith(vi.fn<(identifier: string, action: "pause" | "resume" | "implement") => void>()), stateChanged: vi.fn() });
+    focusQueued(controller);
+    controller.handleReport(keyReport(7, true));
+    expect(controller.state().implementQueued).toBe(true);
+
+    controller.gridChanged();
+    expect(controller.state().implementQueued).toBe(false);
   });
 });

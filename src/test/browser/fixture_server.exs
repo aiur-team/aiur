@@ -1677,6 +1677,9 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
   def refresh(_identity), do: :ok
 
   @impl true
+  def refresh_catalog, do: :ok
+
+  @impl true
   def release(_identity), do: :ok
 
   @impl true

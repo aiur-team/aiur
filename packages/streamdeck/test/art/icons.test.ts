@@ -11,6 +11,7 @@ import {
   commandIsFilled,
   drawIcon,
   iconFragment,
+  UNBLOCKED_ICON,
 } from "../../src/art/icons.js";
 
 /** Counts non-background pixels, i.e. whether anything was actually drawn. */
@@ -50,6 +51,17 @@ describe("iconFragment", () => {
     expect(iconFragment("not-a-lane")).toBe(BUILD_ORDER_ICONS[DEFAULT_ICON]);
     expect(iconFragment(null)).toBe(BUILD_ORDER_ICONS[DEFAULT_ICON]);
     expect(iconFragment(undefined)).toBe(BUILD_ORDER_ICONS[DEFAULT_ICON]);
+  });
+});
+
+describe("UNBLOCKED_ICON", () => {
+  // The queued key's ready state is now this glyph and nothing else, so a
+  // fragment that draws nothing would leave that state with no marking at all.
+  it("draws an open padlock whose shackle clears the body", () => {
+    expect(inkedPixels((context) => drawIcon(context, UNBLOCKED_ICON, 0, 0, 24, "#ffffff"))).toBeGreaterThan(0);
+    // The gap above the body's right shoulder is what makes the lock read as
+    // open rather than as the closed `lock` lane glyph.
+    expect(brightnessAt((context) => drawIcon(context, UNBLOCKED_ICON, 0, 0, 24, "#ffffff"), 17, 9)).toBeLessThan(20);
   });
 });
 
