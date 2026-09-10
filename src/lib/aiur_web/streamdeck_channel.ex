@@ -3,7 +3,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   use Phoenix.Channel
 
-  alias Aiur.{AgentChat, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
+  alias Aiur.{AgentChat, AgentControlCLI, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
   alias Aiur.ElevenLabs.Realtime
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckCommands, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
@@ -64,10 +64,16 @@ defmodule AiurWeb.StreamdeckChannel do
   @doc """
   Routes a physical key toggle through the same AgentChat facade as the emulator.
 
-  Pause and resume are the whole action set. The deck's agent view no longer
-  carries a prioritize key — its four slots are pause, logs, mic and settings —
-  so the channel no longer accepts an action no surface can send. Orchestrator
-  priority itself is untouched and stays reachable from the dashboard.
+  Pause and resume are the action set for a ticket an agent already holds. The
+  deck's agent view no longer carries a prioritize key — its slots are pause,
+  logs, mic and settings — so the channel does not accept an action no surface
+  can send. Orchestrator priority itself is untouched and stays reachable from
+  the dashboard.
+
+  `implement` is the third action, and it belongs to the other half of the grid:
+  a ticket with **no** agent, whose command surface offers Implement where a
+  live agent offers Pause. See `handle_in("control", %{"action" => "implement"})`
+  below for why it goes through the CLI's own queue path.
   """
   def handle_in("control", %{"identifier" => identifier, "action" => action}, socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
@@ -82,6 +88,38 @@ defmodule AiurWeb.StreamdeckChannel do
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
+
+  # Queues a ticket that has no agent, which is what the deck's Implement key
+  # asks for.
+  #
+  # The label is never written here. `Aiur.AgentControlCLI.todo/2` is the same
+  # function the CLI's `aiur --todo <ids>` command calls (`Aiur.CLI`), and it
+  # owns rules a raw label write does not have: it refuses a closed or otherwise
+  # terminal ticket, leaves a ticket that is already mid-flight alone, is
+  # idempotent for a ticket already carrying the queue label, resolves the
+  # *configured* lifecycle label rather than assuming `agent:todo`, and asks the
+  # orchestrator to refresh so the queue is seen without waiting for the next
+  # poll. Duplicating any of that here would be a second, weaker way to queue a
+  # ticket — and the two would drift.
+  #
+  # It reports through stdout like every other CLI command, so a deck press is
+  # visible in the daemon's log exactly as the equivalent typed command is.
+  def handle_in("control", %{"identifier" => identifier, "action" => "implement"}, %{assigns: %{streamdeck_authenticated: true}} = socket)
+      when is_binary(identifier) and byte_size(identifier) in 1..200 do
+    case queue_ticket(identifier) do
+      :ok -> {:reply, {:ok, %{"identifier" => identifier, "action" => "implement", "result" => "queued"}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
+  end
+
+  def handle_in("control", %{"action" => "implement"}, %{assigns: %{streamdeck_authenticated: true}} = socket),
+    do: {:reply, {:error, %{reason: "invalid_control"}}, socket}
+
+  # Unauthorised sockets are answered the way `say` answers them, rather than
+  # with the generic `invalid_control`: a device whose credentials lapsed must be
+  # told that, not told its payload was malformed.
+  def handle_in("control", %{"action" => "implement"}, socket),
+    do: {:reply, {:error, %{reason: "unauthorized"}}, socket}
 
   def handle_in("control", _payload, socket), do: {:reply, {:error, %{reason: "invalid_control"}}, socket}
 
@@ -385,6 +423,30 @@ defmodule AiurWeb.StreamdeckChannel do
   # Atom/binary reasons (`:no_agent`, `:message_too_long`) render as the bare
   # word the device shows; anything structured falls back to `inspect/1` rather
   # than raising a String.Chars error inside the reply.
+  # One queue attempt, through the CLI's own todo path. The seam is the function,
+  # not the tracker: a test supplies its own queue function and no configuration
+  # can make this channel reach GitHub.
+  defp queue_ticket(identifier) do
+    case queue_ticket_fun().(identifier) do
+      :ok -> :ok
+      0 -> :ok
+      1 -> {:error, :queue_failed}
+      {:error, reason} -> {:error, reason}
+      _other -> {:error, :queue_failed}
+    end
+  rescue
+    error -> {:error, {:queue_failed, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:queue_unavailable, reason}}
+  end
+
+  defp queue_ticket_fun do
+    case Endpoint.config(:streamdeck_implement_fun) do
+      fun when is_function(fun, 1) -> fun
+      _absent -> fn identifier -> AgentControlCLI.todo([identifier]) end
+    end
+  end
+
   defp reason_text(reason) when is_atom(reason) or is_binary(reason), do: to_string(reason)
   defp reason_text(reason), do: inspect(reason)
 

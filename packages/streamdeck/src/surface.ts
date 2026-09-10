@@ -35,6 +35,12 @@ export interface PhysicalSurfaceState {
   readonly micHeld?: boolean;
   /** True while the voice buffer holds settled text; adds the Send/Cancel keys. */
   readonly hasTranscript?: boolean;
+  /**
+   * True between a successful Implement press and the next grid push, which is
+   * the whole life of the `QUEUED` sub-label: the deck reports what it asked
+   * for, and the ticket's real face returns with the daemon's next snapshot.
+   */
+  readonly implementQueued?: boolean;
   /** Microphones the host last enumerated, for the settings surface. */
   readonly microphones?: readonly AudioDevice[];
   readonly selectedMicId?: string | null;
@@ -218,18 +224,30 @@ const commandKey = (identifier: string, name: string, title: string, icon: strin
  * Send and Cancel are absent rather than dimmed: before the operator has
  * spoken there is nothing to send, and a permanently lit Send invites a press
  * that delivers an empty message.
+ *
+ * A ticket with no agent gets Implement on the last slot instead of Pause on
+ * the first: there is nothing to pause, and the one action that surface owes
+ * the operator is "put an agent on this". The key reports `QUEUED` after a
+ * successful press and nothing more — the running face arrives with the next
+ * snapshot, when the daemon has actually dispatched it, rather than being
+ * faked here.
  */
 export const descriptorCommands = (
   agent: Readonly<Record<string, unknown>> | null | undefined,
   micHeld: boolean,
   hasTranscript: boolean,
   pendingCommands = 0,
+  implementQueued = false,
 ): (AgentInput | undefined)[] => {
   const identifier = String(agent?.identifier ?? "focused");
   // Only a paused agent offers Resume. Keying this off `bucket === "running"`
   // instead made every alert/stuck/queued agent show a Resume key that the
   // controller then had no action for, so pressing it did nothing at all.
   const paused = agent?.bucket === "paused";
+  // `queued` is the grid's bucket for a ticket with no live agent (see
+  // `Aiur.AgentEvents.streamdeck_bucket/1`): every other bucket — running,
+  // paused, alert, stuck — is a ticket an agent already holds.
+  const agentless = agentLess(agent);
   const command = (name: string, title: string, icon: string, subLabel: string, bucket: BucketId = "queued"): AgentInput =>
     commandKey(identifier, name, title, icon, subLabel, bucket);
   // The Commands key is a warning triangle rather than a question mark, and it
@@ -240,7 +258,9 @@ export const descriptorCommands = (
   const pending = Math.max(0, Math.trunc(pendingCommands));
 
   return [
-    command("pause", paused ? "Resume" : "Pause", paused ? "play" : "pause", paused ? "RESUME" : "HOLD"),
+    agentless
+      ? undefined
+      : command("pause", paused ? "Resume" : "Pause", paused ? "play" : "pause", paused ? "RESUME" : "HOLD"),
     command("logs", "Logs", "logs", "OPEN"),
     command("mic", "Mic", "mic", micHeld ? "LIVE" : "HOLD"),
     command("settings", "Settings", "settings", "OPEN"),
@@ -249,9 +269,20 @@ export const descriptorCommands = (
       : command("commands", "Commands", "alert", "OPEN"),
     hasTranscript ? command("send", "Send", "send", "TO AGENT") : undefined,
     hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : undefined,
-    undefined,
+    agentless ? command("implement", "Implement", "robot", implementQueued ? "QUEUED" : "QUEUE") : undefined,
   ];
 };
+
+/**
+ * Whether the focused ticket has no live agent, and therefore offers Implement
+ * rather than Pause.
+ *
+ * Exported so the controller decides "is this key an Implement key?" from the
+ * same predicate the surface paints from: a second copy of the rule is how the
+ * key and the press drift apart.
+ */
+export const agentLess = (agent: Readonly<Record<string, unknown>> | null | undefined): boolean =>
+  agent !== null && agent !== undefined && agent.bucket === "queued";
 
 /**
  * The settings surface's eight keys: TestMic, paging, and six microphones.
@@ -358,7 +389,7 @@ export const createPhysicalSurface = () => {
       const visibleGrid = state.mode === "logs"
         ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null, focused))
         : state.mode === "cmd"
-        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier)))
+        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier), state.implementQueued === true))
         : state.mode === "settings"
         ? layoutPhysicalKeys(descriptorSettings(mics, state.micHeld === true))
         : state.mode === "commands"

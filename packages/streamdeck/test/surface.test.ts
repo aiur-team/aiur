@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPhysicalSurface, descriptorCommands, descriptorEvents, descriptorSettings, repaintGrid } from "../src/surface.js";
+import { agentLess, createPhysicalSurface, descriptorCommands, descriptorEvents, descriptorSettings, repaintGrid } from "../src/surface.js";
 import { layoutPhysicalKeys } from "../src/keys.js";
 import type { EventKey } from "../src/controller.js";
 import type { TranscriptRow } from "../src/channel.js";
@@ -212,8 +212,47 @@ describe("descriptorCommands", () => {
   });
 
   it("leaves the rest of the command row alone", () => {
-    const titles = descriptorCommands(agent, false, false, 4).map((key) => key?.title ?? null);
-    expect(titles).toEqual(["Pause", "Logs", "Mic", "Settings", "Commands", null, null, null]);
+    const rowTitles = descriptorCommands(agent, false, false, 4).map((key) => key?.title ?? null);
+    expect(rowTitles).toEqual(["Pause", "Logs", "Mic", "Settings", "Commands", null, null, null]);
+  });
+
+  const titles = (keys: ReturnType<typeof descriptorCommands>): (string | null | undefined)[] =>
+    keys.map((key) => key?.title);
+
+  it("offers Implement and no Pause for a ticket with no agent", () => {
+    const keys = descriptorCommands({ identifier: "2614", bucket: "queued" }, false, false);
+    expect(titles(keys)).toEqual([undefined, "Logs", "Mic", "Settings", "Commands", undefined, undefined, "Implement"]);
+    expect(keys[7]?.icon).toBe("robot");
+    expect(keys[7]?.subLabel).toBe("QUEUE");
+    expect(keys[7]?.identifier).toBe("2614:implement");
+  });
+
+  it("keeps the last slot empty and offers Pause for an agent that is running", () => {
+    const keys = descriptorCommands({ identifier: "2614", bucket: "running" }, false, false);
+    expect(titles(keys)).toEqual(["Pause", "Logs", "Mic", "Settings", "Commands", undefined, undefined, undefined]);
+  });
+
+  // A paused or alerting ticket has an agent holding it: Implement there would
+  // queue a second dispatch for work already in flight.
+  it("offers Pause, not Implement, for paused, alert and stuck agents", () => {
+    for (const bucket of ["paused", "alert", "stuck"]) {
+      const keys = descriptorCommands({ identifier: "2614", bucket }, false, false);
+      expect(keys[0]?.title, bucket).toBe(bucket === "paused" ? "Resume" : "Pause");
+      expect(keys[7], bucket).toBeUndefined();
+    }
+  });
+
+  it("reports QUEUED on the Implement key after a press, and never a running face", () => {
+    const keys = descriptorCommands({ identifier: "2614", bucket: "queued" }, false, false, 0, true);
+    expect(keys[7]?.subLabel).toBe("QUEUED");
+    expect(keys[7]?.bucket).toBe("queued");
+  });
+
+  it("treats an unknown focus as having an agent rather than offering Implement for nothing", () => {
+    expect(agentLess(null)).toBe(false);
+    expect(agentLess(undefined)).toBe(false);
+    expect(agentLess({ bucket: "queued" })).toBe(true);
+    expect(descriptorCommands(null, false, false)[7]).toBeUndefined();
   });
 });
 

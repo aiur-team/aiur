@@ -101,6 +101,14 @@ export const COMMAND_ICONS: Readonly<Record<string, string>> = Object.freeze({
    * microphone hear me", so its glyph is the meter rather than a second mic.
    */
   test: '<path d="M3.5 10v4M8 6.5v11M12 3.5v17M16 6.5v11M20.5 10v4"/>',
+  /**
+   * A robot head: the Implement key, which asks the fleet to put an agent on a
+   * ticket that has none. Stroke-only and in the same 24x24 viewBox as the rest
+   * of the set — the antenna and the two eyes are what read at arm's length, so
+   * the ear stubs stay short rather than competing with the head outline.
+   */
+  robot:
+    '<rect x="4" y="8" width="16" height="11.5" rx="3"/><path d="M12 3.6v4.4"/><circle cx="12" cy="2.6" r="1.4"/><path d="M2 12.5v3M22 12.5v3"/><circle cx="9.2" cy="12.8" r="1.2"/><circle cx="14.8" cy="12.8" r="1.2"/><path d="M9.5 16.4h5"/>',
 });
 
 /**
