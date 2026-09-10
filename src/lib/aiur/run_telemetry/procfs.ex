@@ -5,9 +5,17 @@ defmodule Aiur.RunTelemetry.Procfs do
   Process discovery reads the proc root once and parses only `stat` for the
   parent graph. Detailed status, I/O, and descriptor reads are limited to the
   actor PIDs selected by the sampler.
+
+  PIDs that exit mid-scan are summarised as one counted warning rather than one
+  warning each, so telemetry volume stays proportional to the sample cadence
+  instead of to host process churn.
   """
 
   @kilobyte 1_024
+
+  # A `stat` read that fails this way means the process exited between the
+  # `/proc` listing and the read — ordinary churn, not a fault.
+  @vanished_reasons [:enoent, :esrch]
 
   @type process :: %{
           pid: pos_integer(),
@@ -16,7 +24,12 @@ defmodule Aiur.RunTelemetry.Procfs do
           start_time_ticks: non_neg_integer()
         }
 
-  @type warning :: %{pid: pos_integer() | nil, field: atom(), reason: term()}
+  @type warning :: %{
+          :pid => pos_integer() | nil,
+          :field => atom(),
+          :reason => term(),
+          optional(:count) => pos_integer()
+        }
 
   @doc "Builds the minimal process table needed for tree attribution."
   @spec process_table(keyword()) ::
@@ -163,23 +176,37 @@ defmodule Aiur.RunTelemetry.Procfs do
   defp read_processes(root, entries) do
     entries
     |> numeric_pids()
-    |> Enum.reduce({%{}, []}, &read_process(root, &1, &2))
-    |> then(fn {table, warnings} -> {table, Enum.reverse(warnings)} end)
+    |> Enum.reduce({%{}, [], 0}, &read_process(root, &1, &2))
+    |> then(fn {table, warnings, vanished} ->
+      {table, Enum.reverse(warnings) ++ vanished_warning(vanished)}
+    end)
   end
 
-  defp read_process(root, pid, {table, warnings}) do
+  defp read_process(root, pid, {table, warnings, vanished}) do
     case File.read(proc_path(root, pid, "stat")) do
-      {:ok, contents} -> parse_process_stat(contents, pid, table, warnings)
-      {:error, reason} -> {table, [warning(pid, :stat, reason) | warnings]}
+      {:ok, contents} ->
+        parse_process_stat(contents, pid, table, warnings, vanished)
+
+      {:error, reason} when reason in @vanished_reasons ->
+        {table, warnings, vanished + 1}
+
+      {:error, reason} ->
+        {table, [warning(pid, :stat, reason) | warnings], vanished}
     end
   end
 
-  defp parse_process_stat(contents, pid, table, warnings) do
+  defp parse_process_stat(contents, pid, table, warnings, vanished) do
     case parse_stat(contents) do
-      {:ok, %{pid: ^pid} = process} -> {Map.put(table, pid, process), warnings}
-      {:ok, _other_pid} -> {table, [warning(pid, :stat, :pid_mismatch) | warnings]}
-      {:error, reason} -> {table, [warning(pid, :stat, reason) | warnings]}
+      {:ok, %{pid: ^pid} = process} -> {Map.put(table, pid, process), warnings, vanished}
+      {:ok, _other_pid} -> {table, [warning(pid, :stat, :pid_mismatch) | warnings], vanished}
+      {:error, reason} -> {table, [warning(pid, :stat, reason) | warnings], vanished}
     end
+  end
+
+  defp vanished_warning(0), do: []
+
+  defp vanished_warning(count) do
+    [Map.put(warning(nil, :stat, :vanished_during_scan), :count, count)]
   end
 
   defp measure_process(root, base) do

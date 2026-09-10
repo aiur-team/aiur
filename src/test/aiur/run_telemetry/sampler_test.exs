@@ -359,6 +359,38 @@ defmodule Aiur.RunTelemetry.SamplerTest do
     assert by_actor(unavailable_clock.records)["ticket:930"].cpu_percent == nil
   end
 
+  test "PIDs that exit mid-scan cost one warning record, not one per PID" do
+    root = Aiur.TestSupport.tmp_root!("aiur-sampler-procfs")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    File.mkdir_p!(Path.join(root, "1"))
+    File.write!(Path.join([root, "1", "stat"]), "1 (beam.smp) S 0 0 0 0 0 0 0 0 0 0 5 6 0 0 0 0 1 0 10\n")
+
+    # Real hosts churn through short-lived processes constantly, so most of the
+    # PIDs a scan lists are gone before their `stat` is read.
+    for pid <- 100..199, do: File.mkdir_p!(Path.join(root, Integer.to_string(pid)))
+
+    result =
+      Sampler.sample_once(%{},
+        process_table_fun: fn -> Aiur.RunTelemetry.Procfs.process_table(root: root) end,
+        measure_fun: fn table, pids -> Aiur.RunTelemetry.Procfs.measure_many(table, pids, root: root) end,
+        entries_fun: fn -> [] end,
+        daemon_pid: 1,
+        operator_pid: nil,
+        monotonic_ms: 1_000,
+        clock_ticks_per_second: 100,
+        fd_headroom_fun: fn -> :unavailable end,
+        fleet_snapshot_fun: fn -> :unavailable end,
+        build_status_fun: fn -> :unavailable end
+      )
+
+    assert [%{field: :stat, pid: nil, reason: :vanished_during_scan, count: 100}] =
+             Enum.filter(result.warnings, &(&1.reason == :vanished_during_scan))
+
+    refute Enum.any?(result.warnings, &(&1.field == :stat and &1.reason == :enoent))
+  end
+
   test "invalid scan results are recorded as fail-open warnings" do
     test_pid = self()
 
