@@ -488,12 +488,14 @@ ticket and the ticket has no blocking open pull request.
 **The PR body decides, not the branch.** A ticket's PR is matched by its
 `aiur/<ticket>-<slug>` head branch, which says the PR belongs to the ticket,
 not that it completes it. Only a documented closing keyword — `Closes`,
-`Fixes` or `Resolves` followed by `#<ticket>` — lets a merge stamp `done`. Write
-`Refs #<ticket>` instead when the merge is deliberately only part of the
-acceptance (a proof ticket whose other half is deployed evidence, say): the
-ticket stays open in `human-review` with its checklist intact. A PR with no
-body, or one naming the ticket without a keyword, is treated the same way —
-absent evidence is never closing evidence.
+`Fixes` or `Resolves` followed by `#<ticket>` — lets a merge stamp `done`.
+
+Write `Refs #<ticket>` instead when the merge is deliberately only part of the
+acceptance — a proof ticket whose other half is deployed evidence, say. The
+ticket then stays open in `human-review` with its checklist intact.
+
+A PR with no body, or one naming the ticket without a keyword, is treated the
+same way: absent evidence is never closing evidence.
 
 A ticket can legitimately carry two open `aiur/<ticket>-` PRs, so a merge that
 leaves one still open routes the ticket to `rework` (that PR has unresolved

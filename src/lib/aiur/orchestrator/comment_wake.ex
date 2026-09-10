@@ -182,14 +182,18 @@ defmodule Aiur.Orchestrator.CommentWake do
         target
 
       _other ->
-        if merged_pr_closes_ticket?(identifier, opts) do
-          case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
-            {:ok, target} -> target
-            {:error, _reason} = error -> error
-          end
-        else
-          @non_closing_merge_state
-        end
+        computed_merged_issue_target_state(identifier, opts)
+    end
+  end
+
+  defp computed_merged_issue_target_state(identifier, opts) do
+    if merged_pr_closes_ticket?(identifier, opts) do
+      case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
+        {:ok, target} -> target
+        {:error, _reason} = error -> error
+      end
+    else
+      @non_closing_merge_state
     end
   end
 
