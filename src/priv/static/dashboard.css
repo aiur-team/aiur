@@ -8803,6 +8803,21 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .sd-ag-foot.col .sd-ag-tag { margin-left: 0; }
 
+/*
+ * The unblocked state is a glyph in the key's bottom-right corner, not a pill:
+ * the sidecar's rasterizer paints the same open padlock in the same green, so
+ * the emulator and the physical deck say "ready to start" the same way.
+ */
+.sd-ag-unblocked {
+  display: inline-flex;
+  align-self: flex-end;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: #88e0a6;
+}
+
+.sd-ag-unblocked svg { width: 100%; height: 100%; }
+
 .sd-ag-dot {
   width: 11px;
   height: 11px;
