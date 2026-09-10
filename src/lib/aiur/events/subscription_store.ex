@@ -193,7 +193,7 @@ defmodule Aiur.Events.SubscriptionStore do
 
   @spec snapshot(String.t()) :: snapshot() | :not_found
   def snapshot(identifier) when is_binary(identifier) do
-    case Registry.lookup(@registry, identifier) do
+    case registry_lookup(identifier) do
       [{pid, _}] -> GenServer.call(pid, :snapshot)
       [] -> :not_found
     end

@@ -4,6 +4,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
   alias Aiur.Config.Paths
   alias Aiur.Events.{Exchange, IdGenerator, SubscriptionStore}
   alias Aiur.JsonStore
+  alias Aiur.Orchestrator.{AutoSubscriptions, State}
 
   setup do
     tmp_dir = Aiur.TestSupport.tmp_root!("aiur_subscr_test")
@@ -56,6 +57,20 @@ defmodule Aiur.Events.SubscriptionStoreTest do
 
       try do
         assert :ok = SubscriptionStore.stop(id)
+      after
+        {:ok, _pid} =
+          Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+      end
+    end
+  end
+
+  describe "snapshot/1" do
+    test "is unavailable-safe while the supervised registry is stopped", %{identifier: id} do
+      :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+
+      try do
+        assert :not_found = SubscriptionStore.snapshot(id)
+        assert [] = AutoSubscriptions.direct_blockers_for(%State{}, id)
       after
         {:ok, _pid} =
           Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
