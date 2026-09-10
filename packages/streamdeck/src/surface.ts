@@ -15,7 +15,7 @@ import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
 import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
-import { settingsView, type SettingsView } from "./settings.js";
+import { MIC_KEY_INDICES, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY, settingsView, type SettingsView } from "./settings.js";
 import { voicePanel, type VoicePanelData, type VoicePanelInput } from "./voicePanel.js";
 import type { AudioDevice } from "./audio/index.js";
 import {
@@ -208,7 +208,7 @@ const commandKey = (identifier: string, name: string, title: string, icon: strin
  * spoken there is nothing to send, and a permanently lit Send invites a press
  * that delivers an empty message.
  */
-const descriptorCommands = (
+export const descriptorCommands = (
   agent: Readonly<Record<string, unknown>> | null | undefined,
   micHeld: boolean,
   hasTranscript: boolean,
@@ -234,7 +234,12 @@ const descriptorCommands = (
 };
 
 /**
- * The settings surface's eight keys: six microphones, TestMic, and paging.
+ * The settings surface's eight keys: TestMic, paging, and six microphones.
+ *
+ * TestMic sits on {@link SETTINGS_TEST_MIC_KEY} — the key the command surface
+ * paints Mic on — so hold-to-talk is under the same finger on both surfaces.
+ * The microphones therefore fill the keys {@link MIC_KEY_INDICES} names rather
+ * than a plain 0..5 run, and that one list is what the press handler reads too.
  *
  * The selected microphone reuses the **log surface's** selection idiom rather
  * than inventing a second one — `role: "event"` is what paints the brighter
@@ -244,32 +249,35 @@ const descriptorCommands = (
  * neither reads as definitive.
  */
 export const descriptorSettings = (view: SettingsView, micHeld: boolean): (AgentInput | undefined)[] => {
-  const mics: (AgentInput | undefined)[] = view.mics.map((slot) =>
-    slot === null
-      ? undefined
-      : {
-          identifier: `mic:${slot.id}`,
-          title: slot.label,
-          vendor: "settings",
-          role: "event" as const,
-          subLabel: slot.selected ? "IN USE" : "MIC",
-          timeLabel: "",
-          selected: slot.selected,
-          bucket: "queued" as const,
-          progress_percent: null,
-          priority: false,
-          dependency_ready: true,
-        },
-  );
+  const keys: (AgentInput | undefined)[] = Array.from({ length: 8 }, () => undefined);
 
-  return [
-    ...mics,
-    commandKey("settings", "test", "TestMic", "test", micHeld ? "LIVE" : "HOLD"),
-    // Paging is present only when there is a page to go to. An inert arrow on a
-    // machine with one microphone is a key that teaches the operator that keys
-    // on this surface sometimes do nothing.
-    view.hasPaging ? commandKey("settings", "page", "More", "next", view.pageLabel) : undefined,
-  ];
+  view.mics.forEach((slot, index) => {
+    const key = MIC_KEY_INDICES[index];
+    if (key === undefined || slot === null) return;
+    keys[key] = {
+      identifier: `mic:${slot.id}`,
+      title: slot.label,
+      vendor: "settings",
+      role: "event" as const,
+      subLabel: slot.selected ? "IN USE" : "MIC",
+      timeLabel: "",
+      selected: slot.selected,
+      bucket: "queued" as const,
+      progress_percent: null,
+      priority: false,
+      dependency_ready: true,
+    };
+  });
+
+  keys[SETTINGS_TEST_MIC_KEY] = commandKey("settings", "test", "TestMic", "test", micHeld ? "LIVE" : "HOLD");
+  // Paging is present only when there is a page to go to. An inert arrow on a
+  // machine with one microphone is a key that teaches the operator that keys
+  // on this surface sometimes do nothing.
+  keys[SETTINGS_NEXT_PAGE_KEY] = view.hasPaging
+    ? commandKey("settings", "page", "More", "next", view.pageLabel)
+    : undefined;
+
+  return keys;
 };
 
 /**
