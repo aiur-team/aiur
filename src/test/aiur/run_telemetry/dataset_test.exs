@@ -227,6 +227,36 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     refute Enum.any?(dataset.tickets["932"].events, &(&1.event == "comment_received"))
   end
 
+  test "a carried dispatch replica collapses onto its retained original without a warning" do
+    path = temporary_stream!()
+
+    # A segment roll re-emits the boot's terminal points after the boundary
+    # while the original segment is still retained, so both records coexist.
+    # Neither carries a source_id or operation_id; the event key alone is the
+    # identity that must fold them into one dispatch.
+    persisted = [
+      lifecycle_record(1, "dispatch", "point", ~U[2026-09-09 22:40:00Z], "dispatch-165", %{ticket: "165"}),
+      %{
+        restart_record("test-boot", ~U[2026-09-10 01:18:26Z])
+        | sequence: 2,
+          record_id: "test-boot:2",
+          attributes: %{event: "segment_boundary", existing_records: true}
+      },
+      lifecycle_record(3, "dispatch", "point", ~U[2026-09-09 22:40:00Z], "dispatch-165", %{
+        ticket: "165",
+        segment_continuation: "carried"
+      })
+    ]
+
+    File.write!(path, Enum.map_join(persisted, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path)
+
+    assert [%{event: "dispatch"}] = dataset.tickets["165"].events
+    assert [%{phase: "dispatch"}] = dataset.tickets["165"].intervals
+    assert dataset.warnings == []
+  end
+
   test "keeps injected GitHub findings chronological with persisted lifecycle events" do
     path = temporary_stream!()
 
