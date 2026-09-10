@@ -248,10 +248,11 @@ and a lock older than 60 seconds is broken as stale.
 
 A batch that could not be acknowledged is still **printed** — losing a wake is a
 worse failure than announcing a redelivery — so an acknowledge-stage failure
-emits the wake envelope first and the `status: "error"` envelope after it. Read
-the last line for the outcome: its `unconsumed_wake_ids` name the records whose
-cursor did not advance, and they will be delivered again to whichever consumer
-holds the claim next.
+emits the wake envelope first and the `status: "error"` envelope after it.
+
+Read the last line for the outcome: its `unconsumed_wake_ids` name the records
+whose cursor did not advance, and they will be delivered again to whichever
+consumer holds the claim next.
 
 ### Wake ledger bound and lease TTL
 
