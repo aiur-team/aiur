@@ -286,12 +286,6 @@ already did — fix it to assert the specific behavior the change adds, or
 delete it. If you cannot revert cleanly, say so in the PR body rather than
 skipping the check.
 
-**Confirm the revert actually landed in the tree you run.** At the moment of
-the run, `git diff` must show the hunk removed — a revert that "passes"
-because the change was never in this checkout is a wrong-checkout artifact,
-not coverage. When the work happens in a worktree, assert `git rev-parse HEAD`
-matches the intended SHA before the batch.
-
 Name the result in the PR body, including the exact command that ran: one line
 per new test ("`sweep_once` test fails with the production hunk reverted via
 `mix test test/aiur/...`") or an explicit statement of why the check could not
@@ -300,13 +294,14 @@ excludes `test/aiur/*.exs` one level up, so a run that exercised fewer tests
 than intended reads as passing coverage.
 
 When you revert for this check, the tree must be dirty **only** in the
-intended way: `git diff` shows the production hunk you meant to remove and
-nothing else. Run it in a worktree, never the live checkout, and before the
-run assert no *unintended* modifications are present (`git status --porcelain`
+intended way: at the moment of the run, `git diff` shows the production hunk
+you meant to remove and nothing else — a revert that "passes" because the
+change was never in this checkout is a wrong-checkout artifact, not a
+survivor. Run it in a worktree, never the live checkout, and before the run
+assert no *unintended* modifications are present (`git status --porcelain`
 must show exactly the revert you made and no stray files) — a dirty tree from
-another process is the wrong-checkout signature #2362 is about, and HEAD alone
-does not catch it. Report the exact command you ran in the PR body so a
-reviewer can see what actually executed.
+another process is the wrong-checkout signature #2362 is about, and
+`git rev-parse HEAD` alone does not catch it.
 
 Recurring shapes to avoid — each has shipped and cost a review round:
 
