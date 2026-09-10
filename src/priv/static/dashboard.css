@@ -8813,7 +8813,7 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   align-self: flex-end;
   width: 0.95rem;
   height: 0.95rem;
-  color: #88e0a6;
+  color: var(--good-ink);
 }
 
 .sd-ag-unblocked svg { width: 100%; height: 100%; }
