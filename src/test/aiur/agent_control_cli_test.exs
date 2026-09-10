@@ -5,6 +5,7 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
   alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
@@ -97,38 +98,65 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ ~s("stage":"claim")
     assert output =~ "wake-stream lock contention"
     assert output =~ "retrying every 25ms for 100ms"
+    assert output =~ "a lock older than 60s is broken as stale"
     assert output =~ "safe to retry"
   end
 
-  test "executor-wait names the acknowledge stage and withholds an unconsumed batch (#2600)" do
+  test "executor-wait names the acknowledge stage when a peer took the claim mid-wait (#2600)" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
-    put_claims_lock_timeout(100)
-    lock = StatePaths.claims_path() <> ".lock"
-    on_exit(fn -> File.rm(lock) end)
 
     waiter =
       Task.async(fn ->
-        capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 2_000, json: true, as: "blocked-ack") end)
+        capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 5_000, json: true, as: "displaced-owner") end)
       end)
 
-    # The claim already succeeded; contention appears only when the batch is
-    # acknowledged, so the cursor cannot advance for records already read.
-    Process.sleep(50)
-    File.write!(lock, "held by a peer")
-    :ok = ExecutorWakeInbox.enqueue(wake_record(1, "2600", "ticket.2600.pr.opened", "ticket.pr.opened"))
+    # Barrier on observed state, not on a sleep: the takeover below is only the
+    # scenario under test once this consumer's own claim has actually landed.
+    assert await_consumer("displaced-owner")
+    {:ok, _revoked} = Claims.revoke("displaced-owner")
+    {:ok, _peer} = Claims.claim("live-peer")
 
-    output = Task.await(waiter, 10_000)
+    :ok = ExecutorWakeInbox.enqueue(wake_record(1, "2600", "ticket.2600.pr.opened", "ticket.pr.opened"))
+    output = Task.await(waiter, 20_000)
 
     assert output =~ "__AIUR_CONTROL_EXIT__:69"
     assert output =~ ~s("stage":"acknowledge")
     assert output =~ ~s("unconsumed_wake_ids":[1])
+    assert output =~ "cursor-write contention"
+    assert output =~ "live-peer"
     assert output =~ "were NOT consumed"
-    # The batch is withheld rather than printed, so it is delivered exactly once.
-    refute output =~ ~s("topic":"ticket.2600.pr.opened")
+    # The batch is still printed — losing a wake is worse than announcing a
+    # redelivery — but the nonzero exit and the named ids say it was not
+    # consumed, where this used to be an undiagnosed exit 0.
+    assert output =~ ~s("topic":"ticket.2600.pr.opened")
+    assert output =~ ~s("status":"woken")
     assert ExecutorWakeInbox.cursor() == 0
-
-    File.rm(lock)
     assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
+  end
+
+  test "executor-wait separates a store failure from contention with exit 1 (#2600)" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+    # An unreadable ledger is a daemon/store failure, not something a caller can
+    # retry through, so it must not share the retryable contention exit code.
+    File.write!(StatePaths.wakes_path(), ~s({"wake_id":0,"event_id":1,"topic":"bad"}\n), [:append])
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20, json: true, as: "corrupt-ledger") end)
+
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+    assert output =~ ~s("stage":"wait")
+    assert output =~ "executor wake inbox unavailable"
+    refute output =~ "__AIUR_CONTROL_EXIT__:69"
+  end
+
+  defp await_consumer(id, attempts \\ 200) do
+    Enum.any?(1..attempts, fn _attempt ->
+      if Enum.any?(Claims.entries(), &(&1["id"] == id)) do
+        true
+      else
+        Process.sleep(10)
+        false
+      end
+    end)
   end
 
   defp put_claims_lock_timeout(timeout_ms) do

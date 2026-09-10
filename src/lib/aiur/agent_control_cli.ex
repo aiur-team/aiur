@@ -497,14 +497,18 @@ defmodule Aiur.AgentControlCLI do
     :ok
   end
 
-  # Acknowledgement comes first so a batch is printed only once the cursor has
-  # actually moved past it. Printing first and acknowledging afterwards made a
-  # refused acknowledgement look like a successful read while the same records
-  # were queued to come back on the next wait.
+  # The batch is printed before it is acknowledged, deliberately. The reverse
+  # order would advance the cursor while the records were still only inside the
+  # control RPC's buffered stdout, which the launcher discards outright when its
+  # own budget expires — turning a benign redelivery into permanent, silent wake
+  # loss. Losing a wake is the worse failure, so the ordering stays; what changes
+  # is that a refused acknowledgement is now a diagnosed nonzero exit naming the
+  # stage and the ids, instead of an exit 0 that read as a successful consume.
   defp executor_wait_result({:ok, records}, consumer_id, role, json?, _timeout_ms) do
+    print_executor_wakes(records, json?, role)
+
     case acknowledge_executor_wakes(records, consumer_id, role) do
       :ok ->
-        print_executor_wakes(records, json?, role)
         exit_marker(0)
 
       {:error, reason} ->
@@ -591,7 +595,8 @@ defmodule Aiur.AgentControlCLI do
     do: "claims store write failed (#{message}). This is a store failure, not contention"
 
   defp executor_wait_detail({:not_owner, owner}) do
-    "cursor-write contention: the wake stream claim is now held by #{(owner && owner["id"]) || "nobody"}"
+    "cursor-write contention: the wake stream claim is now held by #{(owner && owner["id"]) || "nobody"}, " <>
+      "so this consumer can only read as an observer until that claim is released or revoked"
   end
 
   defp executor_wait_detail(reason), do: "executor wake inbox unavailable (#{format_reason(reason)})"
@@ -755,7 +760,8 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp print_executor_wakes(records, true, role), do: IO.puts(Jason.encode!(%{"role" => role, "records" => records}))
+  defp print_executor_wakes(records, true, role),
+    do: IO.puts(Jason.encode!(%{"status" => "woken", "role" => role, "records" => records}))
 
   defp print_executor_wakes(records, false, role) do
     Enum.each(records, fn record ->

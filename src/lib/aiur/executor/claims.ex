@@ -55,6 +55,8 @@ defmodule Aiur.Executor.Claims do
   # then stop accumulating.
   @retention_ms 86_400_000
   @lock_timeout_ms 5_000
+  # Every claims mutation runs inside this budget, so the lock wait must fit in it.
+  @call_timeout_ms 30_000
   @lock_retry_ms 25
   # A lockfile older than this belongs to a process that died holding it.
   @lock_stale_after_seconds 60
@@ -155,7 +157,21 @@ defmodule Aiur.Executor.Claims do
     }
   end
 
-  defp lock_timeout_ms, do: Application.get_env(:aiur, :executor_claims_lock_timeout_ms, @lock_timeout_ms)
+  @doc "The budget every store mutation gets inside the claims server."
+  @spec call_timeout_ms() :: pos_integer()
+  def call_timeout_ms, do: @call_timeout_ms
+
+  # The override exists for tests and for hosts with a slower shared filesystem,
+  # so it is validated rather than trusted: a non-integer would make the retry
+  # guard fall straight through to "timed out" without retrying once, and a
+  # value above the surrounding call budget would expire the caller before the
+  # lock wait ever returns a `claim`-stage diagnostic.
+  defp lock_timeout_ms do
+    case Application.get_env(:aiur, :executor_claims_lock_timeout_ms, @lock_timeout_ms) do
+      ms when is_integer(ms) and ms > 0 -> min(ms, @call_timeout_ms)
+      _invalid -> @lock_timeout_ms
+    end
+  end
 
   @doc """
   Resolves the consumer identity for a CLI invocation.
@@ -316,7 +332,7 @@ defmodule Aiur.Executor.Claims do
 
   defp call(message) do
     case Process.whereis(__MODULE__) do
-      pid when is_pid(pid) -> GenServer.call(pid, message, 30_000)
+      pid when is_pid(pid) -> GenServer.call(pid, message, @call_timeout_ms)
       _no_server -> handle_without_server(message)
     end
   end

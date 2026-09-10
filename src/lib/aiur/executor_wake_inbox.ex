@@ -57,8 +57,18 @@ defmodule Aiur.ExecutorWakeInbox do
   """
   @spec acknowledge_as(String.t(), [map()], GenServer.server()) :: :ok | {:error, term()}
   def acknowledge_as(consumer_id, records, server \\ __MODULE__) when is_binary(consumer_id) and is_list(records) do
-    GenServer.call(server, {:acknowledge_as, consumer_id, records})
+    GenServer.call(server, {:acknowledge_as, consumer_id, records}, claim_call_timeout_ms())
   end
+
+  # An acknowledgement blocks on the cross-process claims lock for as long as
+  # that lock's own bounded retry allows, and then replays the journal to trim
+  # it. The default five-second `GenServer.call` budget is not longer than the
+  # default five-second lock retry, so a genuinely contended acknowledgement
+  # raced its own caller: the CLI exited with a raw GenServer timeout and no exit
+  # marker at all, while this process went on to advance the cursor for a caller
+  # that was already gone. Give the call a budget that strictly dominates every
+  # bound inside it (#2600).
+  defp claim_call_timeout_ms, do: max(Claims.lock_retry_budget().timeout_ms, Claims.call_timeout_ms()) + 30_000
 
   @doc """
   Advances the shared cursor through one exact durable wake id.
@@ -73,7 +83,7 @@ defmodule Aiur.ExecutorWakeInbox do
           | {:error, term()}
   def fast_forward_as(consumer_id, wake_id, server \\ __MODULE__)
       when is_binary(consumer_id) and is_integer(wake_id) and wake_id > 0 do
-    GenServer.call(server, {:fast_forward_as, consumer_id, wake_id})
+    GenServer.call(server, {:fast_forward_as, consumer_id, wake_id}, claim_call_timeout_ms())
   end
 
   @spec pending(GenServer.server()) :: [map()]

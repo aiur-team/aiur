@@ -70,6 +70,49 @@ defmodule Aiur.Executor.ClaimsTest do
     end)
   end
 
+  describe "lock_retry_budget/0" do
+    test "publishes the bounds a contention diagnostic reports" do
+      budget = Claims.lock_retry_budget()
+
+      assert budget.timeout_ms == 5_000
+      assert budget.retry_interval_ms == 25
+      assert budget.stale_after_seconds == 60
+      assert budget.timeout_ms <= Claims.call_timeout_ms()
+    end
+
+    test "clamps an override above the surrounding call budget (#2600)" do
+      # A lock wait longer than the call budget would expire the caller before
+      # the wait could ever return a `claim`-stage reason.
+      with_app_env(:executor_claims_lock_timeout_ms, Claims.call_timeout_ms() * 2, fn ->
+        assert Claims.lock_retry_budget().timeout_ms == Claims.call_timeout_ms()
+      end)
+    end
+
+    test "falls back to the default when the override is not a positive integer (#2600)" do
+      # A non-integer would make the retry guard fall straight through to
+      # "timed out" without retrying once.
+      for invalid <- [0, -1, "5000", nil] do
+        with_app_env(:executor_claims_lock_timeout_ms, invalid, fn ->
+          assert Claims.lock_retry_budget().timeout_ms == 5_000
+        end)
+      end
+    end
+  end
+
+  defp with_app_env(key, value, fun) do
+    previous = Application.fetch_env(:aiur, key)
+    Application.put_env(:aiur, key, value)
+
+    try do
+      fun.()
+    after
+      case previous do
+        {:ok, restored} -> Application.put_env(:aiur, key, restored)
+        :error -> Application.delete_env(:aiur, key)
+      end
+    end
+  end
+
   defp with_env(key, value, fun) do
     previous = System.get_env(key)
     System.put_env(key, value)
