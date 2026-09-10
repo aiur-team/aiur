@@ -238,13 +238,22 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     assert is_integer(first_generation)
     assert entries |> hd() |> Map.from_struct() |> Map.has_key?(:details)
 
+    test_pid = self()
+
     subscriber =
       spawn(fn ->
         :ok = TicketHistoryProvider.subscribe(server, identity())
+        send(test_pid, :subscribed)
+
+        receive do
+          :stop -> :ok
+        end
       end)
 
     ref = Process.monitor(subscriber)
-    assert_receive {:DOWN, ^ref, :process, ^subscriber, :normal}
+    assert_receive :subscribed, 2_000
+    send(subscriber, :stop)
+    assert_receive {:DOWN, ^ref, :process, ^subscriber, :normal}, 2_000
 
     send(server, {:event, typed_event(21, ~U[2026-07-15 12:00:21Z], 70)})
 

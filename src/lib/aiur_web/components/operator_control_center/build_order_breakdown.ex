@@ -9,12 +9,19 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   with missing, ambiguous, or duplicate metadata are surfaced in an explicit
   warning bucket and excluded from totals rather than guessed. Phase is a
   rollout hint (DEC-010) and never implies readiness or gating.
+
+  Each wave and epic row also carries completion, derived from the joined
+  member facts rather than from row size: a member closed as completed counts
+  as 100%, a member with a live known progress reading counts as that reading,
+  and anything else counts as 0%. The row folds those into a
+  complexity-points-weighted mean, falling back to a plain mean when the row
+  carries no usable points.
   """
 
   use Phoenix.Component
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
-  alias Aiur.BuildOrder.{Bounded, Metadata}
+  alias Aiur.BuildOrder.{Bounded, Lifecycle, Metadata}
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Group, Node}
@@ -57,12 +64,16 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
 
   defp breakdown_list(assigns) do
     ~H"""
-    <section class="bo-breakdown-list" aria-label={"Members and complexity points per #{@dimension}"}>
+    <section
+      class="bo-breakdown-list"
+      aria-label={"Ticket progress, members, and complexity points per #{@dimension}"}
+    >
       <h4 class="bo-breakdown-list-title">{@dimension}</h4>
       <article
         :for={row <- @rows}
         class="bo-breakdown-row"
         data-breakdown-key={to_string(row.key)}
+        data-breakdown-progress={to_string(row.progress)}
       >
         <div class="bo-breakdown-row-top">
           <BuildOrderEpicIcon.build_order_epic_icon
@@ -74,9 +85,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
           <span class="bo-breakdown-row-name">{row.label}</span>
           <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">tickets</span> <span class="num">{row.count}</span></span>
           <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">points</span> <span class="num">{points_display(row.points)}</span></span>
+          <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">done</span> <span class="num">{progress_display(row)}</span></span>
         </div>
         <p :if={row.members != []} class="bo-breakdown-row-members">{members_text(row.members)}</p>
-        <span class="bo-breakdown-row-bar" aria-hidden="true"><i style={"width:#{bar_percent(row.weight)}%"}></i></span>
+        <span class="bo-breakdown-row-bar" aria-hidden="true"><i style={"width:#{row.progress}%"}></i></span>
       </article>
     </section>
     """
@@ -206,21 +218,44 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   defp rows(groups, nodes_by_key) do
     rows =
       Enum.map(groups, fn %Group{} = group ->
-        members = Enum.map(group.node_keys, &Map.get(nodes_by_key, &1))
-        points = members |> Enum.reject(&is_nil/1) |> Enum.map(&member_points/1) |> Enum.sum()
+        members = group.node_keys |> Enum.map(&Map.get(nodes_by_key, &1)) |> Enum.reject(&is_nil/1)
 
         %{
           key: group.key,
           label: group.label,
           count: group.count,
-          points: points,
-          members: members |> Enum.reject(&is_nil/1) |> Enum.map(&member_label/1)
+          points: members |> Enum.map(&member_points/1) |> Enum.sum(),
+          progress: group_progress(members),
+          members: Enum.map(members, &member_label/1)
         }
       end)
 
     max_points = rows |> Enum.map(& &1.points) |> max_points()
     Enum.map(rows, &Map.put(&1, :weight, weight(&1.points, max_points)))
   end
+
+  # Completion for one row: the complexity-points-weighted mean of its members'
+  # progress, or a plain mean when the row carries no usable points at all. An
+  # empty row is 0% rather than an undefined bar.
+  defp group_progress([]), do: 0
+
+  defp group_progress(members) do
+    weighted = Enum.map(members, &{member_points(&1), member_progress(&1)})
+    points = weighted |> Enum.map(&elem(&1, 0)) |> Enum.sum()
+
+    case points do
+      0 -> weighted |> Enum.map(&elem(&1, 1)) |> Enum.sum() |> Kernel./(length(weighted)) |> round()
+      total -> weighted |> Enum.map(fn {p, progress} -> p * progress end) |> Enum.sum() |> Kernel./(total) |> round()
+    end
+  end
+
+  # A ticket closed as completed is done regardless of what the live feed last
+  # said; anything still open is worth only its known live reading.
+  defp member_progress(%Node{plan: %{lifecycle: %Lifecycle{state: :closed, state_reason: :completed}}}), do: 100
+  defp member_progress(%Node{activity: activity}), do: known_percent(activity)
+
+  defp known_percent(%{progress: %{status: :known, percent: percent}}) when percent in 0..100, do: percent
+  defp known_percent(_activity), do: 0
 
   defp max_points([]), do: 0
   defp max_points(points), do: Enum.max(points)
@@ -263,8 +298,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   defp points_display(0), do: "—"
   defp points_display(points), do: Integer.to_string(points)
 
-  defp bar_percent(weight) when is_number(weight), do: weight |> Kernel.*(100) |> round()
-  defp bar_percent(_weight), do: 0
+  defp progress_display(%{count: 0}), do: "—"
+  defp progress_display(%{progress: progress}), do: "#{progress}%"
 
   defp degraded_role(:structurally_invalid), do: "alert"
   defp degraded_role(_status), do: "status"

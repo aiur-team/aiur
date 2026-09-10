@@ -3,6 +3,7 @@ defmodule Aiur.EnvTest do
 
   alias Aiur.Env
   alias Aiur.Env.Schema
+  alias Aiur.GitHub.Config
 
   # Token- and secret-shaped values seeded into the process environment to
   # prove they never reach the generated example, logs, or error output.
@@ -17,10 +18,17 @@ defmodule Aiur.EnvTest do
   setup do
     original = Map.take(System.get_env(), Map.keys(@secret_values))
     Enum.each(Map.keys(@secret_values), &System.delete_env/1)
+    original_keyring_timeout = System.get_env("AIUR_GH_KEYRING_TIMEOUT_MS")
+    System.delete_env("AIUR_GH_KEYRING_TIMEOUT_MS")
 
     on_exit(fn ->
       Enum.each(Map.keys(@secret_values), &System.delete_env/1)
       Enum.each(original, fn {key, value} -> System.put_env(key, value) end)
+
+      case original_keyring_timeout do
+        nil -> System.delete_env("AIUR_GH_KEYRING_TIMEOUT_MS")
+        value -> System.put_env("AIUR_GH_KEYRING_TIMEOUT_MS", value)
+      end
     end)
 
     :ok
@@ -200,6 +208,61 @@ defmodule Aiur.EnvTest do
 
           assert error.message =~ "no GitHub credential is configured"
         end
+      )
+    end
+
+    test "a box with no gh on PATH fails the gate with the standard message, not a crash" do
+      # On a gh-less box the keyring shell-out resolves nothing through
+      # HostCommand and degrades to the {"", 127} "no keyring credential"
+      # result, so the gate must raise its normal missing-credential
+      # ArgumentError instead of crashing — the brand-new-developer scenario
+      # this ticket names. (The Task.async-linked raise that used to kill the
+      # caller is pinned separately in config_test via the injected-runner
+      # seam; here the empty PATH exercises the real degraded shell-out.)
+      with_empty_path(fn ->
+        error =
+          assert_raise ArgumentError, fn ->
+            Env.validate_startup!(%{}, require_github_credential: true)
+          end
+
+        assert error.message =~ "no GitHub credential is configured"
+        assert error.message =~ "keyring"
+        assert error.message =~ "gh auth login"
+      end)
+    end
+
+    test "a gh that never returns does not hang boot; the gate fails naming the keyring within the timeout" do
+      # The stall scenario from #2393: a gh whose keyring lookup blocks forever
+      # (locked keyring prompt, unreachable host, missing GUI credential agent)
+      # must not wedge the boot gate. The real `Config.keyring_token/1`
+      # shell-out runs against a fake gh that loops forever, with a short
+      # injectable timeout, and the gate must come back with the standard
+      # missing-credential message that names the keyring and `gh auth login`.
+      with_fake_gh_on_path(
+        """
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          while true; do sleep 1; done
+        fi
+        """,
+        fn ->
+          started = System.monotonic_time(:millisecond)
+
+          error =
+            assert_raise ArgumentError, fn ->
+              Env.validate_startup!(%{},
+                require_github_credential: true,
+                keyring_fun: fn -> Config.keyring_token(timeout_ms: 200) end
+              )
+            end
+
+          elapsed = System.monotonic_time(:millisecond) - started
+
+          # Completed promptly instead of hanging on the never-returning gh.
+          assert elapsed < 5_000
+          assert error.message =~ "keyring"
+          assert error.message =~ "gh auth login"
+        end,
+        assert_reaped: true
       )
     end
 
@@ -414,24 +477,118 @@ defmodule Aiur.EnvTest do
   # through: the helper appends a pass-through to the real `gh` (located before
   # PATH changed) for every other invocation, so a concurrent test that shells
   # out to `gh` still reaches the real binary instead of a stub.
-  defp with_fake_gh_on_path(token_script, fun) do
+  #
+  # `assert_reaped: true` makes the fake `gh` record its OS pid and registers an
+  # `on_exit` that fails the test if that pid is still live after the test
+  # completes — the CI-hang guard from the review. A leaked never-returning
+  # fake `gh` surfaces as a fast assertion failure instead of a stalled ExUnit
+  # shard holding a pipe open.
+  defp with_fake_gh_on_path(token_script, fun, opts \\ []) do
     unique = System.unique_integer([:positive, :monotonic])
     root = Path.join(System.tmp_dir!(), "aiur-env-fake-gh-#{unique}")
     bin_dir = Path.join(root, "bin")
     File.mkdir_p!(bin_dir)
     fake_gh = Path.join(bin_dir, "gh")
 
-    pass_through =
-      case System.find_executable("gh") do
-        nil -> "exit 99\n"
-        path -> "exec #{path} \"$@\"\n"
-      end
+    {pidfile, script} = fake_gh_script(token_script, unique, opts)
+    pass_through = pass_through_script()
 
-    File.write!(fake_gh, "#!/bin/sh\n" <> token_script <> "\n" <> pass_through)
+    File.write!(fake_gh, "#!/bin/sh\n" <> script <> "\n" <> pass_through)
     File.chmod!(fake_gh, 0o755)
 
     original_path = System.get_env("PATH")
     System.put_env("PATH", bin_dir <> ":" <> (original_path || ""))
+
+    if pidfile, do: assert_reaped_on_exit(pidfile, "fake gh")
+
+    try do
+      fun.()
+    after
+      restore_path(original_path)
+      File.rm_rf!(root)
+    end
+  end
+
+  # Builds the fake `gh` script: with `assert_reaped: true` the fake records
+  # its OS pid to a file (in a directory outside the fake-gh root, which is
+  # removed before `on_exit` runs) so `assert_reaped_on_exit/2` can assert the
+  # process was killed rather than leaked. Returns `{pidfile_or_nil, script}`.
+  defp fake_gh_script(token_script, unique, opts) do
+    case Keyword.get(opts, :assert_reaped, false) do
+      false ->
+        {nil, token_script}
+
+      true ->
+        pid_root = Path.join(System.tmp_dir!(), "aiur-env-keyring-reap-#{unique}")
+        File.mkdir_p!(pid_root)
+        pidfile = Path.join(pid_root, "gh.pid")
+        {pidfile, "echo $$ > #{pidfile}\n" <> token_script}
+    end
+  end
+
+  defp pass_through_script do
+    case System.find_executable("gh") do
+      nil -> "exit 99\n"
+      path -> "exec #{path} \"$@\"\n"
+    end
+  end
+
+  defp restore_path(nil), do: System.delete_env("PATH")
+  defp restore_path(value), do: System.put_env("PATH", value)
+
+  # Fails the test if the OS pid recorded at `pidfile` is still live when the
+  # test completes, then removes the recording directory. The pidfile lives
+  # outside the fake-gh root because that root is removed when the helper's
+  # `after` runs, before `on_exit`.
+  defp assert_reaped_on_exit(pidfile, label) do
+    on_exit(fn ->
+      try do
+        case File.read(pidfile) do
+          {:ok, contents} ->
+            pid = contents |> String.trim() |> String.to_integer()
+            refute live_process?(pid), "#{label} pid #{pid} survived the test (leaked process)"
+
+          _ ->
+            :ok
+        end
+      after
+        File.rm_rf!(Path.dirname(pidfile))
+      end
+    end)
+  end
+
+  # True when `pid` names a live (non-zombie) process. A process killed by
+  # SIGKILL either disappears or lingers as a zombie (`ps` stat "Z") until its
+  # parent reaps it; neither is a live process, so only an empty/absent stat or
+  # a "Z" stat counts as dead.
+  defp live_process?(pid) when is_integer(pid) and pid > 0 do
+    case System.cmd("sh", ["-c", "ps -o stat= -p #{pid} 2>/dev/null"]) do
+      {out, 0} ->
+        case String.trim(out) do
+          "" -> false
+          "Z" <> _ -> false
+          _ -> true
+        end
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
+  end
+
+  # Sets PATH to a directory with no executables, so `gh` is genuinely absent
+  # and the {"", 127} missing-binary degradation path is exercised — the box
+  # with no gh installed at all. HostCommand.run guards its System.cmd call, so
+  # this never reaches the raising `:enoent` path (that one is pinned in
+  # config_test via the injected-runner seam).
+  defp with_empty_path(fun) do
+    unique = System.unique_integer([:positive, :monotonic])
+    root = Path.join(System.tmp_dir!(), "aiur-env-empty-path-#{unique}")
+    File.mkdir_p!(root)
+
+    original_path = System.get_env("PATH")
+    System.put_env("PATH", root)
 
     try do
       fun.()

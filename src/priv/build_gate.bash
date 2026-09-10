@@ -231,18 +231,52 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     aiur_build_gate_mise_command_string_phase "$command_string"
   }
 
-  aiur_build_gate_real_command() {
+  # Mirrors the marker in build_gate_command_wrapper.bash. A candidate carrying
+  # it is another copy of the gate wrapper, whatever name it was installed
+  # under, and handing the command to it would loop or 127 (#2542).
+  aiur_build_gate_wrapper_marker='aiur-build-gate-command-wrapper-marker'
+
+  aiur_build_gate_is_wrapper_file() {
+    [[ -r $1 ]] || return 1
+    head -c 4096 "$1" 2>/dev/null | grep -q "$aiur_build_gate_wrapper_marker" 2>/dev/null
+  }
+
+  aiur_build_gate_path_command() {
     local command_name=$1 candidate
     local wrapper_path="${AIUR_BUILD_GATE_BIN:-}/$command_name"
 
     while IFS= read -r candidate; do
-      if [[ -z ${AIUR_BUILD_GATE_BIN:-} || ! $candidate -ef $wrapper_path ]]; then
-        printf '%s\n' "$candidate"
-        return 0
+      if [[ -n ${AIUR_BUILD_GATE_BIN:-} && $candidate -ef $wrapper_path ]]; then
+        continue
       fi
+
+      aiur_build_gate_is_wrapper_file "$candidate" && continue
+
+      printf '%s\n' "$candidate"
+      return 0
     done < <(type -aP "$command_name" 2>/dev/null)
 
     return 1
+  }
+
+  # PATH first, then the toolchain manager. `mise which` answers for the
+  # directory's tool configuration, which is the toolchain the caller meant; it
+  # is the escape from a PATH whose only entry for this name is a wrapper.
+  aiur_build_gate_real_command() {
+    local command_name=$1 mise_binary resolved
+
+    if resolved=$(aiur_build_gate_path_command "$command_name"); then
+      printf '%s\n' "$resolved"
+      return 0
+    fi
+
+    mise_binary=$(aiur_build_gate_path_command mise) || return 1
+    resolved=$("$mise_binary" which "$command_name" 2>/dev/null) || return 1
+
+    [[ -n $resolved && -x $resolved ]] || return 1
+    aiur_build_gate_is_wrapper_file "$resolved" && return 1
+
+    printf '%s\n' "$resolved"
   }
 
   aiur_build_gate_owner_pid() {
@@ -1676,7 +1710,8 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
       [[ -n $path_entry ]] || path_entry=.
 
-      if [[ ! $path_entry/elixir -ef ${AIUR_BUILD_GATE_BIN:-}/elixir ]]; then
+      if [[ ! $path_entry/elixir -ef ${AIUR_BUILD_GATE_BIN:-}/elixir ]] &&
+        ! aiur_build_gate_is_wrapper_file "$path_entry/elixir"; then
         filtered_path+="$separator$path_entry"
         separator=:
       fi
@@ -1688,7 +1723,10 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   }
 
   aiur_build_gate_command_unavailable() {
-    aiur_build_gate_log "gate_error reason=command_unavailable command=$1 status=127"
+    aiur_build_gate_log \
+      "gate_error reason=command_unavailable command=$1 wrapper=${AIUR_BUILD_GATE_BIN:-}/$1 status=127"
+    aiur_build_gate_log \
+      "hint run=\"${AIUR_BUILD_GATE_BIN:-}/$1 __aiur_build_gate_self_check__\""
     return 127
   }
 

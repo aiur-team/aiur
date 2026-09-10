@@ -27,14 +27,34 @@
 # (e.g. the streamdeck Vitest job) can never match a line here, so listing them
 # would be inert — track those on their own ticket instead.
 
-# Quarantined for #2397: reads the configured repository through the shared
-# WorkflowStore singleton, which can serve a stale valid config under load.
-# Last observed run 32630000223 (2026-08-23).
-Aiur.GitHub.IssuesTest :: normalize_issue/4 marks malformed configured repositories explicitly nonjoinable
-
-# Shared WorkflowStore-config family, sibling of the quarantined test above.
-# Last observed run 32646869941 coverage (1/4) (2026-08-23).
-Aiur.GitHub.IssuesTest :: normalize_issue/4 does not use the current checkout when repository configuration is absent
+# The shared-WorkflowStore-stale-config family — two Aiur.GitHub.IssuesTest
+# entries and three Aiur.GitHub.BotIdentityTest entries — was listed here and is
+# now removed. #2509 fixed the cause: WorkflowStore read the config twice per
+# reload, once for the workflow and once for the freshness stamp, so a write
+# landing between the two recorded the new content's digest against the old
+# content's workflow and served the pre-write config indefinitely.
+#
+# Worth recording, because it is the argument for auditing the rest of this
+# file: the first entry named that cause — "the shared WorkflowStore singleton,
+# which can serve a stale valid config under load" — on 2026-08-23, and it was
+# fixed on 2026-09-03. For eleven days five tests reported a real config-reload
+# defect and were classified as noise. The entry was written honestly and the
+# call was reasonable at the time; the lesson is about how long a correct
+# diagnosis can sit behind a flake label, not about who wrote it.
+#
+# Four of the five were verified against #2509 rather than assumed: each passes
+# under a companion process force-reloading the store continuously, and each
+# fails again under that same pressure when #2509's single read is reverted to a
+# double read (4/5, 2/5, 5/5 and 3/5 of five runs). A recurrence is now a
+# regression and must report as NEW.
+#
+# The fifth, "normalize_issue/4 does not use the current checkout when
+# repository configuration is absent", needs no such check: #2520 renamed it to
+# "uses the current checkout ..." when it inverted that behaviour, so the line
+# had already stopped matching anything the runner can print. Entries do not
+# announce when they go inert — the match is byte-exact and a stale line looks
+# exactly like a quiet one — which is a second reason to re-read this file on a
+# schedule rather than only when a flake is fixed.
 
 # decision_store_test.exs:2624 saturation dispatch ordering (#2402).
 # Last observed 2026-08-23.
@@ -51,15 +71,6 @@ Aiur.BuildOrder.TicketHistoryProviderTest :: publishes immutable per-ticket upda
 # commit 5c1679f7, 2026-08-23) was listed here and is now removed: this change
 # fixes it with the shared-children recovery, so a recurrence is a regression
 # and must report as NEW.
-
-# Unticketed. Observed blocking docs-only PR #2412 (+84/-0, one file) and #2282
-# (2026-08-23); passes on current main in isolation (12 tests, 0 failures).
-# Ruled out the obvious regression suspect #2370 by running against main.
-Aiur.GitHub.BotIdentityTest :: daemon_account/3 under a split identity resolves the daemon App bot, not the account agents publish as
-Aiur.GitHub.BotIdentityTest :: falls back from config bot account to authenticated viewer login
-
-# Observed on docs-only PR #2342, run referenced on #2397 (2026-08-24).
-Aiur.GitHub.BotIdentityTest :: classifies both split identities as Aiur's own from config alone
 
 # Unticketed, reported on PR #2451 (2026-08-24) as a load-dependent allowlist
 # failure in coverage (3/4). The exact name is pinned to the test definition so

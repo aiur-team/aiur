@@ -54,6 +54,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     def selected(server, identity), do: invoke(server, :selected, [identity])
     def demand(server, identity), do: invoke(server, :demand, [identity])
     def refresh(server, identity), do: invoke(server, :refresh, [identity])
+    def refresh_catalog(server), do: invoke(server, :refresh_catalog, [])
     def release(server, identity), do: invoke(server, :release, [identity])
     def subscribe_context(server, identity), do: invoke(server, :subscribe_context, [identity])
 
@@ -118,6 +119,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     defp reply(:selected, [identity], state), do: selected_reply(state, identity)
     defp reply(:demand, [identity], state), do: selected_reply(state, identity)
     defp reply(:refresh, [_identity], _state), do: :ok
+    defp reply(:refresh_catalog, [], _state), do: :ok
     defp reply(:release, [_identity], _state), do: :ok
     defp reply(:subscribe_context, [_identity], _state), do: :ok
     defp reply(:unsubscribe_context, [_identity], _state), do: :ok
@@ -200,6 +202,20 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:catalog, []} in calls
     assert {:subscribe_sources, []} in calls
     refute Enum.any?(calls, &match?({:demand, _}, &1))
+  end
+
+  # #2544: on a repository with no webhooks the catalog only ever republishes
+  # what boot deposited, so an operator needs a control that buys the GitHub
+  # re-converge — and a held button must not turn into a stream of them.
+  test "the catalog page buys a re-converge, and a held button still buys only one", %{source: source} do
+    assert {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert html =~ ~s(id="build-orders-refresh-catalog")
+    assert html =~ ~s(phx-click="refresh-catalog")
+
+    for _click <- 1..3, do: render_click(view, "refresh-catalog")
+
+    calls = FakeDataSource.calls(source)
+    assert Enum.count(calls, &(&1 == {:refresh_catalog, []})) == 1
   end
 
   # The regression this guards is not "a number appears". It is that four

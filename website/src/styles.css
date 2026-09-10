@@ -35,16 +35,111 @@
     overflow-x: hidden;
   }
 
+  /* ---------- sibling-project announcement strip ----------
+     A quiet full-width band at the very top of the page, in normal flow, so it
+     pushes nothing around and can never overlap the top bar or the hero. It
+     mirrors the strip on the sibling Archon site: centred monospace copy with
+     the dismiss control tucked against the right edge. */
+  .announce {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px 12px;
+    /* right padding clears the absolutely placed dismiss control */
+    padding: 10px 44px 10px 16px;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--pill-bg);
+    font-family: "JetBrains Mono", monospace;
+    font-size: clamp(11px, 1.5vw, 13px);
+    letter-spacing: 0.02em;
+    /* keeps the copy centred once it wraps onto a second line on narrow screens */
+    text-align: center;
+    color: var(--muted);
+    transition: background-color 0.5s ease, border-color 0.5s ease;
+  }
+  html[data-archon-banner="dismissed"] .announce { display: none; }
+  .announce-copy {
+    line-height: 1.5;
+    text-wrap: pretty;
+  }
+  .announce-copy strong {
+    font-weight: 500;
+    color: var(--fg);
+  }
+  .announce-link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    white-space: nowrap;
+    transition: text-decoration-thickness 0.2s ease;
+  }
+  .announce-link:hover { text-decoration-thickness: 2px; }
+  .announce-dismiss {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  .announce-dismiss svg { width: 14px; height: 14px; display: block; }
+  .announce-dismiss:hover {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+  }
+  .announce-link:focus-visible,
+  .announce-dismiss:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .announce, .announce-link, .announce-dismiss { transition: none; }
+  }
+
+  /* ---------- first screen ----------
+     The announcement strip takes its own row in normal flow; the top bar and
+     the hero share the second row, stacked, so the bar keeps floating over the
+     hero without claiming any of its height. The row is what is left of the
+     viewport after the strip, so the first screen is still exactly 100svh
+     however tall the strip wraps — no magic numbers, and nothing to measure. */
+  .fold {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 100svh;
+  }
+
   /* ---------- top bar ---------- */
   .topbar {
-    position: fixed;
-    inset: 0 0 auto 0;
+    /* sticky, not fixed: at rest it sits below the announcement strip instead
+       of on top of it, and it pins to the viewport the moment the strip
+       scrolls away. `pinned` (set once the strip is fully scrolled past) hands
+       it over to fixed so it stays for the rest of the page, as it always did;
+       the two agree exactly at the hand-over point, so nothing jumps. */
+    position: sticky;
+    top: 0;
+    grid-row: 2;
+    grid-column: 1;
+    align-self: start;
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 22px 26px;
     z-index: 20;
     pointer-events: none;
+  }
+  .topbar.pinned {
+    position: fixed;
+    inset: 0 0 auto 0;
   }
   .brand-mini {
     pointer-events: auto;
@@ -107,7 +202,11 @@
   /* ---------- hero ---------- */
   .hero {
     position: relative;
-    min-height: 100svh;
+    /* sized by the fold's second row: the viewport less the announcement strip,
+       and free to grow past it when the lockup needs more room */
+    grid-row: 2;
+    grid-column: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     align-items: center;

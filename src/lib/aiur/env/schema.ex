@@ -203,6 +203,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_DEBUG", type: :boolean, group: :dev, default: false, purpose: "Enable debug logging (1 / true / yes)."},
     {"AIUR_SCREEN_GRAB", type: :boolean, validate: false, example: false, group: :dev, purpose: "Enable per-pane screen-grab diagnostics."},
     {"AIUR_PREWARM_DISABLED", type: :boolean, group: :dev, default: false, purpose: "Disable opencode pre-warm (1 / true / yes)."},
+    {"AIUR_GH_KEYRING_TIMEOUT_MS", type: :integer, group: :dev, purpose: "Timeout (ms) for the `gh auth token` keyring lookup; raise it for a slow-but-succeeding keyring unlock."},
     {"AIUR_OPENCODE_BRIDGE_PORT", type: :integer, group: :dev, purpose: "opencode-serve bridge port; picked automatically when unset."},
     {"AIUR_SSH_CONFIG", type: :path, group: :dev, purpose: "Custom ssh config path used for git operations."},
     {"AIUR_DEFAULT_DASHBOARD_HOST", type: :string, group: :dev, default: "127.0.0.1", purpose: "Default dashboard bind host when server.host is unset."},

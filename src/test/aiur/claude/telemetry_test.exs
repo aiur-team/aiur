@@ -65,6 +65,27 @@ defmodule Aiur.Claude.TelemetryTest do
     refute inspect(event) =~ "TOP_SECRET"
   end
 
+  test "reports the model the running agent actually served, once per change", %{server: server, issue: issue} do
+    # A `claude` route names no version, so the dashboard can only say which
+    # model is running if the session reports it. Every api-request event
+    # carries it; re-reporting an unchanged model would be pure noise.
+    issue = %{issue | id: "issue-1123"}
+    launch = launch(server, issue, execution_recipient: self())
+
+    assert submit(server, authorization(launch), payload("session-observed", "request-first")).status == 200
+    assert_receive {:session_resolved_model, "issue-1123", @model}, 2_000
+
+    assert submit(server, authorization(launch), payload("session-observed", "request-second")).status == 200
+    refute_receive {:session_resolved_model, _issue_id, _model}, 200
+  end
+
+  test "names no model for a launch with no execution recipient", %{server: server, issue: issue} do
+    launch = launch(server, issue)
+
+    assert submit(server, authorization(launch), payload("session-anonymous", "request-anonymous")).status == 200
+    refute_receive {:session_resolved_model, _issue_id, _model}, 200
+  end
+
   test "accepts the sanitized exact Claude Code 2.1.210 compatibility fixture", %{server: server, issue: issue} do
     launch = launch(server, issue)
     assert :ok = Telemetry.subscribe()

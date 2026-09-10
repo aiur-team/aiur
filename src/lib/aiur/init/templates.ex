@@ -137,8 +137,8 @@ defmodule Aiur.Init.Templates do
 
   defp tracker_provider_block(%{kind: "github"} = github) do
     # label_prefix is fixed (`agent`) and matches the schema default, so the
-    # written config omits it. bot_account is the identity (not the GITHUB_TOKEN
-    # credential) Aiur suppresses to avoid self-loops; omitted when left blank.
+    # written config omits it. bot_account is the agents' publishing identity
+    # (not the GITHUB_TOKEN credential); omitted when left blank.
     [
       "  github:",
       github[:repo] && "    repo: #{github[:repo]}",

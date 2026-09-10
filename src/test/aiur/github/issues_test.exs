@@ -1,9 +1,24 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.{GitHub.Issues, Issue}
+  alias Aiur.{GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
+
+  # A double of `/issues/:n/dependencies/blocked_by` as observed on the reported
+  # run: it answers `304` to anything carrying a validator — its ETag tracks the
+  # blocked issue, not the blocker state it embeds — and the truth to an
+  # unconditional read (#2550, #2552).
+  defp stale_validator_endpoint(fresh) do
+    fn request ->
+      if Map.has_key?(request, :etag) do
+        {:ok, %{status: 304, headers: [{"etag", ~s("e1")}]}}
+      else
+        {:ok, %{status: 200, body: fresh, headers: [{"etag", ~s("e2")}]}}
+      end
+    end
+  end
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
+  @origin_cache_key {Aiur.GitHub.Config, :resolved_origin_repo}
 
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
@@ -211,6 +226,26 @@ defmodule Aiur.GitHub.IssuesTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    # Guards the too-large clause in `conditional_get/4`: with it reverted the
+    # collector's empty-bodied 200 falls through to `github_status_error/1` and
+    # this returns the bare `%{status: 200}` detail with no `:reason`.
+    test "reports an over-limit open-issue list as too large, not as a bare 200" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["Todo"]
+      )
+
+      request_fun = fn request ->
+        assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+        {:ok, %{status: 200, headers: [], body: "", private: %{aiur_response_too_large: true}}}
+      end
+
+      assert {:error, {:github, :http, %{status: 200, reason: :response_too_large, max_response_bytes: 16_777_216}}} =
+               Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+    end
+
     test "revalidates one authoritative list and reuses it only on 304" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
@@ -243,9 +278,10 @@ defmodule Aiur.GitHub.IssuesTest do
           {:ok, %{status: 200, headers: [], body: []}}
         else
           assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
-          # The open-issue list is bound by its own, larger cap (#2140); the
-          # single-issue cap would truncate a growing backlog.
-          assert request.max_response_bytes == 1_048_576
+          # The open-issue list is bound by its own, larger cap (#2140) sized to
+          # the endpoint's ceiling — one full page of maximal bodies — so a
+          # spec-heavy backlog does not truncate (#2533).
+          assert request.max_response_bytes == 16_777_216
 
           Agent.get_and_update(list_step, fn
             0 ->
@@ -396,6 +432,39 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.id == "42"
       assert issue.assignee_id == "dev"
     end
+
+    test "does not authorize a closed terminal issue during dispatch revalidation" do
+      parent = self()
+
+      request_fun = fn %{method: :get, url: url} ->
+        if String.ends_with?(url, "/timeline?per_page=100") do
+          send(parent, :timeline_requested)
+          {:ok, %{status: 200, headers: [], body: []}}
+        else
+          body = %{
+            "number" => 1766,
+            "title" => "Already completed",
+            "body" => nil,
+            "html_url" => "https://github.com/owner/repo/issues/1766",
+            "state" => "closed",
+            "labels" => [%{"name" => "sym:done"}, %{"name" => "sym:rate-limit-fallback"}],
+            "assignee" => nil,
+            "created_at" => "2026-01-01T00:00:00Z",
+            "updated_at" => "2026-01-02T00:00:00Z"
+          }
+
+          {:ok, %{status: 200, body: body}}
+        end
+      end
+
+      assert {:ok, [issue]} =
+               Issues.fetch_issue_states_by_ids(["1766"], request_fun: request_fun)
+
+      assert issue.state == "Closed"
+      assert issue.state_labels == ["done"]
+      refute_received :timeline_requested
+      refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous"}}, 100
+    end
   end
 
   describe "hydrate_blocked_by/1" do
@@ -499,6 +568,73 @@ defmodule Aiur.GitHub.IssuesTest do
                  url: "https://github.com/owner/repo/issues/4"
                }
              ]
+    end
+
+    test "a hydrated closed blocker clears the dependency gate (#2545)" do
+      request_fun = fn %{method: :get, url: _url} ->
+        blockers = [
+          %{"number" => 3, "html_url" => "u3", "state" => "closed", "labels" => [%{"name" => "sym:done"}]},
+          %{"number" => 7, "html_url" => "u7", "state" => "closed", "labels" => []}
+        ]
+
+        {:ok, %{status: 200, body: blockers}}
+      end
+
+      issue = %Issue{id: "12", identifier: "12", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: blockers} = hydrated} =
+               Issues.hydrate_blocked_by(issue, request_fun: request_fun)
+
+      assert Enum.map(blockers, & &1.state) == ["Closed", "Closed"]
+
+      # The configured terminal set has no "closed" entry — the gate must still
+      # let the ticket through, or a closed GitHub blocker strands its blockee.
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+    end
+
+    # Regression for #2550 / #2552, from the aiur-team/architecture-docs run:
+    # eighteen `agent:todo` tickets sat at `dispatch_decline=:dependency` against
+    # blockers that had closed hours earlier. `hydrate_blocked_by/1` asks for
+    # freshness, but the endpoint's validator tracks the *blocked* issue rather
+    # than the blocker objects it embeds, so a conditional read was answered
+    # `304` and the store's original body — with the blocker's original labels —
+    # was handed to the gate. Only `ResourceStore.forget/1` cleared it.
+    #
+    # The double below is that endpoint: `304` to anything conditional, the truth
+    # to an unconditional read.
+    test "a blocker closed since the list was stored clears the gate without an explicit forget (#2550)" do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 24)
+      held = [%{"number" => 14, "html_url" => "u14", "state" => "open", "labels" => [%{"name" => "sym:todo"}]}]
+      ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+
+      closed = [%{"number" => 14, "html_url" => "u14", "state" => "closed", "labels" => [%{"name" => "sym:done"}], "updated_at" => "2026-09-04T10:00:00Z"}]
+
+      issue = %Issue{id: "24", identifier: "24", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: [blocker]} = hydrated} =
+               Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint(closed))
+
+      assert blocker.state == "Closed"
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+    end
+
+    test "a dependency edge deleted on GitHub clears the gate without an explicit forget (#2552)" do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 25)
+      held = [%{"number" => 14, "html_url" => "u14", "state" => "open", "labels" => [%{"name" => "sym:todo"}]}]
+      ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+
+      issue = %Issue{id: "25", identifier: "25", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: []} = hydrated} =
+               Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint([]))
+
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     test "an open blocker with no agent state label hydrates as unknown (fail-closed at the gate)" do
@@ -665,31 +801,106 @@ defmodule Aiur.GitHub.IssuesTest do
                Issues.normalize_issue(missing_node, "owner", "repo", "sym").tracker_identity
     end
 
-    test "does not use the current checkout when repository configuration is absent" do
+    # A shared `~/.aiur/config` that names no repo is the multi-repo case from
+    # #2518: every GitHub call already resolves its repository from the
+    # checkout's origin via `Config.repo/0`, so identity has to resolve the same
+    # repository. When it did not, every issue normalized to an unjoinable
+    # identity and every agent dispatch failed `:missing_tracker_identity`.
+    test "uses the current checkout when repository configuration is absent" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: nil,
         tracker_label_prefix: "sym"
       )
 
-      issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
+      # Stub the shell boundary rather than reading the checkout's real remote,
+      # so the assertion is the identity contract and not "this build has an
+      # origin". `normalize_issue/4` has no option seam, so seed the resolved
+      # value the production path reads.
+      :persistent_term.put(@origin_cache_key, "acme/widgets")
+      on_exit(fn -> :persistent_term.erase(@origin_cache_key) end)
 
-      assert %{status: :unjoinable, reason: :missing_configured_repository} =
-               Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
+      issue = %{"number" => 16, "node_id" => "I_kwDOIssue16", "labels" => []}
+      identity = Issues.normalize_issue(issue, "acme", "widgets", "sym").tracker_identity
+
+      assert %{status: :joinable, owner: "acme", repository: "widgets", identifier: "16"} = identity
+      assert Aiur.TrackerIdentity.joinable?(identity)
     end
 
-    # Quarantined for #2397: this integration test reads `configured_repo/0`
-    # through the shared `WorkflowStore` singleton, and under load the store can
-    # serve the previous (valid) config for this path right after the malformed
-    # write + `force_reload` — CI run 32630000223 caught it returning a
-    # `:joinable` identity with `owner/repo`. The same shape reproduces locally
-    # (~2%) when this module runs immediately after `workflow_store_test.exs`,
-    # which manipulates the shared cache directly. The exact residual-state
-    # mechanism is not yet pinned down; the behavior stays covered by the
-    # deterministic pure-layer test in `tracker_identity_test.exs`, and the
-    # quarantine job keeps this integration path exercised non-blockingly so a
-    # regression still surfaces.
-    @tag :quarantine
+    # The auto-detected repository is still only a default: an explicitly
+    # configured one must keep winning, or the trusted cross-repository setup
+    # (daemon in checkout A tracking repo B) silently retargets.
+    test "an explicitly configured repository still wins over a differing checkout origin" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym"
+      )
+
+      :persistent_term.put(@origin_cache_key, "acme/widgets")
+      on_exit(fn -> :persistent_term.erase(@origin_cache_key) end)
+
+      issue = %{"number" => 19, "node_id" => "I_kwDOIssue19", "labels" => []}
+
+      assert %{status: :joinable, owner: "owner", repository: "repo"} =
+               Issues.normalize_issue(issue, "owner", "repo", "sym").tracker_identity
+
+      assert %{status: :unjoinable, reason: :repository_mismatch} =
+               Issues.normalize_issue(issue, "acme", "widgets", "sym").tracker_identity
+    end
+
+    # The #2518 acceptance bar: identity must resolve for a repository whose
+    # config lives OUTSIDE the global file. This drives the real chain —
+    # `resolve_config_path/1` picks the repo-local file over a global one that
+    # names a different repository, that file becomes active, and identity
+    # resolves from it. Asserting `configured_repo/0` merely returns something
+    # non-nil would pass against the bug; this does not.
+    test "resolves identity from a repo-local config while a global config names another repository" do
+      previous_path = Workflow.workflow_file_path()
+      dir = Aiur.TestSupport.tmp_root!("aiur-2518-config-precedence")
+      repo_local = Path.join([dir, "repo", ".aiur", "config"])
+      global = Path.join([dir, "home", ".aiur", "config"])
+      File.mkdir_p!(Path.dirname(repo_local))
+      File.mkdir_p!(Path.dirname(global))
+
+      # The global file names a DIFFERENT repository, so a fix that made the
+      # global config win would resolve `global-org/global-repo` here.
+      write_workflow_file!(global, tracker_kind: "github", tracker_repo: "global-org/global-repo", tracker_label_prefix: "sym")
+
+      # The repo-local file carries no `tracker.github.repo` — the shared-config
+      # shape from the report — so identity must come from the checkout.
+      write_workflow_file!(repo_local, tracker_kind: "github", tracker_repo: nil, tracker_label_prefix: "sym")
+
+      candidates = [repo_local, Path.join([dir, "repo", ".aiurconfig"]), global, Path.join([dir, "home", ".aiurconfig"])]
+      assert Workflow.resolve_config_path(candidates) == repo_local
+
+      Workflow.set_workflow_file_path(repo_local)
+      :persistent_term.put(@origin_cache_key, "acme/widgets")
+
+      on_exit(fn ->
+        :persistent_term.erase(@origin_cache_key)
+        Workflow.set_workflow_file_path(previous_path)
+        File.rm_rf!(dir)
+      end)
+
+      issue = %{"number" => 20, "node_id" => "I_kwDOIssue20", "labels" => []}
+      identity = Issues.normalize_issue(issue, "acme", "widgets", "sym").tracker_identity
+
+      assert %{status: :joinable, owner: "acme", repository: "widgets", identifier: "20"} = identity
+      assert Aiur.TrackerIdentity.joinable?(identity)
+      refute identity.repository == "global-repo"
+    end
+
+    # This reads `configured_repo/0` through the shared `WorkflowStore`
+    # singleton, which is why it was quarantined for #2397: under load the store
+    # served the previous (valid) config for this path right after the malformed
+    # write + `force_reload`, and CI run 32630000223 caught it returning a
+    # `:joinable` identity with `owner/repo`. That mechanism is now pinned and
+    # fixed — #2509 made the store derive the workflow and its freshness stamp
+    # from a single read, so a write can no longer land between the two and
+    # leave the pre-write config published. The tag is removed with it: a test
+    # left excluded is not protected by the entry that was removed on its
+    # behalf.
     test "marks malformed configured repositories explicitly nonjoinable" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",

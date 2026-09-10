@@ -2,6 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   @moduledoc false
 
   alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.Models
   alias AiurWeb.OperatorControlCenter.UnitsControlPolicy
 
   @spec present(map(), DateTime.t() | nil) :: %{unit: map(), latest: map(), command: map()}
@@ -121,7 +122,36 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   @spec model_label(map()) :: String.t() | nil
   def model_label(%{resolved_model: model}) when is_binary(model) and model != "", do: model
   def model_label(%{requested_model: model}) when is_binary(model) and model != "", do: model
+
+  def model_label(%{backend: backend}) when is_binary(backend) and backend != "" do
+    case CodingAgent.resolve_model(backend, nil) do
+      model when is_binary(model) and model != "" -> model
+      _no_default -> nil
+    end
+  end
+
   def model_label(_row), do: nil
+
+  @doc """
+  The model + version chip for a row: `%{label: "OPUS 5.1", id: "claude-opus-5-1"}`.
+
+  The id is what the session actually ran on — the model the running agent
+  reported, else the model its route asked for, else the backend's own
+  default. Only the label is short enough for a chip, so the raw id rides
+  along for the `title` attribute; a row whose model no source can name
+  returns `nil` and renders no chip at all rather than an empty one.
+  """
+  @spec model_version(map()) :: %{label: String.t(), id: String.t()} | nil
+  def model_version(row) when is_map(row) do
+    with id when is_binary(id) <- model_label(row),
+         label when is_binary(label) <- Models.label(id) do
+      %{label: label, id: id}
+    else
+      _unknown -> nil
+    end
+  end
+
+  def model_version(_row), do: nil
 
   defp backend_label(%{backend: backend}) when is_binary(backend) and backend != "" do
     backend |> String.replace("_", " ") |> String.capitalize()

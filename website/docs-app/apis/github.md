@@ -60,6 +60,10 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 
 The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
 
+The keyring lookup (`gh auth token`) is bounded at boot, so a `gh` that stalls — a locked keyring prompting for a passphrase, a slow host, or a missing GUI credential agent — cannot hang the daemon with no log line.
+
+The lookup logs before the shell-out and treats an unanswered lookup as "no keyring credential" (never a fatal error), naming `gh auth login` on timeout. The default bound is 5 seconds; set `AIUR_GH_KEYRING_TIMEOUT_MS` to a larger positive integer when a slow-but-succeeding unlock legitimately needs more time, or a smaller one to fail faster.
+
 ### Organization repository access during init
 
 `aiur init` verifies that it can read the configured repository before it offers CI or label setup. GitHub deliberately returns `404 Not Found`, rather than `403 Forbidden`, for an inaccessible private repository, so a repository 404 is not proof that the repository or its base branch is missing.
@@ -93,12 +97,15 @@ An installation token authenticates as the App's bot user, `<app-slug>[bot]`, so
 
 | Setup | Requirement |
 | --- | --- |
-| `tracker.github.bot_account` | Set to the App's bot login, `<app-slug>[bot]`. |
-| Unset or non-bot login | Needs-attention `system.github_app_token.identity_mismatch` alert at boot. |
+| `tracker.github.github_app.account` | Set to the App's bot login, `<app-slug>[bot]`. |
+| `tracker.github.bot_account` | Keep set to the account agents use to push branches, open pull requests, and comment on tickets. |
+| App account unset or not a bot login | Needs-attention `system.github_app_token.identity_mismatch` alert at boot. |
 
-Self-loop suppression, PR command handling, and the CODEOWNERS self-include all key off `bot_account`, so a wrong login means the daemon does not recognize its own writes.
+Self-loop suppression and PR command handling key off the daemon account: `github_app.account` under App auth, with `bot_account` as the fallback when App auth is not configured.
 
-Git commits keep their configured author; only GitHub API objects are authored by the App bot. Add the App bot login to `trusted_accounts` if any gate needs to trust it beyond the `bot_account` self-include.
+CODEOWNERS self-includes both the daemon account and the agents' `bot_account`. A wrong App login prevents self-write recognition; replacing `bot_account` with that login instead breaks agent-authorship checks.
+
+Git commits keep their configured author; only GitHub API objects are authored by the App bot. Add the App bot login to `trusted_accounts` only if a gate needs to trust it beyond the configured daemon identity and built-in self-includes.
 
 See `docs/security/daemon-token-posture.md` in this repository for the full setup narrative.
 

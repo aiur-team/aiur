@@ -89,9 +89,21 @@ defmodule Aiur.DecisionStore do
   @recent_decision_limit 50
   @maximum_legacy_page_limit 200
   @maximum_legacy_page_offset 1_000_000
-  @transient_failure_classes ["orchestrator_unavailable", "orchestrator_timeout"]
-  @revision_transient_failure_classes @transient_failure_classes ++
-                                        ["target_agent_unavailable", "target_revalidation_failed"]
+  # One retry ladder for every answered Decision, revision or not. A target
+  # that is momentarily unreachable — paused, restarting, or refused a wake
+  # because the fleet is at its active cap — is a transient fault: the answer
+  # is already durable and the agent is still waiting on it. Splitting the
+  # ladder left a *first* answer with exactly two retryable classes, so a
+  # delivery that failed `target_agent_unavailable` was recorded `failed` and
+  # never retried — and, being non-actionable below, never raised either. The
+  # answer was silently dropped and only an operator noticing a stuck agent
+  # found it (#2558).
+  @transient_failure_classes [
+    "orchestrator_unavailable",
+    "orchestrator_timeout",
+    "target_agent_unavailable",
+    "target_revalidation_failed"
+  ]
   # Delivery failures whose target is structurally unreachable cannot be made
   # actionable by re-raising them as needs-attention: an agent that no longer
   # exists cannot act, so the alert would assert the opposite of its own
@@ -100,11 +112,12 @@ defmodule Aiur.DecisionStore do
   # build (or an earlier attempt) is retired rather than left active (#2419).
   #
   # "Non-actionable" is an alert-surface verdict, not a liveness one: the same
-  # class is transient in the revision retry ladder
-  # (`@revision_transient_failure_classes`), and an answered decision stays
-  # visible and explicitly retryable on the decision surface (the Control
-  # Center renders it `delivery_failed` with a retry affordance), so a
-  # temporarily-restarting agent is never silently dropped.
+  # class is transient in `@transient_failure_classes`, so a
+  # temporarily-restarting agent is retried automatically rather than left for
+  # the operator. The suppression only holds while that ladder still has
+  # attempts left; once it is spent, `emit_retry_exhausted_attention/3` raises
+  # regardless of class, because "nothing can act on this" stops being true
+  # the moment the operator is the only thing left that can (#2558).
   @non_actionable_failure_classes ["target_agent_unavailable"]
   @system_follow_up_actor %{kind: :system, id: "decision-store"}
 
@@ -3878,19 +3891,47 @@ defmodule Aiur.DecisionStore do
         schedule_dispatch(state, decision, false, delay)
         next_state
 
-      _other ->
+      _exhausted ->
+        emit_retry_exhausted_attention(decision, action_id, retry_count)
         next_state
     end
   end
 
-  defp transient_failure?(%Decision{revision_sequence: sequence}, reason_class) when sequence > 0,
-    do: reason_class in @revision_transient_failure_classes
+  # The bounded ladder is the only automatic recovery an answered Decision
+  # gets. Once it is spent the answer really is stuck behind an unreachable
+  # target, so it must be raised even when its failure class is otherwise
+  # suppressed as non-actionable — which is exactly the case that lost an
+  # answer with no operator-visible trace at all (#2558). Emitted once per
+  # action, from the exhaustion branch only, so a saturated fleet retrying
+  # many decisions cannot storm the attention feed; it lands *after*
+  # `project_delivery_attention/4` has already run for this failure, so the
+  # raise supersedes any `.resolved` clear that branch wrote.
+  defp emit_retry_exhausted_attention(decision, action_id, attempts) do
+    _ =
+      Alerts.emit_custom(
+        failure_attention_topic(decision),
+        "Decision answer delivery gave up for #{decision.decision_id} after #{attempts} automatic retries.",
+        issue: decision.ticket.identifier,
+        reason:
+          "Decision #{decision.decision_id} action #{action_id} exhausted its bounded delivery " <>
+            "retries; the answer is recorded but undelivered and needs an operator retry.",
+        needs_attention: true,
+        severity: "warning"
+      )
+
+    :ok
+  end
 
   defp transient_failure?(%Decision{}, reason_class), do: reason_class in @transient_failure_classes
 
   defp dispatch_failure_class(:unavailable), do: "orchestrator_unavailable"
   defp dispatch_failure_class(:timeout), do: "orchestrator_timeout"
   defp dispatch_failure_class(:no_running_agent), do: "target_agent_unavailable"
+  # A wake refused because the fleet is at its active cap is the same fault as
+  # a restarting agent — the target cannot take the answer *right now* — so it
+  # rides the same bounded ladder instead of falling through to the opaque,
+  # terminal `dispatch_rejected` (#2558).
+  defp dispatch_failure_class(:max_concurrent_agents_reached), do: "target_agent_unavailable"
   defp dispatch_failure_class(:task_unavailable), do: "dispatch_task_unavailable"
   defp dispatch_failure_class(:dispatcher_crashed), do: "dispatcher_crashed"
   defp dispatch_failure_class(:decision_dispatch_overloaded), do: "decision_dispatch_overloaded"

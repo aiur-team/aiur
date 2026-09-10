@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderPresenter
+  alias AiurWeb.BuildOrderViewModel.Group
   alias AiurWeb.OperatorControlCenter.BuildOrderBreakdown
 
   @repository {"owner", "repo"}
@@ -74,6 +75,61 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
       assert row(projection.epics, "runtime").points == 3
     end
 
+    test "reports a wave whose members are all closed as completed at 100%" do
+      model = model([m(1, phase: 1, cx: 3, closed: true), m(2, phase: 1, lane: "runtime", cx: 5, closed: true)])
+
+      projection = BuildOrderBreakdown.projection(model)
+
+      assert row(projection.phases, 1).progress == 100
+      assert Enum.all?(projection.epics, &(&1.progress == 100))
+    end
+
+    test "weights member progress by complexity points rather than by head count" do
+      activity = activity_snapshot([activity(identity(2), 50)])
+
+      model =
+        model(
+          [m(1, phase: 1, lane: "runtime", cx: 3, closed: true), m(2, phase: 1, lane: "runtime", cx: 1)],
+          activity: activity
+        )
+
+      projection = BuildOrderBreakdown.projection(model)
+
+      # (3 x 100 + 1 x 50) / 4 = 87.5, and never the 75% a plain mean would give.
+      assert row(projection.phases, 1).progress == 88
+      assert row(projection.epics, "runtime").progress == 88
+    end
+
+    test "counts an open member with no known progress reading as zero" do
+      activity = activity_snapshot([%{identity: identity(1), status: :fresh, progress: progress_reading(:unknown)}])
+      model = model([m(1, phase: 1, lane: "runtime", cx: 3)], activity: activity)
+
+      projection = BuildOrderBreakdown.projection(model)
+
+      assert row(projection.phases, 1).progress == 0
+    end
+
+    test "falls back to a plain mean when the row carries no usable points" do
+      activity = activity_snapshot([activity(identity(2), 40)])
+      model = model([bare(1, ["phase:1", "build-lane:runtime"]), bare(2, ["phase:1", "build-lane:runtime"])], activity: activity)
+
+      projection = BuildOrderBreakdown.projection(model)
+
+      assert row(projection.phases, 1).points == 0
+      assert row(projection.phases, 1).progress == 20
+    end
+
+    test "reports an epic with no members as zero rather than as an undefined bar" do
+      model = model([m(1, phase: 1, lane: "runtime", cx: 3)])
+      empty = %Group{dimension: :lane, key: "docs", label: "Docs", node_keys: [], count: 0}
+
+      projection = BuildOrderBreakdown.projection(%{model | lane_groups: model.lane_groups ++ [empty]})
+
+      docs = row(projection.epics, "docs")
+      assert docs.count == 0 and docs.progress == 0
+      assert render_breakdown(%{model | lane_groups: model.lane_groups ++ [empty]}) =~ ~s(data-breakdown-progress="0")
+    end
+
     test "carries the named degraded status instead of an empty table" do
       stale = ProviderHealth.new(9, :stale, false, observed_at: @now, last_success_at: @now)
       projection = BuildOrderBreakdown.projection(model([m(1)], health: stale))
@@ -98,6 +154,26 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
       refute html =~ "Plan distribution"
       refute html =~ "Ready at start"
       refute html =~ ~s(id="bo-phase-breakdown")
+    end
+
+    test "fills the row bar from ticket progress and prints the percent beside it" do
+      activity = activity_snapshot([activity(identity(2), 50)])
+
+      html =
+        render_breakdown(
+          model(
+            [m(1, phase: 1, lane: "runtime", cx: 3, closed: true), m(2, phase: 1, lane: "runtime", cx: 1)],
+            activity: activity
+          )
+        )
+
+      assert html =~ ~s(data-breakdown-progress="88")
+      assert html =~ ~s(<i style="width:88%">)
+      assert html =~ ">done<"
+      assert html =~ ">88%<"
+      # The bar is completion, never the wave's size relative to the largest wave.
+      refute html =~ ~s(<i style="width:100%">)
+      assert html =~ "Ticket progress, members, and complexity points per Waves"
     end
 
     test "renders the named stale state when degraded" do
@@ -239,7 +315,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
     labels = ["complexity:#{Keyword.get(opts, :cx, 3)}", "phase:#{Keyword.get(opts, :phase, 1)}", "build-lane:#{Keyword.get(opts, :lane, "plan-graph")}"]
     dependencies = Enum.map(Keyword.get(opts, :blockers, []), &Dependency.new(identity(number), identity(&1), issue_url(&1), :blocked_by))
 
-    Member.new(%{identity: identity(number), title: "Ticket #{number}", url: issue_url(number), state: :open, labels: labels, updated_at: @now, dependencies: dependencies})
+    {state, state_reason} = if Keyword.get(opts, :closed, false), do: {:closed, :completed}, else: {:open, nil}
+
+    Member.new(%{
+      identity: identity(number),
+      title: "Ticket #{number}",
+      url: issue_url(number),
+      state: state,
+      state_reason: state_reason,
+      labels: labels,
+      updated_at: @now,
+      dependencies: dependencies
+    })
   end
 
   defp bare(number, labels) do
@@ -249,19 +336,24 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
   defp status_snapshot, do: %{running: [], retrying: [], idle: []}
   defp activity_snapshot(entries), do: %{generation: 12, entries: entries, diagnostics: %{}}
 
-  defp activity(identity) do
+  defp activity(identity, percent \\ 10) do
     %{
       identity: identity,
       status: :fresh,
       active_stage: :work,
       stage: %{status: :known, value: :work, freshness: :fresh, observed_at: @now, event_id: 2},
-      progress: %{status: :known, percent: 10, source: :checkin, freshness: :fresh, occurred_at: @now, observed_at: @now, event_id: 3},
+      progress: progress_reading(percent),
       latest_evidence: %{status: :unknown},
       provenance: %{},
       observed_at: @now,
       retention: :current
     }
   end
+
+  defp progress_reading(:unknown), do: %{status: :unknown}
+
+  defp progress_reading(percent),
+    do: %{status: :known, percent: percent, source: :checkin, freshness: :fresh, occurred_at: @now, observed_at: @now, event_id: 3}
 
   defp identity(number) do
     %TrackerIdentity{

@@ -561,6 +561,17 @@ defmodule Aiur.AiurAgentSkillTest do
     end
   end
 
+  test "Executor wake guidance separates notification, consumption, and recovery" do
+    run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
+
+    assert run_skill =~ "The tail is notification-only"
+    assert run_skill =~ "does **not** advance the durable cursor"
+    assert run_skill =~ "cannot substitute for `executor-wait`"
+    assert run_skill =~ "WAKES CURSOR <id>\nPENDING <count>"
+    assert run_skill =~ "executor-fast-forward <wake-id>"
+    assert run_skill =~ "Never use it merely because the backlog is large"
+  end
+
   test "Executor decision relay covers backend push, RC, and the Decisions log" do
     monitor_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
     relay = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/references/alerts-and-decisions.md"))

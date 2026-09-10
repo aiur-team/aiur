@@ -89,12 +89,13 @@ defmodule Aiur.GitHub.DependenciesApi do
   # The blocked_by read is store-backed. Aiur writes the edge itself
   # (`dependency_mutate/4`) and learns it free over the `issue_dependencies`
   # webhook, so a held list answers the "did my write land?" confirming reads in
-  # `Aiur.GitHub.IssueDependencies` with zero upstream calls, and a stale list
-  # costs a free `304` to revalidate against the response ETag.
+  # `Aiur.GitHub.IssueDependencies` with zero upstream calls.
   #
   # A held body is served as-is unless `revalidate: true` is passed — the
   # dispatch gate's `hydrate_blocked_by` passes it so a blocker added outside
-  # Aiur's own writes cannot be silently missed for a cycle (fail-closed).
+  # Aiur's own writes, or one that closed since the list was stored, cannot be
+  # silently missed for a cycle (fail-closed). See `revalidation_etag/2` for why
+  # that read cannot be a conditional one.
   defp blocked_by_get(issue_number, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
@@ -107,13 +108,12 @@ defmodule Aiur.GitHub.DependenciesApi do
 
   # A held list answers unless the caller demands freshness (`revalidate: true`,
   # which the dispatch gate passes so a blocker added outside Aiur's own writes
-  # cannot be silently missed). Revalidation sends the stored ETag, so an
-  # unchanged list costs a free `304` rather than a full read.
+  # cannot be silently missed).
   defp blocked_by_serve(key, request_fun, token, url, opts) do
     if served_blocked_by?(key, opts) do
       {:ok, ResourceStore.data(key)}
     else
-      blocked_by_request(key, request_fun, token, url, stored_etag(key))
+      blocked_by_request(key, request_fun, token, url, revalidation_etag(key, opts))
     end
   end
 
@@ -121,9 +121,29 @@ defmodule Aiur.GitHub.DependenciesApi do
     not is_nil(key) and not Keyword.get(opts, :revalidate, false) and is_list(ResourceStore.data(key))
   end
 
+  # `revalidate: true` means "I need the truth", and on this endpoint the stored
+  # validator cannot supply it. GitHub's ETag for
+  # `/issues/:n/dependencies/blocked_by` tracks the *blocked* issue, not the
+  # blocker objects the response embeds: a blocker that merged and closed, a
+  # blocker relabelled `agent:done`, and an edge deleted outright all leave the
+  # endpoint answering `304`, and the held body — carrying each blocker's
+  # original state — is then served in its place. The dispatch gate derives
+  # blocker state from exactly those embedded labels, so the whole fleet stalls
+  # against blockers that closed hours earlier and only `ResourceStore.forget/1`
+  # clears it (#2550, #2552).
+  #
+  # So a revalidating read is sent unconditionally. It is bounded by dispatch
+  # attempts rather than by tracker size (see `Issues.hydrate_blocked_by/1`),
+  # and the #2326 confirming reads — which do not ask for freshness — still
+  # answer from the held body with no request at all, validator included.
+  defp revalidation_etag(key, opts) do
+    if Keyword.get(opts, :revalidate, false), do: nil, else: stored_etag(key)
+  end
+
   defp stored_etag(key), do: if(is_nil(key), do: nil, else: ResourceStore.etag(key))
 
-  # One conditional GET. A `304` is served from the held body; a `304` with no
+  # One GET, conditional only when a validator was handed in (see
+  # `revalidation_etag/2`). A `304` is served from the held body; a `304` with no
   # body to serve (a validator that survived a restart) discards the stale
   # validator and retries once unconditionally — the same fail-open recovery the
   # issue conditional reader uses.
@@ -134,7 +154,10 @@ defmodule Aiur.GitHub.DependenciesApi do
     case request_fun.(request) do
       {:ok, %{status: 200, body: body} = response} when is_list(body) ->
         retained = Transport.header(Map.get(response, :headers, []), "etag") || etag
-        if not is_nil(key), do: ResourceStore.put_resource(key, body, source: :fetch, etag: retained)
+
+        if not is_nil(key),
+          do: ResourceStore.put_resource(key, body, source: :fetch, etag: retained, version: blocked_by_version(body))
+
         {:ok, body}
 
       {:ok, %{status: 304}} ->
@@ -147,6 +170,35 @@ defmodule Aiur.GitHub.DependenciesApi do
         {:error, Errors.classify_error({:error, reason})}
     end
   end
+
+  # `:issue_blocked_by` is order-sensitive (`ResourceStore.@order_sensitive_types`):
+  # this full read, the dependency mutation and the `issue_dependencies` webhook
+  # edge deposit all write the key, and a late `blocked_by_added` landing after a
+  # removal would re-add an edge GitHub has already dropped. The guard compares
+  # markers on *both* sides, so a version-less deposit does not weaken it — it
+  # switches it off, which is what the store warned about on every deposit from
+  # here (#2552).
+  #
+  # The endpoint's list carries no marker of its own, so the marker is the newest
+  # `updated_at` among the blockers it names: the same clock the edge deposits
+  # version themselves with (`Deposit.blocked_by_edge_deposits/3`), so the two
+  # writers are comparable. A list naming nothing has no marker to derive and
+  # answers `nil` — there is no edge for a late delivery to roll back to.
+  defp blocked_by_version(body) when is_list(body) do
+    case Enum.flat_map(body, &blocker_updated_at/1) do
+      [] -> nil
+      markers -> Enum.max(markers)
+    end
+  end
+
+  defp blocker_updated_at(blocker) when is_map(blocker) do
+    case Map.get(blocker, "updated_at") do
+      updated_at when is_binary(updated_at) and updated_at != "" -> [updated_at]
+      _absent -> []
+    end
+  end
+
+  defp blocker_updated_at(_not_a_map), do: []
 
   # A `304` answers "nothing changed"; serve the held body when there is one. A
   # validator that outlived its body (restart, eviction) is discarded and the
