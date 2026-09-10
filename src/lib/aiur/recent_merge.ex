@@ -117,7 +117,28 @@ defmodule Aiur.RecentMerge do
   """
   @spec closing_issue_identifiers(t()) :: [String.t()]
   def closing_issue_identifiers(%__MODULE__{summary: summary, repository: repository}) when is_binary(summary) do
-    summary
+    closing_issue_identifiers_in_body(summary, repository)
+  end
+
+  def closing_issue_identifiers(%__MODULE__{}), do: []
+
+  @doc """
+  `closing_issue_identifiers/1` against a raw pull request body.
+
+  The live `ticket.<id>.pr.merged` route resolves its ticket from the
+  `aiur/<id>-<slug>` head branch, so it needs to ask this question of the body
+  itself rather than of a stored merge record: a body saying `Refs #176` names
+  the ticket without closing it, and closing it anyway destroys an operator's
+  open checklist (#2609). Same parser, same deliberate narrowness — see
+  `closing_issue_identifiers/1`.
+
+  `repository` scopes `owner/repo#123` references; pass `nil` when the
+  repository is unknown, which keeps bare `#123` references and drops every
+  qualified one rather than guessing that a qualified reference is local.
+  """
+  @spec closing_issue_identifiers_in_body(String.t() | nil, String.t() | nil) :: [String.t()]
+  def closing_issue_identifiers_in_body(body, repository \\ nil) do
+    body
     |> closing_references_from_text()
     |> Enum.filter(fn {reference_repository, _number} ->
       reference_repository == nil or same_repository?(reference_repository, repository)
@@ -125,8 +146,6 @@ defmodule Aiur.RecentMerge do
     |> Enum.map(fn {_repository, number} -> number end)
     |> Enum.uniq()
   end
-
-  def closing_issue_identifiers(%__MODULE__{}), do: []
 
   defp normalize_github_merge(event, pull, opts) do
     live? = Keyword.get(opts, :live?, false) == true

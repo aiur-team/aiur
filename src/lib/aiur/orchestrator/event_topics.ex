@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.EventTopics do
     do: CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
 
   defp route_classified(state, {:pr_merged, identifier}, event),
-    do: CommentWake.mark_pr_merged_issue_done(state, identifier, merged_by_login: get_in(event, [:pr, "merged_by", "login"]))
+    do: CommentWake.mark_pr_merged_issue_done(state, identifier, pr_merged_opts(event))
 
   defp route_classified(state, {:ci_failed, identifier}, _event),
     do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :failed)
@@ -48,6 +48,25 @@ defmodule Aiur.Orchestrator.EventTopics do
     do: PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
 
   defp route_classified(state, :nomatch, _event), do: state
+
+  @doc """
+  What the merged-PR route reads off a `ticket.<id>.pr.merged` event.
+
+  The topic's identifier comes from the `aiur/<id>-<slug>` head branch, which
+  says the PR belongs to the ticket but not that it completes it — so the PR
+  body travels with it. Only the body can distinguish `Closes #N` from `Refs
+  #N`, and closing a ticket the PR never claimed to close retires an operator's
+  open acceptance checklist (#2609).
+  """
+  @spec pr_merged_opts(map()) :: keyword()
+  def pr_merged_opts(event) when is_map(event) do
+    pr = if is_map(Map.get(event, :pr)), do: Map.get(event, :pr), else: %{}
+
+    [
+      merged_by_login: get_in(pr, ["merged_by", "login"]),
+      pr_body: Map.get(pr, "body")
+    ]
+  end
 
   defp provisional_unblock?(event) do
     Enum.any?(

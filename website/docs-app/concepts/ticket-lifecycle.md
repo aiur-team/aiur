@@ -74,7 +74,7 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle.ex:1100-1109`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume.ex:166-169` |
 | `human-review`, `merging` | **the agent itself**, via `gh issue edit`; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
-| `done` | orchestrator on merge — only when no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
+| `done` | orchestrator on merge — only when the merged PR's body carries a closing keyword for the ticket *and* no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
@@ -482,8 +482,18 @@ happened and burns a dispatch (`rework_gate.ex:3-13`).
 
 Merge the PR yourself or delegate it to your Executor. `agent:merging` →
 `agent:done`; a merged PR closes the issue and the orchestrator stamps `done`
-(`merged_ticket_reconciler.ex:92-129`) — but only when the ticket has no
-blocking open pull request.
+(`merged_ticket_reconciler.ex:92-129`) — but only when the PR body claims the
+ticket and the ticket has no blocking open pull request.
+
+**The PR body decides, not the branch.** A ticket's PR is matched by its
+`aiur/<ticket>-<slug>` head branch, which says the PR belongs to the ticket,
+not that it completes it. Only a documented closing keyword — `Closes`,
+`Fixes` or `Resolves` followed by `#<ticket>` — lets a merge stamp `done`. Write
+`Refs #<ticket>` instead when the merge is deliberately only part of the
+acceptance (a proof ticket whose other half is deployed evidence, say): the
+ticket stays open in `human-review` with its checklist intact. A PR with no
+body, or one naming the ticket without a keyword, is treated the same way —
+absent evidence is never closing evidence.
 
 A ticket can legitimately carry two open `aiur/<ticket>-` PRs, so a merge that
 leaves one still open routes the ticket to `rework` (that PR has unresolved
