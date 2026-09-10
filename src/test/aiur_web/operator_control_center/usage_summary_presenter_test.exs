@@ -70,6 +70,31 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
       assert view.api_equivalent.estimate? and view.provider_reported.estimate?
     end
 
+    test "renders a float-scaled provider total to two decimals everywhere it appears" do
+      raw = Decimal.new("47.145408500000006406")
+
+      snap =
+        snapshot(%{
+          provider_reported_estimate: %{by_currency: %{"USD" => raw}},
+          contributors: %{
+            by_provider: [contributor(:claude, "USD", "47.145408500000006406")],
+            by_auth_mode: [],
+            by_ticket: [],
+            by_model: [],
+            by_currency: [],
+            by_provider_route: [contributor(%{provider: :claude, upstream_provider: nil}, "USD", "47.145408500000006406")]
+          }
+        })
+
+      view = Presenter.present(snap)
+
+      assert [%{currency: "USD", amount: "47.15"}] = view.provider_reported.by_currency
+      assert [%{amount: "47.15"}] = view.providers.claude.api_equivalent
+      assert [%{api_equivalent_label: "47.15 USD"}] = view.routes.entries
+      assert Presenter.announcement(view) =~ "Provider-reported estimate 47.15 USD."
+      refute Presenter.announcement(view) =~ "47.145408500000006406"
+    end
+
     test "unknown cost is named unknown, never zero" do
       snap =
         snapshot(%{

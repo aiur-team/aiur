@@ -4,9 +4,14 @@ defmodule Aiur.Orchestrator.EventTopics do
   """
 
   alias Aiur.Orchestrator.{CiLifecycle, CommentWake, PushRouting, State}
+  alias Aiur.RunTelemetry.Lifecycle
 
   @spec route(State.t(), map()) :: State.t()
   def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
+    # The consumed event is the run's source of truth for a live PR fact: anchor
+    # it in this boot's telemetry before acting, so the run-scoped counters see
+    # the same merge the Build Order graph does.
+    Lifecycle.record_external(event)
     route_classified(state, classify_event_topic(topic), event)
   end
 

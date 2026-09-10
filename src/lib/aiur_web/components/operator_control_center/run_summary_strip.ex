@@ -5,6 +5,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   alias Aiur.CodingAgent
   alias Aiur.ModelAvailability
+  alias AiurWeb.OperatorControlCenter.Money
 
   # The dispatch-limits ledger's buckets, used to find the governing one when a
   # provider has no live meter observation this boot.
@@ -653,7 +654,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     |> Enum.reduce(%{}, fn %{currency: currency, amount: amount}, totals ->
       Map.update(totals, currency, Decimal.new(amount), &Decimal.add(&1, Decimal.new(amount)))
     end)
-    |> Enum.map(fn {currency, amount} -> %{currency: currency, amount: Decimal.to_string(amount, :normal)} end)
+    |> Enum.map(fn {currency, amount} -> %{currency: currency, amount: Money.format_amount(amount)} end)
     |> Enum.sort_by(& &1.currency)
   end
 

@@ -39,6 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   """
 
   alias Aiur.{CodingAgent, Usage.GroupedScopes}
+  alias AiurWeb.OperatorControlCenter.Money
 
   @type snapshot :: map()
   @type view :: map()
@@ -705,8 +706,8 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
     end
   end
 
-  # Exact formatted decimal; never rounded, never coerced to a guessed zero.
-  defp format_amount(%Decimal{} = amount), do: Decimal.to_string(amount, :normal)
-  defp format_amount(amount) when is_binary(amount), do: amount
-  defp format_amount(_amount), do: "unknown"
+  # Rendered to two decimals at this presentation boundary; the grouped
+  # snapshot underneath stays exact and an unknown amount is never coerced to
+  # a guessed zero.
+  defp format_amount(amount), do: Money.format_amount(amount)
 end
