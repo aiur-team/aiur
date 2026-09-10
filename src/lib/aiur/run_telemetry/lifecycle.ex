@@ -161,41 +161,6 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
   def observe_backend_message(_ticket, _attempt_id, _backend, _message, _opts), do: :ok
 
-  @doc """
-  Records the body-free lifecycle anchor of an external GitHub event the daemon
-  consumed live, under the current boot.
-
-  A merge or PR-open that arrives after boot is otherwise invisible to the
-  run-scoped analytics: the orchestrator acts on it and the Build Order graph
-  reflects it, but nothing wrote the `pr_merged` / `pr_opened` point into the
-  telemetry stream, so "PRs merged this run" stayed at zero while the graph
-  showed the member merged. Historical anchors replayed during startup
-  reconciliation take the separate `github_reconciliation` path and are not
-  counted against the live boot.
-  """
-  @spec record_external(map(), keyword()) :: :ok
-  def record_external(event, opts \\ [])
-
-  def record_external(event, opts) when is_map(event) and is_list(opts) do
-    with {:ok, attributes, timestamp} <- external_anchor(event),
-         true <- enabled?(opts) do
-      recorder =
-        Keyword.get(opts, :recorder) ||
-          Application.get_env(:aiur, :run_telemetry_lifecycle_recorder, &RunTelemetry.record/3)
-
-      recorder.(:lifecycle, attributes, timestamp: timestamp)
-    end
-
-    :ok
-  rescue
-    _error -> :ok
-  catch
-    :exit, _reason -> :ok
-    _kind, _reason -> :ok
-  end
-
-  def record_external(_event, _opts), do: :ok
-
   @doc "Converts a trusted GitHub exchange event into a body-free lifecycle anchor."
   @spec external_anchor(map()) :: {:ok, map(), term()} | :skip
   def external_anchor(event) when is_map(event) do

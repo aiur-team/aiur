@@ -88,8 +88,10 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
 
       view = Presenter.present(snap)
 
-      assert [%{currency: "USD", amount: "47.15"}] = view.provider_reported.by_currency
-      assert [%{amount: "47.15"}] = view.providers.claude.api_equivalent
+      assert [%{currency: "USD", amount: "47.15", amount_exact: "47.145408500000006406"}] =
+               view.provider_reported.by_currency
+
+      assert [%{amount: "47.15", amount_exact: "47.145408500000006406"}] = view.providers.claude.api_equivalent
       assert [%{api_equivalent_label: "47.15 USD"}] = view.routes.entries
       assert Presenter.announcement(view) =~ "Provider-reported estimate 47.15 USD."
       refute Presenter.announcement(view) =~ "47.145408500000006406"

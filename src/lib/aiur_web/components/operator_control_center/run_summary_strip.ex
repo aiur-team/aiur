@@ -649,13 +649,30 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end
   end
 
+  # Sums the presenter's exact decimals and rounds the total exactly once at
+  # this leaf; the display `amount` is never parsed back into arithmetic.
   defp sum_by_currency(amounts) do
     amounts
-    |> Enum.reduce(%{}, fn %{currency: currency, amount: amount}, totals ->
-      Map.update(totals, currency, Decimal.new(amount), &Decimal.add(&1, Decimal.new(amount)))
+    |> Enum.flat_map(fn entry ->
+      case exact_amount(entry) do
+        {:ok, amount} -> [{entry.currency, amount}]
+        :error -> []
+      end
     end)
+    |> Enum.reduce(%{}, fn {currency, amount}, totals -> Map.update(totals, currency, amount, &Decimal.add(&1, amount)) end)
     |> Enum.map(fn {currency, amount} -> %{currency: currency, amount: Money.format_amount(amount)} end)
     |> Enum.sort_by(& &1.currency)
+  end
+
+  defp exact_amount(%{amount_exact: exact}) when is_binary(exact), do: parse_exact(exact)
+  defp exact_amount(%{amount: amount}) when is_binary(amount), do: parse_exact(amount)
+  defp exact_amount(_entry), do: :error
+
+  defp parse_exact(value) do
+    case Decimal.parse(value) do
+      {decimal, ""} -> {:ok, decimal}
+      _other -> :error
+    end
   end
 
   defp money_list([%{currency: currency, amount: amount}]), do: currency_amount(currency, amount)

@@ -5,8 +5,12 @@ defmodule AiurWeb.OperatorControlCenter.Money do
   Aggregation keeps exact decimals; this module rounds only at the point a
   value is shown so an operator reads `47.15 USD`, never the raw
   `47.145408500000006406` the arithmetic produced. A nonzero amount that
-  rounds to zero is named `<0.01` so real spend is never rendered as nothing,
-  and an unknown amount stays the word `unknown` rather than a guessed zero.
+  rounds to zero is named `<0.01` (`-<0.01` when negative) so real spend is
+  never rendered as nothing, and an unknown amount stays the word `unknown`
+  rather than a guessed zero.
+
+  `exact_string/1` is the companion for anything that must keep arithmetic
+  precision (sorting, summing): the formatted string is for eyes only.
   """
 
   @scale 2
@@ -16,10 +20,10 @@ defmodule AiurWeb.OperatorControlCenter.Money do
   def format_amount(%Decimal{} = amount) do
     rounded = Decimal.round(amount, @scale)
 
-    if Decimal.eq?(rounded, 0) and not Decimal.eq?(amount, 0) do
-      "<0.01"
-    else
-      Decimal.to_string(rounded, :normal)
+    cond do
+      not Decimal.eq?(rounded, 0) or Decimal.eq?(amount, 0) -> Decimal.to_string(rounded, :normal)
+      Decimal.negative?(amount) -> "-<0.01"
+      true -> "<0.01"
     end
   end
 
@@ -31,4 +35,17 @@ defmodule AiurWeb.OperatorControlCenter.Money do
   end
 
   def format_amount(_amount), do: "unknown"
+
+  @doc "The exact decimal as a string, for values that are summed or sorted rather than read."
+  @spec exact_string(Decimal.t() | String.t() | term()) :: String.t() | nil
+  def exact_string(%Decimal{} = amount), do: Decimal.to_string(amount, :normal)
+
+  def exact_string(amount) when is_binary(amount) do
+    case Decimal.parse(amount) do
+      {decimal, ""} -> Decimal.to_string(decimal, :normal)
+      _other -> nil
+    end
+  end
+
+  def exact_string(_amount), do: nil
 end

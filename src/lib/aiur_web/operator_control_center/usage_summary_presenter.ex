@@ -394,6 +394,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
         %{
           currency: currency,
           amount: format_amount(amount),
+          amount_exact: Money.exact_string(amount),
           subscription_marked?: MapSet.member?(subscription_currencies, currency)
         }
       end)
@@ -413,7 +414,9 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
     by_currency =
       estimate
       |> Map.get(:by_currency, %{})
-      |> Enum.map(fn {currency, amount} -> %{currency: currency, amount: format_amount(amount)} end)
+      |> Enum.map(fn {currency, amount} ->
+        %{currency: currency, amount: format_amount(amount), amount_exact: Money.exact_string(amount)}
+      end)
       |> Enum.sort_by(& &1.currency)
 
     %{estimate?: true, by_currency: by_currency, any?: by_currency != []}
@@ -604,6 +607,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
       %{
         currency: currency,
         amount: format_amount(amount),
+        amount_exact: Money.exact_string(amount),
         subscription_marked?: mark_subscription? and MapSet.member?(subscription_currencies, currency)
       }
     end)
@@ -708,6 +712,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
 
   # Rendered to two decimals at this presentation boundary; the grouped
   # snapshot underneath stays exact and an unknown amount is never coerced to
-  # a guessed zero.
+  # a guessed zero. Every money entry also carries `amount_exact` so a caller
+  # that sums or sorts never re-parses the display string.
   defp format_amount(amount), do: Money.format_amount(amount)
 end
