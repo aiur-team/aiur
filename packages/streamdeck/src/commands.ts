@@ -298,6 +298,29 @@ export function activeCommandCount(page: StreamDeckCommandsPage): number {
   return page.items.reduce((count, item) => (isAnswerable(item.status) ? count + 1 : count), 0);
 }
 
+/**
+ * How many Commands the focused agent still owes an answer on, for the Commands
+ * *key* on the cmd surface.
+ *
+ * Delegates to {@link activeCommandCount} on purpose: the key that says
+ * `2 PENDING` and the page it opens read the same count from the same code, so
+ * they cannot disagree. What this adds is the two cases the key has to survive
+ * and the page does not:
+ *
+ * - an unavailable page counts zero — the store could not be read, which is not
+ *   evidence that a decision is waiting;
+ * - a page that names a different agent counts zero, which covers the window
+ *   between a focus change and the server's push for the newly focused agent.
+ *   Without it the key would borrow the previous agent's pending decisions.
+ */
+export function pendingCommandCount(page: StreamDeckCommandsPage | null | undefined, identifier?: string | null): number {
+  if (page === null || page === undefined || page.unavailable === true) return 0;
+  const pageIdentifier = page.identifier;
+  const wanted = identifier ?? "";
+  if (typeof pageIdentifier === "string" && pageIdentifier !== "" && wanted !== "" && pageIdentifier !== wanted) return 0;
+  return activeCommandCount(page);
+}
+
 /** The touch strip's view model for the Commands page. */
 export interface CommandsPanelModel {
   readonly view: "history" | "detail";

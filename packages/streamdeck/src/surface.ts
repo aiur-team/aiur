@@ -1,6 +1,7 @@
 import type { HidBackend } from "./backend.js";
 import { BLACK, buildKeyFillReport, DEFAULT_FILL_INDEX_BASE, type RgbColor } from "./keys/keyFill.js";
 import { layoutKeys, layoutPhysicalKeys, type AgentInput, type KeyDescriptor } from "./keys.js";
+import type { BucketId } from "./key-face-contract.js";
 import { KeyRenderer } from "./keys/keyRenderer.js";
 import { KeyWriteQueue } from "./keys/writeQueue.js";
 import { createKeyReportWriter } from "./keys/keyWriter.js";
@@ -15,7 +16,7 @@ import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
 import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
-import { settingsView, type SettingsView } from "./settings.js";
+import { MIC_KEY_INDICES, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY, settingsView, type SettingsView } from "./settings.js";
 import { voicePanel, type VoicePanelData, type VoicePanelInput } from "./voicePanel.js";
 import type { AudioDevice } from "./audio/index.js";
 import {
@@ -23,6 +24,7 @@ import {
   detailPanel,
   historyKeyDescriptors,
   historyPanel,
+  pendingCommandCount,
 } from "./commands.js";
 import type { StreamDeckCommand, StreamDeckCommandsPage } from "./channel.js";
 
@@ -33,6 +35,12 @@ export interface PhysicalSurfaceState {
   readonly micHeld?: boolean;
   /** True while the voice buffer holds settled text; adds the Send/Cancel keys. */
   readonly hasTranscript?: boolean;
+  /**
+   * True between a successful Implement press and the next grid push, which is
+   * the whole life of the `QUEUED` sub-label: the deck reports what it asked
+   * for, and the ticket's real face returns with the daemon's next snapshot.
+   */
+  readonly implementQueued?: boolean;
   /** Microphones the host last enumerated, for the settings surface. */
   readonly microphones?: readonly AudioDevice[];
   readonly selectedMicId?: string | null;
@@ -180,15 +188,24 @@ export const descriptorEvents = (
   return slots;
 };
 
-/** One command key face; `identifier` namespaces it so two agents never share a cache entry. */
-const commandKey = (identifier: string, name: string, title: string, icon: string, subLabel: string): AgentInput => ({
+/**
+ * One command key face; `identifier` namespaces it so two agents never share a
+ * cache entry.
+ *
+ * `bucket` is how a command key asks for attention. Command keys are normally
+ * neutral (`queued`), and passing `alert` hands the key the shared key-face
+ * contract's alert tokens — the same amber an agent that needs input wears on
+ * the grid — so the deck has one vocabulary for "answer me" rather than a
+ * second colour invented for this surface.
+ */
+const commandKey = (identifier: string, name: string, title: string, icon: string, subLabel: string, bucket: BucketId = "queued"): AgentInput => ({
   identifier: `${identifier}:${name}`,
   title,
   vendor: "command",
   icon,
   role: "command",
   subLabel,
-  bucket: "queued",
+  bucket,
   progress_percent: null,
   priority: false,
   dependency_ready: true,
@@ -207,34 +224,73 @@ const commandKey = (identifier: string, name: string, title: string, icon: strin
  * Send and Cancel are absent rather than dimmed: before the operator has
  * spoken there is nothing to send, and a permanently lit Send invites a press
  * that delivers an empty message.
+ *
+ * A ticket with no agent gets Implement on the last slot instead of Pause on
+ * the first: there is nothing to pause, and the one action that surface owes
+ * the operator is "put an agent on this". The key reports `QUEUED` after a
+ * successful press and nothing more — the running face arrives with the next
+ * snapshot, when the daemon has actually dispatched it, rather than being
+ * faked here.
  */
-const descriptorCommands = (
+export const descriptorCommands = (
   agent: Readonly<Record<string, unknown>> | null | undefined,
   micHeld: boolean,
   hasTranscript: boolean,
+  pendingCommands = 0,
+  implementQueued = false,
 ): (AgentInput | undefined)[] => {
   const identifier = String(agent?.identifier ?? "focused");
   // Only a paused agent offers Resume. Keying this off `bucket === "running"`
   // instead made every alert/stuck/queued agent show a Resume key that the
   // controller then had no action for, so pressing it did nothing at all.
   const paused = agent?.bucket === "paused";
-  const command = (name: string, title: string, icon: string, subLabel: string): AgentInput =>
-    commandKey(identifier, name, title, icon, subLabel);
+  // `queued` is the grid's bucket for a ticket with no live agent (see
+  // `Aiur.AgentEvents.streamdeck_bucket/1`): every other bucket — running,
+  // paused, alert, stuck — is a ticket an agent already holds.
+  const agentless = agentLess(agent);
+  const command = (name: string, title: string, icon: string, subLabel: string, bucket: BucketId = "queued"): AgentInput =>
+    commandKey(identifier, name, title, icon, subLabel, bucket);
+  // The Commands key is a warning triangle rather than a question mark, and it
+  // counts the decisions the focused agent is waiting on: an operator reading
+  // the deck from across the room has to see that an answer is owed without
+  // opening the page to find out. With nothing pending it stays neutral and
+  // reads OPEN, so the loud state means something.
+  const pending = Math.max(0, Math.trunc(pendingCommands));
 
   return [
-    command("pause", paused ? "Resume" : "Pause", paused ? "play" : "pause", paused ? "RESUME" : "HOLD"),
+    agentless
+      ? undefined
+      : command("pause", paused ? "Resume" : "Pause", paused ? "play" : "pause", paused ? "RESUME" : "HOLD"),
     command("logs", "Logs", "logs", "OPEN"),
     command("mic", "Mic", "mic", micHeld ? "LIVE" : "HOLD"),
     command("settings", "Settings", "settings", "OPEN"),
-    command("commands", "Commands", "question", "OPEN"),
+    pending > 0
+      ? command("commands", "Commands", "alert", `${pending} PENDING`, "alert")
+      : command("commands", "Commands", "alert", "OPEN"),
     hasTranscript ? command("send", "Send", "send", "TO AGENT") : undefined,
     hasTranscript ? command("cancel", "Cancel", "cancel", "DISCARD") : undefined,
-    undefined,
+    agentless ? command("implement", "Implement", "robot", implementQueued ? "QUEUED" : "QUEUE") : undefined,
   ];
 };
 
 /**
- * The settings surface's eight keys: six microphones, TestMic, and paging.
+ * Whether the focused ticket has no live agent, and therefore offers Implement
+ * rather than Pause.
+ *
+ * Exported so the controller decides "is this key an Implement key?" from the
+ * same predicate the surface paints from: a second copy of the rule is how the
+ * key and the press drift apart.
+ */
+export const agentLess = (agent: Readonly<Record<string, unknown>> | null | undefined): boolean =>
+  agent !== null && agent !== undefined && agent.bucket === "queued";
+
+/**
+ * The settings surface's eight keys: TestMic, paging, and six microphones.
+ *
+ * TestMic sits on {@link SETTINGS_TEST_MIC_KEY} — the key the command surface
+ * paints Mic on — so hold-to-talk is under the same finger on both surfaces.
+ * The microphones therefore fill the keys {@link MIC_KEY_INDICES} names rather
+ * than a plain 0..5 run, and that one list is what the press handler reads too.
  *
  * The selected microphone reuses the **log surface's** selection idiom rather
  * than inventing a second one — `role: "event"` is what paints the brighter
@@ -244,32 +300,35 @@ const descriptorCommands = (
  * neither reads as definitive.
  */
 export const descriptorSettings = (view: SettingsView, micHeld: boolean): (AgentInput | undefined)[] => {
-  const mics: (AgentInput | undefined)[] = view.mics.map((slot) =>
-    slot === null
-      ? undefined
-      : {
-          identifier: `mic:${slot.id}`,
-          title: slot.label,
-          vendor: "settings",
-          role: "event" as const,
-          subLabel: slot.selected ? "IN USE" : "MIC",
-          timeLabel: "",
-          selected: slot.selected,
-          bucket: "queued" as const,
-          progress_percent: null,
-          priority: false,
-          dependency_ready: true,
-        },
-  );
+  const keys: (AgentInput | undefined)[] = Array.from({ length: 8 }, () => undefined);
 
-  return [
-    ...mics,
-    commandKey("settings", "test", "TestMic", "test", micHeld ? "LIVE" : "HOLD"),
-    // Paging is present only when there is a page to go to. An inert arrow on a
-    // machine with one microphone is a key that teaches the operator that keys
-    // on this surface sometimes do nothing.
-    view.hasPaging ? commandKey("settings", "page", "More", "next", view.pageLabel) : undefined,
-  ];
+  view.mics.forEach((slot, index) => {
+    const key = MIC_KEY_INDICES[index];
+    if (key === undefined || slot === null) return;
+    keys[key] = {
+      identifier: `mic:${slot.id}`,
+      title: slot.label,
+      vendor: "settings",
+      role: "event" as const,
+      subLabel: slot.selected ? "IN USE" : "MIC",
+      timeLabel: "",
+      selected: slot.selected,
+      bucket: "queued" as const,
+      progress_percent: null,
+      priority: false,
+      dependency_ready: true,
+    };
+  });
+
+  keys[SETTINGS_TEST_MIC_KEY] = commandKey("settings", "test", "TestMic", "test", micHeld ? "LIVE" : "HOLD");
+  // Paging is present only when there is a page to go to. An inert arrow on a
+  // machine with one microphone is a key that teaches the operator that keys
+  // on this surface sometimes do nothing.
+  keys[SETTINGS_NEXT_PAGE_KEY] = view.hasPaging
+    ? commandKey("settings", "page", "More", "next", view.pageLabel)
+    : undefined;
+
+  return keys;
 };
 
 /**
@@ -330,7 +389,7 @@ export const createPhysicalSurface = () => {
       const visibleGrid = state.mode === "logs"
         ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null, focused))
         : state.mode === "cmd"
-        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true))
+        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true, state.hasTranscript === true, pendingCommandCount(state.commandsPage, state.focusedIdentifier), state.implementQueued === true))
         : state.mode === "settings"
         ? layoutPhysicalKeys(descriptorSettings(mics, state.micHeld === true))
         : state.mode === "commands"

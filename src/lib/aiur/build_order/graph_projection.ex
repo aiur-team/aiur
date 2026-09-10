@@ -68,7 +68,9 @@ defmodule Aiur.BuildOrder.GraphProjection do
   fact that a page is open.
 
   Asynchronous, and coalesced against any read already inflight for the root, so
-  ten callers asking at once still produce one upstream read.
+  ten callers asking at once still produce one upstream read. It does not ask
+  whether a page happens to be registered on the root: a stated need is answered
+  for any root the projection holds (#2538).
   """
   @spec refresh(GenServer.server(), TrackerIdentity.t()) :: :ok
   def refresh(server \\ __MODULE__, identity) do
@@ -78,6 +80,17 @@ defmodule Aiur.BuildOrder.GraphProjection do
   @spec release(GenServer.server(), TrackerIdentity.t()) :: :ok | {:error, Failure.t()}
   def release(server \\ __MODULE__, identity), do: GenServer.call(server, {:release, identity})
 
+  @doc """
+  Re-converges the Build Order catalog, because an operator asked for it.
+
+  This buys the GraphQL re-converge as well as the rebuild from the store. The
+  store is fed by `sub_issues` / `issue_dependencies` deliveries, so on a repo
+  with no webhooks configured a store-only rebuild republishes the boot-time
+  world for ever — the defect this call exists to be an escape from (#2538).
+
+  Asynchronous, and coalesced: a re-converge already running is not joined by a
+  second one.
+  """
   @spec refresh_catalog(GenServer.server()) :: :ok
   def refresh_catalog(server \\ __MODULE__) do
     GenServer.cast(server, :refresh_catalog)
@@ -199,8 +212,21 @@ defmodule Aiur.BuildOrder.GraphProjection do
   end
 
   @impl true
+  # An operator saying "read this now". The catalog is event-sourced from the
+  # store, so a store-only rebuild republishes exactly what the deliveries have
+  # already deposited — on a repo with no webhooks configured, that is nothing
+  # written since boot, and the catalog reports `member_count: 0` for a root
+  # whose sub-issues exist on GitHub (#2538). So the explicit refresh buys the
+  # re-converge from GitHub as well, and the store rebuild it also requests
+  # publishes again when the reconciliation's deposits land.
+  #
+  # `start_reconciliation/1` declines while one is inflight, so ten operators
+  # refreshing at once still produce one GraphQL re-converge. There is
+  # deliberately no cooldown gate here: the cooldown exists to stop a *degraded*
+  # repo re-converging on every store event, and this path is not an event.
   def handle_cast(:refresh_catalog, state) do
     {state, events} = reconcile(state)
+    state = start_reconciliation(state)
     {state, refresh_events} = request_scope(state, :catalog)
     broadcast_all(state, events ++ refresh_events)
     {:noreply, state}
@@ -209,15 +235,18 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # The stated-need path. Unlike the cadence it replaces, it reads only a root
   # somebody is actually holding: an unknown root is not created here, because
   # creating one would let a caller buy a read for a root nothing is watching.
-  # `request_scope/2` already declines when a read is inflight, so concurrent
-  # callers coalesce onto one.
+  # The request is `force?`: it is answered for any root the projection holds,
+  # not only one a page is currently registered on. Whether anyone is watching
+  # is the question for a request the daemon *inferred*; this one was stated
+  # (#2538). The inflight and `max_inflight` rules still hold, so concurrent
+  # callers still coalesce onto one read.
   def handle_cast({:refresh_selected, identity}, state) do
     {state, events} = reconcile(state)
 
     {state, refresh_events} =
       with {:ok, identity} <- authorize_root(state, identity),
            %{scope: scope} <- Map.get(state.selected, Policy.root_key(identity)) do
-        request_scope(state, scope)
+        request_scope(state, scope, force?: true)
       else
         _not_held -> {state, []}
       end
@@ -430,6 +459,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
         # would grow without bound.
         selected_fingerprints: %{},
         pending: MapSet.new(),
+        forced: MapSet.new(),
         active_repository: snapshot.repository,
         active_configuration_generation: snapshot.generation,
         authority_fingerprint: snapshot.fingerprint,
@@ -466,6 +496,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
       |> Map.put(:catalog, catalog)
       |> Map.put(:selected, selected)
       |> Map.put(:pending, MapSet.new())
+      |> Map.put(:forced, MapSet.new())
 
     catalog_events = if(catalog_changed?, do: [{:health, catalog_snapshot(state)}], else: [])
     {state, catalog_events ++ Enum.reverse(selected_events)}
@@ -549,7 +580,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
         # would tell a later re-selection of the same root that it was already
         # current when it holds nothing at all.
         selected_fingerprints: Map.delete(state.selected_fingerprints, key),
-        pending: MapSet.delete(state.pending, entry.scope)
+        pending: MapSet.delete(state.pending, entry.scope),
+        forced: MapSet.delete(state.forced, entry.scope)
     }
   end
 
@@ -623,12 +655,17 @@ defmodule Aiur.BuildOrder.GraphProjection do
           |> Map.reject(fn {_key, entry} -> is_nil(entry) end)
 
         scope = selected_scope(state, key)
-        pending = if(active_scope_in?(selected, key), do: state.pending, else: MapSet.delete(state.pending, scope))
+        held? = active_scope_in?(selected, key)
+        pending = if(held?, do: state.pending, else: MapSet.delete(state.pending, scope))
+        # A forced request outlives neither its root nor its watchers: with the
+        # last demander gone there is nobody the read would be bought for.
+        forced = if(held?, do: state.forced, else: MapSet.delete(state.forced, scope))
 
         %{
           state
           | selected: selected,
             pending: pending,
+            forced: forced,
             monitor_by_ref: Map.delete(state.monitor_by_ref, ref),
             monitor_by_demand: monitor_by_demand
         }
@@ -659,8 +696,9 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp retry_due?(%{health: %{next_retry_at: next_retry_at}}, state),
     do: DateTime.compare(now(state), next_retry_at) != :lt
 
-  defp request_scope(state, scope) do
+  defp request_scope(state, scope, opts \\ []) do
     entry = scope_entry(state, scope)
+    forced? = forced_request?(state, scope, opts)
 
     cond do
       not configuration_ready?(state) ->
@@ -683,19 +721,45 @@ defmodule Aiur.BuildOrder.GraphProjection do
       # notice the newer one. Queue it; `admit_pending/1` starts it as soon as the
       # inflight read finishes.
       entry.inflight ->
-        if inflight_satisfies?(entry.inflight, state, scope),
-          do: {state, []},
-          else: {%{state | pending: MapSet.put(state.pending, scope)}, []}
+        {join_inflight(state, entry, scope, forced?), []}
 
-      not active_scope?(state, scope) ->
+      # "Nobody is watching" is the right answer to an *inferred* request and
+      # the wrong one to a stated need. A root can be held — its entry, its
+      # graph and its markers all retained — without a live page registered on
+      # it, and an operator asking for that root to be read now was being told
+      # nothing at all (#2538). A forced request reads what is held; it still
+      # cannot conjure an entry that does not exist, which is what stops a
+      # caller buying a read for a root the projection is not keeping.
+      not forced? and not active_scope?(state, scope) ->
         {state, []}
 
       map_size(state.inflight_by_ref) >= state.policy.max_inflight ->
-        {%{state | pending: MapSet.put(state.pending, scope)}, []}
+        {defer_scope(state, scope, forced?), []}
 
       true ->
         start_scope(state, entry, scope)
     end
+  end
+
+  # Forcing survives being queued: a forced request that had to wait for the
+  # inflight read is still forced when `admit_pending/1` re-offers it, or it
+  # would be dropped again by the very check it was meant to bypass.
+  defp forced_request?(state, scope, opts) do
+    Keyword.get(opts, :force?, false) or MapSet.member?(state.forced, scope)
+  end
+
+  defp join_inflight(state, entry, scope, forced?) do
+    if inflight_satisfies?(entry.inflight, state, scope),
+      do: state,
+      else: defer_scope(state, scope, forced?)
+  end
+
+  defp defer_scope(state, scope, forced?) do
+    %{
+      state
+      | pending: MapSet.put(state.pending, scope),
+        forced: if(forced?, do: MapSet.put(state.forced, scope), else: state.forced)
+    }
   end
 
   defp start_scope(state, entry, scope) do
@@ -736,6 +800,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
           |> Map.put(:next_attempt, attempt + 1)
           |> Map.put(:inflight_by_ref, Map.put(state.inflight_by_ref, task.ref, inflight))
           |> Map.put(:pending, MapSet.delete(state.pending, scope))
+          # The forced request is being served by this read, so it is spent.
+          |> Map.put(:forced, MapSet.delete(state.forced, scope))
 
         {state, [{:health, snapshot_for_entry(entry, state)}]}
 

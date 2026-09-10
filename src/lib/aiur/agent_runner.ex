@@ -5,7 +5,7 @@ defmodule Aiur.AgentRunner do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
+  alias Aiur.{AgentEventLog, Alerts, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
   alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Codex.SessionRecovery
@@ -13,6 +13,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
 
   @type worker_host :: String.t() | nil
@@ -134,7 +135,9 @@ defmodule Aiur.AgentRunner do
     case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun) do
       {:ok, ownership} ->
         try do
-          run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
+          with_workspace_host_lock(issue, opts, worker_host, fn ->
+            run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
+          end)
         after
           # The release request is intentionally distinct from the terminal
           # ownership boundary. A guardian may still be reaping a provider;
@@ -152,6 +155,7 @@ defmodule Aiur.AgentRunner do
       {:error, {:workspace_owned, owner}} ->
         record_workspace_ownership_conflict(issue, opts, owner)
         record_workspace_setup_end(issue, opts, :contended, :workspace_owned)
+        emit_live_session_alert(issue, describe_owner(owner))
 
         wait =
           if is_pid(codex_update_recipient) do
@@ -168,6 +172,70 @@ defmodule Aiur.AgentRunner do
         {:error, {:workspace_ownership_unavailable, reason}}
     end
   end
+
+  # `Ownership.claim/3` excludes a second session inside *this* daemon, but the
+  # workspace path is derived purely from repo and ticket, so a second daemon on
+  # the same host that resolves the same repo would walk straight into the same
+  # working tree (#2551). The filesystem is the only thing both daemons share,
+  # so the host lock is the exclusion primitive; refusing here is the difference
+  # between a loud, named refusal and two agents silently overwriting each
+  # other's files while both report green gates.
+  defp with_workspace_host_lock(issue, opts, worker_host, fun) do
+    case HostLock.acquire_for_issue(issue.identifier, worker_host) do
+      {:ok, lock} ->
+        try do
+          fun.()
+        after
+          HostLock.release(lock)
+        end
+
+      # A remote worker's workspace is on another machine's filesystem, so a
+      # lock taken on this host would exclude nothing.
+      :not_applicable ->
+        fun.()
+
+      {:error, {:workspace_locked, holder}} ->
+        refuse_host_locked_workspace(issue, opts, holder)
+
+      {:error, reason} ->
+        record_workspace_setup_end(issue, opts, :failed, reason)
+        {:error, reason}
+    end
+  end
+
+  defp refuse_host_locked_workspace(issue, opts, holder) do
+    description = HostLock.describe(holder)
+    record_workspace_setup_end(issue, opts, :contended, :workspace_host_locked)
+
+    Logger.error("Refusing to start a session for #{issue_context(issue)}: its workspace is already held by #{description}")
+
+    emit_live_session_alert(issue, description)
+    {:error, {:workspace_host_locked, holder}}
+  end
+
+  # A dispatch onto a ticket that already has a live session is exactly the
+  # condition #2551 was filed for. It must reach an operator rather than be
+  # left in the daemon log, and the message has to name the holder or the
+  # operator cannot tell which daemon to look at.
+  defp emit_live_session_alert(issue, description) do
+    identifier = issue.identifier
+
+    Alerts.emit_custom(
+      "ticket.#{identifier}.workspace.live_session",
+      "Refused to dispatch #{identifier}: its workspace already has a live session held by #{description}.",
+      issue: identifier,
+      holder: description,
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    :ok
+  end
+
+  defp describe_owner({:ok, %{owner_id: owner_id, generation: generation}}),
+    do: "this daemon's session owner=#{owner_id} generation=#{generation}"
+
+  defp describe_owner(_owner), do: "another session in this daemon"
 
   defp run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle) do
     case Workspace.create_for_issue(issue, worker_host, lifecycle: lifecycle) do

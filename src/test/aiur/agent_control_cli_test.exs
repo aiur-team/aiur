@@ -1210,7 +1210,11 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+    # Every admission measurement carries the age of the sample it came from, so
+    # a figure minutes older than the `LOAD` line beside it cannot read as
+    # current (#2527).
+    assert output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold} sampled="
+    assert output =~ ~r/AGENTS 0\/10 \(binding: load, .* sampled=\d+s ago\)/
 
     assert output =~
              "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
@@ -1231,7 +1235,7 @@ defmodule Aiur.AgentControlCLITest do
 
     assert corroborated_output =~
              "AGENTS 0/10 (binding: load+cpu contention, load=#{local_load} threshold=#{threshold} " <>
-               "reclaimable_cpu=5.0% threshold=60.0%)"
+               "reclaimable_cpu=5.0% threshold=60.0% sampled="
 
     # The daemon still holds. A quiet LOCAL sample must not clear the daemon's
     # decision, and the local line must never claim to be the fleet's binding
@@ -1242,7 +1246,7 @@ defmodule Aiur.AgentControlCLITest do
 
     assert persisted_hold_output =~
              "AGENTS 0/10 (binding: load+cpu contention, load=#{local_load} threshold=#{threshold} " <>
-               "reclaimable_cpu=5.0% threshold=60.0%)"
+               "reclaimable_cpu=5.0% threshold=60.0% sampled="
 
     assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (local host sample)"
     refute persisted_hold_output =~ "(binding: load)"
@@ -1263,7 +1267,18 @@ defmodule Aiur.AgentControlCLITest do
 
     assert run_queue_output =~
              "AGENTS 0/10 (binding: run_queue+cpu contention, runnable=74 threshold=24.0 " <>
-               "reclaimable_cpu=5.0% threshold=60.0%)"
+               "reclaimable_cpu=5.0% threshold=60.0% sampled="
+
+    # A sample the daemon has not refreshed for several poll cycles was taken on
+    # a tick that never ran. It is still the last thing the daemon measured, so
+    # it keeps its place on the line — but it may no longer read as current.
+    :sys.replace_state(pid, fn state ->
+      %{state | capacity_hold: Map.put(state.capacity_hold, :measured_at, DateTime.add(DateTime.utc_now(), -600, :second))}
+    end)
+
+    stale_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert stale_output =~ ~r/AGENTS 0\/10 \(binding: run_queue\+cpu contention, .* sampled=600s ago STALE\)/
 
     # The inverse, and the actual regression guard: the daemon is NOT holding,
     # but the CLI's own host is over the CLI's own threshold. A locally

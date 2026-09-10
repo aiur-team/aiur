@@ -101,7 +101,31 @@ export const COMMAND_ICONS: Readonly<Record<string, string>> = Object.freeze({
    * microphone hear me", so its glyph is the meter rather than a second mic.
    */
   test: '<path d="M3.5 10v4M8 6.5v11M12 3.5v17M16 6.5v11M20.5 10v4"/>',
+  /**
+   * A robot head: the Implement key, which asks the fleet to put an agent on a
+   * ticket that has none. Stroke-only and in the same 24x24 viewBox as the rest
+   * of the set — the antenna and the two eyes are what read at arm's length, so
+   * the ear stubs stay short rather than competing with the head outline.
+   */
+  robot:
+    '<rect x="4" y="8" width="16" height="11.5" rx="3"/><path d="M12 3.6v4.4"/><circle cx="12" cy="2.6" r="1.4"/><path d="M2 12.5v3M22 12.5v3"/><circle cx="9.2" cy="12.8" r="1.2"/><circle cx="14.8" cy="12.8" r="1.2"/><path d="M9.5 16.4h5"/>',
 });
+
+/**
+ * The queued key's dependency glyph: an open padlock, shackle lifted clear of
+ * the body on one side.
+ *
+ * Queued keys used to say "Unblocked" in a green pill beside "Blocked" in a red
+ * one. Two pills that differ only by a prefix are read as text, one word at a
+ * time, which is the slowest thing a 120px key can ask of an operator glancing
+ * at the deck. The ready state is now this glyph and nothing else, so
+ * "ready to start" and "held" differ by shape rather than by spelling.
+ *
+ * Authored in the same 24x24 viewBox and stroke weight as the rest of the set,
+ * and deliberately the open counterpart of the `lock` lane glyph above.
+ */
+export const UNBLOCKED_ICON =
+  '<rect x="4" y="11" width="12" height="9.5" rx="2"/><path d="M13 11V7a4 4 0 0 1 8 0v2"/>';
 
 /** Icon the mock falls back to for an unknown lane. */
 export const DEFAULT_ICON = "list";

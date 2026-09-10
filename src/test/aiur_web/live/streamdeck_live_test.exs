@@ -197,7 +197,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(class="sd-ag-foot is-progress-unknown")
     refute html =~ "is-progress-stale"
     assert html =~ ~s(class="sd-ag-vendor-fallback")
-    assert html =~ ~s(class="sd-ag-tag ready">Unblocked</span>)
+    # Unblocked is drawn as the open-padlock glyph in the key's bottom-right
+    # corner, matching the sidecar; only the held side keeps a text pill.
+    assert html =~ ~s(class="sd-ag-unblocked" role="img" aria-label="Unblocked")
+    refute html =~ ~s(class="sd-ag-tag ready")
 
     stale = render_hook(view, "key-press", %{"identifier" => "stale"})
     refute stale =~ "is-progress-stale"

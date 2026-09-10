@@ -285,7 +285,12 @@ defmodule Aiur.Application do
       # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
       # Give it a failing callback and this ordering stops being free.
       Aiur.Webhooks.ModeTable,
-      {Phoenix.PubSub, name: Aiur.PubSub},
+      # `Aiur.PubSub.Boot` is `{Phoenix.PubSub, name: Aiur.PubSub}` with one
+      # thing added: it waits for a previous incarnation's registry names to be
+      # released before starting. Without that wait a PubSub crash restarts
+      # into its own still-registered partitions, fails three times inside a
+      # millisecond, and takes this whole supervisor down with it (#2557).
+      {Aiur.PubSub.Boot, name: Aiur.PubSub},
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},

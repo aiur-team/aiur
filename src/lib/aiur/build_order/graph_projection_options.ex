@@ -82,6 +82,12 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       selected_fingerprints: %{},
       inflight_by_ref: %{},
       pending: MapSet.new(),
+      # Scopes whose queued read was asked for explicitly (`refresh/2`) rather
+      # than inferred. A stated need is answered for any root the projection
+      # holds, watched or not, and that fact has to survive being queued behind
+      # an inflight read — or `admit_pending/1` would drop it on exactly the
+      # "nobody is watching" rule it was allowed past (#2538).
+      forced: MapSet.new(),
       monitor_by_ref: %{},
       monitor_by_demand: %{},
       next_generation: 1,

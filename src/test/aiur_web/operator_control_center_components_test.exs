@@ -300,6 +300,39 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "supervising agent"
   end
 
+  test "names the model a fleet row is running, titled with the raw id" do
+    # Units and Fleet are two views of the same agents; a model named on one
+    # and missing on the other makes an operator cross-check to answer "what
+    # is this actually running on".
+    fleet = %{
+      running: [
+        %{
+          issue_identifier: "AIUR-987",
+          title: "Operator Control Center",
+          state: "in-progress",
+          work_state: :working,
+          waiting_reason: :active,
+          runtime_seconds: 60,
+          open_decision_count: 0,
+          backend: "claude",
+          requested_model: "opus",
+          resolved_model: "claude-opus-5-1"
+        }
+      ],
+      retrying: [],
+      idle: []
+    }
+
+    html =
+      render_component(&FleetTable.fleet_table/1, %{
+        fleet: fleet,
+        decisions: [],
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    assert html =~ ~s(class="u-pill u-model" title="claude-opus-5-1">OPUS 5.1</span>)
+  end
+
   test "gives fleet icon actions accessible names" do
     fleet = %{
       running: [

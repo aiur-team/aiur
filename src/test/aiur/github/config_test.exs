@@ -391,8 +391,46 @@ defmodule Aiur.GitHub.ConfigTest do
 
       assert {"TERM", 4242} in signals, "the direct pid was never TERMed: #{inspect(signals)}"
       assert {"KILL", 4242} in signals, "the direct pid was never KILLed: #{inspect(signals)}"
-      assert {"TERM", -4242} in signals
       assert {"KILL", 4343} in signals, "the parseable child pid was dropped: #{inspect(signals)}"
+    end
+
+    test "no signal is ever aimed at a process group" do
+      # #2560. On a GitHub-hosted runner the whole job shares one process
+      # group: Runner.Listener, Runner.Worker and the step shell all sat in
+      # pgid 2034 on the runner that failed. A `kill -<sig> -<pgid>` from
+      # inside the suite therefore SIGTERMs the Actions runner itself. The job
+      # died mid-step with exit 143, "the runner has received a shutdown
+      # signal", and no test output at all; an instrumented run put 8 ms
+      # between this function's group signal and the runner's death.
+      #
+      # A process group is not this code's to signal. Every target must be a
+      # pid the descendant walk actually found.
+      test_pid = self()
+
+      signal_fun = fn signal, target ->
+        send(test_pid, {:signal, signal, target})
+        :ok
+      end
+
+      pgrep_fun = fn
+        4242 -> {"4343\n", 0}
+        4343 -> {"4344\n", 0}
+        _other -> {"", 1}
+      end
+
+      assert Config.kill_os_process(4242, signal_fun: signal_fun, pgrep_fun: pgrep_fun) == :ok
+
+      signals = drain_signals()
+
+      assert {"TERM", 4242} in signals, "the direct pid was never TERMed: #{inspect(signals)}"
+      assert {"KILL", 4242} in signals, "the direct pid was never KILLed: #{inspect(signals)}"
+
+      assert {"TERM", 4343} in signals, "the descendant was never TERMed: #{inspect(signals)}"
+      assert {"KILL", 4343} in signals, "the descendant was never KILLed: #{inspect(signals)}"
+      assert {"KILL", 4344} in signals, "the grandchild was never KILLed: #{inspect(signals)}"
+
+      refute Enum.any?(signals, fn {_signal, target} -> target < 0 end),
+             "a process group was signalled: #{inspect(signals)}"
     end
 
     test "a stalled gh that is the DIRECT port child is killed (the CI topology)" do

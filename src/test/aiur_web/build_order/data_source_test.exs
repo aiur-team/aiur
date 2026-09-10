@@ -11,6 +11,8 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
     def selected(identity), do: notify({:selected, identity}, {:ok, :selected_snapshot})
     def demand(identity), do: notify({:demand, identity}, {:ok, :demand_snapshot})
     def release(identity), do: notify({:release, identity}, :ok)
+    def refresh(identity), do: notify({:refresh, identity}, :ok)
+    def refresh_catalog, do: notify(:refresh_catalog, :ok)
     def selected_topic(identity), do: notify({:selected_topic, identity}, "selected-topic")
 
     defp notify(message, result) do
@@ -96,10 +98,21 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
     assert_received {:demand, :root}
     assert_received {:release, :root}
 
-    forbidden = [:refresh_catalog, :github, :provider, :mutate, :update, :create, :delete]
+    forbidden = [:github, :provider, :mutate, :update, :create, :delete]
     exports = DataSource.__info__(:functions)
 
     refute Enum.any?(exports, fn {name, _arity} -> name in forbidden end)
+  end
+
+  test "delegates the operator's catalog re-converge to the projection" do
+    # #2544: without this path a repository with no webhooks configured can only
+    # pick up new sub-issue and dependency edges by restarting the daemon. It
+    # buys a read; it is still not a provider or mutation surface.
+    assert DataSource.refresh_catalog(graph_projection: ProjectionSpy) == :ok
+    assert DataSource.refresh(:root, graph_projection: ProjectionSpy) == :ok
+
+    assert_received :refresh_catalog
+    assert_received {:refresh, :root}
   end
 
   test "loads activity and execution from their complete cached snapshots" do

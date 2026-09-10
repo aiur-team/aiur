@@ -291,6 +291,31 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "$8.75"
   end
 
+  test "a provider whose spend rounds below a cent still renders, and the total sums exact amounts once" do
+    usage = %{
+      state: :ready,
+      api_equivalent: %{by_currency: [%{currency: "USD", amount: "6.26", amount_exact: "6.258"}]},
+      providers: %{
+        codex: %{tokens: %{total: 1_500}, api_equivalent: [%{currency: "USD", amount: "<0.01", amount_exact: "0.004"}]},
+        claude: %{tokens: %{total: 2_000}, api_equivalent: [%{currency: "USD", amount: "6.25", amount_exact: "6.254"}]}
+      }
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_compact/1, %{
+        run: run_view(),
+        usage: usage,
+        meters: meters_view(),
+        now: @now
+      })
+
+    # 0.004 + 6.254 = 6.258 -> 6.26; summing the display strings would raise on
+    # "<0.01" or, rounding first, read $6.25.
+    assert html =~ "Spend"
+    assert html =~ "$6.26"
+    refute html =~ "$6.25"
+  end
+
   test "partial current facts keep the aggregate percentage without refresh diagnostics" do
     partial_progress = %{
       kind: :partial,

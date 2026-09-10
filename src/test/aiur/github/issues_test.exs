@@ -1,7 +1,21 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.{GitHub.Issues, Issue}
+  alias Aiur.{GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
+
+  # A double of `/issues/:n/dependencies/blocked_by` as observed on the reported
+  # run: it answers `304` to anything carrying a validator — its ETag tracks the
+  # blocked issue, not the blocker state it embeds — and the truth to an
+  # unconditional read (#2550, #2552).
+  defp stale_validator_endpoint(fresh) do
+    fn request ->
+      if Map.has_key?(request, :etag) do
+        {:ok, %{status: 304, headers: [{"etag", ~s("e1")}]}}
+      else
+        {:ok, %{status: 200, body: fresh, headers: [{"etag", ~s("e2")}]}}
+      end
+    end
+  end
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @origin_cache_key {Aiur.GitHub.Config, :resolved_origin_repo}
@@ -212,6 +226,26 @@ defmodule Aiur.GitHub.IssuesTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    # Guards the too-large clause in `conditional_get/4`: with it reverted the
+    # collector's empty-bodied 200 falls through to `github_status_error/1` and
+    # this returns the bare `%{status: 200}` detail with no `:reason`.
+    test "reports an over-limit open-issue list as too large, not as a bare 200" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["Todo"]
+      )
+
+      request_fun = fn request ->
+        assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+        {:ok, %{status: 200, headers: [], body: "", private: %{aiur_response_too_large: true}}}
+      end
+
+      assert {:error, {:github, :http, %{status: 200, reason: :response_too_large, max_response_bytes: 16_777_216}}} =
+               Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+    end
+
     test "revalidates one authoritative list and reuses it only on 304" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
@@ -244,9 +278,10 @@ defmodule Aiur.GitHub.IssuesTest do
           {:ok, %{status: 200, headers: [], body: []}}
         else
           assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
-          # The open-issue list is bound by its own, larger cap (#2140); the
-          # single-issue cap would truncate a growing backlog.
-          assert request.max_response_bytes == 1_048_576
+          # The open-issue list is bound by its own, larger cap (#2140) sized to
+          # the endpoint's ceiling — one full page of maximal bodies — so a
+          # spec-heavy backlog does not truncate (#2533).
+          assert request.max_response_bytes == 16_777_216
 
           Agent.get_and_update(list_step, fn
             0 ->
@@ -397,6 +432,39 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.id == "42"
       assert issue.assignee_id == "dev"
     end
+
+    test "does not authorize a closed terminal issue during dispatch revalidation" do
+      parent = self()
+
+      request_fun = fn %{method: :get, url: url} ->
+        if String.ends_with?(url, "/timeline?per_page=100") do
+          send(parent, :timeline_requested)
+          {:ok, %{status: 200, headers: [], body: []}}
+        else
+          body = %{
+            "number" => 1766,
+            "title" => "Already completed",
+            "body" => nil,
+            "html_url" => "https://github.com/owner/repo/issues/1766",
+            "state" => "closed",
+            "labels" => [%{"name" => "sym:done"}, %{"name" => "sym:rate-limit-fallback"}],
+            "assignee" => nil,
+            "created_at" => "2026-01-01T00:00:00Z",
+            "updated_at" => "2026-01-02T00:00:00Z"
+          }
+
+          {:ok, %{status: 200, body: body}}
+        end
+      end
+
+      assert {:ok, [issue]} =
+               Issues.fetch_issue_states_by_ids(["1766"], request_fun: request_fun)
+
+      assert issue.state == "Closed"
+      assert issue.state_labels == ["done"]
+      refute_received :timeline_requested
+      refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous"}}, 100
+    end
   end
 
   describe "hydrate_blocked_by/1" do
@@ -500,6 +568,73 @@ defmodule Aiur.GitHub.IssuesTest do
                  url: "https://github.com/owner/repo/issues/4"
                }
              ]
+    end
+
+    test "a hydrated closed blocker clears the dependency gate (#2545)" do
+      request_fun = fn %{method: :get, url: _url} ->
+        blockers = [
+          %{"number" => 3, "html_url" => "u3", "state" => "closed", "labels" => [%{"name" => "sym:done"}]},
+          %{"number" => 7, "html_url" => "u7", "state" => "closed", "labels" => []}
+        ]
+
+        {:ok, %{status: 200, body: blockers}}
+      end
+
+      issue = %Issue{id: "12", identifier: "12", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: blockers} = hydrated} =
+               Issues.hydrate_blocked_by(issue, request_fun: request_fun)
+
+      assert Enum.map(blockers, & &1.state) == ["Closed", "Closed"]
+
+      # The configured terminal set has no "closed" entry — the gate must still
+      # let the ticket through, or a closed GitHub blocker strands its blockee.
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+    end
+
+    # Regression for #2550 / #2552, from the aiur-team/architecture-docs run:
+    # eighteen `agent:todo` tickets sat at `dispatch_decline=:dependency` against
+    # blockers that had closed hours earlier. `hydrate_blocked_by/1` asks for
+    # freshness, but the endpoint's validator tracks the *blocked* issue rather
+    # than the blocker objects it embeds, so a conditional read was answered
+    # `304` and the store's original body — with the blocker's original labels —
+    # was handed to the gate. Only `ResourceStore.forget/1` cleared it.
+    #
+    # The double below is that endpoint: `304` to anything conditional, the truth
+    # to an unconditional read.
+    test "a blocker closed since the list was stored clears the gate without an explicit forget (#2550)" do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 24)
+      held = [%{"number" => 14, "html_url" => "u14", "state" => "open", "labels" => [%{"name" => "sym:todo"}]}]
+      ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+
+      closed = [%{"number" => 14, "html_url" => "u14", "state" => "closed", "labels" => [%{"name" => "sym:done"}], "updated_at" => "2026-09-04T10:00:00Z"}]
+
+      issue = %Issue{id: "24", identifier: "24", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: [blocker]} = hydrated} =
+               Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint(closed))
+
+      assert blocker.state == "Closed"
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
+    end
+
+    test "a dependency edge deleted on GitHub clears the gate without an explicit forget (#2552)" do
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
+
+      key = ResourceStore.key_for_repo(:issue_blocked_by, "owner/repo", 25)
+      held = [%{"number" => 14, "html_url" => "u14", "state" => "open", "labels" => [%{"name" => "sym:todo"}]}]
+      ResourceStore.put_resource(key, held, source: :fetch, etag: ~s("e1"))
+
+      issue = %Issue{id: "25", identifier: "25", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: []} = hydrated} =
+               Issues.hydrate_blocked_by(issue, revalidate: true, request_fun: stale_validator_endpoint([]))
+
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, MapSet.new(["done", "cancelled"]))
     end
 
     test "an open blocker with no agent state label hydrates as unknown (fail-closed at the gate)" do

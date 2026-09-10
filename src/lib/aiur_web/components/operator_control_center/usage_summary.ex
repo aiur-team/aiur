@@ -138,6 +138,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
     """
   end
 
+  defp money_sort_value([%{amount_exact: exact}]) when is_binary(exact), do: exact
   defp money_sort_value([%{amount: amount}]) when is_binary(amount), do: amount
   defp money_sort_value(_amounts), do: ""
 end

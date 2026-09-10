@@ -14,8 +14,45 @@
 
 import type { AudioDevice } from "./audio/index.js";
 
-/** Microphone keys on the settings surface; keys 6 and 7 are TestMic and paging. */
+/** Every physical key on the settings surface. */
+const SETTINGS_KEY_COUNT = 8;
+
+/**
+ * The key TestMic sits on.
+ *
+ * Deliberately the same index the command surface paints Mic on, so the
+ * press-and-hold gesture is under the same finger on both surfaces. Moving it
+ * here is why the microphone keys are no longer a plain 0..5 run.
+ */
+export const SETTINGS_TEST_MIC_KEY = 2;
+
+/** The key that pages the microphone list. */
+export const SETTINGS_NEXT_PAGE_KEY = 7;
+
+/**
+ * The key index of each microphone slot, in slot order: `[0, 1, 3, 4, 5, 6]`.
+ *
+ * This is the single mapping between "slot n of the current page" and "key n on
+ * the deck". Both the face painter (`descriptorSettings`) and the press handler
+ * (`pressSettingsKey`) read it, so the microphone painted on a key and the
+ * microphone a press on that key selects cannot drift apart.
+ */
+export const MIC_KEY_INDICES: readonly number[] = Array.from(
+  { length: SETTINGS_KEY_COUNT },
+  (_, key) => key,
+).filter((key) => key !== SETTINGS_TEST_MIC_KEY && key !== SETTINGS_NEXT_PAGE_KEY);
+
+/** Microphone keys on the settings surface; the other two are TestMic and paging. */
 export const MICS_PER_PAGE = 6;
+
+/**
+ * The microphone slot a settings key holds, or `undefined` for TestMic and
+ * paging. The inverse of {@link MIC_KEY_INDICES}.
+ */
+export function micSlotForKey(key: number): number | undefined {
+  const slot = MIC_KEY_INDICES.indexOf(key);
+  return slot === -1 ? undefined : slot;
+}
 
 export interface MicSlot {
   readonly id: string;
