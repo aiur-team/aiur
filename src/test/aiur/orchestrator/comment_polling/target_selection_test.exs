@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     }
 
     opts = [
-      review_issue_fetcher: fn ["human-review", "merging"] ->
+      review_issue_fetcher: fn ["human-review", "merging", "rework"] ->
         {:ok, [%Issue{id: "57", identifier: "57", state: "human-review", updated_at: issue_updated_at}]}
       end,
       review_pull_request_fetcher: fn "57" -> {:ok, review_pr} end,
@@ -54,11 +54,59 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     assert watch_target == %{target: "99", open_pull_request: watch_pr}
   end
 
+  # #2601: the live failure. Ticket #164 / PR #178 took a body-only
+  # CHANGES_REQUESTED review on one head, reworked to head `f4e6944`, and then
+  # took a SECOND body-only CHANGES_REQUESTED review on that newer head. The
+  # aggregate `reviewDecision` never moved (it was already sticky from the
+  # first review), and the ticket sat in `agent:rework` with no live provider —
+  # so the only thing that could re-derive the second review was the `/reviews`
+  # read, and target discovery excluded `rework` from the states it polls.
+  #
+  # Both heads are modelled so the assertion is about the ticket's *state*
+  # rather than about the review being new: phase one (human-review) already
+  # passed before this fix; phase two (rework) is the one that regressed.
+  test "keeps a ticket in agent:rework as a review-submission target across successive heads" do
+    first_head_review_at = "2026-09-10T00:10:30Z"
+    second_head_review_at = "2026-09-10T00:46:36Z"
+
+    poll_targets = fn issue_state, pr_updated_at ->
+      state = %State{
+        running: %{},
+        github_comments_since: %{},
+        github_comment_issue_updated_at: %{}
+      }
+
+      opts = [
+        review_issue_fetcher: fn states ->
+          # The rework state has to be in the tracker query itself; a filter
+          # applied after the fetch would never see the ticket at all.
+          assert "rework" in states
+
+          {:ok, [%Issue{id: "164", identifier: "164", state: issue_state, updated_at: pr_updated_at}]}
+        end,
+        review_pull_request_fetcher: fn "164" ->
+          {:ok, %{"number" => 178, "updated_at" => pr_updated_at}}
+        end,
+        watch_pull_request_fetcher: fn "agent:watch" -> {:ok, []} end
+      ]
+
+      TargetSelection.github_comment_poll_targets(state, opts)
+    end
+
+    assert {:ok, ["164"], [%{target: "164"}], []} =
+             poll_targets.("human-review", first_head_review_at)
+
+    # The ticket is now `agent:rework` with its rework turn finished. It must
+    # still be a review-submission target, or the second review is invisible.
+    assert {:ok, ["164"], [%{target: "164"}], []} =
+             poll_targets.("rework", second_head_review_at)
+  end
+
   test "stops target assembly when review issue refresh fails" do
     parent = self()
 
     opts = [
-      review_issue_fetcher: fn ["human-review", "merging"] -> {:error, :tracker_down} end,
+      review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:error, :tracker_down} end,
       watch_pull_request_fetcher: fn _label ->
         send(parent, :unexpected_watch_fetch)
         {:ok, []}

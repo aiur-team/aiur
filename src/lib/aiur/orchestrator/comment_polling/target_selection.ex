@@ -17,7 +17,24 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   @reconcile_targets_per_poll 25
   @human_review_state "human-review"
   @merging_state "merging"
-  @comment_poll_review_states [@human_review_state, @merging_state]
+  @rework_state "rework"
+
+  # The idle states whose tickets are discovered for comment polling, and — via
+  # `review_submission_targets` — the states whose PRs have `/reviews` read.
+  #
+  # `rework` is in the set because a rework ticket is exactly where a *second*
+  # review lands. A ticket whose rework turn finished sits in `agent:rework`
+  # with no live provider; excluding it made a brand-new body-only
+  # `CHANGES_REQUESTED` review on a newer head invisible, because GitHub's
+  # aggregate `reviewDecision` was already sticky from the first one and
+  # nothing else re-derives the review (#2601). Excluding the state was never
+  # what kept #2422's rework loop closed: the guard is per-review identity —
+  # the durable `{:pr_review, owner, repo, review_id}` resource at
+  # `resource_version = submitted_at`, the `pr_review_seen_at` cutoff, and
+  # `ReworkGate.verify_rework_attempt/4`'s per-head bound. All three are
+  # edge-triggered on a review's own identity, so re-reading `/reviews` for a
+  # rework ticket cannot re-route the same review, and a new one wakes it once.
+  @comment_poll_review_states [@human_review_state, @merging_state, @rework_state]
 
   @doc false
   @spec max_comment_poll_target_count(State.t(), keyword()) :: non_neg_integer()

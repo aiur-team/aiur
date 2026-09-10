@@ -206,6 +206,61 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
     end
   end
 
+  # #2601: target discovery and the `/reviews` read are wired together through
+  # `review_submission_targets`, so the state a ticket sits in decides whether
+  # its pull request's review submissions are read at all. A ticket parked in
+  # `agent:rework` after finishing its rework turn is exactly where a second
+  # `CHANGES_REQUESTED` review lands, and it used to be excluded.
+  #
+  # The assertion is the request itself rather than a published event: the
+  # published-event half already has coverage in the poller suite, and reaching
+  # `/pulls/178/reviews` is the precise thing the state filter suppressed.
+  describe "review submission reads by ticket state" do
+    test "reads PR review submissions for a ticket in agent:rework" do
+      for issue_state <- ["human-review", "rework"] do
+        parent = self()
+
+        batch = %{
+          "164" => %{
+            open_pull_request: %{"number" => 178, "review_decision" => "CHANGES_REQUESTED"},
+            issue_comments: [],
+            pr_issue_comments: [],
+            review_thread_comments: []
+          }
+        }
+
+        opts = [
+          repo: "owner/repo",
+          review_issue_fetcher: fn _states ->
+            {:ok,
+             [
+               %Aiur.Issue{
+                 id: "164",
+                 identifier: "164",
+                 state: issue_state,
+                 updated_at: "2026-09-10T00:46:36Z"
+               }
+             ]}
+          end,
+          review_pull_request_fetcher: fn "164" -> {:ok, %{"number" => 178}} end,
+          watch_pull_request_fetcher: fn _label -> {:ok, []} end,
+          comment_batch_fetcher: fn _targets, _opts -> {:ok, batch} end,
+          request_fun: fn %{url: url} ->
+            send(parent, {:requested, url})
+            {:ok, %{status: 200, body: []}}
+          end
+        ]
+
+        state = %{base_state() | github_comments_since: %{"164" => "2026-09-10T00:40:00Z"}}
+
+        assert is_struct(CommentPolling.poll_github_comments(state, opts), State)
+
+        assert_receive {:requested, url}, 1_000
+        assert url =~ "/pulls/178/reviews", "expected /reviews to be read for a #{issue_state} ticket"
+      end
+    end
+  end
+
   describe "human_review_comment_target_limit behavior" do
     test "caps human-review targets at 25 with more idle review issues" do
       {:ok, probe} = Agent.start_link(fn -> 0 end)

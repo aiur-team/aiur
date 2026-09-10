@@ -477,6 +477,13 @@ defmodule Aiur.Orchestrator.CommentWake do
           {{:skip, reason}, state} ->
             Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
+            # No seeding here, deliberately. An IDLE ticket in an active state
+            # is still a dispatch candidate, so the poll loop picks it up and
+            # the agent reads the comment from GitHub on its first turn. The
+            # #2601 wake gap is the *running* half — a `:deactivated` entry
+            # blocks re-dispatch (`DispatchPolicy`'s `:already_running`), so
+            # nothing else brings that agent back. See
+            # `transition_and_revalidate_comment_reactivation/5`.
             cancel_comment_rework_retry(state, issue_number, source)
 
           {{:error, reason}, state} ->
@@ -980,8 +987,23 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       {{:skip, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
-        Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
-        state
+
+        # A skipped *label write* is not automatically a skipped *wake*. When
+        # the only thing the gate refused is a transition the ticket does not
+        # need — it is already `agent:rework` and its threads are all resolved
+        # — the trusted comment is still new reviewer input for an agent whose
+        # provider has completed, and dropping it here is what forced an
+        # Executor to send `aiurdev message` by hand (#2601). No `rework` write
+        # happens on this path, so #2422's loop stays closed; the comment's own
+        # publish-once identity bounds it to a single wake.
+        if wake_without_rework_write?(reason) do
+          Logger.info("#{source} waking without rework write: #{context} reason=#{inspect(reason)}")
+
+          revalidate_comment_reactivation(state, running_entry, issue_number, source, require_state: "rework")
+        else
+          Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
+          state
+        end
 
       {{:error, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
@@ -1189,12 +1211,19 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   defp rework_issue_key(_running_entry, issue_number), do: issue_number
 
-  defp revalidate_comment_reactivation(state, running_entry, issue_number, source) do
+  # The only gate refusal that means "the label is already right", rather than
+  # "this comment is not reviewer feedback". Everything else — an untrusted
+  # author, a benign review-pass comment, an approved or stale review, a ticket
+  # with no open PR — must keep dropping the comment exactly as before.
+  defp wake_without_rework_write?(:no_unresolved_review_threads), do: true
+  defp wake_without_rework_write?(_reason), do: false
+
+  defp revalidate_comment_reactivation(state, running_entry, issue_number, source, opts \\ []) do
     context = comment_reactivation_context(running_entry, issue_number)
 
     case fetch_current_reactivation_issue(running_entry) do
       {:ok, %Issue{} = refreshed_issue} ->
-        reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source)
+        reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts)
 
       {:skip, reason} ->
         Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
@@ -1222,6 +1251,31 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   defp fetch_current_reactivation_issue(_running_entry), do: {:skip, :missing_issue_id}
+
+  # The wake-without-write path asserts the ticket really is in the state that
+  # made the label write unnecessary, read from the freshly-fetched issue
+  # rather than the running entry's cached copy. Without the assertion a
+  # `human-review` ticket whose threads are all resolved would be reactivated
+  # by any trusted comment, which is the pre-#2422 behaviour this must not
+  # restore.
+  defp reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts) do
+    case Keyword.get(opts, :require_state) do
+      nil ->
+        reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source)
+
+      required ->
+        if DispatchPolicy.normalize_issue_state(refreshed_issue.state) == required do
+          reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source)
+        else
+          Logger.info(
+            "#{source} wake without rework write skipped; issue is not #{required}: " <>
+              "#{comment_reactivation_context(running_entry, issue_number)} state=#{inspect(refreshed_issue.state)}"
+          )
+
+          state
+        end
+    end
+  end
 
   defp reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source) do
     issue_id = refreshed_issue.id
