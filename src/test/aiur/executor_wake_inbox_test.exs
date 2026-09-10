@@ -75,6 +75,47 @@ defmodule Aiur.ExecutorWakeInboxTest do
     assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
   end
 
+  test "a wake stream faster than the debounce still reaches a blocked waiter (#2600)", %{opts: opts} do
+    opts = Keyword.put(opts, :debounce_ms, 200)
+    start_supervised!({ExecutorWakeInbox, opts})
+
+    waiter = Task.async(fn -> {ExecutorWakeInbox.wait(3_000, __MODULE__), System.monotonic_time(:millisecond)} end)
+    started_at = System.monotonic_time(:millisecond)
+
+    # Wakes arriving closer together than the debounce window used to restart it
+    # on every enqueue, so the flush was deferred for as long as the stream ran
+    # and the waiter timed out empty while the records sat in memory.
+    stream =
+      Task.async(fn ->
+        for id <- 1..20 do
+          :ok = ExecutorWakeInbox.enqueue(record(id, Integer.to_string(id)), __MODULE__)
+          Process.sleep(50)
+        end
+      end)
+
+    assert {{:ok, [_ | _] = records}, served_at} = Task.await(waiter, 5_000)
+    assert served_at - started_at < 700, "the waiter was starved until the wake stream went quiet"
+    Task.await(stream, 5_000)
+    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+  end
+
+  test "a wake enqueued during a wait is returned at expiry, not left unread (#2600)", %{opts: opts} do
+    # A debounce window longer than the wait guarantees the flush cannot land
+    # before the timer fires, which is the shape that produced a blank result
+    # with the ledger holding unconsumed records moments later.
+    opts = Keyword.put(opts, :debounce_ms, 5_000)
+    start_supervised!({ExecutorWakeInbox, opts})
+
+    waiter = Task.async(fn -> ExecutorWakeInbox.wait(200, __MODULE__) end)
+    Process.sleep(20)
+    :ok = ExecutorWakeInbox.enqueue(record(7, "2600"), __MODULE__)
+
+    assert {:ok, [%{"event_id" => 7, "ticket" => "2600"}] = records} = Task.await(waiter, 5_000)
+    assert :ok = ExecutorWakeInbox.acknowledge(records, __MODULE__)
+    assert {:ok, %{"last_seen_wake_id" => 1}} = Aiur.JsonStore.read(opts[:cursor_path])
+    assert ExecutorWakeInbox.pending(__MODULE__) == []
+  end
+
   test "timeout leaves a later wake unread", %{opts: opts} do
     opts = Keyword.put(opts, :debounce_ms, 20)
     start_supervised!({ExecutorWakeInbox, opts})

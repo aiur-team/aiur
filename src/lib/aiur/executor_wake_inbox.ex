@@ -136,7 +136,7 @@ defmodule Aiur.ExecutorWakeInbox do
       end
 
     :ok = persist_pending(state.pending_path, pending)
-    state = %{state | pending: pending, next_wake_id: next_wake_id} |> reset_flush_timer()
+    state = %{state | pending: pending, next_wake_id: next_wake_id} |> ensure_flush_timer()
     {:reply, :ok, state}
   end
 
@@ -220,8 +220,9 @@ defmodule Aiur.ExecutorWakeInbox do
 
       {{monitor, _timer}, waiters} ->
         Process.demonitor(monitor, [:flush])
-        GenServer.reply(from, :timeout)
-        {:noreply, %{state | waiters: waiters}}
+        {reply, state} = expire_waiter(%{state | waiters: waiters})
+        GenServer.reply(from, reply)
+        {:noreply, state}
     end
   end
 
@@ -239,12 +240,16 @@ defmodule Aiur.ExecutorWakeInbox do
     :ok
   end
 
-  defp reset_flush_timer(state) do
-    if state.timer do
-      {timer, _token} = state.timer
-      Process.cancel_timer(timer)
-    end
+  # The debounce window runs from the *first* unflushed record, not the latest.
+  # Restarting it on every enqueue made the window extendable without bound: a
+  # run whose wakes arrive faster than `debounce_ms` never flushed, so a blocked
+  # `executor-wait` timed out empty while the records it was waiting for sat in
+  # memory and only reached the ledger once the stream went quiet (#2600).
+  # Records with the same key still merge inside the window; only the maximum
+  # deferral is bounded.
+  defp ensure_flush_timer(%{timer: {_timer, _token}} = state), do: state
 
+  defp ensure_flush_timer(state) do
     token = make_ref()
     timer = Process.send_after(self(), {:flush, token}, state.debounce_ms)
     %{state | timer: {timer, token}}
@@ -268,7 +273,24 @@ defmodule Aiur.ExecutorWakeInbox do
         state |> Map.put(:pending, %{}) |> trim_consumed() |> serve_waiters()
 
       {:error, _reason} ->
-        reset_flush_timer(state)
+        ensure_flush_timer(state)
+    end
+  end
+
+  # A wait must never report "quiet" while readable records sit unread. The
+  # timer only proves that `debounce_ms` of coalescing did not land in time, so
+  # the last act of an expiring waiter is to flush anything still pending and
+  # re-read the durable ledger. Records appended late — by this flush or by a
+  # peer daemon writing the shared journal — are returned by this one waiter and
+  # then acknowledged by the caller, rather than being left for the next call to
+  # rediscover from disk (#2600).
+  defp expire_waiter(state) do
+    state = flush_now(state)
+
+    case unread_records(state) do
+      {:ok, [_ | _] = records} -> {{:ok, records}, state}
+      {:ok, []} -> {:timeout, state}
+      {:error, reason} -> {{:error, reason}, state}
     end
   end
 

@@ -139,6 +139,25 @@ defmodule Aiur.Executor.Claims do
   def lease_ttl_ms, do: Application.get_env(:aiur, :executor_lease_ttl_ms, @default_lease_ttl_ms)
 
   @doc """
+  The bounded retry envelope used for the cross-process claims lock.
+
+  Contention on this lock is the one failure a caller may safely retry, so the
+  bounds are published rather than buried: a diagnostic that says "contended"
+  without saying how long the wait already was leaves the reader unable to tell
+  a busy peer from a wedged store.
+  """
+  @spec lock_retry_budget() :: %{timeout_ms: pos_integer(), retry_interval_ms: pos_integer(), stale_after_seconds: pos_integer()}
+  def lock_retry_budget do
+    %{
+      timeout_ms: lock_timeout_ms(),
+      retry_interval_ms: @lock_retry_ms,
+      stale_after_seconds: @lock_stale_after_seconds
+    }
+  end
+
+  defp lock_timeout_ms, do: Application.get_env(:aiur, :executor_claims_lock_timeout_ms, @lock_timeout_ms)
+
+  @doc """
   Resolves the consumer identity for a CLI invocation.
 
   This is identity resolution, not agent detection: an explicit `--as` wins, an
@@ -330,7 +349,7 @@ defmodule Aiur.Executor.Claims do
   defp unwrap_ok({:ok, :ok}), do: :ok
   defp unwrap_ok(other), do: other
 
-  defp with_lock(path, fun), do: acquire_lock(path, fun, @lock_timeout_ms)
+  defp with_lock(path, fun), do: acquire_lock(path, fun, lock_timeout_ms())
 
   defp acquire_lock(path, fun, remaining_ms) do
     lock = path <> ".lock"

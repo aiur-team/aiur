@@ -36,15 +36,126 @@ defmodule Aiur.AgentControlCLITest do
     assert ExecutorWakeInbox.pending() == []
   end
 
-  test "executor-wait reports a quiet timeout without creating a cursor" do
+  test "executor-wait reports a quiet timeout as a successful empty result (#2600)" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
 
     output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20, json: true) end)
     cursor_path = StatePaths.cursor_path()
 
-    assert output =~ "__AIUR_CONTROL_EXIT__:75"
-    refute output =~ "WAKE"
+    # A wait that consumed nothing and lost nothing is not a failure. It used to
+    # exit 75 with no output at all, which the launcher could only report as
+    # "failed with exit 75 and returned no diagnostic output".
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert output =~ ~s("status":"timeout")
+    assert output =~ ~s("records":[])
+    refute output =~ "WAKE "
+    refute output =~ "__AIUR_CONTROL_ERROR__"
     refute File.exists?(cursor_path)
+  end
+
+  test "executor-wait reports a quiet timeout in plain mode too (#2600)" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20) end)
+
+    assert output =~ "NO-WAKES role=owner timeout_ms=20"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "executor-wait returns a wake enqueued during the wait and advances the cursor (#2600)" do
+    # A debounce longer than the wait forces the flush to land at expiry, which
+    # is the live-run shape that yielded blank output while the ledger held
+    # unconsumed records moments later.
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 5_000})
+
+    waiter =
+      Task.async(fn ->
+        capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 300, json: true, as: "late-wake") end)
+      end)
+
+    Process.sleep(30)
+    :ok = ExecutorWakeInbox.enqueue(wake_record(1, "2600", "ticket.2600.ci.passed", "ticket.ci.passed"))
+
+    output = Task.await(waiter, 5_000)
+
+    assert output =~ ~s("topic":"ticket.2600.ci.passed")
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert ExecutorWakeInbox.pending() == []
+    assert ExecutorWakeInbox.cursor() == 1
+  end
+
+  test "executor-wait names the claim stage and the retry bounds under lock contention (#2600)" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+    put_claims_lock_timeout(100)
+    lock = StatePaths.claims_path() <> ".lock"
+    File.write!(lock, "held by a peer")
+    on_exit(fn -> File.rm(lock) end)
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 20, json: true) end)
+
+    assert output =~ "__AIUR_CONTROL_EXIT__:69"
+    assert output =~ ~s("stage":"claim")
+    assert output =~ "wake-stream lock contention"
+    assert output =~ "retrying every 25ms for 100ms"
+    assert output =~ "safe to retry"
+  end
+
+  test "executor-wait names the acknowledge stage and withholds an unconsumed batch (#2600)" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+    put_claims_lock_timeout(100)
+    lock = StatePaths.claims_path() <> ".lock"
+    on_exit(fn -> File.rm(lock) end)
+
+    waiter =
+      Task.async(fn ->
+        capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 2_000, json: true, as: "blocked-ack") end)
+      end)
+
+    # The claim already succeeded; contention appears only when the batch is
+    # acknowledged, so the cursor cannot advance for records already read.
+    Process.sleep(50)
+    File.write!(lock, "held by a peer")
+    :ok = ExecutorWakeInbox.enqueue(wake_record(1, "2600", "ticket.2600.pr.opened", "ticket.pr.opened"))
+
+    output = Task.await(waiter, 10_000)
+
+    assert output =~ "__AIUR_CONTROL_EXIT__:69"
+    assert output =~ ~s("stage":"acknowledge")
+    assert output =~ ~s("unconsumed_wake_ids":[1])
+    assert output =~ "were NOT consumed"
+    # The batch is withheld rather than printed, so it is delivered exactly once.
+    refute output =~ ~s("topic":"ticket.2600.pr.opened")
+    assert ExecutorWakeInbox.cursor() == 0
+
+    File.rm(lock)
+    assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
+  end
+
+  defp put_claims_lock_timeout(timeout_ms) do
+    previous = Application.get_env(:aiur, :executor_claims_lock_timeout_ms)
+    Application.put_env(:aiur, :executor_claims_lock_timeout_ms, timeout_ms)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:aiur, :executor_claims_lock_timeout_ms)
+        value -> Application.put_env(:aiur, :executor_claims_lock_timeout_ms, value)
+      end
+    end)
+  end
+
+  defp wake_record(wake_id, ticket, topic, topic_class) do
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    %{
+      "wake_id" => wake_id,
+      "event_id" => wake_id,
+      "topic" => topic,
+      "topic_class" => topic_class,
+      "ticket" => ticket,
+      "count" => 1,
+      "first_seen_at" => now,
+      "last_seen_at" => now
+    }
   end
 
   test "executor-fast-forward acknowledges an externally covered wake prefix" do
