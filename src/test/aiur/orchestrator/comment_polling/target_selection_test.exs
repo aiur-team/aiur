@@ -62,9 +62,11 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
   # so the only thing that could re-derive the second review was the `/reviews`
   # read, and target discovery excluded `rework` from the states it polls.
   #
-  # Both heads are modelled so the assertion is about the ticket's *state*
-  # rather than about the review being new: phase one (human-review) already
-  # passed before this fix; phase two (rework) is the one that regressed.
+  # The fetcher models the real tracker — it returns only issues whose state
+  # label is one of the states it was asked for. That is what makes this a
+  # behavioural test rather than an assertion about a list literal: with
+  # `rework` missing from the query, the ticket is simply not returned and
+  # never becomes a target.
   test "keeps a ticket in agent:rework as a review-submission target across successive heads" do
     first_head_review_at = "2026-09-10T00:10:30Z"
     second_head_review_at = "2026-09-10T00:46:36Z"
@@ -76,13 +78,11 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
         github_comment_issue_updated_at: %{}
       }
 
+      issue = %Issue{id: "164", identifier: "164", state: issue_state, updated_at: pr_updated_at}
+
       opts = [
         review_issue_fetcher: fn states ->
-          # The rework state has to be in the tracker query itself; a filter
-          # applied after the fetch would never see the ticket at all.
-          assert "rework" in states
-
-          {:ok, [%Issue{id: "164", identifier: "164", state: issue_state, updated_at: pr_updated_at}]}
+          {:ok, Enum.filter([issue], &(&1.state in states))}
         end,
         review_pull_request_fetcher: fn "164" ->
           {:ok, %{"number" => 178, "updated_at" => pr_updated_at}}

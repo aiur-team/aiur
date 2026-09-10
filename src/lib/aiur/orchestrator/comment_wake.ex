@@ -988,18 +988,34 @@ defmodule Aiur.Orchestrator.CommentWake do
       {{:skip, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
 
-        # A skipped *label write* is not automatically a skipped *wake*. When
-        # the only thing the gate refused is a transition the ticket does not
-        # need — it is already `agent:rework` and its threads are all resolved
-        # — the trusted comment is still new reviewer input for an agent whose
-        # provider has completed, and dropping it here is what forced an
-        # Executor to send `aiurdev message` by hand (#2601). No `rework` write
-        # happens on this path, so #2422's loop stays closed; the comment's own
-        # publish-once identity bounds it to a single wake.
+        # A skipped *label write* is not automatically a skipped *wake*. The
+        # ticket is already `agent:rework` and its threads are all resolved, so
+        # the gate is right to refuse a transition — but the agent's provider
+        # has completed and its `:deactivated` entry blocks re-dispatch
+        # (`DispatchPolicy`'s `:already_running`), so nothing else brings it
+        # back and an Executor had to send `aiurdev message` by hand (#2601).
+        #
+        # Scope, precisely — this branch is NOT the #2601 review path. A
+        # body-only `CHANGES_REQUESTED` review carries
+        # `changes_requested_review?: true` into the gate, which answers
+        # `{:ok, :rework}` via #2473's `no_thread_verdict/1` and takes the
+        # ordinary write-then-reactivate branch above. What lands here is every
+        # *other* trusted comment on a rework ticket whose threads are clear: a
+        # PR conversation comment, or a `COMMENTED` review with a body. Waking
+        # on those is the intent (#2601's third acceptance criterion), so N
+        # distinct trusted comments produce N wakes by design — an operator
+        # asking for something twice should be heard twice. What stops that
+        # from being thrash is the digest enqueue below: the comment travels
+        # with the wake, so the agent knows what it was woken for instead of
+        # respawning into an unchanged state and immediately exiting.
+        #
+        # No `rework` write happens here, so #2422's loop stays closed.
         if wake_without_rework_write?(reason) do
           Logger.info("#{source} waking without rework write: #{context} reason=#{inspect(reason)}")
 
-          revalidate_comment_reactivation(state, running_entry, issue_number, source, require_state: "rework")
+          state
+          |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
+          |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
         else
           Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
           state
@@ -1265,7 +1281,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       required ->
         if DispatchPolicy.normalize_issue_state(refreshed_issue.state) == required do
-          reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source)
+          reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source, wrote_rework?: false)
         else
           Logger.info(
             "#{source} wake without rework write skipped; issue is not #{required}: " <>
@@ -1277,7 +1293,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source) do
+  defp reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source, opts \\ []) do
     issue_id = refreshed_issue.id
     refreshed_entry = Map.put(running_entry, :issue, refreshed_issue)
     state = %{state | running: Map.put(state.running, issue_id, refreshed_entry)}
@@ -1289,12 +1305,12 @@ defmodule Aiur.Orchestrator.CommentWake do
         next_state
 
       {{:error, reason}, next_state} ->
-        emit_comment_reactivation_deferred_alert(refreshed_entry, source, reason)
+        emit_comment_reactivation_deferred_alert(refreshed_entry, source, reason, opts)
         next_state
     end
   end
 
-  defp emit_comment_reactivation_deferred_alert(running_entry, source, reason) do
+  defp emit_comment_reactivation_deferred_alert(running_entry, source, reason, opts) do
     identifier = Map.get(running_entry, :identifier)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
 
@@ -1304,11 +1320,21 @@ defmodule Aiur.Orchestrator.CommentWake do
       issue: identifier,
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
-      reason: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}.",
+      reason: deferred_alert_reason(reason, Keyword.get(opts, :wrote_rework?, true)),
       needs_attention: true,
       severity: "warning"
     )
   end
+
+  # The wake-without-write path writes no label, so an operator told the ticket
+  # "moved to rework" would go looking for a transition that never happened.
+  defp deferred_alert_reason(reason, true),
+    do: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}."
+
+  defp deferred_alert_reason(reason, false),
+    do:
+      "Trusted feedback arrived on a ticket already in rework, but its completed agent could not be woken: #{inspect(reason)}. " <>
+        "The ticket keeps its current label; the feedback is queued for the agent's next turn."
 
   defp comment_reactivation_context(running_entry, issue_number) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])

@@ -2736,6 +2736,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         entry = Map.fetch!(next.running, issue_id)
         refute get_in(entry, [:control, :status]) == :deactivated
+
+        # No label write happens on this path — that is what keeps #2422's
+        # rework loop closed. The memory tracker reports every state update to
+        # `self()`, so a stray write would be observable here.
+        refute_receive {:memory_tracker_state_update, ^issue_id, _state}, 200
+
+        # The comment travels with the wake. Without this the agent respawns
+        # into an unchanged ticket with no idea what it was woken for, and the
+        # most likely outcome is that it concludes there is nothing to rework
+        # and the reviewer's request is lost.
+        assert [%{event_type: :events_digest, body: %{events: [^event]}}] =
+                 AgentQueueStore.list_pending(next.queue_store, issue_identifier)
       after
         if previous_memory_issues do
           Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
@@ -2757,6 +2769,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
     # a ticket that is ALREADY `rework`. A `human-review` ticket whose threads
     # are all resolved must stay asleep, or every trusted comment on a
     # finished PR restores the pre-#2422 behaviour.
+    #
+    # `human-review` is deliberately IN `tracker_active_states` here, unlike
+    # the sibling fixtures. Without it the issue is refused upstream by
+    # `Dispatcher.revalidate_issue_for_dispatch`, and this test passes even
+    # with `require_state: "rework"` deleted — guarding nothing.
     test "leaves a :deactivated human-review entry asleep when there are no unresolved threads" do
       test_root = Aiur.TestSupport.tmp_root!("aiur-orch-human-review-no-threads")
 
@@ -2769,7 +2786,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         write_workflow_file!(Workflow.workflow_file_path(),
           tracker_kind: "memory",
           workspace_root: test_root,
-          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_active_states: ["todo", "in-progress", "rework", "merging", "human-review"],
           tracker_terminal_states: ["done", "cancelled", "canceled"]
         )
 

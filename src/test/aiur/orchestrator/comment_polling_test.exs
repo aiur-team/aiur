@@ -217,8 +217,26 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
   # `/pulls/178/reviews` is the precise thing the state filter suppressed.
   describe "review submission reads by ticket state" do
     test "reads PR review submissions for a ticket in agent:rework" do
-      for issue_state <- ["human-review", "rework"] do
+      # PR #178 takes a body-only CHANGES_REQUESTED review, the agent reworks
+      # to a newer head, and the reviewer submits again. Phase one already
+      # worked; phase two is the regression — the ticket is now `agent:rework`
+      # and its `/reviews` endpoint has to keep being read for the second
+      # review to exist at all.
+      #
+      # `review_issue_fetcher` models the real tracker by returning only issues
+      # whose state label is one of the states it was asked for. Without
+      # `rework` in the query the ticket is never returned, so no target is
+      # built and no `/reviews` request is made — which is exactly how this
+      # fails when the fix is reverted.
+      poll_reviews_for = fn issue_state, issue_updated_at ->
         parent = self()
+
+        issue = %Aiur.Issue{
+          id: "164",
+          identifier: "164",
+          state: issue_state,
+          updated_at: issue_updated_at
+        }
 
         batch = %{
           "164" => %{
@@ -231,17 +249,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
 
         opts = [
           repo: "owner/repo",
-          review_issue_fetcher: fn _states ->
-            {:ok,
-             [
-               %Aiur.Issue{
-                 id: "164",
-                 identifier: "164",
-                 state: issue_state,
-                 updated_at: "2026-09-10T00:46:36Z"
-               }
-             ]}
-          end,
+          review_issue_fetcher: fn states -> {:ok, Enum.filter([issue], &(&1.state in states))} end,
           review_pull_request_fetcher: fn "164" -> {:ok, %{"number" => 178}} end,
           watch_pull_request_fetcher: fn _label -> {:ok, []} end,
           comment_batch_fetcher: fn _targets, _opts -> {:ok, batch} end,
@@ -251,13 +259,31 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
           end
         ]
 
-        state = %{base_state() | github_comments_since: %{"164" => "2026-09-10T00:40:00Z"}}
+        state = %{base_state() | github_comments_since: %{"164" => "2026-09-10T00:00:00Z"}}
 
         assert is_struct(CommentPolling.poll_github_comments(state, opts), State)
 
-        assert_receive {:requested, url}, 1_000
-        assert url =~ "/pulls/178/reviews", "expected /reviews to be read for a #{issue_state} ticket"
+        drain_requested_urls([])
       end
+
+      first_head_urls = poll_reviews_for.("human-review", "2026-09-10T00:10:30Z")
+      assert Enum.any?(first_head_urls, &(&1 =~ "/pulls/178/reviews"))
+
+      second_head_urls = poll_reviews_for.("rework", "2026-09-10T00:46:36Z")
+
+      assert Enum.any?(second_head_urls, &(&1 =~ "/pulls/178/reviews")),
+             "a ticket in agent:rework must still have its PR review submissions read; " <>
+               "requested instead: #{inspect(second_head_urls)}"
+    end
+  end
+
+  # Requests are made concurrently, so the reviews read is not reliably the
+  # first message in the mailbox. Collect them all, then assert over the set.
+  defp drain_requested_urls(acc) do
+    receive do
+      {:requested, url} -> drain_requested_urls([url | acc])
+    after
+      200 -> acc
     end
   end
 
