@@ -19,7 +19,7 @@ import { agentIndexForKey } from "./keys.js";
 import { CHAT_WINDOW_ROWS, ensureEventVisible, selectedKeyAtOffset } from "./touchStrip/chatLog.js";
 import { createTypewriter } from "./touchStrip/typewriter.js";
 import { maxProviderOffset, PROVIDER_SCROLL_ENCODER } from "./touchStrip/providerPanel.js";
-import { micAtSlot, MICS_PER_PAGE, nextMicPage } from "./settings.js";
+import { micAtSlot, micSlotForKey, nextMicPage, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY } from "./settings.js";
 import type { AudioDevice } from "./audio/index.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs" | "settings" | "commands";
@@ -35,9 +35,13 @@ const CMD_COMMANDS = 4;
 const CMD_SEND = 5;
 const CMD_CANCEL = 6;
 
-/* Settings-mode key indices; 0..5 are the microphones. */
-const SETTINGS_TEST_MIC = 6;
-const SETTINGS_NEXT_PAGE = 7;
+/* Settings-mode key indices. TestMic shares `CMD_MIC`'s slot so hold-to-talk is
+ * under the same finger on both surfaces; the microphones fill what is left, in
+ * the order `MIC_KEY_INDICES` gives. Those come from `settings.ts` so this
+ * handler and the face `surface.ts` paints read one mapping, not two. */
+const SETTINGS_TEST_MIC = SETTINGS_TEST_MIC_KEY;
+const SETTINGS_NEXT_PAGE = SETTINGS_NEXT_PAGE_KEY;
+
 
 /* Commands-mode key indices. Option slots and the mic/approve/cancel/paging
  * slots are shared with `commands.ts` so the key face and the press cannot
@@ -730,8 +734,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
 
   const pressSettingsKey = (index: number): void => {
     const port = voice();
-    if (index < MICS_PER_PAGE) {
-      const device = port === null ? undefined : micAtSlot(port.microphones(), state.micOffset, index);
+    const slot = micSlotForKey(index);
+    if (slot !== undefined) {
+      const device = port === null ? undefined : micAtSlot(port.microphones(), state.micOffset, slot);
       if (device === undefined) return;
       // Persisted immediately, through `MicPreferences.select`, so the choice
       // survives a sidecar restart rather than living in this closure. The id
