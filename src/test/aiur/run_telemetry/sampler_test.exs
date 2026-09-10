@@ -1,6 +1,7 @@
 defmodule Aiur.RunTelemetry.SamplerTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.RunTelemetry.Procfs
   alias Aiur.RunTelemetry.Sampler
 
   test "samples current fleet and healthy build pressure once onto the daemon record" do
@@ -373,8 +374,8 @@ defmodule Aiur.RunTelemetry.SamplerTest do
 
     result =
       Sampler.sample_once(%{},
-        process_table_fun: fn -> Aiur.RunTelemetry.Procfs.process_table(root: root) end,
-        measure_fun: fn table, pids -> Aiur.RunTelemetry.Procfs.measure_many(table, pids, root: root) end,
+        process_table_fun: fn -> Procfs.process_table(root: root) end,
+        measure_fun: fn table, pids -> Procfs.measure_many(table, pids, root: root) end,
         entries_fun: fn -> [] end,
         daemon_pid: 1,
         operator_pid: nil,
