@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPhysicalSurface, descriptorEvents, descriptorSettings, repaintGrid } from "../src/surface.js";
+import { createPhysicalSurface, descriptorCommands, descriptorEvents, descriptorSettings, repaintGrid } from "../src/surface.js";
 import { layoutPhysicalKeys } from "../src/keys.js";
 import type { EventKey } from "../src/controller.js";
 import type { TranscriptRow } from "../src/channel.js";
 import { settingsView } from "../src/settings.js";
 import { VOICE_WAVEFORM_COLUMNS } from "../src/voicePanel.js";
 import { createRasterizer } from "../src/rasterizer.js";
+import { KEY_FACE_CONTRACT } from "../src/key-face-contract.js";
+import type { StreamDeckCommand } from "../src/channel.js";
 
 const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body, tool: null });
 
@@ -181,6 +183,40 @@ describe("physical surface composition", () => {
   });
 });
 
+describe("descriptorCommands", () => {
+  const agent = { identifier: "1358", bucket: "running" };
+  const commandsKey = (pending: number) => descriptorCommands(agent, false, false, pending)[4];
+
+  it("paints the Commands key as the warning triangle", () => {
+    expect(commandsKey(0)?.icon).toBe("alert");
+    expect(commandsKey(3)?.icon).toBe("alert");
+  });
+
+  it("reads OPEN and stays neutral with nothing pending", () => {
+    expect(commandsKey(0)).toMatchObject({ title: "Commands", subLabel: "OPEN", bucket: "queued" });
+  });
+
+  it("counts the pending Commands in the sub-label and asks for attention", () => {
+    expect(commandsKey(1)).toMatchObject({ subLabel: "1 PENDING", bucket: "alert" });
+    expect(commandsKey(3)).toMatchObject({ subLabel: "3 PENDING", bucket: "alert" });
+  });
+
+  it("wears the shared contract's alert accent rather than a colour of its own", () => {
+    const [, , , , key] = layoutPhysicalKeys(descriptorCommands(agent, false, false, 2));
+    expect(key.kind === "agent" && key.style.accent).toBe(KEY_FACE_CONTRACT.states.alert.accent);
+  });
+
+  it("ignores a negative or fractional count rather than painting nonsense", () => {
+    expect(commandsKey(-1)?.subLabel).toBe("OPEN");
+    expect(commandsKey(2.7)?.subLabel).toBe("2 PENDING");
+  });
+
+  it("leaves the rest of the command row alone", () => {
+    const titles = descriptorCommands(agent, false, false, 4).map((key) => key?.title ?? null);
+    expect(titles).toEqual(["Pause", "Logs", "Mic", "Settings", "Commands", null, null, null]);
+  });
+});
+
 describe("descriptorSettings", () => {
   const view = (count: number, selectedId: string | null = null, offset = 0) =>
     settingsView(
@@ -263,6 +299,25 @@ describe("the command and settings surfaces on the device", () => {
     await surface.repaint(device, grid, {}, undefined, base);
     const painted = write.mock.calls.length;
     await surface.repaint(device, grid, {}, undefined, { ...base, hasTranscript: true });
+    expect(write.mock.calls.slice(painted).some(([report]) => (report as Uint8Array)[1] === 0x07)).toBe(true);
+  });
+
+  // The count has to reach the pixels, not just the descriptor: the pending key
+  // is a different picture, so the dirty cache must upload it.
+  it("uploads a new Commands key face once a decision is pending", async () => {
+    const openCommand = {
+      decision_id: "dec-1",
+      version: 1,
+      question: "Ship the change?",
+      options: [],
+      status: "open",
+    } as StreamDeckCommand;
+    const { write, device } = backend();
+    const surface = createPhysicalSurface();
+    const base = { mode: "cmd" as const, focusedIdentifier: "1358", columnOffset: 0 };
+    await surface.repaint(device, grid, {}, undefined, { ...base, commandsPage: { items: [] } });
+    const painted = write.mock.calls.length;
+    await surface.repaint(device, grid, {}, undefined, { ...base, commandsPage: { identifier: "1358", items: [openCommand] } });
     expect(write.mock.calls.slice(painted).some(([report]) => (report as Uint8Array)[1] === 0x07)).toBe(true);
   });
 
