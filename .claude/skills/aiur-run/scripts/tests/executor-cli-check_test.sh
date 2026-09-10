@@ -15,7 +15,7 @@ cat > "$fixture/fake-cli" <<'EOF'
 set -euo pipefail
 case "${FAKE_CLI_MODE:-healthy}:$1" in
   healthy:__identity)
-    printf 'AIUR_SESSION_PREFIX=aiur\nAIUR_INSTANCE_KEY=test-instance\nAIUR_RELEASE_NODE=aiur-test@127.0.0.1\n'
+    printf 'AIUR_SESSION_PREFIX=aiur\nAIUR_INSTANCE_KEY=test-instance\nAIUR_RELEASE_NODE=aiur-test@127.0.0.1\nAIUR_BG_STATE_DIR=%s\n' "${FAKE_BG_STATE_DIR:-}"
     ;;
   healthy:status)
     printf 'ISSUE STATE   TITLE\nAGENTS 0/16 (binding: none)\n'
@@ -27,7 +27,7 @@ case "${FAKE_CLI_MODE:-healthy}:$1" in
     printf '{"topic":"ticket.1.agent.progress","needs_attention":false}\n'
     ;;
   widecols:__identity)
-    printf 'AIUR_SESSION_PREFIX=aiur\nAIUR_INSTANCE_KEY=test-instance\nAIUR_RELEASE_NODE=aiur-test@127.0.0.1\n'
+    printf 'AIUR_SESSION_PREFIX=aiur\nAIUR_INSTANCE_KEY=test-instance\nAIUR_RELEASE_NODE=aiur-test@127.0.0.1\nAIUR_BG_STATE_DIR=%s\n' "${FAKE_BG_STATE_DIR:-}"
     ;;
   widecols:status)
     printf 'ISSUE     STATE          TITLE\nAGENTS  0/16 (binding: none)\n'
@@ -64,8 +64,12 @@ cat > "$fixture/fake-tmux" <<'EOF'
 set -euo pipefail
 case "$*" in
   *" has-session "*) exit 0 ;;
-  *" list-panes "*) printf '%%1\n%%2\n%%3\n%%4\n%%5\n%%6\n' ;;
-  *" capture-pane "*) printf 'Agents: 0/16 ← →\n' ;;
+  *" list-panes "*)
+    if [ "${FAKE_TMUX_MODE:-interactive}" = headless ]; then printf '%%1\n'; else printf '%%1\n%%2\n%%3\n%%4\n%%5\n%%6\n'; fi
+    ;;
+  *" capture-pane "*)
+    if [ "${FAKE_TMUX_MODE:-interactive}" = headless ]; then printf 'daemon boot output\n'; else printf 'Agents: 0/16 ← →\n'; fi
+    ;;
   *) exit 1 ;;
 esac
 EOF
@@ -93,6 +97,47 @@ jq -e '
   (.tui_surface.attached and .tui_surface.agents_row and .tui_surface.cap_controls) and
   (.findings == [])
 ' <<< "$healthy" >/dev/null || fail "healthy CLI check was not clean"
+
+mkdir -p "$fixture/state/instances"
+cat > "$fixture/state/instances/aiur-test_127.0.0.1.instance" <<'EOF'
+AIUR_RECORD_NODE=aiur-test@127.0.0.1
+AIUR_RECORD_SESSION=aiur-test-instance-default
+AIUR_RECORD_SOCKET=aiur-test-instance
+AIUR_RECORD_SURFACE_MODE=headless
+EOF
+
+headless="$(
+  FAKE_BG_STATE_DIR="$fixture/state" \
+  FAKE_TMUX_MODE=headless \
+  AIUR_CMD="$fixture/fake-cli" \
+  AIUR_EXECUTOR_REPO_ROOT="$fixture" \
+  AIUR_EXECUTOR_CONFIG="$fixture/config" \
+  AIUR_EXECUTOR_TMUX="$fixture/fake-tmux" \
+  "$script"
+)"
+jq -e '
+  (.pane_surface.pane_count == 1) and
+  (.tui_surface.expected == false) and
+  (.tui_surface.mode == "headless") and
+  ([.findings[] | select(.reason == "agent_list_surface_incomplete")] | length == 0)
+' <<< "$headless" >/dev/null || fail "headless run was reported as an incomplete AgentList"
+
+sed -i 's/AIUR_RECORD_SURFACE_MODE=headless/AIUR_RECORD_SURFACE_MODE=interactive/' \
+  "$fixture/state/instances/aiur-test_127.0.0.1.instance"
+interactive_incomplete="$(
+  FAKE_BG_STATE_DIR="$fixture/state" \
+  FAKE_TMUX_MODE=headless \
+  AIUR_CMD="$fixture/fake-cli" \
+  AIUR_EXECUTOR_REPO_ROOT="$fixture" \
+  AIUR_EXECUTOR_CONFIG="$fixture/config" \
+  AIUR_EXECUTOR_TMUX="$fixture/fake-tmux" \
+  "$script"
+)"
+jq -e '
+  (.tui_surface.expected == true) and
+  (.tui_surface.mode == "interactive") and
+  (.findings | any(.reason == "agent_list_surface_incomplete"))
+' <<< "$interactive_incomplete" >/dev/null || fail "interactive run stopped checking its AgentList"
 
 # Column widths are cosmetic. A renderer that re-pads its headers must not make
 # every hourly check report malformed_output forever.

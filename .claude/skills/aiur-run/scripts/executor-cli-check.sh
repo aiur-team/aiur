@@ -164,9 +164,24 @@ read_identity() {
   identity_output="$(AIUR_REPO_ROOT="$repo_root" "${cli_parts[@]}" __identity 2>/dev/null || true)"
   while IFS='=' read -r key value; do
     case "$key" in
-      AIUR_SESSION_PREFIX|AIUR_INSTANCE_KEY|AIUR_RELEASE_NODE) printf '%s\n' "$key=$value" >> "$identity_file" ;;
+      AIUR_SESSION_PREFIX|AIUR_INSTANCE_KEY|AIUR_RELEASE_NODE|AIUR_BG_STATE_DIR) printf '%s\n' "$key=$value" >> "$identity_file" ;;
     esac
   done <<< "$identity_output"
+}
+
+recorded_surface_mode() {
+  local state_dir="$1" node="$2" slug record record_node mode
+  [ -n "$state_dir" ] && [ -n "$node" ] || { printf 'unknown\n'; return; }
+  slug="$(printf '%s' "$node" | tr -c 'A-Za-z0-9._-' '_')"
+  record="$state_dir/instances/$slug.instance"
+  [ -r "$record" ] || { printf 'unknown\n'; return; }
+  record_node="$(awk -F= '$1 == "AIUR_RECORD_NODE" {sub(/^[^=]*=/, ""); print; exit}' "$record")"
+  mode="$(awk -F= '$1 == "AIUR_RECORD_SURFACE_MODE" {sub(/^[^=]*=/, ""); print; exit}' "$record")"
+  if [ "$record_node" = "$node" ] && { [ "$mode" = headless ] || [ "$mode" = interactive ]; }; then
+    printf '%s\n' "$mode"
+  else
+    printf 'unknown\n'
+  fi
 }
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/aiur-cli-check.XXXXXX")"
@@ -210,6 +225,9 @@ release_node="$(awk -F= '$1 == "AIUR_RELEASE_NODE" {print $2}' "$identity_file")
 session_prefix="${AIUR_SESSION_PREFIX:-${session_prefix:-aiur}}"
 instance_key="${AIUR_INSTANCE_KEY:-$instance_key}"
 release_node="${AIUR_RELEASE_NODE:-$release_node}"
+bg_state_dir="$(awk -F= '$1 == "AIUR_BG_STATE_DIR" {print $2}' "$identity_file")"
+bg_state_dir="${AIUR_BG_STATE_DIR:-$bg_state_dir}"
+surface_mode="$(recorded_surface_mode "$bg_state_dir" "$release_node")"
 user_name="${USER:-$(id -un)}"
 socket="${AIUR_TMUX_SOCKET:-${session_prefix}-${user_name}${instance_key:+-$instance_key}}"
 session="${AIUR_TMUX_SESSION:-${socket}-default}"
@@ -220,6 +238,8 @@ session_present=0
 tui_attached=0
 tui_agents_row=0
 tui_cap_controls=0
+tui_expected=1
+[ "$surface_mode" = headless ] && tui_expected=0
 if command -v "$tmux_bin" >/dev/null 2>&1 && "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null; then
   session_present=1
   pane_count="$("$tmux_bin" -L "$socket" list-panes -a -t "$session" -F '#{pane_id}' 2>/dev/null | wc -l | tr -d ' ')"
@@ -233,7 +253,7 @@ if [ "$session_present" -eq 0 ]; then
   pane_finding="$(jq -nc --arg socket "$socket" --arg session "$session" \
     '{kind:"pane_surface",reason:"session_unavailable",socket:$socket,session:$session}')"
   findings_json="$(jq --argjson finding "$pane_finding" '. + [$finding]' <<< "$findings_json")"
-elif [ "$tui_attached" -eq 0 ] || [ "$tui_agents_row" -eq 0 ] || [ "$tui_cap_controls" -eq 0 ]; then
+elif [ "$tui_expected" -eq 1 ] && { [ "$tui_attached" -eq 0 ] || [ "$tui_agents_row" -eq 0 ] || [ "$tui_cap_controls" -eq 0 ]; }; then
   tui_finding="$(jq -nc --argjson attached "$tui_attached" --argjson agents_row "$tui_agents_row" --argjson cap_controls "$tui_cap_controls" \
     '{kind:"tui",reason:"agent_list_surface_incomplete",attached:($attached == 1),agents_row:($agents_row == 1),cap_controls:($cap_controls == 1)}')"
   findings_json="$(jq --argjson finding "$tui_finding" '. + [$finding]' <<< "$findings_json")"
@@ -244,5 +264,6 @@ jq -nc --arg checked_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   --argjson commands "$commands_json" --argjson findings "$findings_json" \
   --argjson session_present "$session_present" --argjson pane_count "${pane_count:-null}" \
   --argjson tui_attached "$tui_attached" --argjson tui_agents_row "$tui_agents_row" --argjson tui_cap_controls "$tui_cap_controls" \
+  --arg surface_mode "$surface_mode" --argjson tui_expected "$tui_expected" \
   --argjson pre_warmed_sessions "${pre_warmed_sessions:-null}" --argjson live_agent_cap "${live_agent_cap:-null}" \
-  '{checked_at:$checked_at,target:{repo_root:$repo_root,release_node:$release_node},commands:$commands,pane_surface:{session:$session,socket:$socket,session_present:($session_present == 1),pane_count:$pane_count,pre_warmed_sessions:$pre_warmed_sessions,live_agent_cap:$live_agent_cap},tui_surface:{attached:($tui_attached == 1),agents_row:($tui_agents_row == 1),cap_controls:($tui_cap_controls == 1)},findings:$findings}'
+  '{checked_at:$checked_at,target:{repo_root:$repo_root,release_node:$release_node},commands:$commands,pane_surface:{session:$session,socket:$socket,session_present:($session_present == 1),pane_count:$pane_count,pre_warmed_sessions:$pre_warmed_sessions,live_agent_cap:$live_agent_cap},tui_surface:{mode:$surface_mode,expected:($tui_expected == 1),attached:($tui_attached == 1),agents_row:($tui_agents_row == 1),cap_controls:($tui_cap_controls == 1)},findings:$findings}'

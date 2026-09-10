@@ -1525,7 +1525,7 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     AIUR_RELEASE_NODE=aiur-tester-abc123@127.0.0.1
     AIUR_REPO_ROOT=
     aiur_resolve_identity
-    write_aiur_instance_record aiur-tester-abc123-default aiur-tester-abc123
+    write_aiur_instance_record aiur-tester-abc123-default aiur-tester-abc123 replace headless
     cat "$(aiur_instance_record_path)"
     """
 
@@ -1544,6 +1544,7 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     assert out =~ "AIUR_RECORD_INSTANCE_KEY=abc123"
     assert out =~ "AIUR_RECORD_SESSION=aiur-tester-abc123-default"
     assert out =~ "AIUR_RECORD_SOCKET=aiur-tester-abc123"
+    assert out =~ "AIUR_RECORD_SURFACE_MODE=headless"
     assert out =~ "AIUR_RECORD_PROJECT_ROOT=#{launch_root_real}"
     assert out =~ "AIUR_RECORD_PROJECT_ROOT_SOURCE=cwd"
   end

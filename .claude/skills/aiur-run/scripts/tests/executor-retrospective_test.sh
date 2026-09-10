@@ -233,6 +233,36 @@ grep -q 'metric-column-missing' "$visual_retro" || fail "visual verdict was not 
 visual_evidence_dir="$visual_retro.d"
 find "$visual_evidence_dir" -name build-orders.png -print -quit | grep -q . || fail "visual capture was not retained beside retrospective"
 
+# Codex exposes aiur-run through a directory symlink. Default sibling-skill
+# discovery must follow that symlink to the tracked .claude skill tree instead
+# of looking for a nonexistent .codex/skills/aiur-meta directory.
+repo_root="$(git -C "$(dirname "$script")" rev-parse --show-toplevel)"
+codex_script="$repo_root/.codex/skills/aiur-run/scripts/executor-retrospective.sh"
+fake_node_bin="$state_root/fake-node-bin"
+mkdir -p "$fake_node_bin"
+cat > "$fake_node_bin/node" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+capture_script="$(realpath -m -L "$1")"
+[ -f "$capture_script" ] || exit 66
+out="$2"
+printf '{"verdict":"healthy","pages":[]}\n' > "$out/report.json"
+printf '# Dashboard visual check\n\n- capture: **healthy**\n\nOverall: **healthy**.\n' > "$out/verdict.md"
+EOF
+chmod +x "$fake_node_bin/node"
+
+codex_retro="$state_root/codex-symlink-retrospective.md"
+PATH="$fake_node_bin:$PATH" \
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=codex-symlink \
+  AIUR_EXECUTOR_RETRO_FILE="$codex_retro" \
+  AIUR_DASHBOARD_URL="http://127.0.0.1:4020" \
+  AIUR_DASHBOARD_USERNAME="test-user" \
+  AIUR_DASHBOARD_PASSWORD="test-password" \
+  "$codex_script" visual-check >/dev/null
+grep -q 'capture: \*\*healthy\*\*' "$codex_retro" ||
+  fail "Codex symlink invocation did not resolve the sibling aiur-meta capture script"
+
 # A missing capture helper is attention evidence, not a process exit: `record`
 # still has to print the event whose durable state it has already written.
 missing_capture_out="$state_root/missing-capture.out"
@@ -605,7 +635,7 @@ grep -q 'first_lines:' "$cli_retro" || fail "CLI first output lines were not app
 grep -q 'panes=6' "$cli_retro" || fail "pane count was not appended"
 grep -q 'pre_warmed_sessions=3' "$cli_retro" || fail "warm-pool count was not appended"
 grep -q 'live_agent_cap=16' "$cli_retro" || fail "live cap was not appended"
-grep -q 'TUI: attached=true, agents_row=true, cap_controls=true' "$cli_retro" || fail "TUI surface was not appended"
+grep -q 'TUI: mode=unknown, expected=true, attached=true, agents_row=true, cap_controls=true' "$cli_retro" || fail "TUI surface was not appended"
 
 # Both optional checks are best-effort. An unavailable helper must degrade the
 # evidence, never terminate `record` after the timer has already advanced —
