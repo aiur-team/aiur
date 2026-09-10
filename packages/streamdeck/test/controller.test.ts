@@ -1309,3 +1309,61 @@ describe("Commands answer path", () => {
     expect(answerCommand).not.toHaveBeenCalled();
   });
 });
+
+describe("the Implement key", () => {
+  const channelWith = (control: (identifier: string, action: "pause" | "resume" | "implement") => void) => () => ({
+    focus: vi.fn(),
+    control,
+    say: vi.fn(),
+    commandsPage: vi.fn(),
+    answerCommand: vi.fn(),
+  });
+
+  /** Focuses key 0, which is `agent-0` — a queued ticket in the shared fixture. */
+  const focusQueued = (controller: ReturnType<typeof createPhysicalController>): void => {
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+  };
+
+  it("asks the channel to queue the focused agent-less ticket", () => {
+    const control = vi.fn<(identifier: string, action: "pause" | "resume" | "implement") => void>();
+    const controller = createPhysicalController({ grid, channel: channelWith(control), stateChanged: vi.fn() });
+    focusQueued(controller);
+    expect(controller.state().focusedIdentifier).toBe("agent-0");
+
+    controller.handleReport(keyReport(7, true));
+    expect(control).toHaveBeenCalledWith("agent-0", "implement");
+    expect(controller.state().implementQueued).toBe(true);
+  });
+
+  it("does nothing on the last key for a ticket an agent already holds", () => {
+    const control = vi.fn<(identifier: string, action: "pause" | "resume" | "implement") => void>();
+    const controller = createPhysicalController({ grid, channel: channelWith(control), stateChanged: vi.fn() });
+    // Key 3 is `agent-6`, the fixture's running agent.
+    controller.handleReport(keyReport(3, true));
+    controller.handleReport(keyReport(3, false));
+    controller.handleReport(keyReport(7, true));
+    expect(control).not.toHaveBeenCalled();
+    expect(controller.state().implementQueued).toBe(false);
+  });
+
+  // The surface paints no Pause key for a ticket with no agent, so a press
+  // there must not send the action the missing key would have sent.
+  it("sends no pause for a ticket with no agent", () => {
+    const control = vi.fn<(identifier: string, action: "pause" | "resume" | "implement") => void>();
+    const controller = createPhysicalController({ grid, channel: channelWith(control), stateChanged: vi.fn() });
+    focusQueued(controller);
+    controller.handleReport(keyReport(0, true));
+    expect(control).not.toHaveBeenCalled();
+  });
+
+  it("retires the QUEUED label on the next grid push", () => {
+    const controller = createPhysicalController({ grid, channel: channelWith(vi.fn<(identifier: string, action: "pause" | "resume" | "implement") => void>()), stateChanged: vi.fn() });
+    focusQueued(controller);
+    controller.handleReport(keyReport(7, true));
+    expect(controller.state().implementQueued).toBe(true);
+
+    controller.gridChanged();
+    expect(controller.state().implementQueued).toBe(false);
+  });
+});

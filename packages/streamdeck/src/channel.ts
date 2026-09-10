@@ -303,8 +303,12 @@ export interface StreamDeckChannel {
    * `prioritize`/`deprioritize` are gone with the key that sent them, and
    * `"mic"` was never a server action at all — the channel rejected it, so the
    * key had no effect. Voice has its own three events below.
+   *
+   * `implement` is the queue verb for a ticket with no agent: the server applies
+   * the configured lifecycle todo label through the CLI's own `--todo` path, so
+   * the deck asks for a dispatch rather than performing one.
    */
-  control(identifier: string, action: "pause" | "resume"): void;
+  control(identifier: string, action: "pause" | "resume" | "implement"): void;
   /**
    * Delivers a transcribed message to an agent.
    *

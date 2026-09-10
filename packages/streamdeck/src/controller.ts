@@ -20,6 +20,7 @@ import { CHAT_WINDOW_ROWS, ensureEventVisible, selectedKeyAtOffset } from "./tou
 import { createTypewriter } from "./touchStrip/typewriter.js";
 import { maxProviderOffset, PROVIDER_SCROLL_ENCODER } from "./touchStrip/providerPanel.js";
 import { micAtSlot, micSlotForKey, nextMicPage, SETTINGS_NEXT_PAGE_KEY, SETTINGS_TEST_MIC_KEY } from "./settings.js";
+import { agentLess } from "./surface.js";
 import type { AudioDevice } from "./audio/index.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs" | "settings" | "commands";
@@ -34,6 +35,10 @@ const CMD_SETTINGS = 3;
 const CMD_COMMANDS = 4;
 const CMD_SEND = 5;
 const CMD_CANCEL = 6;
+/* The last cmd slot is Implement, and only for a ticket with no agent: the
+ * surface paints it there from the same `agentLess` predicate this press reads,
+ * so a press can never mean something the key does not say. */
+const CMD_IMPLEMENT = 7;
 
 /* Settings-mode key indices. TestMic shares `CMD_MIC`'s slot so hold-to-talk is
  * under the same finger on both surfaces; the microphones fill what is left, in
@@ -221,6 +226,14 @@ export interface ControllerState {
   readonly commandDictation: boolean;
   /** An answer error from the channel, shown on the detail strip. */
   readonly commandsError: string | null;
+  /**
+   * True from a successful Implement press until the next grid push.
+   *
+   * It only changes the Implement key's sub-label to `QUEUED`. Nothing here
+   * pretends the ticket is running: the daemon decides when it dispatches, and
+   * the running face arrives with the snapshot that says so.
+   */
+  readonly implementQueued: boolean;
 }
 
 export interface PhysicalControllerOptions {
@@ -281,6 +294,7 @@ const initialState: ControllerState = {
   selectedOption: null,
   commandDictation: false,
   commandsError: null,
+  implementQueued: false,
 };
 
 const agentAt = (grid: StreamDeckGrid, offset: number, key: number): Readonly<Record<string, unknown>> | undefined =>
@@ -601,7 +615,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const agent = focusedAgent();
       const identifier = state.focusedIdentifier;
       if (identifier === null || agent === undefined) return;
-      if (index === CMD_PAUSE) {
+      if (index === CMD_PAUSE && !agentLess(agent)) {
         // Anything not already paused can be paused. Restricting this to the
         // `running` bucket left the key inert for an alert or stuck agent —
         // exactly the states an operator most wants to halt.
@@ -618,6 +632,13 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         sendTranscript(identifier);
       } else if (index === CMD_CANCEL) {
         cancelTranscript();
+      } else if (index === CMD_IMPLEMENT && agentLess(agent)) {
+        // The deck asks; the daemon dispatches. `implement` applies the
+        // configured lifecycle todo label through the same path as the CLI's
+        // `--todo`, so the ticket enters the queue the orchestrator already
+        // reads instead of being started behind its back.
+        options.channel()?.control(identifier, "implement");
+        publish({ ...state, implementQueued: true });
       }
     }
   };
@@ -1065,6 +1086,17 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
      */
     commandsError: (reason: string): void => {
       publish({ ...state, commandsError: reason });
+    },
+    /**
+     * Applies a fresh grid: the fleet state the Implement key was waiting on.
+     *
+     * The controller pulls the grid rather than being pushed it, so it cannot
+     * see a snapshot land on its own. The host calls this when one does, which
+     * is what retires the `QUEUED` sub-label: from that point the key shows
+     * whatever the ticket's real bucket now is.
+     */
+    gridChanged: (): void => {
+      if (state.implementQueued) publish({ ...state, implementQueued: false });
     },
   };
 };
