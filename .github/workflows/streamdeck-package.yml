@@ -1,29 +1,106 @@
 name: Stream Deck package
 
+# Builds the self-contained Linux x64 Stream Deck sidecar archive.
+#
+# Channels:
+#   pull_request   build + clean-install smoke only; nothing is published.
+#   nightly        the schedule, or workflow_dispatch with publish=true. There
+#                  is exactly ONE rolling pre-release, `streamdeck-nightly`,
+#                  updated in place: the tag moves to the built commit and the
+#                  two fixed-name assets are replaced with --clobber. The gate
+#                  job skips the night entirely when packages/streamdeck has
+#                  not changed since the commit the tag currently points at, so
+#                  a night with no changes produces no build, no upload and no
+#                  tag move, and two runs on one commit leave one entry.
+#   release        a published `v*` release gets the archive attached to it.
+#
+# Per-commit `streamdeck-<sha>` pre-releases are gone (#2633): they created one
+# release and one tag per push to main and buried the real releases.
 on:
   pull_request:
     paths:
       - "packages/streamdeck/**"
       - ".github/workflows/streamdeck-package.yml"
-  push:
-    branches:
-      - main
+  schedule:
+    # Same slot as the npm nightly in release-npm.yml (07:00 UTC). The gate keys
+    # off the last published commit, not the calendar, so DST drift is inert.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Update the streamdeck-nightly rolling pre-release (default: build only)"
+        type: boolean
+        default: false
   release:
     types:
       - published
 
-# Initial PR runs share a stable group; reruns and every non-PR event get a
+# Nightly runs share one fixed group so two cuts can never race on the rolling
+# release. Initial PR runs share a stable group; reruns and release events get a
 # unique group so they cannot replace another pending or in-progress run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'nightly' || format('{0}-{1}-{2}', github.event_name, (github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number) || github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
 
 permissions:
   contents: read
 
+env:
+  NIGHTLY_TAG: streamdeck-nightly
+  NIGHTLY_ASSET_BASE: aiur-streamdeck-nightly-linux-x64
+
 jobs:
+  # Decide whether tonight's nightly is worth building. The rolling tag is the
+  # record of the last published commit; no diff under the package's paths since
+  # then means nothing to publish.
+  gate:
+    name: nightly change gate
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      previous: ${{ steps.gate.outputs.previous }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Compare packages/streamdeck against the last published nightly
+        id: gate
+        run: |
+          previous=""
+          if git fetch --quiet origin "refs/tags/${NIGHTLY_TAG}:refs/tags/${NIGHTLY_TAG}" 2>/dev/null; then
+            previous=$(git rev-parse --verify --quiet "refs/tags/${NIGHTLY_TAG}^{commit}" || true)
+          fi
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          if [ -z "$previous" ]; then
+            echo "no ${NIGHTLY_TAG} tag yet; publishing the first nightly"
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          elif ! git merge-base --is-ancestor "$previous" HEAD 2>/dev/null; then
+            echo "${NIGHTLY_TAG} points at $previous, which is not an ancestor of HEAD; publishing"
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$previous" HEAD -- packages/streamdeck .github/workflows/streamdeck-package.yml; then
+            echo "packages/streamdeck unchanged since $previous; nothing to publish"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "packages/streamdeck changed since $previous; publishing"
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Summary
+        run: |
+          {
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| last published | ${{ steps.gate.outputs.previous || 'none' }} |"
+            echo "| head | ${{ github.sha }} |"
+            echo "| proceeding | ${{ steps.gate.outputs.proceed }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
-    if: github.event_name == 'pull_request' || github.event_name == 'push' || startsWith(github.event.release.tag_name, 'v')
+    needs: gate
+    # `!cancelled()` keeps this job eligible when the gate job was skipped
+    # (pull_request and release events never run it).
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')) || needs.gate.outputs.proceed == 'true') }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -45,11 +122,25 @@ jobs:
         run: |
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "source_date_epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
-          if [ "${GITHUB_EVENT_NAME}" = release ]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=0.0.0-dev.${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
-          fi
+          case "$GITHUB_EVENT_NAME" in
+            release)
+              # A real release keeps content-addressed asset names on its own tag.
+              echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+              echo "release_tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+              echo "asset_base=" >> "$GITHUB_OUTPUT"
+              ;;
+            schedule|workflow_dispatch)
+              echo "version=0.0.0-nightly.${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+              echo "release_tag=${NIGHTLY_TAG}" >> "$GITHUB_OUTPUT"
+              echo "asset_base=${NIGHTLY_ASSET_BASE}" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              # PR builds exercise the exact nightly naming without publishing.
+              echo "version=0.0.0-dev.${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+              echo "release_tag=${NIGHTLY_TAG}" >> "$GITHUB_OUTPUT"
+              echo "asset_base=${NIGHTLY_ASSET_BASE}" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
       - name: Install, build, and retain production runtime
         run: |
           npm ci
@@ -60,20 +151,19 @@ jobs:
           COMMIT: ${{ steps.metadata.outputs.commit }}
           SOURCE_DATE_EPOCH: ${{ steps.metadata.outputs.source_date_epoch }}
           VERSION: ${{ steps.metadata.outputs.version }}
+          RELEASE_TAG: ${{ steps.metadata.outputs.release_tag }}
+          ASSET_BASE: ${{ steps.metadata.outputs.asset_base }}
         run: |
-          args=(--output package-dist --commit "$COMMIT" --version "$VERSION" --source-date-epoch "$SOURCE_DATE_EPOCH")
-          if [ "$GITHUB_EVENT_NAME" = release ]; then
-            args+=(--release-tag "$GITHUB_REF_NAME")
+          args=(--output package-dist --commit "$COMMIT" --version "$VERSION" --source-date-epoch "$SOURCE_DATE_EPOCH" --release-tag "$RELEASE_TAG")
+          if [ -n "$ASSET_BASE" ]; then
+            args+=(--asset-base "$ASSET_BASE")
           fi
           node scripts/build-package.mjs "${args[@]}"
       - name: Clean-install smoke test
+        env:
+          RELEASE_TAG: ${{ steps.metadata.outputs.release_tag }}
         run: |
-          commit=$(jq -r '.commit' package-dist/*.json)
-          release_tag="streamdeck-${commit}"
-          if [ "$GITHUB_EVENT_NAME" = release ]; then
-            release_tag="$GITHUB_REF_NAME"
-          fi
-          PACKAGE_ARTIFACT_DIR=package-dist PACKAGE_RELEASE_TAG="$release_tag" npm run test:package
+          PACKAGE_ARTIFACT_DIR=package-dist PACKAGE_RELEASE_TAG="$RELEASE_TAG" npm run test:package
       - name: Upload package artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -81,42 +171,78 @@ jobs:
           path: packages/streamdeck/package-dist/*
           if-no-files-found: error
 
-  publish-development-release:
-    if: github.event_name == 'push'
-    needs: build
+  # One rolling pre-release, updated in place. Order matters: the tag moves
+  # first so the release always describes the commit its assets came from, then
+  # the two fixed-name assets are replaced, then everything is read back.
+  publish-nightly:
+    if: ${{ !cancelled() && needs.build.result == 'success' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish)) }}
+    needs: [gate, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Download package artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: streamdeck-${{ needs.build.outputs.commit }}
           path: package-dist
-      - name: Attach immutable commit asset
+      - name: Update the rolling pre-release in place
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           COMMIT: ${{ needs.build.outputs.commit }}
+          VERSION: ${{ needs.build.outputs.version }}
         run: |
-          tag="streamdeck-${COMMIT}"
-          manifest_path=$(find package-dist -maxdepth 1 -name '*.json' -print -quit)
-          asset=$(jq -r '.artifact' "$manifest_path")
-          expected=$(jq -r '.sha256' "$manifest_path")
-          manifest=$(basename "$manifest_path")
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" package-dist/* --target "$COMMIT" --prerelease --title "Stream Deck ${COMMIT}" --notes "Immutable Stream Deck sidecar package for ${COMMIT}."
+          set -euo pipefail
+          asset="${NIGHTLY_ASSET_BASE}.tar.gz"
+          manifest="${NIGHTLY_ASSET_BASE}.json"
+          test -f "package-dist/$asset"
+          test -f "package-dist/$manifest"
+          expected=$(jq -r '.sha256' "package-dist/$manifest")
+          jq -e --arg commit "$COMMIT" --arg asset "$asset" '.commit == $commit and .artifact == $asset' "package-dist/$manifest" >/dev/null
+
+          # Move the tag to the built commit. The push is forced because the
+          # tag already exists on every night but the first.
+          git push --force origin "${COMMIT}:refs/tags/${NIGHTLY_TAG}"
+
+          notes="Rolling Stream Deck sidecar nightly, updated in place whenever packages/streamdeck changes."$'\n\n'"Built from ${COMMIT} (version ${VERSION}). Verify the archive against the sha256 in ${manifest}."
+          if gh release view "$NIGHTLY_TAG" >/dev/null 2>&1; then
+            gh release edit "$NIGHTLY_TAG" --target "$COMMIT" --prerelease --title "Stream Deck nightly" --notes "$notes"
+            # Only the two fixed-name assets may live on this release.
+            gh release view "$NIGHTLY_TAG" --json assets --jq '.assets[].name' | while read -r name; do
+              case "$name" in
+                "$asset"|"$manifest") ;;
+                *) gh release delete-asset "$NIGHTLY_TAG" "$name" --yes ;;
+              esac
+            done
+          else
+            gh release create "$NIGHTLY_TAG" --target "$COMMIT" --prerelease --title "Stream Deck nightly" --notes "$notes"
           fi
-          assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
-          for name in "$asset" "$manifest"; do
-            if ! grep -Fxq "$name" <<< "$assets"; then gh release upload "$tag" "package-dist/$name"; fi
-          done
+          gh release upload "$NIGHTLY_TAG" "package-dist/$asset" "package-dist/$manifest" --clobber
+
+          # Read everything back: the assets are what was built, the tag is the
+          # built commit, and there is still exactly one Stream Deck release.
           verify_dir=$(mktemp -d)
-          gh release download "$tag" --pattern "$asset" --dir "$verify_dir"
-          gh release download "$tag" --pattern "$manifest" --dir "$verify_dir"
+          gh release download "$NIGHTLY_TAG" --pattern "$asset" --dir "$verify_dir"
+          gh release download "$NIGHTLY_TAG" --pattern "$manifest" --dir "$verify_dir"
           actual=$(sha256sum "$verify_dir/$asset" | awk '{print $1}')
           test "$actual" = "$expected"
-          jq -e --arg commit "$COMMIT" --arg asset "$asset" --arg sha256 "$expected" --arg tag "$tag" '.commit == $commit and .artifact == $asset and .sha256 == $sha256 and .content_address == "releases/download/" + $tag + "/" + $asset' "$verify_dir/$manifest"
+          jq -e --arg commit "$COMMIT" --arg asset "$asset" --arg sha256 "$expected" --arg tag "$NIGHTLY_TAG" \
+            '.commit == $commit and .artifact == $asset and .sha256 == $sha256 and .content_address == "releases/download/" + $tag + "/" + $asset' \
+            "$verify_dir/$manifest"
+          test "$(git ls-remote --tags origin "refs/tags/${NIGHTLY_TAG}" | cut -f1)" = "$COMMIT"
+          count=$(gh api --paginate "repos/${GH_REPO}/releases" --jq '[.[] | select(.tag_name | startswith("streamdeck-"))] | length' | paste -sd+ | bc)
+          test "$count" = 1
+          {
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| release | ${NIGHTLY_TAG} |"
+            echo "| commit | ${COMMIT} |"
+            echo "| version | ${VERSION} |"
+            echo "| sha256 | ${expected} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   publish-release-asset:
     if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')

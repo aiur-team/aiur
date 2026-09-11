@@ -24,18 +24,18 @@ test("builds a self-contained archive with traceable provenance", async () => {
     const archiveDigest = createHash("sha256").update(await readFile(archive)).digest("hex");
     assert.match(manifest.commit, /^[0-9a-f]{40}$/);
     assert.equal(manifest.sha256, archiveDigest);
-    assert.ok(manifest.artifact.endsWith(`-${archiveDigest}.tar.gz`));
     const releaseTag = process.env.PACKAGE_RELEASE_TAG ?? "v0.0.0-test";
     assert.equal(manifest.content_address, `releases/download/${releaseTag}/${manifest.artifact}`);
     assert.equal(manifest.release_asset_path, `releases/download/${releaseTag}/${manifest.artifact}`);
     if (archiveOutput) {
+      // Without --asset-base the archive name is content-addressed.
+      assert.ok(manifest.artifact.endsWith(`-${archiveDigest}.tar.gz`));
       assert.equal(manifest.commit, fixtureCommit);
       assert.equal(archiveOutput, `${archive}\n`);
     }
     execFileSync("tar", ["-xzf", archive, "-C", extract]);
-    const archiveSuffix = `-${manifest.sha256}.tar.gz`;
-    assert.ok(manifest.artifact.endsWith(archiveSuffix));
-    const root = join(extract, manifest.artifact.slice(0, -archiveSuffix.length));
+    // The extracted root is always versioned, whatever the archive was named.
+    const root = join(extract, `aiur-streamdeck-${manifest.version}-${manifest.target}`);
     assert.match(await readFile(join(root, "BUILD-INFO.json"), "utf8"), new RegExp(manifest.commit));
     const bundledNode = await stat(join(root, "runtime", "node"));
     assert.ok(bundledNode.mode & 0o111, "the archive bundles an executable Node runtime");
@@ -77,4 +77,34 @@ test("builds a self-contained archive with traceable provenance", async () => {
     if (!process.env.PACKAGE_ARTIFACT_DIR) await rm(output, { recursive: true, force: true });
     await rm(extract, { recursive: true, force: true });
   }
+});
+
+test("a fixed asset base names the archive and manifest for a rolling release", async () => {
+  const output = await mkdtemp(join(fileURLToPath(packageRoot), ".package-artifact-"));
+  try {
+    const archiveOutput = execFileSync(process.execPath, ["scripts/build-package.mjs", "--output", output, "--commit", fixtureCommit, "--version", "0.0.0-nightly.0123456789ab", "--source-date-epoch", "0", "--release-tag", "streamdeck-nightly", "--asset-base", "aiur-streamdeck-nightly-linux-x64"], { cwd: packageRoot, encoding: "utf8" });
+    const entries = (await readdir(output)).sort();
+    assert.deepEqual(entries, ["aiur-streamdeck-nightly-linux-x64.json", "aiur-streamdeck-nightly-linux-x64.tar.gz"]);
+    const manifest = JSON.parse(await readFile(join(output, "aiur-streamdeck-nightly-linux-x64.json"), "utf8"));
+    const archive = join(output, manifest.artifact);
+    assert.equal(archiveOutput, `${archive}\n`);
+    assert.equal(manifest.artifact, "aiur-streamdeck-nightly-linux-x64.tar.gz");
+    assert.equal(manifest.version, "0.0.0-nightly.0123456789ab");
+    assert.equal(manifest.commit, fixtureCommit);
+    // The fixed name carries no digest, so the manifest's sha256 is the integrity contract.
+    assert.equal(manifest.sha256, createHash("sha256").update(await readFile(archive)).digest("hex"));
+    assert.equal(manifest.content_address, "releases/download/streamdeck-nightly/aiur-streamdeck-nightly-linux-x64.tar.gz");
+    assert.equal(manifest.release_asset_path, manifest.content_address);
+    const listing = execFileSync("tar", ["-tzf", archive], { encoding: "utf8" });
+    assert.match(listing, /^aiur-streamdeck-0\.0\.0-nightly\.0123456789ab-linux-x64\/BUILD-INFO\.json$/m);
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});
+
+test("an asset base must be a plain file name stem", () => {
+  assert.throws(
+    () => execFileSync(process.execPath, ["scripts/build-package.mjs", "--commit", fixtureCommit, "--version", "0.0.0-test", "--source-date-epoch", "0", "--asset-base", "../escape"], { cwd: packageRoot, encoding: "utf8", stdio: "pipe" }),
+    /--asset-base must be a plain file name stem/,
+  );
 });
