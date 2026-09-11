@@ -137,10 +137,15 @@ defmodule Aiur.Orchestrator.ReworkGate do
   #     redelivery ceiling. A redelivered or duplicated `pull_request_review`
   #     is dropped at publish and never reaches this gate.
   #   * The poller's `poll_pr_review_submissions/6` applies the
-  #     `pr_review_seen_at` / `current_target_since` / boot cutoff, and
-  #     `review_submission_enabled?/2` only reads `/reviews` for tickets still
-  #     in `human-review` — so a ticket already moved to `agent:rework` is not
-  #     re-polled into rework again.
+  #     `pr_review_seen_at` / `current_target_since` / boot cutoff, so a review
+  #     already consumed on an earlier cycle is never re-published. `/reviews`
+  #     IS read for tickets in `agent:rework` as well as `human-review`
+  #     (`TargetSelection`'s `@comment_poll_review_states`): a rework ticket is
+  #     precisely where a second review lands, and excluding the state made a
+  #     brand-new body-only `CHANGES_REQUESTED` review on a newer head
+  #     invisible while the aggregate `reviewDecision` stayed sticky (#2601).
+  #     The cutoff plus the durable review identity above are what keep the
+  #     same review from being routed twice — not the state filter.
   #   * `verify_rework_attempt/4`'s head-SHA bound applies on top of both.
   #
   # Do NOT justify this by `ReviewFreshness`. Its staleness half needs

@@ -17,7 +17,24 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   @reconcile_targets_per_poll 25
   @human_review_state "human-review"
   @merging_state "merging"
-  @comment_poll_review_states [@human_review_state, @merging_state]
+  @rework_state "rework"
+
+  # The idle states whose tickets are discovered for comment polling, and — via
+  # `review_submission_targets` — the states whose PRs have `/reviews` read.
+  #
+  # `rework` is in the set because a rework ticket is exactly where a *second*
+  # review lands. A ticket whose rework turn finished sits in `agent:rework`
+  # with no live provider; excluding it made a brand-new body-only
+  # `CHANGES_REQUESTED` review on a newer head invisible, because GitHub's
+  # aggregate `reviewDecision` was already sticky from the first one and
+  # nothing else re-derives the review (#2601). Excluding the state was never
+  # what kept #2422's rework loop closed: the guard is per-review identity —
+  # the durable `{:pr_review, owner, repo, review_id}` resource at
+  # `resource_version = submitted_at`, the `pr_review_seen_at` cutoff, and
+  # `ReworkGate.verify_rework_attempt/4`'s per-head bound. All three are
+  # edge-triggered on a review's own identity, so re-reading `/reviews` for a
+  # rework ticket cannot re-route the same review, and a new one wakes it once.
+  @comment_poll_review_states [@human_review_state, @merging_state, @rework_state]
 
   @doc false
   @spec max_comment_poll_target_count(State.t(), keyword()) :: non_neg_integer()
@@ -208,10 +225,12 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
     |> normalize_comment_targets()
   end
 
-  # Discovers idle (non-running) tickets in the comment-actionable review states
-  # (human-review + merging) and turns each into a comment poll target, so a
-  # trusted reviewer comment on them is seen and promotes the ticket to rework
-  # even though those states are not in active_states.
+  # Discovers tickets in the comment-actionable review states (human-review,
+  # merging, rework) and turns each into a comment poll target, so a trusted
+  # reviewer comment or review submission on them is seen even when the ticket
+  # has no live agent. Only paused tickets are excluded, so a running ticket in
+  # one of these states is discovered too — `Enum.uniq` in the callers folds it
+  # together with its running-target entry.
   defp human_review_comment_poll_targets(%State{} = state, opts) do
     fetcher = Keyword.get(opts, :review_issue_fetcher, &Tracker.fetch_issues_by_states/1)
 
@@ -219,12 +238,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
       {:ok, issues} when is_list(issues) ->
         targets =
           issues
-          |> Enum.reject(&Issue.paused?/1)
-          |> Enum.map(&human_review_comment_target_for_issue/1)
-          |> Enum.reject(&is_nil/1)
-          |> dedupe_human_review_targets()
-          |> Enum.sort_by(&human_review_comment_target_sort_key(state, &1))
-          |> Enum.take(human_review_comment_target_limit(opts))
+          |> capped_review_targets(state, opts)
           |> Enum.map(&with_human_review_pr_updated_at(&1, opts))
           |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
 
@@ -268,15 +282,74 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
 
   defp human_review_targets_from_issues(state, issues, opts) do
     issues
-    |> Enum.reject(&Issue.paused?/1)
-    |> Enum.map(&human_review_comment_target_for_issue/1)
-    |> Enum.reject(&is_nil/1)
-    |> dedupe_human_review_targets()
-    |> Enum.sort_by(&human_review_comment_target_sort_key(state, &1))
-    |> Enum.take(human_review_comment_target_limit(opts))
+    |> capped_review_targets(state, opts)
     |> Enum.map(&with_human_review_pr_updated_at(&1, opts))
     |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
   end
+
+  # Orders the review-state population and applies the per-poll cap.
+  #
+  # The cap is shared by every state in `@comment_poll_review_states`, and
+  # `CommentPolling` derives `review_submission_targets` from exactly this
+  # capped list — so a ticket the cap drops loses its `/reviews` read
+  # entirely, which is #2601's failure returning under load. Once `rework`
+  # joined the set, a plain sort made that loss systematic rather than random:
+  # `human_review_comment_target_sort_key/2` puts a ticket whose issue
+  # `updated_at` moved ahead of one whose has not; a rework ticket with a live
+  # agent churns its issue (label writes, comments) while a `human-review`
+  # ticket waiting on a review submission does not, because a review touches
+  # the pull request and not the issue. The population most likely to be
+  # evicted was precisely the one the review-submission poll exists for.
+  #
+  # Interleaving the two buckets keeps each state's own priority order while
+  # splitting the cap roughly evenly, so neither `human-review` nor `rework`
+  # can starve the other. The budget is unchanged: the same limit is applied
+  # to the same combined population.
+  defp capped_review_targets(issues, %State{} = state, opts) do
+    {rework_issues, review_awaiting_issues} =
+      issues
+      |> Enum.reject(&Issue.paused?/1)
+      |> Enum.split_with(&rework_issue?/1)
+
+    # Dedupe BEFORE sorting, and use an order-preserving uniq across the
+    # buckets afterwards: `dedupe_human_review_targets/1` returns `Map.values/1`,
+    # whose order is unspecified, so running it after the sort would discard
+    # the priority order the cap then truncates.
+    ordered = fn group ->
+      group
+      |> Enum.map(&human_review_comment_target_for_issue/1)
+      |> Enum.reject(&is_nil/1)
+      |> dedupe_human_review_targets()
+      |> Enum.sort_by(&human_review_comment_target_sort_key(state, &1))
+    end
+
+    targets =
+      review_awaiting_issues
+      |> ordered.()
+      |> interleave_targets(ordered.(rework_issues))
+      |> Enum.uniq_by(& &1.target)
+
+    limit = human_review_comment_target_limit(opts)
+    kept = Enum.take(targets, limit)
+    dropped = length(targets) - length(kept)
+
+    # The watch-target path logs its cap; this one did not, so a starving
+    # review-state population was invisible in the logs.
+    if dropped > 0 do
+      Logger.warning("human_review_comment_poll_targets capped: kept=#{length(kept)} dropped=#{dropped} limit=#{limit}")
+    end
+
+    kept
+  end
+
+  defp rework_issue?(%Issue{state: issue_state}) when is_binary(issue_state),
+    do: issue_state |> String.trim() |> String.downcase() == @rework_state
+
+  defp rework_issue?(_issue), do: false
+
+  defp interleave_targets([], rest), do: rest
+  defp interleave_targets(rest, []), do: rest
+  defp interleave_targets([a | as], [b | bs]), do: [a, b | interleave_targets(as, bs)]
 
   defp comment_target_for_issue(%Issue{identifier: identifier}) when not is_nil(identifier),
     do: identifier
