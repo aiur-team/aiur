@@ -3216,7 +3216,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         {:noreply, after_merge} =
           Orchestrator.handle_info(
-            {:event, %{topic: "ticket.#{issue_identifier}.pr.merged"}},
+            {:event,
+             %{
+               topic: "ticket.#{issue_identifier}.pr.merged",
+               pr: %{"body" => "Closes ##{issue_identifier}"}
+             }},
             after_review_comment
           )
 

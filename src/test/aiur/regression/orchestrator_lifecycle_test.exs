@@ -396,11 +396,43 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       state = base_state(running: %{issue_id => entry}, claimed: MapSet.new([issue_id]))
 
       assert {:noreply, next} =
-               Orchestrator.handle_info({:event, %{topic: "ticket.#{identifier}.pr.merged"}}, state)
+               Orchestrator.handle_info(
+                 {:event,
+                  %{
+                    topic: "ticket.#{identifier}.pr.merged",
+                    pr: %{"body" => "Closes ##{identifier}"}
+                  }},
+                 state
+               )
 
       assert_receive {:memory_tracker_state_update, ^identifier, "done"}, 2000
       refute Map.has_key?(next.running, issue_id)
       refute MapSet.member?(next.claimed, issue_id)
+    end
+
+    # #2609: the topic's ticket comes from the `aiur/<id>-<slug>` head branch,
+    # so a body saying `Refs #N` names the ticket without claiming to close it.
+    # Terminalizing anyway retired an operator's still-open acceptance list.
+    test "pr.merged without a closing keyword leaves the ticket open and running" do
+      issue_id = "7417"
+      identifier = "7417"
+      memory_tracker!([])
+      entry = Map.put(running_entry(issue_id, identifier, :working), :pid, worker_pid())
+      state = base_state(running: %{issue_id => entry}, claimed: MapSet.new([issue_id]))
+
+      assert {:noreply, next} =
+               Orchestrator.handle_info(
+                 {:event,
+                  %{
+                    topic: "ticket.#{identifier}.pr.merged",
+                    pr: %{"body" => "Refs ##{identifier} (merge does not close the ticket)"}
+                  }},
+                 state
+               )
+
+      refute_receive {:memory_tracker_state_update, ^identifier, "done"}, 300
+      assert Map.has_key?(next.running, issue_id)
+      assert MapSet.member?(next.claimed, issue_id)
     end
   end
 

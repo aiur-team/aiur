@@ -15,12 +15,18 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
+  alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
+
+  # Where a merged PR that never claimed to close its ticket leaves that ticket:
+  # open, and back in front of a human. Never `done` — see
+  # `merged_pr_closes_ticket?/2`.
+  @non_closing_merge_state "human-review"
 
   @spec maybe_reactivate_on_comment(
           State.t(),
@@ -122,15 +128,17 @@ defmodule Aiur.Orchestrator.CommentWake do
           end
 
         target when target in ["rework", "human-review"] ->
-          # A merged PR does not close a ticket that still has other open PRs:
-          # the ticket must stay active so the remaining PR's review findings
-          # stay dispatchable. No terminal teardown runs — the ticket is not
-          # done, so dependents stay blocked on it and no session handle is
-          # cleared. The merged PR's own reconciliation is not marked here; the
-          # poll-cycle reconciler consumes the merge and records it.
+          # A merged PR does not close a ticket whose body never claimed to
+          # close it, nor one that still has other open PRs: either way the
+          # ticket must stay active so an operator's remaining acceptance — or
+          # the remaining PR's review findings — stays live and dispatchable.
+          # No terminal teardown runs — the ticket is not done, so dependents
+          # stay blocked on it and no session handle is cleared. The merged PR's
+          # own reconciliation is not marked here; the poll-cycle reconciler
+          # consumes the merge and records it.
           case update_issue_state_fun.(to_string(identifier), target) do
             :ok ->
-              Logger.info("PR merge left ticket open with remaining PRs: issue_identifier=#{identifier} target=#{target}")
+              Logger.info("PR merge left ticket open: issue_identifier=#{identifier} target=#{target}")
 
               state
 
@@ -165,19 +173,74 @@ defmodule Aiur.Orchestrator.CommentWake do
   # `MergedTicketReconciler.merged_ticket_target/2` pass the decided
   # `:target_state` (the reconciler does, so its terminal path does not
   # re-enumerate the open-PR listing); everyone else — the live webhook route —
-  # computes it here so no path can write `done` without checking the ticket's
-  # other open PRs first.
+  # computes it here so no path can write `done` without first checking that
+  # the merged PR actually claimed to close the ticket, and then that no other
+  # open PR remains.
   defp merged_issue_target_state(identifier, opts) do
     case Keyword.get(opts, :target_state) do
       target when target in ["done", "rework", "human-review"] ->
         target
 
       _other ->
-        case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
-          {:ok, target} -> target
-          {:error, _reason} = error -> error
-        end
+        computed_merged_issue_target_state(identifier, opts)
     end
+  end
+
+  defp computed_merged_issue_target_state(identifier, opts) do
+    if merged_pr_closes_ticket?(identifier, opts) do
+      case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
+        {:ok, target} -> target
+        {:error, _reason} = error -> error
+      end
+    else
+      @non_closing_merge_state
+    end
+  end
+
+  # Does the merged PR's body actually claim to close this ticket?
+  #
+  # The live merged route resolves its ticket from the `aiur/<id>-<slug>` head
+  # branch, which says only that the PR belongs to the ticket — not that it
+  # completes it. A PR body deliberately written `Refs #176 (merge does not
+  # close the ticket)` is GitHub's documented way to say "related, not
+  # resolving", and closing the ticket anyway retires an operator's still-open
+  # acceptance checklist out from under them (#2609). So the branch identifies
+  # the ticket and the body decides the outcome, exactly as
+  # `MergedTicketReconciler` — the poll-cycle backstop — has always done.
+  #
+  # Absent evidence is not closing evidence: an empty body, a body the delivery
+  # dropped, or a repository lookup that failed all leave the ticket open. That
+  # direction is self-correcting — the reconciler reads the merge record's own
+  # body on the next poll and closes a genuinely-closing ticket then — while
+  # the opposite direction is the unrecoverable close this guard exists to
+  # prevent.
+  defp merged_pr_closes_ticket?(identifier, opts) do
+    identifier = to_string(identifier)
+    body = Keyword.get(opts, :pr_body)
+    closes? = identifier in RecentMerge.closing_issue_identifiers_in_body(body, merge_repository(opts))
+
+    unless closes? do
+      Logger.info(
+        "PR merge carries no closing keyword for its ticket; leaving it open: " <>
+          "issue_identifier=#{identifier} target=#{@non_closing_merge_state}"
+      )
+    end
+
+    closes?
+  end
+
+  defp merge_repository(opts) do
+    repo_fun = Keyword.get(opts, :repo_fun, &Config.repo/0)
+
+    repo_fun.()
+  rescue
+    error ->
+      # A repository lookup is not worth failing a merge route over: without it
+      # only `owner/repo#N` references are dropped, and a bare `#N` — what every
+      # Aiur PR description carries — still closes normally.
+      Logger.warning("PR merge repository lookup failed; qualified closing references ignored: #{inspect(error)}")
+
+      nil
   end
 
   defp emit_merge_alert(name, opts) do
