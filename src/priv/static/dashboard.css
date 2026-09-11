@@ -7775,10 +7775,17 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--attention-ink);
 }
 
-/* A saved plan's percentages are real numbers about a moment that has passed.
-   Dimming them keeps the dateline from being the only thing separating them
-   from live ones. */
-.bo-waves-head.is-stale .bo-wave-seg-pct,
+/* A saved plan's percentages are real numbers about a moment that has passed,
+   so they carry a second marker besides the dateline above them. It has to be
+   a marker that does not touch luminance: --muted sits at 5.79:1 on --surface
+   with no headroom to spend, and an earlier opacity: 0.6 here blended it down
+   to 2.96:1 and failed the axe smoke. Italics differentiate for free. */
+.bo-waves-head.is-stale .bo-wave-seg-pct {
+  font-style: italic;
+}
+
+/* The meter is aria-hidden decoration duplicating the percentage text beside
+   it, so dimming the bar itself carries no contrast obligation. */
 .bo-waves-head.is-stale .bo-wave-seg-meter {
   opacity: 0.6;
 }
