@@ -7768,6 +7768,21 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--faint);
 }
 
+.bo-waves-asof {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--attention-ink);
+}
+
+/* A saved plan's percentages are real numbers about a moment that has passed.
+   Dimming them keeps the dateline from being the only thing separating them
+   from live ones. */
+.bo-waves-head.is-stale .bo-wave-seg-pct,
+.bo-waves-head.is-stale .bo-wave-seg-meter {
+  opacity: 0.6;
+}
+
 .bo-waves-strip {
   display: grid;
   grid-auto-flow: column;

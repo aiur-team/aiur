@@ -7,7 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
-  alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph, BuildOrderUsage}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph, BuildOrderStatus, BuildOrderUsage}
 
   attr(:route_state, :any, required: true)
   attr(:model, :any, default: nil)
@@ -33,7 +33,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       |> assign(:graph_failure, graph_failure(assigns.model, assigns.route_state))
 
     assigns =
-      assign(assigns, :show_panes?, is_nil(assigns.graph_failure) and not is_nil(assigns.model))
+      assigns
+      |> assign(:show_panes?, is_nil(assigns.graph_failure) and not is_nil(assigns.model))
+      |> assign(:saved_as_of, saved_as_of(assigns.model))
 
     ~H"""
     <section class="bo-surface" aria-labelledby="build-order-details-title">
@@ -77,7 +79,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         <p :if={root_title(@snapshot)} class="bo-selected-lede">{root_title(@snapshot)}</p>
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
-          <p>{model_summary(@model)}</p>
+          <p>{model_summary(@model, @saved_as_of, @now)}</p>
         </div>
         <dl class="bo-summary-grid" aria-label="Build Order graph summary">
           <div><dt>Members</dt><dd>{metric(@model.summary, @model.summary.members)}</dd></div>
@@ -105,6 +107,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           dom_generation={max(RouteState.dom_generation(@route_state), 1)}
           model={@model}
           adhoc={@adhoc}
+          saved_as_of={@saved_as_of}
+          now={@now}
         />
       </section>
 
@@ -333,7 +337,23 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp positive_generation(%Snapshot{generation: generation}) when is_integer(generation) and generation > 0, do: generation
   defp positive_generation(_snapshot), do: 1
 
-  defp model_summary(%{status: :provider_stale}), do: "Showing the last saved plan."
+  # A saved plan is only honest about itself if it says *when* it was saved. The
+  # page used to render "Showing the last saved plan." over percentages that
+  # were six hours old, beside a catalog summary that was current, with nothing
+  # on screen to tell the two apart (#2608).
+  defp model_summary(%{status: :provider_stale}, %DateTime{} = saved_as_of, %DateTime{} = now) do
+    "Showing the last saved plan, read #{BuildOrderStatus.age_phrase(saved_as_of, now)}. " <>
+      "The counts and percentages below are as of then, not now."
+  end
+
+  defp model_summary(%{status: :provider_stale}, _saved_as_of, _now),
+    do: "Showing the last saved plan. The counts and percentages below are as of when it was read, not now."
+
+  # The moment the graph on screen was actually read, or `nil` when the provider
+  # never reported one. Only meaningful while the plan is the saved fallback:
+  # a healthy generation is current by definition and needs no dateline.
+  defp saved_as_of(%{status: :provider_stale, planning_health: %{last_success_at: %DateTime{} = at}}), do: at
+  defp saved_as_of(_model), do: nil
 
   defp model_state_title(%{status: :provider_stale}), do: "Build Order plan"
   defp model_state_title(_model), do: "Build Order state"

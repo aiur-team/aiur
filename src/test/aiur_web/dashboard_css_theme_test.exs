@@ -113,6 +113,17 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert rule =~ "var(--blocking)"
   end
 
+  # The dateline over a saved plan's percentages is the only thing separating
+  # six-hour-old numbers from live ones (#2608), so it has to stay legible in
+  # both themes — which means a token that is actually declared. An undeclared
+  # name behind a `var()` fallback silently paints as ordinary muted body text.
+  test "the saved-plan dateline uses a themed token declared in both themes" do
+    assert css_rule(".bo-waves-asof") =~ "var(--attention-ink)"
+
+    assert Map.has_key?(declarations(css_rule(":root")), "--attention-ink")
+    assert Map.has_key?(declarations(css_rule(~s(html[data-theme="light"]))), "--attention-ink")
+  end
+
   test "dashboard progress bars match the Stream Deck progress contract" do
     contract =
       Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)
