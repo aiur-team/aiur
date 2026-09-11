@@ -1282,6 +1282,68 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "provider_unavailable"
   end
 
+  # #2608. The page rendered "Showing the last saved plan." over percentages
+  # that were six hours old, beside a catalog summary that was current, with
+  # nothing on screen to tell the two apart — a 23% and an 86% for the same
+  # root, both looking equally live. A saved plan has to date itself, and the
+  # dateline has to ride on the element the percentages are read off.
+  test "a saved plan dates itself and marks its percentages as of then" do
+    saved_at = ~U[2026-08-10 06:22:11Z]
+
+    html =
+      render_selected(%{
+        sample_view_model()
+        | status: :provider_stale,
+          summary: resolved_summary(),
+          planning_health: %ProviderHealth{generation: 9, state: :stale, last_success_at: saved_at}
+      })
+
+    # The state card says how old the plan is, not merely that it is saved.
+    assert html =~ "Showing the last saved plan, read 5h 37m ago."
+    assert html =~ "The counts and percentages below are as of then, not now."
+
+    {:ok, document} = Floki.parse_document(html)
+    assert [head] = Floki.find(document, ".bo-waves-head")
+
+    # The wave percentages carry the same dateline and the same age, so the two
+    # cannot drift into separate accounts of the same moment.
+    assert Floki.attribute([head], "class") == ["bo-waves-head is-stale"]
+    assert Floki.attribute([head], "aria-label") == ["Wave completion as of the last saved plan"]
+    assert Floki.text(head) =~ "As of 06:22:11Z (5h 37m ago) — not current"
+    assert Floki.attribute(Floki.find(head, "time"), "datetime") == ["2026-08-10T06:22:11Z"]
+  end
+
+  # A saved plan whose provider never reported a success time still has to say
+  # its numbers are not live; it just cannot say how stale they are.
+  test "a saved plan with no recorded read time still disclaims its percentages" do
+    html =
+      render_selected(%{
+        sample_view_model()
+        | status: :provider_stale,
+          summary: resolved_summary(),
+          planning_health: %ProviderHealth{generation: 9, state: :stale, last_success_at: nil}
+      })
+
+    assert html =~ "Showing the last saved plan. The counts and percentages below are as of when it was read, not now."
+    refute html =~ "is-stale"
+    refute html =~ "not current"
+  end
+
+  # And the converse, which is what keeps the dateline meaningful: a current
+  # plan is current by definition and gets no dateline and no dimming.
+  test "a current plan carries no dateline and no stale marking" do
+    html =
+      render_selected(%{
+        sample_view_model()
+        | summary: resolved_summary(),
+          planning_health: %ProviderHealth{generation: 9, state: :healthy, last_success_at: ~U[2026-08-10 06:22:11Z]}
+      })
+
+    refute html =~ "is-stale"
+    refute html =~ "not current"
+    refute html =~ "last saved plan"
+  end
+
   defp render_selected(model) do
     {route_state, _effects} = RouteState.new("mount-1") |> RouteState.navigate("1567")
 
