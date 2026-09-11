@@ -23,6 +23,47 @@ defmodule Aiur.AppServer.TurnLoopTest do
     end
   end
 
+  defmodule LimitAwareBackend do
+    def send_frame(_port, _frame), do: :ok
+    def metadata_from_message(_port, _payload), do: %{backend: :limit_aware}
+    def handle_interrupt_error(_state, error), do: {:error, {:turn_interrupt_failed, error}}
+    def handle_malformed(state, _payload, _port), do: {:continue, state}
+    def handle_method(_session, state, _payload, _payload_string, _method), do: {:continue, state}
+
+    defdelegate classify_stream_failure(diagnostics), to: Aiur.Claude.NotificationPolicy
+  end
+
+  test "a limit refusal printed before a nonzero exit pauses instead of failing" do
+    port = cat_port()
+
+    send(self(), {port, {:data, {:eol, "You've hit your session limit · resets 11:40pm"}}})
+    send(self(), {port, {:exit_status, 1}})
+
+    assert {:paused, pause} = TurnLoop.receive_loop(%{port: port}, state(%{backend: LimitAwareBackend}))
+    assert pause.kind == :usage_limit_exhausted
+    assert pause.reset_hint == "11:40pm"
+  end
+
+  test "an unrelated crash before a nonzero exit stays a port-exit failure" do
+    port = cat_port()
+
+    send(self(), {port, {:data, {:eol, "TypeError: undefined is not a function"}}})
+    send(self(), {port, {:exit_status, 1}})
+
+    assert TurnLoop.receive_loop(%{port: port}, state(%{backend: LimitAwareBackend})) ==
+             {:error, {:port_exit, 1}}
+  end
+
+  test "a backend without a stream classifier keeps the port-exit failure" do
+    port = cat_port()
+
+    send(self(), {port, {:data, {:eol, "You've hit your session limit · resets 11:40pm"}}})
+    send(self(), {port, {:exit_status, 1}})
+
+    assert TurnLoop.receive_loop(%{port: port}, state()) == {:error, {:port_exit, 1}}
+    assert_receive {:malformed, _payload}
+  end
+
   test "reassembles no-eol/eol chunks before dispatch" do
     port = cat_port()
     parent = self()

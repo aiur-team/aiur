@@ -2,6 +2,7 @@ defmodule Aiur.AppServer.AdapterTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AppServer.Adapter
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Codex.{Interrupts, TurnLoop}
 
   defmodule StubBackend do
@@ -117,6 +118,69 @@ defmodule Aiur.AppServer.AdapterTest do
     def handle_malformed(state, payload_string, port) do
       TurnLoop.handle_malformed(state, payload_string, port)
     end
+  end
+
+  defmodule LimitAwareBackend do
+    @behaviour Aiur.AppServer.Adapter
+
+    def backend_label, do: "LimitAware"
+    def send_frame(_port, _frame), do: :ok
+    def metadata_from_message(_port, _payload), do: %{}
+    def loop_state_extras(_session), do: %{}
+    def handle_interrupt_error(_state, error), do: {:error, error}
+    def handle_malformed(state, _payload_string, _port), do: {:continue, state}
+
+    # Mirrors a provider that prints its refusal while answering `turn/start`.
+    def start_turn(session, _prompt, _issue) do
+      case Map.get(session, :stream_output) do
+        nil -> :ok
+        output -> StreamDiagnostics.record(session.port, output)
+      end
+
+      session.start_turn_result
+    end
+
+    def handle_method(_session, _state, %{"method" => "turn/completed"}, _payload_string, _method) do
+      {:ok, :turn_completed}
+    end
+
+    defdelegate classify_stream_failure(diagnostics), to: Aiur.Claude.NotificationPolicy
+  end
+
+  test "a limit refusal at turn start pauses instead of failing the turn" do
+    port = cat_port()
+
+    limited_session =
+      session(port, %{
+        start_turn_result: {:error, {:port_exit, 1}},
+        stream_output: "You've hit your session limit · resets 11:40pm"
+      })
+
+    assert {:paused, %{kind: :usage_limit_exhausted, reset_hint: "11:40pm"}} =
+             Adapter.run_turn(LimitAwareBackend, limited_session, "prompt", issue(), [])
+  end
+
+  test "an unrelated turn-start failure keeps its error" do
+    port = cat_port()
+
+    failed_session =
+      session(port, %{
+        start_turn_result: {:error, :boom},
+        stream_output: "TypeError: undefined is not a function"
+      })
+
+    assert {:error, {:turn_start_failed, :boom}} =
+             Adapter.run_turn(LimitAwareBackend, failed_session, "prompt", issue(), [])
+  end
+
+  test "run_turn clears stream output retained from an earlier turn" do
+    port = cat_port()
+    StreamDiagnostics.record(port, "You've hit your session limit · resets 11:40pm")
+
+    send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "turn/completed"})}}})
+
+    assert {:ok, _result} = Adapter.run_turn(LimitAwareBackend, session(port), "prompt", issue(), [])
+    assert StreamDiagnostics.recent_text(port) == ""
   end
 
   test "run_turn returns success with session identifiers" do
