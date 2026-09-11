@@ -297,19 +297,32 @@ export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 wait_seconds="${AIUR_EXECUTOR_WAIT_FLOOR_SECONDS:-30}"
 
 if wake_json="$("$AIUR_CMD" executor-wait --timeout "$wait_seconds" --json)"; then
-  printf '%s\n' "$wake_json"
-  wait_plan="$("$RETRO" plan-wait actionable "event-wake")"
+  if [ "$(printf '%s\n' "$wake_json" | tail -n1 | jq -r '.status // "woken"')" = "timeout" ]; then
+    wait_plan="$("$RETRO" plan-wait quiet "quiet-audit")"
+  else
+    printf '%s\n' "$wake_json"
+    wait_plan="$("$RETRO" plan-wait actionable "event-wake")"
+  fi
 else
   status=$?
-  [ "$status" -eq 75 ] || exit "$status"
-  wait_plan="$("$RETRO" plan-wait quiet "quiet-audit")"
+  printf '%s\n' "$wake_json"
+  # 69 is claim or cursor-write contention: nothing was consumed by this call,
+  # so back off like a quiet cycle rather than tearing the loop down.
+  [ "$status" -eq 69 ] || exit "$status"
+  wait_plan="$("$RETRO" plan-wait quiet "wake-stream-contention")"
 fi
 
 wait_seconds="$(printf '%s\n' "$wait_plan" | jq -r '.next_interval_seconds')"
 ```
 
-Exit `0` means one or more durable wake records were consumed. Exit `75` means
-the timeout expired with the cursor unchanged. Always use `--json` in the
+Branch on the envelope's `status`, not on the exit code alone. Exit `0` with
+`"status":"woken"` means durable wake records were returned; exit `0` with
+`"status":"timeout"` is a quiet wait that consumed nothing and is **not** an
+error. Every nonzero exit carries a `"status":"error"` envelope naming the
+failed `stage` — `69` is retryable claim or cursor-write contention, `1` is a
+daemon or store failure. An acknowledge-stage failure prints the wake envelope
+first and the error envelope after it, so read the last line for the outcome and
+treat those wakes as unconsumed. Always use `--json` in the
 Executor loop: inspect the projected PR number, SHA, draft/trust flags, action,
 CI conclusion, and attention flag before choosing the trusted content read or
 status command to run next. The concise form acknowledges the same record but

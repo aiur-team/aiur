@@ -7,6 +7,7 @@ defmodule Aiur.AppServer.Adapter do
 
   alias Aiur.{AgentEnvironment, Config}
   alias Aiur.AppServer.{Messages, TurnLoop, TurnState}
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
 
@@ -29,6 +30,20 @@ defmodule Aiur.AppServer.Adapter do
             ) :: term()
   @callback handle_malformed(state :: map(), payload_string :: String.t(), port()) ::
               {:continue, map()}
+
+  @doc """
+  Classifies the provider's retained non-JSON stream output for a turn that is
+  about to fail, so a provider-side refusal is not settled as an agent defect.
+
+  Returning `{:paused, payload}` routes the turn through the ordinary pause
+  path — the same one an in-stream `usage_limit_exhausted` notification takes —
+  which alerts the Executor, marks the route limited, and lets
+  `Aiur.Orchestrator.RateLimitFallback` reroute to the fallback backend.
+  Optional: a backend that declines simply keeps the original failure.
+  """
+  @callback classify_stream_failure(diagnostics :: String.t()) :: {:paused, map()} | :unclassified
+
+  @optional_callbacks classify_stream_failure: 1
 
   @spec run_turn(module(), map(), String.t(), map(), keyword()) ::
           {:ok, map()} | {:paused, map()} | {:error, term()}
@@ -60,6 +75,12 @@ defmodule Aiur.AppServer.Adapter do
   defp run_started_turn(backend, session, prompt, issue, callbacks, tool_executor) do
     metadata = session.metadata
     thread_id = session.thread_id
+
+    # Retained stream output is scoped to one turn. Anything the provider
+    # printed before this turn started describes a failure that already
+    # settled, and letting it survive would let a stale banner mislabel an
+    # unrelated later failure as a quota pause.
+    StreamDiagnostics.clear(session.port)
 
     case backend.start_turn(session, prompt, issue) do
       {:ok, turn_id} ->
@@ -119,11 +140,32 @@ defmodule Aiur.AppServer.Adapter do
       {:error, reason} ->
         Logger.warning("#{backend.backend_label()} turn start failed for #{Messages.issue_context(issue)}: #{inspect(reason)}")
         Messages.emit_message(callbacks.on_message, :startup_failed, %{reason: reason}, metadata)
-        {:error, {:turn_start_failed, reason}}
+
+        # A provider that refuses at turn start because the account is out of
+        # quota reports the refusal on its stream, not in the RPC error.
+        case classify_stream_failure(backend, StreamDiagnostics.recent_text(session.port)) do
+          {:paused, payload} -> {:paused, payload}
+          :unclassified -> {:error, {:turn_start_failed, reason}}
+        end
     end
   end
 
   defp pause_latched?(session), do: Aiur.PauseContainment.paused?(Map.get(session, :containment))
+
+  @doc """
+  Asks `backend` to classify retained non-JSON stream output, or `:unclassified`
+  when the backend does not implement `c:classify_stream_failure/1`.
+  """
+  @spec classify_stream_failure(module(), String.t()) :: {:paused, map()} | :unclassified
+  def classify_stream_failure(backend, diagnostics) when is_atom(backend) and is_binary(diagnostics) do
+    if diagnostics != "" and Code.ensure_loaded?(backend) and function_exported?(backend, :classify_stream_failure, 1) do
+      backend.classify_stream_failure(diagnostics)
+    else
+      :unclassified
+    end
+  end
+
+  def classify_stream_failure(_backend, _diagnostics), do: :unclassified
 
   @spec start_port(Path.t(), String.t()) :: {:ok, port()} | {:error, :bash_not_found}
   def start_port(workspace, command), do: start_port(workspace, command, fn _port -> :ok end, [])

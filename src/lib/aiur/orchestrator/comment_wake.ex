@@ -15,12 +15,18 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
+  alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
+
+  # Where a merged PR that never claimed to close its ticket leaves that ticket:
+  # open, and back in front of a human. Never `done` — see
+  # `merged_pr_closes_ticket?/2`.
+  @non_closing_merge_state "human-review"
 
   @spec maybe_reactivate_on_comment(
           State.t(),
@@ -122,15 +128,17 @@ defmodule Aiur.Orchestrator.CommentWake do
           end
 
         target when target in ["rework", "human-review"] ->
-          # A merged PR does not close a ticket that still has other open PRs:
-          # the ticket must stay active so the remaining PR's review findings
-          # stay dispatchable. No terminal teardown runs — the ticket is not
-          # done, so dependents stay blocked on it and no session handle is
-          # cleared. The merged PR's own reconciliation is not marked here; the
-          # poll-cycle reconciler consumes the merge and records it.
+          # A merged PR does not close a ticket whose body never claimed to
+          # close it, nor one that still has other open PRs: either way the
+          # ticket must stay active so an operator's remaining acceptance — or
+          # the remaining PR's review findings — stays live and dispatchable.
+          # No terminal teardown runs — the ticket is not done, so dependents
+          # stay blocked on it and no session handle is cleared. The merged PR's
+          # own reconciliation is not marked here; the poll-cycle reconciler
+          # consumes the merge and records it.
           case update_issue_state_fun.(to_string(identifier), target) do
             :ok ->
-              Logger.info("PR merge left ticket open with remaining PRs: issue_identifier=#{identifier} target=#{target}")
+              Logger.info("PR merge left ticket open: issue_identifier=#{identifier} target=#{target}")
 
               state
 
@@ -165,19 +173,74 @@ defmodule Aiur.Orchestrator.CommentWake do
   # `MergedTicketReconciler.merged_ticket_target/2` pass the decided
   # `:target_state` (the reconciler does, so its terminal path does not
   # re-enumerate the open-PR listing); everyone else — the live webhook route —
-  # computes it here so no path can write `done` without checking the ticket's
-  # other open PRs first.
+  # computes it here so no path can write `done` without first checking that
+  # the merged PR actually claimed to close the ticket, and then that no other
+  # open PR remains.
   defp merged_issue_target_state(identifier, opts) do
     case Keyword.get(opts, :target_state) do
       target when target in ["done", "rework", "human-review"] ->
         target
 
       _other ->
-        case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
-          {:ok, target} -> target
-          {:error, _reason} = error -> error
-        end
+        computed_merged_issue_target_state(identifier, opts)
     end
+  end
+
+  defp computed_merged_issue_target_state(identifier, opts) do
+    if merged_pr_closes_ticket?(identifier, opts) do
+      case MergedTicketReconciler.merged_ticket_target(identifier, opts) do
+        {:ok, target} -> target
+        {:error, _reason} = error -> error
+      end
+    else
+      @non_closing_merge_state
+    end
+  end
+
+  # Does the merged PR's body actually claim to close this ticket?
+  #
+  # The live merged route resolves its ticket from the `aiur/<id>-<slug>` head
+  # branch, which says only that the PR belongs to the ticket — not that it
+  # completes it. A PR body deliberately written `Refs #176 (merge does not
+  # close the ticket)` is GitHub's documented way to say "related, not
+  # resolving", and closing the ticket anyway retires an operator's still-open
+  # acceptance checklist out from under them (#2609). So the branch identifies
+  # the ticket and the body decides the outcome, exactly as
+  # `MergedTicketReconciler` — the poll-cycle backstop — has always done.
+  #
+  # Absent evidence is not closing evidence: an empty body, a body the delivery
+  # dropped, or a repository lookup that failed all leave the ticket open. That
+  # direction is self-correcting — the reconciler reads the merge record's own
+  # body on the next poll and closes a genuinely-closing ticket then — while
+  # the opposite direction is the unrecoverable close this guard exists to
+  # prevent.
+  defp merged_pr_closes_ticket?(identifier, opts) do
+    identifier = to_string(identifier)
+    body = Keyword.get(opts, :pr_body)
+    closes? = identifier in RecentMerge.closing_issue_identifiers_in_body(body, merge_repository(opts))
+
+    unless closes? do
+      Logger.info(
+        "PR merge carries no closing keyword for its ticket; leaving it open: " <>
+          "issue_identifier=#{identifier} target=#{@non_closing_merge_state}"
+      )
+    end
+
+    closes?
+  end
+
+  defp merge_repository(opts) do
+    repo_fun = Keyword.get(opts, :repo_fun, &Config.repo/0)
+
+    repo_fun.()
+  rescue
+    error ->
+      # A repository lookup is not worth failing a merge route over: without it
+      # only `owner/repo#N` references are dropped, and a bare `#N` — what every
+      # Aiur PR description carries — still closes normally.
+      Logger.warning("PR merge repository lookup failed; qualified closing references ignored: #{inspect(error)}")
+
+      nil
   end
 
   defp emit_merge_alert(name, opts) do
@@ -477,6 +540,13 @@ defmodule Aiur.Orchestrator.CommentWake do
           {{:skip, reason}, state} ->
             Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
+            # No seeding here, deliberately. An IDLE ticket in an active state
+            # is still a dispatch candidate, so the poll loop picks it up and
+            # the agent reads the comment from GitHub on its first turn. The
+            # #2601 wake gap is the *running* half — a `:deactivated` entry
+            # blocks re-dispatch (`DispatchPolicy`'s `:already_running`), so
+            # nothing else brings that agent back. See
+            # `transition_and_revalidate_comment_reactivation/5`.
             cancel_comment_rework_retry(state, issue_number, source)
 
           {{:error, reason}, state} ->
@@ -980,8 +1050,39 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       {{:skip, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
-        Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
-        state
+
+        # A skipped *label write* is not automatically a skipped *wake*. The
+        # ticket is already `agent:rework` and its threads are all resolved, so
+        # the gate is right to refuse a transition — but the agent's provider
+        # has completed and its `:deactivated` entry blocks re-dispatch
+        # (`DispatchPolicy`'s `:already_running`), so nothing else brings it
+        # back and an Executor had to send `aiurdev message` by hand (#2601).
+        #
+        # Scope, precisely — this branch is NOT the #2601 review path. A
+        # body-only `CHANGES_REQUESTED` review carries
+        # `changes_requested_review?: true` into the gate, which answers
+        # `{:ok, :rework}` via #2473's `no_thread_verdict/1` and takes the
+        # ordinary write-then-reactivate branch above. What lands here is every
+        # *other* trusted comment on a rework ticket whose threads are clear: a
+        # PR conversation comment, or a `COMMENTED` review with a body. Waking
+        # on those is the intent (#2601's third acceptance criterion), so N
+        # distinct trusted comments produce N wakes by design — an operator
+        # asking for something twice should be heard twice. What stops that
+        # from being thrash is the digest enqueue below: the comment travels
+        # with the wake, so the agent knows what it was woken for instead of
+        # respawning into an unchanged state and immediately exiting.
+        #
+        # No `rework` write happens here, so #2422's loop stays closed.
+        if wake_without_rework_write?(reason) do
+          Logger.info("#{source} waking without rework write: #{context} reason=#{inspect(reason)}")
+
+          state
+          |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
+          |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
+        else
+          Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
+          state
+        end
 
       {{:error, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
@@ -1189,12 +1290,19 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   defp rework_issue_key(_running_entry, issue_number), do: issue_number
 
-  defp revalidate_comment_reactivation(state, running_entry, issue_number, source) do
+  # The only gate refusal that means "the label is already right", rather than
+  # "this comment is not reviewer feedback". Everything else — an untrusted
+  # author, a benign review-pass comment, an approved or stale review, a ticket
+  # with no open PR — must keep dropping the comment exactly as before.
+  defp wake_without_rework_write?(:no_unresolved_review_threads), do: true
+  defp wake_without_rework_write?(_reason), do: false
+
+  defp revalidate_comment_reactivation(state, running_entry, issue_number, source, opts \\ []) do
     context = comment_reactivation_context(running_entry, issue_number)
 
     case fetch_current_reactivation_issue(running_entry) do
       {:ok, %Issue{} = refreshed_issue} ->
-        reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source)
+        reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts)
 
       {:skip, reason} ->
         Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
@@ -1223,7 +1331,32 @@ defmodule Aiur.Orchestrator.CommentWake do
 
   defp fetch_current_reactivation_issue(_running_entry), do: {:skip, :missing_issue_id}
 
-  defp reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source) do
+  # The wake-without-write path asserts the ticket really is in the state that
+  # made the label write unnecessary, read from the freshly-fetched issue
+  # rather than the running entry's cached copy. Without the assertion a
+  # `human-review` ticket whose threads are all resolved would be reactivated
+  # by any trusted comment, which is the pre-#2422 behaviour this must not
+  # restore.
+  defp reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts) do
+    case Keyword.get(opts, :require_state) do
+      nil ->
+        reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source)
+
+      required ->
+        if DispatchPolicy.normalize_issue_state(refreshed_issue.state) == required do
+          reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source, wrote_rework?: false)
+        else
+          Logger.info(
+            "#{source} wake without rework write skipped; issue is not #{required}: " <>
+              "#{comment_reactivation_context(running_entry, issue_number)} state=#{inspect(refreshed_issue.state)}"
+          )
+
+          state
+        end
+    end
+  end
+
+  defp reactivate_current_issue(state, running_entry, refreshed_issue, issue_number, source, opts \\ []) do
     issue_id = refreshed_issue.id
     refreshed_entry = Map.put(running_entry, :issue, refreshed_issue)
     state = %{state | running: Map.put(state.running, issue_id, refreshed_entry)}
@@ -1235,12 +1368,12 @@ defmodule Aiur.Orchestrator.CommentWake do
         next_state
 
       {{:error, reason}, next_state} ->
-        emit_comment_reactivation_deferred_alert(refreshed_entry, source, reason)
+        emit_comment_reactivation_deferred_alert(refreshed_entry, source, reason, opts)
         next_state
     end
   end
 
-  defp emit_comment_reactivation_deferred_alert(running_entry, source, reason) do
+  defp emit_comment_reactivation_deferred_alert(running_entry, source, reason, opts) do
     identifier = Map.get(running_entry, :identifier)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
 
@@ -1250,11 +1383,21 @@ defmodule Aiur.Orchestrator.CommentWake do
       issue: identifier,
       workspace: Map.get(running_entry, :workspace_path),
       worker_host: Map.get(running_entry, :worker_host),
-      reason: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}.",
+      reason: deferred_alert_reason(reason, Keyword.get(opts, :wrote_rework?, true)),
       needs_attention: true,
       severity: "warning"
     )
   end
+
+  # The wake-without-write path writes no label, so an operator told the ticket
+  # "moved to rework" would go looking for a transition that never happened.
+  defp deferred_alert_reason(reason, true),
+    do: "Trusted review feedback moved the ticket to rework, but the agent could not resume: #{inspect(reason)}."
+
+  defp deferred_alert_reason(reason, false),
+    do:
+      "Trusted feedback arrived on a ticket already in rework, but its completed agent could not be woken: #{inspect(reason)}. " <>
+        "The ticket keeps its current label; the feedback is queued for the agent's next turn."
 
   defp comment_reactivation_context(running_entry, issue_number) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])

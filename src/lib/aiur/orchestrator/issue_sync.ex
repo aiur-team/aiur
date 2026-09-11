@@ -2045,9 +2045,24 @@ defmodule Aiur.Orchestrator.IssueSync do
     end)
     |> Enum.reject(fn issue ->
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) or
-        Map.has_key?(state.retry_attempts, issue.id)
+        Map.has_key?(state.retry_attempts, issue.id) or dependency_declined?(state, issue)
     end)
   end
+
+  # The `blocked_by` filter above only sees what the poll snapshot carried, and
+  # on GitHub that is nothing: blockers are hydrated from the Issue Dependencies
+  # API at dispatch time, not at poll time. Dispatch performs the hydrated check
+  # and records the ticket's decline as `:dependency`; without consulting that
+  # record, every DAG-blocked ticket reads as capacity-ready work and a fleet
+  # with all graph-ready tickets running wakes the Executor with a starvation
+  # attention no added capacity could ever satisfy (#2592).
+  #
+  # Only the non-attention `:dependency` decline counts as expected DAG waiting.
+  # `:dependency_hydration_failed` is an actionable failure — the blocker set is
+  # unknown, not known-blocking — so a ticket held there stays ready work and
+  # still alerts.
+  defp dependency_declined?(%State{} = state, issue),
+    do: Map.get(state.dispatch_declines, issue.id) == :dependency
 
   defp capacity_constraint_entries(%State{} = state, issues) do
     state.dispatch_capacity_constraints
