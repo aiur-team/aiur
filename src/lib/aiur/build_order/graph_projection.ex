@@ -160,7 +160,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
             # upstream cost, and holding it open a recurring one. Both are gone;
             # see `refresh/2` for the path that does spend.
             {state, identity} = add_demand(state, identity, pid)
-            events = events ++ capacity_events
+            {state, due_events} = request_superseded_demand(state, identity)
+            events = events ++ capacity_events ++ due_events
             broadcast_all(state, events)
             {:reply, {:ok, selected_snapshot(state, identity)}, state}
 
@@ -608,6 +609,28 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
+  # The one thing arriving demand does spend on, and deliberately not a cadence.
+  # A held graph the catalog has *already* said is superseded was requested once
+  # and declined, because `request_scope/2` refuses a root nobody is watching
+  # and nothing re-raises the request when a watcher returns. That is how a page
+  # comes to render six-hour-old percentages beside a live catalog (#2608).
+  #
+  # The gate is the catalog's own marker, not elapsed time: a page opened on an
+  # unmoved root buys nothing, holding it open buys nothing, and one catalog
+  # move buys exactly one read. A cold root is deliberately excluded — demand
+  # still never buys the *first* read, which is `refresh/2`'s job.
+  defp request_superseded_demand(state, identity) do
+    case Map.get(state.selected, Policy.root_key(identity)) do
+      %{data: data} = entry when not is_nil(data) ->
+        if selected_fingerprint_moved?(state, entry) and retry_due?(entry, state),
+          do: request_scope(state, entry.scope),
+          else: {state, []}
+
+      _entry ->
+        {state, []}
+    end
+  end
+
   defp add_demand(state, identity, pid) do
     key = Policy.root_key(identity)
     demand_key = {key, pid}
@@ -920,13 +943,24 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  # `nil` on either side means "no comparable marker", which is not evidence of
-  # change. Treating it as change would make every catalog poll re-read every
-  # watched root — the deleted cadence back again, wearing the writer's clothes.
+  # A `nil` *current* marker means the catalog has nothing to compare against,
+  # which is not evidence of change. Treating it as change would make every
+  # catalog poll re-read every watched root — the deleted cadence back again,
+  # wearing the writer's clothes.
+  #
+  # A `nil` *recorded* marker is the opposite case and must not be folded into
+  # it. It means this graph was read at a moment the catalog held no marker for
+  # the root — the ordinary poll-only boot, where the store is empty until the
+  # reconciliation's deposits land — so the read corresponds to no catalog
+  # observation at all. Answering `false` there froze the root permanently:
+  # nothing else moves the recorded marker, so the entry could never become due
+  # again and only an explicit `refresh/2` ever re-read it (#2608). Answering
+  # `true` costs one read, after which the completion stamps a real marker and
+  # the root goes quiet again.
   defp selected_fingerprint_moved?(state, %{scope: {:selected, identity}}) do
     case {catalog_fingerprint(state, identity), Map.get(state.selected_fingerprints, Policy.root_key(identity))} do
       {nil, _recorded} -> false
-      {_current, nil} -> false
+      {_current, nil} -> true
       {current, recorded} -> current != recorded
     end
   end
@@ -1502,30 +1536,62 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp repository_match?(_state, _other), do: false
 
   # A dependency-edge change re-reads every demanded root the edge touches, so a
-  # blocked-by relationship set outside Aiur reflects on the page. Only
-  # `:issue_dependency` changes need this: a sub-issue, label or lifecycle
-  # change already moves the root's catalog fingerprint, which is the existing
-  # trigger for selected re-reads. The edge's two ends are the blocked issue and
-  # the blocker; the affected roots are those the edge belongs to plus those
-  # whose member set includes either end.
+  # blocked-by relationship set outside Aiur reflects on the page. The edge's
+  # two ends are the blocked issue and the blocker; the affected roots are those
+  # the edge belongs to plus those whose member set includes either end.
   defp request_affected_selected(state, :issue_dependency, %{id: id}) do
     case parse_edge_id(id) do
-      {left, right} ->
-        members = CatalogStore.member_numbers(state.active_repository)
+      {left, right} -> request_roots_containing(state, [left, right])
+      _other -> {state, []}
+    end
+  end
 
-        state.selected
-        |> Enum.filter(fn {_key, entry} -> selected_touches?(entry, left, right, members) end)
-        |> Enum.reduce({state, []}, fn {_key, entry}, {state, events} ->
-          {state, next_events} = request_scope(state, entry.scope)
-          {state, events ++ next_events}
-        end)
-
-      _other ->
-        {state, []}
+  # A member's own lifecycle or labels moving re-reads every demanded root it
+  # belongs to. This used to be left to the catalog fingerprint, on the grounds
+  # that a close or a relabel moves the root's marker anyway — true, but the
+  # marker is only *consumed* by whichever catalog rebuild happens to land, and
+  # `request_scope/2` declines a root nobody is watching. On a poll-only
+  # repository that is the whole failure: eleven members closed, the catalog
+  # tracked every one of them, and the selected-root graph stayed on the
+  # boot-time read for six hours because no rebuild ever coincided with an open
+  # page (#2608). Reading straight off the member's own store change makes the
+  # tracker poll's observation the trigger, which is what an operator expects a
+  # close or a label transition to do.
+  defp request_affected_selected(state, type, %{id: id}) when type in [:issue, :issue_labels] do
+    case issue_number(id) do
+      nil -> {state, []}
+      number -> request_roots_containing(state, [number])
     end
   end
 
   defp request_affected_selected(state, _type, _change), do: {state, []}
+
+  # Resolving the membership map means listing the store's sub-issue edges, so
+  # it is bought only when some root is actually being watched. Every other
+  # store change answers without touching the store.
+  defp request_roots_containing(state, numbers) do
+    if Enum.any?(state.selected, fn {_key, entry} -> active_scope?(state, entry.scope) end) do
+      members = CatalogStore.member_numbers(state.active_repository)
+
+      state.selected
+      |> Enum.filter(fn {_key, entry} -> selected_touches?(entry, numbers, members) end)
+      |> Enum.reduce({state, []}, fn {_key, entry}, {state, events} ->
+        {state, next_events} = request_scope(state, entry.scope)
+        {state, events ++ next_events}
+      end)
+    else
+      {state, []}
+    end
+  end
+
+  defp issue_number(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {number, ""} when number > 0 -> number
+      _other -> nil
+    end
+  end
+
+  defp issue_number(_id), do: nil
 
   defp parse_edge_id(id) when is_binary(id) do
     case String.split(id, ":") do
@@ -1544,18 +1610,18 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp parse_edge_id(_id), do: nil
 
-  defp selected_touches?(%{scope: {:selected, identity}}, left, right, members) do
+  defp selected_touches?(%{scope: {:selected, identity}}, numbers, members) do
     root_number = identity_number(identity)
 
     if is_nil(root_number) do
       false
     else
       members_of_root = Map.get(members, root_number, [])
-      root_number in [left, right] or left in members_of_root or right in members_of_root
+      Enum.any?(numbers, &(&1 == root_number or &1 in members_of_root))
     end
   end
 
-  defp selected_touches?(_entry, _left, _right, _members), do: false
+  defp selected_touches?(_entry, _numbers, _members), do: false
 
   defp identity_number(%TrackerIdentity{identifier: identifier}) do
     case Integer.parse(identifier) do

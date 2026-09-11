@@ -113,6 +113,31 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert rule =~ "var(--blocking)"
   end
 
+  # The dateline over a saved plan's percentages is the only thing separating
+  # six-hour-old numbers from live ones (#2608), so it has to stay legible in
+  # both themes — which means a token that is actually declared. An undeclared
+  # name behind a `var()` fallback silently paints as ordinary muted body text.
+  test "the saved-plan dateline uses a themed token declared in both themes" do
+    assert css_rule(".bo-waves-asof") =~ "var(--attention-ink)"
+
+    assert Map.has_key?(declarations(css_rule(":root")), "--attention-ink")
+    assert Map.has_key?(declarations(css_rule(~s(html[data-theme="light"]))), "--attention-ink")
+  end
+
+  # The saved-plan percentages need a second marker besides that dateline, but
+  # --muted has no luminance headroom to spend on one: the first attempt dimmed
+  # the text with opacity: 0.6, which blended it to 2.96:1 on --surface and
+  # failed the axe smoke (#2608). Whatever marks them stale must leave the ink
+  # alone.
+  test "the saved-plan percentages are marked stale without dimming the text" do
+    rule = css_rule(".bo-waves-head.is-stale .bo-wave-seg-pct")
+
+    assert rule =~ "font-style: italic"
+    refute rule =~ "opacity"
+    refute rule =~ "color"
+    refute rule =~ "filter"
+  end
+
   test "dashboard progress bars match the Stream Deck progress contract" do
     contract =
       Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)
