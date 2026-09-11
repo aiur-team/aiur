@@ -2670,6 +2670,300 @@ defmodule Aiur.OrchestratorDeactivateTest do
       end
     end
 
+    # #2601: the rework turn finished, the ticket kept its `agent:rework`
+    # label, and its provider was torn down to `:deactivated`. A trusted PR
+    # comment then arrives with every review thread already resolved, so
+    # `ReworkGate` correctly refuses the *label write* — the label is already
+    # right. Refusing the wake along with it is what forced an Executor to send
+    # `aiurdev message` by hand. No `rework` write happens on this path, so
+    # #2422's loop stays closed.
+    # #2601's headline timeline, from the live Archon reproduction on
+    # 2026-09-10: PR #178's provider was deactivated with green CI, polling had
+    # already reapplied `agent:rework` from the sticky aggregate verdict, and a
+    # NEW trusted CHANGES_REQUESTED review then landed on a newer head. The
+    # issue stayed `agent:rework` and the provider stayed deactivated until an
+    # Executor sent `aiurdev message` by hand.
+    #
+    # The review is body-only, so it opens no review thread and the
+    # unresolved-thread read reports nothing — #2473's `changes_requested_review?`
+    # signal is what carries it through the gate.
+    #
+    # This is CHARACTERIZATION, not a guard: it hands the event straight to the
+    # orchestrator, so it passes on the base commit too. That is the point of
+    # the bug — once the event exists, the wake already worked; what was missing
+    # was the event, because `/reviews` was never read for a `rework` ticket.
+    # The guard for that lives poll-side in `target_selection_test` and
+    # `comment_polling_test`, both of which fail without the fix. This test
+    # exists so a future change to #2473's delivery path cannot silently break
+    # the half that #2601 depends on. The "published exactly once" half is the
+    # publisher's durable `{:pr_review, …}` identity, pinned in
+    # `test/aiur/events/webhook_poll_reconciliation_test.exs`.
+    test "wakes a :deactivated agent:rework entry on a new CHANGES_REQUESTED review on a later head" do
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-rework-second-review")
+
+      issue_id = "issue-rework-second-review"
+      issue_identifier = "164"
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+        Application.put_env(:aiur, :memory_tracker_issues, [
+          %Issue{
+            id: issue_id,
+            identifier: issue_identifier,
+            state: "rework",
+            title: "Rework finished, reviewer came back",
+            description: "",
+            labels: []
+          }
+        ])
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "rework", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        # The head the rework turn pushed, and a review submitted against it
+        # afterwards — so `ReviewFreshness` reads it as live, not stale.
+        new_head = "442b4b5f4801a3b27cfec27fcfbb5747be8a579d"
+
+        event = %{
+          topic: "ticket.#{issue_identifier}.pr.review_comment",
+          author_trusted?: true,
+          comment: %{
+            "id" => 9_601,
+            "state" => "CHANGES_REQUESTED",
+            "body" => "Still not right — please rework the wake path.",
+            "commit_id" => new_head,
+            "submitted_at" => "2026-09-10T02:01:17Z"
+          },
+          # The aggregate verdict is unchanged: it was already CHANGES_REQUESTED
+          # from the earlier head. Only the review's own identity is new.
+          pull_request: %{
+            "review_decision" => "CHANGES_REQUESTED",
+            "head_committed_at" => "2026-09-10T01:20:00Z"
+          },
+          open_pr_fetcher: fn _key -> {:ok, %{"number" => 178, "head" => %{"sha" => new_head}}} end,
+          # Body-only: the review opens no inline thread.
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        }
+
+        {:noreply, next} = Orchestrator.handle_info({:event, event}, state)
+
+        entry = Map.fetch!(next.running, issue_id)
+        refute get_in(entry, [:control, :status]) == :deactivated
+      after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "wakes a :deactivated agent:rework entry on a trusted comment with no unresolved threads" do
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-rework-no-threads")
+
+      issue_id = "issue-rework-no-threads"
+      issue_identifier = "164"
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+        Application.put_env(:aiur, :memory_tracker_issues, [
+          %Issue{
+            id: issue_id,
+            identifier: issue_identifier,
+            state: "rework",
+            title: "Rework completed, review still open",
+            description: "",
+            labels: []
+          }
+        ])
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "rework", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        event = %{
+          topic: "ticket.#{issue_identifier}.pr.review_comment",
+          author_trusted?: true,
+          comment: %{"body" => "One more thing on the handoff, please."},
+          open_pr_fetcher: fn _key -> {:ok, %{"number" => 178, "head" => %{"sha" => "f4e6944"}}} end,
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        }
+
+        {:noreply, next} = Orchestrator.handle_info({:event, event}, state)
+
+        entry = Map.fetch!(next.running, issue_id)
+        refute get_in(entry, [:control, :status]) == :deactivated
+
+        # No label write happens on this path — that is what keeps #2422's
+        # rework loop closed. The memory tracker reports every state update to
+        # `self()`, so a stray write would be observable here.
+        refute_receive {:memory_tracker_state_update, ^issue_id, _state}, 200
+
+        # The comment travels with the wake. Without this the agent respawns
+        # into an unchanged ticket with no idea what it was woken for, and the
+        # most likely outcome is that it concludes there is nothing to rework
+        # and the reviewer's request is lost.
+        assert [%{event_type: :events_digest, body: %{events: [^event]}}] =
+                 AgentQueueStore.list_pending(next.queue_store, issue_identifier)
+      after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
+    # The other half of the same rule: the wake-without-write path is scoped to
+    # a ticket that is ALREADY `rework`. A `human-review` ticket whose threads
+    # are all resolved must stay asleep, or every trusted comment on a
+    # finished PR restores the pre-#2422 behaviour.
+    #
+    # `human-review` is deliberately IN `tracker_active_states` here, unlike
+    # the sibling fixtures. Without it the issue is refused upstream by
+    # `Dispatcher.revalidate_issue_for_dispatch`, and this test passes even
+    # with `require_state: "rework"` deleted — guarding nothing.
+    test "leaves a :deactivated human-review entry asleep when there are no unresolved threads" do
+      test_root = Aiur.TestSupport.tmp_root!("aiur-orch-human-review-no-threads")
+
+      issue_id = "issue-human-review-no-threads"
+      issue_identifier = "165"
+      previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+      previous_memory_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
+
+      try do
+        write_workflow_file!(Workflow.workflow_file_path(),
+          tracker_kind: "memory",
+          workspace_root: test_root,
+          tracker_active_states: ["todo", "in-progress", "rework", "merging", "human-review"],
+          tracker_terminal_states: ["done", "cancelled", "canceled"]
+        )
+
+        File.mkdir_p!(test_root)
+        Application.put_env(:aiur, :memory_tracker_recipient, self())
+
+        Application.put_env(:aiur, :memory_tracker_issues, [
+          %Issue{
+            id: issue_id,
+            identifier: issue_identifier,
+            state: "human-review",
+            title: "Awaiting human review",
+            description: "",
+            labels: []
+          }
+        ])
+
+        state = %Orchestrator.State{
+          running: %{
+            issue_id => %{
+              pid: nil,
+              ref: nil,
+              identifier: issue_identifier,
+              issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+              started_at: DateTime.utc_now(),
+              control: %{status: :deactivated}
+            }
+          },
+          claimed: MapSet.new([issue_id]),
+          codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+          retry_attempts: %{},
+          max_concurrent_agents: 6
+        }
+
+        event = %{
+          topic: "ticket.#{issue_identifier}.pr.review_comment",
+          author_trusted?: true,
+          comment: %{"body" => "Nice, thanks."},
+          open_pr_fetcher: fn _key -> {:ok, %{"number" => 179, "head" => %{"sha" => "aaa1111"}}} end,
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        }
+
+        {:noreply, next} = Orchestrator.handle_info({:event, event}, state)
+
+        entry = Map.fetch!(next.running, issue_id)
+        assert get_in(entry, [:control, :status]) == :deactivated
+      after
+        if previous_memory_issues do
+          Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+        else
+          Application.delete_env(:aiur, :memory_tracker_issues)
+        end
+
+        if previous_memory_recipient do
+          Application.put_env(:aiur, :memory_tracker_recipient, previous_memory_recipient)
+        else
+          Application.delete_env(:aiur, :memory_tracker_recipient)
+        end
+
+        File.rm_rf(test_root)
+      end
+    end
+
     test "persists an actionable alert when trusted issue feedback cannot claim a rework slot" do
       test_root = Aiur.TestSupport.tmp_root!("aiur-orch-issue-commented-capacity")
 
@@ -3495,7 +3789,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:00:00Z"}
@@ -3559,7 +3853,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"63" => "2026-06-24T11:59:59Z"}
@@ -3659,7 +3953,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [human_review_issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [human_review_issue]} end
         )
 
       assert next.github_comments_since == %{
@@ -3724,7 +4018,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, issues} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, issues} end,
           human_review_comment_target_limit: 2,
           max_concurrency: 1
         )
@@ -3797,7 +4091,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end
         )
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
@@ -3860,7 +4154,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [issue]} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [issue]} end,
           review_pull_request_fetcher: fn "57" -> {:ok, %{"number" => 61, "updated_at" => pr_updated_at}} end
         )
 
@@ -3920,7 +4214,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, issues} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, issues} end,
           human_review_comment_target_limit: 1,
           max_concurrency: 1
         )
@@ -4003,7 +4297,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, [human_review_issue]} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, [human_review_issue]} end,
           max_concurrency: 1
         )
 
@@ -4066,7 +4360,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:error, :tracker_down} end
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:error, :tracker_down} end
         )
 
       assert next.github_comments_since == "2026-06-24T11:00:00Z"
@@ -4449,7 +4743,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [watch_pr]} end
         )
 
@@ -4524,7 +4818,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
           repo: "owner/repo",
           request_fun: request_fun,
           max_concurrency: 1,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn "agent:watch" -> {:ok, [healthy_pr, flaky_pr]} end
         )
 
@@ -4586,7 +4880,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             request_fun: request_fun,
             max_concurrency: 1,
             watch_comment_target_limit: 2,
-            review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
+            review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
             watch_pull_request_fetcher: fn "agent:watch" ->
               {:ok, open_prs ++ [merged_pr, closed_pr]}
             end
@@ -4633,7 +4927,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
         CommentPolling.poll_github_comments(state,
           repo: "owner/repo",
           request_fun: request_fun,
-          review_issue_fetcher: fn ["human-review", "merging"] -> {:ok, []} end,
+          review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:ok, []} end,
           watch_pull_request_fetcher: fn _label ->
             send(parent, :unexpected_watch_fetch)
             {:ok, []}
