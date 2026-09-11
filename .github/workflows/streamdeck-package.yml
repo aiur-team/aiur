@@ -69,7 +69,7 @@ jobs:
         id: gate
         run: |
           previous=""
-          if git fetch --quiet origin "refs/tags/${NIGHTLY_TAG}:refs/tags/${NIGHTLY_TAG}" 2>/dev/null; then
+          if git fetch --quiet origin "+refs/tags/${NIGHTLY_TAG}:refs/tags/${NIGHTLY_TAG}" 2>/dev/null; then
             previous=$(git rev-parse --verify --quiet "refs/tags/${NIGHTLY_TAG}^{commit}" || true)
           fi
           echo "previous=$previous" >> "$GITHUB_OUTPUT"
@@ -233,8 +233,8 @@ jobs:
             '.commit == $commit and .artifact == $asset and .sha256 == $sha256 and .content_address == "releases/download/" + $tag + "/" + $asset' \
             "$verify_dir/$manifest"
           test "$(git ls-remote --tags origin "refs/tags/${NIGHTLY_TAG}" | cut -f1)" = "$COMMIT"
-          count=$(gh api --paginate "repos/${GH_REPO}/releases" --jq '[.[] | select(.tag_name | startswith("streamdeck-"))] | length' | paste -sd+ | bc)
-          test "$count" = 1
+          count=$(gh api --paginate "repos/${GH_REPO}/releases" --jq '.[] | select(.tag_name | startswith("streamdeck-")) | .tag_name' | wc -l)
+          test "$count" -eq 1
           {
             echo "| field | value |"
             echo "| --- | --- |"
@@ -245,7 +245,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish-release-asset:
-    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    # `!cancelled()` because the gate job upstream of build is skipped on
+    # release events, which would otherwise skip this job too.
+    if: ${{ !cancelled() && needs.build.result == 'success' && github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
