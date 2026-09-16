@@ -66,6 +66,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
       # observed no idleness, so the idle backoff may only apply from the
       # second scheduling decision onward (#2138).
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
+      # Counted first, then pruned: a hint whose budget this cycle exhausted
+      # is dropped here, and a ticket this poll finally showed is dropped
+      # because the ordinary demand scan sees it now (#2640).
+      |> TrackerHealth.prune_queued_demand_hints()
 
     # Every freshness threshold is a multiple of the cadence actually in force,
     # so each class's effective interval — idle backoff, webhook widening and
