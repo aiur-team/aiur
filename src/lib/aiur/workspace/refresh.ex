@@ -107,7 +107,8 @@ defmodule Aiur.Workspace.Refresh do
   end
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do
-    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host) do
+    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host),
+         :ok <- Provisioner.repair_agent_github_guard(workspace, worker_host) do
       BootstrapImage.maybe_seed(workspace, issue_context, worker_host)
     end
   end

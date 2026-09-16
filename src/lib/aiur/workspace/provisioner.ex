@@ -50,6 +50,25 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
+  @doc false
+  @spec repair_agent_github_guard(Path.t(), String.t() | nil) :: :ok | {:error, term()}
+  def repair_agent_github_guard(workspace, nil), do: Aiur.AgentGitHubGuard.install(workspace)
+
+  def repair_agent_github_guard(workspace, worker_host) when is_binary(worker_host) do
+    repair_agent_github_guard(workspace, worker_host, &Remote.run_remote_script/3)
+  end
+
+  @doc false
+  @spec repair_agent_github_guard(Path.t(), String.t(), (String.t(), String.t(), pos_integer() -> term())) ::
+          :ok | {:error, term()}
+  def repair_agent_github_guard(workspace, worker_host, runner)
+      when is_binary(workspace) and is_binary(worker_host) and is_function(runner, 3) do
+    case runner.(worker_host, Aiur.AgentGitHubGuard.remote_install_script(workspace, remote_host: worker_host), Config.settings!().hooks.timeout_ms) do
+      {:ok, {_output, 0}} -> :ok
+      result -> {:error, {:remote_agent_github_guard_repair_failed, result}}
+    end
+  end
+
   # `worker_host` is passed to the modules that accept install options so the
   # host-credential cleanup only ever runs on a genuinely remote install (#2478);
   # the same script executed locally must not touch the operator's own `$HOME`.

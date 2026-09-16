@@ -214,6 +214,50 @@ defmodule Aiur.Workspace.RefreshTest do
              "GH_TOKEN=private-fixture-token\nGITHUB_TOKEN=\nGH_CONFIG_DIR=#{expected_config_dir}\n"
   end
 
+  test "run/3 repairs missing governed GitHub support in a ready workspace", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    init_repo!(workspace)
+    fake_gh = Path.join(test_root, "system-gh")
+    observed = Path.join(test_root, "ready-refresh-observed")
+    credential_file = Path.join(test_root, "private-agent-token")
+    expected_config_dir = AgentGitHubGuard.gh_config_dir(workspace)
+    File.write!(credential_file, "private-fixture-token\n")
+    File.write!(fake_gh, "#!/bin/sh\nprintf '%s\\n' \"${GH_TOKEN:-}:$GH_CONFIG_DIR\" > #{Aiur.Shell.escape(observed)}\n")
+    File.chmod!(fake_gh, 0o755)
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root)
+
+    assert :ok = Refresh.run(workspace, %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}, nil)
+    File.rm_rf!(Path.join(workspace, ".aiur-runtime"))
+    assert :ok = Refresh.run(workspace, %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}, nil)
+
+    assert {"", 0} =
+             System.cmd("gh", ["api", "repos/owner/repo/issues/2667"],
+               cd: workspace,
+               env: [
+                 {"AIUR_REAL_GH", fake_gh},
+                 {"AIUR_AGENT_WORKSPACE", workspace},
+                 {"AIUR_GITHUB_CREDENTIAL_FILE", credential_file},
+                 {"AIUR_REPO_STATE_PATH", test_root},
+                 {"AIUR_AGENT_QUOTA_STATE_PATH", Path.join(test_root, "quota")},
+                 {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
+                 {"AIUR_GITHUB_BUDGET_ROOT", ""},
+                 {"AIUR_GITHUB_BUDGET_KEY", ""},
+                 {"AIUR_GITHUB_BUDGET_IDENTITY_KEY", ""},
+                 {"AIUR_GITHUB_BUDGET_CONSUMER", ""},
+                 {"AIUR_GITHUB_BUDGET_BROKER", "/nonexistent/aiur-github-budget"},
+                 {"GITHUB_TOKEN", ""},
+                 {"GH_TOKEN", ""},
+                 {"GH_CONFIG_DIR", expected_config_dir},
+                 {"PATH", "#{AgentGitHubGuard.bin_dir(workspace)}:#{System.get_env("PATH")}"}
+               ],
+               stderr_to_stdout: true
+             )
+
+    assert File.read!(observed) == "private-fixture-token:#{expected_config_dir}\n"
+  end
+
   test "active ownership refuses stale-todo recreation without touching the workspace", %{workspace: workspace} do
     ticket = "refresh-active-#{System.unique_integer([:positive])}"
     sentinel = Path.join(workspace, "live-wip")

@@ -115,6 +115,22 @@ defmodule Aiur.Workspace.ProvisionerTest do
              Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
   end
 
+  test "remote refresh repair installs only the portable GitHub guard" do
+    parent = self()
+
+    runner = fn host, script, timeout ->
+      send(parent, {:remote_guard_repair, host, script, timeout})
+      {:ok, {"", 0}}
+    end
+
+    assert :ok = Provisioner.repair_agent_github_guard("/remote/workspace", "worker-1", runner)
+    assert_received {:remote_guard_repair, "worker-1", script, timeout}
+    assert is_integer(timeout) and timeout > 0
+    assert script =~ ~s(bin="$workspace/.aiur-runtime/bin")
+    assert script =~ "for command_name in 'gh'"
+    refute script =~ ".claude/skills"
+  end
+
   defp write_concurrency_probe!(path, active_path, max_path) do
     active_path = Aiur.Shell.escape(active_path)
     max_path = Aiur.Shell.escape(max_path)
