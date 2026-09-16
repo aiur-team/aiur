@@ -223,8 +223,9 @@ claude:
 ### Codex Backend
 
 ```yaml
-codex:
-  command: codex app-server
+agent:
+  codex:
+    command: codex app-server
 ```
 
 ## Workspace Issues

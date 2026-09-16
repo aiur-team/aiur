@@ -354,6 +354,25 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "Codex workflow examples carry explicit settings into runtime handshake configuration" do
+    original_workflow_path = Workflow.workflow_file_path()
+
+    try do
+      for path <- ["examples/workflows/github-codex.yaml", "examples/workflows/linear-codex.yaml"] do
+        Workflow.set_workflow_file_path(Path.expand(path))
+        settings = Config.settings!()
+
+        assert settings.agent.codex.approval_policy == "never"
+        assert settings.agent.codex.thread_sandbox == "workspace-write"
+        assert {:ok, runtime_settings} = Config.codex_runtime_settings(Path.expand(".."), remote: true)
+        assert runtime_settings.approval_policy == "never"
+        assert runtime_settings.thread_sandbox == "workspace-write"
+      end
+    after
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end
+  end
+
   test "checked-in Codex GitHub workflows preserve enough turn budget and handoff context" do
     workflow_paths = [
       "examples/workflows/github-codex.yaml",
