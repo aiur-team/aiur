@@ -5,6 +5,11 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
   alias Aiur.LiveConversation.Source
   alias Aiur.Orchestrator.State
 
+  setup do
+    :ok = Aiur.TestSupport.ensure_pubsub_running()
+    :ok
+  end
+
   test "fences runtime status by worker, exact source, epoch, revision, and restart" do
     issue = issue()
     issue_id = issue.id
