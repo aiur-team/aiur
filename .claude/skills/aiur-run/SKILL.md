@@ -172,8 +172,10 @@ operator's decision.
 **Arm the wake monitor before you dispatch anything.** This is a launch step,
 not later advice. The daemon holds the real event-bus subscription (24
 bindings); **the Executor does not.** Events are projected to a file —
-`~/.aiur/repo/<owner>/<repo>/executor/aiur.executor.wakes.ndjson`, with the read
-position in `aiur.executor.wakes.cursor.json`. Nothing pushes. Without a
+`~/.aiur/repo/<owner>/<repo>/executor/<repo>.executor.wakes.ndjson`, with the read
+position in `<repo>.executor.wakes.cursor.json`. `<repo>` is the configured
+repository name (for example, `khala`, producing `khala.executor.wakes.ndjson`),
+not always `aiur`. Nothing pushes. Without a
 monitor you see events only when you happen to run a command, and on the
 2026-08 run that meant 2,832 unconsumed records — 402 of them
 `ticket.branch.push` — with the cursor still at `wake_id: 1` and the oldest
@@ -184,14 +186,22 @@ your harness has, persistent for the session lifetime. In Claude Code that is
 the `Monitor` tool with `persistent: true`. The reference implementation:
 
 ```bash
-tail -F -n0 ~/.aiur/repo/<owner>/<repo>/executor/aiur.executor.wakes.ndjson \
+wake_path="$HOME/.aiur/repo/<owner>/<repo>/executor/<repo>.executor.wakes.ndjson"
+if [ ! -f "$wake_path" ]; then
+  printf 'aiur: wake monitor not armed: expected wake stream is absent: %s\n' "$wake_path" >&2
+  exit 1
+fi
+
+tail -F -n0 "$wake_path" \
   | jq -rc --unbuffered 'select((.topic_class // "") | test("branch\\.push|pr\\.ready_for_review|pr\\.opened|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-")"'
 ```
 
 Each detail is a trap someone already hit: `tail -F` (follow by name), not
 `-f`, because the file is rotated; `-n0` so arming does not replay the whole
 backlog as notifications; `jq --unbuffered -rc`, because without `--unbuffered`
-events sit in jq's buffer and never arrive. The filter must cover **failure**
+events sit in jq's buffer and never arrive. The existence check makes a wrong
+repository or uninitialized state node fail visibly instead of silently
+following a nonexistent filename. The filter must cover **failure**
 signals (`ci.failed`, `agent.attention`, `retry_exhausted`,
 `tokens_exhausted`, `connectivity_lost`), not only progress — a monitor that
 matches success alone is silent through a crashloop, and silence is
