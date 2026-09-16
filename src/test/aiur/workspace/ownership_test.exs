@@ -46,6 +46,8 @@ defmodule Aiur.Workspace.OwnershipTest do
                end
              )
 
+    guardian = lease.guardian
+    monitor = Process.monitor(guardian)
     assert_receive {:restored_host_lock_reap_started, reaper}, 2_000
     assert {:ok, holder} = HostLock.holder(workspace)
     assert holder.owner_id == lock.holder.owner_id
@@ -53,7 +55,7 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     send(reaper, :drain_restored_provider)
     assert_eventually(fn -> HostLock.holder(workspace) == :none and Ownership.current(ticket) == :none end)
-    refute Process.alive?(lease.guardian)
+    assert_receive {:DOWN, ^monitor, :process, ^guardian, :normal}, 2_000
   end
 
   test "a generation excludes a competing runner until it releases" do
