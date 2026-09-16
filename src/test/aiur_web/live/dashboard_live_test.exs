@@ -53,7 +53,7 @@ defmodule AiurWeb.DashboardLiveTest do
         :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), snapshot)
       end
 
-      {:ok, %{snapshot: snapshot, snapshot_count: 0, report: Keyword.get(opts, :report)}}
+      {:ok, %{snapshot: snapshot, snapshot_count: 0, report: Keyword.get(opts, :report), block_queued_demand?: Keyword.get(opts, :block_queued_demand?, false)}}
     end
 
     @impl true
@@ -65,6 +65,18 @@ defmodule AiurWeb.DashboardLiveTest do
 
     def handle_call(:snapshot_count, _from, state) do
       {:reply, state.snapshot_count, state}
+    end
+
+    def handle_call({:note_queued_demand, identifiers}, _from, state) do
+      if is_pid(state.report), do: send(state.report, {:queued_demand_received, self(), identifiers})
+
+      if state.block_queued_demand? do
+        receive do
+          :release_queued_demand -> :ok
+        end
+      end
+
+      {:reply, %{coalesced: false}, state}
     end
 
     def handle_call(:request_refresh, _from, state) do
@@ -5156,6 +5168,66 @@ defmodule AiurWeb.DashboardLiveTest do
     refute_received {:mutation_blocked, _}
   end
 
+  test "verified todo admission hints queued demand before completion and Close stays responsive" do
+    orchestrator_name = Module.concat(__MODULE__, :QueuedAddAgentOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name, report: self(), block_queued_demand?: true)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      control_center_cache: false,
+      dashboard_writable: true,
+      open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2101", ["complexity:3", "agent:todo"])]) end,
+      add_agent_verify_fun: fn _ ->
+        {:ok, [%{labels: ["complexity:3", "agent:todo"], dispatch_authorization: :authorized, state: "todo"}]}
+      end,
+      add_agent_fun: fn _, _, _ -> :ok end
+    )
+
+    {:ok, view, _} = live(build_conn(), "/")
+    view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
+    view |> element("#add-agent-modal form") |> render_submit(%{})
+    assert_receive {:queued_demand_received, ^orchestrator, ["2101"]}, 1_000
+    assert has_element?(view, "#add-agent-modal button[type=submit][disabled]")
+    refute render(view) =~ "Waiting for an agent to start"
+
+    view
+    |> element(~s(#add-agent-modal header button[phx-click="close-add-agent"]))
+    |> render_click()
+
+    refute has_element?(view, "#add-agent-modal")
+    send(orchestrator, :release_queued_demand)
+    render_async(view)
+    assert render(view) =~ "Waiting for an agent to start"
+    assert_received {:dashboard_refresh_requested, ^orchestrator}
+  end
+
+  for {authorization, state} <- [{:denied, "todo"}, {:deferred, "todo"}, {:authorized, "human-review"}] do
+    test "Add Agent does not hint queued demand for #{authorization} #{state}" do
+      authorization = unquote(authorization)
+      state = unquote(state)
+      orchestrator_name = Module.concat(__MODULE__, :NonQueuedAddAgentOrchestrator)
+      orchestrator = start_counting_orchestrator(orchestrator_name, report: self())
+
+      start_test_endpoint(
+        orchestrator: orchestrator_name,
+        control_center_cache: false,
+        dashboard_writable: true,
+        open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2101", [])]) end,
+        add_agent_verify_fun: fn _ ->
+          {:ok, [%{dispatch_authorization: authorization, state: state}]}
+        end,
+        add_agent_fun: fn _, _, _ -> :ok end
+      )
+
+      {:ok, view, _} = live(build_conn(), "/")
+      view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
+      view |> element("#add-agent-modal form") |> render_submit(%{})
+      render_async(view)
+      refute_received {:queued_demand_received, ^orchestrator, _}
+      refute has_element?(view, "#add-agent-modal")
+    end
+  end
+
   test "Add Agent retains successful removals on error and retry applies only remaining changes" do
     test_pid = self()
     orchestrator_name = Module.concat(__MODULE__, :PartialAddAgentOrchestrator)
@@ -5910,6 +5982,7 @@ defmodule AiurWeb.DashboardLiveTest do
       {CountingOrchestrator,
        name: name,
        report: Keyword.get(opts, :report),
+       block_queued_demand?: Keyword.get(opts, :block_queued_demand?, false),
        snapshot: %{
          running: [],
          retrying: [],

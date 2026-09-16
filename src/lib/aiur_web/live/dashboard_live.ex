@@ -491,12 +491,21 @@ defmodule AiurWeb.DashboardLive do
       ) do
     handle_writable_event(socket, fn ->
       modal = if Map.has_key?(params, "backend"), do: change_add_agent(modal, params), else: modal
+      orchestrator = capacity_orchestrator()
 
       {:noreply,
        socket
        |> assign(:add_agent_pending, modal)
        |> assign(:add_agent_modal, Map.put(modal, :pending?, true))
-       |> start_async(:add_agent_submission, fn -> AddAgentSubmission.run(modal) end)}
+       |> start_async(:add_agent_submission, fn ->
+         result = AddAgentSubmission.run(modal)
+
+         if match?(%{error: nil, authorization: :authorized, state: "todo"}, result) do
+           Aiur.Orchestrator.note_queued_demand(orchestrator, [modal.identifier])
+         end
+
+         result
+       end)}
     end)
   end
 
