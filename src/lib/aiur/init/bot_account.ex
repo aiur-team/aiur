@@ -24,7 +24,8 @@ defmodule Aiur.Init.BotAccount do
   # The optional `[bot]` suffix is the GitHub App bot form (`<app-slug>[bot]`).
   # It remains valid here when agents publish as an App bot; the daemon App's
   # identity is configured separately under `tracker.github.github_app.account`.
-  @login_regex ~r/^[a-z\d](?:-?[a-z\d])*(?:\[bot\])?$/
+  @human_login_regex ~r/^[a-z\d](?:-?[a-z\d])*$/
+  @bot_login_regex ~r/^[a-z\d](?:-?[a-z\d])*(?:\[bot\])?$/
   @bot_suffix "[bot]"
   @max_login_length 39
 
@@ -42,30 +43,41 @@ defmodule Aiur.Init.BotAccount do
     operator = operator_account(io, deps)
     bot_default = valid_login_or_nil(Edit.normalize_login(deps.github_bot_account_default.()))
 
-    if operator do
-      choose_identity_mode(io, tracker, operator, bot_default)
-    else
-      tracker
+    case {operator, bot_default} do
+      {operator, _bot_default} when is_binary(operator) ->
+        choose_identity_mode(io, tracker, operator, bot_default)
+
+      {nil, bot_default} when is_binary(bot_default) ->
+        Map.merge(tracker, %{bot_account: bot_default, identity_mode: "separate_account"})
+
+      {nil, nil} ->
+        io.puts.(Format.dim("Skipped GitHub identity setup because no account was provided."))
+        tracker
     end
   end
 
   def maybe_prompt(_io, _deps, tracker), do: tracker
 
   defp operator_account(io, deps) do
-    case valid_login_or_nil(Edit.normalize_login(deps.github_login.())) do
+    case valid_human_login_or_nil(Edit.normalize_login(deps.github_login.())) do
       nil -> prompt_operator_account(io)
       login -> login
     end
   end
 
   defp prompt_operator_account(io) do
-    case Edit.normalize_login(io.input.(@operator_label, nil, "This account will be trusted to direct Aiur from PR and issue comments.")) do
+    case Edit.normalize_login(
+           io.input.(
+             @operator_label,
+             nil,
+             "This account will be trusted to direct Aiur from PR and issue comments. Leave blank to skip GitHub identity setup."
+           )
+         ) do
       nil ->
-        io.puts.(Format.dim("Skipped GitHub identity setup because no account was provided."))
         nil
 
       login ->
-        if valid_login?(login) do
+        if valid_human_login?(login) do
           login
         else
           io.puts.("Enter a valid GitHub login (letters, numbers, and single hyphens).")
@@ -81,8 +93,7 @@ defmodule Aiur.Init.BotAccount do
 
     case io.select.("Will Aiur's agents post as your own GitHub account, or as a separate bot account?", [own_option, separate_option], default) do
       ^own_option ->
-        io.puts.("Aiur will mark its comments so it can tell them apart from your own.")
-        Map.merge(tracker, %{operator_account: operator, bot_account: operator, identity_mode: "single_account"})
+        own_account_tracker(io, tracker, operator, bot_default)
 
       _ ->
         bot_account = prompt_bot_account(io, if(bot_default == operator, do: nil, else: bot_default), operator)
@@ -91,7 +102,13 @@ defmodule Aiur.Init.BotAccount do
   end
 
   defp prompt_bot_account(io, default, operator) do
-    case Edit.normalize_login(io.input.(@bot_account_label, default, "Use a different account from your own so agent and human activity stay distinguishable.")) do
+    case Edit.normalize_login(
+           io.input.(
+             @bot_account_label,
+             default,
+             "Use a different account from your own so agent and human activity stay distinguishable. Leave blank to skip the agent posting account."
+           )
+         ) do
       nil ->
         nil
 
@@ -100,7 +117,7 @@ defmodule Aiur.Init.BotAccount do
         prompt_bot_account(io, default, operator)
 
       login ->
-        if valid_login?(login) do
+        if valid_bot_login?(login) do
           login
         else
           io.puts.("Enter a valid GitHub login (letters, numbers, and single hyphens).")
@@ -109,18 +126,33 @@ defmodule Aiur.Init.BotAccount do
     end
   end
 
+  defp own_account_tracker(io, tracker, operator, bot_default) when is_binary(bot_default) and bot_default != operator do
+    io.puts.("Aiur's agents are currently configured to post as @#{bot_default}, so their activity will stay separate from yours.")
+    Map.merge(tracker, %{operator_account: operator, bot_account: bot_default, identity_mode: "separate_account"})
+  end
+
+  defp own_account_tracker(io, tracker, operator, _bot_default) do
+    io.puts.("Aiur will mark its comments so it can tell them apart from your own.")
+    Map.merge(tracker, %{operator_account: operator, bot_account: operator, identity_mode: "single_account"})
+  end
+
   @spec valid_login_or_nil(String.t() | nil) :: String.t() | nil
-  defp valid_login_or_nil(login) when is_binary(login), do: if(valid_login?(login), do: login)
+  defp valid_login_or_nil(login) when is_binary(login), do: if(valid_bot_login?(login), do: login)
   defp valid_login_or_nil(_login), do: nil
+
+  defp valid_human_login_or_nil(login) when is_binary(login), do: if(valid_human_login?(login), do: login)
+  defp valid_human_login_or_nil(_login), do: nil
 
   # GitHub logins are ≤ 39 chars; the regex already bounds shape. Assumes a
   # login normalized by `Edit.normalize_login/1` (trimmed, lowercased, no `@`).
   # The `[bot]` suffix is GitHub's own decoration on top of the App slug, so it
   # is measured outside the 39-character login budget.
-  @spec valid_login?(String.t()) :: boolean()
-  defp valid_login?(login) do
+  @spec valid_bot_login?(String.t()) :: boolean()
+  defp valid_bot_login?(login) do
     slug = String.replace_suffix(login, @bot_suffix, "")
 
-    String.length(slug) <= @max_login_length and Regex.match?(@login_regex, login)
+    String.length(slug) <= @max_login_length and Regex.match?(@bot_login_regex, login)
   end
+
+  defp valid_human_login?(login), do: String.length(login) <= @max_login_length and Regex.match?(@human_login_regex, login)
 end

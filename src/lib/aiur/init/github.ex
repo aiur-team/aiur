@@ -218,11 +218,16 @@ defmodule Aiur.Init.GitHub do
   def label_error_message(other), do: inspect(other)
 
   @spec detect_github_login() :: String.t() | nil
-  def detect_github_login do
+  @spec detect_github_login(([String.t()], keyword() -> {String.t(), non_neg_integer()})) :: String.t() | nil
+  def detect_github_login(command_fun \\ &HostCommand.run/2) do
     # The operator identity must come from the local `gh` login, not the
-    # daemon's dotenv credential. Explicitly clear both token overrides so the
-    # host keyring remains the only authentication source for this lookup.
-    case HostCommand.run(["api", "user", "--jq", ".login"], stderr_to_stdout: true, env: [{"GH_TOKEN", nil}, {"GITHUB_TOKEN", nil}]) do
+    # daemon's credential. Clear both direct token overrides and the governed
+    # credential-file override so the host keyring is the only authentication
+    # source for this lookup.
+    case command_fun.(["api", "user", "--jq", ".login"],
+           stderr_to_stdout: true,
+           env: [{"AIUR_GITHUB_CREDENTIAL_FILE", nil}, {"GH_TOKEN", nil}, {"GITHUB_TOKEN", nil}]
+         ) do
       {output, 0} ->
         output
         |> String.trim()
