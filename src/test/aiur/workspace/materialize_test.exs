@@ -74,6 +74,29 @@ defmodule Aiur.Workspace.MaterializeTest do
     assert File.read!(Path.join([workspace, "src", "_build", "warm.sentinel"])) == "artifact\n"
   end
 
+  test "materialization preserves ignored embedded repositories while removing crash dumps", %{tmp: tmp, base: base} do
+    workspace = Path.join(tmp, "embedded-repo")
+    dependency = Path.join([base, "src", "deps", "heroicons"])
+    dump = Path.join([base, "src", "erl_crash.dump"])
+    artifact = Path.join([base, "src", "_build", "warm.sentinel"])
+
+    File.write!(Path.join(base, ".gitignore"), "**/erl_crash.dump\n**/_build/\nsrc/deps/\n")
+    {_, 0} = System.cmd("git", ["-C", base, "add", ".gitignore"])
+    {_, 0} = System.cmd("git", ["-C", base, "commit", "--quiet", "-m", "ignore warm artifacts"])
+    File.mkdir_p!(dependency)
+    {_, 0} = System.cmd("git", ["init", "--quiet", dependency])
+    File.write!(Path.join(dependency, "icons.svg"), "cached icons\n")
+    File.mkdir_p!(Path.dirname(artifact))
+    File.write!(artifact, "compiled artifact\n")
+    File.write!(dump, "crash evidence\n")
+
+    assert :ok = Materialize.materialize_from_base(base, workspace)
+    refute File.exists?(Path.join([workspace, "src", "erl_crash.dump"]))
+    assert File.read!(Path.join([workspace, "src", "_build", "warm.sentinel"])) == "compiled artifact\n"
+    assert File.read!(Path.join([workspace, "src", "deps", "heroicons", "icons.svg"])) == "cached icons\n"
+    assert File.dir?(Path.join([workspace, "src", "deps", "heroicons", ".git"]))
+  end
+
   test "materialization atomically replaces a logs-only workspace without losing the event stream", %{
     tmp: tmp,
     base: base

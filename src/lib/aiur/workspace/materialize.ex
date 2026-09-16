@@ -87,6 +87,8 @@ defmodule Aiur.Workspace.Materialize do
   defp remove_listed_crash_dumps(workspace, output) do
     output
     |> String.split(<<0>>, trim: true)
+    # Git lists ignored embedded repositories as directories despite the file pathspec.
+    |> Enum.reject(&String.ends_with?(&1, "/"))
     |> Enum.reduce_while(:ok, fn relative, :ok -> remove_crash_dump(workspace, relative) end)
   end
 
