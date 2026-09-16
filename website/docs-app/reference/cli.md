@@ -296,12 +296,12 @@ automatically on first use beneath the per-repository state node
 (`~/.aiur/repo/<owner>/<repo>/executor`), so they survive a daemon restart and a
 successor resumes from the durable cursor.
 
-Within that node, wake files are prefixed by the configured repository name:
-`<repo>.executor.wakes.ndjson`, `<repo>.executor.wakes.cursor.json`, and
-`<repo>.executor.wakes.pending.json`. A notification monitor must use that
-`<repo>` prefix (for example, `khala.executor.wakes.ndjson`), check that the
-wake file exists before declaring itself armed, and never substitute the
-`aiur` prefix in a consumer repository.
+Within that node, wake files are prefixed by the sanitized final segment of the
+tracker project identity (`Paths.repo_name/0`): `<repo>.executor.wakes.ndjson`,
+`<repo>.executor.wakes.cursor.json`, and `<repo>.executor.wakes.pending.json`.
+A notification monitor must use that `<repo>` prefix (for example,
+`khala.executor.wakes.ndjson`), check that the wake file exists before declaring
+itself armed, and never substitute the `aiur` prefix in a consumer repository.
 
 A `tail -F -n0` follower is a low-latency notification aid only. It skips the
 existing prefix, may filter wake classes, has no consumer identity or lease,

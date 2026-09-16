@@ -173,9 +173,10 @@ operator's decision.
 not later advice. The daemon holds the real event-bus subscription (24
 bindings); **the Executor does not.** Events are projected to a file —
 `~/.aiur/repo/<owner>/<repo>/executor/<repo>.executor.wakes.ndjson`, with the read
-position in `<repo>.executor.wakes.cursor.json`. `<repo>` is the configured
-repository name (for example, `khala`, producing `khala.executor.wakes.ndjson`),
-not always `aiur`. Nothing pushes. Without a
+position in `<repo>.executor.wakes.cursor.json`. `<repo>` is the sanitized final
+segment of the tracker project identity (`Paths.repo_name/0`; for example,
+`khala`, producing `khala.executor.wakes.ndjson`), not always `aiur`. Nothing
+pushes. Without a
 monitor you see events only when you happen to run a command, and on the
 2026-08 run that meant 2,832 unconsumed records — 402 of them
 `ticket.branch.push` — with the cursor still at `wake_id: 1` and the oldest

@@ -565,6 +565,8 @@ defmodule Aiur.AiurAgentSkillTest do
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
 
     assert run_skill =~ "executor/<repo>.executor.wakes.ndjson"
+    assert run_skill =~ "sanitized final\nsegment of the tracker project identity"
+    assert run_skill =~ "`Paths.repo_name/0`"
     assert run_skill =~ "khala.executor.wakes.ndjson"
     assert run_skill =~ "wake monitor not armed: expected wake stream is absent"
     refute run_skill =~ "executor/aiur.executor.wakes.ndjson"
