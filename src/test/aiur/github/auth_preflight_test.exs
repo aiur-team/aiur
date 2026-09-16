@@ -214,7 +214,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
 
     assert message =~ "verify the App is installed on owner/repo"
     assert message =~ "GITHUB_TOKEN is also set, but configured GitHub App credentials take precedence"
-    assert message =~ "GITHUB_APP_ID="
+    assert message =~ "does not inherit App credentials from ~/.aiur/.env"
     refute message =~ "preflight-token"
 
     System.delete_env("GITHUB_TOKEN")

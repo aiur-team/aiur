@@ -489,6 +489,14 @@ defmodule Aiur.EnvTest do
       refute Enum.any?(warnings, &(&1 =~ "/k"))
     end
 
+    test "a blank placeholder GITHUB_TOKEN= in the repo file is not a declaration",
+         %{home_env: home_env, repo_env: repo_env} do
+      File.write!(home_env, "GITHUB_APP_ID=1\nGITHUB_APP_INSTALLATION_ID=2\nGITHUB_APP_PRIVATE_KEY_PATH=/k\n")
+      File.write!(repo_env, "GITHUB_TOKEN=\n")
+
+      assert Env.precedence_conflicts(home_env, repo_env) == []
+    end
+
     test "a global App with no repo-local credential is not a conflict",
          %{home_env: home_env, repo_env: repo_env} do
       File.write!(home_env, "GITHUB_APP_ID=1\nGITHUB_APP_INSTALLATION_ID=2\nGITHUB_APP_PRIVATE_KEY_PATH=/k\n")

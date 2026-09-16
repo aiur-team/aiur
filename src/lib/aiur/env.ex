@@ -157,10 +157,13 @@ defmodule Aiur.Env do
 
   @doc """
   GitHub credential names the launcher resolves as one group. A repo `.env`
-  that declares any of them has chosen that repository's auth mode, so the
-  launcher skips every member in `~/.aiur/.env` rather than letting a global
-  `GITHUB_APP_*` triple fill the gaps around a repo-local `GITHUB_TOKEN` and
-  outrank it (#2638). Mirrors `GITHUB_CREDENTIAL_ENV_NAMES` in the launcher.
+  that sets any of them to a non-blank value has chosen that repository's auth
+  mode, so the launcher skips every member in `~/.aiur/.env` rather than
+  letting a global `GITHUB_APP_*` triple fill the gaps around a repo-local
+  `GITHUB_TOKEN` and outrank it (#2638). Blank values are placeholders (the
+  `GITHUB_TOKEN=` line `aiur init` scaffolds) and count for nothing, which is
+  why `read_dotenv/1` parses without `include_empty`. Mirrors
+  `GITHUB_CREDENTIAL_ENV_NAMES` in the launcher.
   """
   @github_credential_names ~w(GITHUB_TOKEN GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY_PATH GITHUB_APP_PRIVATE_KEY)
 

@@ -58,7 +58,7 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 
 `GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
 
-A repository whose own `.env` declares a `GITHUB_TOKEN` (or any `GITHUB_APP_*` name) does not inherit the App from `~/.aiur/.env`; see [environment layering](/reference/configuration#environment-variables). Put App credentials in `~/.aiur/.env` for every repository the App is installed on, and in the repository `.env` when only that repository should use it.
+A repository whose own `.env` sets a `GITHUB_TOKEN` (or any `GITHUB_APP_*` name) does not inherit the App from `~/.aiur/.env`; see [environment layering](/reference/configuration#environment-variables). Put App credentials in `~/.aiur/.env` for every repository the App is installed on, and in the repository `.env` when only that repository should use it.
 
 The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
 

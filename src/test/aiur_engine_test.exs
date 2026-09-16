@@ -829,10 +829,14 @@ defmodule AiurEngineTest do
       assert load_env_report(home, repo) == expected
     end
 
-    test "a blank repo-local GITHUB_APP_ID= line opts out of the global credentials", %{home: home, repo: repo} do
-      File.write!(Path.join(repo, ".env"), "GITHUB_APP_ID=\n")
+    # `aiur init` scaffolds `GITHUB_TOKEN=` and `.env.example` renders every
+    # name blank. A blank value is a placeholder, so it must neither shadow the
+    # global value of the same name nor count as declaring the credential group.
+    test "a blank placeholder GITHUB_TOKEN= line does not shadow the global credentials", %{home: home, repo: repo} do
+      File.write!(Path.join(repo, ".env"), "GITHUB_TOKEN=\nOTHER=\"\"\n")
 
-      assert load_env_report(home, repo) == "TOK=unset|APP=|INST=unset|KEY=unset|OTHER=global-other"
+      assert load_env_report(home, repo) ==
+               "TOK=global-token|APP=global-app|INST=global-install|KEY=/global/key.pem|OTHER=global-other"
     end
   end
 

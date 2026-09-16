@@ -437,15 +437,16 @@ defmodule Aiur.GitHub.AuthPreflight do
   end
 
   # A 404 under App auth while GITHUB_TOKEN is also set usually means the
-  # operator configured a token for this repository but a machine-wide App
-  # (a shell export, or `~/.aiur/.env` under a launcher that predates #2638)
-  # took precedence. "Install the App" is the wrong recovery for that case.
+  # operator configured a token for this repository but App credentials from
+  # a shell export, the same .env file, or `~/.aiur/.env` under a launcher
+  # that predates #2638 took precedence. "Install the App" is the wrong
+  # recovery for that case.
   defp app_over_token_line(%{reason: :repo_not_accessible}) do
     if nonblank_env?("GITHUB_TOKEN") do
       "GITHUB_TOKEN is also set, but configured GitHub App credentials take precedence over it. " <>
         "If this repository should authenticate with that token, unset GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, " <>
-        "GITHUB_APP_PRIVATE_KEY_PATH and GITHUB_APP_PRIVATE_KEY in the launch shell, or declare them blank " <>
-        "(for example `GITHUB_APP_ID=`) in this repository's .env so the machine-wide App is not inherited, then restart aiur."
+        "GITHUB_APP_PRIVATE_KEY_PATH and GITHUB_APP_PRIVATE_KEY in the shell and .env files used to launch aiur " <>
+        "(a repository .env that sets GITHUB_TOKEN does not inherit App credentials from ~/.aiur/.env), then restart aiur."
     end
   end
 
