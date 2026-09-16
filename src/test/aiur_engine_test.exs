@@ -782,11 +782,16 @@ defmodule AiurEngineTest do
     end
 
     defp load_env_report(home, repo, extra_env \\ []) do
+      args =
+        Enum.map_join(
+          ~w(GITHUB_TOKEN GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY_PATH OTHER),
+          " ",
+          &~s("${#{&1}-unset}")
+        )
+
       src =
         "cd #{repo}; source #{@engine}; load_dotenv; " <>
-          "printf 'TOK=%s|APP=%s|INST=%s|KEY=%s|OTHER=%s' " <>
-          "\"${GITHUB_TOKEN-unset}\" \"${GITHUB_APP_ID-unset}\" \"${GITHUB_APP_INSTALLATION_ID-unset}\" " <>
-          "\"${GITHUB_APP_PRIVATE_KEY_PATH-unset}\" \"${OTHER-unset}\""
+          "printf 'TOK=%s|APP=%s|INST=%s|KEY=%s|OTHER=%s' #{args}"
 
       cleared =
         Enum.map(
