@@ -109,6 +109,8 @@ defmodule Aiur.Init.ScaffoldTest do
       assert :ok = Scaffold.persist_github_token("ghp_persisted")
       assert File.read!(Path.join(dir, ".env")) == "GITHUB_TOKEN=ghp_persisted\n"
       assert System.get_env("GITHUB_TOKEN") == "ghp_persisted"
+      # Owner-only once it holds a live credential.
+      assert rem(File.stat!(Path.join(dir, ".env")).mode, 0o1000) == 0o600
     end)
   end
 

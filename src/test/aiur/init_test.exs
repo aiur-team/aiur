@@ -31,6 +31,8 @@ defmodule Aiur.InitTest do
     "system.tracker.auth_preflight_failed.resolved",
     "system.tracker.state_labels_missing",
     "system.tracker.state_labels_missing.resolved",
+    "system.tracker.state_label_preflight_failed",
+    "system.tracker.state_label_preflight_failed.resolved",
     "ticket.*.agent.error.tokens_exhausted",
     "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.review_feedback_delivery_deferred",
@@ -1722,11 +1724,28 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps)
 
       assert_received {:persisted_token, "ghp_pasted"}
+      # The secret now lives in the working tree, so `.env` is ignored without asking.
+      assert_received {:gitignore, ".env"}
       assert "agent:todo" in labels_created()
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
+      assert Enum.any?(log, &(&1 =~ ~r/ignores \.env/))
       refute Enum.any?(log, &(&1 =~ ~r/cannot dispatch/i))
       refute Enum.any?(log, &(&1 =~ ~r/ghp_pasted/))
+    end
+
+    test "a token that cannot be written warns and skips provisioning", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{persist_github_token: fn _token -> {:error, :eacces} end})
+      answers = github_answers(%{input: %{"GitHub token for aiur (paste it, or leave blank to skip)" => "ghp_pasted"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps)
+
+      refute_received {:labels, _tracker, _labels}
+      refute_received {:gitignore, ".env"}
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/Couldn't write GITHUB_TOKEN to \.env \(:eacces\)/))
+      assert Enum.any?(log, &(&1 =~ ~r/No labels were created\. This repo cannot dispatch/))
+      refute Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
     end
 
     test "a token that reached .env after startup is re-read before provisioning", %{dir: dir, target: target} do

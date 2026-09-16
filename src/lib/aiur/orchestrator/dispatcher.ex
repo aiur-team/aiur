@@ -426,9 +426,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # labels cannot dispatch anything, and without this check the daemon polls
   # it forever as "no work". Advisory like CI readiness: it never holds
   # dispatch. One list call on the first dispatch cycle; while labels are
-  # missing it re-checks every @state_label_retry_ms so the alert resolves
-  # itself once the operator creates them, then never spends another request.
+  # missing (or the list call keeps failing) it re-checks every
+  # @state_label_retry_ms so the alert resolves itself once the operator
+  # creates them, then never spends another request.
+  #
+  # `state_label_preflight_signature` remembers what was last alerted so a
+  # repeat check neither re-alerts nor forgets to resolve:
+  #   "missing:<sorted labels>"  -- the missing-labels alert is open
+  #   "error:<reason>"           -- one failure seen, not alerted yet
+  #   "failed:<reason>"          -- the same failure repeated; alert is open
+  # After a daemon restart the field is nil, so resolution also consults the
+  # alert ledger, exactly like `clear_tracker_preflight_alert/1`.
   @state_label_retry_ms 300_000
+  @state_labels_missing_topic "system.tracker.state_labels_missing"
+  @state_label_preflight_failed_topic "system.tracker.state_label_preflight_failed"
 
   @doc false
   @spec maybe_warn_state_labels(State.t()) :: State.t()
@@ -449,33 +460,41 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def maybe_warn_state_labels(state), do: state
 
   @doc false
-  @spec check_state_labels(State.t(), String.t() | nil, function(), function()) :: State.t()
-  def check_state_labels(%State{state_label_preflight_checked: true} = state, _kind, _check_fun, _emit_fun), do: state
+  @spec check_state_labels(State.t(), String.t() | nil, function(), function(), function()) :: State.t()
+  def check_state_labels(state, kind, check_fun, emit_fun, active_fun \\ &AlertFeed.active_system_attention?/1)
 
-  def check_state_labels(state, "github", check_fun, emit_fun) do
-    record_state_label_result(state, check_fun.(), emit_fun)
+  def check_state_labels(%State{state_label_preflight_checked: true} = state, _kind, _check_fun, _emit_fun, _active_fun), do: state
+
+  def check_state_labels(state, "github", check_fun, emit_fun, active_fun) do
+    record_state_label_result(state, check_fun.(), emit_fun, active_fun)
   end
 
-  def check_state_labels(state, _kind, _check_fun, _emit_fun), do: %{state | state_label_preflight_checked: true}
+  def check_state_labels(state, _kind, _check_fun, _emit_fun, _active_fun), do: %{state | state_label_preflight_checked: true}
 
-  defp record_state_label_result(state, {:ok, %{missing: []}}, emit_fun) do
-    if is_binary(state.state_label_preflight_signature) do
-      emit_fun.("system.tracker.state_labels_missing.resolved",
-        message: "Workflow state labels are present",
-        reason: "The missing workflow state labels now exist; tickets can be labelled into the workflow.",
-        needs_attention: false,
-        severity: "info"
-      )
-    end
+  defp record_state_label_result(state, {:ok, %{missing: []}}, emit_fun, active_fun) do
+    resolve_state_label_alert(state, @state_labels_missing_topic, "missing:", emit_fun, active_fun,
+      message: "Workflow state labels are present",
+      reason: "The missing workflow state labels now exist; tickets can be labelled into the workflow."
+    )
+
+    resolve_state_label_alert(state, @state_label_preflight_failed_topic, "failed:", emit_fun, active_fun,
+      message: "Workflow state-label preflight recovered",
+      reason: "The repository labels could be listed again and every workflow state label is present."
+    )
 
     %{state | state_label_preflight_checked: true, state_label_preflight_retry_at_ms: nil, state_label_preflight_signature: nil}
   end
 
-  defp record_state_label_result(state, {:ok, %{missing: missing} = result}, emit_fun) do
-    signature = missing |> Enum.sort() |> Enum.join(",")
+  defp record_state_label_result(state, {:ok, %{missing: missing} = result}, emit_fun, active_fun) do
+    signature = "missing:" <> (missing |> Enum.sort() |> Enum.join(","))
 
     if signature != state.state_label_preflight_signature do
-      emit_fun.("system.tracker.state_labels_missing",
+      resolve_state_label_alert(state, @state_label_preflight_failed_topic, "failed:", emit_fun, active_fun,
+        message: "Workflow state-label preflight recovered",
+        reason: "The repository labels could be listed again."
+      )
+
+      emit_fun.(@state_labels_missing_topic,
         message: "Repository is missing workflow state labels; nothing can be dispatched",
         reason: StateLabelPreflight.format_missing(result),
         needs_attention: true,
@@ -483,6 +502,38 @@ defmodule Aiur.Orchestrator.Dispatcher do
       )
     end
 
+    schedule_state_label_retry(state, signature)
+  end
+
+  # A single failed list call is usually transient, so it only logs. The same
+  # failure surviving the retry delay is the silent shape #2639 is about, so
+  # the second consecutive occurrence raises a needs-attention alert once.
+  defp record_state_label_result(state, {:error, reason}, emit_fun, _active_fun) do
+    detail = inspect(reason)
+    Logger.warning("Workflow state-label preflight could not list repository labels; retrying later: #{detail}")
+
+    case state.state_label_preflight_signature do
+      "error:" <> ^detail ->
+        emit_fun.(@state_label_preflight_failed_topic,
+          message: "Workflow state-label preflight keeps failing; labels are unverified",
+          reason:
+            "Listing the repository labels failed twice in a row (#{detail}), so aiur cannot confirm the workflow " <>
+              "state labels exist. If the repo has none, nothing can be dispatched. Check GITHUB_TOKEN access to the repository labels.",
+          needs_attention: true,
+          severity: "warning"
+        )
+
+        schedule_state_label_retry(state, "failed:" <> detail)
+
+      "failed:" <> ^detail ->
+        schedule_state_label_retry(state, "failed:" <> detail)
+
+      _other ->
+        schedule_state_label_retry(state, "error:" <> detail)
+    end
+  end
+
+  defp schedule_state_label_retry(state, signature) do
     %{
       state
       | state_label_preflight_signature: signature,
@@ -490,9 +541,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
     }
   end
 
-  defp record_state_label_result(state, {:error, reason}, _emit_fun) do
-    Logger.warning("Workflow state-label preflight could not list repository labels; retrying later: #{inspect(reason)}")
-    %{state | state_label_preflight_retry_at_ms: System.monotonic_time(:millisecond) + @state_label_retry_ms}
+  defp resolve_state_label_alert(state, topic, prefix, emit_fun, active_fun, opts) do
+    signature = state.state_label_preflight_signature
+
+    open? =
+      case signature do
+        nil -> active_fun.(topic)
+        _ -> String.starts_with?(signature, prefix)
+      end
+
+    if open? do
+      emit_fun.(topic <> ".resolved",
+        message: Keyword.fetch!(opts, :message),
+        reason: Keyword.fetch!(opts, :reason),
+        needs_attention: false,
+        severity: "info"
+      )
+    end
+
+    :ok
   end
 
   defp ci_readiness_retry_delay_ms({:github, :rate_limited, detail}) when is_map(detail) do

@@ -246,11 +246,22 @@ defmodule Aiur.Init do
     case deps.persist_github_token.(token) do
       :ok ->
         io.puts.(["Saved GITHUB_TOKEN to ", Format.dim(@env_file_name)])
+        ignore_env_file(io, deps)
         github_token_present?(deps)
 
       {:error, reason} ->
         io.puts.("⚠️ Couldn't write GITHUB_TOKEN to #{@env_file_name} (#{inspect(reason)}).")
         false
+    end
+  end
+
+  # `.env` now carries a real secret in the working tree, so make sure an
+  # ordinary `git add -A` cannot stage it. Unconditional (no prompt): there is
+  # no setup in which committing the token is what the operator wants.
+  defp ignore_env_file(io, deps) do
+    case deps.add_gitignore_entry.(@env_file_name) do
+      {:added, path} -> io.puts.(["Updated: ", Format.dim(path), " (ignores #{@env_file_name})"])
+      {:exists, _path} -> :ok
     end
   end
 

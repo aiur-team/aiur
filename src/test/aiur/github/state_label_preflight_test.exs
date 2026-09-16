@@ -31,8 +31,33 @@ defmodule Aiur.GitHub.StateLabelPreflightTest do
     assert Enum.sort(result.missing) == Enum.sort(Labels.state_labels("sym") -- ["sym:todo", "sym:done"])
     refute "sym:todo" in result.missing
 
-    assert_receive {:request, %{method: :get, url: url, token: "test-gh-token"}}
+    assert_receive {:request, %{method: :get, url: url, token: "test-gh-token", timeout_ms: 10_000}}
     assert url =~ "/repos/owner/repo/labels?per_page=100&page=1"
+  end
+
+  test "the scan stops after ten full pages so a huge label set cannot hold the orchestrator" do
+    parent = self()
+
+    request_fun = fn %{url: url} ->
+      send(parent, {:page, url})
+      labels_response(Enum.map(1..100, &"filler-#{&1}"))
+    end
+
+    assert {:ok, %{missing: missing}} = StateLabelPreflight.check(request_fun: request_fun)
+    assert missing == Labels.state_labels("sym")
+
+    pages =
+      Stream.repeatedly(fn ->
+        receive do
+          {:page, url} -> url
+        after
+          0 -> nil
+        end
+      end)
+      |> Enum.take_while(&(&1 != nil))
+
+    assert length(pages) == 10
+    assert List.last(pages) =~ "page=10"
   end
 
   test "an empty missing list means every state label exists, across pages" do

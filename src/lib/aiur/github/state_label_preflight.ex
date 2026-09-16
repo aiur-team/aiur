@@ -19,6 +19,13 @@ defmodule Aiur.GitHub.StateLabelPreflight do
   alias Aiur.GitHub.Transport
 
   @per_page 100
+  # The scan runs inside the orchestrator's dispatch cycle, so bound its cost:
+  # at most @max_pages sequential requests, each with its own short deadline
+  # instead of the transport's 30 s default. A repository with more labels
+  # than that is answered from the pages seen; the state labels aiur created
+  # sort early, and a false "missing" report is advisory, never a hold.
+  @max_pages 10
+  @request_timeout_ms 10_000
 
   @type result :: %{repo: String.t(), missing: [String.t()], present: [String.t()]}
 
@@ -63,20 +70,16 @@ defmodule Aiur.GitHub.StateLabelPreflight do
       Enum.map_join(missing, "; ", &gh_label_create(&1, repo))
   end
 
-  defp gh_label_create(label, repo) do
-    "gh label create #{shell_arg(label)} --repo #{repo} --description #{shell_arg(Labels.describe(label))} --force"
-  end
-
-  defp shell_arg(value), do: "'" <> String.replace(to_string(value), "'", "'\\''") <> "'"
+  defp gh_label_create(label, repo), do: Labels.gh_create_command(label, repo)
 
   defp list_label_names(request_fun, owner, name, token, page, acc) do
     url = "#{Transport.base_url()}/repos/#{owner}/#{name}/labels?per_page=#{@per_page}&page=#{page}"
 
-    case request_fun.(%{method: :get, url: url, token: token}) do
+    case request_fun.(%{method: :get, url: url, token: token, timeout_ms: @request_timeout_ms}) do
       {:ok, %{status: status, body: body}} when status in 200..299 and is_list(body) ->
         names = acc ++ Enum.map(body, & &1["name"])
 
-        if length(body) == @per_page,
+        if length(body) == @per_page and page < @max_pages,
           do: list_label_names(request_fun, owner, name, token, page + 1, names),
           else: {:ok, names}
 

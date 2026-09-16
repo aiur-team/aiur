@@ -90,6 +90,14 @@ alerts:
     message: Workflow state labels are present
     sound:
       - "/System/Library/Sounds/Glass.aiff"
+  "system.tracker.state_label_preflight_failed":
+    message: Workflow state labels could not be verified
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.tracker.state_label_preflight_failed.resolved":
+    message: Workflow state-label preflight recovered
+    sound:
+      - "/System/Library/Sounds/Glass.aiff"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:

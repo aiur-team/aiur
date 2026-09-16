@@ -172,6 +172,8 @@ defmodule Aiur.Init.Scaffold do
 
     case File.write(env_path, put_github_token_line(existing, token)) do
       :ok ->
+        # The file now holds a live credential: owner-only, like an SSH key.
+        _ = File.chmod(env_path, 0o600)
         System.put_env(@github_token_key, token)
         :ok
 
