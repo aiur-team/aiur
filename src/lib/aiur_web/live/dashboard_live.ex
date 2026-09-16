@@ -36,6 +36,7 @@ defmodule AiurWeb.DashboardLive do
 
   alias AiurWeb.OperatorControlCenter.{
     AddAgentModal,
+    AddAgentSubmission,
     AgentLogModal,
     AgentRoutingPreview,
     CapacityPresenter,
@@ -152,6 +153,8 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:ticket_detail, nil)
       |> assign(:tickets_query, "")
       |> assign(:add_agent_modal, nil)
+      |> assign(:add_agent_pending, nil)
+      |> assign(:add_agent_notice, nil)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
       |> assign(:ticket_context_history, nil)
@@ -462,18 +465,38 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_event("open-add-agent", _params, socket), do: {:noreply, socket}
 
-  def handle_event("close-add-agent", _params, socket), do: {:noreply, assign(socket, :add_agent_modal, nil)}
+  def handle_event("close-add-agent", _params, socket),
+    do: {:noreply, assign(socket, :add_agent_modal, nil)}
 
-  def handle_event("change-add-agent", params, %{assigns: %{add_agent_modal: %{} = modal}} = socket) do
+  def handle_event("change-add-agent", _params, %{assigns: %{add_agent_pending: %{}}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event(
+        "change-add-agent",
+        params,
+        %{assigns: %{add_agent_modal: %{} = modal}} = socket
+      ) do
     {:noreply, assign(socket, :add_agent_modal, change_add_agent(modal, params))}
   end
 
   def handle_event("change-add-agent", _params, socket), do: {:noreply, socket}
 
-  def handle_event("confirm-add-agent", _params, %{assigns: %{add_agent_modal: %{} = modal}} = socket) do
+  def handle_event("confirm-add-agent", _params, %{assigns: %{add_agent_pending: %{}}} = socket),
+    do: {:noreply, socket}
+
+  def handle_event(
+        "confirm-add-agent",
+        params,
+        %{assigns: %{add_agent_modal: %{} = modal}} = socket
+      ) do
     handle_writable_event(socket, fn ->
-      modal = confirm_add_agent(modal)
-      {:noreply, socket |> refresh_open_tickets(modal.result) |> assign(:add_agent_modal, modal)}
+      modal = if Map.has_key?(params, "backend"), do: change_add_agent(modal, params), else: modal
+
+      {:noreply,
+       socket
+       |> assign(:add_agent_pending, modal)
+       |> assign(:add_agent_modal, Map.put(modal, :pending?, true))
+       |> start_async(:add_agent_submission, fn -> AddAgentSubmission.run(modal) end)}
     end)
   end
 
@@ -632,6 +655,19 @@ defmodule AiurWeb.DashboardLive do
     handle_writable_event(socket, fn -> {:noreply, toggle_global_pause(socket)} end)
   end
 
+  @impl true
+  def handle_async(:add_agent_submission, {:ok, result}, socket),
+    do: finish_add_agent(socket, result)
+
+  def handle_async(:add_agent_submission, {:exit, reason}, socket) do
+    finish_add_agent(socket, %{
+      added: [],
+      removed: [],
+      error: {:submission_exit, reason},
+      authorization: :unknown
+    })
+  end
+
   defp toggle_global_pause(socket) do
     target = not global_paused?(socket.assigns.payload)
 
@@ -780,6 +816,8 @@ defmodule AiurWeb.DashboardLive do
       |> then(&Map.put_new(&1, :tickets_panel_view, TicketsPresenter.search(&1.tickets_view, &1.tickets_query)))
       |> Map.put_new(:ticket_detail, nil)
       |> Map.put_new(:add_agent_modal, nil)
+      |> Map.put_new(:add_agent_pending, nil)
+      |> Map.put_new(:add_agent_notice, nil)
       |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
       |> Map.put_new(:capacity_input, "")
       |> Map.put_new(:capacity_feedback, nil)
@@ -898,6 +936,7 @@ defmodule AiurWeb.DashboardLive do
 
         <%!-- The searched view, so the reveal batches and counts the matches
         rather than the whole backlog behind them. --%>
+        <p :if={@add_agent_notice} id="add-agent-notice" class="add-agent-note" role="status">{@add_agent_notice}</p>
         <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} />
       </div>
 
@@ -1189,51 +1228,35 @@ defmodule AiurWeb.DashboardLive do
       options: AgentRoutingPreview.options(selection.backend),
       labels: labels,
       plan: AgentRoutingPreview.plan(selection, labels),
+      pending?: false,
       result: nil
     }
   end
 
-  defp confirm_add_agent(modal) do
-    Map.put(modal, :result, apply_label_plan(modal.identifier, modal.plan))
-  end
+  defp finish_add_agent(socket, result) do
+    modal = socket.assigns.add_agent_pending
+    socket = socket |> assign(:add_agent_pending, nil) |> refresh_open_tickets({:ok, []})
+    message = "Ticket ##{modal.identifier}: " <> AddAgentSubmission.message(result)
 
-  defp apply_label_plan(_identifier, %{add: [], remove: []}), do: {:error, :no_labels}
+    if result.error do
+      labels = AddAgentSubmission.labels(result, modal.labels)
+      updated = build_add_agent_modal(Map.put(modal, :labels, labels), modal.selection)
 
-  # Removals run first so a replaced `complexity:`/`model:` label cannot outrank
-  # the new one, and every applied change is reported even when a later call
-  # fails — the operator has to know the ticket is half-labelled.
-  defp apply_label_plan(identifier, %{add: add, remove: remove}) do
-    with {:ok, removed} <- apply_labels(identifier, remove, :remove_label),
-         {:ok, added} <- apply_labels(identifier, add, :add_label) do
-      {:ok, added ++ removed}
+      socket =
+        retain_add_agent_result(socket, modal.token, Map.put(updated, :result, {:error, message}))
+
+      {:noreply, assign(socket, :add_agent_notice, message)}
     else
-      {:error, applied, reason} -> {:partial, applied, reason}
+      socket = retain_add_agent_result(socket, modal.token, nil)
+      {:noreply, assign(socket, :add_agent_notice, message)}
     end
   end
 
-  defp apply_labels(identifier, labels, action) do
-    fun = Endpoint.config(:add_agent_fun) || (&apply(Aiur.Tracker, &3, [&1, &2]))
-
-    Enum.reduce_while(labels, {:ok, []}, fn label, {:ok, applied} ->
-      case safe_label_call(fun, identifier, label, action) do
-        :ok -> {:cont, {:ok, [label | applied]}}
-        {:ok, _result} -> {:cont, {:ok, [label | applied]}}
-        {:error, reason} -> {:halt, {:error, applied, reason}}
-        other -> {:halt, {:error, applied, other}}
-      end
-    end)
-  end
-
-  defp safe_label_call(fun, identifier, label, action) do
-    cond do
-      is_function(fun, 3) -> fun.(identifier, label, action)
-      is_function(fun, 2) -> fun.(identifier, label)
-      true -> {:error, :unavailable}
+  defp retain_add_agent_result(socket, token, modal) do
+    case socket.assigns.add_agent_modal do
+      %{token: ^token} -> assign(socket, :add_agent_modal, modal)
+      _ -> socket
     end
-  rescue
-    _error -> {:error, :unavailable}
-  catch
-    _kind, _reason -> {:error, :unavailable}
   end
 
   # Confirming changed the tracker, so the panel's labels and its routing

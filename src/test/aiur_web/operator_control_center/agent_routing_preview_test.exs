@@ -4,6 +4,21 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreviewTest do
   alias Aiur.{CodingAgent, Issue, Workflow}
   alias AiurWeb.OperatorControlCenter.AgentRoutingPreview
 
+  test "changing routing preserves an existing lifecycle instead of appending todo" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["todo", "in-progress"]
+    )
+
+    selection = %{backend: "codex", model: nil, effort: nil, complexity: 3}
+
+    for state <- ["in-progress", "human-review", "done"] do
+      plan = AgentRoutingPreview.plan(selection, ["agent:" <> state])
+      refute "agent:todo" in plan.add
+      refute ("agent:" <> state) in plan.remove
+      assert "complexity:3" in plan.add
+    end
+  end
+
   test "predicts the routed backend, model, and effort from the configured routing table" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_routing: %{3 => "codex:gpt-5.6-terra:high"})
 
