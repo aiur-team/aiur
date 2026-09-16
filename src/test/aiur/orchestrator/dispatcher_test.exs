@@ -859,12 +859,26 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         receive do: (:finish_label_scan -> present_labels())
       end
 
-      state = Dispatcher.start_state_label_check(%State{}, "github", check)
+      caller =
+        spawn(fn ->
+          state = Dispatcher.start_state_label_check(%State{}, "github", check)
+          send(parent, {:label_scan_state, state})
+          receive do: (result -> send(parent, result))
+        end)
+
+      assert_receive {:label_scan_started, scanner}
+
+      on_exit(fn ->
+        if Process.alive?(caller), do: Process.exit(caller, :kill)
+        if Process.alive?(scanner), do: Process.exit(scanner, :kill)
+      end)
+
+      assert_receive {:label_scan_state, state}
+      refute scanner == caller
       assert is_pid(state.state_label_preflight_check_pid)
       assert is_reference(state.state_label_preflight_check_token)
       refute state.state_label_preflight_checked
 
-      assert_receive {:label_scan_started, scanner}
       send(scanner, :finish_label_scan)
       assert_receive {:state_label_preflight_result, token, result}
       assert token == state.state_label_preflight_check_token
