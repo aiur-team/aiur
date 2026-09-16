@@ -258,17 +258,39 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
                                |> Enum.map(& &1.code))
   end
 
-  test "rejects an oversized nested Epic frontier before issuing an unbounded nodes query" do
+  test "rejects a child returned by one Epic when its canonical parent is a sibling Epic" do
     root = root(1)
     first_epic = member(2, root, labels: ["epic"])
     second_epic = member(3, root, labels: ["epic"])
-    nested_epics = Enum.map(4..103, &member(&1, first_epic, labels: ["epic"]))
+    misplaced_leaf = member(4, second_epic)
+
+    responses = [
+      selected_response(root, [first_epic, second_epic], 2),
+      descendants_response([
+        Map.put(first_epic, "subIssues", connection([misplaced_leaf], 1, [])),
+        Map.put(second_epic, "subIssues", connection([], 0, []))
+      ])
+    ]
+
+    assert {:error, %{error: :structurally_invalid}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(queued_responses(responses)))
+  end
+
+  test "rejects the first nested Epic frontier that exceeds the full GraphQL node shape" do
+    root = root(1)
+    first_epic = member(2, root, labels: ["epic"])
+    second_epic = member(3, root, labels: ["epic"])
+    # At the default page size (25), each requested container can return 25
+    # children with three 100-node connections, plus 101 container nodes. The
+    # 490k safety budget permits 64 containers; this creates the next frontier
+    # at 65, which must fail before it can issue a >500k-node GraphQL query.
+    nested_epics = Enum.map(4..67, &member(&1, first_epic, labels: ["epic"]))
 
     responses = [
       selected_response(root, [first_epic, second_epic], 2),
       descendants_response([
         Map.put(first_epic, "subIssues", connection(nested_epics, length(nested_epics), [])),
-        Map.put(second_epic, "subIssues", connection([member(104, second_epic, labels: ["epic"])], 1, []))
+        Map.put(second_epic, "subIssues", connection([member(68, second_epic, labels: ["epic"])], 1, []))
       ])
     ]
 

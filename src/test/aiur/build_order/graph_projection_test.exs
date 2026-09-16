@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GraphProjectionTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GitHubGraph.Normalizer
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.{Failure, Policy, Snapshot}
@@ -883,6 +883,40 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
   end
 
+  test "a nested descendant lifecycle or dependency change re-reads its selected root" do
+    first = identity(1, "I1")
+    epic = identity(2, "I2")
+    leaf = identity(3, "I3")
+
+    {:ok, projection} = start_projection()
+    _reader = await_reader(:catalog)
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+
+    finish(
+      await_reader({:selected, first}),
+      {:ok, ProviderResult.complete(selected(first, @repository, [member(epic), member(leaf)]))}
+    )
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    send(projection, resource_change(:issue, "3"))
+    selected_scope = {:selected, first}
+
+    finish(
+      await_reader(selected_scope),
+      {:ok, ProviderResult.complete(selected(first, @repository, [member(epic), member(leaf)]))}
+    )
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # A new child under the retained Epic changes hierarchy even though the new
+    # child was not in the old snapshot; the yielding parent is enough to make
+    # the selected graph stale.
+    send(projection, resource_change(:sub_issue, "2:4"))
+    assert {:selected, ^first} = await_selected_scope(first)
+  end
+
   # The catalog is event-sourced from `Aiur.BuildOrder.CatalogStore`, which is
   # fed by `sub_issues` / `issue_dependencies` deliveries. A repo with no
   # webhooks configured feeds it nothing at all after boot, so a store-only
@@ -1067,8 +1101,34 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
   defp catalog(roots), do: Catalog.new(roots, ProviderHealth.new(1, :healthy, true))
 
-  defp selected(identity, repository \\ @repository) do
-    SelectedRoot.new(root(identity, repository), [], ProviderHealth.new(1, :healthy, true))
+  defp selected(identity, repository \\ @repository, members \\ []) do
+    SelectedRoot.new(root(identity, repository), members, ProviderHealth.new(1, :healthy, true))
+  end
+
+  defp member(identity) do
+    Member.new(%{
+      identity: identity,
+      title: "Member #{identity.identifier}",
+      url: "https://github.com/owner/repo/issues/#{identity.identifier}"
+    })
+  end
+
+  defp resource_change(type, id) do
+    {:github_resource_changed,
+     %{
+       key: nil,
+       resource_type: type,
+       owner: "owner",
+       repo: "repo",
+       id: id,
+       source: :webhook,
+       version: nil,
+       etag: nil,
+       data?: true,
+       data_version: nil,
+       recorded_at_ms: 1,
+       cleared: false
+     }}
   end
 
   defp root(identity, {owner, repository} \\ @repository) do

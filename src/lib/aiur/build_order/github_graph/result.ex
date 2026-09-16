@@ -132,12 +132,23 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
               end
           end
 
-        Normalizer.member(node, repository, parent)
+        node
+        |> Normalizer.member(repository, parent)
+        |> validate_yielding_parent(node)
       end)
 
     parent_keys = Map.new(nodes, fn node -> {node_key(node, repository), node_key(Map.get(node, "parent"), repository)} end)
     Enum.map(members, &validate_ancestry(&1, root_key, parent_keys))
   end
+
+  defp validate_yielding_parent(member, %{"__aiur_expected_parent_id" => expected_id, "parent" => %{"id" => expected_id}})
+       when is_binary(expected_id),
+       do: member
+
+  defp validate_yielding_parent(member, %{"__aiur_expected_parent_id" => _expected_id}),
+    do: %{member | diagnostics: member.diagnostics ++ [Diagnostic.new(:invalid_member)]}
+
+  defp validate_yielding_parent(member, _node), do: member
 
   defp validate_ancestry(member, root_key, parent_keys) do
     if reaches_root?(Endpoint.key(member.identity), root_key, parent_keys, MapSet.new()) do

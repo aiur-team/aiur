@@ -6,11 +6,12 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
   alias Aiur.TrackerIdentity
 
   @member_limit 100
-  @graphql_node_limit 500_000
+  @safe_graphql_node_limit 490_000
   # Each descendant carries its labels and both dependency connections. The
   # conservative estimate prevents the product of batch size, member page size
   # and those nested selections from exceeding GitHub's 500k node limit.
   @descendant_node_shape 301
+  @descendant_container_overhead 101
 
   @spec catalog(map(), map()) :: {:ok, [map()], map()} | {:error, atom(), map()}
   def catalog(paging, state) do
@@ -100,7 +101,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
     Enum.reduce_while(containers, {:ok, []}, fn container, {:ok, children} ->
       case Connection.parse(Map.get(container, "subIssues")) do
         {:ok, nodes, total, %{has_next?: false}} when total <= @member_limit and length(nodes) == total ->
-          {:cont, {:ok, children ++ nodes}}
+          owned_nodes = Enum.map(nodes, &Map.put(&1, "__aiur_expected_parent_id", Map.get(container, "id")))
+          {:cont, {:ok, children ++ owned_nodes}}
 
         {:ok, _nodes, total, _page_info} when total > @member_limit ->
           {:halt, {:error, :member_overflow}}
@@ -130,8 +132,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
   end
 
   defp descendant_batch_limit(%Paging{limits: %{page_size: page_size}}) do
-    @graphql_node_limit
-    |> div(max(1, page_size) * @descendant_node_shape)
+    @safe_graphql_node_limit
+    |> div(max(1, page_size) * @descendant_node_shape + @descendant_container_overhead)
     |> min(@member_limit)
     |> max(1)
   end
