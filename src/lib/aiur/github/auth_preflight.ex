@@ -370,6 +370,7 @@ defmodule Aiur.GitHub.AuthPreflight do
   end
 
   @doc false
+  @spec diagnostic_message(map(), atom()) :: String.t()
   def diagnostic_message(diagnostic, gh_status) do
     if local_hold_diagnostic?(diagnostic) do
       local_hold_message(diagnostic)
