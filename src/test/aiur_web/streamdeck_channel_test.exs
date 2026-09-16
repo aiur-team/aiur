@@ -898,15 +898,22 @@ defmodule AiurWeb.StreamdeckChannelTest do
   end
 
   test "a failed control action reports the same bare reason wording as say" do
+    test_pid = self()
+
+    put_endpoint_config(
+      agent_chat_pause_fun: fn identifier ->
+        send(test_pid, {:paused, identifier})
+        {:error, :no_running_agent}
+      end
+    )
+
     socket = joined_socket()
     control = push(socket, "control", %{"identifier" => "AIUR-1", "action" => "pause"})
 
     # One wire convention: an atom reason from the AgentChat facade reaches the
     # device as the bare word, never inspect-quoted (`":no_running_agent"`).
-    # Which atom comes back depends on orchestrator state, so pin the wording,
-    # not the value.
-    assert_reply(control, :error, %{reason: reason})
-    assert reason =~ ~r/^[a-z_]+$/
+    assert_receive {:paused, "AIUR-1"}
+    assert_reply(control, :error, %{reason: "no_running_agent"})
   end
 
   describe "control: implement" do
