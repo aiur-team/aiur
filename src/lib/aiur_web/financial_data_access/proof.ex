@@ -9,8 +9,7 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
   @spec configuration(keyword(), pos_integer()) ::
           {:ok, map()} | {:error, :authentication_required | :authentication_not_configured}
   def configuration(opts, version) do
-    username = System.get_env("AIUR_DASHBOARD_USERNAME")
-    password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    {username, password} = credentials(opts)
     endpoint_config = Application.get_env(:aiur, Endpoint, [])
     enforced? = Keyword.get(endpoint_config, :dashboard_auth_required) == true
     required? = Keyword.get(opts, :required?, enforced?)
@@ -49,6 +48,19 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
       true ->
         :ok = Generation.invalidate()
         {:error, :authentication_not_configured}
+    end
+  end
+
+  # Plug callers may carry credentials established by an earlier trusted plug
+  # in `conn.private`. That keeps the authentication boundary testable without
+  # changing the process-global operator environment; ordinary router requests
+  # continue to read the operator-provided environment variables.
+  defp credentials(opts) do
+    case Keyword.fetch(opts, :credentials) do
+      {:ok, {username, password}} -> {username, password}
+      {:ok, nil} -> {nil, nil}
+      {:ok, _invalid} -> {nil, nil}
+      :error -> {System.get_env("AIUR_DASHBOARD_USERNAME"), System.get_env("AIUR_DASHBOARD_PASSWORD")}
     end
   end
 
