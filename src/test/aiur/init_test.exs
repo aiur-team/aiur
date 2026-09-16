@@ -1256,7 +1256,8 @@ defmodule Aiur.InitTest do
   end
 
   describe "github bot_account setup (#1152)" do
-    @bot_account_label "GitHub account Aiur's agents post as (bot_account)"
+    @bot_account_label "GitHub account Aiur's agents post as"
+    @identity_mode_label "Will Aiur's agents post as your own GitHub account, or as a separate bot account?"
 
     test "persists the token's detected login accepted as the default", %{dir: dir, target: target} do
       d = deps(self(), dir, target, %{github_bot_account_default: fn -> "its-applekid" end})
@@ -1267,7 +1268,12 @@ defmodule Aiur.InitTest do
     end
 
     test "persists a normalized custom login over the default", %{dir: dir, target: target} do
-      answers = github_answers(%{input: %{@bot_account_label => "@Custom-Bot"}})
+      answers =
+        github_answers(%{
+          select: %{@identity_mode_label => "A separate bot account"},
+          input: %{@bot_account_label => "@Custom-Bot"}
+        })
+
       d = deps(self(), dir, target, %{github_bot_account_default: fn -> "octocat" end})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
@@ -1275,28 +1281,39 @@ defmodule Aiur.InitTest do
       assert written_config(target)["tracker"]["github"]["bot_account"] == "custom-bot"
     end
 
-    test "explains the credential-vs-identity distinction during setup", %{dir: dir, target: target} do
+    test "separate-account setup trusts the operator without a second CODEOWNERS confirmation", %{dir: dir, target: target} do
+      answers =
+        github_answers(%{
+          select: %{@identity_mode_label => "A separate bot account"},
+          input: %{@bot_account_label => "agent-bot"}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      assert File.read!(codeowners_path(dir)) =~ "@octocat"
+      refute File.read!(codeowners_path(dir)) =~ "@agent-bot"
+      assert "Create .github/CODEOWNERS for aiur's GitHub trust checks?" in confirm_prompts()
+      refute Enum.any?(confirm_prompts(), &String.contains?(&1, "Add @"))
+    end
+
+    test "asks one plain-language identity-mode question during setup", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
       log = Enum.join(puts_log(), "\n")
-      assert log =~ "GITHUB_TOKEN"
-      assert log =~ "github.bot_account"
-      # #2501: the wizard now names both identity modes and the key that
-      # selects them, in place of the "dedicated bot account" recommendation
-      # that treated a shared login as an unsupported ambiguity.
-      assert log =~ "identity_mode"
-      assert log =~ "single_account"
-      assert log =~ "separate_account"
+      assert Enum.count(io_trace(), &(&1 == {:select, @identity_mode_label})) == 1
+      assert log =~ "mark its comments"
+      refute log =~ "#2356"
+      refute log =~ "identity_mode"
     end
 
     test "a blank answer skips bot_account and writes no key", %{dir: dir, target: target} do
-      answers = github_answers(%{input: %{@bot_account_label => ""}})
+      answers = github_answers(%{select: %{@identity_mode_label => "A separate bot account"}, input: %{@bot_account_label => ""}})
       d = deps(self(), dir, target, %{github_bot_account_default: fn -> nil end})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
       refute Map.has_key?(written_config(target)["tracker"]["github"], "bot_account")
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/Skipped bot_account/))
+      assert written_config(target)["tracker"]["github"]["identity_mode"] == "separate_account"
     end
 
     test "a failed token-identity lookup writes no bot_account and never exposes token material",
@@ -1312,7 +1329,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
 
-      refute Map.has_key?(written_config(target)["tracker"]["github"], "bot_account")
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "octocat"
       refute File.read!(target) =~ secret
       refute Enum.any?(puts_log(), &(&1 =~ secret))
     end
@@ -1328,12 +1345,14 @@ defmodule Aiur.InitTest do
       # only observe the resume run.
       _ = puts_log()
       _ = input_labels()
+      _ = io_trace()
 
       # Resume must neither re-ask nor rewrite the tracker; the value stands.
       assert :ok = Init.run(%{force: false}, io(self()), d)
 
       assert written_config(target)["tracker"]["github"]["bot_account"] == "its-applekid"
-      refute Enum.any?(input_labels(), &(&1 == @bot_account_label))
+      refute Enum.any?(input_labels(), &(&1 in [@bot_account_label, "Your GitHub account"]))
+      refute Enum.any?(io_trace(), &(&1 == {:select, @identity_mode_label}))
       assert Enum.any?(puts_log(), &(&1 =~ ~r/bot_account: its-applekid/))
     end
   end
@@ -1587,7 +1606,7 @@ defmodule Aiur.InitTest do
       log = Enum.join(puts_log(), "\n")
       hints = input_hints()
 
-      assert {@bot_account_label, "The login Aiur's agents post as: it is trusted for review comments and, in separate-account mode, distinguishes agent comments from human comments."} in hints
+      refute Enum.any?(hints, fn {label, _hint} -> label == @bot_account_label end)
 
       refute Enum.any?(hints, fn {_label, hint} ->
                is_binary(hint) and String.contains?(hint, "App bot login")

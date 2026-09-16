@@ -56,21 +56,16 @@ defmodule Aiur.Init.CodeownersTest do
     assert Enum.any?(messages, &(&1 =~ "Skipped CODEOWNERS"))
   end
 
-  test "adds operator login to CODEOWNERS when confirmed", %{dir: dir} do
+  test "adds a known operator login without another confirmation", %{dir: dir} do
     parent = self()
-
-    answers = %{
-      confirm: %{
-        "Create .github/CODEOWNERS for aiur's GitHub trust checks?" => true,
-        "Add @octocat to CODEOWNERS so aiur trusts your PR/issue comments?" => true
-      }
-    }
 
     deps = %{repo_root: fn -> dir end, github_login: fn -> "octocat" end}
 
-    Codeowners.setup_codeowners(io(parent, answers), deps, %{kind: "github"})
+    Codeowners.setup_codeowners(io(parent, %{}), deps, %{kind: "github", operator_account: "octocat"})
 
     codeowners_path = Path.join([dir, ".github", "CODEOWNERS"])
     assert File.read!(codeowners_path) =~ "@octocat"
+
+    refute_receive {:confirm, "Add @octocat to CODEOWNERS so aiur trusts your PR/issue comments?"}
   end
 end

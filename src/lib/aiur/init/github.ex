@@ -219,7 +219,10 @@ defmodule Aiur.Init.GitHub do
 
   @spec detect_github_login() :: String.t() | nil
   def detect_github_login do
-    case HostCommand.run(["api", "user", "--jq", ".login"], stderr_to_stdout: true, bot_token: true) do
+    # The operator identity must come from the local `gh` login, not the
+    # daemon's dotenv credential. Explicitly clear both token overrides so the
+    # host keyring remains the only authentication source for this lookup.
+    case HostCommand.run(["api", "user", "--jq", ".login"], stderr_to_stdout: true, env: [{"GH_TOKEN", nil}, {"GITHUB_TOKEN", nil}]) do
       {output, 0} ->
         output
         |> String.trim()

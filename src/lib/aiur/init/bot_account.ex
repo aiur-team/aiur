@@ -1,9 +1,8 @@
 defmodule Aiur.Init.BotAccount do
   @moduledoc """
-  Bot-account step for the GitHub `aiur init` wizard — explains the difference
-  between the `GITHUB_TOKEN` credential and the `github.bot_account` identity,
-  then asks which login Aiur's agents post as, defaulting to the login the
-  configured token authenticates as (the validated viewer-identity path).
+  GitHub identity step for the `aiur init` wizard. It asks once whether agents
+  post as the operator or a separate bot, then derives the configured identities
+  from that explicit choice.
 
   The answer is normalized, validated as a GitHub login, and merged into the
   tracker map as `:bot_account` so the config template persists it under
@@ -11,10 +10,9 @@ defmodule Aiur.Init.BotAccount do
   malformed typed answer re-prompts. No token value is ever shown or written.
 
   Non-interactive / `--force` runs are deterministic: the injected prompt echoes
-  the default, so setup applies the detected token login when one is resolved and
-  omits the key otherwise — the loop never blocks, since an unresolved or invalid
-  default is sanitized to nil (skip). Re-running init resumes and never rewrites
-  the tracker, so an existing `bot_account` is preserved.
+  the default, so valid detected accounts are applied and invalid defaults are
+  omitted rather than retried. Re-running init resumes and never rewrites the
+  tracker, so an existing `bot_account` is preserved.
   """
 
   alias Aiur.Codeowners.Edit
@@ -30,17 +28,10 @@ defmodule Aiur.Init.BotAccount do
   @bot_suffix "[bot]"
   @max_login_length 39
 
-  @prompt_label "GitHub account Aiur's agents post as (bot_account)"
-
-  # Corrected in #2501. The previous wording said this field is "the login Aiur
-  # recognizes as its own to suppress self-triggered comment/event loops",
-  # which is not what the field does. Self-loop suppression keys on
-  # `Aiur.GitHub.Config.daemon_account/0`
-  # (`Aiur.Events.Publisher.bot_self_loop?/1`) — which only reaches
-  # `bot_account` through a fallback, and not at all on a GitHub App install —
-  # while `bot_account` itself is added to the comment-*trust* allowlist by
-  # `Aiur.GitHub.CodeOwners`, the opposite of suppressed.
-  @prompt_hint "The login Aiur's agents post as: it is trusted for review comments and, in separate-account mode, distinguishes agent comments from human comments."
+  @operator_label "Your GitHub account"
+  @bot_account_label "GitHub account Aiur's agents post as"
+  @own_account "My own account"
+  @separate_account "A separate bot account"
 
   @doc """
   Prompts for and returns the tracker with `:bot_account` filled for a GitHub
@@ -48,46 +39,72 @@ defmodule Aiur.Init.BotAccount do
   """
   @spec maybe_prompt(Aiur.Init.io(), Aiur.Init.deps(), map()) :: map()
   def maybe_prompt(io, deps, %{kind: "github"} = tracker) do
-    explain(io)
-    # Sanitize the detected default here so the prompt loop's termination never
-    # depends on the resolver only ever returning a valid login or nil: a
-    # non-interactive run echoes the default, so an invalid default must degrade
-    # to nil (skip) rather than re-prompt forever.
-    default = valid_login_or_nil(Edit.normalize_login(deps.github_bot_account_default.()))
-    Map.put(tracker, :bot_account, prompt(io, default))
+    operator = operator_account(io, deps)
+    bot_default = valid_login_or_nil(Edit.normalize_login(deps.github_bot_account_default.()))
+
+    if operator do
+      choose_identity_mode(io, tracker, operator, bot_default)
+    else
+      tracker
+    end
   end
 
   def maybe_prompt(_io, _deps, tracker), do: tracker
 
-  defp explain(io) do
-    io.puts.([
-      "\nAiur separates two GitHub identities:\n",
-      "  • GITHUB_TOKEN — the credential used for GitHub API and `gh` operations.\n",
-      "    Agents do not inherit it: the daemon writes it to the `gh` guard's file and\n",
-      "    injects it only for the duration of a governed call (#2356).\n",
-      "  • github.bot_account — the login Aiur's agents post as. Comments from it are\n",
-      "    trusted as review feedback, and it is how Aiur tells an agent's own reply\n",
-      "    from a human's when agents have a login of their own.\n",
-      "If you use your own account for the agents too, set tracker.github.identity_mode\n",
-      "to \"single_account\": Aiur then marks the comments it writes and reads provenance\n",
-      "from the mark, so your own comments still reach the agent. Leave it at\n",
-      "\"separate_account\" when the agents have a dedicated login."
-    ])
+  defp operator_account(io, deps) do
+    case valid_login_or_nil(Edit.normalize_login(deps.github_login.())) do
+      nil -> prompt_operator_account(io)
+      login -> login
+    end
   end
 
-  @spec prompt(Aiur.Init.io(), String.t() | nil) :: String.t() | nil
-  defp prompt(io, default) do
-    case Edit.normalize_login(io.input.(@prompt_label, default, @prompt_hint)) do
+  defp prompt_operator_account(io) do
+    case Edit.normalize_login(io.input.(@operator_label, nil, "This account will be trusted to direct Aiur from PR and issue comments.")) do
       nil ->
-        io.puts.(Format.dim("Skipped bot_account. Set tracker.github.bot_account later so agent comments are trusted as review feedback."))
+        io.puts.(Format.dim("Skipped GitHub identity setup because no account was provided."))
         nil
 
       login ->
         if valid_login?(login) do
           login
         else
-          io.puts.("Enter a valid GitHub login (letters, numbers, and single hyphens), or a GitHub App bot login like `my-app[bot]`.")
-          prompt(io, default)
+          io.puts.("Enter a valid GitHub login (letters, numbers, and single hyphens).")
+          prompt_operator_account(io)
+        end
+    end
+  end
+
+  defp choose_identity_mode(io, tracker, operator, bot_default) do
+    own_option = "#{@own_account} (#{operator}) — simplest; good for solo use"
+    separate_option = "#{@separate_account} — keeps agent and human activity distinguishable"
+    default = if is_binary(bot_default) and bot_default != operator, do: separate_option, else: own_option
+
+    case io.select.("Will Aiur's agents post as your own GitHub account, or as a separate bot account?", [own_option, separate_option], default) do
+      ^own_option ->
+        io.puts.("Aiur will mark its comments so it can tell them apart from your own.")
+        Map.merge(tracker, %{operator_account: operator, bot_account: operator, identity_mode: "single_account"})
+
+      _ ->
+        bot_account = prompt_bot_account(io, if(bot_default == operator, do: nil, else: bot_default), operator)
+        Map.merge(tracker, %{operator_account: operator, bot_account: bot_account, identity_mode: "separate_account"})
+    end
+  end
+
+  defp prompt_bot_account(io, default, operator) do
+    case Edit.normalize_login(io.input.(@bot_account_label, default, "Use a different account from your own so agent and human activity stay distinguishable.")) do
+      nil ->
+        nil
+
+      ^operator ->
+        io.puts.("Enter a GitHub account different from your own account.")
+        prompt_bot_account(io, default, operator)
+
+      login ->
+        if valid_login?(login) do
+          login
+        else
+          io.puts.("Enter a valid GitHub login (letters, numbers, and single hyphens).")
+          prompt_bot_account(io, default, operator)
         end
     end
   end
