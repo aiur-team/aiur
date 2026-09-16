@@ -115,6 +115,46 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
   }
   """
 
+  # A selected root may intentionally group executable tickets beneath Epic
+  # containers. Fetch those containers as a batch: one `subIssues` connection
+  # per Epic is unavoidable, but batching keeps the graph within the existing
+  # selected-root call and page budgets instead of issuing one request per Epic.
+  # The pager expands only members carrying the `epic` label and fails closed
+  # when a bounded connection cannot be read completely.
+  @descendants """
+  query AiurBuildOrderDescendants($ids: [ID!]!, $pageSize: Int!) {
+    #{@rate_limit}
+    nodes(ids: $ids) {
+      ... on Issue {
+        id databaseId number title url state stateReason createdAt updatedAt
+        repository { name owner { login } }
+        parent { id databaseId number url repository { name owner { login } } }
+        labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
+        subIssues(first: $pageSize) {
+          totalCount
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id databaseId number title url state stateReason createdAt updatedAt
+            repository { name owner { login } }
+            parent { id databaseId number url repository { name owner { login } } }
+            labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
+            blockedBy(first: 100) {
+              totalCount
+              pageInfo { hasNextPage endCursor }
+              nodes { id databaseId number url repository { name owner { login } } }
+            }
+            blocking(first: 100) {
+              totalCount
+              pageInfo { hasNextPage endCursor }
+              nodes { id databaseId number url repository { name owner { login } } }
+            }
+          }
+        }
+      }
+    }
+  }
+  """
+
   @spec catalog() :: String.t()
   def catalog, do: catalog([])
 
@@ -127,4 +167,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
 
   @spec selected() :: String.t()
   def selected, do: @selected
+
+  @spec descendants() :: String.t()
+  def descendants, do: @descendants
 end

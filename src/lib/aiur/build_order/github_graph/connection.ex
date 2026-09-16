@@ -21,6 +21,14 @@ defmodule Aiur.BuildOrder.GitHubGraph.Connection do
     end
   end
 
+  @spec descendants(term()) :: {:ok, [map()]} | {:error, :invalid_connection}
+  def descendants(body) do
+    case nested_value(body, ["data", "nodes"]) do
+      nodes when is_list(nodes) -> if(Enum.all?(nodes, &is_map/1), do: {:ok, nodes}, else: {:error, :invalid_connection})
+      _ -> {:error, :invalid_connection}
+    end
+  end
+
   @spec value(term()) :: {:ok, map()} | {:error, :invalid_connection}
   def value(%{} = connection), do: {:ok, connection}
   def value(_connection), do: {:error, :invalid_connection}

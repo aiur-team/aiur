@@ -17,6 +17,7 @@ defmodule Aiur.BuildOrder.Diagnostic do
 
   @provider_sourced [
     :call_budget_exhausted,
+    :hierarchy_overflow,
     :page_budget_exhausted,
     :pagination_mismatch,
     :provider_schema,
@@ -44,6 +45,7 @@ defmodule Aiur.BuildOrder.Diagnostic do
   defp text_for(:connection_overflow), do: "A dependency connection exceeds the supported bound."
   defp text_for(:duplicate_identity), do: "Provider records repeat a canonical identity."
   defp text_for(:external_dependency), do: "Dependency is outside the configured repository."
+  defp text_for(:hierarchy_overflow), do: "Nested Build Order hierarchy exceeds the supported bound."
   defp text_for(:invalid_dependency), do: "Dependency data is unavailable."
   defp text_for(:invalid_endpoint_locator), do: "A native endpoint does not match its canonical locator."
   defp text_for(:invalid_complexity), do: "Complexity label is invalid."
