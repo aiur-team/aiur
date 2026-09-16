@@ -31,8 +31,8 @@ defmodule Aiur.Workspace.HostLock do
   require Logger
 
   alias Aiur.ProcessIdentity
-  alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Layout
+  alias Aiur.Workspace.Ownership
 
   @type worker_host :: String.t() | nil
 
