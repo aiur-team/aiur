@@ -2,6 +2,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   @moduledoc false
 
   alias Aiur.Claude.RemoteControl
+  alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
 
@@ -106,6 +107,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
       process_identity_fun: Keyword.get(opts, :process_identity_fun, &RemoteControl.process_identity/1),
       telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
+      host_lock: nil,
       reaping?: false,
       release_requested?: false
     }
@@ -153,6 +155,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         if reply_value == :ok,
           do: continue_after_provider_update(next),
           else: loop(next)
+
+      {:workspace_guardian_call, from, ref, {:track_host_lock, generation, lock}} ->
+        {reply_value, next} = track_host_lock(state, generation, lock)
+        reply(from, ref, reply_value)
+        loop(next)
 
       {:workspace_guardian_call, from, ref, {:release, generation}} ->
         if generation == state.lease.generation,
@@ -244,6 +251,17 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   end
 
   defp track_provider(state, _generation, _provider), do: {{:error, :workspace_ownership_lost}, state}
+
+  # The runner can be killed without running its `after` block. Keep the
+  # filesystem lock with the guardian, whose lifetime already covers provider
+  # reaping, so a same-daemon replacement cannot be stranded behind the live
+  # BEAM pid or race an unreaped provider.
+  defp track_host_lock(%{lease: %{generation: generation, phase: phase}} = state, generation, lock)
+       when phase in [:provisioning, :active] do
+    {:ok, %{state | host_lock: lock}}
+  end
+
+  defp track_host_lock(state, _generation, _lock), do: {{:error, :workspace_ownership_lost}, state}
 
   defp mark_provider_cleanup_unknown(%{lease: %{generation: generation, phase: phase}} = state, generation)
        when phase in [:provisioning, :active] do
@@ -517,6 +535,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp release_guardian(state) do
     case Store.delete(state.lease.ticket, state.store) do
       :ok ->
+        HostLock.release(state.host_lock)
         final_lease = %{state.lease | phase: :released}
         Registry.unregister(state.registry, state.lease.ticket)
         emit_telemetry(%{state | lease: final_lease}, :end, :released)
