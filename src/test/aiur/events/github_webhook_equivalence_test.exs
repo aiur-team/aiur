@@ -248,6 +248,28 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
              Map.drop(pushed, [:id, :ticket_observation, :timestamp])
   end
 
+  test "pull request ready for review publishes its own topic" do
+    :ok = Exchange.subscribe("ticket.55.pr.ready_for_review")
+
+    delivery = %{
+      "action" => "ready_for_review",
+      "repository" => %{"full_name" => @repo},
+      "pull_request" => %{
+        "number" => 901,
+        "draft" => false,
+        "updated_at" => "2026-06-24T12:00:00Z",
+        "head" => %{"ref" => "aiur/55", "sha" => "deadbeef"}
+      },
+      "sender" => %{"login" => "its-everdred"}
+    }
+
+    assert %{status: :published, published: ["ticket.55.pr.ready_for_review"]} =
+             GithubWebhook.handle_delivery("pull_request", delivery, repo: @repo)
+
+    assert %{topic: "ticket.55.pr.ready_for_review", action: "ready_for_review", pr: %{"number" => 901, "draft" => false}} =
+             await_event("ticket.55.pr.ready_for_review")
+  end
+
   # `GET /pulls/N/reviews` reports `state` upper case; a `pull_request_review`
   # delivery reports it lower case. The earlier review-submission case uses one
   # shared review map, so it cannot see that. This one gives each producer its
