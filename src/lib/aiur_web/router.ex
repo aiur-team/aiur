@@ -202,7 +202,15 @@ defmodule AiurWeb.Router do
 
   @doc false
   @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
-  def dashboard_basic_auth(conn, opts), do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
+  def dashboard_basic_auth(conn, opts) do
+    opts =
+      case Map.fetch(conn.private, :aiur_dashboard_credentials) do
+        {:ok, credentials} -> Keyword.put(opts, :credentials, credentials)
+        :error -> opts
+      end
+
+    AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
+  end
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
   # dashboard host or loopback equivalents Executors typically use.
