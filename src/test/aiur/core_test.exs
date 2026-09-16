@@ -386,10 +386,10 @@ defmodule Aiur.CoreTest do
 
       for path <- ["examples/workflows/github-codex.yaml", "examples/workflows/linear-codex.yaml"] do
         fixture_path = Path.join(test_root, Path.basename(path))
-        prompt_path = Path.rootname(Path.expand(path)) <> ".prompt.md"
 
         File.cp!(Path.expand(path), fixture_path)
-        File.cp!(prompt_path, Path.join(test_root, Path.basename(prompt_path)))
+        prompt_path = Path.rootname(path) <> ".prompt.md"
+        File.cp!(Path.expand(prompt_path), Path.join(test_root, Path.basename(prompt_path)))
 
         fixture_path
         |> File.read!()
