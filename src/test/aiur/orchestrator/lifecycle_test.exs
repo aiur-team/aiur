@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{ControlLifecycle, Lifecycle, State, TrackedSet}
+  alias Aiur.Orchestrator.{ControlLifecycle, Lifecycle, SnapshotPublisher, State, StatusReport, TrackedSet}
   alias Aiur.TrackerIdentity
 
   test "orchestrator subscribes to explicit unblock readiness" do
@@ -187,7 +187,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
 
   test "a refresh publishes the collapsed countdown before its poll runs" do
     key = self()
-    on_exit(fn -> Aiur.Orchestrator.SnapshotPublisher.clear(key) end)
+    on_exit(fn -> SnapshotPublisher.clear(key) end)
 
     state = %State{
       snapshot_key: key,
@@ -199,8 +199,8 @@ defmodule Aiur.Orchestrator.LifecycleTest do
       github_poll_delays: %{}
     }
 
-    Aiur.Orchestrator.StatusReport.notify_dashboard(state)
-    [{^key, _, old_version, old_input}] = :ets.lookup(Aiur.Orchestrator.SnapshotPublisher, key)
+    StatusReport.notify_dashboard(state)
+    [{^key, _, old_version, old_input}] = :ets.lookup(SnapshotPublisher, key)
     assert old_input.next_poll_due_at_ms == state.next_poll_due_at_ms
 
     assert {:reply, %{coalesced: false}, refreshed} =
@@ -208,7 +208,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
 
     # The write is synchronous before handle_call returns. The unique producer
     # key prevents another test or the periodic publisher satisfying this check.
-    [{^key, _, new_version, new_input}] = :ets.lookup(Aiur.Orchestrator.SnapshotPublisher, key)
+    [{^key, _, new_version, new_input}] = :ets.lookup(SnapshotPublisher, key)
     assert new_version > old_version
     assert new_input.next_poll_due_at_ms == refreshed.next_poll_due_at_ms
     assert new_input.next_poll_due_at_ms < old_input.next_poll_due_at_ms

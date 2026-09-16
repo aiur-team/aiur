@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
   import ExUnit.CaptureLog
 
   alias Aiur.GitHub.Connectivity, as: GitHubConnectivity
-  alias Aiur.Orchestrator.{State, TrackerHealth}
+  alias Aiur.Orchestrator.{Lifecycle, State, TrackerHealth}
   alias Aiur.Webhooks.ModeRegistry
 
   test "uses the base interval when no GitHub delay is active" do
@@ -155,7 +155,7 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
       next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000
     }
 
-    assert {:reply, _, queued} = Aiur.Orchestrator.Lifecycle.note_queued_demand(state, ["3"])
+    assert {:reply, _, queued} = Lifecycle.note_queued_demand(state, ["3"])
     assert %{delay_ms: 120_000, idle_backoff?: false} = TrackerHealth.poll_schedule(queued, idle_widen_factor: 5.0)
     assert TrackerHealth.prune_queued_demand_hints(queued).queued_demand_hints == %{"3" => 3}
     eligible = %{old | state: "todo", labels: ["agent:todo"]}
