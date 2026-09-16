@@ -155,6 +155,7 @@ defmodule Aiur.Workspace.RefreshTest do
     expected_config_dir = AgentGitHubGuard.gh_config_dir(workspace)
 
     File.write!(credential_file, "private-fixture-token\n")
+    File.mkdir_p!(Path.dirname(fake_gh))
 
     File.write!(fake_gh, """
     #!/bin/sh
@@ -219,7 +220,7 @@ defmodule Aiur.Workspace.RefreshTest do
     test_root: test_root
   } do
     init_repo!(workspace)
-    fake_gh = Path.join(test_root, "system-gh")
+    fake_gh = Path.join(test_root, "system-bin/gh")
     observed = Path.join(test_root, "ready-refresh-observed")
     credential_file = Path.join(test_root, "private-agent-token")
     expected_config_dir = AgentGitHubGuard.gh_config_dir(workspace)
