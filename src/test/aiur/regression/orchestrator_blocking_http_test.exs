@@ -21,6 +21,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   use Aiur.TestSupport
 
   import ExUnit.CaptureIO
+  import ExUnit.CaptureLog
 
   alias Aiur.AgentControlCLI
   alias Aiur.GitHub.{Budget, Transport}
@@ -719,11 +720,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     # but it must not inherit timers or mailbox work retained by the shared
     # application singleton. Keeping the producer private makes the final
     # response probe causal to this fixture.
-    {:ok, pid} = Orchestrator.start_link(initial_poll?: false)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    pid = start_supervised!({Orchestrator, initial_poll?: false})
 
     refute pid == shared_orchestrator
 
@@ -741,16 +738,18 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       File.rm_rf(budget_dir)
     end)
 
-    # The first broker command against a new state directory also creates the
-    # SQLite schema. That is setup, not the behaviour under test, so it is paid
-    # for here rather than inside the deadline being measured.
-    assert %{inflight: %{}} = Budget.snapshot("locked-release-token")
-
     # Subscribe before the request exists, so the release signal cannot be
     # emitted into a subscription that is not yet registered.
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Budget.release_topic())
     on_exit(fn -> Phoenix.PubSub.unsubscribe(Aiur.PubSub, Budget.release_topic()) end)
     release_token_key = Budget.token_key("locked-release-token")
+
+    # `snapshot/1` degrades an unavailable broker to an empty map, so it cannot
+    # establish that this fixture can admit the request it is about to test.
+    # Acquire and release a separate governed lease first; if startup fails,
+    # preserve the broker's status/output log rather than mislabeling it as a
+    # release or responsiveness failure.
+    assert_budget_admission_ready()
 
     test_pid = self()
     {url, server} = controlled_json_endpoint(test_pid)
@@ -1069,6 +1068,16 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   defp assert_lock_held(port) do
     assert Port.command(port, "assert-held\n")
     assert_receive {^port, {:data, "held\n"}}, 2_000
+  end
+
+  defp assert_budget_admission_ready do
+    request = %{method: :get, url: "https://api.github.com/rate_limit", token: "locked-release-prewarm-token"}
+
+    log = capture_log(fn -> send(self(), {:budget_admission_ready, Budget.acquire(request, timeout_ms: @locked_release_deadline_ms)}) end)
+    assert_receive {:budget_admission_ready, result}
+
+    assert {:ok, lease} = result, "budget broker did not admit the fixture request: #{log}"
+    assert :ok = Budget.release(lease, timeout_ms: @locked_release_deadline_ms)
   end
 
   defp close_port(port) do
