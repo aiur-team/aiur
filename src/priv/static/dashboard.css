@@ -7835,6 +7835,20 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   border-radius: 999px;
 }
 
+/* Preserve an unresolved label rather than shrinking it to a misleading zero.
+   On phones, arrange the wave summaries in two columns so those honest labels
+   remain inside the document instead of widening the page. */
+@media (max-width: 480px) {
+  .bo-waves-strip {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bo-wave-seg {
+    min-width: 0;
+  }
+}
+
 /* --- toolbar (legend + zoom) --- */
 .bo-grid-toolbar {
   display: flex;
@@ -7998,8 +8012,10 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .bo-epic {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
+  min-width: 0;
   padding: 0.5rem 0.7rem;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -8033,6 +8049,16 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   font-variant-numeric: tabular-nums;
   font-size: 0.82rem;
   color: var(--muted);
+}
+
+/* A last-known annotation is metadata for this fixed-width graph column, not
+   a reason to widen the grid beyond its own scroll viewport. Keep it on its
+   own line and let it wrap on phone-sized columns. */
+.bo-epic-note {
+  flex: 1 0 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* --- body + wave rows --- */
