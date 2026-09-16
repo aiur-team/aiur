@@ -265,8 +265,8 @@ defmodule Aiur.Orchestrator.Lifecycle do
   A ticket queued by `aiur --todo` is known demand, but the snapshot the idle
   backoff scans is the one the *last* poll produced, so it cannot see the new
   ticket. Recording the identifiers here lets `TrackerHealth` keep the poll at
-  the base interval until the ticket is polled (or the budget lapses), so a
-  woken poll that comes back empty cannot immediately re-widen to the ceiling
+  the base interval until the ticket is polled as dispatchable (or the budget
+  lapses), so a woken poll that comes back empty cannot re-widen to the ceiling
   (#2640).
   """
   @spec note_queued_demand(State.t(), [String.t()]) :: {:reply, map(), State.t()}

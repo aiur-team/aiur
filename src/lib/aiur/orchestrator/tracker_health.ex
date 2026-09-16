@@ -259,7 +259,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # it, so the snapshot alone would report "no demand" for known work and widen
   # the poll that is the only thing able to refresh it. `queued_demand_hints`
   # closes that loop: a locally queued ticket counts as demand until a poll
-  # shows it or its cycle budget lapses (#2640).
+  # shows it as dispatchable or its cycle budget lapses (#2640).
   defp queued_dispatch_demand?(%State{} = state) do
     pending_queued_demand_hint?(state) or
       DispatchPolicy.queued_dispatch_demand?(
@@ -273,11 +273,11 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   end
 
   @doc """
-  Whether a locally queued ticket is still unseen by the tracker poll.
+  Whether locally queued demand is still unconfirmed by the tracker poll.
 
   A hint is pending while its cycle budget has not lapsed and no polled issue
-  carries its identifier. Once the poll shows the ticket, the ordinary
-  dispatch-eligibility scan decides whether it is demand.
+  confirms dispatchable demand for its identifier. An older indexed copy
+  with denied labels cannot satisfy new local demand.
   """
   @spec pending_queued_demand_hint?(State.t()) :: boolean()
   def pending_queued_demand_hint?(%State{queued_demand_hints: hints} = state) when map_size(hints) > 0 do
@@ -287,7 +287,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def pending_queued_demand_hint?(_state), do: false
 
   @doc """
-  Drops queued-demand hints the poll has satisfied or whose budget lapsed.
+  Drops hints whose demand the poll has confirmed or whose budget lapsed.
 
   Runs once per completed poll cycle so the map never grows past the tickets
   queued in the last couple of cycles.
@@ -300,13 +300,18 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   def prune_queued_demand_hints(%State{} = state), do: state
 
   defp pending_hint?(%State{} = state, {identifier, until_cycle}) do
-    state.poll_cycles_completed < until_cycle and not polled_issue_present?(state, identifier)
+    state.poll_cycles_completed < until_cycle and not polled_queued_demand_present?(state, identifier)
   end
 
-  defp polled_issue_present?(%State{last_polled_issues: polled}, identifier) do
-    Enum.any?(polled, fn {issue_id, issue} ->
-      issue_id == identifier or Map.get(issue, :identifier) == identifier
-    end)
+  defp polled_queued_demand_present?(%State{last_polled_issues: polled} = state, identifier) do
+    issues =
+      polled
+      |> Enum.filter(fn {issue_id, issue} -> issue_id == identifier or Map.get(issue, :identifier) == identifier end)
+      |> Enum.map(fn {_issue_id, issue} -> issue end)
+
+    DispatchPolicy.queued_dispatch_demand?(issues, state)
+  rescue
+    ArgumentError -> false
   end
 
   defp idle_widen_factor(opts) do

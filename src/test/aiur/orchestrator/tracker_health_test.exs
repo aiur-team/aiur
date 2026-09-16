@@ -143,23 +143,25 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
              TrackerHealth.poll_schedule(state, idle_widen_factor: 5.0)
   end
 
-  # Once the poll shows the ticket the hint has done its job: the ordinary
-  # dispatch-eligibility scan decides whether it is demand. A ticket that
-  # arrived already in a non-dispatchable state must not pin the cadence.
-  test "a queued-demand hint the poll has satisfied no longer forces the base interval" do
-    seen = %Aiur.Issue{id: "node-3", identifier: "3", title: "Seen", state: "done", labels: ["agent:done"]}
+  test "a queued hint survives an older denied snapshot until eligibility is observed" do
+    old = %Aiur.Issue{id: "node-3", identifier: "3", title: "Old indexed view", state: "done", labels: ["agent:done"]}
 
     state = %State{
       poll_interval_ms: 120_000,
       github_poll_delays: %{},
       running: %{},
       poll_cycles_completed: 1,
-      last_polled_issues: %{"node-3" => seen},
-      queued_demand_hints: %{"3" => 3}
+      last_polled_issues: %{"node-3" => old},
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000
     }
 
-    assert %{delay_ms: 600_000, idle_backoff?: true} =
-             TrackerHealth.poll_schedule(state, idle_widen_factor: 5.0)
+    assert {:reply, _, queued} = Aiur.Orchestrator.Lifecycle.note_queued_demand(state, ["3"])
+    assert %{delay_ms: 120_000, idle_backoff?: false} = TrackerHealth.poll_schedule(queued, idle_widen_factor: 5.0)
+    assert TrackerHealth.prune_queued_demand_hints(queued).queued_demand_hints == %{"3" => 3}
+    eligible = %{old | state: "todo", labels: ["agent:todo"]}
+    observed = %{queued | last_polled_issues: %{"node-3" => eligible}}
+    refute TrackerHealth.pending_queued_demand_hint?(observed)
+    assert TrackerHealth.prune_queued_demand_hints(observed).queued_demand_hints == %{}
   end
 
   # A hint is a bounded promise, not a permanent override: a ticket the poll

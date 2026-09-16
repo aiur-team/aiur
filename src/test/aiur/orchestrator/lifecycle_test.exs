@@ -185,6 +185,37 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert_receive {:tick, _token}
   end
 
+  test "a refresh publishes the collapsed countdown before its poll runs" do
+    key = self()
+    on_exit(fn -> Aiur.Orchestrator.SnapshotPublisher.clear(key) end)
+
+    state = %State{
+      snapshot_key: key,
+      snapshot_ready?: true,
+      candidate_snapshot_fresh?: true,
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000,
+      poll_check_in_progress: false,
+      poll_cycles_completed: 1,
+      github_poll_delays: %{}
+    }
+
+    Aiur.Orchestrator.StatusReport.notify_dashboard(state)
+    [{^key, _, old_version, old_input}] = :ets.lookup(Aiur.Orchestrator.SnapshotPublisher, key)
+    assert old_input.next_poll_due_at_ms == state.next_poll_due_at_ms
+
+    assert {:reply, %{coalesced: false}, refreshed} =
+             Orchestrator.handle_call({:note_queued_demand, ["3"]}, {self(), make_ref()}, state)
+
+    # The write is synchronous before handle_call returns. The unique producer
+    # key prevents another test or the periodic publisher satisfying this check.
+    [{^key, _, new_version, new_input}] = :ets.lookup(Aiur.Orchestrator.SnapshotPublisher, key)
+    assert new_version > old_version
+    assert new_input.next_poll_due_at_ms == refreshed.next_poll_due_at_ms
+    assert new_input.next_poll_due_at_ms < old_input.next_poll_due_at_ms
+    assert_receive {:tick, token}
+    assert token == refreshed.tick_token
+  end
+
   test "note_queued_demand_api reports an unreachable orchestrator instead of raising" do
     assert Lifecycle.note_queued_demand_api(:"no-such-orchestrator-#{System.unique_integer([:positive])}", ["3"]) ==
              :unavailable
