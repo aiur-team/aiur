@@ -188,7 +188,7 @@ defmodule Aiur.Workspace.RefreshTest do
     assert File.dir?(expected_config_dir)
 
     assert {"governed\n", 0} =
-             System.cmd("gh", ["api", "repos/owner/repo/issues/2667"],
+             System.cmd("sh", ["-c", "gh api repos/owner/repo/issues/2667"],
                cd: workspace,
                env: [
                  {"AIUR_REAL_GH", fake_gh},
@@ -240,7 +240,7 @@ defmodule Aiur.Workspace.RefreshTest do
     assert :ok = Refresh.run(workspace, %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}, nil)
 
     assert {"", 0} =
-             System.cmd("gh", ["api", "repos/owner/repo/issues/2667"],
+             System.cmd("sh", ["-c", "gh api repos/owner/repo/issues/2667"],
                cd: workspace,
                env: [
                  {"AIUR_REAL_GH", fake_gh},
