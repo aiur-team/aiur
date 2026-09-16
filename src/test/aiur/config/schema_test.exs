@@ -46,6 +46,14 @@ defmodule Aiur.Config.SchemaTest do
   end
 
   describe "agent backend config sections" do
+    test "rejects the obsolete root Codex section with a migration hint" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"codex" => %{"approval_policy" => "never"}})
+
+      assert message =~ "workflow root"
+      assert message =~ "agent.codex"
+    end
+
     test "retains an arbitrary registry-named backend section" do
       assert {:ok, settings} =
                Schema.parse(%{
