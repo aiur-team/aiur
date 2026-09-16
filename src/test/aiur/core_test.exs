@@ -385,7 +385,19 @@ defmodule Aiur.CoreTest do
       File.chmod!(codex_binary, 0o755)
 
       for path <- ["examples/workflows/github-codex.yaml", "examples/workflows/linear-codex.yaml"] do
-        Workflow.set_workflow_file_path(Path.expand(path))
+        fixture_path = Path.join(test_root, Path.basename(path))
+        prompt_path = Path.rootname(Path.expand(path)) <> ".prompt.md"
+
+        File.cp!(Path.expand(path), fixture_path)
+        File.cp!(prompt_path, Path.join(test_root, Path.basename(prompt_path)))
+
+        fixture_path
+        |> File.read!()
+        |> String.replace("  root: ~/code/aiur-workspaces", "  root: #{test_root}")
+        |> String.replace("    thread_sandbox: workspace-write", "    thread_sandbox: read-only\n    turn_sandbox_policy: {type: readOnly}")
+        |> then(&File.write!(fixture_path, &1))
+
+        Workflow.set_workflow_file_path(fixture_path)
         issue = %Issue{id: "example-#{path}", identifier: "EXAMPLE", title: "Check frames", state: "In Progress"}
 
         assert {:ok, _} = AppServer.run(workspace, "start", issue)
@@ -394,7 +406,7 @@ defmodule Aiur.CoreTest do
         frames =
           trace_file
           |> File.read!()
-          |> String.split("\\n", trim: true)
+          |> String.split("\n", trim: true)
           |> Enum.map(&String.trim_leading(&1, "JSON:"))
           |> Enum.map(&Jason.decode!/1)
 
