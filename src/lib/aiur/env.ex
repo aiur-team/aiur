@@ -156,22 +156,42 @@ defmodule Aiur.Env do
   end
 
   @doc """
-  Finds variables set to different values in both `home_env` and `repo_env`,
-  returning `{name, home_value, repo_value}` tuples. `home_env` wins at
-  runtime (the launcher loads it first and only fills unset names), so a
-  returned conflict means the repo value is silently dead — the exact live bug
-  this ticket reports.
+  GitHub credential names the launcher resolves as one group. A repo `.env`
+  that declares any of them has chosen that repository's auth mode, so the
+  launcher skips every member in `~/.aiur/.env` rather than letting a global
+  `GITHUB_APP_*` triple fill the gaps around a repo-local `GITHUB_TOKEN` and
+  outrank it (#2638). Mirrors `GITHUB_CREDENTIAL_ENV_NAMES` in the launcher.
   """
-  @spec precedence_conflicts(Path.t(), Path.t()) :: [{String.t(), String.t(), String.t()}]
+  @github_credential_names ~w(GITHUB_TOKEN GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY_PATH GITHUB_APP_PRIVATE_KEY)
+
+  @spec github_credential_names() :: [String.t()]
+  def github_credential_names, do: @github_credential_names
+
+  @doc """
+  Finds `~/.aiur/.env` values the launcher ignores because `./.env` outranks
+  them, returning `{name, home_value, repo_value}` tuples. The launcher loads
+  `./.env` first and each file only fills unset names, so a name set to a
+  different value in both files keeps the repo value. A GitHub credential the
+  home file sets while the repo file declares any member of the credential
+  group is dropped outright; those tuples carry `nil` as the repo value.
+  """
+  @spec precedence_conflicts(Path.t(), Path.t()) :: [{String.t(), String.t(), String.t() | nil}]
   def precedence_conflicts(home_env, repo_env) do
     home = read_dotenv(home_env)
     repo = read_dotenv(repo_env)
+    repo_declares_credential? = Enum.any?(@github_credential_names, &Map.has_key?(repo, &1))
 
     home
     |> Enum.flat_map(fn {key, home_value} ->
       case Map.fetch(repo, key) do
-        {:ok, repo_value} when repo_value != home_value -> [{key, home_value, repo_value}]
-        _ -> []
+        {:ok, repo_value} when repo_value != home_value ->
+          [{key, home_value, repo_value}]
+
+        :error when repo_declares_credential? and key in @github_credential_names ->
+          [{key, home_value, nil}]
+
+        _ ->
+          []
       end
     end)
     |> Enum.sort()
@@ -182,12 +202,17 @@ defmodule Aiur.Env do
   names the variable but never its value, so a conflicting secret is not
   leaked to the log.
   """
-  @spec precedence_warnings([{String.t(), String.t(), String.t()}], String.t(), String.t()) :: [String.t()]
+  @spec precedence_warnings([{String.t(), String.t(), String.t() | nil}], String.t(), String.t()) :: [String.t()]
   def precedence_warnings(conflicts, home_label \\ "~/.aiur/.env", repo_label \\ "./.env") do
-    Enum.map(conflicts, fn {key, _home_value, _repo_value} ->
-      "environment precedence conflict: #{key} is set to different values in " <>
-        "#{home_label} and #{repo_label}; the #{home_label} value wins and the " <>
-        "#{repo_label} value is ignored"
+    Enum.map(conflicts, fn
+      {key, _home_value, nil} ->
+        "environment precedence conflict: #{key} is set in #{home_label} but #{repo_label} " <>
+          "declares its own GitHub credential, so the #{home_label} value is ignored"
+
+      {key, _home_value, _repo_value} ->
+        "environment precedence conflict: #{key} is set to different values in " <>
+          "#{home_label} and #{repo_label}; the #{repo_label} value wins and the " <>
+          "#{home_label} value is ignored"
     end)
   end
 

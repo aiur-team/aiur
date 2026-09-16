@@ -369,7 +369,8 @@ defmodule Aiur.GitHub.AuthPreflight do
     _, _ -> :unknown
   end
 
-  defp diagnostic_message(diagnostic, gh_status) do
+  @doc false
+  def diagnostic_message(diagnostic, gh_status) do
     if local_hold_diagnostic?(diagnostic) do
       local_hold_message(diagnostic)
     else
@@ -384,7 +385,8 @@ defmodule Aiur.GitHub.AuthPreflight do
           [
             "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
             "Aiur authenticates with a GitHub App installation token when GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and the App private key are configured.",
-            "Recovery: verify the App is installed on #{repo} with only Contents: write, Issues: read/write, Pull requests: write, then restart aiur so the daemon re-acquires a fresh installation token."
+            "Recovery: verify the App is installed on #{repo} with only Contents: write, Issues: read/write, Pull requests: write, then restart aiur so the daemon re-acquires a fresh installation token.",
+            app_over_token_line(diagnostic)
           ]
           |> Enum.reject(&(&1 in [nil, ""]))
           |> Enum.join(" ")
@@ -432,6 +434,28 @@ defmodule Aiur.GitHub.AuthPreflight do
     ]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" ")
+  end
+
+  # A 404 under App auth while GITHUB_TOKEN is also set usually means the
+  # operator configured a token for this repository but a machine-wide App
+  # (a shell export, or `~/.aiur/.env` under a launcher that predates #2638)
+  # took precedence. "Install the App" is the wrong recovery for that case.
+  defp app_over_token_line(%{reason: :repo_not_accessible}) do
+    if nonblank_env?("GITHUB_TOKEN") do
+      "GITHUB_TOKEN is also set, but configured GitHub App credentials take precedence over it. " <>
+        "If this repository should authenticate with that token, unset GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, " <>
+        "GITHUB_APP_PRIVATE_KEY_PATH and GITHUB_APP_PRIVATE_KEY in the launch shell, or declare them blank " <>
+        "(for example `GITHUB_APP_ID=`) in this repository's .env so the machine-wide App is not inherited, then restart aiur."
+    end
+  end
+
+  defp app_over_token_line(_diagnostic), do: nil
+
+  defp nonblank_env?(name) do
+    case System.get_env(name) do
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> false
+    end
   end
 
   defp pat_source_line("GITHUB_TOKEN"),

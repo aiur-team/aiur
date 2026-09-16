@@ -759,6 +759,83 @@ defmodule AiurEngineTest do
     assert out2 =~ "TOK=shell|"
   end
 
+  # #2638: `./.env` is the more specific scope, so it loads before
+  # `~/.aiur/.env`, and GitHub credentials resolve as one group from the first
+  # file that declares any member. A global GITHUB_APP_* triple must never
+  # fill the gaps around a repo-local GITHUB_TOKEN and outrank it.
+  describe "load_dotenv precedence between ~/.aiur/.env and ./.env" do
+    setup do
+      root = Aiur.TestSupport.tmp_root!("aiur-env-precedence")
+      home = Path.join(root, "home")
+      repo = Path.join(root, "repo")
+      File.mkdir_p!(Path.join(home, ".aiur"))
+      File.mkdir_p!(repo)
+      on_exit(fn -> File.rm_rf!(root) end)
+
+      File.write!(
+        Path.join(home, ".aiur/.env"),
+        "GITHUB_APP_ID=global-app\nGITHUB_APP_INSTALLATION_ID=global-install\n" <>
+          "GITHUB_APP_PRIVATE_KEY_PATH=/global/key.pem\nGITHUB_TOKEN=global-token\nOTHER=global-other\n"
+      )
+
+      %{home: home, repo: repo}
+    end
+
+    defp load_env_report(home, repo, extra_env \\ []) do
+      src =
+        "cd #{repo}; source #{@engine}; load_dotenv; " <>
+          "printf 'TOK=%s|APP=%s|INST=%s|KEY=%s|OTHER=%s' " <>
+          "\"${GITHUB_TOKEN-unset}\" \"${GITHUB_APP_ID-unset}\" \"${GITHUB_APP_INSTALLATION_ID-unset}\" " <>
+          "\"${GITHUB_APP_PRIVATE_KEY_PATH-unset}\" \"${OTHER-unset}\""
+
+      cleared =
+        Enum.map(
+          ~w(GITHUB_TOKEN GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY_PATH GITHUB_APP_PRIVATE_KEY OTHER),
+          &{&1, nil}
+        )
+
+      {out, 0} = System.cmd("bash", ["-c", src], env: cleared ++ [{"HOME", home}] ++ extra_env, stderr_to_stdout: true)
+      out
+    end
+
+    test "a repo-local GITHUB_TOKEN suppresses the global GITHUB_APP_* triple", %{home: home, repo: repo} do
+      File.write!(Path.join(repo, ".env"), "GITHUB_TOKEN=repo-token\n")
+
+      assert load_env_report(home, repo) ==
+               "TOK=repo-token|APP=unset|INST=unset|KEY=unset|OTHER=global-other"
+    end
+
+    test "a repo-local GITHUB_TOKEN wins over a different global GITHUB_TOKEN", %{home: home, repo: repo} do
+      File.write!(Path.join(home, ".aiur/.env"), "GITHUB_TOKEN=global-token\nOTHER=global-other\n")
+      File.write!(Path.join(repo, ".env"), "GITHUB_TOKEN=repo-token\nOTHER=repo-other\n")
+
+      assert load_env_report(home, repo) == "TOK=repo-token|APP=unset|INST=unset|KEY=unset|OTHER=repo-other"
+    end
+
+    test "a real shell export outranks both files", %{home: home, repo: repo} do
+      File.write!(Path.join(repo, ".env"), "GITHUB_TOKEN=repo-token\n")
+
+      assert load_env_report(home, repo, [{"GITHUB_TOKEN", "shell-token"}, {"GITHUB_APP_ID", "shell-app"}]) ==
+               "TOK=shell-token|APP=shell-app|INST=unset|KEY=unset|OTHER=global-other"
+    end
+
+    test "an empty or absent repo .env leaves the global App in force", %{home: home, repo: repo} do
+      expected = "TOK=global-token|APP=global-app|INST=global-install|KEY=/global/key.pem|OTHER=global-other"
+
+      File.write!(Path.join(repo, ".env"), "# nothing here\n")
+      assert load_env_report(home, repo) == expected
+
+      File.rm!(Path.join(repo, ".env"))
+      assert load_env_report(home, repo) == expected
+    end
+
+    test "a blank repo-local GITHUB_APP_ID= line opts out of the global credentials", %{home: home, repo: repo} do
+      File.write!(Path.join(repo, ".env"), "GITHUB_APP_ID=\n")
+
+      assert load_env_report(home, repo) == "TOK=unset|APP=|INST=unset|KEY=unset|OTHER=global-other"
+    end
+  end
+
   test "run-only environment scrub removes the operator readiness token" do
     dir = Aiur.TestSupport.tmp_root!("aiur-readiness-env")
     File.mkdir_p!(dir)

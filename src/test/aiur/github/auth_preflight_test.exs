@@ -197,6 +197,35 @@ defmodule Aiur.GitHub.AuthPreflightTest do
     refute diagnostic.message =~ "the request failed before GitHub returned a status"
   end
 
+  # #2638: a 404 under App auth while GITHUB_TOKEN is also set is the
+  # signature of a machine-wide App outranking the token an operator configured
+  # for this repository. "Install the App" alone sends them the wrong way.
+  test "an App 404 with GITHUB_TOKEN also set names the App-over-token precedence" do
+    diagnostic = %{
+      endpoint: :repo,
+      repo: "owner/repo",
+      token_source: "GITHUB_APP",
+      reason: :repo_not_accessible,
+      status: 404
+    }
+
+    System.put_env("GITHUB_TOKEN", "preflight-token")
+    message = AuthPreflight.diagnostic_message(diagnostic, :unknown)
+
+    assert message =~ "verify the App is installed on owner/repo"
+    assert message =~ "GITHUB_TOKEN is also set, but configured GitHub App credentials take precedence"
+    assert message =~ "GITHUB_APP_ID="
+    refute message =~ "preflight-token"
+
+    System.delete_env("GITHUB_TOKEN")
+    assert AuthPreflight.diagnostic_message(diagnostic, :unknown) =~ "verify the App is installed"
+    refute AuthPreflight.diagnostic_message(diagnostic, :unknown) =~ "GITHUB_TOKEN is also set"
+
+    System.put_env("GITHUB_TOKEN", "preflight-token")
+    unauthorized = %{diagnostic | reason: :invalid_or_expired_token, status: 401}
+    refute AuthPreflight.diagnostic_message(unauthorized, :unknown) =~ "GITHUB_TOKEN is also set"
+  end
+
   test "local_hold_reason?/1 recognizes a held preflight but not other failures" do
     hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.utc_now()}
     diagnostic = %{classification: :local_hold, endpoint: :rate_limit, repo: "owner/repo", token_source: "GITHUB_APP"}

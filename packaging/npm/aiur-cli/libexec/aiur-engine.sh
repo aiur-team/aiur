@@ -589,23 +589,71 @@ run_asks() {
 # mode=foreground attaches the UI and tears down on exit; mode=background leaves
 # the detached tmux session running and returns.
 
-# Load operator/machine credentials before repo-local settings. Since each file
-# only fills unset names, shell exports win first, then ~/.aiur/.env, then ./.env.
+# Dotenv precedence: shell exports win, then ./.env, then ~/.aiur/.env. Each
+# file only fills names that are still unset, so the repo-local file (the more
+# specific scope) is read first and the machine-wide file only fills its gaps.
+#
+# GitHub credentials are one group. A repo `.env` that declares any member has
+# chosen that repository's auth mode, so none of the global file's members may
+# leak in beside it: a global GITHUB_APP_* triple filling the gaps around a
+# repo-local GITHUB_TOKEN would outrank that token and force the daemon onto an
+# App that is not installed on the repo (#2638).
+GITHUB_CREDENTIAL_ENV_NAMES="GITHUB_TOKEN GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY_PATH GITHUB_APP_PRIVATE_KEY"
+
 load_dotenv() {
-  load_dotenv_file "$HOME/.aiur/.env"
+  local global_skip=""
+  if dotenv_file_declares_github_credential ".env"; then
+    global_skip="github_credentials"
+  fi
   load_dotenv_file ".env"
+  load_dotenv_file "$HOME/.aiur/.env" "$global_skip"
 }
 
+github_credential_env_name() {
+  case " $GITHUB_CREDENTIAL_ENV_NAMES " in
+    *" $1 "*) return 0 ;;
+  esac
+  return 1
+}
+
+# Prints the key of one dotenv line, or nothing for blank, comment, or
+# malformed lines. Shared by the loader and the credential-group probe so both
+# agree on which lines count as declarations.
+dotenv_line_key() {
+  local line="$1" key
+  line="${line#"${line%%[![:space:]]*}"}"
+  case "$line" in '' | '#'*) return 0 ;; esac
+  [ "${line#*=}" = "$line" ] && return 0
+  key="${line%%=*}"
+  key="${key%"${key##*[![:space:]]}"}"
+  case "$key" in '' | *[!A-Za-z0-9_]*) return 0 ;; esac
+  printf '%s' "$key"
+}
+
+# True when the file declares any GitHub credential name, blank or not: a
+# blank `GITHUB_APP_ID=` line is a deliberate opt-out and still counts.
+dotenv_file_declares_github_credential() {
+  local file="$1" line key
+  [ -f "$file" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    key="$(dotenv_line_key "$line")"
+    [ -n "$key" ] && github_credential_env_name "$key" && return 0
+  done <"$file"
+  return 1
+}
+
+# Usage: load_dotenv_file <file> [github_credentials]
+# The optional second argument skips the GitHub credential group.
 load_dotenv_file() {
-  local file="$1" line key val
+  local file="$1" skip="${2:-}" line key val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
+    key="$(dotenv_line_key "$line")"
+    [ -n "$key" ] || continue
+    if [ "$skip" = "github_credentials" ] && github_credential_env_name "$key"; then
+      continue
+    fi
     line="${line#"${line%%[![:space:]]*}"}"
-    case "$line" in '' | '#'*) continue ;; esac
-    [ "${line#*=}" = "$line" ] && continue
-    key="${line%%=*}"
-    key="${key%"${key##*[![:space:]]}"}"
-    case "$key" in '' | *[!A-Za-z0-9_]*) continue ;; esac
     val="${line#*=}"
     val="${val#"${val%%[![:space:]]*}"}"
     case "$val" in
