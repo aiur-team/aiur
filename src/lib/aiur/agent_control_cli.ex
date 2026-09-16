@@ -1057,9 +1057,22 @@ defmodule Aiur.AgentControlCLI do
     Map.merge(%{queued: 0, cleared: 0, failures: 0, selected: MapSet.new()}, Map.new(overrides))
   end
 
+  # The refresh is what lets a queued ticket dispatch before the idle backoff
+  # timer runs out. It is best-effort, but a dropped wake must not be silent:
+  # the operator otherwise watches a 600s countdown that nothing shortened and
+  # has no way to tell whether the daemon heard them (#2640). The hint carries
+  # the queued identifiers so the daemon keeps polling at the base interval
+  # until it has actually seen them.
   defp maybe_request_todo_refresh(%{queued: queued, cleared: cleared} = result, deps)
        when queued > 0 or cleared > 0 do
-    _ = deps.request_refresh.()
+    case deps.request_refresh.(Enum.sort(result.selected)) do
+      :unavailable ->
+        IO.puts(:stderr, "aiur: the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll")
+
+      _accepted ->
+        :ok
+    end
+
     result
   end
 
@@ -1073,7 +1086,7 @@ defmodule Aiur.AgentControlCLI do
       fetch_active: &GitHubTracker.fetch_issues_by_states/1,
       add_label: &GitHubTracker.add_label/2,
       remove_label: &GitHubTracker.remove_label/2,
-      request_refresh: &Orchestrator.request_refresh/0
+      request_refresh: &Orchestrator.note_queued_demand/1
     }
   end
 
@@ -1910,14 +1923,30 @@ defmodule Aiur.AgentControlCLI do
   # is about. Say what is actually true instead, and keep the ceiling source
   # visible so a restart that dropped a live `set max-agents` reads as
   # config-sourced rather than as the operator's last command (#2138).
-  defp capacity_binding_label({:has_not_polled, %{next_poll_in_ms: next_ms, ceiling: ceiling}})
-       when is_integer(next_ms),
-       do: "has not polled yet (POLL backed off, next poll in #{poll_seconds(next_ms)}s; ceiling: #{ceiling})"
+  #
+  # An idle backoff is a designed state, not a fault, so the label says why the
+  # daemon is waiting and which knob set the width; a bare "backed off, next
+  # poll in 599s" against a 120s config reads as a bug (#2640).
+  defp capacity_binding_label({:idle_backoff, %{ceiling: ceiling} = detail}),
+    do: "idle backoff active (#{idle_backoff_cause(detail)}#{idle_backoff_countdown(detail)}; ceiling: #{ceiling})"
+
+  defp capacity_binding_label({:idle_backoff, detail}),
+    do: "idle backoff active (#{idle_backoff_cause(detail)}#{idle_backoff_countdown(detail)})"
 
   defp capacity_binding_label({:has_not_polled, %{ceiling: ceiling}}),
     do: "has not polled yet (ceiling: #{ceiling})"
 
   defp capacity_binding_label({:has_not_polled, _detail}), do: "has not polled yet"
+
+  defp idle_backoff_cause(%{factor: factor}) when is_number(factor),
+    do: "no dispatchable demand at last poll; polling.idle_widen_factor=#{factor}"
+
+  defp idle_backoff_cause(_detail), do: "no dispatchable demand at last poll"
+
+  defp idle_backoff_countdown(%{next_poll_in_ms: next_ms}) when is_integer(next_ms),
+    do: ", next poll in #{poll_seconds(next_ms)}s"
+
+  defp idle_backoff_countdown(_detail), do: ""
 
   defp admission_detail(%{
          signal: :load,

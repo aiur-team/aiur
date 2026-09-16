@@ -1235,6 +1235,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       options: AgentRoutingPreview.options(selection.backend),
       labels: row.labels,
       plan: AgentRoutingPreview.plan(selection, row.labels),
+      pending?: false,
       result: nil
     }
   end
