@@ -46,6 +46,10 @@ agent:
   max_concurrent_agents: 10
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}
-codex:
-  command: codex app-server
+  codex:
+    command: codex app-server
+    # This is an explicit headless-workflow choice. Unconfigured workflows
+    # retain the secure `untrusted` default.
+    approval_policy: never
+    thread_sandbox: workspace-write
 prompt_file: linear-codex.prompt.md
