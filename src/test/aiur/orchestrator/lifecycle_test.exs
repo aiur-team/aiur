@@ -148,6 +148,48 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     refute_receive {:tick, _token}, 100
   end
 
+  # `aiur --todo` on an idle, backed-off fleet: the wake collapses the widened
+  # timer to now AND records the queued identifiers, so the woken poll — and
+  # one follow-up — stay at the base interval even if the tracker has not yet
+  # shown the ticket (#2640).
+  test "note_queued_demand records the tickets and collapses a widened backoff to now" do
+    state = %State{
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000,
+      poll_check_in_progress: false,
+      poll_cycles_completed: 1,
+      github_poll_delays: %{}
+    }
+
+    assert {:reply, %{queued: true, coalesced: false}, refreshed} =
+             Lifecycle.note_queued_demand(state, ["3", 4, ""])
+
+    assert refreshed.queued_demand_hints == %{"3" => 3, "4" => 3}
+    assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+    assert_receive {:tick, token}
+    assert token == refreshed.tick_token
+  end
+
+  test "the orchestrator answers note_queued_demand with the refresh receipt" do
+    state = %State{
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 600_000,
+      poll_check_in_progress: false,
+      poll_cycles_completed: 1,
+      github_poll_delays: %{}
+    }
+
+    assert {:reply, %{queued: true, coalesced: false}, refreshed} =
+             Orchestrator.handle_call({:note_queued_demand, ["3"]}, {self(), make_ref()}, state)
+
+    assert refreshed.queued_demand_hints == %{"3" => 3}
+    assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
+    assert_receive {:tick, _token}
+  end
+
+  test "note_queued_demand_api reports an unreachable orchestrator instead of raising" do
+    assert Lifecycle.note_queued_demand_api(:"no-such-orchestrator-#{System.unique_integer([:positive])}", ["3"]) ==
+             :unavailable
+  end
+
   test "a GitHub quota recovery signal queues an immediate admission poll" do
     state = %State{
       capacity_hold: %{

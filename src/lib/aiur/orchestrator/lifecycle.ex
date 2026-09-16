@@ -62,6 +62,19 @@ defmodule Aiur.Orchestrator.Lifecycle do
     end
   end
 
+  @spec note_queued_demand_api(GenServer.server(), [String.t()]) :: map() | :unavailable
+  def note_queued_demand_api(server, identifiers) when is_list(identifiers) do
+    if State.alive?(server) do
+      try do
+        GenServer.call(server, {:note_queued_demand, identifiers})
+      catch
+        :exit, _ -> :unavailable
+      end
+    else
+      :unavailable
+    end
+  end
+
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
@@ -236,6 +249,37 @@ defmodule Aiur.Orchestrator.Lifecycle do
        requested_at: DateTime.utc_now(),
        operations: ["poll", "reconcile"]
      }, state}
+  end
+
+  # How many completed poll cycles a locally queued ticket keeps counting as
+  # dispatchable demand while the tracker poll has not yet shown it. Two cycles
+  # covers the woken poll itself plus one base-interval follow-up, which is
+  # enough for GitHub's search index to catch up with a label written moments
+  # before the wake; after that an unseen ticket is treated like any other
+  # absence rather than pinning the cadence forever (#2640).
+  @queued_demand_cycle_budget 2
+
+  @doc """
+  Records tickets the operator just queued locally, then requests a prompt poll.
+
+  A ticket queued by `aiur --todo` is known demand, but the snapshot the idle
+  backoff scans is the one the *last* poll produced, so it cannot see the new
+  ticket. Recording the identifiers here lets `TrackerHealth` keep the poll at
+  the base interval until the ticket is polled (or the budget lapses), so a
+  woken poll that comes back empty cannot immediately re-widen to the ceiling
+  (#2640).
+  """
+  @spec note_queued_demand(State.t(), [String.t()]) :: {:reply, map(), State.t()}
+  def note_queued_demand(%State{} = state, identifiers) when is_list(identifiers) do
+    until_cycle = state.poll_cycles_completed + @queued_demand_cycle_budget
+
+    hints =
+      identifiers
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.reduce(state.queued_demand_hints, &Map.put(&2, &1, until_cycle))
+
+    request_refresh(%{state | queued_demand_hints: hints})
   end
 
   @doc false
