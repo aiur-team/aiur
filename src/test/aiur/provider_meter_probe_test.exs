@@ -683,6 +683,77 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert File.dir?(workspace)
   end
 
+  # An operator-written root such as `~/.aiur/workspaces/...` reaches the probe
+  # unexpanded. Joined verbatim, `mkdir_p` built a literal `./~/...` tree under
+  # the daemon's cwd and the app-server then could not `cd` into the real
+  # directory, which nothing had created (#2641). The probe must expand the
+  # root before deriving and creating its directory.
+  test "a tilde-prefixed workspace root is expanded before the probe workspace is created", ctx do
+    # `Path.expand/1` resolves `~` against the home the VM booted with, not a
+    # HOME override, so the only honest fixture is a uniquely named leaf under
+    # the real home, removed again on exit.
+    home = System.user_home!()
+    relative_root = "aiur-probe-test-#{System.pid()}-#{System.unique_integer([:positive])}"
+
+    on_exit(fn ->
+      File.rm_rf(Path.join(home, relative_root))
+      # Only ever the leaf a regressed probe would create, never a whole `~`.
+      File.rm_rf(Path.join("~", relative_root))
+    end)
+
+    outcome =
+      ctx
+      |> opts(workspace_root: "~/#{relative_root}")
+      |> Keyword.delete(:workspace)
+      |> then(&ProviderMeterProbe.observe(:codex, &1))
+
+    assert [%{provider: :codex, reason: nil}] = outcome
+    assert_received {:session_workspace, workspace}
+
+    expected = Aiur.Workspace.workspace_path_under(Path.join(home, relative_root), "usage-probe")
+    assert workspace == expected
+    assert File.dir?(workspace)
+    refute File.exists?(Path.join("~", relative_root))
+  end
+
+  # A root the daemon cannot create under is reported as exactly that — in the
+  # log with the real `mkdir_p` error and in the outcome as its own reason —
+  # rather than folded into `:no_workspace_root`, and no session is attempted.
+  test "an unwritable workspace root is logged and reported distinctly, with no session started", ctx do
+    file = Aiur.TestSupport.tmp_root!("aiur-probe-unwritable-root")
+    File.write!(file, "not a directory")
+    on_exit(fn -> File.rm(file) end)
+
+    log =
+      capture_log(fn ->
+        assert [%{observed?: false, reason: :probe_workspace_unwritable}] =
+                 ctx
+                 |> opts(workspace_root: file)
+                 |> Keyword.delete(:workspace)
+                 |> then(&ProviderMeterProbe.observe(:codex, &1))
+      end)
+
+    refute_received {:session_started, _identifier}
+    assert log =~ "provider meter probe workspace could not be created"
+    assert log =~ "workspace=#{Aiur.Workspace.workspace_path_under(file, "usage-probe")}"
+    assert log =~ "reason=:enotdir"
+  end
+
+  # A probe whose session never opens used to leave no trace: the meter simply
+  # had no reading, exactly as if the provider had answered nothing. The refusal
+  # is now logged with its reason before the outcome flattens it.
+  test "a session that cannot start is logged with its reason", ctx do
+    Process.put(:probe_start_result, {:error, {:port_exit, 1}})
+
+    log =
+      capture_log(fn ->
+        assert [%{observed?: false, reason: :probe_failed}] = ProviderMeterProbe.observe(:codex, opts(ctx))
+      end)
+
+    assert log =~ "provider meter probe session did not start provider=:codex"
+    assert log =~ "reason={:port_exit, 1}"
+  end
+
   defp snapshot(provider, observed_at) do
     %ProviderMeterSnapshot{
       provider: provider,

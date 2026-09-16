@@ -32,6 +32,8 @@ defmodule Aiur.ProviderMeterProbe do
   alias Aiur.ProviderMeterSnapshot
   alias Aiur.Workspace
 
+  require Logger
+
   # How long to hold a probe session open waiting for the provider to push its
   # rate-limit notification. Generous enough for a cold app-server start,
   # bounded so a hung provider cannot pin a session open.
@@ -155,10 +157,10 @@ defmodule Aiur.ProviderMeterProbe do
   # Codex is probed through the same app-server client the agents use, so the
   # notification path and its account-generation binding are the proven ones.
   defp open_probe_session(provider, backend, opts) do
-    with {:ok, workspace} <- probe_workspace(opts),
+    with {:ok, workspace} <- probe_workspace(provider, opts),
          agent = probe_agent(backend, opts),
          true <- is_atom(agent),
-         {:ok, session} <- agent.start_session(workspace, identifier: @probe_identifier) do
+         {:ok, session} <- start_probe_session(provider, agent, workspace) do
       {:ok, session, &agent.stop_session/1}
     else
       {:error, reason} -> {:error, probe_reason(reason)}
@@ -272,6 +274,29 @@ defmodule Aiur.ProviderMeterProbe do
 
   defp usage_api_opts(opts), do: Keyword.take(opts, [:credentials_path, :request_fun, :now_ms])
 
+  # A probe that never opens its session is otherwise indistinguishable from a
+  # provider that opened one and stayed quiet: both leave the meter without a
+  # reading and neither said anything. The session-start refusal is the one
+  # place that knows the difference, so it is logged here with its real reason
+  # (a port that could not start, a handshake that failed) before the outcome
+  # flattens it to an atom. Exits — the app-server being slow or absent — are
+  # deliberately not logged here; `open_probe_session/3` names those without a
+  # log line so a down app-server does not warn on every cycle.
+  defp start_probe_session(provider, agent, workspace) do
+    case agent.start_session(workspace, identifier: @probe_identifier) do
+      {:ok, session} ->
+        {:ok, session}
+
+      {:error, reason} = error ->
+        Logger.warning("provider meter probe session did not start provider=#{inspect(provider)} workspace=#{workspace} reason=#{inspect(reason)}")
+
+        error
+
+      other ->
+        other
+    end
+  end
+
   # The app-server refuses a cwd outside the configured workspace root, so the
   # probe gets its own directory under that root rather than borrowing an
   # agent's workspace (which could be mid-checkout) or the daemon's cwd.
@@ -283,23 +308,47 @@ defmodule Aiur.ProviderMeterProbe do
   # and the app-server then fails to `cd` into a directory that never existed
   # (#1406). Folding it into the owner-scoped layout makes it created and located
   # exactly like any other workspace.
-  defp probe_workspace(opts) do
+  #
+  # The configured root is expanded first. `Config.workspace_root/0` returns the
+  # operator's value verbatim, and a root written as `~/.aiur/workspaces/...`
+  # joined unexpanded sent `File.mkdir_p/1` to a literal `./~/...` directory
+  # under the daemon's cwd — which succeeded — while the app-server expanded
+  # the same path and then could not `cd` into the real directory, which nothing
+  # had created (#2641). Ticket workspaces never hit this because their path
+  # is canonicalised before provisioning; the probe must do the same.
+  #
+  # The outcome is logged either way: the resolved path on success, and the
+  # actual `mkdir_p` error on failure, which is reported as
+  # `:probe_workspace_unwritable` rather than folded into `:no_workspace_root`
+  # so the two are told apart in both the log and the meter's failure reason.
+  defp probe_workspace(provider, opts) do
     case Keyword.get(opts, :workspace) do
       workspace when is_binary(workspace) ->
         {:ok, workspace}
 
       _unset ->
-        workspace = Workspace.workspace_path_under(Config.workspace_root(), @probe_identifier)
+        root = opts |> Keyword.get_lazy(:workspace_root, &Config.workspace_root/0) |> Path.expand()
+        workspace = Workspace.workspace_path_under(root, @probe_identifier)
 
         case File.mkdir_p(workspace) do
-          :ok -> {:ok, workspace}
-          {:error, reason} -> {:error, reason}
+          :ok ->
+            Logger.debug("provider meter probe workspace ready provider=#{inspect(provider)} workspace=#{workspace}")
+            {:ok, workspace}
+
+          {:error, reason} ->
+            Logger.warning("provider meter probe workspace could not be created provider=#{inspect(provider)} workspace=#{workspace} reason=#{inspect(reason)}")
+
+            {:error, :probe_workspace_unwritable}
         end
     end
   rescue
-    _error -> {:error, :no_workspace_root}
+    error ->
+      Logger.warning("provider meter probe has no workspace root provider=#{inspect(provider)} error=#{Exception.message(error)}")
+      {:error, :no_workspace_root}
   catch
-    _kind, _reason -> {:error, :no_workspace_root}
+    kind, reason ->
+      Logger.warning("provider meter probe has no workspace root provider=#{inspect(provider)} #{kind}=#{inspect(reason)}")
+      {:error, :no_workspace_root}
   end
 
   defp wait_for_observation(provider, before, opts) do
