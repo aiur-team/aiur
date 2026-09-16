@@ -11,7 +11,11 @@ defmodule Aiur.Workspace.Ownership.Store do
   @filename "workspace-ownership.receipts"
   @format :aiur_workspace_ownership_receipts
   @format_name :erlang.atom_to_binary(@format)
-  @version 1
+  # v2 adds the persisted host-lock token. v1 receipts remain readable, while
+  # an older daemon sees the v2 header and fails closed rather than quarantine
+  # a valid live receipt whose body has new atoms.
+  @version 2
+  @compatible_versions [1, @version]
 
   # Safe external-term decoding refuses to create atoms. Keep the finite v1
   # receipt vocabulary in this module so a fresh VM can decode receipts that
@@ -191,7 +195,7 @@ defmodule Aiur.Workspace.Ownership.Store do
     preload_v1_receipt_atoms()
 
     case :erlang.binary_to_term(binary, [:safe]) do
-      {@format, @version, receipts} when is_map(receipts) ->
+      {@format, version, receipts} when version in @compatible_versions and is_map(receipts) ->
         {:ok, receipts, false}
 
       # A valid term carrying our format tag but a different integer version was
