@@ -149,7 +149,7 @@ defmodule Aiur.Workspace.RefreshTest do
     init_repo!(workspace)
     File.write!(Path.join(workspace, "leftover-sentinel"), "leftover")
 
-    fake_gh = Path.join(test_root, "system-gh")
+    fake_gh = Path.join(test_root, "system-bin/gh")
     observed = Path.join(test_root, "governed-gh-observed")
     credential_file = Path.join(test_root, "private-agent-token")
     expected_config_dir = AgentGitHubGuard.gh_config_dir(workspace)
@@ -224,7 +224,13 @@ defmodule Aiur.Workspace.RefreshTest do
     credential_file = Path.join(test_root, "private-agent-token")
     expected_config_dir = AgentGitHubGuard.gh_config_dir(workspace)
     File.write!(credential_file, "private-fixture-token\n")
-    File.write!(fake_gh, "#!/bin/sh\nprintf '%s\\n' \"${GH_TOKEN:-}:$GH_CONFIG_DIR\" > #{Aiur.Shell.escape(observed)}\n")
+    File.mkdir_p!(Path.dirname(fake_gh))
+
+    File.write!(
+      fake_gh,
+      "#!/bin/sh\nprintf '%s\\n' \"${GH_TOKEN:-}:$GH_CONFIG_DIR\" > #{Aiur.Shell.escape(observed)}\n"
+    )
+
     File.chmod!(fake_gh, 0o755)
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root)
 
@@ -250,7 +256,7 @@ defmodule Aiur.Workspace.RefreshTest do
                  {"GITHUB_TOKEN", ""},
                  {"GH_TOKEN", ""},
                  {"GH_CONFIG_DIR", expected_config_dir},
-                 {"PATH", "#{AgentGitHubGuard.bin_dir(workspace)}:#{System.get_env("PATH")}"}
+                 {"PATH", "#{AgentGitHubGuard.bin_dir(workspace)}:#{Path.dirname(fake_gh)}:/usr/bin:/bin"}
                ],
                stderr_to_stdout: true
              )
