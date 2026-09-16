@@ -36,3 +36,4 @@ Closes #<!-- issue number; use Fixes or Resolves if you prefer; list multiple as
 
 - [ ] `make -C elixir all`
 - [ ] <!-- Additional targeted checks (list below) -->
+- [ ] New behavior tests: record a clean isolated intended-hunk mutation witness (failure, restored pass, and porcelain/diff).

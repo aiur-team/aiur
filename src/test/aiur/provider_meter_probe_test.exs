@@ -688,32 +688,74 @@ defmodule Aiur.ProviderMeterProbeTest do
   # the daemon's cwd and the app-server then could not `cd` into the real
   # directory, which nothing had created (#2641). The probe must expand the
   # root before deriving and creating its directory.
-  test "a tilde-prefixed workspace root is expanded before the probe workspace is created", ctx do
-    # `Path.expand/1` resolves `~` against the home the VM booted with, not a
-    # HOME override, so the only honest fixture is a uniquely named leaf under
-    # the real home, removed again on exit.
-    home = System.user_home!()
-    relative_root = "aiur-probe-test-#{System.pid()}-#{System.unique_integer([:positive])}"
+  test "a tilde-prefixed workspace root is expanded before the probe workspace is created" do
+    # `Path.expand/1` resolves `~` against the home the VM booted with, not the
+    # parent test's HOME override. Boot a private VM with both its home and cwd
+    # isolated, so this regression cannot create a leaf under the host home.
+    root = Aiur.TestSupport.tmp_root!("aiur-probe-tilde-root")
+    home = Path.join(root, "home")
+    cwd = Path.join(root, "cwd")
+    relative_root = "workspace-root"
+    marker = Path.join(root, "session-started")
+    expanded_root = Path.join(home, relative_root)
+    workspace = Path.join([expanded_root, "test-org", "test-repo", "usage-probe"])
+    literal_workspace = Path.join([cwd, "~", relative_root, "test-org", "test-repo", "usage-probe"])
+    File.mkdir_p!(home)
+    File.mkdir_p!(cwd)
+    File.mkdir_p!(Path.join(cwd, ".aiur"))
+    File.cp!(Path.expand("../fixtures/test.yaml", __DIR__), Path.join(cwd, ".aiur/config"))
 
-    on_exit(fn ->
-      File.rm_rf(Path.join(home, relative_root))
-      # Only ever the leaf a regressed probe would create, never a whole `~`.
-      File.rm_rf(Path.join("~", relative_root))
-    end)
+    on_exit(fn -> File.rm_rf(root) end)
 
-    outcome =
-      ctx
-      |> opts(workspace_root: "~/#{relative_root}")
-      |> Keyword.delete(:workspace)
-      |> then(&ProviderMeterProbe.observe(:codex, &1))
+    code = """
+    defmodule IsolatedProbeAgent do
+      def start_session(workspace, _opts) do
+        true = File.dir?(workspace)
+        File.write!(System.fetch_env!("PROBE_SESSION_MARKER"), workspace)
+        {:ok, :session}
+      end
 
-    assert [%{provider: :codex, reason: nil}] = outcome
-    assert_received {:session_workspace, workspace}
+      def stop_session(_session), do: :ok
+    end
 
-    expected = Aiur.Workspace.workspace_path_under(Path.join(home, relative_root), "usage-probe")
-    assert workspace == expected
+    home = System.fetch_env!("PROBE_TEST_HOME")
+    cwd = System.fetch_env!("PROBE_TEST_CWD")
+    relative_root = System.fetch_env!("PROBE_RELATIVE_ROOT")
+    true = System.user_home!() == home
+    true = File.cwd!() == cwd
+    {:ok, _projection} = Aiur.ProviderMeterProjection.start_link(name: :isolated_probe_projection, subscribe?: false)
+
+    %{reason: nil} =
+      Aiur.ProviderMeterProbe.probe_session(:codex, "codex",
+        workspace_root: "~/" <> relative_root,
+        probe_agent: IsolatedProbeAgent,
+        projection: :isolated_probe_projection,
+        observation_window_ms: 0
+      )
+    """
+
+    {output, 0} =
+      System.cmd(
+        System.find_executable("timeout") || raise("timeout executable not found"),
+        ["20", System.find_executable("elixir") || raise("elixir executable not found")] ++ test_code_paths() ++ ["-e", code],
+        cd: cwd,
+        env: [
+          {"HOME", home},
+          {"PROBE_TEST_HOME", home},
+          {"PROBE_TEST_CWD", cwd},
+          {"PROBE_RELATIVE_ROOT", relative_root},
+          {"PROBE_SESSION_MARKER", marker},
+          {"ERL_FLAGS", "+S 1:1"}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert output =~ "provider meter probe workspace ready provider=:codex workspace=#{workspace}"
+    # The fake agent writes only after verifying the expanded directory exists,
+    # proving creation happened before session startup in the isolated VM.
+    assert File.read!(marker) == workspace
     assert File.dir?(workspace)
-    refute File.exists?(Path.join("~", relative_root))
+    refute File.exists?(literal_workspace)
   end
 
   # A root the daemon cannot create under is reported as exactly that — in the
@@ -765,5 +807,12 @@ defmodule Aiur.ProviderMeterProbeTest do
       health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: 1},
       windows: %{}
     }
+  end
+
+  defp test_code_paths do
+    :code.get_path()
+    |> Enum.map(&List.to_string/1)
+    |> Enum.filter(&String.contains?(&1, "/_build/test/lib/"))
+    |> Enum.flat_map(&["-pa", &1])
   end
 end
