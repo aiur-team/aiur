@@ -161,6 +161,19 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     assert output =~ "receipt-loaded"
   end
 
+  test "a current receipt write uses v2 while v1 receipts remain readable" do
+    root = Aiur.TestSupport.tmp_root!("ownership-v2-write")
+    path = Path.join(root, "workspace-ownership.receipts")
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    {:ok, store} = Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+    assert :ok = Store.put("v2-ticket", %{phase: :active}, store)
+
+    assert {:aiur_workspace_ownership_receipts, 2, %{"v2-ticket" => %{phase: :active}}} =
+             path |> File.read!() |> :erlang.binary_to_term()
+  end
+
   test "malformed bytes are quarantined and re-initialized" do
     root = Aiur.TestSupport.tmp_root!("ownership-invalid")
     path = Path.join(root, "workspace-ownership.receipts")
