@@ -713,8 +713,20 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   end
 
   test "a locked lease release is abandoned at its deadline instead of parking on the broker lock", %{
-    orchestrator: pid
+    orchestrator: shared_orchestrator
   } do
+    # This request needs an Orchestrator process to reproduce the caller shape,
+    # but it must not inherit timers or mailbox work retained by the shared
+    # application singleton. Keeping the producer private makes the final
+    # response probe causal to this fixture.
+    {:ok, pid} = Orchestrator.start_link(initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    refute pid == shared_orchestrator
+
     budget_dir = Aiur.TestSupport.tmp_root!("aiur-orchestrator-release")
     previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
     previous_dir = Application.get_env(:aiur, :github_budget_dir)
@@ -794,12 +806,18 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     assert release.budget_ms <= @locked_release_deadline_ms
     assert release.outcome == :deadline_exceeded
 
+    # The release outcome is only evidence about an attempt. The lock owner
+    # confirms it still owns the exclusive transaction *after* the release
+    # completed, so the result below cannot be attributed to the fixture's
+    # 30-second fallback expiry or a released lock.
+    assert_lock_held(lock)
+
     # Ordering, not timing: the release above is charged inside the request, so
     # the caller's response arriving after it is the non-blocking property —
     # the abandoned release did not swallow the result — and the Orchestrator
     # is still answering once both have landed.
     assert_receive {:locked_release_result, {:ok, %{status: 200}}}, 15_000
-    assert answers?(pid)
+    assert_orchestrator_answers(pid)
     close_port(lock)
   end
 
@@ -1033,7 +1051,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   defp lock_budget_database(path) do
     python = System.find_executable("python3") || flunk("python3 is required")
 
-    script = "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); print('locked', flush=True); time.sleep(30)"
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); print('locked', flush=True); " <>
+        "\nfor command in sys.stdin:\n if command == 'assert-held\\n': print('held', flush=True)\n elif command == 'release\\n': c.rollback(); print('released', flush=True); break"
 
     port =
       Port.open(
@@ -1044,6 +1064,11 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     on_exit(fn -> close_port(port) end)
     assert_receive {^port, {:data, "locked\n"}}, 2_000
     port
+  end
+
+  defp assert_lock_held(port) do
+    assert Port.command(port, "assert-held\n")
+    assert_receive {^port, {:data, "held\n"}}, 2_000
   end
 
   defp close_port(port) do
@@ -1146,6 +1171,29 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     true
   catch
     :exit, _reason -> false
+  end
+
+  defp assert_orchestrator_answers(pid) do
+    result =
+      try do
+        {:ok, GenServer.call(pid, :poll_status, 100)}
+      catch
+        :exit, reason -> {:exit, reason}
+      end
+
+    case result do
+      {:ok, _status} -> :ok
+      {:exit, reason} -> flunk("orchestrator poll_status exited: #{inspect(reason)}; #{inspect(orchestrator_probe_context(pid))}")
+    end
+  end
+
+  defp orchestrator_probe_context(pid) do
+    %{
+      alive?: Process.alive?(pid),
+      mailbox: Process.info(pid, :message_queue_len),
+      stacktrace: Process.info(pid, :current_stacktrace),
+      status: Process.info(pid, :status)
+    }
   end
 
   defp wait_until_waiting(pid) do
