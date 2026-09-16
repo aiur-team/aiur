@@ -1331,6 +1331,8 @@ defmodule Aiur.InitTest do
       github = written_config(target)["tracker"]["github"]
       assert github["bot_account"] == "agent-bot"
       assert github["identity_mode"] == "separate_account"
+      # Future guard: template enumeration has always omitted wizard-only keys.
+      refute Map.has_key?(github, "operator_account_skipped")
       refute "GitHub account to add to CODEOWNERS" in input_labels()
       refute File.read!(codeowners_path(dir)) =~ "@agent-bot"
     end
