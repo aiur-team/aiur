@@ -199,13 +199,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Cx 3"
     assert html =~ ~s(class="bo-node-blocks")
     assert html =~ "width:60%"
-    assert html =~ ~s(class="bo-epic-count">60% partial<)
-    assert html =~ ~s(class="bo-wave-seg-pct">60% partial<)
+    assert html =~ ~r/class="bo-epic-count"[^>]*>60% partial</
+    assert html =~ ~r/class="bo-wave-seg-pct"[^>]*>60% partial</
 
     # Unresolved-progress cards expose neither a false percentage nor a zero-width bar.
     assert html =~ ~s(data-bo-card="#2")
     assert html =~ "Blocked"
-    assert html =~ ~s(data-progress-state="unresolved">unresolved<)
+    assert html =~ ~r/data-progress-state="unresolved"[^>]*>unresolved</
 
     {:ok, document} = Floki.parse_document(html)
     [unknown_aria] = Floki.attribute(document, ~s([data-bo-card="#2"]), "aria-label")

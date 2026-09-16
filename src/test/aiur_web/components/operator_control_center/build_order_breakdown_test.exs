@@ -107,6 +107,69 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
       projection = BuildOrderBreakdown.projection(model)
 
       assert row(projection.phases, 1).progress == 0
+      assert row(projection.phases, 1).last_known == %{count: 0, observed_at: nil}
+    end
+
+    # Paused members: one whose whole row went stale (80) and one whose row is
+    # fresh but whose reading is stale (90), beside a live 50. The retained
+    # percents count, and the row says how many are last known and how old.
+    test "keeps stale readings at face value and marks how many members are last known" do
+      older = DateTime.add(@now, -600, :second)
+
+      stale_row = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale) |> put_in([:progress, :observed_at], older)
+      stale_reading = activity(identity(2), 90) |> put_in([:progress, :freshness], :stale)
+      live = activity(identity(3), 50)
+
+      model =
+        model(
+          [m(1, phase: 1, lane: "runtime", cx: 2), m(2, phase: 1, lane: "runtime", cx: 3), m(3, phase: 1, lane: "runtime", cx: 1)],
+          activity: activity_snapshot([stale_row, stale_reading, live])
+        )
+
+      projection = BuildOrderBreakdown.projection(model)
+
+      # (2*80 + 3*90 + 1*50) / 6 = 80
+      assert row(projection.phases, 1).progress == 80
+      assert row(projection.phases, 1).last_known == %{count: 2, observed_at: older}
+      assert row(projection.epics, "runtime").last_known == %{count: 2, observed_at: older}
+    end
+
+    test "a member closed as completed never counts as last known even with a stale reading" do
+      stale = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale)
+      model = model([m(1, phase: 1, lane: "runtime", cx: 3, closed: true)], activity: activity_snapshot([stale]))
+
+      projection = BuildOrderBreakdown.projection(model)
+
+      assert row(projection.phases, 1).progress == 100
+      assert row(projection.phases, 1).last_known == %{count: 0, observed_at: nil}
+    end
+
+    test "renders the last-known count with its age beside the row percent" do
+      stale = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale)
+      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)], activity: activity_snapshot([stale])))
+
+      assert html =~ ~s(data-breakdown-progress="80")
+      assert html =~ ~s(data-breakdown-last-known="1")
+      assert html =~ "last known"
+      assert html =~ ~r/bo-breakdown-row-age">(just now|\d+[mhd] ago)</
+      assert html =~ "One member counts the progress last observed"
+      refute html =~ "agent has not reported"
+    end
+
+    test "one retained reading without a timestamp leaves the row age unknown" do
+      stamped = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale)
+      unstamped = activity(identity(2), 60) |> put_in([:progress, :freshness], :stale) |> put_in([:progress, :observed_at], nil)
+      model = model([m(1, phase: 1, lane: "runtime", cx: 1), m(2, phase: 1, lane: "runtime", cx: 1)], activity: activity_snapshot([stamped, unstamped]))
+
+      assert row(BuildOrderBreakdown.projection(model).phases, 1).last_known == %{count: 2, observed_at: nil}
+      assert render_breakdown(model) =~ ~s(bo-breakdown-row-age">age unknown<)
+    end
+
+    test "a live reading renders no last-known marker" do
+      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)], activity: activity_snapshot([activity(identity(1), 80)])))
+
+      assert html =~ ~s(data-breakdown-last-known="0")
+      refute html =~ "bo-breakdown-row-last-known"
     end
 
     test "falls back to a plain mean when the row carries no usable points" do

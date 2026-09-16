@@ -12,10 +12,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
 
   Each wave and epic row also carries completion, derived from the joined
   member facts rather than from row size: a member closed as completed counts
-  as 100%, a member with a live known progress reading counts as that reading,
-  and anything else counts as 0%. The row folds those into a
+  as 100%, a member with a known progress reading counts as that reading, and
+  anything else counts as 0%. The row folds those into a
   complexity-points-weighted mean, falling back to a plain mean when the row
-  carries no usable points.
+  carries no usable points. A known reading counts whether it is live or the
+  last one observed before its agent paused; the row's `last_known` marker says
+  how many members are carried by such retained readings and how old the oldest
+  is, so retained work is neither erased into 0% nor mistaken for current.
   """
 
   use Phoenix.Component
@@ -74,6 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
         class="bo-breakdown-row"
         data-breakdown-key={to_string(row.key)}
         data-breakdown-progress={to_string(row.progress)}
+        data-breakdown-last-known={to_string(row.last_known.count)}
       >
         <div class="bo-breakdown-row-top">
           <BuildOrderEpicIcon.build_order_epic_icon
@@ -86,6 +90,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
           <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">tickets</span> <span class="num">{row.count}</span></span>
           <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">points</span> <span class="num">{points_display(row.points)}</span></span>
           <span class="bo-breakdown-row-stat"><span class="bo-breakdown-row-stat-label">done</span> <span class="num">{progress_display(row)}</span></span>
+          <span :if={row.last_known.count > 0} class="bo-breakdown-row-stat bo-breakdown-row-last-known" title={last_known_title(row.last_known)}>
+            <span class="bo-breakdown-row-stat-label">last known</span> <span class="num">{row.last_known.count}</span> <span class="bo-breakdown-row-age">{last_known_age(row.last_known)}</span>
+          </span>
         </div>
         <p :if={row.members != []} class="bo-breakdown-row-members">{members_text(row.members)}</p>
         <span class="bo-breakdown-row-bar" aria-hidden="true"><i style={"width:#{row.progress}%"}></i></span>
@@ -226,6 +233,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
           count: group.count,
           points: members |> Enum.map(&member_points/1) |> Enum.sum(),
           progress: group_progress(members),
+          last_known: group_last_known(members),
           members: Enum.map(members, &member_label/1)
         }
       end)
@@ -250,12 +258,58 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
   end
 
   # A ticket closed as completed is done regardless of what the live feed last
-  # said; anything still open is worth only its known live reading.
+  # said; anything still open is worth only its known reading, live or last
+  # known.
   defp member_progress(%Node{plan: %{lifecycle: %Lifecycle{state: :closed, state_reason: :completed}}}), do: 100
   defp member_progress(%Node{activity: activity}), do: known_percent(activity)
 
   defp known_percent(%{progress: %{status: :known, percent: percent}}) when percent in 0..100, do: percent
   defp known_percent(_activity), do: 0
+
+  # How many of a row's members are carried by a retained (stale) reading, and
+  # the oldest such reading. Accepted completion never counts as last known.
+  defp group_last_known(members) do
+    stale = members |> Enum.map(&member_last_known_at/1) |> Enum.reject(&(&1 == :none))
+
+    # One retained reading without a timestamp leaves the row's age unknown;
+    # the oldest of the others would claim a bound that does not hold.
+    observed_at =
+      if stale != [] and Enum.all?(stale, &is_struct(&1, DateTime)),
+        do: Enum.min(stale, DateTime),
+        else: nil
+
+    %{count: length(stale), observed_at: observed_at}
+  end
+
+  defp member_last_known_at(%Node{plan: %{lifecycle: %Lifecycle{state: :closed, state_reason: :completed}}}), do: :none
+
+  defp member_last_known_at(%Node{activity: %{status: status, progress: %{status: :known, percent: percent, freshness: freshness} = progress}})
+       when status in [:fresh, :stale] and freshness in [:fresh, :stale] and percent in 0..100 do
+    if status == :stale or freshness == :stale, do: Map.get(progress, :observed_at), else: :none
+  end
+
+  defp member_last_known_at(_node), do: :none
+
+  defp last_known_age(%{observed_at: %DateTime{} = observed_at}) do
+    diff = DateTime.diff(DateTime.utc_now(), observed_at, :second)
+
+    cond do
+      diff <= 60 -> "just now"
+      diff < 3_600 -> "#{div(diff, 60)}m ago"
+      diff < 86_400 -> "#{div(diff, 3_600)}h ago"
+      true -> "#{div(diff, 86_400)}d ago"
+    end
+  end
+
+  defp last_known_age(_last_known), do: "age unknown"
+
+  # The wording is about the progress reading, not the agent: an activity row
+  # can be fresh while its progress field is the stale part.
+  defp last_known_title(%{count: 1} = last_known),
+    do: "One member counts the progress last observed #{last_known_age(last_known)}; no newer progress reading has been observed."
+
+  defp last_known_title(%{count: count} = last_known),
+    do: "#{count} members count the progress last observed for each (oldest #{last_known_age(last_known)}); no newer progress reading has been observed for them."
 
   defp max_points([]), do: 0
   defp max_points(points), do: Enum.max(points)
