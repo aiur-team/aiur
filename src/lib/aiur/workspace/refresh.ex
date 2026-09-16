@@ -108,10 +108,20 @@ defmodule Aiur.Workspace.Refresh do
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do
     with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host),
-         :ok <- Provisioner.repair_agent_github_guard(workspace, worker_host) do
+         :ok <- repair_ready_workspace_guard(workspace, worker_host) do
       BootstrapImage.maybe_seed(workspace, issue_context, worker_host)
     end
   end
+
+  defp repair_ready_workspace_guard(workspace, nil) do
+    case Provisioner.workspace_readiness(workspace) do
+      :ready -> Provisioner.repair_agent_github_guard(workspace, nil)
+      _readiness -> :ok
+    end
+  end
+
+  defp repair_ready_workspace_guard(workspace, worker_host),
+    do: Provisioner.repair_agent_github_guard(workspace, worker_host)
 
   defp refresh_workspace_readiness(workspace, worker_host) do
     case Provisioner.workspace_readiness(workspace) do

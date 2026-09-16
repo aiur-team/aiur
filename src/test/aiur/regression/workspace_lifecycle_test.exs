@@ -38,6 +38,12 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
         assert {:error, {:workspace_provisioning_incomplete, ^workspace, :bootstrap}} =
                  Workspace.run_before_run_hook(workspace, issue)
 
+        # Refused bootstraps remain eligible for reconstruction on a later retry:
+        # installing runtime wrappers here would turn logs-only into unproven WIP.
+        assert File.ls!(workspace) == ["logs"]
+        refute File.exists?(Path.join(workspace, ".aiur-runtime"))
+        assert Aiur.Workspace.Provisioner.workspace_readiness(workspace) == :bootstrap
+
         # The underlying reason is in the alert text itself, not just a fixed
         # "missing" headline the operator would have to grep the log to explain.
         assert_receive {:event, %{topic: "ticket.REG-HOLLOW-1.workspace.provisioning_incomplete"} = event}, 500
