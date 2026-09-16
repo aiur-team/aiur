@@ -130,4 +130,49 @@ defmodule Aiur.Init.BotAccountTest do
     tracker = %{kind: "linear", api_key: "k"}
     assert BotAccount.maybe_prompt(io, deps("ignored", nil), tracker) == tracker
   end
+
+  for {name, invalid} <- [{"newline", "bad\n* @intruder"}, {"comment", "bad #comment"}, {"multiple owners", "first @second"}, {"App bot", "agent[bot]"}] do
+    test "manual human rejects #{name} before resolving a valid operator" do
+      invalid = unquote(invalid)
+      {:ok, answers} = Agent.start_link(fn -> [invalid, "real-human"] end)
+      {base_io, _pid} = io()
+
+      input = fn _label, _default, _hint ->
+        Agent.get_and_update(answers, fn [answer | rest] -> {answer, rest} end)
+      end
+
+      tracker = BotAccount.maybe_prompt(%{base_io | input: input}, deps(nil, nil), %{kind: "github"})
+      assert tracker.operator_account == "real-human"
+      assert tracker.bot_account == "real-human"
+      assert tracker.identity_mode == "single_account"
+      assert Agent.get(answers, & &1) == []
+    end
+  end
+
+  # Future regression guards: the bot-capable validator predates this change.
+  test "future guard: valid App bots and 39-character logins survive separate-mode setup" do
+    for login <- ["agent[bot]", String.duplicate("a", 39) <> "[bot]", String.duplicate("a", 39)] do
+      {base_io, _pid} = io(%{select: %{@mode_label => "A separate bot account"}, input: %{@bot_label => login}})
+      tracker = BotAccount.maybe_prompt(base_io, deps("operator", nil), %{kind: "github"})
+      assert tracker.bot_account == login
+      assert tracker.operator_account == "operator"
+      assert tracker.identity_mode == "separate_account"
+    end
+  end
+
+  # Future regression guard: existing bot validation, adapted to the new flow.
+  test "future guard: malformed suffix and length/hyphen boundaries re-prompt before accepting a bot" do
+    for invalid <- ["agent[bot]oops", "agent[other]", String.duplicate("a", 40), "-agent", "agent-", "ag--ent"] do
+      {:ok, answers} = Agent.start_link(fn -> [invalid, "valid-agent"] end)
+      {base_io, _pid} = io(%{select: %{@mode_label => "A separate bot account"}})
+
+      input = fn _label, _default, _hint ->
+        Agent.get_and_update(answers, fn [answer | rest] -> {answer, rest} end)
+      end
+
+      tracker = BotAccount.maybe_prompt(%{base_io | input: input}, deps("operator", nil), %{kind: "github"})
+      assert tracker.bot_account == "valid-agent"
+      assert Agent.get(answers, & &1) == []
+    end
+  end
 end

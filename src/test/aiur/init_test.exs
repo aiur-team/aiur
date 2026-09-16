@@ -1292,8 +1292,9 @@ defmodule Aiur.InitTest do
 
       assert File.read!(codeowners_path(dir)) =~ "@octocat"
       refute File.read!(codeowners_path(dir)) =~ "@agent-bot"
-      assert "Create .github/CODEOWNERS for aiur's GitHub trust checks?" in confirm_prompts()
-      refute Enum.any?(confirm_prompts(), &String.contains?(&1, "Add @"))
+      prompts = confirm_prompts()
+      assert "Create .github/CODEOWNERS for aiur's GitHub trust checks?" in prompts
+      refute Enum.any?(prompts, &String.contains?(&1, "Add @"))
     end
 
     test "asks one plain-language identity-mode question during setup", %{dir: dir, target: target} do

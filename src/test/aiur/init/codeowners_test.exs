@@ -68,4 +68,25 @@ defmodule Aiur.Init.CodeownersTest do
 
     refute_receive {:confirm, "Add @octocat to CODEOWNERS so aiur trusts your PR/issue comments?"}
   end
+
+  for {name, invalid} <- [{"newline", "bad\n* @intruder"}, {"comment", "bad #comment"}, {"multiple owners", "first @second"}, {"App bot", "agent[bot]"}] do
+    test "CODEOWNERS human fallback rejects #{name} before writing a valid human owner", %{dir: dir} do
+      invalid = unquote(invalid)
+      {:ok, answers} = Agent.start_link(fn -> [invalid, "real-human"] end)
+      base_io = io(self(), %{})
+
+      input = fn _label, _default, _hint ->
+        Agent.get_and_update(answers, fn [answer | rest] -> {answer, rest} end)
+      end
+
+      deps = %{repo_root: fn -> dir end, github_login: fn -> nil end}
+      assert :ok = Codeowners.setup_codeowners(%{base_io | input: input}, deps, %{kind: "github"})
+      contents = File.read!(Path.join([dir, ".github", "CODEOWNERS"]))
+      assert contents =~ "* @real-human"
+      refute contents =~ "@intruder"
+      refute contents =~ "@second"
+      refute contents =~ "@agent[bot]"
+      assert Agent.get(answers, & &1) == []
+    end
+  end
 end
