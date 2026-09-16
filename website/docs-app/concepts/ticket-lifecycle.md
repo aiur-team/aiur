@@ -427,6 +427,7 @@ Grouped by channel:
 | `system.dispatch.prewarm_blocked` / `.resolved` | `dispatch:auto` |
 | `system.dispatch.todo_capacity_exceeded` | `dispatch:auto` |
 | `system.tracker.auth_preflight_failed` / `.resolved` | `dispatch:auto` |
+| `system.tracker.state_labels_missing` / `.resolved` | `dispatch:auto` |
 | `system.fleet.capacity.backoff` / `system.fleet.capacity.resumed` | `dispatch:auto` |
 | `system.github.connectivity_lost` | `dispatch:auto` |
 

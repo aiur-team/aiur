@@ -125,6 +125,14 @@ alerts:
     message: Tracker authentication recovered
     sound:
       - "~/alerts/advisor/advisor-your-will.wav"
+  "system.tracker.state_labels_missing":
+    message: Repository is missing the workflow state labels
+    sound:
+      - "~/alerts/advisor/advisor-under-attack.wav"
+  "system.tracker.state_labels_missing.resolved":
+    message: Workflow state labels are present
+    sound:
+      - "~/alerts/advisor/advisor-your-will.wav"
 
   # ---------- PR health (age / unmergeable-author scan) -------------------
   "system.pr_health.unmergeable_author":

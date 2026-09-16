@@ -20,7 +20,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Tracker
   }
 
-  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold}
+  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors, LocalHold, StateLabelPreflight}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
 
@@ -122,6 +122,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp do_maybe_dispatch(%State{} = state) do
     state = maybe_warn_ci_readiness(state)
+    state = maybe_warn_state_labels(state)
     state = TrackedSet.refresh(state)
     state = CommentPolling.poll_github_firehose(state)
     # Issued, not awaited: the Orchestrator was captured parked in this poll's
@@ -420,6 +421,79 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp retryable_ci_readiness_error?(:timeout), do: true
   defp retryable_ci_readiness_error?(reason), do: Errors.retryable_github_error?(reason)
+
+  # Workflow state-label preflight (#2639). A repo with no `<prefix>:<state>`
+  # labels cannot dispatch anything, and without this check the daemon polls
+  # it forever as "no work". Advisory like CI readiness: it never holds
+  # dispatch. One list call on the first dispatch cycle; while labels are
+  # missing it re-checks every @state_label_retry_ms so the alert resolves
+  # itself once the operator creates them, then never spends another request.
+  @state_label_retry_ms 300_000
+
+  @doc false
+  @spec maybe_warn_state_labels(State.t()) :: State.t()
+  def maybe_warn_state_labels(%State{state_label_preflight_checked: true} = state), do: state
+
+  def maybe_warn_state_labels(%State{state_label_preflight_retry_at_ms: retry_at_ms} = state) when is_integer(retry_at_ms) do
+    if retry_at_ms > System.monotonic_time(:millisecond) do
+      state
+    else
+      check_state_labels(state, Config.tracker_kind(), StateLabelPreflight.check_fun(), &Alerts.emit_system/2)
+    end
+  end
+
+  def maybe_warn_state_labels(%State{initial_dispatch_cycle: true} = state) do
+    check_state_labels(state, Config.tracker_kind(), StateLabelPreflight.check_fun(), &Alerts.emit_system/2)
+  end
+
+  def maybe_warn_state_labels(state), do: state
+
+  @doc false
+  @spec check_state_labels(State.t(), String.t() | nil, function(), function()) :: State.t()
+  def check_state_labels(%State{state_label_preflight_checked: true} = state, _kind, _check_fun, _emit_fun), do: state
+
+  def check_state_labels(state, "github", check_fun, emit_fun) do
+    record_state_label_result(state, check_fun.(), emit_fun)
+  end
+
+  def check_state_labels(state, _kind, _check_fun, _emit_fun), do: %{state | state_label_preflight_checked: true}
+
+  defp record_state_label_result(state, {:ok, %{missing: []}}, emit_fun) do
+    if is_binary(state.state_label_preflight_signature) do
+      emit_fun.("system.tracker.state_labels_missing.resolved",
+        message: "Workflow state labels are present",
+        reason: "The missing workflow state labels now exist; tickets can be labelled into the workflow.",
+        needs_attention: false,
+        severity: "info"
+      )
+    end
+
+    %{state | state_label_preflight_checked: true, state_label_preflight_retry_at_ms: nil, state_label_preflight_signature: nil}
+  end
+
+  defp record_state_label_result(state, {:ok, %{missing: missing} = result}, emit_fun) do
+    signature = missing |> Enum.sort() |> Enum.join(",")
+
+    if signature != state.state_label_preflight_signature do
+      emit_fun.("system.tracker.state_labels_missing",
+        message: "Repository is missing workflow state labels; nothing can be dispatched",
+        reason: StateLabelPreflight.format_missing(result),
+        needs_attention: true,
+        severity: "warning"
+      )
+    end
+
+    %{
+      state
+      | state_label_preflight_signature: signature,
+        state_label_preflight_retry_at_ms: System.monotonic_time(:millisecond) + @state_label_retry_ms
+    }
+  end
+
+  defp record_state_label_result(state, {:error, reason}, _emit_fun) do
+    Logger.warning("Workflow state-label preflight could not list repository labels; retrying later: #{inspect(reason)}")
+    %{state | state_label_preflight_retry_at_ms: System.monotonic_time(:millisecond) + @state_label_retry_ms}
+  end
 
   defp ci_readiness_retry_delay_ms({:github, :rate_limited, detail}) when is_map(detail) do
     case Map.get(detail, :retry_after) do

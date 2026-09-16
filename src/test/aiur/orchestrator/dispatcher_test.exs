@@ -768,6 +768,99 @@ defmodule Aiur.Orchestrator.DispatcherTest do
              Dispatcher.maybe_warn_ci_readiness(state)
   end
 
+  defp label_alert_emitter(parent) do
+    fn name, opts ->
+      send(parent, {:label_alert, name, opts})
+      :ok
+    end
+  end
+
+  describe "workflow state-label preflight" do
+    test "missing labels raise one needs-attention alert naming them, then resolve once created" do
+      emit = label_alert_emitter(self())
+      missing = fn -> {:ok, %{repo: "owner/repo", missing: ["agent:todo", "agent:in-progress"], present: []}} end
+
+      state = Dispatcher.check_state_labels(%State{}, "github", missing, emit)
+
+      assert_receive {:label_alert, "system.tracker.state_labels_missing", opts}
+      assert opts[:needs_attention] == true
+      assert opts[:reason] =~ "owner/repo"
+      assert opts[:reason] =~ "agent:todo"
+      assert opts[:reason] =~ "agent:in-progress"
+      assert opts[:reason] =~ "gh label create 'agent:todo' --repo owner/repo"
+      refute state.state_label_preflight_checked
+      assert is_integer(state.state_label_preflight_retry_at_ms)
+
+      # Same missing set on the next check: no duplicate alert.
+      state = Dispatcher.check_state_labels(state, "github", missing, emit)
+      refute_receive {:label_alert, "system.tracker.state_labels_missing", _opts}
+
+      present = fn -> {:ok, %{repo: "owner/repo", missing: [], present: ["agent:todo", "agent:in-progress"]}} end
+      state = Dispatcher.check_state_labels(state, "github", present, emit)
+
+      assert_receive {:label_alert, "system.tracker.state_labels_missing.resolved", resolved_opts}
+      assert resolved_opts[:needs_attention] == false
+      assert state.state_label_preflight_checked
+      assert state.state_label_preflight_signature == nil
+    end
+
+    test "all labels present marks the check complete without alerting" do
+      emit = label_alert_emitter(self())
+      present = fn -> {:ok, %{repo: "owner/repo", missing: [], present: ["agent:todo"]}} end
+
+      state = Dispatcher.check_state_labels(%State{}, "github", present, emit)
+
+      assert state.state_label_preflight_checked
+      refute_receive {:label_alert, _name, _opts}
+      # A completed check never runs again.
+      assert Dispatcher.check_state_labels(state, "github", fn -> flunk("re-ran a completed check") end, emit) == state
+    end
+
+    test "a failed list call retries later without alerting" do
+      emit = label_alert_emitter(self())
+
+      state = Dispatcher.check_state_labels(%State{}, "github", fn -> {:error, {:github_api_status, 500}} end, emit)
+
+      refute state.state_label_preflight_checked
+      assert state.state_label_preflight_retry_at_ms > System.monotonic_time(:millisecond)
+      refute_receive {:label_alert, _name, _opts}
+    end
+
+    test "non-GitHub trackers skip the check" do
+      state = Dispatcher.check_state_labels(%State{}, "linear", fn -> flunk("checked a linear tracker") end, label_alert_emitter(self()))
+      assert state.state_label_preflight_checked
+    end
+
+    test "the dispatch cycle runs the configured check once on the initial cycle and honours the retry delay" do
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      parent = self()
+      previous = Application.get_env(:aiur, :state_label_preflight_fun)
+
+      Application.put_env(:aiur, :state_label_preflight_fun, fn ->
+        send(parent, :label_check_ran)
+        {:ok, %{repo: "owner/repo", missing: [], present: ["agent:todo"]}}
+      end)
+
+      on_exit(fn -> restore_app_env(:state_label_preflight_fun, previous) end)
+
+      # Not the initial cycle and no retry scheduled: nothing runs.
+      assert Dispatcher.maybe_warn_state_labels(%State{initial_dispatch_cycle: false}) == %State{initial_dispatch_cycle: false}
+      refute_receive :label_check_ran
+
+      # A retry scheduled in the future is left alone.
+      future = %State{state_label_preflight_retry_at_ms: System.monotonic_time(:millisecond) + 60_000}
+      assert Dispatcher.maybe_warn_state_labels(future) == future
+      refute_receive :label_check_ran
+
+      state = Dispatcher.maybe_warn_state_labels(%State{initial_dispatch_cycle: true})
+      assert_receive :label_check_ran
+      assert state.state_label_preflight_checked
+
+      assert Dispatcher.maybe_warn_state_labels(state) == state
+      refute_receive :label_check_ran
+    end
+  end
+
   test "GitHub candidate state is fetched authoritatively every configured poll interval" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",

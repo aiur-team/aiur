@@ -15,6 +15,8 @@ defmodule Aiur.ExecutorBindings do
     {"system.dispatch.todo_capacity_exceeded", "dispatch:auto"},
     {"system.tracker.auth_preflight_failed", "dispatch:auto"},
     {"system.tracker.auth_preflight_failed.resolved", "dispatch:auto"},
+    {"system.tracker.state_labels_missing", "dispatch:auto"},
+    {"system.tracker.state_labels_missing.resolved", "dispatch:auto"},
     {"system.fleet.capacity.backoff", "dispatch:auto"},
     {"system.fleet.capacity.resumed", "dispatch:auto"},
     {"system.fleet.contradictory_state_labels", "dispatch:auto"},

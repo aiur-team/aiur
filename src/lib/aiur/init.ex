@@ -21,6 +21,7 @@ defmodule Aiur.Init do
   @prompt_basename "prompt.md"
   @env_file_name ".env"
   @token_url "https://github.com/settings/tokens"
+  @token_prompt "GitHub token for aiur (paste it, or leave blank to skip)"
   @linear_key_url "https://linear.app/settings/api"
 
   @type io :: Aiur.Init.Runtime.io()
@@ -189,10 +190,11 @@ defmodule Aiur.Init do
         :ok
 
       :github_token ->
-        if github_token_present?(deps) do
+        if ensure_github_token(io, deps) do
           provision_github_with_token(io, deps, tracker, agents, pair)
         else
           token_setup_instructions(io)
+          undispatchable_warning(io)
           :ok
         end
     end
@@ -213,6 +215,53 @@ defmodule Aiur.Init do
 
   defp maybe_setup_env(io, deps, tracker, :github_token), do: Scaffold.setup_env(io, deps, tracker)
   defp maybe_setup_env(_io, _deps, _tracker, :github_app), do: :ok
+
+  # The token is read from the process environment, which `Dotenv.load/0`
+  # populated once before the wizard started — so a value the Executor put in
+  # the repo `.env` during setup (or the placeholder line the wizard itself just
+  # wrote) is invisible here unless we re-read the file. Re-read first; when the
+  # token is still absent, offer to paste one so labels are provisioned in this
+  # same run instead of silently skipping to a success screen (#2639).
+  defp ensure_github_token(io, deps) do
+    github_token_present?(deps) or reloaded_github_token_present?(deps) or prompt_github_token(io, deps)
+  end
+
+  defp reloaded_github_token_present?(deps) do
+    deps.reload_env.()
+    github_token_present?(deps)
+  end
+
+  defp prompt_github_token(io, deps) do
+    io.puts.("\nNo GITHUB_TOKEN is set, and aiur needs one to create the workflow labels this repo dispatches on.")
+
+    case io.input.(@token_prompt, "", "Stored in #{@env_file_name} as GITHUB_TOKEN. Leave blank to skip.") do
+      token when is_binary(token) -> persist_github_token(io, deps, String.trim(token))
+      _ -> false
+    end
+  end
+
+  defp persist_github_token(_io, _deps, ""), do: false
+
+  defp persist_github_token(io, deps, token) do
+    case deps.persist_github_token.(token) do
+      :ok ->
+        io.puts.(["Saved GITHUB_TOKEN to ", Format.dim(@env_file_name)])
+        github_token_present?(deps)
+
+      {:error, reason} ->
+        io.puts.("⚠️ Couldn't write GITHUB_TOKEN to #{@env_file_name} (#{inspect(reason)}).")
+        false
+    end
+  end
+
+  # Printed instead of the success screen when label provisioning was skipped:
+  # a repo with no state labels cannot dispatch, and the operator must not read
+  # the wizard's exit as "set up".
+  defp undispatchable_warning(io) do
+    io.puts.("\n⚠️  No labels were created. This repo cannot dispatch until they exist.")
+    io.puts.("   Run `aiur init` again once GITHUB_TOKEN is in #{@env_file_name} to create them,")
+    io.puts.("   or create them by hand with `gh label create` (agent:*, model:*, complexity:*).")
+  end
 
   defp provision_github_with_token(io, deps, tracker, agents, pair) do
     case Aiur.Init.GitHub.ensure_ci_readiness(io, deps, tracker) do
