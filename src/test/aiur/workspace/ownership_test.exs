@@ -35,15 +35,23 @@ defmodule Aiur.Workspace.OwnershipTest do
                group_alive_fun: fn ^group -> Agent.get(alive, & &1) end,
                process_identity_fun: fn ^group -> {:ok, :restored_group} end,
                reap_fun: fn ^group ->
-                 send(parent, :restored_host_lock_reap_started)
+                 send(parent, {:restored_host_lock_reap_started, self()})
+
+                 receive do
+                   :drain_restored_provider -> :ok
+                 end
+
                  Agent.update(alive, fn _ -> false end)
                  :ok
                end
              )
 
-    assert_receive :restored_host_lock_reap_started, 2_000
+    assert_receive {:restored_host_lock_reap_started, reaper}, 2_000
     assert {:ok, holder} = HostLock.holder(workspace)
     assert holder.owner_id == lock.holder.owner_id
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    send(reaper, :drain_restored_provider)
     assert_eventually(fn -> HostLock.holder(workspace) == :none and Ownership.current(ticket) == :none end)
     refute Process.alive?(lease.guardian)
   end

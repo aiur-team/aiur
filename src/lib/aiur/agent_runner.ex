@@ -183,15 +183,11 @@ defmodule Aiur.AgentRunner do
   defp with_workspace_host_lock(issue, opts, ownership, worker_host, fun) do
     case HostLock.acquire_for_issue(issue.identifier, worker_host) do
       {:ok, lock} ->
-        case Ownership.track_host_lock(ownership, lock) do
+        case HostLock.handoff_to_ownership(lock, ownership) do
           :ok ->
             fun.()
 
           {:error, reason} ->
-            # A guardian that disappeared before it could accept the lock
-            # cannot release it later. This runner still owns the fresh lock,
-            # so clean it up before returning the ownership failure.
-            HostLock.release(lock)
             {:error, reason}
         end
 

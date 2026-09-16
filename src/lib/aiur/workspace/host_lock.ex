@@ -31,6 +31,7 @@ defmodule Aiur.Workspace.HostLock do
   require Logger
 
   alias Aiur.ProcessIdentity
+  alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Layout
 
   @type worker_host :: String.t() | nil
@@ -113,6 +114,19 @@ defmodule Aiur.Workspace.HostLock do
   end
 
   def release(_lock), do: :ok
+
+  @doc false
+  @spec handoff_to_ownership(t(), Ownership.lease()) :: :ok | {:error, :workspace_ownership_lost}
+  def handoff_to_ownership(lock, ownership) do
+    case Ownership.track_host_lock(ownership, lock) do
+      :ok ->
+        :ok
+
+      {:error, :workspace_ownership_lost} = error ->
+        release(lock)
+        error
+    end
+  end
 
   @doc """
   Current holder of `workspace`'s lock, if any, regardless of liveness.
