@@ -187,6 +187,141 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert unlabelled_summary.phase_count == 1
   end
 
+  test "expands executable descendants beneath an Epic container in one bounded batch" do
+    root = root(1)
+    epic = member(2, root, labels: ["epic"])
+    leaf = member(3, epic, labels: ["phase:1", "build-lane:runtime"], blocked_by: [endpoint(2)])
+
+    responses = [
+      selected_response(root, [epic], 1),
+      descendants_response([Map.put(epic, "subIssues", connection([leaf], 1, []))])
+    ]
+
+    assert {:ok, %{calls: 2, pages: 2, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(queued_responses(responses)))
+
+    assert Enum.map(selected.members, & &1.identity.identifier) == ["2", "3"]
+    assert Enum.find(selected.members, &(&1.identity.identifier == "3")).parent_identity.identifier == "2"
+    assert [%{kind: :native, blocker_identity: %{identifier: "2"}}] = Enum.find(selected.members, &(&1.identity.identifier == "3")).dependencies
+  end
+
+  test "reports an exhausted selected-root budget instead of a complete direct-only Epic graph" do
+    root = root(1)
+    epic = member(2, root, labels: ["epic"])
+
+    assert {:error, %{error: :call_budget_exhausted, candidate: nil}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [epic], 1), call_budget: 1))
+  end
+
+  test "batches sibling Epic descendants and expands a nested Epic level" do
+    root = root(1)
+    first_epic = member(2, root, labels: ["epic"])
+    second_epic = member(3, root, labels: ["epic"])
+    nested_epic = member(4, first_epic, labels: ["epic"])
+    first_leaf = member(5, second_epic)
+    nested_leaf = member(6, nested_epic)
+
+    responses = [
+      selected_response(root, [first_epic, second_epic], 2),
+      descendants_response([
+        Map.put(first_epic, "subIssues", connection([nested_epic], 1, [])),
+        Map.put(second_epic, "subIssues", connection([first_leaf], 1, []))
+      ]),
+      descendants_response([Map.put(nested_epic, "subIssues", connection([nested_leaf], 1, []))])
+    ]
+
+    assert {:ok, %{calls: 3, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(queued_responses(responses)))
+
+    assert Enum.map(selected.members, & &1.identity.identifier) == ["2", "3", "4", "5", "6"]
+    assert [%{"ids" => ids}, %{"ids" => nested_ids}] = drain_requests() |> Enum.drop(1)
+    assert MapSet.new(ids) == MapSet.new([first_epic["id"], second_epic["id"]])
+    assert nested_ids == [nested_epic["id"]]
+  end
+
+  test "rejects a descendant whose native parent is absent from the fetched hierarchy" do
+    root = root(1)
+    epic = member(2, root, labels: ["epic"])
+    leaf = member(3, epic) |> Map.put("parent", endpoint(99))
+
+    responses = [
+      selected_response(root, [epic], 1),
+      descendants_response([Map.put(epic, "subIssues", connection([leaf], 1, []))])
+    ]
+
+    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(queued_responses(responses)))
+
+    assert :invalid_member in (selected.members
+                               |> Enum.find(&(&1.identity.identifier == "3"))
+                               |> Map.fetch!(:diagnostics)
+                               |> Enum.map(& &1.code))
+  end
+
+  test "rejects a child returned by one Epic when its canonical parent is a sibling Epic" do
+    root = root(1)
+    first_epic = member(2, root, labels: ["epic"])
+    second_epic = member(3, root, labels: ["epic"])
+    misplaced_leaf = member(4, second_epic)
+
+    responses = [
+      selected_response(root, [first_epic, second_epic], 2),
+      descendants_response([
+        Map.put(first_epic, "subIssues", connection([misplaced_leaf], 1, [])),
+        Map.put(second_epic, "subIssues", connection([], 0, []))
+      ])
+    ]
+
+    assert {:error, %{error: :structurally_invalid}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(queued_responses(responses)))
+  end
+
+  test "rejects a root child whose canonical parent is an anchored sibling" do
+    root = root(1)
+    anchored_sibling = member(2, root, labels: ["epic"])
+    misplaced_root_child = member(3, anchored_sibling)
+
+    assert {:error, %{error: :structurally_invalid}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(
+                 queued_responses([
+                   selected_response(root, [anchored_sibling, misplaced_root_child], 2),
+                   descendants_response([Map.put(anchored_sibling, "subIssues", connection([], 0, []))])
+                 ])
+               )
+             )
+  end
+
+  test "rejects the first nested Epic frontier that exceeds the full GraphQL node shape" do
+    root = root(1)
+    first_epic = member(2, root, labels: ["epic"])
+    second_epic = member(3, root, labels: ["epic"])
+    third_epic = member(4, root, labels: ["epic"])
+    # At the default page size (25), each requested container can return 25
+    # children with three 100-node connections, plus 101 container nodes. A
+    # 65-container frontier costs 65 * 7,626 = 495,690 nodes, over the 490k
+    # safety budget (while 66 would cross GitHub's 500k limit).
+    first_nested = Enum.map(5..26, &member(&1, first_epic, labels: ["epic"]))
+    second_nested = Enum.map(27..48, &member(&1, second_epic, labels: ["epic"]))
+    third_nested = Enum.map(49..69, &member(&1, third_epic, labels: ["epic"]))
+
+    responses = [
+      selected_response(root, [first_epic, second_epic, third_epic], 3),
+      descendants_response([
+        Map.put(first_epic, "subIssues", connection(first_nested, length(first_nested), [])),
+        Map.put(second_epic, "subIssues", connection(second_nested, length(second_nested), [])),
+        Map.put(third_epic, "subIssues", connection(third_nested, length(third_nested), []))
+      ])
+    ]
+
+    assert {:error, %{error: :hierarchy_overflow, calls: 2, candidate: nil}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(queued_responses(responses)))
+
+    assert [%{"ids" => ids}] = drain_requests() |> Enum.drop(1)
+    assert MapSet.new(ids) == MapSet.new([first_epic["id"], second_epic["id"], third_epic["id"]])
+  end
+
   test "marks catalog progress unresolved when no member lifecycle can be resolved" do
     root = root(1)
 
@@ -1640,6 +1775,8 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     root = Map.put(root, "subIssues", connection(members, total, opts))
     graphql_response(%{"data" => %{"repository" => %{"issue" => root}}})
   end
+
+  defp descendants_response(containers), do: graphql_response(%{"data" => %{"nodes" => containers}})
 
   defp graphql_response(body), do: {:ok, %{status: 200, headers: [{"x-ratelimit-remaining", "99"}], body: body}}
   defp graphql_error, do: {:ok, %{status: 200, body: %{"errors" => [%{"message" => "redacted"}]}}}

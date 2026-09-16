@@ -32,7 +32,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
   @spec selected(map(), [map()], {String.t(), String.t()}, map()) :: Aiur.BuildOrder.GitHubGraph.result()
   def selected(root_node, member_nodes, repository, state) do
     root = Normalizer.root(root_node, repository)
-    members = member_nodes |> Enum.map(&Normalizer.member(&1, repository, root)) |> Dependencies.validate_internal(root)
+    members = member_nodes |> normalize_members(repository, root, root_node) |> Dependencies.validate_internal(root)
     selected = SelectedRoot.new(root, members, healthy_provider())
 
     cond do
@@ -71,6 +71,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
        when reason in [
               :call_budget_exhausted,
               :catalog_overflow,
+              :hierarchy_overflow,
               :member_overflow,
               :page_budget_exhausted,
               :pagination_mismatch
@@ -108,6 +109,68 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
   end
 
   defp duplicate_candidate_identities?(root, members), do: duplicate_records?([root | members])
+
+  # A selected graph may include nested Epic containers. Normalize each member
+  # against its actual fetched parent, not only the Build Order root, so the
+  # native hierarchy remains visible while a missing or contradictory parent
+  # still invalidates the candidate.
+  defp normalize_members(nodes, repository, root, root_node) do
+    parent_nodes = Map.new(nodes, fn node -> {node_key(node, repository), node} end)
+    root_key = node_key(root_node, repository)
+
+    members =
+      Enum.map(nodes, fn node ->
+        parent =
+          case node_key(Map.get(node, "parent"), repository) do
+            ^root_key ->
+              root
+
+            key ->
+              case Map.get(parent_nodes, key) do
+                nil -> RootSummary.new(%{})
+                parent_node -> Normalizer.root(parent_node, repository)
+              end
+          end
+
+        node
+        |> Normalizer.member(repository, parent)
+        |> validate_yielding_parent(node)
+      end)
+
+    parent_keys = Map.new(nodes, fn node -> {node_key(node, repository), node_key(Map.get(node, "parent"), repository)} end)
+    Enum.map(members, &validate_ancestry(&1, root_key, parent_keys))
+  end
+
+  defp validate_yielding_parent(member, %{"__aiur_expected_parent_id" => expected_id, "parent" => %{"id" => expected_id}})
+       when is_binary(expected_id),
+       do: member
+
+  defp validate_yielding_parent(member, %{"__aiur_expected_parent_id" => _expected_id}),
+    do: %{member | diagnostics: member.diagnostics ++ [Diagnostic.new(:invalid_member)]}
+
+  defp validate_yielding_parent(member, _node), do: member
+
+  defp validate_ancestry(member, root_key, parent_keys) do
+    if reaches_root?(Endpoint.key(member.identity), root_key, parent_keys, MapSet.new()) do
+      member
+    else
+      %{member | diagnostics: member.diagnostics ++ [Diagnostic.new(:invalid_member)]}
+    end
+  end
+
+  defp reaches_root?(key, root_key, _parents, _seen) when key == root_key, do: true
+  defp reaches_root?(nil, _root_key, _parents, _seen), do: false
+
+  defp reaches_root?(key, root_key, parents, seen) do
+    if MapSet.member?(seen, key), do: false, else: reaches_root?(Map.get(parents, key), root_key, parents, MapSet.put(seen, key))
+  end
+
+  defp node_key(node, repository) do
+    node
+    |> Endpoint.node_identity(repository)
+    |> elem(0)
+    |> Endpoint.key()
+  end
 
   defp duplicate_records?(records) do
     keys = Enum.flat_map(records, &record_keys/1)

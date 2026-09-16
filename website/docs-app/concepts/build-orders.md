@@ -29,6 +29,19 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 | `aiur build-orders [<root>]` | The same projection in a terminal. |
 | `--json` | Machine-readable Build Order rows. |
 
+An undispatched `epic` remains a visible graph member. Aiur reads its native
+subissues in bounded batches so executable descendants and their native
+dependencies remain visible without flattening the hierarchy or changing leaf
+dispatch gates.
+
+If a nested hierarchy exceeds the configured planning bounds, the page reports
+the graph as unavailable rather than presenting the direct Epic layer as a
+complete plan.
+
+A delivery that changes a retained descendant, its dependency, or a child edge
+beneath a retained container refreshes the selected graph. Unrelated Build
+Orders are not refreshed.
+
 On the catalog, ticket, epic and wave counts remain numeric when resolution succeeds, including a real `0`. A count that could not be resolved never renders as `0` or as a bare dash—it names its cause instead:
 
 | Cell | Meaning | What to do |

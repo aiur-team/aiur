@@ -5,6 +5,14 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
   alias Aiur.BuildOrder.GitHubGraph.Settings.Paging
   alias Aiur.TrackerIdentity
 
+  @member_limit 100
+  @safe_graphql_node_limit 490_000
+  # Each descendant carries its labels and both dependency connections. The
+  # conservative estimate prevents the product of batch size, member page size
+  # and those nested selections from exceeding GitHub's 500k node limit.
+  @descendant_node_shape 301
+  @descendant_container_overhead 101
+
   @spec catalog(map(), map()) :: {:ok, [map()], map()} | {:error, atom(), map()}
   def catalog(paging, state) do
     query = Queries.catalog(member_labels?: paging.member_labels?)
@@ -36,14 +44,104 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
     with {:ok, fetched_root, connection} <- Connection.selected(body),
          {:ok, paging} <- selected_root_page(paging, fetched_root),
          {:ok, nodes, total, page_info} <- Connection.parse(connection) do
+      nodes = stamp_yielding_parent(nodes, Map.get(fetched_root, "id"))
+
       case advance(paging, nodes, total, page_info, state) do
         {:next, paging, state} -> selected(paging, state)
-        {:ok, nodes, state} -> {:ok, paging.root, nodes, state}
+        {:ok, nodes, state} -> expand_descendants(nodes, paging, state)
         {:error, reason, state} -> {:error, reason, state}
       end
     else
       {:error, reason} -> {:error, reason, state}
     end
+  end
+
+  # Native hierarchy is not a dispatch instruction: we retain Epic containers
+  # as members and only read their descendants for presentation. Every level is
+  # one batched GraphQL page, which shares the selected-root limits with the
+  # initial root read. A hierarchy too deep or wide for those limits therefore
+  # returns a provider failure instead of a deceptively complete direct-only
+  # graph.
+  defp expand_descendants(nodes, paging, state) do
+    frontier = epic_ids(nodes)
+    expand_descendants(nodes, frontier, MapSet.new(frontier), paging, state)
+  end
+
+  defp expand_descendants(nodes, [], _seen, paging, state), do: {:ok, paging.root, nodes, state}
+
+  defp expand_descendants(nodes, frontier, seen, paging, state) do
+    if length(frontier) > descendant_batch_limit(paging) do
+      {:error, :hierarchy_overflow, state}
+    else
+      case Request.page(state, paging.token, Queries.descendants(), Settings.descendant_variables(frontier, paging.limits)) do
+        {:ok, body, state} ->
+          with {:ok, containers} <- Connection.descendants(body),
+               :ok <- matching_containers?(containers, frontier),
+               {:ok, children} <- descendant_children(containers) do
+            next_frontier = epic_ids(children) |> Enum.reject(&MapSet.member?(seen, &1))
+            expand_descendants(nodes ++ children, next_frontier, MapSet.union(seen, MapSet.new(next_frontier)), paging, state)
+          else
+            {:error, reason} -> {:error, reason, state}
+          end
+
+        {:error, reason, state} ->
+          {:error, reason, state}
+      end
+    end
+  end
+
+  defp matching_containers?(containers, requested_ids) do
+    ids = Enum.map(containers, &Map.get(&1, "id"))
+
+    if length(containers) == length(requested_ids) and MapSet.new(ids) == MapSet.new(requested_ids) and
+         Enum.all?(ids, &(is_binary(&1) and byte_size(&1) > 0)),
+       do: :ok,
+       else: {:error, :invalid_connection}
+  end
+
+  defp descendant_children(containers) do
+    Enum.reduce_while(containers, {:ok, []}, fn container, {:ok, children} ->
+      case Connection.parse(Map.get(container, "subIssues")) do
+        {:ok, nodes, total, %{has_next?: false}} when total <= @member_limit and length(nodes) == total ->
+          owned_nodes = stamp_yielding_parent(nodes, Map.get(container, "id"))
+          {:cont, {:ok, children ++ owned_nodes}}
+
+        {:ok, _nodes, total, _page_info} when total > @member_limit ->
+          {:halt, {:error, :member_overflow}}
+
+        {:ok, _nodes, _total, _page_info} ->
+          {:halt, {:error, :pagination_mismatch}}
+
+        {:error, _reason} ->
+          {:halt, {:error, :invalid_connection}}
+      end
+    end)
+  end
+
+  defp stamp_yielding_parent(nodes, parent_id) when is_list(nodes) do
+    Enum.map(nodes, &Map.put(&1, "__aiur_expected_parent_id", parent_id))
+  end
+
+  defp epic_ids(nodes) do
+    nodes
+    |> Enum.flat_map(fn node ->
+      case Connection.parse(Map.get(node, "labels")) do
+        {:ok, labels, total, %{has_next?: false}} when length(labels) == total ->
+          if Enum.any?(labels, &(Map.get(&1, "name") == "epic")), do: [Map.get(node, "id")], else: []
+
+        _ ->
+          []
+      end
+    end)
+    |> Enum.filter(&(is_binary(&1) and byte_size(&1) > 0))
+    |> Enum.uniq()
+  end
+
+  defp descendant_batch_limit(%Paging{limits: %{page_size: page_size}}) do
+    @safe_graphql_node_limit
+    |> div(max(1, page_size) * @descendant_node_shape + @descendant_container_overhead)
+    |> min(@member_limit)
+    |> max(1)
   end
 
   defp page_result({:next, paging, state}, fun), do: fun.(paging, state)

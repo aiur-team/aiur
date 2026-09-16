@@ -121,6 +121,11 @@ defmodule Aiur.BuildOrder.GitHubGraph.Settings do
     |> Transport.maybe_put_query("cursor", cursor)
   end
 
+  @spec descendant_variables([String.t()], limits()) :: map()
+  def descendant_variables(ids, limits) when is_list(ids) do
+    %{"ids" => ids, "pageSize" => limits.page_size}
+  end
+
   @spec requested_root(term(), repository()) :: {:ok, TrackerIdentity.t()} | {:error, :invalid_requested_root}
   def requested_root(%TrackerIdentity{} = root, repository) do
     if valid_requested_root?(root, repository) do

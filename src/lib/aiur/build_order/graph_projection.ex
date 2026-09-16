@@ -11,7 +11,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   require Logger
 
-  alias Aiur.BuildOrder.{Catalog, CatalogStore, ProviderHealth, ProviderResult}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult}
   alias Aiur.BuildOrder.GitHubGraph.Settings
   alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, TaskLifecycle}
   alias Aiur.TrackerIdentity
@@ -1501,31 +1501,44 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp repository_match?(_state, _other), do: false
 
-  # A dependency-edge change re-reads every demanded root the edge touches, so a
-  # blocked-by relationship set outside Aiur reflects on the page. Only
-  # `:issue_dependency` changes need this: a sub-issue, label or lifecycle
-  # change already moves the root's catalog fingerprint, which is the existing
-  # trigger for selected re-reads. The edge's two ends are the blocked issue and
-  # the blocker; the affected roots are those the edge belongs to plus those
-  # whose member set includes either end.
-  defp request_affected_selected(state, :issue_dependency, %{id: id}) do
-    case parse_edge_id(id) do
-      {left, right} ->
-        members = CatalogStore.member_numbers(state.active_repository)
+  # A selected graph can contain descendants which the catalog deliberately
+  # cannot fingerprint: its direct-member query does not observe a nested
+  # leaf's lifecycle, labels, hierarchy, or dependencies. Use the complete
+  # selected snapshot as the watched membership boundary instead. A webhook
+  # touching any retained member (or a sub-issue edge whose yielding parent is
+  # retained) re-reads that root; unrelated roots remain untouched.
+  defp request_affected_selected(state, type, %{id: id}) do
+    case touched_numbers(type, id) do
+      [] ->
+        {state, []}
 
+      numbers ->
         state.selected
-        |> Enum.filter(fn {_key, entry} -> selected_touches?(entry, left, right, members) end)
+        |> Enum.filter(fn {_key, entry} -> selected_touches?(entry, numbers) end)
         |> Enum.reduce({state, []}, fn {_key, entry}, {state, events} ->
           {state, next_events} = request_scope(state, entry.scope)
           {state, events ++ next_events}
         end)
-
-      _other ->
-        {state, []}
     end
   end
 
   defp request_affected_selected(state, _type, _change), do: {state, []}
+
+  defp touched_numbers(type, id) when type in [:sub_issue, :issue_dependency] do
+    case parse_edge_id(id) do
+      {left, right} -> [left, right]
+      _other -> []
+    end
+  end
+
+  defp touched_numbers(type, id) when type in [:issue, :issue_labels] do
+    case positive_number(id) do
+      nil -> []
+      number -> [number]
+    end
+  end
+
+  defp touched_numbers(_type, _id), do: []
 
   defp parse_edge_id(id) when is_binary(id) do
     case String.split(id, ":") do
@@ -1544,18 +1557,37 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp parse_edge_id(_id), do: nil
 
-  defp selected_touches?(%{scope: {:selected, identity}}, left, right, members) do
+  defp selected_touches?(%{scope: {:selected, identity}} = entry, numbers) do
     root_number = identity_number(identity)
 
     if is_nil(root_number) do
       false
     else
-      members_of_root = Map.get(members, root_number, [])
-      root_number in [left, right] or left in members_of_root or right in members_of_root
+      watched_numbers = [root_number | selected_member_numbers(entry)]
+      Enum.any?(numbers, &(&1 in watched_numbers))
     end
   end
 
-  defp selected_touches?(_entry, _left, _right, _members), do: false
+  defp selected_touches?(_entry, _numbers), do: false
+
+  defp selected_member_numbers(%{data: %{members: members}}) when is_list(members) do
+    members
+    |> Enum.map(&identity_number(Map.get(&1, :identity)))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp selected_member_numbers(_entry), do: []
+
+  defp positive_number(number) when is_integer(number) and number > 0, do: number
+
+  defp positive_number(number) when is_binary(number) do
+    case Integer.parse(number) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _other -> nil
+    end
+  end
+
+  defp positive_number(_number), do: nil
 
   defp identity_number(%TrackerIdentity{identifier: identifier}) do
     case Integer.parse(identifier) do
