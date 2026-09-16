@@ -390,6 +390,9 @@ Holds limit only new admissions. Running agents and agent-spawned sub-agents con
 
 ## agent.codex
 
+Codex settings belong under `agent.codex`; a legacy root-level `codex:` section
+is rejected with a migration hint rather than silently falling back to defaults.
+
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `agent.codex.command` | string | `codex app-server` | Command launching the Codex app server. |
