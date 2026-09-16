@@ -452,7 +452,7 @@ defmodule Aiur.EnvTest do
       assert Env.precedence_conflicts(home_env, repo_env) == []
     end
 
-    test "warnings name the variable but never either value",
+    test "warnings name the variable but never either value, and say the repo value wins",
          %{home_env: home_env, repo_env: repo_env} do
       File.write!(home_env, "AIUR_DASHBOARD_PASSWORD=one\n")
       File.write!(repo_env, "AIUR_DASHBOARD_PASSWORD=two\n")
@@ -460,8 +460,49 @@ defmodule Aiur.EnvTest do
       [warning] = Env.precedence_warnings(Env.precedence_conflicts(home_env, repo_env))
 
       assert warning =~ "AIUR_DASHBOARD_PASSWORD"
+      assert warning =~ "the ./.env value wins and the ~/.aiur/.env value is ignored"
       refute warning =~ "one"
       refute warning =~ "two"
+    end
+
+    # #2638: the launcher drops every global GitHub credential once the repo
+    # file declares any member of the group, so a global App next to a
+    # repo-local token is reported even though the names never overlap.
+    test "global GitHub credentials are reported as ignored when the repo declares its own",
+         %{home_env: home_env, repo_env: repo_env} do
+      File.write!(
+        home_env,
+        "GITHUB_APP_ID=1\nGITHUB_APP_INSTALLATION_ID=2\nGITHUB_APP_PRIVATE_KEY_PATH=/k\nAIUR_DEBUG=1\n"
+      )
+
+      File.write!(repo_env, "GITHUB_TOKEN=repo-token\n")
+
+      assert Env.precedence_conflicts(home_env, repo_env) == [
+               {"GITHUB_APP_ID", "1", nil},
+               {"GITHUB_APP_INSTALLATION_ID", "2", nil},
+               {"GITHUB_APP_PRIVATE_KEY_PATH", "/k", nil}
+             ]
+
+      warnings = Env.precedence_warnings(Env.precedence_conflicts(home_env, repo_env))
+      assert length(warnings) == 3
+      assert Enum.all?(warnings, &(&1 =~ "declares its own GitHub credential"))
+      refute Enum.any?(warnings, &(&1 =~ "/k"))
+    end
+
+    test "a blank placeholder GITHUB_TOKEN= in the repo file is not a declaration",
+         %{home_env: home_env, repo_env: repo_env} do
+      File.write!(home_env, "GITHUB_APP_ID=1\nGITHUB_APP_INSTALLATION_ID=2\nGITHUB_APP_PRIVATE_KEY_PATH=/k\n")
+      File.write!(repo_env, "GITHUB_TOKEN=\n")
+
+      assert Env.precedence_conflicts(home_env, repo_env) == []
+    end
+
+    test "a global App with no repo-local credential is not a conflict",
+         %{home_env: home_env, repo_env: repo_env} do
+      File.write!(home_env, "GITHUB_APP_ID=1\nGITHUB_APP_INSTALLATION_ID=2\nGITHUB_APP_PRIVATE_KEY_PATH=/k\n")
+      File.write!(repo_env, "AIUR_BASE_BRANCH=main\n")
+
+      assert Env.precedence_conflicts(home_env, repo_env) == []
     end
   end
 

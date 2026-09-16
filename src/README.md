@@ -623,8 +623,9 @@ the same pressure evidence. This telemetry is measurement-only; it does not adap
 ## Configuration notes
 
 - Path values support `~` for the home directory and `$VAR` for environment substitution.
-- Run credentials resolve in this order: exported environment, `~/.aiur/.env`,
-  then repository-local `./.env`. The native provider variables are
+- Run credentials resolve in this order: exported environment, repository-local
+  `./.env`, then `~/.aiur/.env`; GitHub credentials resolve as one group from
+  the first file that sets any of them. The native provider variables are
   `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_KEY`;
   OpenRouter credit polling additionally uses `OPENROUTER_MANAGEMENT_KEY`.
   Keep values out of workflow YAML and Git.

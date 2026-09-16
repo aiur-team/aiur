@@ -212,8 +212,10 @@ makes HTTPS Just Work.
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
 from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
 credential precedence is: an already-exported environment value, then
-`~/.aiur/.env`, then `./.env` in the current repository. Each dotenv file only
-fills unset names. The Supervisor Decision API uses `AIUR_SUPERVISOR_TOKEN`;
+`./.env` in the current repository, then `~/.aiur/.env`. Each dotenv file only
+fills unset names, blank values count for nothing, and GitHub credentials
+(`GITHUB_TOKEN`, `GITHUB_APP_*`) resolve as one group from the first file that
+sets any of them. The Supervisor Decision API uses `AIUR_SUPERVISOR_TOKEN`;
 generate one with `openssl rand -base64 32`. The value must be at least 32
 bearer-safe bytes with no surrounding whitespace. An absent or empty value
 disables the API, while a present non-empty unusable value aborts startup.
