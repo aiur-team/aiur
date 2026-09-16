@@ -276,21 +276,42 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_selected_root(identity(root), base_opts(queued_responses(responses)))
   end
 
+  test "rejects a root child whose canonical parent is an anchored sibling" do
+    root = root(1)
+    anchored_sibling = member(2, root, labels: ["epic"])
+    misplaced_root_child = member(3, anchored_sibling)
+
+    assert {:error, %{error: :structurally_invalid}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(
+                 queued_responses([
+                   selected_response(root, [anchored_sibling, misplaced_root_child], 2),
+                   descendants_response([Map.put(anchored_sibling, "subIssues", connection([], 0, []))])
+                 ])
+               )
+             )
+  end
+
   test "rejects the first nested Epic frontier that exceeds the full GraphQL node shape" do
     root = root(1)
     first_epic = member(2, root, labels: ["epic"])
     second_epic = member(3, root, labels: ["epic"])
+    third_epic = member(4, root, labels: ["epic"])
     # At the default page size (25), each requested container can return 25
-    # children with three 100-node connections, plus 101 container nodes. The
-    # 490k safety budget permits 64 containers; this creates the next frontier
-    # at 65, which must fail before it can issue a >500k-node GraphQL query.
-    nested_epics = Enum.map(4..67, &member(&1, first_epic, labels: ["epic"]))
+    # children with three 100-node connections, plus 101 container nodes. A
+    # 65-container frontier costs 65 * 7,626 = 495,690 nodes, over the 490k
+    # safety budget (while 66 would cross GitHub's 500k limit).
+    first_nested = Enum.map(5..26, &member(&1, first_epic, labels: ["epic"]))
+    second_nested = Enum.map(27..48, &member(&1, second_epic, labels: ["epic"]))
+    third_nested = Enum.map(49..69, &member(&1, third_epic, labels: ["epic"]))
 
     responses = [
-      selected_response(root, [first_epic, second_epic], 2),
+      selected_response(root, [first_epic, second_epic, third_epic], 3),
       descendants_response([
-        Map.put(first_epic, "subIssues", connection(nested_epics, length(nested_epics), [])),
-        Map.put(second_epic, "subIssues", connection([member(68, second_epic, labels: ["epic"])], 1, []))
+        Map.put(first_epic, "subIssues", connection(first_nested, length(first_nested), [])),
+        Map.put(second_epic, "subIssues", connection(second_nested, length(second_nested), [])),
+        Map.put(third_epic, "subIssues", connection(third_nested, length(third_nested), []))
       ])
     ]
 
@@ -298,7 +319,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_selected_root(identity(root), base_opts(queued_responses(responses)))
 
     assert [%{"ids" => ids}] = drain_requests() |> Enum.drop(1)
-    assert MapSet.size(MapSet.new(ids)) == 2
+    assert MapSet.new(ids) == MapSet.new([first_epic["id"], second_epic["id"], third_epic["id"]])
   end
 
   test "marks catalog progress unresolved when no member lifecycle can be resolved" do

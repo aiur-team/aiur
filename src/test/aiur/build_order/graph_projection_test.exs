@@ -917,6 +917,44 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     assert {:selected, ^first} = await_selected_scope(first)
   end
 
+  test "a descendant dependency delivery refreshes only the retained root" do
+    first = identity(1, "I1")
+    second = identity(9, "I9")
+    epic = identity(2, "I2")
+    leaf = identity(3, "I3")
+
+    {:ok, projection} = start_projection()
+    _reader = await_reader(:catalog)
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    assert {:ok, _} = GraphProjection.demand(projection, second)
+    :ok = GraphProjection.refresh(projection, first)
+    :ok = GraphProjection.refresh(projection, second)
+
+    finish(
+      await_reader({:selected, first}),
+      {:ok, ProviderResult.complete(selected(first, @repository, [member(epic), member(leaf)]))}
+    )
+
+    finish(
+      await_reader({:selected, second}),
+      {:ok, ProviderResult.complete(selected(second))}
+    )
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^second}}}}, 2_000
+
+    send(projection, resource_change(:issue_dependency, "3:88"))
+
+    finish(
+      await_reader({:selected, first}),
+      {:ok, ProviderResult.complete(selected(first, @repository, [member(epic), member(leaf)]))}
+    )
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}, generation: generation}}}, 2_000
+    assert generation > 1
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
+  end
+
   # The catalog is event-sourced from `Aiur.BuildOrder.CatalogStore`, which is
   # fed by `sub_issues` / `issue_dependencies` deliveries. A repo with no
   # webhooks configured feeds it nothing at all after boot, so a store-only

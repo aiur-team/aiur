@@ -44,6 +44,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
     with {:ok, fetched_root, connection} <- Connection.selected(body),
          {:ok, paging} <- selected_root_page(paging, fetched_root),
          {:ok, nodes, total, page_info} <- Connection.parse(connection) do
+      nodes = stamp_yielding_parent(nodes, Map.get(fetched_root, "id"))
+
       case advance(paging, nodes, total, page_info, state) do
         {:next, paging, state} -> selected(paging, state)
         {:ok, nodes, state} -> expand_descendants(nodes, paging, state)
@@ -101,7 +103,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
     Enum.reduce_while(containers, {:ok, []}, fn container, {:ok, children} ->
       case Connection.parse(Map.get(container, "subIssues")) do
         {:ok, nodes, total, %{has_next?: false}} when total <= @member_limit and length(nodes) == total ->
-          owned_nodes = Enum.map(nodes, &Map.put(&1, "__aiur_expected_parent_id", Map.get(container, "id")))
+          owned_nodes = stamp_yielding_parent(nodes, Map.get(container, "id"))
           {:cont, {:ok, children ++ owned_nodes}}
 
         {:ok, _nodes, total, _page_info} when total > @member_limit ->
@@ -114,6 +116,10 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
           {:halt, {:error, :invalid_connection}}
       end
     end)
+  end
+
+  defp stamp_yielding_parent(nodes, parent_id) when is_list(nodes) do
+    Enum.map(nodes, &Map.put(&1, "__aiur_expected_parent_id", parent_id))
   end
 
   defp epic_ids(nodes) do
