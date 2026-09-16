@@ -235,6 +235,17 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  # A wake that collapsed a widened timer changes the countdown `aiur status`
+  # reads from the snapshot store, so republish it: otherwise the status line
+  # keeps showing the old 600s countdown after `aiur --todo` until the woken
+  # tick itself renders (#2640). A coalesced request changed nothing.
+  defp publish_collapsed_poll({:reply, %{coalesced: false} = result, state}) do
+    StatusReport.notify_dashboard(state)
+    {:reply, result, state}
+  end
+
+  defp publish_collapsed_poll(reply), do: reply
+
   @doc false
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(state, running_entry, new_status, reason),
@@ -414,6 +425,12 @@ defmodule Aiur.Orchestrator do
   def request_refresh, do: Lifecycle.request_refresh_api()
   @spec request_refresh(GenServer.server()) :: map() | :unavailable
   def request_refresh(server), do: Lifecycle.request_refresh_api(server)
+  @spec note_queued_demand([String.t()]) :: map() | :unavailable
+  def note_queued_demand(identifiers), do: note_queued_demand(__MODULE__, identifiers)
+  @spec note_queued_demand(GenServer.server(), [String.t()]) :: map() | :unavailable
+  def note_queued_demand(server, identifiers) when is_list(identifiers),
+    do: Lifecycle.note_queued_demand_api(server, identifiers)
+
   @spec send_operator_message(String.t() | Aiur.TrackerIdentity.t(), map()) :: {:ok, integer()} | {:error, term()}
   def send_operator_message(identifier, payload),
     do: OM.send_operator_message(identifier, payload)
@@ -691,7 +708,11 @@ defmodule Aiur.Orchestrator do
   def handle_call(:fleet_view, _from, state), do: StatusReport.fleet_view_call(state)
 
   def handle_call(:request_refresh, _from, state) do
-    Lifecycle.request_refresh(state)
+    state |> Lifecycle.request_refresh() |> publish_collapsed_poll()
+  end
+
+  def handle_call({:note_queued_demand, identifiers}, _from, state) when is_list(identifiers) do
+    state |> Lifecycle.note_queued_demand(identifiers) |> publish_collapsed_poll()
   end
 
   def handle_call({:send_operator_message, issue_identifier, payload}, _from, state),

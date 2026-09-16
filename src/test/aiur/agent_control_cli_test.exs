@@ -275,9 +275,9 @@ defmodule Aiur.AgentControlCLITest do
         send(parent, {:todo_remove_label, id, label})
         remove_result.(id, label)
       end,
-      request_refresh: fn ->
-        send(parent, :todo_request_refresh)
-        %{queued: true}
+      request_refresh: fn identifiers ->
+        send(parent, {:todo_request_refresh, identifiers})
+        Keyword.get(opts, :request_refresh_result, %{queued: true})
       end
     }
   end
@@ -489,9 +489,26 @@ defmodule Aiur.AgentControlCLITest do
     test "requests an immediate reconciliation after queueing work" do
       issues = %{"11" => %Issue{id: "node-11", identifier: "11", state: "open", labels: []}}
 
-      {_stdout, _stderr, 0} = capture_todo(["11"], deps: todo_deps(issues))
+      {_stdout, stderr, 0} = capture_todo(["11"], deps: todo_deps(issues))
 
-      assert_receive :todo_request_refresh
+      # The queued identifiers ride along so the daemon keeps polling at the
+      # base interval until it has actually seen them (#2640).
+      assert_receive {:todo_request_refresh, ["11"]}
+      assert stderr == ""
+    end
+
+    # A dropped wake must not be silent: the operator otherwise watches a
+    # backed-off countdown that nothing shortened with no way to tell whether
+    # the daemon heard them (#2640). The tracker write still succeeded, so the
+    # exit code stays 0.
+    test "says so when the daemon did not accept the poll refresh" do
+      issues = %{"11" => %Issue{id: "node-11", identifier: "11", state: "open", labels: []}}
+
+      {stdout, stderr, 0} = capture_todo(["11"], deps: todo_deps(issues, request_refresh_result: :unavailable))
+
+      assert_receive {:todo_request_refresh, ["11"]}
+      assert stdout =~ "queued 1 ticket(s)"
+      assert stderr =~ "the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll"
     end
 
     test "mutates the tracker and emits the control exit marker" do
@@ -886,10 +903,14 @@ defmodule Aiur.AgentControlCLITest do
         AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
       end)
 
+    # The backoff is designed, so the line names the cause and the knob that
+    # sized it rather than reading as a fault — and never says "has not polled
+    # yet", because a backoff only exists after a completed poll (#2640).
     assert output =~
-             "AGENTS 0/2 (binding: has not polled yet (POLL backed off, next poll in 590s; ceiling: config max_concurrent_agents))"
+             "AGENTS 0/2 (binding: idle backoff active (no dispatchable demand at last poll; polling.idle_widen_factor=5.0, next poll in 590s; ceiling: config max_concurrent_agents))"
 
     refute output =~ "binding: ticket supply"
+    refute output =~ "has not polled yet"
   end
 
   test "status never blames ticket supply when the last candidate fetch failed" do
