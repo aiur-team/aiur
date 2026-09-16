@@ -43,10 +43,48 @@ defmodule Aiur.Init do
         location = Questions.prompt_location(io)
         fresh_setup(io, deps, location, deps.config_target.(location))
 
+      {_kind, :global, _path} = target ->
+        resume_or_scope_global(io, deps, target)
+
       target ->
         resume(io, deps, target)
     end
   end
+
+  # A global config found where no repo-local one exists is not necessarily
+  # this repository's config: a `tracker.github.repo` pinned in it would make
+  # every other repo the operator inits file and dispatch against that
+  # repository (#2637). Ask which scope to use instead of resuming unprompted.
+  defp resume_or_scope_global(io, deps, {kind, :global, path} = target) do
+    global_repo = global_tracker_repo(deps, kind, path)
+    local_repo = deps.detect_repo.()
+
+    case Questions.prompt_config_scope(io, path, local_repo, default_config_scope(global_repo, local_repo)) do
+      :global -> resume(io, deps, target)
+      :repo_local -> fresh_setup(io, deps, :repo_local, deps.config_target.(:repo_local))
+    end
+  end
+
+  # Reads the global config once more than `resume/3` will; the file is small
+  # and the second load keeps the resume path identical to the repo-local one.
+  defp global_tracker_repo(deps, :new, path) do
+    case deps.load_config.(path) do
+      {:ok, config} -> get_in(config, ["tracker", "github", "repo"])
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp global_tracker_repo(_deps, :legacy, _path), do: nil
+
+  # Repo-local is the default only when the checkout's remote is a different
+  # repository from the one the global config tracks. A match — or a global
+  # config that pins no repo, or a directory with no detectable remote — means
+  # the operator is re-initing the repository the global config already serves.
+  defp default_config_scope(global_repo, local_repo) when is_binary(global_repo) and is_binary(local_repo) do
+    if String.downcase(global_repo) == String.downcase(local_repo), do: :global, else: :repo_local
+  end
+
+  defp default_config_scope(_global_repo, _local_repo), do: :global
 
   defp init_warning do
     "⚠️  Use at your own risk: aiur bypasses all agent permissions, is an unstable preview, and " <>
