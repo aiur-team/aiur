@@ -8,8 +8,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
   alias Aiur.Config.Paths
-  alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
+  alias Aiur.Events.{GithubCIPoller, GithubKeys, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -587,6 +588,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
           |> reconcile_draft_stall_alert(issue, result, opts)
           |> reconcile_parked_ready_alert(issue, result, opts)
           |> reconcile_base_repair_invalidation(issue, result)
+          |> publish_ready_for_review_transition(issue, result)
           |> stash_last_ci_result(issue, result)
           |> apply_ci_poll_result(issue, result)
         end
@@ -981,6 +983,32 @@ defmodule Aiur.Orchestrator.CiLifecycle do
           %{state | ci_lifecycle: ci_lifecycle}
         end
     end
+  end
+
+  # GitHub's repository Events API does not expose draft-to-ready transitions.
+  # The CI poll already reads draft state for every in-flight PR, so compare its
+  # complete consecutive observations and publish the same PR lifecycle topic
+  # the webhook emits. The Publisher key suppresses repeated observations of
+  # the same PR head while the live daemon remains up.
+  defp publish_ready_for_review_transition(%State{} = state, %Issue{} = issue, result) do
+    target = ci_target_for_issue(issue)
+    previous = get_in(state.ci_lifecycle, [:poll_cache, target])
+
+    with %{draft?: true, pr_number: pr_number, head_sha: _previous_head_sha} <- previous,
+         false <- Map.get(result, :draft?),
+         ^pr_number <- Map.get(result, :pr_number),
+         head_sha when is_binary(head_sha) and head_sha != "" <- Map.get(result, :head_sha),
+         true <- is_integer(pr_number),
+         repo when is_binary(repo) <- GitHubConfig.repo() do
+      Publisher.publish(
+        "ticket.#{target}.pr.ready_for_review",
+        %{action: "ready_for_review", pr: %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}},
+        issue_number: target,
+        dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", head_sha)
+      )
+    end
+
+    state
   end
 
   defp ci_result_projection(result, previous) do

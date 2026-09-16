@@ -448,6 +448,26 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert event.message == "CI passed for the current PR head"
     end
 
+    test "a draft PR becoming ready publishes ready_for_review once for its current head" do
+      identifier = unique_identifier("ready-for-review")
+      topic = "ticket.#{identifier}.pr.ready_for_review"
+      recorder = start_recorder(topic)
+      issue = issue(identifier, "human-review")
+
+      first = poll_ci(running_state(issue, recorder, :working, []), issue, %{decision: :passed, head_sha: "draft-head", pr_number: 941, draft?: true})
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+
+      next = poll_ci(first, issue, %{decision: :passed, head_sha: "ready-head", pr_number: 941, draft?: false})
+      sync_recorder(recorder)
+
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 941, "draft" => false, "head" => %{"sha" => "ready-head"}}}}}
+
+      _unchanged = poll_ci(next, issue, %{decision: :passed, head_sha: "ready-head", pr_number: 941, draft?: false})
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+    end
+
     test "alerts once when an approved, green PR is still a draft (#1974)" do
       identifier = unique_identifier("ci-draft-stall")
       alert_topic = "ticket.#{identifier}.pr.draft_approved_green"
