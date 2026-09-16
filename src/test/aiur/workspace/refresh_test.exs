@@ -206,7 +206,7 @@ defmodule Aiur.Workspace.RefreshTest do
                  {"GITHUB_TOKEN", ""},
                  {"GH_TOKEN", ""},
                  {"GH_CONFIG_DIR", expected_config_dir},
-                 {"PATH", "#{AgentGitHubGuard.bin_dir(workspace)}:#{System.get_env("PATH")}"}
+                 {"PATH", "#{AgentGitHubGuard.bin_dir(workspace)}:#{Path.dirname(fake_gh)}:/usr/bin:/bin"}
                ],
                stderr_to_stdout: true
              )
