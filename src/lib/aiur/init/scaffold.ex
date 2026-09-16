@@ -191,9 +191,8 @@ defmodule Aiur.Init.Scaffold do
            :ok <- chmod_fun.(temporary, 0o600),
            {:ok, %File.Stat{mode: mode}} <- File.stat(temporary),
            true <- rem(mode, 0o1000) == 0o600 || {:error, :insecure_permissions},
-           :ok <- File.write(temporary, content),
-           :ok <- File.rename(temporary, path) do
-        :ok
+           :ok <- File.write(temporary, content) do
+        File.rename(temporary, path)
       end
 
     File.rm(temporary)
