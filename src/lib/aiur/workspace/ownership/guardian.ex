@@ -107,7 +107,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
       process_identity_fun: Keyword.get(opts, :process_identity_fun, &RemoteControl.process_identity/1),
       telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
-      host_lock: nil,
+      host_lock: Map.get(receipt, :host_lock),
       reaping?: false,
       release_requested?: false
     }
@@ -258,7 +258,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   # BEAM pid or race an unreaped provider.
   defp track_host_lock(%{lease: %{generation: generation, phase: phase}} = state, generation, lock)
        when phase in [:provisioning, :active] do
-    {:ok, %{state | host_lock: lock}}
+    persist_update(state, %{state | host_lock: lock})
   end
 
   defp track_host_lock(state, _generation, _lock), do: {{:error, :workspace_ownership_lost}, state}
@@ -589,7 +589,8 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       phase: state.lease.phase,
       provider_expected?: state.provider_expected?,
       provider: state.provider,
-      provider_cleanup: state.provider_cleanup
+      provider_cleanup: state.provider_cleanup,
+      host_lock: state.host_lock
     }
   end
 

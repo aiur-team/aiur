@@ -175,6 +175,8 @@ defmodule Aiur.Workspace.Ownership do
     end
   end
 
+  defp timeout_result({:track_host_lock, _generation, _lock}), do: {:error, :workspace_ownership_lost}
+
   defp timeout_result({operation, _generation})
        when operation in [
               :activate,
@@ -188,4 +190,7 @@ defmodule Aiur.Workspace.Ownership do
 
   defp timeout_result({:release_and_wait, _generation}), do: {:error, :workspace_ownership_lost}
   defp timeout_result(_message), do: :ok
+
+  @doc false
+  def timeout_result_for_test(message), do: timeout_result(message)
 end

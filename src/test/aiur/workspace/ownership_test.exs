@@ -5,6 +5,11 @@ defmodule Aiur.Workspace.OwnershipTest do
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.{Guardian, Store}
 
+  test "a timed-out host-lock handoff reports lost ownership" do
+    assert {:error, :workspace_ownership_lost} =
+             Ownership.timeout_result_for_test({:track_host_lock, 1, %{path: "/workspace.lock"}})
+  end
+
   test "a generation excludes a competing runner until it releases" do
     ticket = "ownership-#{System.unique_integer([:positive])}"
 

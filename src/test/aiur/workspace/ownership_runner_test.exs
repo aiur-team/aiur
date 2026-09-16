@@ -2,6 +2,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
   use Aiur.TestSupport
 
   alias Aiur.Workspace.{HostLock, Ownership}
+  alias Aiur.Workspace.Ownership.Store
 
   test "a competing runner cannot replace the checkout owned by a paused provisioning generation" do
     test_root = Aiur.TestSupport.tmp_root!("workspace-ownership")
@@ -116,6 +117,9 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
       launch_trace |> File.read!() |> String.trim() |> String.split("\t")
 
     assert File.dir?(launched_workspace)
+    assert {:ok, %{host_lock: %{path: lock_path, holder: %{owner_id: owner_id}}}} = Store.get(identifier)
+    assert lock_path == HostLock.lock_path(Path.join(workspace_root, identifier))
+    assert is_binary(owner_id)
 
     second = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> AgentRunner.run(issue, test_pid) end)
 
