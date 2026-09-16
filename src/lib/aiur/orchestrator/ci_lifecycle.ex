@@ -988,8 +988,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   # GitHub's repository Events API does not expose draft-to-ready transitions.
   # The CI poll already reads draft state for every in-flight PR, so compare its
   # complete consecutive observations and publish the same PR lifecycle topic
-  # the webhook emits. The Publisher key makes repeated observations of the
-  # same PR head harmless if the process restarts or GitHub redelivers state.
+  # the webhook emits. The Publisher key suppresses repeated observations of
+  # the same PR head while the live daemon remains up.
   defp publish_ready_for_review_transition(%State{} = state, %Issue{} = issue, result) do
     target = ci_target_for_issue(issue)
     previous = get_in(state.ci_lifecycle, [:poll_cache, target])
