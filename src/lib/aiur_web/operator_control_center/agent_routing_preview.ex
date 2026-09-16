@@ -15,6 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
 
   alias Aiur.{CodingAgent, Config, Issue}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.Labels
   alias Aiur.GitHub.StatePolicy
 
   @complexities 1..5
@@ -144,7 +145,7 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
 
     add =
       [
-        state_label(),
+        initial_state_label(existing),
         complexity_label(Map.get(selection, :complexity)),
         backend_label(Map.get(selection, :backend), Map.get(selection, :model)),
         effort_label(Map.get(selection, :effort))
@@ -175,6 +176,13 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
   # The active-state label is what the orchestrator's candidate poll selects on,
   # so without it "add an agent" would leave the ticket exactly as undispatchable
   # as it was. Non-GitHub trackers have no such label vocabulary here.
+  defp initial_state_label(existing) do
+    states = Config.active_states() ++ Config.terminal_states()
+    prefix = GitHubConfig.label_prefix()
+    labels = Labels.state_labels(prefix) ++ Enum.map(states, &StatePolicy.state_label(prefix, &1))
+    if Enum.any?(existing, &(&1 in labels)), do: nil, else: state_label()
+  end
+
   defp state_label do
     case Config.active_states() do
       [state | _rest] when is_binary(state) -> StatePolicy.state_label(GitHubConfig.label_prefix(), state)

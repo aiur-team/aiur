@@ -87,8 +87,11 @@ The Tickets panel covers every open repository ticket, including work that has n
 | Tickets panel | Shows identifier, title, and labels for the entire open backlog. |
 | Ticket row | Opens ticket detail. |
 | Robot action | Opens an editable routing preview for agent, model, effort, and complexity. |
-| Confirm add-agent | Applies the first active-state label and selected routing overrides. |
+| Confirm add-agent | Saves selected routing overrides asynchronously, adding the first active-state label only when no lifecycle state exists. The dialog closes after successful writes and reports dispatch authorization separately from scheduler admission. |
+| Check admission | Rechecks an already labelled ticket without rewriting its labels. Authorization can still decline; an allowed GitHub operator must remove and reapply the trigger label using their own account. |
 | Non-GitHub tracker | Reports the panel as unsupported. |
+
+While the request runs, duplicate submission is disabled and Close stays responsive. Partial failures retain applied changes and retry only the remaining label changes. Successful label writes do not prove an agent is running: pause, prewarm, capacity, and dependency gates can still hold dispatch. See [GitHub trust](/apis/github#who-aiur-trusts).
 
 ### Reveal and search
 

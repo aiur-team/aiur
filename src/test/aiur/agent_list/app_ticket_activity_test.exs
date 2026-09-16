@@ -4,6 +4,11 @@ defmodule Aiur.AgentList.AppTicketActivityTest do
   alias Aiur.{AgentEvents, TrackerIdentity}
   alias Aiur.AgentList.App
 
+  setup do
+    assert :ok = Aiur.TestSupport.ensure_pubsub_running()
+    :ok
+  end
+
   test "subscribes before loading and does not let a queued equal generation overwrite the snapshot" do
     parent = self()
     ticket = identity()
