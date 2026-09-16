@@ -19,7 +19,7 @@ defmodule Aiur.Init.Codeowners do
     repo_root
     |> then(fn repo_root -> Codeowners.file_path(repo_root: repo_root) end)
     |> maybe_create_codeowners(io, repo_root)
-    |> maybe_add_operator_codeowner(io, deps, repo_root, tracker[:operator_account])
+    |> maybe_add_operator_codeowner(io, deps, repo_root, tracker[:operator_account], tracker[:operator_account_skipped])
   end
 
   def setup_codeowners(_io, _deps, _tracker), do: :ok
@@ -73,9 +73,11 @@ defmodule Aiur.Init.Codeowners do
     end
   end
 
-  defp maybe_add_operator_codeowner(nil, _io, _deps, _repo_root, _operator), do: :ok
+  defp maybe_add_operator_codeowner(nil, _io, _deps, _repo_root, _operator, _operator_skipped), do: :ok
 
-  defp maybe_add_operator_codeowner(path, io, deps, repo_root, operator) do
+  defp maybe_add_operator_codeowner(_path, _io, _deps, _repo_root, _operator, true), do: :ok
+
+  defp maybe_add_operator_codeowner(path, io, deps, repo_root, operator, _operator_skipped) do
     detected_login = operator || deps.github_login.()
     detected_login = detected_login |> Edit.normalize_login() |> valid_login_or_nil()
 

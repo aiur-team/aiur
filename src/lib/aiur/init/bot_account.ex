@@ -16,7 +16,6 @@ defmodule Aiur.Init.BotAccount do
   """
 
   alias Aiur.Codeowners.Edit
-  alias Aiur.Init.Format
 
   # GitHub login: 1–39 chars, alphanumeric with single internal hyphens, never
   # leading/trailing hyphen. Matched after `Edit.normalize_login/1` lowercases.
@@ -48,11 +47,10 @@ defmodule Aiur.Init.BotAccount do
         choose_identity_mode(io, tracker, operator, bot_default)
 
       {nil, bot_default} when is_binary(bot_default) ->
-        Map.merge(tracker, %{bot_account: bot_default, identity_mode: "separate_account"})
+        Map.merge(tracker, %{bot_account: bot_default, identity_mode: "separate_account", operator_account_skipped: true})
 
       {nil, nil} ->
-        io.puts.(Format.dim("Skipped GitHub identity setup because no account was provided."))
-        tracker
+        Map.put(tracker, :operator_account_skipped, true)
     end
   end
 
@@ -70,7 +68,7 @@ defmodule Aiur.Init.BotAccount do
            io.input.(
              @operator_label,
              nil,
-             "This account will be trusted to direct Aiur from PR and issue comments. Leave blank to skip GitHub identity setup."
+             "This account will be trusted to direct Aiur from PR and issue comments. Leave blank to skip adding your account to CODEOWNERS."
            )
          ) do
       nil ->

@@ -1316,6 +1316,36 @@ defmodule Aiur.InitTest do
       assert written_config(target)["tracker"]["github"]["identity_mode"] == "separate_account"
     end
 
+    test "a blank human account retains a detected bot without asking for a CODEOWNERS account", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{"Your GitHub account" => ""}})
+
+      d =
+        deps(self(), dir, target, %{
+          github_login: fn -> nil end,
+          github_bot_account_default: fn -> "agent-bot" end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      github = written_config(target)["tracker"]["github"]
+      assert github["bot_account"] == "agent-bot"
+      assert github["identity_mode"] == "separate_account"
+      refute "GitHub account to add to CODEOWNERS" in input_labels()
+      refute File.read!(codeowners_path(dir)) =~ "@agent-bot"
+    end
+
+    test "a blank human account with no bot does not prompt for CODEOWNERS again", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{"Your GitHub account" => ""}})
+      d = deps(self(), dir, target, %{github_login: fn -> nil end, github_bot_account_default: fn -> nil end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      github = written_config(target)["tracker"]["github"]
+      refute Map.has_key?(github, "bot_account")
+      refute Map.has_key?(github, "identity_mode")
+      refute "GitHub account to add to CODEOWNERS" in input_labels()
+    end
+
     test "a failed token-identity lookup writes no bot_account and never exposes token material",
          %{dir: dir, target: target} do
       secret = "ghp_supersecrettokenvalue"
