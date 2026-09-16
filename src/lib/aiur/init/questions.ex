@@ -31,7 +31,11 @@ defmodule Aiur.Init.Questions do
   def prompt_config_scope(io, global_path, repo, default) do
     label = "Use the global config at #{global_path}, or create a repo-local .aiur/config for #{repo || "this repository"}?"
 
-    Format.print_hint(io, "A global config pinned to one tracker repo would make this repository file and dispatch against that repo.")
+    # Repo-local is only the default when the global config tracks a different
+    # repository, so that is the one case where the warning is true.
+    if default == :repo_local do
+      Format.print_hint(io, "The global config tracks a different repository; resuming it would make this repository file and dispatch against that one.")
+    end
 
     io.select.(label, @location_options, location_option(default))
     |> parse_location()

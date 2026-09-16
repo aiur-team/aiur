@@ -64,6 +64,8 @@ defmodule Aiur.Init do
     end
   end
 
+  # Reads the global config once more than `resume/3` will; the file is small
+  # and the second load keeps the resume path identical to the repo-local one.
   defp global_tracker_repo(deps, :new, path) do
     case deps.load_config.(path) do
       {:ok, config} -> get_in(config, ["tracker", "github", "repo"])

@@ -2128,6 +2128,8 @@ defmodule Aiur.InitTest do
       assert label =~ "repo-local .aiur/config for this repository?"
     end
 
+    # Regression guard for pre-existing behavior: a repo-local config must keep
+    # winning the probe, so the new scope prompt never fires here.
     test "an existing repo-local config resumes without the scope prompt", %{dir: dir, target: target} do
       {d, _global_target} = scoped_deps(self(), dir, target, "octo/other")
       File.write!(target, global_config_yaml("octo/repo"))
@@ -2138,6 +2140,8 @@ defmodule Aiur.InitTest do
       assert Enum.any?(puts_log(), &(&1 =~ "Found an existing config at #{target}; resuming setup."))
     end
 
+    # Regression guard for pre-existing behavior: --force still asks the plain
+    # location question and writes only the chosen target.
     test "--force skips the scope prompt and scopes the fresh setup to the chosen location", %{dir: dir, target: target} do
       {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
       global_before = File.read!(global_target)
@@ -2147,6 +2151,18 @@ defmodule Aiur.InitTest do
       assert scope_prompt() == nil
       assert_received {:write, ^target}
       assert File.read!(global_target) == global_before
+    end
+
+    test "an unreadable global config defaults to global and keeps the --force hint", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      File.write!(global_target, "- not\n- a\n- map\n")
+
+      assert {:error, message} = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+      assert message =~ "Couldn't read the existing config at #{global_target}"
+      assert message =~ "--force"
+      refute_received {:write, _path}
     end
 
     test "a legacy global config still offers a repo-local setup", %{dir: dir, target: target} do
