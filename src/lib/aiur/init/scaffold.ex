@@ -189,13 +189,15 @@ defmodule Aiur.Init.Scaffold do
     lines = String.split(content, "\n")
 
     if Enum.any?(lines, &github_token_line?/1) do
-      lines
-      |> Enum.map(fn existing -> if github_token_line?(existing), do: line, else: existing end)
-      |> Enum.join("\n")
+      Enum.map_join(lines, "\n", &replace_github_token_line(&1, line))
     else
       separator = if content == "" or String.ends_with?(content, "\n"), do: "", else: "\n"
       content <> separator <> line <> "\n"
     end
+  end
+
+  defp replace_github_token_line(existing, line) do
+    if github_token_line?(existing), do: line, else: existing
   end
 
   defp github_token_line?(line) do
