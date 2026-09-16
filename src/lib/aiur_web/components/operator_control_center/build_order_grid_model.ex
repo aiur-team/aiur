@@ -98,6 +98,34 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp planning?(%AiurWeb.BuildOrderViewModel{planning?: planning?}), do: planning? == true
   defp planning?(_model), do: false
 
+  @doc """
+  The single per-member completion basis every Build Order surface shares:
+  accepted lifecycle completion first (merged or closed-completed is 100%, any
+  other closed state is 0%), then a fresh or last-known worker reading at face
+  value (last-known tagged with `stale_count`/`stale_observed_at`), and
+  otherwise unresolved. Surfaces that fold members into rows must aggregate
+  these with `aggregate/1` so their percentages and coverage cannot disagree.
+  """
+  @spec member_completion(Node.t()) :: completion()
+  def member_completion(%Node{card: card} = node) do
+    core_completion(
+      status_key(node) == :status_completed,
+      Map.get(card, :progress),
+      Map.get(card, :progress_freshness),
+      Map.get(card, :progress_observed_at),
+      Map.get(card, :lifecycle)
+    )
+  end
+
+  @doc """
+  Complexity-weighted completion over cards carrying `completion` and
+  `complexity`: a resolved card contributes its progress fraction at its
+  complexity weight (1 when unknown); unresolved cards reduce coverage, so the
+  aggregate becomes `:partial` instead of silently counting them as 0%.
+  """
+  @spec aggregate([%{completion: completion(), complexity: pos_integer() | nil}]) :: completion()
+  def aggregate(cards) when is_list(cards), do: aggregate_completion(cards)
+
   # --- cards ------------------------------------------------------------------
 
   defp core_cards(%AiurWeb.BuildOrderViewModel{nodes: nodes}, planning?) when is_list(nodes),
@@ -122,15 +150,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     status_key = status_key(node)
     merged = status_key == :status_completed
     complexity = complexity(node)
-
-    completion =
-      core_completion(
-        merged,
-        Map.get(card, :progress),
-        Map.get(card, :progress_freshness),
-        Map.get(card, :progress_observed_at),
-        Map.get(card, :lifecycle)
-      )
+    completion = member_completion(node)
 
     %{
       id: identifier(card),
@@ -355,8 +375,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp adhoc_status_word(:working), do: "agent live"
   defp adhoc_status_word(_state), do: "ad hoc"
 
-  # Accepted completion (merged) always wins over any activity reading.
+  # Accepted lifecycle completion always wins over any activity reading, in
+  # both directions: merged (or closed as completed) is 100%, and a ticket
+  # closed any other way — not planned, duplicate, cancelled — finished without
+  # completing its work and is resolved at 0% even if a worker once reported a
+  # percent for it. Retained worker progress only ever describes open work.
   defp core_completion(true, _raw, _freshness, _observed_at, _lifecycle), do: completion(100, :resolved, 1, 1)
+  defp core_completion(false, _raw, _freshness, _observed_at, %{state: :closed, state_reason: :completed}), do: completion(100, :resolved, 1, 1)
+  defp core_completion(false, _raw, _freshness, _observed_at, %{state: :closed}), do: completion(0, :resolved, 1, 1)
 
   # A known percent counts at face value whether the reading is live or the
   # last one observed before an agent paused. A last-known reading is tagged,
@@ -364,14 +390,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_completion(false, raw, :stale, observed_at, _lifecycle) when is_integer(raw) and raw in 0..100,
     do: completion(raw, :resolved, 1, 1, 1, datetime_or_nil(observed_at))
 
-  defp core_completion(false, raw, _freshness, _observed_at, _lifecycle) when is_integer(raw) and raw in 0..100, do: completion(raw, :resolved, 1, 1)
+  defp core_completion(false, raw, :fresh, _observed_at, _lifecycle) when is_integer(raw) and raw in 0..100, do: completion(raw, :resolved, 1, 1)
 
-  # A closed ticket that was not completed finished without completing its
-  # work: resolved at 0%, so a wave or epic of all-terminal members reports
-  # `:resolved`. An open ticket with no reading at all is a different fact —
-  # nothing has been observed, not zero work — and stays unresolved rather than
-  # becoming a confident 0% that a missing observation would then stand for.
-  defp core_completion(false, _raw, _freshness, _observed_at, %{state: :closed}), do: completion(0, :resolved, 1, 1)
+  # An open ticket with no reading — or a reading whose freshness cannot be
+  # established — is a different fact from zero work: nothing usable has been
+  # observed, so it stays unresolved rather than becoming a confident 0%.
   defp core_completion(_merged, _raw, _freshness, _observed_at, _lifecycle), do: completion(nil, :unresolved, 0, 1)
 
   defp adhoc_completion(true, _raw), do: completion(100, :resolved, 1, 1)

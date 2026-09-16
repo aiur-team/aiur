@@ -1461,7 +1461,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         lifecycle: %{state: :open, state_reason: :none},
         execution_state: :idle,
         agent_stage: nil,
-        progress: Keyword.get(opts, :progress, :unknown)
+        progress: Keyword.get(opts, :progress, :unknown),
+        # A bare integer in a fixture is a live reading unless the test says otherwise.
+        progress_freshness: Keyword.get(opts, :progress_freshness, if(is_integer(Keyword.get(opts, :progress)), do: :fresh, else: :unknown))
       }
     }
   end

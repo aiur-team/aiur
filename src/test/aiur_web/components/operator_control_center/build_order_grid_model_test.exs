@@ -189,6 +189,48 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       assert card.completion == %{progress: 0, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1, stale_count: 0, stale_observed_at: nil}
     end
 
+    # Accepted lifecycle outranks retained worker progress in both directions:
+    # a ticket closed as not planned or duplicate is 0% even if a worker once
+    # reported 80%, and one closed as completed is 100% regardless.
+    test "closed not-planned and duplicate lifecycles resolve to zero ahead of a retained 80% reading" do
+      for reason <- [:not_planned, :duplicate] do
+        model =
+          model([
+            node(:a, "A", "plan-graph", 1,
+              status: :status_not_planned,
+              progress: 80,
+              progress_freshness: :stale,
+              progress_observed_at: @stale_at,
+              lifecycle: %{state: :closed, state_reason: reason}
+            )
+          ])
+
+        [card] = BuildOrderGridModel.build(model, nil).cards
+
+        assert card.completion == %{progress: 0, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1, stale_count: 0, stale_observed_at: nil},
+               "closed #{reason} must resolve to zero, not the retained reading"
+      end
+    end
+
+    test "a lifecycle closed as completed is 100% even when the status icon is not merged" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1, status: :status_paused, progress: 80, progress_freshness: :stale, progress_observed_at: @stale_at, lifecycle: %{state: :closed, state_reason: :completed})
+        ])
+
+      [card] = BuildOrderGridModel.build(model, nil).cards
+
+      assert card.completion == %{progress: 100, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1, stale_count: 0, stale_observed_at: nil}
+    end
+
+    test "an open member whose reading has unknown freshness stays unresolved" do
+      model = model([node(:a, "A", "plan-graph", 1, status: :status_working, progress: 80, progress_freshness: :unknown, progress_observed_at: @stale_at)])
+
+      [card] = BuildOrderGridModel.build(model, nil).cards
+
+      assert card.completion == %{progress: nil, progress_resolution: :unresolved, progress_resolved_count: 0, member_count: 1, stale_count: 0, stale_observed_at: nil}
+    end
+
     # An aggregate may only claim an oldest reading when every retained reading
     # has a timestamp; one without leaves the age unknown.
     test "one stale reading without a timestamp leaves the aggregate age unknown" do
@@ -292,7 +334,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
         execution_state: :idle,
         agent_stage: nil,
         progress: Keyword.get(opts, :progress, :unknown),
-        progress_freshness: Keyword.get(opts, :progress_freshness, :unknown),
+        # A bare integer in a fixture is a live reading unless the test says otherwise.
+        progress_freshness: Keyword.get(opts, :progress_freshness, if(is_integer(Keyword.get(opts, :progress)), do: :fresh, else: :unknown)),
         progress_observed_at: Keyword.get(opts, :progress_observed_at),
         planned?: Keyword.get(opts, :planned?, false)
       }
