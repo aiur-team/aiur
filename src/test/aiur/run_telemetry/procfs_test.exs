@@ -35,6 +35,31 @@ defmodule Aiur.RunTelemetry.ProcfsTest do
     assert Enum.any?(warnings, &(&1.pid == 2 and &1.field == :stat))
   end
 
+  test "process_table/1 summarises mid-scan exits as one counted warning", %{root: root} do
+    write_process(root, 1, stat_line(1, "beam.smp", 0, 5, 6, 10))
+    write_process(root, 2, "malformed")
+
+    # Directories with no readable `stat` stand in for PIDs that exited between
+    # the proc listing and the read.
+    for pid <- [3, 4, 5], do: File.mkdir_p!(Path.join(root, Integer.to_string(pid)))
+
+    assert {:ok, table, warnings} = Procfs.process_table(root: root)
+    assert Map.keys(table) == [1]
+
+    assert [%{pid: nil, field: :stat, reason: :vanished_during_scan, count: 3}] =
+             Enum.filter(warnings, &(&1.reason == :vanished_during_scan))
+
+    refute Enum.any?(warnings, &(&1.reason == :enoent))
+    assert Enum.any?(warnings, &(&1.pid == 2 and &1.reason == :malformed_stat))
+    assert length(warnings) == 2
+  end
+
+  test "process_table/1 emits no vanished warning when every PID reads", %{root: root} do
+    write_process(root, 1, stat_line(1, "beam.smp", 0, 5, 6, 10))
+
+    assert {:ok, _table, []} = Procfs.process_table(root: root)
+  end
+
   test "measure_many/3 keeps partial processes when files disappear", %{root: root} do
     write_process(root, 1, stat_line(1, "beam.smp", 0, 5, 6, 10))
     write_details(root, 1, rss_kb: 100, read_bytes: 20, write_bytes: 30, fds: 3)

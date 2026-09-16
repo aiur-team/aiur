@@ -820,7 +820,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       state = base_state()
 
       result =
-        CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123", open_pull_requests_fun: fn _identifier -> {:ok, []} end)
+        CommentWake.mark_pr_merged_issue_done(state, "424242", pr_body: "Closes #424242", open_pull_requests_fun: fn _identifier -> {:ok, []} end)
 
       assert result == state
     end
@@ -846,6 +846,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #42",
           update_issue_state_fun: fn _identifier, "done" -> :ok end,
           clear_session_handle_fun: fn _identifier -> :ok end,
           observe_membership_fun: fn identity, lifecycle ->
@@ -903,6 +904,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #42",
           update_issue_state_fun: fn identifier, "done" ->
             send(parent, {:transitioned_to_done, identifier})
             :ok
@@ -964,6 +966,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #42",
           update_issue_state_fun: fn identifier, "done" ->
             attempt = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
             send(parent, {:terminal_write, identifier, attempt})
@@ -1008,16 +1011,17 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       log =
         capture_log(fn ->
-          assert CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+          assert CommentWake.mark_pr_merged_issue_done(state, "424242",
+                   pr_body: "Closes #424242",
                    open_pull_requests_fun: fn _identifier -> {:error, {:github, :local_hold, detail}} end,
                    local_hold_sleep_fun: fn _ms -> flunk("must not sleep for a beyond-ceiling hold") end
                  ) == state
         end)
 
       assert log =~
-               "[alert] (#nonexistent-123) ticket.nonexistent-123.agent.attention.merge_terminal_write_failed"
+               "[alert] (#424242) ticket.424242.agent.attention.merge_terminal_write_failed"
 
-      assert log =~ "Merged PR could not transition ticket nonexistent-123 to done"
+      assert log =~ "Merged PR could not transition ticket 424242 to done"
     end
 
     # #2467 guard on the `done` write itself: a beyond-ceiling hold fails the
@@ -1045,6 +1049,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #42",
           update_issue_state_fun: fn _identifier, "done" -> {:error, {:github, :local_hold, detail}} end,
           observe_membership_fun: fn _identity, _lifecycle ->
             send(parent, :membership_recorded)
@@ -1064,7 +1069,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       state = base_state()
       parent = self()
 
-      CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+      CommentWake.mark_pr_merged_issue_done(state, "424242",
+        pr_body: "Closes #424242",
         merged_by_login: "its-everdred",
         update_issue_state_fun: fn _id, "done" -> :ok end,
         merger_allowed_fun: fn login ->
@@ -1086,7 +1092,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       state = base_state()
       parent = self()
 
-      CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+      CommentWake.mark_pr_merged_issue_done(state, "424242",
+        pr_body: "Closes #424242",
         merged_by_login: "unknown-bot",
         update_issue_state_fun: fn _id, "done" -> :ok end,
         merger_allowed_fun: fn login ->
@@ -1101,10 +1108,10 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       )
 
       assert_receive {:checked_allowlist, "unknown-bot"}
-      assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
+      assert_receive {:alert_emitted, "ticket.424242.merge.unauthorized_merger", opts}
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :severity) == "critical"
-      assert Keyword.get(opts, :issue) == "nonexistent-123"
+      assert Keyword.get(opts, :issue) == "424242"
       assert Keyword.get(opts, :reason) =~ "unknown-bot"
     end
 
@@ -1112,7 +1119,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       state = base_state()
       parent = self()
 
-      CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+      CommentWake.mark_pr_merged_issue_done(state, "424242",
+        pr_body: "Closes #424242",
         merged_by_login: nil,
         update_issue_state_fun: fn _id, "done" -> :ok end,
         merger_allowed_fun: fn login ->
@@ -1127,7 +1135,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       )
 
       assert_receive {:checked_allowlist, nil}
-      assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
+      assert_receive {:alert_emitted, "ticket.424242.merge.unauthorized_merger", opts}
       assert Keyword.get(opts, :needs_attention) == true
     end
 
@@ -1136,7 +1144,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       parent = self()
 
       result =
-        CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+        CommentWake.mark_pr_merged_issue_done(state, "424242",
+          pr_body: "Closes #424242",
           merged_by_login: "unknown-bot",
           update_issue_state_fun: fn _id, "done" -> {:error, :unavailable} end,
           merger_allowed_fun: fn _login -> false end,
@@ -1147,7 +1156,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
-      assert_receive {:alert_emitted, "ticket.nonexistent-123.merge.unauthorized_merger", opts}
+      assert_receive {:alert_emitted, "ticket.424242.merge.unauthorized_merger", opts}
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :severity) == "critical"
       assert result == state
@@ -1158,7 +1167,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       log =
         capture_log(fn ->
-          assert CommentWake.mark_pr_merged_issue_done(state, "nonexistent-123",
+          assert CommentWake.mark_pr_merged_issue_done(state, "424242",
+                   pr_body: "Closes #424242",
                    merged_by_login: "unknown-bot",
                    update_issue_state_fun: fn _id, "done" -> :ok end,
                    merger_allowed_fun: fn _login -> false end,
@@ -1167,9 +1177,9 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         end)
 
       assert log =~
-               "[alert] (#nonexistent-123) ticket.nonexistent-123.merge.unauthorized_merger"
+               "[alert] (#424242) ticket.424242.merge.unauthorized_merger"
 
-      assert log =~ "Unauthorized PR merger \"unknown-bot\" detected for ticket nonexistent-123."
+      assert log =~ "Unauthorized PR merger \"unknown-bot\" detected for ticket 424242."
     end
 
     test "emits alert and still terminates running issue when merger is not allowlisted" do
@@ -1192,6 +1202,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #99",
           merged_by_login: "bad-actor",
           merger_allowed_fun: fn login ->
             send(parent, {:checked, login})
@@ -1236,6 +1247,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #100",
           merged_by_login: "its-everdred",
           merger_allowed_fun: fn _login -> exit(:timeout) end,
           emit_alert_fun: fn name, opts ->
@@ -1288,6 +1300,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       result =
         CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Closes #2307",
           merged_by_login: "its-everdred",
           update_issue_state_fun: fn identifier, state_name ->
             send(parent, {:transition, identifier, state_name})
@@ -1324,6 +1337,187 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       refute_receive :blockees_resumed
       assert Map.has_key?(result.running, issue.id)
       assert MapSet.member?(result.claimed, issue.id)
+    end
+
+    # #2609: the live merged route resolves its ticket from the
+    # `aiur/<id>-<slug>` head branch, so a PR body deliberately written `Refs
+    # #N` — GitHub's documented "related, not resolving" — used to close the
+    # ticket anyway, retiring an operator's still-open acceptance checklist.
+    # The body decides the outcome now: the ticket lands in human-review, open,
+    # with no terminal teardown, and the open-PR enumeration is never even
+    # reached.
+    test "a merged PR whose body only refs the ticket leaves it open and never closes it" do
+      issue = %Issue{
+        id: "issue-refs-only",
+        identifier: "176",
+        state: "human-review",
+        tracker_identity: tracker_identity("176")
+      }
+
+      state = %{
+        base_state()
+        | running: %{
+            issue.id => %{pid: nil, ref: nil, identifier: issue.identifier, issue: issue}
+          },
+          claimed: MapSet.new([issue.id])
+      }
+
+      parent = self()
+
+      result =
+        CommentWake.mark_pr_merged_issue_done(state, issue.identifier,
+          pr_body: "Refs #176 (merge does not close the ticket; six operator gates remain)",
+          merged_by_login: "its-everdred",
+          update_issue_state_fun: fn identifier, state_name ->
+            send(parent, {:transition, identifier, state_name})
+            :ok
+          end,
+          clear_session_handle_fun: fn _identifier ->
+            send(parent, :session_cleared)
+            :ok
+          end,
+          observe_membership_fun: fn _identity, _lifecycle ->
+            send(parent, :membership_recorded)
+            :ok
+          end,
+          resume_blockees_fun: fn current_state, _identifier ->
+            send(parent, :blockees_resumed)
+            current_state
+          end,
+          merger_allowed_fun: fn _login -> true end,
+          open_pull_requests_fun: fn _identifier ->
+            flunk("a non-closing merge must not even enumerate the ticket's open PRs")
+          end
+        )
+
+      assert_receive {:transition, "176", "human-review"}
+      refute_receive {:transition, "176", "done"}
+      refute_receive :membership_recorded
+      refute_receive :session_cleared
+      refute_receive :blockees_resumed
+      assert Map.has_key?(result.running, issue.id)
+      assert MapSet.member?(result.claimed, issue.id)
+    end
+
+    # #2609 fail-safe direction: no body is no closing evidence. The poll-cycle
+    # reconciler reads the merge record's own body and closes a genuinely
+    # closing ticket on the next pass, so leaving it open costs a poll; closing
+    # it wrongly costs the operator their checklist.
+    test "a merged PR with an empty body leaves its ticket open" do
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(base_state(), "176",
+        pr_body: nil,
+        merged_by_login: "its-everdred",
+        update_issue_state_fun: fn identifier, state_name ->
+          send(parent, {:transition, identifier, state_name})
+          :ok
+        end,
+        merger_allowed_fun: fn _login -> true end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+      assert_receive {:transition, "176", "human-review"}
+      refute_receive {:transition, "176", "done"}
+    end
+
+    # A body naming the ticket mid-prose is not a closing keyword either — the
+    # parser is deliberately no wider than GitHub's own rule.
+    test "a merged PR that mentions the ticket without a keyword leaves it open" do
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(base_state(), "176",
+        pr_body: "Delivers the non-live half of #176; see the checklist there.",
+        merged_by_login: "its-everdred",
+        update_issue_state_fun: fn identifier, state_name ->
+          send(parent, {:transition, identifier, state_name})
+          :ok
+        end,
+        merger_allowed_fun: fn _login -> true end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+      assert_receive {:transition, "176", "human-review"}
+      refute_receive {:transition, "176", "done"}
+    end
+
+    test "a same-repository qualified closing keyword still closes the ticket" do
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(base_state(), "176",
+        pr_body: "Closes aiur-team/aiur#176",
+        repo_fun: fn -> "aiur-team/aiur" end,
+        merged_by_login: "its-everdred",
+        update_issue_state_fun: fn identifier, state_name ->
+          send(parent, {:transition, identifier, state_name})
+          :ok
+        end,
+        clear_session_handle_fun: fn _identifier -> :ok end,
+        merger_allowed_fun: fn _login -> true end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+      assert_receive {:transition, "176", "done"}
+    end
+
+    test "a closing keyword naming another repository's issue does not close this ticket" do
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(base_state(), "176",
+        pr_body: "Closes other-org/other-repo#176",
+        repo_fun: fn -> "aiur-team/aiur" end,
+        merged_by_login: "its-everdred",
+        update_issue_state_fun: fn identifier, state_name ->
+          send(parent, {:transition, identifier, state_name})
+          :ok
+        end,
+        merger_allowed_fun: fn _login -> true end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+      assert_receive {:transition, "176", "human-review"}
+      refute_receive {:transition, "176", "done"}
+    end
+
+    # A closing keyword for a *different* ticket is not a closing keyword for
+    # this one: the branch names the ticket, the body has to name it too.
+    test "a closing keyword for a different ticket does not close this one" do
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(base_state(), "176",
+        pr_body: "Closes #999",
+        merged_by_login: "its-everdred",
+        update_issue_state_fun: fn identifier, state_name ->
+          send(parent, {:transition, identifier, state_name})
+          :ok
+        end,
+        merger_allowed_fun: fn _login -> true end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+      assert_receive {:transition, "176", "human-review"}
+      refute_receive {:transition, "176", "done"}
+    end
+
+    # A failing repository lookup must not fail the merge route: bare `#N` —
+    # what every Aiur PR description carries — still closes normally.
+    test "a raising repository lookup still lets a bare closing keyword close the ticket" do
+      parent = self()
+
+      CommentWake.mark_pr_merged_issue_done(base_state(), "176",
+        pr_body: "Closes #176",
+        repo_fun: fn -> raise "origin unavailable" end,
+        merged_by_login: "its-everdred",
+        update_issue_state_fun: fn identifier, state_name ->
+          send(parent, {:transition, identifier, state_name})
+          :ok
+        end,
+        clear_session_handle_fun: fn _identifier -> :ok end,
+        merger_allowed_fun: fn _login -> true end,
+        open_pull_requests_fun: fn _identifier -> {:ok, []} end
+      )
+
+      assert_receive {:transition, "176", "done"}
     end
   end
 

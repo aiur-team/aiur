@@ -622,8 +622,18 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp suppressing_review?(_review), do: false
 
   # Limits /reviews fetches to targets whose issue is in a review-awaiting state
-  # (human-review). This avoids polling the endpoint for every active PR each cycle,
-  # which would consume ~48% of the 5,000 req/hr GitHub budget at 20 agents.
+  # — `human-review`, `merging`, or `rework` (`TargetSelection`'s
+  # `@comment_poll_review_states`). This avoids polling the endpoint for every
+  # active PR each cycle, which would consume ~48% of the 5,000 req/hr GitHub
+  # budget at 20 agents.
+  #
+  # `rework` is in the set deliberately: a ticket whose rework turn finished is
+  # exactly where a *second* `CHANGES_REQUESTED` review lands, and excluding it
+  # made that review invisible while the aggregate `reviewDecision` stayed
+  # sticky from the first one (#2601). The read stays cheap because the review
+  # list is conditional — a `304` costs nothing against the primary limit — and
+  # the same review cannot be routed twice: see the cutoff and durable
+  # review-identity argument in `Aiur.Orchestrator.ReworkGate`.
   defp review_submission_enabled?(target, opts) do
     case Keyword.get(opts, :review_submission_targets) do
       nil -> true

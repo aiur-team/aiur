@@ -13,6 +13,7 @@ defmodule Aiur.Claude.CodingAgent do
   require Logger
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.{AccountGeneration, AccountMeters, NotificationPolicy}
   alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
@@ -323,7 +324,13 @@ defmodule Aiur.Claude.CodingAgent do
     if NotificationPolicy.usage_limit_exhausted?(params) do
       {:paused, NotificationPolicy.usage_limit_pause(params)}
     else
-      {:error, {:turn_failed, params}}
+      # The session-limit refusal reaches Aiur as `"Error: claude exited with
+      # code 1"` — the 429 itself was printed on the provider's stream, so the
+      # params alone cannot classify it (#2607).
+      case classify_stream_failure(StreamDiagnostics.recent_text(session.port)) do
+        {:paused, pause} -> {:paused, pause}
+        :unclassified -> {:error, {:turn_failed, params}}
+      end
     end
   end
 
@@ -391,6 +398,11 @@ defmodule Aiur.Claude.CodingAgent do
     Logger.debug("Claude notification: #{inspect(method)}")
     {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
   end
+
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec classify_stream_failure(String.t()) :: {:paused, map()} | :unclassified
+  defdelegate classify_stream_failure(diagnostics), to: NotificationPolicy
 
   @impl Aiur.AppServer.Adapter
   @doc false

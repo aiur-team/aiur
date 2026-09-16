@@ -3,7 +3,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
   alias Aiur.Events.{Exchange, GithubFirehose}
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{Dataset, Retention, Writer}
+  alias Aiur.RunTelemetry.{Dataset, Lifecycle, Retention, Writer}
+  alias AiurWeb.OperatorControlCenter.Analytics.Presenter
 
   setup do
     root =
@@ -675,6 +676,67 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     assert {:ok, dataset} = Dataset.build(path)
     assert [%{status: "closed", duration_ms: 0, end_at: "2026-07-11T12:00:00Z"}] = dataset.tickets["1342"].intervals
+  end
+
+  test "a merge observed before a segment roll still counts for the live boot after the roll", %{path: path} do
+    # Every append rolls a segment and prunes the previous one, the shape a boot
+    # takes once it outgrows max_bytes (a warning flood did this on a live daemon
+    # and the run-scoped counters forgot a merge the graph still showed, #2603).
+    boot_id = RunTelemetry.boot_id()
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: boot_id,
+        retention: [max_bytes: 1, prune_interval_bytes: 1],
+        clock: fn -> ~U[2026-09-10 01:40:16Z] end
+      )
+
+    recorder = fn kind, attributes, opts -> Writer.record(writer, kind, attributes, opts) end
+    attempt = Lifecycle.new_attempt_id("165")
+
+    :ok = Lifecycle.record("165", attempt, :dispatch, :point, %{complexity: 2}, recorder: recorder, timestamp: ~U[2026-09-09 22:40:00Z])
+    :ok = Lifecycle.record("165", attempt, :pr_opened, :point, %{pr_number: 177}, recorder: recorder, timestamp: ~U[2026-09-09 23:10:00Z])
+
+    # The live merge exactly as the Exchange subscription hands it to the writer.
+    merge_event = %{
+      id: 900,
+      topic: "ticket.165.pr.merged",
+      source: :github,
+      action: "closed",
+      pr: %{"number" => 177, "merged" => true, "merged_at" => "2026-09-09T23:46:54Z", "user" => %{"login" => "its-applekid"}}
+    }
+
+    send(writer, {:event, merge_event})
+
+    # Unrelated traffic after the merge: each append rolls and prunes again.
+    for index <- 1..3 do
+      :ok = Writer.record(writer, :resource, %{actor: "_daemon", rss_bytes: index}, timestamp: ~U[2026-09-10 01:41:00Z])
+    end
+
+    assert :ok = Writer.flush(writer)
+
+    records = read_records(path)
+    boundaries = Enum.count(records, &(&1["attributes"]["event"] == "segment_boundary"))
+    assert boundaries >= 2, "expected the boot to have rolled segments"
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current, boot_id: boot_id)
+    current = Dataset.filter(dataset, boot_id: boot_id)
+
+    ticket = Map.fetch!(current.tickets, "165")
+    assert Enum.any?(ticket.intervals, &(&1.phase == "pr_merged"))
+    assert Enum.any?(ticket.intervals, &(&1.phase == "dispatch"))
+    refute Enum.any?(current.warnings, &(&1.type == :duplicate_lifecycle_boundary))
+
+    model = Presenter.model(current, cap: 4, cores: 4, host_mem_bytes: 1_000_000_000, buckets: 10)
+    assert model.kpis.merged == 1
+    assert model.kpis.total == 1
+    assert [%{id: "165", status: :merged, merged_at: merged_at}] = model.tickets
+    assert merged_at == DateTime.to_unix(~U[2026-09-09 23:46:54Z], :millisecond)
+
+    assert {:ok, loaded} = Presenter.load(telemetry_file: path, session: :current)
+    assert loaded.kpis.merged == 1
   end
 
   test "invalid caller timestamps do not make segment boundaries unprunable", %{path: path} do

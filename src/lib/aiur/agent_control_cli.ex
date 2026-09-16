@@ -424,14 +424,30 @@ defmodule Aiur.AgentControlCLI do
   the shared cursor advances exactly once per record. A caller refused by a
   live, renewing owner reads the same records as a read-only observer and never
   advances the cursor, so two consumers cannot split the stream between them.
+
+  ## Outcomes
+
+  Exit `0` covers both delivery and a quiet timeout: a wait that ends with no
+  wake consumed nothing and lost nothing, so it is a successful empty result,
+  not a failure (#2600). Every nonzero exit names the stage that failed —
+  `claim`, `wait` or `acknowledge` — on stderr, and in `--json` mode as a
+  `status: "error"` envelope. Exit `69` is reserved for contention on the shared
+  claim, which is retryable and reports the retry bounds already spent; exit `1`
+  is a daemon or store failure, which is not.
   """
   @spec executor_wait(keyword()) :: :ok
   def executor_wait(opts \\ []) do
     timeout_ms = Keyword.get(opts, :timeout_ms, 300_000)
     json? = Keyword.get(opts, :json, false)
     consumer_id = Claims.resolve_consumer_id(opts)
-    {role, holder} = executor_wait_role(consumer_id)
 
+    case executor_wait_role(consumer_id) do
+      {:ok, role, holder} -> executor_wait_as(consumer_id, role, holder, timeout_ms, json?)
+      {:error, reason} -> executor_wait_failure(:claim, executor_wait_detail(reason), reason, :unknown, json?)
+    end
+  end
+
+  defp executor_wait_as(consumer_id, role, holder, timeout_ms, json?) do
     announce_executor_peers(consumer_id, holder)
 
     # A quiet wait can outlast a lease, and an owner that silently expired
@@ -440,28 +456,27 @@ defmodule Aiur.AgentControlCLI do
     renewer = start_lease_renewer(consumer_id)
 
     try do
-      executor_wait_result(ExecutorWakeInbox.wait(timeout_ms), consumer_id, role, json?)
+      executor_wait_result(ExecutorWakeInbox.wait(timeout_ms), consumer_id, role, json?, timeout_ms)
     after
       stop_lease_renewer(renewer)
     end
   end
 
+  # A refusal by a live owner is a supported outcome and reads as an observer.
+  # Anything else means the claim store could not be arbitrated at all, and
+  # waiting under it would print records nobody can acknowledge — the silent
+  # no-progress loop #2600 reported. Fail with the stage instead.
   defp executor_wait_role(consumer_id) do
     case Claims.claim(consumer_id) do
       {:ok, _entry} ->
-        {:owner, nil}
+        {:ok, :owner, nil}
 
       {:error, {:held_by, owner}} ->
         _ = Claims.observe(consumer_id)
-        {:observer, owner}
+        {:ok, :observer, owner}
 
       {:error, reason} ->
-        control_error(
-          "aiur: could not claim the wake stream (#{format_reason(reason)}); reading as observer, " <>
-            "so the shared cursor will not advance"
-        )
-
-        {:observer, nil}
+        {:error, reason}
     end
   end
 
@@ -482,18 +497,109 @@ defmodule Aiur.AgentControlCLI do
     :ok
   end
 
-  defp executor_wait_result({:ok, records}, consumer_id, role, json?) do
+  # The batch is printed before it is acknowledged, deliberately. The reverse
+  # order would advance the cursor while the records were still only inside the
+  # control RPC's buffered stdout, which the launcher discards outright when its
+  # own budget expires — turning a benign redelivery into permanent, silent wake
+  # loss. Losing a wake is the worse failure, so the ordering stays; what changes
+  # is that a refused acknowledgement is now a diagnosed nonzero exit naming the
+  # stage and the ids, instead of an exit 0 that read as a successful consume.
+  defp executor_wait_result({:ok, records}, consumer_id, role, json?, _timeout_ms) do
     print_executor_wakes(records, json?, role)
-    acknowledge_executor_wakes(records, consumer_id, role)
+
+    case acknowledge_executor_wakes(records, consumer_id, role) do
+      :ok ->
+        exit_marker(0)
+
+      {:error, reason} ->
+        executor_wait_failure(
+          :acknowledge,
+          unacknowledged_detail(records, reason),
+          reason,
+          role,
+          json?,
+          %{"unconsumed_wake_ids" => Enum.map(records, & &1["wake_id"])}
+        )
+    end
+  end
+
+  # A quiet wait consumed nothing and lost nothing. Reporting that as a failure
+  # gave the caller an exit code with no diagnostic behind it, which is how a
+  # perfectly healthy idle wait came to look like a broken daemon (#2600).
+  defp executor_wait_result(:timeout, _consumer_id, role, json?, timeout_ms) do
+    print_executor_quiet(role, json?, timeout_ms)
     exit_marker(0)
   end
 
-  defp executor_wait_result(:timeout, _consumer_id, _role, _json?), do: exit_marker(75)
-
-  defp executor_wait_result({:error, reason}, _consumer_id, _role, _json?) do
-    control_error("aiur: executor wake inbox unavailable (#{format_reason(reason)})")
-    exit_marker(1)
+  defp executor_wait_result({:error, reason}, _consumer_id, role, json?, _timeout_ms) do
+    executor_wait_failure(:wait, executor_wait_detail(reason), reason, role, json?)
   end
+
+  defp print_executor_quiet(role, true, timeout_ms),
+    do: IO.puts(Jason.encode!(%{"status" => "timeout", "role" => role, "records" => [], "timeout_ms" => timeout_ms}))
+
+  defp print_executor_quiet(role, false, timeout_ms),
+    do: IO.puts("NO-WAKES role=#{role} timeout_ms=#{timeout_ms} nothing pending, nothing consumed")
+
+  defp executor_wait_failure(stage, detail, reason, role, json?, extra \\ %{}) do
+    control_error("aiur: executor-wait failed at the #{stage} stage - #{detail}")
+
+    if json? do
+      IO.puts(
+        Jason.encode!(
+          Map.merge(
+            %{"status" => "error", "stage" => to_string(stage), "role" => role, "records" => [], "detail" => detail},
+            extra
+          )
+        )
+      )
+    end
+
+    exit_marker(executor_wait_exit_code(reason))
+  end
+
+  # Contention on the shared claim is the one nonzero outcome a caller may retry
+  # unchanged, so it gets its own code. Everything else is a daemon or store
+  # failure that retrying will only repeat.
+  defp executor_wait_exit_code({:executor_claims_lock_timeout, _lock}), do: 69
+  defp executor_wait_exit_code({:not_owner, _owner}), do: 69
+  defp executor_wait_exit_code(_reason), do: 1
+
+  defp unacknowledged_detail(records, reason) do
+    ids = records |> Enum.map(& &1["wake_id"]) |> Enum.reject(&is_nil/1)
+
+    range =
+      case ids do
+        [] -> "#{length(records)} wakes"
+        ids -> "#{length(records)} wakes (ids #{Enum.min(ids)}-#{Enum.max(ids)})"
+      end
+
+    "#{executor_wait_detail(reason)}; #{range} were NOT consumed, the cursor did not advance, " <>
+      "and they will be delivered again"
+  end
+
+  defp executor_wait_detail({:executor_claims_lock_timeout, lock}) do
+    %{timeout_ms: timeout_ms, retry_interval_ms: interval_ms, stale_after_seconds: stale_after_seconds} =
+      Claims.lock_retry_budget()
+
+    "wake-stream lock contention: #{lock} was still held after retrying every #{interval_ms}ms for #{timeout_ms}ms " <>
+      "(a lock older than #{stale_after_seconds}s is broken as stale). Nothing was consumed, so this is safe to retry"
+  end
+
+  defp executor_wait_detail({:executor_claims_lock_unavailable, lock, reason}) do
+    "claims store unavailable: the lock #{lock} could not be created (#{format_reason(reason)}). " <>
+      "This is a store failure, not contention, and retrying will repeat it"
+  end
+
+  defp executor_wait_detail({:executor_claims_unavailable, message}),
+    do: "claims store write failed (#{message}). This is a store failure, not contention"
+
+  defp executor_wait_detail({:not_owner, owner}) do
+    "cursor-write contention: the wake stream claim is now held by #{(owner && owner["id"]) || "nobody"}, " <>
+      "so this consumer can only read as an observer until that claim is released or revoked"
+  end
+
+  defp executor_wait_detail(reason), do: "executor wake inbox unavailable (#{format_reason(reason)})"
 
   @doc "Fast-forwards the owner cursor through an externally covered durable wake id."
   @spec executor_fast_forward(pos_integer(), keyword()) :: :ok
@@ -543,26 +649,14 @@ defmodule Aiur.AgentControlCLI do
     exit_marker(1)
   end
 
+  # An observer deliberately does not advance the shared cursor; only an owner's
+  # acknowledgement does. A failed owner acknowledgement is never swallowed: it
+  # means the cursor did not move and the same records come back on the next
+  # wait, which otherwise reads as a working consumer looping.
   defp acknowledge_executor_wakes(_records, _consumer_id, :observer), do: :ok
 
-  defp acknowledge_executor_wakes(records, consumer_id, :owner) do
-    case ExecutorWakeInbox.acknowledge_as(consumer_id, records) do
-      :ok ->
-        :ok
-
-      # Never swallowed: an unacknowledged batch means the cursor did not move
-      # and these same records come back next wait, which reads as a working
-      # consumer looping. Say so instead.
-      {:error, {:not_owner, owner}} ->
-        control_error(
-          "aiur: these wakes were NOT acknowledged - the claim is now held by " <>
-            "#{(owner && owner["id"]) || "nobody"}, so the cursor did not advance and they will be delivered again"
-        )
-
-      {:error, reason} ->
-        control_error("aiur: these wakes were NOT acknowledged (#{format_reason(reason)}); the cursor did not advance")
-    end
-  end
+  defp acknowledge_executor_wakes(records, consumer_id, :owner),
+    do: ExecutorWakeInbox.acknowledge_as(consumer_id, records)
 
   # An agent that finds a peer tells the operator, unprompted, with the evidence
   # rather than a verdict. A healthy peer is reported plainly; multiple
@@ -666,7 +760,8 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp print_executor_wakes(records, true, role), do: IO.puts(Jason.encode!(%{"role" => role, "records" => records}))
+  defp print_executor_wakes(records, true, role),
+    do: IO.puts(Jason.encode!(%{"status" => "woken", "role" => role, "records" => records}))
 
   defp print_executor_wakes(records, false, role) do
     Enum.each(records, fn record ->

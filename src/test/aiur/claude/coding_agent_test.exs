@@ -397,6 +397,59 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert_received {:agent_message, %{event: :turn_ended_with_error, reason: {:port_exit, 1}}}
   end
 
+  test "a session-limit refusal on the provider stream pauses the turn instead of failing it" do
+    # Regression for #2607: the account session limit trips, `claude` prints the
+    # 429 on its own stream and exits, and the wrapper reports only
+    # "Error: claude exited with code 1". Classified as a turn failure this
+    # burned three retries and parked the ticket in `agent:error` while the
+    # configured fallback backend was never tried. It has to pause instead.
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_session_limit")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_that_hits_the_session_limit(frames)
+    )
+
+    issue = %{id: 1, identifier: "test:session-limit", title: "session-limit"}
+    test_pid = self()
+    on_message = fn message -> send(test_pid, {:agent_message, message}) end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+
+    assert {:paused, pause} = ClaudeAgent.run_turn(session, "do the thing", issue, on_message: on_message)
+
+    assert pause.kind == :usage_limit_exhausted
+    assert pause.reason =~ "session limit"
+    assert pause.reset_hint == "11:40pm (America/Los_Angeles)"
+    refute_received {:agent_message, %{event: :turn_ended_with_error}}
+  end
+
+  test "an ordinary turn failure is still a turn failure" do
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_turn_failed")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_that_fails_a_turn(frames)
+    )
+
+    issue = %{id: 1, identifier: "test:turn-failed", title: "turn-failed"}
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+
+    assert {:error, {:turn_failed, %{"error" => "Error: claude exited with code 1"}}} =
+             ClaudeAgent.run_turn(session, "do the thing", issue, on_message: fn _message -> :ok end)
+  end
+
   # Minimal bash stand-in for the Claude app-server: records every frame
   # it receives to `frames`, and replies to the fixed initialize(1) /
   # thread/start(2) / turn/start(3) request ids so a full turn completes.
@@ -465,6 +518,42 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       "*'\"initialize\"'*) echo '#{init}' ;; " <>
       "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
       "*'\"turn/start\"'*) echo '#{turn}'; exit 1 ;; " <>
+      "esac; done"
+  end
+
+  # The #2607 shape: the child's 429 banner reaches Aiur as a non-JSON stream
+  # line (the port runs with stderr_to_stdout), and the wrapper then reports a
+  # turn/failed whose params say only that `claude` exited.
+  defp fake_app_server_that_hits_the_session_limit(frames) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+    banner = "You have hit your session limit - resets 11:40pm (America/Los_Angeles)"
+
+    failed =
+      ~s({"jsonrpc":"2.0","method":"turn/failed","params":{"error":"Error: claude exited with code 1","turn_id":"u1"}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{banner}'; echo '#{failed}' ;; " <>
+      "esac; done"
+  end
+
+  defp fake_app_server_that_fails_a_turn(frames) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+
+    failed =
+      ~s({"jsonrpc":"2.0","method":"turn/failed","params":{"error":"Error: claude exited with code 1","turn_id":"u1"}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{failed}' ;; " <>
       "esac; done"
   end
 

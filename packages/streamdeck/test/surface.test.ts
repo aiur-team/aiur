@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPhysicalSurface, descriptorEvents, descriptorSettings, repaintGrid } from "../src/surface.js";
+import { agentLess, createPhysicalSurface, descriptorCommands, descriptorEvents, descriptorSettings, repaintGrid } from "../src/surface.js";
 import { layoutPhysicalKeys } from "../src/keys.js";
 import type { EventKey } from "../src/controller.js";
 import type { TranscriptRow } from "../src/channel.js";
-import { settingsView } from "../src/settings.js";
+import { MIC_KEY_INDICES, settingsView } from "../src/settings.js";
 import { VOICE_WAVEFORM_COLUMNS } from "../src/voicePanel.js";
 import { createRasterizer } from "../src/rasterizer.js";
+import { KEY_FACE_CONTRACT } from "../src/key-face-contract.js";
+import type { StreamDeckCommand } from "../src/channel.js";
 
 const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body, tool: null });
 
@@ -181,6 +183,79 @@ describe("physical surface composition", () => {
   });
 });
 
+describe("descriptorCommands", () => {
+  const agent = { identifier: "1358", bucket: "running" };
+  const commandsKey = (pending: number) => descriptorCommands(agent, false, false, pending)[4];
+
+  it("paints the Commands key as the warning triangle", () => {
+    expect(commandsKey(0)?.icon).toBe("alert");
+    expect(commandsKey(3)?.icon).toBe("alert");
+  });
+
+  it("reads OPEN and stays neutral with nothing pending", () => {
+    expect(commandsKey(0)).toMatchObject({ title: "Commands", subLabel: "OPEN", bucket: "queued" });
+  });
+
+  it("counts the pending Commands in the sub-label and asks for attention", () => {
+    expect(commandsKey(1)).toMatchObject({ subLabel: "1 PENDING", bucket: "alert" });
+    expect(commandsKey(3)).toMatchObject({ subLabel: "3 PENDING", bucket: "alert" });
+  });
+
+  it("wears the shared contract's alert accent rather than a colour of its own", () => {
+    const [, , , , key] = layoutPhysicalKeys(descriptorCommands(agent, false, false, 2));
+    expect(key.kind === "agent" && key.style.accent).toBe(KEY_FACE_CONTRACT.states.alert.accent);
+  });
+
+  it("ignores a negative or fractional count rather than painting nonsense", () => {
+    expect(commandsKey(-1)?.subLabel).toBe("OPEN");
+    expect(commandsKey(2.7)?.subLabel).toBe("2 PENDING");
+  });
+
+  it("leaves the rest of the command row alone", () => {
+    const rowTitles = descriptorCommands(agent, false, false, 4).map((key) => key?.title ?? null);
+    expect(rowTitles).toEqual(["Pause", "Logs", "Mic", "Settings", "Commands", null, null, null]);
+  });
+
+  const titles = (keys: ReturnType<typeof descriptorCommands>): (string | null | undefined)[] =>
+    keys.map((key) => key?.title);
+
+  it("offers Implement and no Pause for a ticket with no agent", () => {
+    const keys = descriptorCommands({ identifier: "2614", bucket: "queued" }, false, false);
+    expect(titles(keys)).toEqual([undefined, "Logs", "Mic", "Settings", "Commands", undefined, undefined, "Implement"]);
+    expect(keys[7]?.icon).toBe("robot");
+    expect(keys[7]?.subLabel).toBe("QUEUE");
+    expect(keys[7]?.identifier).toBe("2614:implement");
+  });
+
+  it("keeps the last slot empty and offers Pause for an agent that is running", () => {
+    const keys = descriptorCommands({ identifier: "2614", bucket: "running" }, false, false);
+    expect(titles(keys)).toEqual(["Pause", "Logs", "Mic", "Settings", "Commands", undefined, undefined, undefined]);
+  });
+
+  // A paused or alerting ticket has an agent holding it: Implement there would
+  // queue a second dispatch for work already in flight.
+  it("offers Pause, not Implement, for paused, alert and stuck agents", () => {
+    for (const bucket of ["paused", "alert", "stuck"]) {
+      const keys = descriptorCommands({ identifier: "2614", bucket }, false, false);
+      expect(keys[0]?.title, bucket).toBe(bucket === "paused" ? "Resume" : "Pause");
+      expect(keys[7], bucket).toBeUndefined();
+    }
+  });
+
+  it("reports QUEUED on the Implement key after a press, and never a running face", () => {
+    const keys = descriptorCommands({ identifier: "2614", bucket: "queued" }, false, false, 0, true);
+    expect(keys[7]?.subLabel).toBe("QUEUED");
+    expect(keys[7]?.bucket).toBe("queued");
+  });
+
+  it("treats an unknown focus as having an agent rather than offering Implement for nothing", () => {
+    expect(agentLess(null)).toBe(false);
+    expect(agentLess(undefined)).toBe(false);
+    expect(agentLess({ bucket: "queued" })).toBe(true);
+    expect(descriptorCommands(null, false, false)[7]).toBeUndefined();
+  });
+});
+
 describe("descriptorSettings", () => {
   const view = (count: number, selectedId: string | null = null, offset = 0) =>
     settingsView(
@@ -192,18 +267,30 @@ describe("descriptorSettings", () => {
   const titles = (descriptors: ReturnType<typeof descriptorSettings>): (string | null | undefined)[] =>
     descriptors.map((descriptor) => (descriptor === undefined ? undefined : descriptor.title));
 
-  it("puts six microphones on keys 0-5, TestMic on 6 and paging on 7", () => {
+  it("puts TestMic on key 2 and the six microphones on the keys around it", () => {
     const descriptors = descriptorSettings(view(9), false);
     expect(descriptors).toHaveLength(8);
-    expect(titles(descriptors)).toEqual(["Mic 0", "Mic 1", "Mic 2", "Mic 3", "Mic 4", "Mic 5", "TestMic", "More"]);
+    expect(titles(descriptors)).toEqual(["Mic 0", "Mic 1", "TestMic", "Mic 2", "Mic 3", "Mic 4", "Mic 5", "More"]);
     expect(descriptors[7]?.subLabel).toBe("1/2");
+  });
+
+  /**
+   * Key 2 is the slot the command surface paints Mic on, so hold-to-talk is
+   * under the same finger on both surfaces.
+   */
+  it("paints TestMic in the same key slot the command surface paints Mic in", () => {
+    const command = descriptorCommands({ identifier: "agent-0", bucket: "running" }, false, false);
+    expect(command[2]?.title).toBe("Mic");
+    expect(descriptorSettings(view(9), false)[2]?.title).toBe("TestMic");
   });
 
   it("leaves key 7 empty when every microphone fits on one page", () => {
     expect(descriptorSettings(view(2), false)[7]).toBeUndefined();
-    expect(titles(descriptorSettings(view(2), false)).slice(0, 6)).toEqual([
+    expect(titles(descriptorSettings(view(2), false))).toEqual([
       "Mic 0",
       "Mic 1",
+      "TestMic",
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -220,6 +307,8 @@ describe("descriptorSettings", () => {
     const descriptors = descriptorSettings(view(3, "m1"), false);
     expect(descriptors[1]).toMatchObject({ role: "event", selected: true, subLabel: "IN USE" });
     expect(descriptors[0]).toMatchObject({ role: "event", selected: false, subLabel: "MIC" });
+    // Slot 2 of the page is key 3, not key 2.
+    expect(descriptors[3]).toMatchObject({ identifier: "mic:m2", role: "event", subLabel: "MIC" });
   });
 
   it("paints the same idiom the log keys do, all the way to the pixels", () => {
@@ -232,16 +321,16 @@ describe("descriptorSettings", () => {
   });
 
   it("shows TestMic as live only while it is held", () => {
-    expect(descriptorSettings(view(1), false)[6]?.subLabel).toBe("HOLD");
-    expect(descriptorSettings(view(1), true)[6]?.subLabel).toBe("LIVE");
+    expect(descriptorSettings(view(1), false)[2]?.subLabel).toBe("HOLD");
+    expect(descriptorSettings(view(1), true)[2]?.subLabel).toBe("LIVE");
   });
 
   // A headless box is a normal box: six blank keys and no paging arrow, rather
   // than something that looks broken.
   it("renders a machine with no microphone as empty keys plus TestMic", () => {
     const descriptors = descriptorSettings(view(0), false);
-    expect(descriptors.slice(0, 6).every((descriptor) => descriptor === undefined)).toBe(true);
-    expect(descriptors[6]?.title).toBe("TestMic");
+    expect(MIC_KEY_INDICES.every((key) => descriptors[key] === undefined)).toBe(true);
+    expect(descriptors[2]?.title).toBe("TestMic");
     expect(descriptors[7]).toBeUndefined();
   });
 });
@@ -263,6 +352,25 @@ describe("the command and settings surfaces on the device", () => {
     await surface.repaint(device, grid, {}, undefined, base);
     const painted = write.mock.calls.length;
     await surface.repaint(device, grid, {}, undefined, { ...base, hasTranscript: true });
+    expect(write.mock.calls.slice(painted).some(([report]) => (report as Uint8Array)[1] === 0x07)).toBe(true);
+  });
+
+  // The count has to reach the pixels, not just the descriptor: the pending key
+  // is a different picture, so the dirty cache must upload it.
+  it("uploads a new Commands key face once a decision is pending", async () => {
+    const openCommand = {
+      decision_id: "dec-1",
+      version: 1,
+      question: "Ship the change?",
+      options: [],
+      status: "open",
+    } as StreamDeckCommand;
+    const { write, device } = backend();
+    const surface = createPhysicalSurface();
+    const base = { mode: "cmd" as const, focusedIdentifier: "1358", columnOffset: 0 };
+    await surface.repaint(device, grid, {}, undefined, { ...base, commandsPage: { items: [] } });
+    const painted = write.mock.calls.length;
+    await surface.repaint(device, grid, {}, undefined, { ...base, commandsPage: { identifier: "1358", items: [openCommand] } });
     expect(write.mock.calls.slice(painted).some(([report]) => (report as Uint8Array)[1] === 0x07)).toBe(true);
   });
 

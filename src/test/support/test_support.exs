@@ -93,6 +93,7 @@ defmodule Aiur.TestSupport do
     :github_cache_inspector_source,
     :repo_base_root,
     :executor_state_dir,
+    :executor_claims_lock_timeout_ms,
     :loadavg_source_override,
     :proc_stat_source_override,
     :workflow_store_config_reader

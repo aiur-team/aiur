@@ -55,6 +55,8 @@ defmodule Aiur.Executor.Claims do
   # then stop accumulating.
   @retention_ms 86_400_000
   @lock_timeout_ms 5_000
+  # Every claims mutation runs inside this budget, so the lock wait must fit in it.
+  @call_timeout_ms 30_000
   @lock_retry_ms 25
   # A lockfile older than this belongs to a process that died holding it.
   @lock_stale_after_seconds 60
@@ -137,6 +139,39 @@ defmodule Aiur.Executor.Claims do
   @doc "The configured lease TTL in milliseconds."
   @spec lease_ttl_ms() :: pos_integer()
   def lease_ttl_ms, do: Application.get_env(:aiur, :executor_lease_ttl_ms, @default_lease_ttl_ms)
+
+  @doc """
+  The bounded retry envelope used for the cross-process claims lock.
+
+  Contention on this lock is the one failure a caller may safely retry, so the
+  bounds are published rather than buried: a diagnostic that says "contended"
+  without saying how long the wait already was leaves the reader unable to tell
+  a busy peer from a wedged store.
+  """
+  @spec lock_retry_budget() :: %{timeout_ms: pos_integer(), retry_interval_ms: pos_integer(), stale_after_seconds: pos_integer()}
+  def lock_retry_budget do
+    %{
+      timeout_ms: lock_timeout_ms(),
+      retry_interval_ms: @lock_retry_ms,
+      stale_after_seconds: @lock_stale_after_seconds
+    }
+  end
+
+  @doc "The budget every store mutation gets inside the claims server."
+  @spec call_timeout_ms() :: pos_integer()
+  def call_timeout_ms, do: @call_timeout_ms
+
+  # The override exists for tests and for hosts with a slower shared filesystem,
+  # so it is validated rather than trusted: a non-integer would make the retry
+  # guard fall straight through to "timed out" without retrying once, and a
+  # value above the surrounding call budget would expire the caller before the
+  # lock wait ever returns a `claim`-stage diagnostic.
+  defp lock_timeout_ms do
+    case Application.get_env(:aiur, :executor_claims_lock_timeout_ms, @lock_timeout_ms) do
+      ms when is_integer(ms) and ms > 0 -> min(ms, @call_timeout_ms)
+      _invalid -> @lock_timeout_ms
+    end
+  end
 
   @doc """
   Resolves the consumer identity for a CLI invocation.
@@ -297,7 +332,7 @@ defmodule Aiur.Executor.Claims do
 
   defp call(message) do
     case Process.whereis(__MODULE__) do
-      pid when is_pid(pid) -> GenServer.call(pid, message, 30_000)
+      pid when is_pid(pid) -> GenServer.call(pid, message, @call_timeout_ms)
       _no_server -> handle_without_server(message)
     end
   end
@@ -330,7 +365,7 @@ defmodule Aiur.Executor.Claims do
   defp unwrap_ok({:ok, :ok}), do: :ok
   defp unwrap_ok(other), do: other
 
-  defp with_lock(path, fun), do: acquire_lock(path, fun, @lock_timeout_ms)
+  defp with_lock(path, fun), do: acquire_lock(path, fun, lock_timeout_ms())
 
   defp acquire_lock(path, fun, remaining_ms) do
     lock = path <> ".lock"

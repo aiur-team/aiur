@@ -22,6 +22,11 @@ defmodule Aiur.Webhooks.ModeTableTest do
   @repo "aiur-team/mode-table-test-repo"
   @key_repo "aiur-team/mode-table-key-test-repo"
 
+  # Only this module's own keys. The teardown used to also delete
+  # "aiur-team/ttl-test-repo", a key this module never writes and
+  # `Aiur.GitHub.ReadCacheTest` owns — the shape of cross-module interference
+  # #2531 is about, even though the two modules are both `async: false` and so
+  # never actually overlapped.
   setup do
     on_exit(fn -> ModeTable.delete(@repo) && ModeTable.delete(@key_repo) end)
     :ok

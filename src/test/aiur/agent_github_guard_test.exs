@@ -441,10 +441,43 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     assert {_output, 77} = run_guard(context, ["api", "graphql", "--input=mutation.json"])
     assert {_output, 77} = run_guard(context, ["api", "graphql", "--input", "-"])
-    assert {_output, 77} = run_guard(context, ["api", "graphql", "-F", "query=@mutation.graphql"])
-    assert {_output, 77} = run_guard(context, ["api", "graphql", "-f", "query=@-"])
+
+    for query_file_argument <- [
+          ["-F", "query=@mutation.graphql"],
+          ["-Fquery=@mutation.graphql"],
+          ["-F=query=@mutation.graphql"],
+          ["-f", "query=@-"],
+          ["-fquery=@mutation.graphql"],
+          ["-f=query=@mutation.graphql"],
+          ["--field=query=@mutation.graphql"],
+          ["--raw-field=query=@mutation.graphql"]
+        ] do
+      assert {_output, 77} = run_guard(context, ["api", "graphql" | query_file_argument])
+    end
 
     refute File.exists?(context.calls)
+  end
+
+  test "allows an inline non-merge GraphQL mutation with a file-backed variable", context do
+    body_file = Path.join(context.tmp_dir, "workpad.md")
+    File.write!(body_file, "Merge is a human decision; this agent does not self-merge.\n")
+
+    query =
+      "mutation($id: ID!, $body: String!) { updateIssueComment(input: {id: $id, body: $body}) { clientMutationId } }"
+
+    assert {"ok\n", 0} =
+             run_guard(context, [
+               "api",
+               "graphql",
+               "-f",
+               "query=#{query}",
+               "-f",
+               "id=comment-id",
+               "-F",
+               "body=@#{body_file}"
+             ])
+
+    assert File.read!(context.calls) == "api graphql\n"
   end
 
   test "refuses gh aliases and any command name the guard cannot recognise", context do

@@ -201,8 +201,8 @@ A stopped daemon is reported separately with the command needed to start it; a l
 
 | `aiur executor-listen` | Persists the requested subscription, then streams all persisted-pattern events after the saved cursor before live events as JSON lines. It intentionally does not use the ten-second one-shot RPC timeout. | `aiur executor-listen` |
 | `aiur executor-listen --topic 'executor.#'` | Adds that validated AMQP topic pattern before listening; the default is `executor.#`. Empty segments and malformed patterns are rejected. | `aiur executor-listen --topic 'executor.#'` |
-| `aiur executor-wait` | Returns immediately when durable Executor wake records are pending; otherwise blocks for up to 300 seconds. Exit `0` means woken, `75` means quiet timeout. It auto-claims the wake stream when nobody holds it, and the shared cursor advances only for the owner. | `aiur executor-wait` |
-| `aiur executor-wait --timeout 60 --json` | Sets the positive timeout in seconds and emits the identifier-only wake batch as JSON, alongside this consumer's `role`. Non-Executor wakes contain validated IDs and typed flags, never source free text. | `aiur executor-wait --timeout 60 --json` |
+| `aiur executor-wait` | Returns immediately when durable Executor wake records are pending; otherwise blocks for up to 300 seconds. Exit `0` covers both outcomes that lose nothing: wakes were returned and acknowledged, or the wait timed out quietly having consumed nothing. It auto-claims the wake stream when nobody holds it, and the shared cursor advances only for the owner. | `aiur executor-wait` |
+| `aiur executor-wait --timeout 60 --json` | Sets the positive timeout in seconds and emits the identifier-only wake batch as JSON, alongside this consumer's `role` and a `status` of `woken`, `timeout` or `error`. Non-Executor wakes contain validated IDs and typed flags, never source free text. | `aiur executor-wait --timeout 60 --json` |
 | `aiur executor-wait --as agent-b` | Names the consumer explicitly instead of using `AIUR_EXECUTOR_ID` or the derived host identity. Refused by a live owner, it reads the same records as an observer and does not advance the cursor. | `aiur executor-wait --as agent-b` |
 | `aiur executor-fast-forward <wake-id>` | Explicitly acknowledges an exact durable wake prefix that this Executor demonstrably covered by another complete means. It acquires the owner lease, refuses a live peer owner, rejects an absent or future id, reports before/through/acknowledged/pending counts, and preserves newer wakes. This is recovery, not the normal consumption loop. | `aiur executor-fast-forward 2832 --as agent-a` |
 | `aiur executor-roster` | Lists every Executor consumer with the evidence behind its state: role, host, pid, `claimed_at`, `last_renewed_at`, `last_acknowledged_at`, `pending_count`, cursor position, and whether the cursor moved since the previous observation. | `aiur executor-roster --json` |
@@ -219,6 +219,40 @@ A stopped daemon is reported separately with the command needed to start it; a l
 | `aiur findings --scope repo` | Filters to `aiur` or `repo` scope. | `aiur findings --scope repo` |
 | `aiur findings --record JSON --repo owner/repo` | Appends one validated finding to the named repository ledger. Both options are required together. | `aiur findings --record '{"slug":"example"}' --repo aiur-team/aiur` |
 | `aiur findings --digest` | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
+
+### `executor-wait` outcomes
+
+A quiet timeout is a **successful empty result**, not a failure: nothing was
+pending, so nothing was consumed and nothing was lost. Plain mode prints
+`NO-WAKES role=<role> timeout_ms=<ms> nothing pending, nothing consumed`; `--json`
+returns `{"status":"timeout","role":...,"records":[]}`. Both exit `0`.
+
+Under `--json` every outcome carries a `status`: `woken` for a returned batch,
+`timeout` for a quiet wait, `error` for a failure. Branch on that field rather
+than on the presence of `records`.
+
+Every nonzero exit names the stage that failed — `claim`, `wait` or
+`acknowledge` — on stderr, and as a `status: "error"` envelope with that `stage`
+under `--json`.
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | Wakes were delivered (and acknowledged, when this consumer is the owner), or the wait timed out quietly. |
+| `69` | Contention on the shared claim: the cross-process claims lock was still held after its bounded retry, or the claim moved to another consumer before the batch could be acknowledged. Nothing was consumed and the cursor did not move, so the same call is safe to retry. |
+| `1` | Daemon or store failure — an unreadable wake ledger, or a claims store that cannot be written. Retrying repeats it. |
+| `64` | Invalid usage. |
+
+The `69` diagnostic reports the retry bounds actually spent, read from the live
+configuration: by default the claims lock is retried every 25ms for 5 seconds,
+and a lock older than 60 seconds is broken as stale.
+
+A batch that could not be acknowledged is still **printed** — losing a wake is a
+worse failure than announcing a redelivery — so an acknowledge-stage failure
+emits the wake envelope first and the `status: "error"` envelope after it.
+
+Read the last line for the outcome: its `unconsumed_wake_ids` name the records
+whose cursor did not advance, and they will be delivered again to whichever
+consumer holds the claim next.
 
 ### Wake ledger bound and lease TTL
 
