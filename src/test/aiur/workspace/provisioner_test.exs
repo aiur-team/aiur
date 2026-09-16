@@ -131,6 +131,13 @@ defmodule Aiur.Workspace.ProvisionerTest do
     refute script =~ ".claude/skills"
   end
 
+  test "remote refresh repair propagates installer failure" do
+    runner = fn _host, _script, _timeout -> {:ok, {"guard install failed", 73}} end
+
+    assert {:error, {:remote_agent_github_guard_repair_failed, {:ok, {"guard install failed", 73}}}} =
+             Provisioner.repair_agent_github_guard("/remote/workspace", "worker-1", runner)
+  end
+
   defp write_concurrency_probe!(path, active_path, max_path) do
     active_path = Aiur.Shell.escape(active_path)
     max_path = Aiur.Shell.escape(max_path)
