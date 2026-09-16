@@ -12,11 +12,36 @@ defmodule Aiur.Init.Questions do
 
   def workspace_default(_tracker), do: "~/.aiur/workspaces"
 
+  @location_options ["repo (./.aiur/)", "global (~/.aiur/)"]
+
   @spec prompt_location(Aiur.Init.io()) :: :global | :repo_local
   def prompt_location(io) do
-    options = ["repo (./.aiur/)", "global (~/.aiur/)"]
+    io.select.("Where will you store aiur settings for this project?", @location_options, hd(@location_options))
+    |> parse_location()
+  end
 
-    case Format.value_of(io.select.("Where will you store aiur settings for this project?", options, hd(options))) do
+  @doc """
+  Asks whether to resume the global config found at `global_path` or create a
+  repo-local `.aiur/config` for `repo` when no repo-local config exists.
+
+  `default` is the pre-selected scope; a non-interactive run echoes it, so the
+  caller decides the deterministic outcome (see `Aiur.Init.BotAccount`).
+  """
+  @spec prompt_config_scope(Aiur.Init.io(), Path.t(), String.t() | nil, :global | :repo_local) :: :global | :repo_local
+  def prompt_config_scope(io, global_path, repo, default) do
+    label = "Use the global config at #{global_path}, or create a repo-local .aiur/config for #{repo || "this repository"}?"
+
+    Format.print_hint(io, "A global config pinned to one tracker repo would make this repository file and dispatch against that repo.")
+
+    io.select.(label, @location_options, location_option(default))
+    |> parse_location()
+  end
+
+  defp location_option(:global), do: List.last(@location_options)
+  defp location_option(_repo_local), do: hd(@location_options)
+
+  defp parse_location(choice) do
+    case Format.value_of(choice) do
       "global" -> :global
       _ -> :repo_local
     end
