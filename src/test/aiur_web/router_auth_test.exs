@@ -7,6 +7,7 @@ defmodule AiurWeb.RouterAuthTest do
   alias AiurWeb.{CommandsRedirectController, FinancialDataAccess, Router}
 
   @supervisor_token String.duplicate("s", 32)
+  @dashboard_credentials {"operator", "secret"}
 
   setup do
     FinancialDataAccess.Generation.invalidate()
@@ -15,8 +16,6 @@ defmodule AiurWeb.RouterAuthTest do
 
     previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
     previous_writable = AiurWeb.Endpoint.config(:dashboard_writable)
-    original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
-    original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     original_supervisor_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
 
     Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.merge(previous_endpoint || [], dashboard_auth_required: true))
@@ -29,8 +28,6 @@ defmodule AiurWeb.RouterAuthTest do
         Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, previous_writable)
       end
 
-      restore_env("AIUR_DASHBOARD_USERNAME", original_username)
-      restore_env("AIUR_DASHBOARD_PASSWORD", original_password)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_supervisor_token)
     end)
 
@@ -38,11 +35,9 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "refuses dashboard requests when credentials are not configured" do
-    System.delete_env("AIUR_DASHBOARD_USERNAME")
-    System.delete_env("AIUR_DASHBOARD_PASSWORD")
     Application.put_env(:aiur, AiurWeb.Endpoint, dashboard_auth_required: false)
 
-    conn = Router.call(conn(:get, "/missing"), Router.init([]))
+    conn = Router.call(dashboard_conn(:get, "/missing", nil), Router.init([]))
 
     assert conn.status == 503
     assert conn.halted
@@ -50,25 +45,19 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "requires basic auth when credentials are configured" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
-    conn = Router.call(conn(:get, "/api/v1/state"), Router.init([]))
+    conn = Router.call(dashboard_conn(:get, "/api/v1/state"), Router.init([]))
 
     assert conn.status == 401
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
   end
 
   test "event-feed reads use the dashboard authentication pipeline" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
-    unauthorized = Router.call(conn(:get, "/api/v1/agent-1/events"), Router.init([]))
+    unauthorized = Router.call(dashboard_conn(:get, "/api/v1/agent-1/events"), Router.init([]))
     assert unauthorized.status == 401
 
     authorized =
       :get
-      |> conn("/api/v1/agent-1/events")
+      |> dashboard_conn("/api/v1/agent-1/events")
       |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
       |> Router.call(Router.init([]))
 
@@ -76,12 +65,9 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "event-feed writes return the standard method-not-allowed response" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
     conn =
       :post
-      |> conn("/api/v1/agent-1/events")
+      |> dashboard_conn("/api/v1/agent-1/events")
       |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
       |> Router.call(Router.init([]))
 
@@ -90,26 +76,18 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "pause and resume writes require basic auth" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
     for action <- ["pause", "resume"] do
-      response = Router.call(conn(:post, "/api/v1/MT-1/#{action}"), Router.init([]))
+      response = Router.call(dashboard_conn(:post, "/api/v1/MT-1/#{action}"), Router.init([]))
 
       assert response.status == 401
       assert get_resp_header(response, "www-authenticate") == ["Basic realm=\"Aiur\""]
     end
   end
 
-  test "fails closed when writable dashboard credentials disappear after startup" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
-    System.delete_env("AIUR_DASHBOARD_PASSWORD")
-
+  test "fails closed when injected dashboard credentials are absent" do
     conn =
       :post
-      |> conn("/api/v1/refresh")
+      |> dashboard_conn("/api/v1/refresh", nil)
       |> Router.dashboard_basic_auth(required?: true)
 
     assert conn.status == 401
@@ -118,12 +96,9 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "accepts matching basic auth credentials" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
     conn =
       :get
-      |> conn("/missing")
+      |> dashboard_conn("/missing")
       |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
       |> Router.call(Router.init([]))
 
@@ -131,9 +106,6 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "legacy Commands URLs redirect permanently and preserve detail paths and queries" do
-    System.delete_env("AIUR_DASHBOARD_USERNAME")
-    System.delete_env("AIUR_DASHBOARD_PASSWORD")
-
     inbox = redirect_request("/decisions?filter=blocking")
     detail = redirect_request("/decisions/dec%20%2Fsafe?ticket=42")
 
@@ -144,18 +116,13 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "legacy Commands redirects remain behind dashboard authentication" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
-    conn = Router.call(conn(:get, "/decisions"), Router.init([]))
+    conn = Router.call(dashboard_conn(:get, "/decisions"), Router.init([]))
 
     assert conn.status == 401
     assert get_resp_header(conn, "www-authenticate") == ["Basic realm=\"Aiur\""]
   end
 
   test "Decision reads require bearer auth, bypass dashboard Basic Auth, and stay read-only available" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
     System.put_env("AIUR_SUPERVISOR_TOKEN", @supervisor_token)
 
     missing = Router.call(conn(:get, "/api/v1/decisions"), Router.init([]))
@@ -164,7 +131,7 @@ defmodule AiurWeb.RouterAuthTest do
 
     basic =
       :get
-      |> conn("/api/v1/decisions")
+      |> dashboard_conn("/api/v1/decisions")
       |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
       |> Router.call(Router.init([]))
 
@@ -246,12 +213,9 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "write API does not trust an attacker-controlled Host as its own origin" do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
     conn =
       :get
-      |> conn("/api/v1/pane/hide")
+      |> dashboard_conn("/api/v1/pane/hide")
       |> Map.put(:host, "evil.example")
       |> put_req_header("origin", "http://evil.example")
       |> put_req_header("x-aiur-request", "1")
@@ -294,9 +258,6 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   defp write_route_get(opts) do
-    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
-    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
-
     headers =
       cond do
         headers = Keyword.get(opts, :headers) -> headers
@@ -305,7 +266,7 @@ defmodule AiurWeb.RouterAuthTest do
       end
 
     conn =
-      Enum.reduce(headers, conn(:get, "/api/v1/pane/hide"), fn {key, value}, conn ->
+      Enum.reduce(headers, dashboard_conn(:get, "/api/v1/pane/hide"), fn {key, value}, conn ->
         %{conn | req_headers: [{key, value} | conn.req_headers]}
       end)
 
@@ -324,6 +285,12 @@ defmodule AiurWeb.RouterAuthTest do
     |> conn(path)
     |> put_req_header("authorization", "Bearer #{@supervisor_token}")
     |> Router.call(Router.init([]))
+  end
+
+  defp dashboard_conn(method, path, credentials \\ @dashboard_credentials) do
+    method
+    |> conn(path)
+    |> put_private(:aiur_dashboard_credentials, credentials)
   end
 
   defp redirect_request(path), do: CommandsRedirectController.legacy(conn(:get, path), %{})

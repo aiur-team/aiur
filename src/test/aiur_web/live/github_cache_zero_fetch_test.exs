@@ -56,7 +56,6 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
-
   setup do
     previous_endpoint = Application.get_env(:aiur, Endpoint)
 
@@ -198,13 +197,37 @@ defmodule AiurWeb.GithubCacheZeroFetchTest do
       # The REST half of the ticket-detail read, driven through the same seam.
       # Proving the counter still catches it is what makes the zeros above
       # meaningful rather than vacuous.
-      _ignored =
-        Issues.fetch_issue_raw_conditional(2073,
-          repository: {"aiur-team", "aiur"},
-          token: "test-token-not-used-the-plug-intercepts"
+      shared_key = ResourceStore.key(:issue, "aiur-team", "aiur", 2073)
+      on_exit(fn -> ResourceStore.forget(shared_key) end)
+
+      :ok =
+        ResourceStore.put_resource(shared_key, %{"number" => 2073},
+          source: :webhook,
+          version: "order-collision"
         )
 
-      assert requests(counter) != [],
+      assert {:ok, %{"number" => 2073}, :fresh} =
+               Issues.fetch_issue_raw_conditional(2073,
+                 repository: {"aiur-team", "aiur"},
+                 freshness_ms: 60_000,
+                 token: "test-token-not-used-the-plug-intercepts"
+               )
+
+      assert requests(counter) == []
+
+      issue_number = System.unique_integer([:positive, :monotonic])
+      control_key = ResourceStore.key(:issue, "aiur-team", "aiur", issue_number)
+      on_exit(fn -> ResourceStore.forget(control_key) end)
+      assert ResourceStore.fetch(control_key) == :miss
+
+      assert {:ok, %{}, :fetched} =
+               Issues.fetch_issue_raw_conditional(issue_number,
+                 repository: {"aiur-team", "aiur"},
+                 freshness_ms: 60_000,
+                 token: "test-token-not-used-the-plug-intercepts"
+               )
+
+      assert requests(counter) == [{"GET", "/repos/aiur-team/aiur/issues/#{issue_number}"}],
              "the counting plug never fired, so every zero in this file is unproven"
     end
   end
