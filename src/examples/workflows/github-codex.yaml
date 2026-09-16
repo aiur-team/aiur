@@ -128,6 +128,10 @@ agent:
   #   3: codex:gpt-5.6-terra:high
   #   4: codex:gpt-5.6-terra:xhigh
   #   5: codex:gpt-5.6-sol:max
-codex:
-  command: codex app-server
+  codex:
+    command: codex app-server
+    # This is an explicit headless-workflow choice. Unconfigured workflows
+    # retain the secure `untrusted` default.
+    approval_policy: never
+    thread_sandbox: workspace-write
 prompt_file: github-codex.prompt.md
