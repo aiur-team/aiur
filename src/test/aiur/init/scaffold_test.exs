@@ -92,6 +92,13 @@ defmodule Aiur.Init.ScaffoldTest do
     assert Scaffold.put_github_token_line("", "ghp_x") == "GITHUB_TOKEN=ghp_x\n"
   end
 
+  test "write_private_file does not persist the token when permission setup fails", %{dir: dir} do
+    path = Path.join(dir, ".env")
+
+    assert {:error, :chmod_failed} = Scaffold.write_private_file(path, "GITHUB_TOKEN=secret\n", fn _path, _mode -> {:error, :chmod_failed} end)
+    refute File.exists?(path)
+  end
+
   @tag :not_async
   test "persist_github_token writes .env and exposes the token to the running wizard", %{dir: dir} do
     previous = System.get_env("GITHUB_TOKEN")

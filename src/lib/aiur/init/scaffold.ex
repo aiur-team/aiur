@@ -170,16 +170,34 @@ defmodule Aiur.Init.Scaffold do
     env_path = Path.join(File.cwd!(), @env_file_name)
     existing = if File.regular?(env_path), do: File.read!(env_path), else: ""
 
-    case File.write(env_path, put_github_token_line(existing, token)) do
+    case write_private_file(env_path, put_github_token_line(existing, token)) do
       :ok ->
-        # The file now holds a live credential: owner-only, like an SSH key.
-        _ = File.chmod(env_path, 0o600)
         System.put_env(@github_token_key, token)
         :ok
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @doc false
+  @spec write_private_file(Path.t(), iodata(), (Path.t(), non_neg_integer() -> :ok | {:error, term()})) :: :ok | {:error, term()}
+  def write_private_file(path, content, chmod_fun \\ &File.chmod/2) do
+    temporary = Path.join(Path.dirname(path), ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp")
+
+    result =
+      with {:ok, device} <- File.open(temporary, [:write, :exclusive]),
+           :ok <- File.close(device),
+           :ok <- chmod_fun.(temporary, 0o600),
+           {:ok, %File.Stat{mode: mode}} <- File.stat(temporary),
+           true <- rem(mode, 0o1000) == 0o600 || {:error, :insecure_permissions},
+           :ok <- File.write(temporary, content),
+           :ok <- File.rename(temporary, path) do
+        :ok
+      end
+
+    File.rm(temporary)
+    result
   end
 
   @doc false

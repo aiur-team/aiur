@@ -834,6 +834,47 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert state.state_label_preflight_checked
     end
 
+    test "a successful probe resolves a missing-label attention even after a transient error replaced its signature" do
+      emit = label_alert_emitter(self())
+      missing = fn -> {:ok, %{repo: "owner/repo", missing: ["agent:todo"], present: []}} end
+
+      state = Dispatcher.check_state_labels(%State{}, "github", missing, emit, &no_open_alerts/1)
+      assert_receive {:label_alert, @missing_topic, _opts}
+
+      state = Dispatcher.check_state_labels(state, "github", fn -> {:error, :timeout} end, emit, &no_open_alerts/1)
+      assert state.state_label_preflight_signature == "error::timeout"
+
+      open_missing_attention = fn topic -> topic == @missing_topic end
+      state = Dispatcher.check_state_labels(state, "github", &present_labels/0, emit, open_missing_attention)
+
+      assert_receive {:label_alert, @missing_topic <> ".resolved", _opts}
+      assert state.state_label_preflight_checked
+    end
+
+    test "the label scan runs off the dispatch process and returns a scoped result" do
+      parent = self()
+
+      check = fn ->
+        send(parent, {:label_scan_started, self()})
+        receive do: (:finish_label_scan -> present_labels())
+      end
+
+      state = Dispatcher.start_state_label_check(%State{}, "github", check)
+      assert is_pid(state.state_label_preflight_check_pid)
+      assert is_reference(state.state_label_preflight_check_token)
+      refute state.state_label_preflight_checked
+
+      assert_receive {:label_scan_started, scanner}
+      send(scanner, :finish_label_scan)
+      assert_receive {:state_label_preflight_result, token, result}
+      assert token == state.state_label_preflight_check_token
+
+      state = Dispatcher.handle_state_label_result(state, token, result)
+      assert state.state_label_preflight_checked
+      assert state.state_label_preflight_check_pid == nil
+      assert state.state_label_preflight_check_token == nil
+    end
+
     test "one failed list call only retries; the same failure repeated alerts once and resolves on recovery" do
       emit = label_alert_emitter(self())
       failing = fn -> {:error, {:github_api_status, 500}} end
@@ -892,10 +933,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       elapsed = %State{initial_dispatch_cycle: false, state_label_preflight_retry_at_ms: System.monotonic_time(:millisecond) - 1}
       state = Dispatcher.maybe_warn_state_labels(elapsed)
       assert_receive :label_check_ran
+      assert_receive {:state_label_preflight_result, token, result}
+      state = Dispatcher.handle_state_label_result(state, token, result)
       assert state.state_label_preflight_checked
 
       state = Dispatcher.maybe_warn_state_labels(%State{initial_dispatch_cycle: true})
       assert_receive :label_check_ran
+      assert_receive {:state_label_preflight_result, token, result}
+      state = Dispatcher.handle_state_label_result(state, token, result)
       assert state.state_label_preflight_checked
 
       assert Dispatcher.maybe_warn_state_labels(state) == state

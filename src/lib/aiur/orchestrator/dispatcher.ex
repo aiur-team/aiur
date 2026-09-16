@@ -449,19 +449,57 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec maybe_warn_state_labels(State.t()) :: State.t()
   def maybe_warn_state_labels(%State{state_label_preflight_checked: true} = state), do: state
 
+  def maybe_warn_state_labels(%State{state_label_preflight_check_pid: pid} = state) when is_pid(pid) do
+    if Process.alive?(pid), do: state, else: state |> clear_state_label_check() |> maybe_warn_state_labels()
+  end
+
   def maybe_warn_state_labels(%State{state_label_preflight_retry_at_ms: retry_at_ms} = state) when is_integer(retry_at_ms) do
     if retry_at_ms > System.monotonic_time(:millisecond) do
       state
     else
-      check_state_labels(state, Config.tracker_kind(), StateLabelPreflight.check_fun(), &Alerts.emit_system/2)
+      start_state_label_check(state, Config.tracker_kind(), StateLabelPreflight.check_fun())
     end
   end
 
   def maybe_warn_state_labels(%State{initial_dispatch_cycle: true} = state) do
-    check_state_labels(state, Config.tracker_kind(), StateLabelPreflight.check_fun(), &Alerts.emit_system/2)
+    start_state_label_check(state, Config.tracker_kind(), StateLabelPreflight.check_fun())
   end
 
   def maybe_warn_state_labels(state), do: state
+
+  @doc false
+  @spec start_state_label_check(State.t(), String.t() | nil, function()) :: State.t()
+  def start_state_label_check(%State{state_label_preflight_checked: true} = state, _kind, _check_fun), do: state
+
+  def start_state_label_check(%State{state_label_preflight_check_pid: pid} = state, kind, check_fun) when is_pid(pid) do
+    if Process.alive?(pid), do: state, else: state |> clear_state_label_check() |> start_state_label_check(kind, check_fun)
+  end
+
+  def start_state_label_check(state, "github", check_fun) do
+    parent = self()
+    token = make_ref()
+
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+           send(parent, {:state_label_preflight_result, token, check_fun.()})
+         end) do
+      {:ok, pid} -> %{state | state_label_preflight_check_pid: pid, state_label_preflight_check_token: token}
+      {:error, reason} -> record_state_label_result(state, {:error, reason}, &Alerts.emit_system/2, &AlertFeed.active_system_attention?/1)
+    end
+  end
+
+  def start_state_label_check(state, _kind, _check_fun), do: %{state | state_label_preflight_checked: true}
+
+  @doc false
+  @spec handle_state_label_result(State.t(), reference(), {:ok, StateLabelPreflight.result()} | {:error, term()}) :: State.t()
+  def handle_state_label_result(%State{state_label_preflight_check_token: token} = state, token, result) do
+    state
+    |> clear_state_label_check()
+    |> record_state_label_result(result, &Alerts.emit_system/2, &AlertFeed.active_system_attention?/1)
+  end
+
+  def handle_state_label_result(state, _token, _result), do: state
+
+  defp clear_state_label_check(state), do: %{state | state_label_preflight_check_pid: nil, state_label_preflight_check_token: nil}
 
   @doc false
   @spec check_state_labels(State.t(), String.t() | nil, function(), function(), function()) :: State.t()
@@ -548,11 +586,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp resolve_state_label_alert(state, topic, prefix, emit_fun, active_fun, opts) do
     signature = state.state_label_preflight_signature
 
-    open? =
-      case signature do
-        nil -> active_fun.(topic)
-        _ -> String.starts_with?(signature, prefix)
-      end
+    open? = active_fun.(topic) || (is_binary(signature) && String.starts_with?(signature, prefix))
 
     if open? do
       emit_fun.(topic <> ".resolved",
