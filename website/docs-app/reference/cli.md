@@ -299,6 +299,7 @@ successor resumes from the durable cursor.
 Within that node, wake files are prefixed by the sanitized final segment of the
 tracker project identity (`Paths.repo_name/0`): `<repo>.executor.wakes.ndjson`,
 `<repo>.executor.wakes.cursor.json`, and `<repo>.executor.wakes.pending.json`.
+
 A notification monitor must use that `<repo>` prefix (for example,
 `khala.executor.wakes.ndjson`), check that the wake file exists before declaring
 itself armed, and never substitute the `aiur` prefix in a consumer repository.
