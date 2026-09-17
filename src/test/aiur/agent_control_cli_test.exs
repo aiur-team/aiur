@@ -2407,6 +2407,12 @@ defmodule Aiur.AgentControlCLITest do
     refute Map.has_key?(control, :latest_resume_control)
     refute Map.has_key?(control, :recent_controls)
 
+    assert [%{identifier: "repo#44", state: :paused, control: control}] = readable_statuses
+    assert control.status == :paused
+    assert Map.get(control, :latest_control) == nil
+    assert Map.get(control, :latest_resume_control) == nil
+    assert Map.get(control, :recent_controls, []) == []
+
     Application.put_env(:aiur, :agent_control_cli_confirmation_status_fun, fn _server, _timeout -> readable_statuses end)
 
     on_exit(fn ->
