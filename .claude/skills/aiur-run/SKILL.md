@@ -7,6 +7,14 @@ description: "Launch and operate an Aiur run end to end as its Executor: establi
 
 Before launch, resolve repository-local `.aiur/config`, then `~/.aiur/config`. If only global defaults exist, tell the user that Aiur will fall back to them; do not require `aiur init` or copy config into every repository. Global GitHub startup targets the current `origin` and ensures required workflow/marker and complexity labels before dispatch, without seeding model/effort/alias labels. Prefer config (`agent.priority`, backend settings, `agent.routing`) for model selection. Shared credentials belong in `~/.aiur/.env` outside Git, or configured App/keyring auth. Missing-label permission failures must be resolved before launch; existing pauses and human decisions remain binding. Omit `tracker.github.repo` in portable global defaults; a conflicting explicit repo fails safely. Use local `init` when repository-specific settings are needed.
 
+Home setup is performed once; each repository still needs readiness checks.
+Follow [per-repository setup](../aiur-intro/SKILL.md#prepare-each-repository-without-repeating-init):
+verify effective credential Write access, base-branch inputs, CODEOWNERS or
+explicit dispatch allowlist, and worker validation. Create missing CODEOWNERS
+with the approved human owner under the user's authority. Tell the user what
+was created and what remains blocked; distinguish startup from observed worker
+push/PR publication.
+
 Use this skill when the agent owns the whole Aiur run, not merely its launch.
 It replaces the former `aiur-loop` workflow. Read the canonical
 [Executor role](references/executor.md) before acting, then use `aiur-monitor`
