@@ -6,7 +6,6 @@ defmodule Aiur.BuildOrder.HomeRepositorySnapshotTest do
   alias Aiur.GitHub.Config, as: GitHubConfig
 
   test "omitted repository resolves origin for generation-qualified catalog authority" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: nil)
     key = {GitHubConfig, :resolved_origin_repo}
     previous = :persistent_term.get(key, :not_cached)
     :persistent_term.put(key, "team/consumer")
@@ -14,6 +13,8 @@ defmodule Aiur.BuildOrder.HomeRepositorySnapshotTest do
     on_exit(fn ->
       if previous == :not_cached, do: :persistent_term.erase(key), else: :persistent_term.put(key, previous)
     end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: nil)
 
     assert {:ok, _workflow, generation} = Aiur.WorkflowStore.current_with_generation()
     assert {:ok, {"team", "consumer"}, ^generation} = Repository.configured_repository_snapshot([])
