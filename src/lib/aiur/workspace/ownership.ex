@@ -119,6 +119,13 @@ defmodule Aiur.Workspace.Ownership do
   def track_process_group(nil, _process_group_id), do: {:error, :workspace_ownership_lost}
   def track_process_group(_lease, _process_group_id), do: {:error, :workspace_ownership_lost}
 
+  @doc false
+  @spec track_host_lock(lease() | nil, map()) :: :ok | {:error, :workspace_ownership_lost}
+  def track_host_lock(%{guardian: guardian, generation: generation}, lock) when is_pid(guardian) and is_map(lock),
+    do: call(guardian, {:track_host_lock, generation, lock})
+
+  def track_host_lock(_lease, _lock), do: {:error, :workspace_ownership_lost}
+
   @spec release(lease(), registry()) :: :ok
   def release(lease, registry \\ @registry)
   def release(%{guardian: guardian, generation: generation}, _registry) when is_pid(guardian), do: call(guardian, {:release, generation})
@@ -167,6 +174,8 @@ defmodule Aiur.Workspace.Ownership do
       @guardian_call_timeout -> timeout_result(message)
     end
   end
+
+  defp timeout_result({:track_host_lock, _generation, _lock}), do: {:error, :workspace_ownership_lost}
 
   defp timeout_result({operation, _generation})
        when operation in [
