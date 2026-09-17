@@ -1,8 +1,8 @@
 defmodule Aiur.GlobalConfigStartup do
   @moduledoc "Pre-dispatch setup when a run uses shared home-directory settings."
   alias Aiur.BuildOrder.Bounded
-  alias Aiur.GitHub.{Labels, Transport}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.{Labels, Transport}
   alias Aiur.Workflow
 
   @spec prepare() :: :ok | {:error, String.t()}
