@@ -5,11 +5,22 @@ defmodule Aiur.ProviderMeters.EventsTest do
   alias Aiur.ProviderMeterSnapshot
 
   setup do
-    unless Process.whereis(Aiur.PubSub) do
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
+    ensure_pubsub!()
     :ok
+  end
+
+  test "coverage-4 fixtures never create a test-owned Aiur PubSub" do
+    # These fixtures run beside ApplicationTest in coverage shard 4. The
+    # application owns Aiur.PubSub through Aiur.PubSub.Boot; an ExUnit-owned
+    # Phoenix.PubSub vanishes with its case and leaves the shared tree's child
+    # state inconsistent for a later supervision-contract test.
+    for path <- [
+          __ENV__.file,
+          Path.expand("build_order/ad_hoc_source_test.exs", __DIR__),
+          Path.expand("../aiur_web/voice_channel_test.exs", __DIR__)
+        ] do
+      refute File.read!(path) =~ ~r/start_supervised!\(\{Phoenix\.PubSub, name: Aiur\.PubSub\}\)/
+    end
   end
 
   test "an observation reaches both the generation-scoped and the fan-out topic" do
@@ -80,5 +91,9 @@ defmodule Aiur.ProviderMeters.EventsTest do
       observed_at: ~U[2026-07-27 12:00:00Z],
       windows: %{}
     }
+  end
+
+  defp ensure_pubsub! do
+    assert :ok = Aiur.TestSupport.ensure_pubsub_running()
   end
 end
