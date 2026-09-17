@@ -56,21 +56,37 @@ defmodule Aiur.Init.CodeownersTest do
     assert Enum.any?(messages, &(&1 =~ "Skipped CODEOWNERS"))
   end
 
-  test "adds operator login to CODEOWNERS when confirmed", %{dir: dir} do
+  test "adds a known operator login without another confirmation", %{dir: dir} do
     parent = self()
-
-    answers = %{
-      confirm: %{
-        "Create .github/CODEOWNERS for aiur's GitHub trust checks?" => true,
-        "Add @octocat to CODEOWNERS so aiur trusts your PR/issue comments?" => true
-      }
-    }
 
     deps = %{repo_root: fn -> dir end, github_login: fn -> "octocat" end}
 
-    Codeowners.setup_codeowners(io(parent, answers), deps, %{kind: "github"})
+    Codeowners.setup_codeowners(io(parent, %{}), deps, %{kind: "github", operator_account: "octocat"})
 
     codeowners_path = Path.join([dir, ".github", "CODEOWNERS"])
     assert File.read!(codeowners_path) =~ "@octocat"
+
+    refute_receive {:confirm, "Add @octocat to CODEOWNERS so aiur trusts your PR/issue comments?"}
+  end
+
+  for {name, invalid} <- [{"newline", "bad\n* @intruder"}, {"comment", "bad #comment"}, {"multiple owners", "first @second"}, {"App bot", "agent[bot]"}] do
+    test "CODEOWNERS human fallback rejects #{name} before writing a valid human owner", %{dir: dir} do
+      invalid = unquote(invalid)
+      {:ok, answers} = Agent.start_link(fn -> [invalid, "real-human"] end)
+      base_io = io(self(), %{})
+
+      input = fn _label, _default, _hint ->
+        Agent.get_and_update(answers, fn [answer | rest] -> {answer, rest} end)
+      end
+
+      deps = %{repo_root: fn -> dir end, github_login: fn -> nil end}
+      assert :ok = Codeowners.setup_codeowners(%{base_io | input: input}, deps, %{kind: "github"})
+      contents = File.read!(Path.join([dir, ".github", "CODEOWNERS"]))
+      assert contents =~ "* @real-human"
+      refute contents =~ "@intruder"
+      refute contents =~ "@second"
+      refute contents =~ "@agent[bot]"
+      assert Agent.get(answers, & &1) == []
+    end
   end
 end

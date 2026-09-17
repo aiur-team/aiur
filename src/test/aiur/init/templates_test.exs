@@ -120,11 +120,12 @@ defmodule Aiur.Init.TemplatesTest do
     with_account =
       Templates.fill_template(
         "{{TRACKER_PROVIDER}}",
-        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: "its-applekid", base_branch: "develop"}))
+        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: "its-applekid", identity_mode: "separate_account", base_branch: "develop"}))
       )
 
     assert with_account =~ "repo: owner/repo"
     assert with_account =~ "bot_account: its-applekid"
+    assert with_account =~ "identity_mode: separate_account"
 
     without_account =
       Templates.fill_template(
