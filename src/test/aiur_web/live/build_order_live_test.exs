@@ -777,6 +777,58 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert has_element?(view, ~s([data-bo-card="7"]), "60%")
   end
 
+  # The Khala report: a paused member's last check-in said 80%, its activity
+  # row is now stale, and the graph card, wave bar, and overall bar all showed
+  # 0% while the lower breakdown still showed the work. The value behind the
+  # rendering must be the retained percent, tagged last known with its age —
+  # never a confident zero and never dressed as a live reading.
+  test "a paused member's stale reading renders as last known on the card, wave, and overall bars", %{first: first} do
+    member = breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)
+
+    selected =
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), [member], health(1, :healthy)),
+        1,
+        :healthy
+      )
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected],
+      sources_loader: fn -> sources_for_stale_paused_member(member.identity, 80) end
+    )
+
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    render_async(view, 2_000)
+
+    assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "Paused")
+    assert has_element?(view, ~s([data-bo-card="7"] .bo-node-pct[data-progress-state="resolved"][data-progress-freshness="last_known"]), "80%")
+    assert view |> render() |> Floki.parse_document!() |> Floki.find(~s([data-bo-card="7"] .bo-node-pct)) |> Floki.text() |> String.trim() == "80%"
+    assert has_element?(view, ~s([data-bo-card="7"] .bo-node-note), "last known")
+    assert has_element?(view, ~s([data-bo-card="7"] .bo-node-note), "d ago")
+
+    # The wave and overall bars fold the same retained percent and carry the
+    # same marker; the lower breakdown row agrees.
+    document = view |> render() |> Floki.parse_document!()
+    [overall | waves] = Floki.find(document, ".bo-waves-head .bo-wave-seg")
+
+    for segment <- [overall | waves] do
+      assert Floki.attribute(segment, "data-progress-freshness") == ["last_known"]
+      assert segment |> Floki.find(".bo-wave-seg-pct") |> Floki.text() |> String.trim() == "80%"
+      assert segment |> Floki.find(".bo-wave-seg-note") |> Floki.text() =~ "last known"
+    end
+
+    # The epic column header carries the same percent, marker, and age.
+    assert [epic] = Floki.find(document, ~s(.bo-epic[data-progress-freshness="last_known"]))
+    assert epic |> Floki.find(~s(.bo-epic-count[data-progress-freshness="last_known"])) |> Floki.text() |> String.trim() == "80%"
+    assert epic |> Floki.find(".bo-epic-note") |> Floki.text() =~ ~r/last known \d+d ago/
+
+    assert [row] = Floki.find(document, ~s(.bo-breakdown-row[data-breakdown-key="1"]))
+    assert Floki.attribute(row, "data-breakdown-progress") == ["80"]
+    assert Floki.attribute(row, "data-breakdown-last-known") == ["1"]
+  end
+
   test "projection reset rolls the catalog subscription to the replacement repository", %{
     source: source
   } do
@@ -1357,6 +1409,15 @@ defmodule AiurWeb.BuildOrderLiveTest do
     |> put_in([:execution, :idle], [
       %{tracker_identity: identity, waiting_reason: :waiting_for_ci}
     ])
+  end
+
+  # A paused member whose activity row and reading both went stale: the
+  # projection's freshness after an agent stops emitting.
+  defp sources_for_stale_paused_member(identity, progress) do
+    sources_for_member(identity, :paused, :operator_pause, progress)
+    |> update_in([:activity, :entries], fn [entry] ->
+      [entry |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale) |> put_in([:stage, :freshness], :stale)]
+    end)
   end
 
   defp adhoc_source_snapshot do
