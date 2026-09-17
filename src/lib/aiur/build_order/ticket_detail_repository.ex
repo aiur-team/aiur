@@ -130,10 +130,15 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   end
 
   defp snapshot_repository(config) do
-    config
-    |> get_in(["tracker", "github", "repo"])
-    |> GitHub.Config.configured_repo_from_value()
-    |> configured_repository_result()
+    repository = get_in(config, ["tracker", "github", "repo"])
+
+    if is_nil(repository) and get_in(config, ["tracker", "kind"]) != "github" do
+      {:error, %Failure{kind: :configuration}}
+    else
+      repository
+      |> GitHub.Config.configured_repo_from_value()
+      |> configured_repository_result()
+    end
   end
 
   defp configured_snapshot_result(snapshot) do
