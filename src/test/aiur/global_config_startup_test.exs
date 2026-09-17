@@ -103,6 +103,37 @@ defmodule Aiur.GlobalConfigStartupTest do
     refute_received {:request, _, _, _}
   end
 
+  test "blank and padded label prefixes match dispatcher normalization", c do
+    for {configured, expected} <- [{" ", "agent:todo"}, {" custom ", "custom:todo"}] do
+      File.write!(c.path, "tracker:\n  kind: github\n  github:\n    label_prefix: '#{configured}'\n")
+      capture_io(:stderr, fn -> assert :ok = GlobalConfigStartup.prepare(c.path, c.opts) end)
+      names = Enum.map(collect_posts([]), & &1["name"])
+      assert expected in names
+    end
+  end
+
+  test "non-GitHub and local origin URLs fail before any label requests", c do
+    for remote <- ["https://gitlab.com/team/consumer.git", "/tmp/team/consumer.git"] do
+      opts = c.opts |> Keyword.delete(:origin_fun) |> Keyword.put(:origin_url_fun, fn -> remote end)
+
+      capture_io(:stderr, fn ->
+        assert {:error, message} = GlobalConfigStartup.prepare(c.path, opts)
+        assert message =~ "origin"
+      end)
+
+      refute_received {:request, _, _, _}
+    end
+  end
+
+  test "HTTPS and SSH GitHub origins bootstrap the exact repo", c do
+    for remote <- ["https://github.com/team/consumer.git", "git@github.com:team/consumer.git", "ssh://git@github.com/team/consumer.git"] do
+      opts = c.opts |> Keyword.delete(:origin_fun) |> Keyword.put(:origin_url_fun, fn -> remote end)
+      capture_io(:stderr, fn -> assert :ok = GlobalConfigStartup.prepare(c.path, opts) end)
+      assert_received {:request, :get, "https://api.github.com/repos/team/consumer/labels?per_page=100&page=1", nil}
+      assert "agent:todo" in Enum.map(collect_posts([]), & &1["name"])
+    end
+  end
+
   # Future guards for preexisting local-config and non-GitHub behavior.
   test "future guard: repository-local config does not bootstrap", c do
     assert :ok = GlobalConfigStartup.prepare(Path.join(c.home, "repo/.aiur/config"), c.opts)

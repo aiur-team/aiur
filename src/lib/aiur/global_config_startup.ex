@@ -25,17 +25,34 @@ defmodule Aiur.GlobalConfigStartup do
 
   defp bootstrap(%{"tracker" => %{"kind" => "github"} = tracker}, opts) do
     github = Map.get(tracker, "github", %{}) || %{}
-    origin_fun = Keyword.get(opts, :origin_fun, &Aiur.Git.origin_repo/0)
+    origin_fun = Keyword.get(opts, :origin_fun, fn -> github_origin(opts) end)
     token_fun = Keyword.get(opts, :token_fun, &GitHubConfig.token/0)
 
     with {:ok, {owner, repo}} <- target(github["repo"], origin_fun.()),
          {:ok, token} <- credential(token_fun.()) do
       IO.puts(:stderr, "Global defaults target GitHub repository #{owner}/#{repo}; ensuring workflow labels (no model labels).")
-      ensure_labels(owner, repo, token, github["label_prefix"] || "agent", opts)
+      ensure_labels(owner, repo, token, GitHubConfig.label_prefix(github["label_prefix"]), opts)
     end
   end
 
   defp bootstrap(_config, _opts), do: :ok
+
+  defp github_origin(opts) do
+    remote = Keyword.get(opts, :origin_url_fun, &origin_url/0).()
+    if is_binary(remote) and github_host?(remote), do: Aiur.Git.parse_origin_url(remote), else: nil
+  end
+
+  defp github_host?(remote) do
+    String.downcase(URI.parse(remote).host || "") == "github.com" or
+      Regex.match?(~r/\A(?:[^@:\/]+@)?github\.com:/i, remote)
+  end
+
+  defp origin_url do
+    case System.cmd("git", ["remote", "get-url", "origin"], stderr_to_stdout: true) do
+      {url, 0} -> String.trim(url)
+      _ -> nil
+    end
+  end
 
   defp target(configured, origin) when is_binary(origin) do
     configured = if is_binary(configured), do: String.trim(configured), else: ""
