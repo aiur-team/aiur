@@ -65,11 +65,17 @@ defmodule Aiur.GitHub.Config do
           {:ok, {String.t(), String.t()}}
           | {:error, :missing_configured_repository | :invalid_configured_repository}
   def configured_repo(opts) when is_list(opts) do
-    case explicit_repo() do
-      value when is_binary(value) -> parse_configured_repo(value)
-      nil -> origin_configured_repo(origin_repo(opts))
-    end
+    configured_repo_from_value(explicit_repo(), opts)
   end
+
+  @doc false
+  @spec configured_repo_from_value(term(), keyword()) ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
+  def configured_repo_from_value(value, opts \\ [])
+  def configured_repo_from_value(nil, opts), do: origin_configured_repo(origin_repo(opts))
+  def configured_repo_from_value(value, _opts) when is_binary(value), do: parse_configured_repo(value)
+  def configured_repo_from_value(_value, _opts), do: {:error, :invalid_configured_repository}
 
   @doc """
   Only the repository `tracker.github.repo` names explicitly, never the
