@@ -234,6 +234,11 @@ jobs:
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
           TEST_PARTITIONS: 4
+          # `Aiur.TestSupport.tmp_root!/1` follows `System.tmp_dir!/0`, which
+          # otherwise selects quota-mounted `/tmp` on hosted runners. Keep
+          # per-test SQLite broker state under this job's private runner temp
+          # root instead; `df` free space does not reflect an EDQUOT limit.
+          TMPDIR: ${{ runner.temp }}
         # Capture the full log for the known-flaky reporter below, but write it
         # to a file instead of piping through `tee`: tests that leave orphaned
         # background processes (opencode/sleep CLI harnesses) hold the pipe's

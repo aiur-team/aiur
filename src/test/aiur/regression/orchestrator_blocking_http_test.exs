@@ -1076,7 +1076,8 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     log = capture_log(fn -> send(self(), {:budget_admission_ready, Budget.acquire(request, timeout_ms: @locked_release_deadline_ms)}) end)
     assert_receive {:budget_admission_ready, result}
 
-    assert {:ok, lease} = result, "budget broker did not admit the fixture request: #{log}"
+    assert match?({:ok, _lease}, result), "budget broker did not admit the fixture request: #{inspect(result)}; #{log}"
+    {:ok, lease} = result
     assert :ok = Budget.release(lease, timeout_ms: @locked_release_deadline_ms)
   end
 
