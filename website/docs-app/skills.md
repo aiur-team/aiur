@@ -4,6 +4,8 @@ title: Skills
 
 # Skills
 
+The `aiur-run` Executor announces fallback to `~/.aiur/config` when no local config exists. It can launch a new GitHub repository without per-repository `init`: startup ensures workflow/marker and complexity labels, while models are selected by configuration. It does not seed model/effort labels. Shared credentials can live in `~/.aiur/.env` outside Git. Local settings, permission requirements, pauses and human decisions retain precedence.
+
 Aiur ships Agent Skills under `.claude/skills/` and makes them available to Codex under `.codex/skills/`. They split into two families by **where they run**:
 
 - **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
