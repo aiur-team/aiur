@@ -8,7 +8,7 @@ status: implementing
 
 ## Problem and research
 
-Starting a new repository with global settings should not require repository-local init. Workflow already discovers ~/.aiur/config; GitHub.Config already infers an omitted repo from origin; the shared launcher already loads ~/.aiur/.env before repository dotenv. Missing startup label setup and ambiguous Executor guidance made this incomplete in Khala. Reuse these paths rather than adding configuration layers or copying credentials.
+Starting a new repository with global settings should not require repository-local init. Workflow already discovers ~/.aiur/config; GitHub.Config already infers an omitted repo from origin; the shared launcher already loads repository dotenv before ~/.aiur/.env, with exported values winning and GitHub credentials kept as one group. Missing startup label setup and ambiguous Executor guidance made this incomplete in Khala. Reuse these paths rather than adding configuration layers or copying credentials.
 
 ## Product contract
 
