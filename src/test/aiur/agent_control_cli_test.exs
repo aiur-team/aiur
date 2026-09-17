@@ -2396,10 +2396,16 @@ defmodule Aiur.AgentControlCLITest do
     # production reporter keeps its shape faithful while avoiding an unrelated
     # SnapshotStore transport timeout selecting the distinct unreadable-status
     # diagnostic path.
-    readable_statuses =
-      pid
-      |> :sys.get_state()
-      |> StatusReport.agent_statuses(fn _timeout -> {:unavailable, nil} end)
+    orchestrator_state = :sys.get_state(pid)
+
+    assert %ControlLifecycle{records: %{}, history_ids: %{}, pending: %{}} = orchestrator_state.control_lifecycle
+
+    readable_statuses = StatusReport.agent_statuses(orchestrator_state, fn _timeout -> {:unavailable, nil} end)
+
+    assert [%{identifier: "repo#44", state: :paused, work_state: :paused, control: control}] = readable_statuses
+    refute Map.has_key?(control, :latest_control)
+    refute Map.has_key?(control, :latest_resume_control)
+    refute Map.has_key?(control, :recent_controls)
 
     Application.put_env(:aiur, :agent_control_cli_confirmation_status_fun, fn _server, _timeout -> readable_statuses end)
 
