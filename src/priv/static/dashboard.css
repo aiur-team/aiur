@@ -1134,6 +1134,18 @@ th[data-sort-key]:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* A row carried by retained readings says so beside its percent: the count of
+   members whose agent has not reported since, and how old the oldest reading
+   is. Retained work stays counted, but never dressed as current. */
+.bo-breakdown-row-last-known .num {
+  color: var(--attention-ink);
+}
+
+.bo-breakdown-row-age {
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
 .bo-breakdown-row-members {
   margin: 0;
   min-width: 0;
@@ -7794,6 +7806,21 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--muted);
 }
 
+/* Aggregates carried by retained readings say so under the meter, so a bar
+   that owes part of its fill to paused agents reads as last known, not live. */
+.bo-wave-seg-note,
+.bo-epic-note {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.bo-epic-count[data-progress-freshness="last_known"] {
+  color: var(--attention-ink);
+}
+
 .bo-wave-seg-meter {
   display: block;
   height: var(--progress-bar-height);
@@ -7806,6 +7833,20 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   display: block;
   height: 100%;
   border-radius: 999px;
+}
+
+/* Preserve an unresolved label rather than shrinking it to a misleading zero.
+   On phones, arrange the wave summaries in two columns so those honest labels
+   remain inside the document instead of widening the page. */
+@media (max-width: 480px) {
+  .bo-waves-strip {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bo-wave-seg {
+    min-width: 0;
+  }
 }
 
 /* --- toolbar (legend + zoom) --- */
@@ -7971,8 +8012,10 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .bo-epic {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
+  min-width: 0;
   padding: 0.5rem 0.7rem;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -8006,6 +8049,16 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   font-variant-numeric: tabular-nums;
   font-size: 0.82rem;
   color: var(--muted);
+}
+
+/* A last-known annotation is metadata for this fixed-width graph column, not
+   a reason to widen the grid beyond its own scroll viewport. Keep it on its
+   own line and let it wrap on phone-sized columns. */
+.bo-epic-note {
+  flex: 1 0 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* --- body + wave rows --- */
@@ -8286,6 +8339,22 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .bo-node.is-merged .bo-node-pct {
   color: var(--muted);
+}
+
+/* A card whose percent is a last-known reading keeps the number but flags it:
+   the percent turns to the warning tone and a note under the status row gives
+   the reading's age, so retained work is never mistaken for a live report. */
+.bo-node-pct[data-progress-freshness="last_known"] {
+  color: var(--attention-ink);
+}
+
+.bo-node-note {
+  font-size: 0.62rem;
+  line-height: 1.2;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* On the brighter merged fill (--surface-3), keep the small meta text at
