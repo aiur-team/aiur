@@ -52,21 +52,23 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
       <div :if={@core_waves != [] and not @planning?} class="bo-waves-head" aria-label="Wave completion">
 
-        <div class="bo-wave-seg">
+        <div class="bo-wave-seg" data-progress-freshness={@overall_progress.freshness} title={@overall_progress.title}>
           <div class="bo-wave-seg-top">
             <span class="bo-wave-seg-label">Overall</span>
-            <span class="bo-wave-seg-pct">{@overall_progress.label}</span>
+            <span class="bo-wave-seg-pct" aria-label={@overall_progress.aria_label}>{@overall_progress.label}</span>
           </div>
           <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(@overall_progress)}></i></span>
+          <span :if={@overall_progress.note} class="bo-wave-seg-note">{@overall_progress.note}</span>
         </div>
 
         <div class="bo-waves-strip">
-          <div :for={wave <- @core_waves} class="bo-wave-seg">
+          <div :for={wave <- @core_waves} class="bo-wave-seg" data-progress-freshness={wave.progress_view.freshness} title={wave.progress_view.title}>
             <div class="bo-wave-seg-top">
               <span class="bo-wave-seg-label">{wave.label}</span>
-              <span class="bo-wave-seg-pct">{wave.progress_view.label}</span>
+              <span class="bo-wave-seg-pct" aria-label={wave.progress_view.aria_label}>{wave.progress_view.label}</span>
             </div>
             <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(wave.progress_view)}></i></span>
+            <span :if={wave.progress_view.note} class="bo-wave-seg-note">{wave.progress_view.note}</span>
           </div>
         </div>
       </div>
@@ -97,11 +99,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
           <div class="bo-grid-stage" data-bo-grid-stage role="grid" aria-labelledby={"#{@id}-title"}>
             <div class="bo-grid-lanes" style={@columns_style} role="row">
               <div class="bo-grid-corner" role="columnheader" aria-hidden="true"></div>
-              <div :for={col <- @columns} class="bo-epic" role="columnheader">
+              <div :for={col <- @columns} class="bo-epic" role="columnheader" data-progress-freshness={col.core? && col.progress_view.freshness}>
                 <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />
                 <span class="bo-epic-label">{col.label}</span>
                 <span class="bo-epic-count">{col.count}</span>
-                <span :if={col.core? and not @planning?} class="bo-epic-count">{col.progress_view.label}</span>
+                <span :if={col.core? and not @planning?} class="bo-epic-count" data-progress-freshness={col.progress_view.freshness} title={col.progress_view.title} aria-label={col.progress_view.aria_label}>{col.progress_view.label}</span>
+                <span :if={col.core? and not @planning? and col.progress_view.note} class="bo-epic-note">{col.progress_view.note}</span>
               </div>
             </div>
 
@@ -171,10 +174,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       </div>
       <div class="bo-node-title">{@card.title}</div>
       <div class="bo-node-status">
-        <span :if={@card.state != :planned} class="bo-node-pct" data-progress-state={@progress.state}>{@progress.label}</span>
+        <span :if={@card.state != :planned} class="bo-node-pct" data-progress-state={@progress.state} data-progress-freshness={@progress.freshness} title={@progress.title}>{@progress.label}</span>
         <span :if={@card.complexity} class="bo-node-cx">Cx {@card.complexity}</span>
         <span class="bo-node-word">{@card.status_word}</span>
       </div>
+      <div :if={@card.state != :planned and @progress.note} class="bo-node-note">{@progress.note}</div>
       <span :if={@card.state != :planned and is_integer(@progress.percent)} class="bo-node-bar" aria-hidden="true"><i style={"width:#{@progress.percent}%"}></i></span>
     </div>
     """

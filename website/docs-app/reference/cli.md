@@ -143,6 +143,12 @@ Every `--json` result is one versioned envelope with `schema_version`, `page`, `
 
 `aiur build-orders --json` uses schema version 2. Its completion objects report `progress_resolution: "empty"` with `progress: null` when a Build Order has no members, distinguishing an observed empty plan from 0% progress.
 
+Member, wave, lane, and graph completion objects on a selected root also carry `progress_stale_count` and `progress_stale_observed_at`. These report the number of resolved members using a last-known activity reading, rather than a live reading or accepted lifecycle completion, plus the oldest such reading.
+
+Human output prints the same state as `80% (last known 12m ago)`, measured from `snapshot.captured_at`. An open member with no usable activity reading is `unresolved`, rather than a resolved 0%.
+
+A member closed without completing (not planned, duplicate, cancelled) is resolved 0% regardless of any earlier reading. Catalog root completion is lifecycle-derived and does not carry these fields.
+
 Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 
 Fleet-capacity and build-gate evidence have independent source states: stale fleet
