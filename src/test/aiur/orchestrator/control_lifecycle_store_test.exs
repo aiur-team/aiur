@@ -126,6 +126,34 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
     assert Enum.map(ControlLifecycleStore.load().daemon_events, & &1.run_id) == ["run-first", "run-second"]
   end
 
+  test "a failed lock attempt does not reacquire after stale recovery exhausts its deadline" do
+    lock = ControlLifecycleStore.path_for() <> ".lock"
+    File.mkdir_p!(Path.dirname(lock))
+    File.write!(lock, "{partial")
+    File.touch!(lock, System.os_time(:second) - 31)
+
+    clock = fn ->
+      calls = Process.get(:control_lifecycle_lock_clock_calls, 0)
+      Process.put(:control_lifecycle_lock_clock_calls, calls + 1)
+      if calls < 2, do: calls, else: 50
+    end
+
+    assert :ok =
+             ControlLifecycleStore.update(
+               &ControlLifecycle.record_daemon_event(&1, :start, daemon_attrs("run-first", "4001")),
+               lock_timeout_ms: 50,
+               lock_clock: clock,
+               lock_sleeper: fn _ -> send(self(), :control_lifecycle_lock_slept) end
+             )
+
+    assert Process.get(:control_lifecycle_lock_clock_calls) == 3
+    refute_received :control_lifecycle_lock_slept
+    refute File.exists?(lock)
+    assert ControlLifecycleStore.load().daemon_events == []
+
+    File.rm(lock)
+  end
+
   test "an abandoned journal lock is reclaimed" do
     lock = ControlLifecycleStore.path_for() <> ".lock"
     File.mkdir_p!(Path.dirname(lock))

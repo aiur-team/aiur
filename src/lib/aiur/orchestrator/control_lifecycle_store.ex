@@ -55,6 +55,8 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   defp persist(fun, opts) do
     path = path_for()
     lock_timeout_ms = Keyword.get(opts, :lock_timeout_ms, @lock_timeout_ms)
+    lock_clock = Keyword.get(opts, :lock_clock, fn -> System.monotonic_time(:millisecond) end)
+    lock_sleeper = Keyword.get(opts, :lock_sleeper, &Process.sleep/1)
 
     # Import any legacy per-boot journal into the durable state dir (one-time
     # copy), then make sure the exact journal directory exists — an explicit
@@ -68,7 +70,9 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
              lifecycle = fun.(load())
              JsonStore.write!(path, ControlLifecycle.dump(lifecycle))
            end,
-           lock_timeout_ms
+           lock_timeout_ms,
+           lock_clock,
+           lock_sleeper
          ) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Control lifecycle journal lock failed at #{path}: #{inspect(reason)}")
@@ -81,9 +85,19 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
       :ok
   end
 
-  defp with_lock(path, fun, lock_timeout_ms), do: acquire_lock(path <> ".lock", fun, lock_timeout_ms)
+  defp with_lock(path, fun, lock_timeout_ms, lock_clock, lock_sleeper) do
+    acquire_lock(path <> ".lock", fun, lock_clock.() + lock_timeout_ms, lock_clock, lock_sleeper, false)
+  end
 
-  defp acquire_lock(lock, fun, remaining_ms) do
+  defp acquire_lock(lock, fun, deadline, lock_clock, lock_sleeper, retry?) do
+    if retry? and deadline - lock_clock.() <= 0 do
+      {:error, :lock_timeout}
+    else
+      do_acquire_lock(lock, fun, deadline, lock_clock, lock_sleeper)
+    end
+  end
+
+  defp do_acquire_lock(lock, fun, deadline, lock_clock, lock_sleeper) do
     owner = lock_owner()
 
     case create_lock(lock, owner) do
@@ -94,13 +108,23 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
           release_lock(lock, owner)
         end
 
-      {:error, :eexist} when remaining_ms > 0 ->
-        break_stale_lock(lock)
-        Process.sleep(@lock_retry_ms)
-        acquire_lock(lock, fun, remaining_ms - @lock_retry_ms)
-
       {:error, :eexist} ->
-        {:error, :lock_timeout}
+        case deadline - lock_clock.() do
+          remaining_ms when remaining_ms > 0 ->
+            break_stale_lock(lock)
+
+            case deadline - lock_clock.() do
+              remaining_ms when remaining_ms > 0 ->
+                lock_sleeper.(min(@lock_retry_ms, remaining_ms))
+                acquire_lock(lock, fun, deadline, lock_clock, lock_sleeper, true)
+
+              _ ->
+                {:error, :lock_timeout}
+            end
+
+          _ ->
+            {:error, :lock_timeout}
+        end
 
       {:error, reason} ->
         {:error, reason}
