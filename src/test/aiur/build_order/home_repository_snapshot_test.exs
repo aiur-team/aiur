@@ -19,5 +19,10 @@ defmodule Aiur.BuildOrder.HomeRepositorySnapshotTest do
     assert {:ok, authority} = Configuration.snapshot(Options.new([]), nil)
     assert authority.repository == {"team", "consumer"}
     assert authority.generation == generation
+
+    # A later reload must not replace the repository captured by a snapshot.
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "different/project")
+    assert {:ok, {"different", "project"}} = Aiur.GitHub.Config.configured_repo()
+    assert {:ok, {"team", "consumer"}} = Aiur.GitHub.Config.configured_repo_from_value(nil)
   end
 end

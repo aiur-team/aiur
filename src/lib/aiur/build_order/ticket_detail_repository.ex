@@ -130,19 +130,10 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
   end
 
   defp snapshot_repository(config) do
-    case get_in(config, ["tracker", "github", "repo"]) do
-      nil ->
-        configured_repository([])
-
-      repository when is_binary(repository) ->
-        case String.split(String.trim(repository), "/") do
-          [owner, name] -> configured_repository_result({owner, name})
-          _ -> {:error, %Failure{kind: :configuration}}
-        end
-
-      _ ->
-        {:error, %Failure{kind: :configuration}}
-    end
+    config
+    |> get_in(["tracker", "github", "repo"])
+    |> GitHub.Config.configured_repo_from_value()
+    |> configured_repository_result()
   end
 
   defp configured_snapshot_result(snapshot) do
