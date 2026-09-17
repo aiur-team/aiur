@@ -63,7 +63,8 @@ defmodule Aiur.Application do
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
-    with :ok <- validate_dashboard_compatibility(no_dashboard?) do
+    with :ok <- Aiur.GlobalConfigStartup.prepare(),
+         :ok <- validate_dashboard_compatibility(no_dashboard?) do
       headless? = Application.get_env(:aiur, :headless, false)
       # Headless is authoritative: if both flags somehow end up set (e.g. a
       # hand-run `aiur --headless` that also injected `--interactive`), the lean

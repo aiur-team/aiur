@@ -2,6 +2,18 @@
 
 Aiur reads GitHub to find work, follow each ticket, and return completed changes for review.
 
+## Repository setup from global defaults
+
+A new run using `~/.aiur/config` bootstraps the current GitHub repository before starting supervision or dispatch. It resolves the repository from `origin` and rejects conflicting explicit `tracker.github.repo`.
+
+Setup uses normal App/PAT/keyring credential resolution after launcher dotenv loading: repository `.env`, then `~/.aiur/.env`, filling only unset variables. Repository GitHub credential groups exclude global credentials.
+
+Setup reads repository labels through the governed transport in pages of 100, bounded to ten pages. It creates only missing workflow lifecycle, marker, and complexity labels through the existing idempotent label API.
+
+No model/effort/alias labels are seeded and existing labels are neither deleted nor changed. Requests are attributed normally; no quota saving is claimed.
+
+Label read/create failures stop startup before agents start and explain the required Issues permissions. Repository-local configurations keep the explicit init flow.
+
 ## What Aiur polls
 
 | Poll | What it tracks | Why it exists |
