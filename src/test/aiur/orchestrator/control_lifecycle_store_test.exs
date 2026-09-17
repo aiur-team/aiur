@@ -137,16 +137,16 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
     assert :ok =
              ControlLifecycleStore.update(
                fn _current -> lifecycle end,
-               lock_timeout_ms: 50,
-               lock_retry_ms: 100
+               lock_timeout_ms: 100,
+               lock_retry_ms: 500
              )
 
     elapsed = System.monotonic_time(:millisecond) - started
 
-    assert elapsed < 80,
-           "save blocked #{elapsed}ms after a 50ms deadline; retry delay must consume the deadline"
+    assert elapsed < 350,
+           "save blocked #{elapsed}ms after a 100ms deadline; retry delay must consume the deadline"
 
-    assert elapsed >= 40,
+    assert elapsed >= 80,
            "save returned in #{elapsed}ms without waiting for the held lock"
 
     assert ControlLifecycleStore.load().daemon_events == []

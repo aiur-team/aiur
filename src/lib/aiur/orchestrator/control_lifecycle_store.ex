@@ -89,34 +89,38 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   end
 
   defp acquire_lock(lock, fun, deadline, lock_retry_ms) do
-    if remaining_ms(deadline) > 0 do
-      owner = lock_owner()
+    owner = lock_owner()
 
-      case create_lock(lock, owner) do
-        :ok ->
-          try do
-            fun.()
-          after
-            release_lock(lock, owner)
-          end
+    case create_lock(lock, owner) do
+      :ok ->
+        try do
+          fun.()
+        after
+          release_lock(lock, owner)
+        end
 
-        {:error, :eexist} ->
-          break_stale_lock(lock)
-          sleep_before_retry(deadline, lock_retry_ms)
-          acquire_lock(lock, fun, deadline, lock_retry_ms)
+      {:error, :eexist} ->
+        break_stale_lock(lock)
+        retry_acquire_lock(lock, fun, deadline, lock_retry_ms)
 
-        {:error, reason} ->
-          {:error, reason}
-      end
-    else
-      {:error, :lock_timeout}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp sleep_before_retry(deadline, lock_retry_ms) do
+  defp retry_acquire_lock(lock, fun, deadline, lock_retry_ms) do
     case remaining_ms(deadline) do
-      remaining_ms when remaining_ms > 0 -> Process.sleep(min(lock_retry_ms, remaining_ms))
-      _ -> :ok
+      remaining_ms when remaining_ms > 0 ->
+        Process.sleep(min(lock_retry_ms, remaining_ms))
+
+        if remaining_ms(deadline) > 0 do
+          acquire_lock(lock, fun, deadline, lock_retry_ms)
+        else
+          {:error, :lock_timeout}
+        end
+
+      _ ->
+        {:error, :lock_timeout}
     end
   end
 
