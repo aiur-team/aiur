@@ -1,7 +1,8 @@
 defmodule Aiur.Workspace.OwnershipRunnerTest do
   use Aiur.TestSupport
 
-  alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.{HostLock, Ownership}
+  alias Aiur.Workspace.Ownership.Store
 
   test "a competing runner cannot replace the checkout owned by a paused provisioning generation" do
     test_root = Aiur.TestSupport.tmp_root!("workspace-ownership")
@@ -112,10 +113,13 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
     assert_receive {:codex_worker_update, ^issue_id, %{event: :session_started}}, 5_000
     assert File.regular?(launch_trace)
 
-    [launched_workspace, launched_inode, process_id] =
+    [launched_workspace, launched_inode, _process_id] =
       launch_trace |> File.read!() |> String.trim() |> String.split("\t")
 
     assert File.dir?(launched_workspace)
+    assert {:ok, %{host_lock: %{path: lock_path, holder: %{owner_id: owner_id}}}} = Store.get(identifier)
+    assert lock_path == HostLock.lock_path(Path.join(workspace_root, identifier))
+    assert is_binary(owner_id)
 
     second = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> AgentRunner.run(issue, test_pid) end)
 
@@ -135,8 +139,15 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
 
     assert String.trim(current_inode) == launched_inode
 
-    assert {_output, 0} = System.cmd("kill", ["-USR1", process_id], stderr_to_stdout: true)
-    assert {:ok, :ok} = Task.yield(first, 5_000)
+    # An orchestrator replacement kills the runner task, bypassing its `after`
+    # block. The guardian must reap the tracked provider before releasing both
+    # ownership and the same-daemon host lock, or a retry is stranded behind
+    # the still-live BEAM pid.
+    Task.shutdown(first, :brutal_kill)
+
+    assert_eventually(fn ->
+      HostLock.holder(launched_workspace) == :none and Ownership.current(identifier) == :none
+    end)
   end
 
   defp fake_codex_script do
@@ -162,4 +173,17 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
     done
     """
   end
+
+  defp assert_eventually(fun, attempts \\ 80)
+
+  defp assert_eventually(fun, attempts) when attempts > 0 do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(25)
+      assert_eventually(fun, attempts - 1)
+    end
+  end
+
+  defp assert_eventually(_fun, 0), do: flunk("condition not met in time")
 end

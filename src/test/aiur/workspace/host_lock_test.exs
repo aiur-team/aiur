@@ -99,6 +99,21 @@ defmodule Aiur.Workspace.HostLockTest do
   end
 
   describe "release" do
+    test "a rejected guardian handoff releases the freshly acquired lock" do
+      workspace = workspace_path("host-lock-rejected-handoff")
+      guardian = spawn(fn -> Process.sleep(:infinity) end)
+      monitor = Process.monitor(guardian)
+      Process.exit(guardian, :kill)
+      assert_receive {:DOWN, ^monitor, :process, ^guardian, :killed}
+
+      assert {:ok, lock} = HostLock.acquire(workspace, "24", alive_fun: fn _pid -> true end)
+
+      assert {:error, :workspace_ownership_lost} =
+               HostLock.handoff_to_ownership(lock, %{guardian: guardian, generation: 1})
+
+      assert :none = HostLock.holder(workspace)
+    end
+
     test "release never removes a lock a later owner reclaimed" do
       workspace = workspace_path("host-lock-release-safety")
 

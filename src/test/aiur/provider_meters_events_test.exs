@@ -9,18 +9,20 @@ defmodule Aiur.ProviderMeters.EventsTest do
     :ok
   end
 
-  test "coverage-4 fixtures never create a test-owned Aiur PubSub" do
-    # These fixtures run beside ApplicationTest in coverage shard 4. The
-    # application owns Aiur.PubSub through Aiur.PubSub.Boot; an ExUnit-owned
-    # Phoenix.PubSub vanishes with its case and leaves the shared tree's child
-    # state inconsistent for a later supervision-contract test.
-    for path <- [
-          __ENV__.file,
-          Path.expand("build_order/ad_hoc_source_test.exs", __DIR__),
-          Path.expand("../aiur_web/voice_channel_test.exs", __DIR__)
-        ] do
-      refute File.read!(path) =~ ~r/start_supervised!\(\{Phoenix\.PubSub, name: Aiur\.PubSub\}\)/
-    end
+  test "restores an application-owned PubSub after a sibling stopped it" do
+    on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
+
+    supervisor = Process.whereis(Aiur.Supervisor)
+    assert is_pid(supervisor)
+    assert :ok = Supervisor.terminate_child(supervisor, Phoenix.PubSub.Supervisor)
+    assert Process.whereis(Aiur.Supervisor) == supervisor
+    assert is_nil(Process.whereis(Aiur.PubSub))
+
+    ensure_pubsub!()
+
+    pubsub = Process.whereis(Aiur.PubSub)
+    assert is_pid(pubsub)
+    assert Aiur.Supervisor in process_ancestors(pubsub)
   end
 
   test "an observation reaches both the generation-scoped and the fan-out topic" do
@@ -95,5 +97,10 @@ defmodule Aiur.ProviderMeters.EventsTest do
 
   defp ensure_pubsub! do
     assert :ok = Aiur.TestSupport.ensure_pubsub_running()
+  end
+
+  defp process_ancestors(pid) do
+    {:dictionary, dictionary} = Process.info(pid, :dictionary)
+    Keyword.get(dictionary, :"$ancestors", [])
   end
 end
