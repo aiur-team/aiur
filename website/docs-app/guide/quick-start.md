@@ -31,7 +31,7 @@ Keep reusable credentials in `~/.aiur/.env` (outside Git), or use configured Git
 
 Omit `tracker.github.repo` from portable global defaults; a different explicit repo is rejected rather than modifying the wrong repository. Global branch and agent settings still apply, so use local `aiur init` when a repository needs different settings.
 
-A repository-local `.aiur/config` takes precedence and retains its existing setup behavior. `init` remains available for repository-specific configuration.
+A repository-local `.aiur/config` takes precedence; use `init` for repository-specific configuration.
 
 | Setup step | Result |
 | --- | --- |
