@@ -29,6 +29,10 @@ defmodule Aiur.InitTest do
     "system.fleet.capacity.starved.resolved",
     "system.tracker.auth_preflight_failed",
     "system.tracker.auth_preflight_failed.resolved",
+    "system.tracker.state_labels_missing",
+    "system.tracker.state_labels_missing.resolved",
+    "system.tracker.state_label_preflight_failed",
+    "system.tracker.state_label_preflight_failed.resolved",
     "ticket.*.agent.error.tokens_exhausted",
     "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.review_feedback_delivery_deferred",
@@ -176,6 +180,8 @@ defmodule Aiur.InitTest do
             {:created, env_path}
           end
         end,
+        reload_env: fn -> :ok end,
+        persist_github_token: fn _token -> :ok end,
         check_agent_auth: fn _kind -> :ok end,
         install_claude_app_server: fn -> :ok end,
         claude_version: fn -> {:ok, "1.1.0"} end,
@@ -1698,6 +1704,84 @@ defmodule Aiur.InitTest do
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/model:remote\s+— Supports claude remote-control/))
       assert Enum.any?(log, &(&1 =~ ~r/agent:todo\s+— ready to be worked/))
+    end
+
+    test "a token pasted into the wizard provisions labels in the same run", %{dir: dir, target: target} do
+      # No token in the environment before the wizard starts (#2639): the
+      # pasted value must be persisted and then seen by the presence check.
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> Process.get(:wizard_token) end,
+          persist_github_token: fn token ->
+            Process.put(:wizard_token, token)
+            send(self(), {:persisted_token, token})
+            :ok
+          end
+        })
+
+      answers = github_answers(%{input: %{"GitHub token for aiur (paste it, or leave blank to skip)" => "ghp_pasted"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps)
+
+      assert_received {:persisted_token, "ghp_pasted"}
+      # The secret now lives in the working tree, so `.env` is ignored without asking.
+      assert_received {:gitignore, ".env"}
+      assert "agent:todo" in labels_created()
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
+      assert Enum.any?(log, &(&1 =~ ~r/ignores \.env/))
+      refute Enum.any?(log, &(&1 =~ ~r/cannot dispatch/i))
+      refute Enum.any?(log, &(&1 =~ ~r/ghp_pasted/))
+    end
+
+    test "a token that cannot be written warns and skips provisioning", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{persist_github_token: fn _token -> {:error, :eacces} end})
+      answers = github_answers(%{input: %{"GitHub token for aiur (paste it, or leave blank to skip)" => "ghp_pasted"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps)
+
+      refute_received {:labels, _tracker, _labels}
+      refute_received {:gitignore, ".env"}
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/Couldn't write GITHUB_TOKEN to \.env \(:eacces\)/))
+      assert Enum.any?(log, &(&1 =~ ~r/No labels were created\. This repo cannot dispatch/))
+      refute Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
+    end
+
+    test "a token that reached .env after startup is re-read before provisioning", %{dir: dir, target: target} do
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> Process.get(:wizard_token) end,
+          reload_env: fn ->
+            Process.put(:wizard_token, "ghp_from_dotenv")
+            :ok
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      assert "agent:todo" in labels_created()
+      refute Enum.any?(input_labels(), &(&1 =~ ~r/GitHub token for aiur/))
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/aiur is set up/i))
+    end
+
+    test "skipping the token warns that the repo cannot dispatch instead of reporting success", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+
+      refute_received {:labels, _tracker, _labels}
+      assert Enum.any?(input_labels(), &(&1 =~ ~r/GitHub token for aiur/))
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ ~r/No labels were created\. This repo cannot dispatch/))
+      refute Enum.any?(log, &(&1 =~ ~r/aiur is set up/i))
+    end
+
+    test "a token already exported skips the token prompt", %{dir: dir, target: target} do
+      deps = deps(self(), dir, target, %{github_token: fn -> "ghp_test" end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
+
+      refute Enum.any?(input_labels(), &(&1 =~ ~r/GitHub token for aiur/))
+      assert "agent:todo" in labels_created()
     end
 
     test "shorter labels are padded so the description column aligns", %{dir: dir, target: target} do

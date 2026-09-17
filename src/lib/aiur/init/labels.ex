@@ -234,12 +234,8 @@ defmodule Aiur.Init.Labels do
     io.puts.("\n⚠️ Couldn't create labels automatically (#{message}).")
     io.puts.("Run these to create them yourself (existing ones are skipped):")
 
-    Enum.each(labels, fn label ->
-      io.puts.("  gh label create #{shell_arg(label)} --repo #{repo} --description #{shell_arg(Labels.describe(label))} --force")
-    end)
+    Enum.each(labels, fn label -> io.puts.("  " <> Labels.gh_create_command(label, repo)) end)
 
     io.puts.("Then run `aiur init` again to confirm all labels exist.")
   end
-
-  defp shell_arg(value), do: "'" <> String.replace(to_string(value), "'", "'\\''") <> "'"
 end
