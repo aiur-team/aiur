@@ -95,15 +95,13 @@ defmodule Aiur.TestSupportTest do
   test "ensure_pubsub_running recovers the whole app after the supervision tree collapsed" do
     on_exit(fn -> Aiur.TestSupport.ensure_runtime_children_running() end)
 
-    assert is_pid(Process.whereis(Aiur.Supervisor))
-    assert is_pid(Process.whereis(Aiur.PubSub))
-    assert is_pid(Process.whereis(ReadCache))
+    collapsing = Enum.map([Aiur.Supervisor, Aiur.PubSub, ReadCache], &Process.whereis/1)
+    assert Enum.all?(collapsing, &is_pid/1)
 
-    supervisor = Process.whereis(Aiur.Supervisor)
-    ref = Process.monitor(supervisor)
-    Process.exit(supervisor, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^supervisor, :killed}, 5_000
-    Process.sleep(150)
+    # Killing the supervisor takes its linked children with it; wait for each
+    # one's DOWN rather than guessing how long the exit signals take.
+    Process.exit(hd(collapsing), :kill)
+    for pid <- collapsing, do: assert(:ok = Aiur.TestSupport.await_process_down(pid, 5_000))
 
     assert is_nil(Process.whereis(Aiur.Supervisor))
     assert is_nil(Process.whereis(Aiur.PubSub))
