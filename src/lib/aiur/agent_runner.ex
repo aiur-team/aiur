@@ -135,7 +135,7 @@ defmodule Aiur.AgentRunner do
     case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun) do
       {:ok, ownership} ->
         try do
-          with_workspace_host_lock(issue, opts, worker_host, fn ->
+          with_workspace_host_lock(issue, opts, ownership, worker_host, fn ->
             run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
           end)
         after
@@ -180,13 +180,15 @@ defmodule Aiur.AgentRunner do
   # so the host lock is the exclusion primitive; refusing here is the difference
   # between a loud, named refusal and two agents silently overwriting each
   # other's files while both report green gates.
-  defp with_workspace_host_lock(issue, opts, worker_host, fun) do
+  defp with_workspace_host_lock(issue, opts, ownership, worker_host, fun) do
     case HostLock.acquire_for_issue(issue.identifier, worker_host) do
       {:ok, lock} ->
-        try do
-          fun.()
-        after
-          HostLock.release(lock)
+        case HostLock.handoff_to_ownership(lock, ownership) do
+          :ok ->
+            fun.()
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       # A remote worker's workspace is on another machine's filesystem, so a
