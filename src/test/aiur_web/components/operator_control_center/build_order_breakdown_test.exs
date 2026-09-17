@@ -100,23 +100,136 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
       assert row(projection.epics, "runtime").progress == 88
     end
 
-    test "counts an open member with no known progress reading as zero" do
+    test "an open member with no known progress reading is unresolved, never zero" do
       activity = activity_snapshot([%{identity: identity(1), status: :fresh, progress: progress_reading(:unknown)}])
       model = model([m(1, phase: 1, lane: "runtime", cx: 3)], activity: activity)
 
       projection = BuildOrderBreakdown.projection(model)
 
-      assert row(projection.phases, 1).progress == 0
+      assert row(projection.phases, 1).progress == nil
+      assert row(projection.phases, 1).completion.progress_resolution == :unresolved
+      assert row(projection.phases, 1).progress_view.label == "unresolved"
+      assert row(projection.phases, 1).last_known == %{count: 0, observed_at: nil}
     end
 
-    test "falls back to a plain mean when the row carries no usable points" do
+    # The disagreement the review caught: equal-complexity known 80 plus a
+    # member with no reading must be 80% partial (1/2 resolved) here exactly as
+    # it is on the graph above — not a 40% mean that counts the missing one
+    # as zero.
+    test "a member with no reading reduces coverage instead of dragging the row to a lower mean" do
+      activity = activity_snapshot([activity(identity(1), 80)])
+      model = model([m(1, phase: 1, lane: "runtime", cx: 3), m(2, phase: 1, lane: "runtime", cx: 3)], activity: activity)
+
+      projection = BuildOrderBreakdown.projection(model)
+      phase = row(projection.phases, 1)
+
+      assert phase.progress == 80
+      assert phase.completion.progress_resolution == :partial
+      assert phase.completion.progress_resolved_count == 1
+      assert phase.completion.member_count == 2
+      assert phase.progress_view.label == "80% partial"
+      assert phase.progress_view.coverage == "1/2 resolved"
+
+      html = render_breakdown(model)
+      assert html =~ ~s(data-breakdown-progress="80")
+      assert html =~ ~s(data-breakdown-resolution="partial")
+      assert html =~ "80% partial"
+    end
+
+    # A fresh activity row whose progress field has unknown freshness is not a
+    # usable reading anywhere: the presenter and grid leave it unresolved, and
+    # the breakdown must not quietly count the bare 80.
+    test "a reading with unknown freshness is unresolved rather than a bare percent" do
+      unknown_freshness = activity(identity(1), 80) |> put_in([:progress, :freshness], :unknown)
+      model = model([m(1, phase: 1, lane: "runtime", cx: 3)], activity: activity_snapshot([unknown_freshness]))
+
+      assert row(BuildOrderBreakdown.projection(model).phases, 1).completion.progress_resolution == :unresolved
+    end
+
+    test "closed not-planned and duplicate members resolve to zero ahead of a retained 80% reading" do
+      for reason <- [:not_planned, :duplicate] do
+        stale = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale)
+        model = model([m(1, phase: 1, lane: "runtime", cx: 3, closed: true, reason: reason)], activity: activity_snapshot([stale]))
+
+        phase = row(BuildOrderBreakdown.projection(model).phases, 1)
+        assert phase.progress == 0, "closed #{reason} must be zero, not the retained reading"
+        assert phase.completion.progress_resolution == :resolved
+        assert phase.last_known == %{count: 0, observed_at: nil}
+      end
+    end
+
+    # Paused members: one whose whole row went stale (80) and one whose row is
+    # fresh but whose reading is stale (90), beside a live 50. The retained
+    # percents count, and the row says how many are last known and how old.
+    test "keeps stale readings at face value and marks how many members are last known" do
+      older = DateTime.add(@now, -600, :second)
+
+      stale_row = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale) |> put_in([:progress, :observed_at], older)
+      stale_reading = activity(identity(2), 90) |> put_in([:progress, :freshness], :stale)
+      live = activity(identity(3), 50)
+
+      model =
+        model(
+          [m(1, phase: 1, lane: "runtime", cx: 2), m(2, phase: 1, lane: "runtime", cx: 3), m(3, phase: 1, lane: "runtime", cx: 1)],
+          activity: activity_snapshot([stale_row, stale_reading, live])
+        )
+
+      projection = BuildOrderBreakdown.projection(model)
+
+      # (2*80 + 3*90 + 1*50) / 6 = 80
+      assert row(projection.phases, 1).progress == 80
+      assert row(projection.phases, 1).last_known == %{count: 2, observed_at: older}
+      assert row(projection.epics, "runtime").last_known == %{count: 2, observed_at: older}
+    end
+
+    test "a member closed as completed never counts as last known even with a stale reading" do
+      stale = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale)
+      model = model([m(1, phase: 1, lane: "runtime", cx: 3, closed: true)], activity: activity_snapshot([stale]))
+
+      projection = BuildOrderBreakdown.projection(model)
+
+      assert row(projection.phases, 1).progress == 100
+      assert row(projection.phases, 1).last_known == %{count: 0, observed_at: nil}
+    end
+
+    test "renders the last-known count with its age beside the row percent" do
+      stale = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale)
+      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)], activity: activity_snapshot([stale])))
+
+      assert html =~ ~s(data-breakdown-progress="80")
+      assert html =~ ~s(data-breakdown-last-known="1")
+      assert html =~ "last known"
+      assert html =~ ~r/bo-breakdown-row-age">last known (just now|\d+[mhd] ago)</
+      assert html =~ "One member counts the progress last observed"
+      refute html =~ "agent has not reported"
+    end
+
+    test "one retained reading without a timestamp leaves the row age unknown" do
+      stamped = activity(identity(1), 80) |> Map.put(:status, :stale) |> put_in([:progress, :freshness], :stale)
+      unstamped = activity(identity(2), 60) |> put_in([:progress, :freshness], :stale) |> put_in([:progress, :observed_at], nil)
+      model = model([m(1, phase: 1, lane: "runtime", cx: 1), m(2, phase: 1, lane: "runtime", cx: 1)], activity: activity_snapshot([stamped, unstamped]))
+
+      assert row(BuildOrderBreakdown.projection(model).phases, 1).last_known == %{count: 2, observed_at: nil}
+      assert render_breakdown(model) =~ ~s(bo-breakdown-row-age">2 last known, oldest age unknown<)
+    end
+
+    test "a live reading renders no last-known marker" do
+      html = render_breakdown(model([m(1, phase: 1, lane: "runtime", cx: 3)], activity: activity_snapshot([activity(identity(1), 80)])))
+
+      assert html =~ ~s(data-breakdown-last-known="0")
+      refute html =~ "bo-breakdown-row-last-known"
+    end
+
+    test "weights members without usable points equally and still excludes the unresolved one from the rate" do
       activity = activity_snapshot([activity(identity(2), 40)])
       model = model([bare(1, ["phase:1", "build-lane:runtime"]), bare(2, ["phase:1", "build-lane:runtime"])], activity: activity)
 
       projection = BuildOrderBreakdown.projection(model)
 
       assert row(projection.phases, 1).points == 0
-      assert row(projection.phases, 1).progress == 20
+      # Member 1 has no reading, so it reduces coverage rather than halving the rate.
+      assert row(projection.phases, 1).progress == 40
+      assert row(projection.phases, 1).completion.progress_resolution == :partial
     end
 
     test "reports an epic with no members as zero rather than as an undefined bar" do
@@ -127,7 +240,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
 
       docs = row(projection.epics, "docs")
       assert docs.count == 0 and docs.progress == 0
-      assert render_breakdown(%{model | lane_groups: model.lane_groups ++ [empty]}) =~ ~s(data-breakdown-progress="0")
+      # An empty row is the shared `:empty` resolution: no percent is claimed and the bar is zero width.
+      assert render_breakdown(%{model | lane_groups: model.lane_groups ++ [empty]}) =~ ~s(data-breakdown-resolution="empty")
     end
 
     test "carries the named degraded status instead of an empty table" do
@@ -315,7 +429,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdownTest do
     labels = ["complexity:#{Keyword.get(opts, :cx, 3)}", "phase:#{Keyword.get(opts, :phase, 1)}", "build-lane:#{Keyword.get(opts, :lane, "plan-graph")}"]
     dependencies = Enum.map(Keyword.get(opts, :blockers, []), &Dependency.new(identity(number), identity(&1), issue_url(&1), :blocked_by))
 
-    {state, state_reason} = if Keyword.get(opts, :closed, false), do: {:closed, :completed}, else: {:open, nil}
+    {state, state_reason} = if Keyword.get(opts, :closed, false), do: {:closed, Keyword.get(opts, :reason, :completed)}, else: {:open, nil}
 
     Member.new(%{
       identity: identity(number),
