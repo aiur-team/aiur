@@ -26,7 +26,7 @@ defmodule Aiur.Yaml do
   @spec read_from_file(Path.t()) :: {:ok, term()} | {:error, Exception.t()}
   def read_from_file(path) when is_binary(path) do
     if yamerl_running?(),
-      do: read(fn options -> :yamerl_constr.file(path, options) end),
+      do: read(fn options -> :yamerl_constr.file(String.to_charlist(path), options) end),
       else: YamlElixir.read_from_file(path)
   end
 
