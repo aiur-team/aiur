@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Refresh do
   @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577) and the in-flight WIP skip (#653)."
 
   require Logger
-  alias Aiur.{AgentBuildGuard, Config}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, Config}
   alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
@@ -107,10 +107,21 @@ defmodule Aiur.Workspace.Refresh do
   end
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do
-    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host) do
+    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host),
+         :ok <- repair_ready_workspace_guard(workspace, worker_host) do
       BootstrapImage.maybe_seed(workspace, issue_context, worker_host)
     end
   end
+
+  defp repair_ready_workspace_guard(workspace, nil) do
+    case Provisioner.workspace_readiness(workspace) do
+      :ready -> Provisioner.repair_agent_github_guard(workspace, nil)
+      _readiness -> :ok
+    end
+  end
+
+  defp repair_ready_workspace_guard(workspace, worker_host),
+    do: Provisioner.repair_agent_github_guard(workspace, worker_host)
 
   defp refresh_workspace_readiness(workspace, worker_host) do
     case Provisioner.workspace_readiness(workspace) do
@@ -152,7 +163,9 @@ defmodule Aiur.Workspace.Refresh do
   defp prepare_reconstructed_workspace(stage, command, issue_context) do
     with :ok <- Hooks.run_reconstruction_hook(command, stage, issue_context, "before_run"),
          :ok <- GitMetadata.ensure_agent_logs_excluded(stage, nil) do
-      AgentBuildGuard.install(stage)
+      with :ok <- AgentBuildGuard.install(stage) do
+        AgentGitHubGuard.install(stage)
+      end
     end
   end
 

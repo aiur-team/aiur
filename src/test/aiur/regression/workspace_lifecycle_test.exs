@@ -3,6 +3,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
 
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.PathSafety
+  alias Aiur.Workspace.Provisioner
 
   describe "hollow workspace provisioning (#1317)" do
     test "logs-only workspace with no configured before_run hook: dispatch refuses instead of starting a turn" do
@@ -37,6 +38,12 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
 
         assert {:error, {:workspace_provisioning_incomplete, ^workspace, :bootstrap}} =
                  Workspace.run_before_run_hook(workspace, issue)
+
+        # Refused bootstraps remain eligible for reconstruction on a later retry:
+        # installing runtime wrappers here would turn logs-only into unproven WIP.
+        assert File.ls!(workspace) == ["logs"]
+        refute File.exists?(Path.join(workspace, ".aiur-runtime"))
+        assert Provisioner.workspace_readiness(workspace) == :bootstrap
 
         # The underlying reason is in the alert text itself, not just a fixed
         # "missing" headline the operator would have to grep the log to explain.
