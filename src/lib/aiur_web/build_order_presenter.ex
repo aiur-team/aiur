@@ -471,6 +471,8 @@ defmodule AiurWeb.BuildOrderPresenter do
       execution_state: Map.get(execution, :work_state, :unknown),
       agent_stage: current_activity_stage(activity),
       progress: activity_progress(activity),
+      progress_freshness: activity_progress_freshness(activity),
+      progress_observed_at: activity_progress_observed_at(activity),
       lane: plan.lane,
       phase: plan.phase,
       lane_icon: lane_icon,
@@ -490,14 +492,33 @@ defmodule AiurWeb.BuildOrderPresenter do
 
   defp current_activity_stage(_activity), do: :unknown
 
+  # A known percent is worth carrying once the row or the reading has gone stale:
+  # a paused worker stops emitting, it does not stop having done the work.
+  # `progress_freshness` says how current that percent is, so no consumer can
+  # mistake a last-known reading for a live one. A missing or unknown reading
+  # stays `:unknown`; no percent is ever invented for it.
   defp activity_progress(%{
-         status: :fresh,
-         progress: %{status: :known, freshness: :fresh, percent: percent}
+         status: status,
+         progress: %{status: :known, freshness: freshness, percent: percent}
        })
-       when percent in 0..100,
+       when status in @safe_activity_statuses and freshness in @safe_activity_statuses and percent in 0..100,
        do: percent
 
   defp activity_progress(_activity), do: :unknown
+
+  defp activity_progress_freshness(%{status: :fresh, progress: %{freshness: :fresh}} = activity) do
+    if activity_progress(activity) == :unknown, do: :unknown, else: :fresh
+  end
+
+  defp activity_progress_freshness(activity) do
+    if activity_progress(activity) == :unknown, do: :unknown, else: :stale
+  end
+
+  defp activity_progress_observed_at(%{progress: %{observed_at: %DateTime{} = observed_at}} = activity) do
+    if activity_progress(activity) == :unknown, do: nil, else: observed_at
+  end
+
+  defp activity_progress_observed_at(_activity), do: nil
 
   defp node_diagnostics(member, key, execution_duplicates, activity_duplicates) do
     duplicate_diagnostics =

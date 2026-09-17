@@ -197,11 +197,13 @@ defmodule Aiur.BuildOrdersCLITest do
     members = Map.new(envelope["data"]["graph"]["members"], &{&1["id"], &1})
     # Members carry ProgressRenderer.json/1 verbatim — one enum, not a second
     # hand-rolled known/unresolved vocabulary.
-    assert members["1"]["completion"] == %{"progress" => 100, "progress_resolution" => "resolved", "progress_resolved_count" => 1}
+    assert members["1"]["completion"] == %{"progress" => 100, "progress_resolution" => "resolved", "progress_resolved_count" => 1, "progress_stale_count" => 0, "progress_stale_observed_at" => nil}
     assert members["1"]["state"] == "closed"
     assert members["1"]["display_state"] == "merged"
-    assert members["2"]["completion"] == %{"progress" => 0, "progress_resolution" => "resolved", "progress_resolved_count" => 1}
-    assert members["3"]["completion"] == %{"progress" => nil, "progress_resolution" => "unresolved", "progress_resolved_count" => 0}
+    # An open member with no activity reading at all is unresolved, never a
+    # resolved 0% standing in for a missing observation.
+    assert members["2"]["completion"] == %{"progress" => nil, "progress_resolution" => "unresolved", "progress_resolved_count" => 0, "progress_stale_count" => 0, "progress_stale_observed_at" => nil}
+    assert members["3"]["completion"] == %{"progress" => nil, "progress_resolution" => "unresolved", "progress_resolved_count" => 0, "progress_stale_count" => 0, "progress_stale_observed_at" => nil}
     assert members["3"]["blocked_by"] == [%{"from" => "2", "state" => "blocking"}]
 
     assert envelope["data"]["graph"]["edges"] == [
@@ -212,13 +214,15 @@ defmodule Aiur.BuildOrdersCLITest do
     # The aggregate is the same projection, so a pack whose members cannot all
     # be resolved never renders as a confident percentage.
     assert envelope["data"]["graph"]["completion"] == %{
-             "progress" => 50,
+             "progress" => 100,
              "progress_resolution" => "partial",
-             "progress_resolved_count" => 2
+             "progress_resolved_count" => 1,
+             "progress_stale_count" => 0,
+             "progress_stale_observed_at" => nil
            }
 
     output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(root: "100", source: Source, now: @captured_at) end)
-    assert output =~ "Build Order (completion 50% partial (2/3 resolved))"
+    assert output =~ "Build Order (completion 100% partial (1/3 resolved))"
     assert output =~ "Completion: 100%;"
     assert output =~ "Completion: unresolved;"
     assert output =~ "blocked by 2 (blocking)"
@@ -227,6 +231,66 @@ defmodule Aiur.BuildOrdersCLITest do
     decoded = Jason.decode!(json)
     assert decoded["data"]["graph"]["edges"] |> Enum.map(& &1["state"]) == ["cleared", "blocking"]
     assert decoded["data"]["graph"]["completion"] == envelope["data"]["graph"]["completion"]
+  end
+
+  # A paused member whose activity row went stale still reported 80% before it
+  # stopped. The CLI must publish that as last known with its age — the same
+  # object the page renders — instead of a confident resolved 0%.
+  test "publishes a paused member's last-known reading with its age instead of resolved zero" do
+    stale_at = DateTime.add(@captured_at, -12 * 60, :second)
+
+    Process.put(:build_orders_sources, %{
+      execution: %{
+        running: [%{tracker_identity: identity(2), work_state: :paused, pause_reason: :operator_pause, tracker_paused: true, waiting_reason: :active, started_at: @observed_at}],
+        retrying: [],
+        idle: []
+      },
+      activity: %{
+        generation: 12,
+        entries: [
+          %{
+            identity: identity(2),
+            status: :stale,
+            active_stage: :work,
+            stage: %{status: :known, value: :work, freshness: :stale, observed_at: stale_at, event_id: 2},
+            progress: %{status: :known, percent: 80, source: :checkin, freshness: :stale, occurred_at: stale_at, observed_at: stale_at, event_id: 3},
+            observed_at: stale_at,
+            retention: :current
+          }
+        ],
+        diagnostics: %{}
+      }
+    })
+
+    assert {:ok, envelope} = BuildOrdersCLI.build(root: "100", source: Source, now: @captured_at)
+    members = Map.new(envelope["data"]["graph"]["members"], &{&1["id"], &1})
+
+    assert members["2"]["display_state"] == "Paused"
+
+    assert members["2"]["completion"] == %{
+             "progress" => 80,
+             "progress_resolution" => "resolved",
+             "progress_resolved_count" => 1,
+             "progress_stale_count" => 1,
+             "progress_stale_observed_at" => DateTime.to_iso8601(stale_at)
+           }
+
+    # Members 1 (merged, 100) and 2 (last known, 80) resolve; 3 is unresolved.
+    assert envelope["data"]["graph"]["completion"] == %{
+             "progress" => 90,
+             "progress_resolution" => "partial",
+             "progress_resolved_count" => 2,
+             "progress_stale_count" => 1,
+             "progress_stale_observed_at" => DateTime.to_iso8601(stale_at)
+           }
+
+    wave_two = Enum.find(envelope["data"]["graph"]["waves"], &(&1["phase"] == 2))
+    assert wave_two["completion"]["progress"] == 80
+    assert wave_two["completion"]["stale_count"] == 1
+
+    output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(root: "100", source: Source, now: @captured_at) end)
+    assert output =~ "Build Order (completion 90% partial (2/3 resolved) (last known 12m ago))"
+    assert output =~ "Completion: 80% (last known 12m ago);"
   end
 
   test "rejects an empty root selector before reading the source" do

@@ -244,7 +244,10 @@ defmodule Aiur.BuildOrdersCLI do
 
   defp print_selected(envelope) do
     root = get_in(envelope, ["data", "root", "title"]) || "Build Order"
-    IO.puts("#{root} (completion #{ProgressRenderer.terminal(root_completion(envelope))})")
+    # Last-known ages are measured from the capture time the envelope already
+    # carries, so human and JSON output describe the same instant.
+    now = captured_at(envelope)
+    IO.puts("#{root} (completion #{ProgressRenderer.terminal(root_completion(envelope), now: now)})")
 
     Enum.each(get_in(envelope, ["data", "graph", "members"]) || [], fn member ->
       blockers =
@@ -257,8 +260,24 @@ defmodule Aiur.BuildOrdersCLI do
 
       IO.puts("#{member["id"]}: #{member["title"]}")
       IO.puts("  Lane: #{member["lane"]}; Phase: #{member["phase"]}; Complexity: #{member["complexity"] || "unresolved"}; State: #{member["state"]}; Display state: #{member["display_state"]}")
-      IO.puts("  Completion: #{ProgressRenderer.terminal(member["completion"])}; blocked by #{blockers}")
+      IO.puts("  Completion: #{ProgressRenderer.terminal(member["completion"], now: now)}; blocked by #{blockers}")
     end)
+  end
+
+  defp captured_at(envelope) do
+    case get_in(envelope, ["snapshot", "captured_at"]) do
+      %DateTime{} = value ->
+        value
+
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, parsed, _offset} -> parsed
+          _error -> nil
+        end
+
+      _value ->
+        nil
+    end
   end
 
   # Reassembles the renderer's own input contract — the shared completion object

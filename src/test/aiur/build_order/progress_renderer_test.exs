@@ -94,6 +94,74 @@ defmodule Aiur.BuildOrder.ProgressRendererTest do
     end
   end
 
+  describe "last-known readings" do
+    @stale_at ~U[2026-09-16 20:00:00Z]
+    @now ~U[2026-09-16 20:12:30Z]
+    @stale_one %{progress: 80, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1, stale_count: 1, stale_observed_at: @stale_at}
+    @stale_many %{progress: 66, progress_resolution: :resolved, progress_resolved_count: 3, member_count: 3, stale_count: 2, stale_observed_at: @stale_at}
+    @live %{progress: 80, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1, stale_count: 0, stale_observed_at: nil}
+
+    test "terminal keeps the percent and appends the last-known count and age" do
+      assert ProgressRenderer.terminal(@stale_one, now: @now) == "80% (last known 12m ago)"
+      assert ProgressRenderer.terminal(@stale_many, now: @now) == "66% (2 last known, oldest 12m ago)"
+      assert ProgressRenderer.terminal(@live, now: @now) == "80%"
+      assert ProgressRenderer.terminal(%{@stale_one | stale_observed_at: nil}, now: @now) == "80% (last known age unknown)"
+    end
+
+    test "json publishes the count and oldest reading only when the value carries stale evidence" do
+      assert ProgressRenderer.json(@stale_one) == %{
+               "progress" => 80,
+               "progress_resolution" => "resolved",
+               "progress_resolved_count" => 1,
+               "progress_stale_count" => 1,
+               "progress_stale_observed_at" => "2026-09-16T20:00:00Z"
+             }
+
+      assert ProgressRenderer.json(@live) == %{
+               "progress" => 80,
+               "progress_resolution" => "resolved",
+               "progress_resolved_count" => 1,
+               "progress_stale_count" => 0,
+               "progress_stale_observed_at" => nil
+             }
+
+      refute Map.has_key?(ProgressRenderer.json(@resolved), "progress_stale_count")
+    end
+
+    test "terminal reads the JSON spelling back so the CLI's human output matches its JSON" do
+      assert @stale_one |> ProgressRenderer.json() |> Map.put("member_count", 1) |> ProgressRenderer.terminal(now: @now) == "80% (last known 12m ago)"
+    end
+
+    test "html tags the projection last known with a note, aria label, and title" do
+      projection = ProgressRenderer.html(@stale_one, now: @now)
+
+      assert projection.label == "80%"
+      assert projection.percent == 80
+      assert projection.freshness == :last_known
+      assert projection.note == "last known 12m ago"
+      assert projection.aria_label == "80% complete; completion fully resolved; last known 12m ago"
+      assert projection.title =~ "One member counts the progress last observed 12m ago; no newer progress reading has been observed."
+      assert ProgressRenderer.html(@stale_many, now: @now).title =~ "2 members count the progress last observed for each (oldest 12m ago)"
+      refute projection.title =~ "agent"
+
+      assert %{freshness: :current, note: nil} = ProgressRenderer.html(@live, now: @now)
+      assert %{freshness: :current, note: nil} = ProgressRenderer.html(@resolved, now: @now)
+    end
+
+    test "a last-known marker never qualifies a projection that shows no percent" do
+      unresolved = %{progress: nil, progress_resolution: :unresolved, progress_resolved_count: 0, member_count: 2, stale_count: 1, stale_observed_at: @stale_at}
+
+      assert ProgressRenderer.terminal(unresolved, now: @now) == "unresolved"
+      assert %{freshness: :current, note: nil} = ProgressRenderer.html(unresolved, now: @now)
+    end
+
+    test "ages are relative to the caller's clock" do
+      assert ProgressRenderer.terminal(@stale_one, now: DateTime.add(@stale_at, 30, :second)) == "80% (last known just now)"
+      assert ProgressRenderer.terminal(@stale_one, now: DateTime.add(@stale_at, 2 * 3_600, :second)) == "80% (last known 2h ago)"
+      assert ProgressRenderer.terminal(@stale_one, now: DateTime.add(@stale_at, 3 * 86_400, :second)) == "80% (last known 3d ago)"
+    end
+  end
+
   describe "html/1" do
     test "projects all four states into unambiguous HTML labels" do
       resolved = ProgressRenderer.html(@resolved)
