@@ -444,7 +444,7 @@ defmodule Aiur.Alerts do
   end
 
   defp load_yaml(path) when is_binary(path) do
-    case YamlElixir.read_from_file(path) do
+    case Aiur.Yaml.read_from_file(path) do
       {:ok, %{} = yaml} -> yaml
       _ -> %{}
     end
