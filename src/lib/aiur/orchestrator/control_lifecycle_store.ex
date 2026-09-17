@@ -55,6 +55,7 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
   defp persist(fun, opts) do
     path = path_for()
     lock_timeout_ms = Keyword.get(opts, :lock_timeout_ms, @lock_timeout_ms)
+    lock_retry_ms = Keyword.get(opts, :lock_retry_ms, @lock_retry_ms)
 
     # Import any legacy per-boot journal into the durable state dir (one-time
     # copy), then make sure the exact journal directory exists — an explicit
@@ -68,7 +69,8 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
              lifecycle = fun.(load())
              JsonStore.write!(path, ControlLifecycle.dump(lifecycle))
            end,
-           lock_timeout_ms
+           lock_timeout_ms,
+           lock_retry_ms
          ) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("Control lifecycle journal lock failed at #{path}: #{inspect(reason)}")
@@ -81,31 +83,44 @@ defmodule Aiur.Orchestrator.ControlLifecycleStore do
       :ok
   end
 
-  defp with_lock(path, fun, lock_timeout_ms), do: acquire_lock(path <> ".lock", fun, lock_timeout_ms)
+  defp with_lock(path, fun, lock_timeout_ms, lock_retry_ms) do
+    deadline = System.monotonic_time(:millisecond) + lock_timeout_ms
+    acquire_lock(path <> ".lock", fun, deadline, lock_retry_ms)
+  end
 
-  defp acquire_lock(lock, fun, remaining_ms) do
-    owner = lock_owner()
+  defp acquire_lock(lock, fun, deadline, lock_retry_ms) do
+    if remaining_ms(deadline) > 0 do
+      owner = lock_owner()
 
-    case create_lock(lock, owner) do
-      :ok ->
-        try do
-          fun.()
-        after
-          release_lock(lock, owner)
-        end
+      case create_lock(lock, owner) do
+        :ok ->
+          try do
+            fun.()
+          after
+            release_lock(lock, owner)
+          end
 
-      {:error, :eexist} when remaining_ms > 0 ->
-        break_stale_lock(lock)
-        Process.sleep(@lock_retry_ms)
-        acquire_lock(lock, fun, remaining_ms - @lock_retry_ms)
+        {:error, :eexist} ->
+          break_stale_lock(lock)
+          sleep_before_retry(deadline, lock_retry_ms)
+          acquire_lock(lock, fun, deadline, lock_retry_ms)
 
-      {:error, :eexist} ->
-        {:error, :lock_timeout}
-
-      {:error, reason} ->
-        {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:error, :lock_timeout}
     end
   end
+
+  defp sleep_before_retry(deadline, lock_retry_ms) do
+    case remaining_ms(deadline) do
+      remaining_ms when remaining_ms > 0 -> Process.sleep(min(lock_retry_ms, remaining_ms))
+      _ -> :ok
+    end
+  end
+
+  defp remaining_ms(deadline), do: deadline - System.monotonic_time(:millisecond)
 
   # Build the owner record before publishing the canonical lock. A hard link is
   # an atomic create-if-absent operation, so a process killed during candidate

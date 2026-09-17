@@ -126,6 +126,32 @@ defmodule Aiur.Orchestrator.ControlLifecycleStoreTest do
     assert Enum.map(ControlLifecycleStore.load().daemon_events, & &1.run_id) == ["run-first", "run-second"]
   end
 
+  test "a contended writer's deadline includes elapsed retry delay" do
+    lock = ControlLifecycleStore.path_for() <> ".lock"
+    File.mkdir_p!(Path.dirname(lock))
+    File.write!(lock, "held")
+
+    lifecycle = ControlLifecycle.new(now: @now) |> ControlLifecycle.record_daemon_event(:start, daemon_attrs("run-first", "4001"))
+    started = System.monotonic_time(:millisecond)
+
+    assert :ok =
+             ControlLifecycleStore.update(
+               fn _current -> lifecycle end,
+               lock_timeout_ms: 50,
+               lock_retry_ms: 100
+             )
+
+    elapsed = System.monotonic_time(:millisecond) - started
+
+    assert elapsed < 80,
+           "save blocked #{elapsed}ms after a 50ms deadline; retry delay must consume the deadline"
+
+    assert elapsed >= 40,
+           "save returned in #{elapsed}ms without waiting for the held lock"
+
+    assert ControlLifecycleStore.load().daemon_events == []
+  end
+
   test "an abandoned journal lock is reclaimed" do
     lock = ControlLifecycleStore.path_for() <> ".lock"
     File.mkdir_p!(Path.dirname(lock))
