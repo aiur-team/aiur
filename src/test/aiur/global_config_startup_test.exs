@@ -2,6 +2,7 @@ defmodule Aiur.GlobalConfigStartupTest do
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureIO
+  alias Aiur.GitHub.Labels
   alias Aiur.GlobalConfigStartup
 
   setup do
@@ -41,8 +42,8 @@ defmodule Aiur.GlobalConfigStartupTest do
 
   test "existing labels require no writes", c do
     labels =
-      Aiur.GitHub.Labels.state_labels("agent") ++
-        Aiur.GitHub.Labels.marker_labels("agent") ++ Aiur.GitHub.Labels.complexity_labels()
+      Labels.state_labels("agent") ++
+        Labels.marker_labels("agent") ++ Labels.complexity_labels()
 
     parent = self()
 

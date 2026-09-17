@@ -1,9 +1,9 @@
 defmodule Aiur.GlobalConfigStartup do
   @moduledoc "Pre-dispatch setup when a run uses shared home-directory settings."
-  alias Aiur.Workflow
+  alias Aiur.BuildOrder.Bounded
   alias Aiur.GitHub.{Labels, Transport}
   alias Aiur.GitHub.Config, as: GitHubConfig
-  alias Aiur.BuildOrder.Bounded
+  alias Aiur.Workflow
 
   @spec prepare() :: :ok | {:error, String.t()}
   def prepare do
@@ -58,22 +58,22 @@ defmodule Aiur.GlobalConfigStartup do
     configured = if is_binary(configured), do: String.trim(configured), else: ""
 
     if configured in ["", origin] do
-      case String.split(origin, "/") do
-        [owner, repo] ->
-          case Bounded.github_repository_components(owner, repo) do
-            {:ok, pair} -> {:ok, pair}
-            :error -> {:error, "Cannot resolve a valid GitHub repository from origin."}
-          end
-
-        _ ->
-          {:error, "Cannot resolve a valid GitHub repository from origin."}
-      end
+      validate_origin(origin)
     else
       {:error, "Global tracker.github.repo #{configured} differs from origin #{origin}. Omit repo in ~/.aiur/config for portable defaults, or run aiur init for repository-specific settings."}
     end
   end
 
   defp target(_configured, _origin), do: {:error, "No GitHub origin repository found. Configure origin or run aiur init."}
+
+  defp validate_origin(origin) do
+    with [owner, repo] <- String.split(origin, "/"),
+         {:ok, pair} <- Bounded.github_repository_components(owner, repo) do
+      {:ok, pair}
+    else
+      _ -> {:error, "Cannot resolve a valid GitHub repository from origin."}
+    end
+  end
 
   defp credential(token) when is_binary(token) and token != "", do: {:ok, token}
   defp credential(_), do: {:error, "GitHub credential missing. Set GITHUB_TOKEN in ~/.aiur/.env, configure GitHub App credentials, or use gh auth login."}
