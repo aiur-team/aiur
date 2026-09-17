@@ -3,10 +3,11 @@ defmodule Aiur.BuildOrder.HomeRepositorySnapshotTest do
 
   alias Aiur.BuildOrder.GraphProjection.{Configuration, Options}
   alias Aiur.BuildOrder.TicketDetail.Repository
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   test "omitted repository resolves origin for generation-qualified catalog authority" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: nil)
-    key = {Aiur.GitHub.Config, :resolved_origin_repo}
+    key = {GitHubConfig, :resolved_origin_repo}
     previous = :persistent_term.get(key, :not_cached)
     :persistent_term.put(key, "team/consumer")
 
@@ -22,7 +23,7 @@ defmodule Aiur.BuildOrder.HomeRepositorySnapshotTest do
 
     # A later reload must not replace the repository captured by a snapshot.
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "different/project")
-    assert {:ok, {"different", "project"}} = Aiur.GitHub.Config.configured_repo()
-    assert {:ok, {"team", "consumer"}} = Aiur.GitHub.Config.configured_repo_from_value(nil)
+    assert {:ok, {"different", "project"}} = GitHubConfig.configured_repo()
+    assert {:ok, {"team", "consumer"}} = GitHubConfig.configured_repo_from_value(nil)
   end
 end
