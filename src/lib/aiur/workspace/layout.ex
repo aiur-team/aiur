@@ -3,6 +3,7 @@ defmodule Aiur.Workspace.Layout do
 
   alias Aiur.{Config, PathSafety}
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   @type worker_host :: String.t() | nil
 
@@ -103,7 +104,7 @@ defmodule Aiur.Workspace.Layout do
 
     raw =
       case settings.tracker.kind do
-        "github" -> settings.tracker.github.repo
+        "github" -> GitHubConfig.repo()
         "linear" -> settings.tracker.linear.project_slug
         _ -> nil
       end

@@ -301,8 +301,12 @@ defmodule Aiur.GitHub.Config do
   defp nonblank_token?(_value), do: false
 
   @spec label_prefix() :: String.t()
-  def label_prefix do
-    case section_value("label_prefix") do
+  def label_prefix, do: label_prefix(section_value("label_prefix"))
+
+  @doc false
+  @spec label_prefix(term()) :: String.t()
+  def label_prefix(configured) do
+    case configured do
       value when is_binary(value) ->
         case String.trim(value) do
           "" -> @default_label_prefix

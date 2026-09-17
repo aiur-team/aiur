@@ -121,6 +121,10 @@ defmodule Aiur.Shutdown do
   # `ensure_all_started/1` then burned its full 60s ExUnit timeout, and the
   # coverage partition blew through its 20-minute bound.
   #
+  # `Aiur.Yaml` has since removed that controller call from every read (#2474),
+  # so this guard is defence in depth rather than the only thing standing
+  # between shutdown and the wedge.
+  #
   # So `derive: false` callers get the value parked by the last successful
   # resolution, or nothing at all. Every phase in `cleanup/1` is documented
   # best-effort: skipping one beats deadlocking shutdown.
