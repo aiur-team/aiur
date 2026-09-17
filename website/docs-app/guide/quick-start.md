@@ -23,9 +23,13 @@ npm install -g aiur-cli
 
 Run `aiur init` for your first setup. Choose **global** to store reusable defaults in `~/.aiur/config`.
 
-With global defaults already present, run `aiur` in another GitHub repository without running `init` there. Aiur announces the fallback, infers the target from `origin`, and ensures workflow/marker and complexity labels before dispatch. It does not create model, effort, or alias labels; models and complexity routing come from config. Existing model overrides remain supported.
+With global defaults already present, run `aiur` in another GitHub repository without running `init` there. Aiur announces the fallback, infers the target from `origin`, and ensures workflow/marker and complexity labels before dispatch.
 
-Keep reusable credentials in `~/.aiur/.env` (outside Git), or use configured GitHub App credentials or `gh auth login`. Missing labels require Issues read/write permission; startup stops with an actionable error if setup fails. When required labels already exist, no label writes are made. Omit `tracker.github.repo` from portable global defaults; a different explicit repo is rejected rather than modifying the wrong repository. Global branch and agent settings still apply, so use local `aiur init` when a repository needs different settings.
+It does not create model, effort, or alias labels; models and complexity routing come from config. Existing model overrides remain supported.
+
+Keep reusable credentials in `~/.aiur/.env` (outside Git), or use configured GitHub App credentials or `gh auth login`. Missing labels require Issues read/write permission; startup stops with an actionable error if setup fails. When required labels already exist, no label writes are made.
+
+Omit `tracker.github.repo` from portable global defaults; a different explicit repo is rejected rather than modifying the wrong repository. Global branch and agent settings still apply, so use local `aiur init` when a repository needs different settings.
 
 A repository-local `.aiur/config` takes precedence and retains its existing setup behavior. `init` remains available for repository-specific configuration.
 
