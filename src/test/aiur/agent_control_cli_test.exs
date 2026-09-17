@@ -2403,11 +2403,6 @@ defmodule Aiur.AgentControlCLITest do
     readable_statuses = StatusReport.agent_statuses(orchestrator_state, fn _timeout -> {:unavailable, nil} end)
 
     assert [%{identifier: "repo#44", state: :paused, work_state: :paused, control: control}] = readable_statuses
-    refute Map.has_key?(control, :latest_control)
-    refute Map.has_key?(control, :latest_resume_control)
-    refute Map.has_key?(control, :recent_controls)
-
-    assert [%{identifier: "repo#44", state: :paused, control: control}] = readable_statuses
     assert control.status == :paused
     assert Map.get(control, :latest_control) == nil
     assert Map.get(control, :latest_resume_control) == nil
