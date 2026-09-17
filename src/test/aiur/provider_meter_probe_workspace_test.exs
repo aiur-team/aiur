@@ -15,7 +15,7 @@ defmodule Aiur.ProviderMeterProbeWorkspaceTest do
       root =
         case unquote(representation) do
           :relative -> Path.join(File.cwd!(), ".verification/probe-#{System.unique_integer([:positive])}")
-          :home_relative -> Aiur.TestSupport.tmp_root!("probe-expanded-root")
+          :home_relative -> Path.join([System.user_home!(), ".cache", Path.basename(Aiur.TestSupport.tmp_root!("probe-expanded-root"))])
         end
 
       configured_root =
