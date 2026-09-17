@@ -17,11 +17,17 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   @adhoc_lane "adhoc"
 
+  # `stale_count` is how many resolved members contribute a *last-known* percent
+  # (a retained activity reading that is no longer fresh) rather than a live one
+  # or an accepted lifecycle completion; `stale_observed_at` is the oldest such
+  # reading. Both keep retained work visible without letting it pose as current.
   @type completion :: %{
           progress: 0..100 | nil,
           progress_resolution: RootSummary.progress_resolution(),
           progress_resolved_count: non_neg_integer() | nil,
-          member_count: non_neg_integer() | nil
+          member_count: non_neg_integer() | nil,
+          stale_count: non_neg_integer(),
+          stale_observed_at: DateTime.t() | nil
         }
 
   @type card :: %{
@@ -92,6 +98,34 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp planning?(%AiurWeb.BuildOrderViewModel{planning?: planning?}), do: planning? == true
   defp planning?(_model), do: false
 
+  @doc """
+  The single per-member completion basis every Build Order surface shares:
+  accepted lifecycle completion first (merged or closed-completed is 100%, any
+  other closed state is 0%), then a fresh or last-known worker reading at face
+  value (last-known tagged with `stale_count`/`stale_observed_at`), and
+  otherwise unresolved. Surfaces that fold members into rows must aggregate
+  these with `aggregate/1` so their percentages and coverage cannot disagree.
+  """
+  @spec member_completion(Node.t()) :: completion()
+  def member_completion(%Node{card: card} = node) do
+    core_completion(
+      status_key(node) == :status_completed,
+      Map.get(card, :progress),
+      Map.get(card, :progress_freshness),
+      Map.get(card, :progress_observed_at),
+      Map.get(card, :lifecycle)
+    )
+  end
+
+  @doc """
+  Complexity-weighted completion over cards carrying `completion` and
+  `complexity`: a resolved card contributes its progress fraction at its
+  complexity weight (1 when unknown); unresolved cards reduce coverage, so the
+  aggregate becomes `:partial` instead of silently counting them as 0%.
+  """
+  @spec aggregate([%{completion: completion(), complexity: pos_integer() | nil}]) :: completion()
+  def aggregate(cards) when is_list(cards), do: aggregate_completion(cards)
+
   # --- cards ------------------------------------------------------------------
 
   defp core_cards(%AiurWeb.BuildOrderViewModel{nodes: nodes}, planning?) when is_list(nodes),
@@ -116,7 +150,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     status_key = status_key(node)
     merged = status_key == :status_completed
     complexity = complexity(node)
-    completion = core_completion(merged, Map.get(card, :progress), Map.get(card, :lifecycle))
+    completion = member_completion(node)
 
     %{
       id: identifier(card),
@@ -257,11 +291,30 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
       true ->
         resolution = if resolved_count == member_count, do: :resolved, else: :partial
-        completion(round(done / weight * 100), resolution, resolved_count, member_count)
+        completion(round(done / weight * 100), resolution, resolved_count, member_count, stale_count(cards), stale_observed_at(cards))
     end
   end
 
   defp completion_fraction(%{completion: %{progress: progress}}) when is_integer(progress), do: progress / 100
+
+  # Last-known readings propagate into every aggregate they contribute to: the
+  # count says how many members are carried by retained work, and the oldest
+  # reading bounds how old the aggregate's freshest claim can be. One stale
+  # contributor without a timestamp makes the aggregate's age unknown: an
+  # oldest-known time computed from the others would claim a bound that does
+  # not hold.
+  defp stale_count(cards), do: cards |> Enum.map(&get_in(&1, [:completion, :stale_count])) |> Enum.filter(&is_integer/1) |> Enum.sum()
+
+  defp stale_observed_at(cards) do
+    stamps =
+      cards
+      |> Enum.filter(&match?(count when is_integer(count) and count > 0, get_in(&1, [:completion, :stale_count])))
+      |> Enum.map(&get_in(&1, [:completion, :stale_observed_at]))
+
+    if Enum.all?(stamps, &is_struct(&1, DateTime)),
+      do: Enum.min(stamps, DateTime, fn -> nil end),
+      else: nil
+  end
 
   defp wave_order(:unphased), do: {1, 0}
   defp wave_order(phase) when is_integer(phase), do: {0, phase}
@@ -322,29 +375,45 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp adhoc_status_word(:working), do: "agent live"
   defp adhoc_status_word(_state), do: "ad hoc"
 
-  defp core_completion(true, _raw, _lifecycle), do: completion(100, :resolved, 1, 1)
-  defp core_completion(false, raw, _lifecycle) when is_integer(raw) and raw in 0..100, do: completion(raw, :resolved, 1, 1)
+  # Accepted lifecycle completion always wins over any activity reading, in
+  # both directions: merged (or closed as completed) is 100%, and a ticket
+  # closed any other way — not planned, duplicate, cancelled — finished without
+  # completing its work and is resolved at 0% even if a worker once reported a
+  # percent for it. Retained worker progress only ever describes open work.
+  defp core_completion(true, _raw, _freshness, _observed_at, _lifecycle), do: completion(100, :resolved, 1, 1)
+  defp core_completion(false, _raw, _freshness, _observed_at, %{state: :closed, state_reason: :completed}), do: completion(100, :resolved, 1, 1)
+  defp core_completion(false, _raw, _freshness, _observed_at, %{state: :closed}), do: completion(0, :resolved, 1, 1)
 
-  # A known lifecycle (open or closed) with no observed progress is resolved at
-  # 0%: the completion is a known fact — an open ticket has made no observed
-  # progress, and a closed ticket that was not completed finished without
-  # completing its work. Either way a wave or epic of all-terminal (closed)
-  # members reports `:resolved`.
-  defp core_completion(false, _raw, %{state: state}) when state in [:open, :closed], do: completion(0, :resolved, 1, 1)
-  defp core_completion(_merged, _raw, _lifecycle), do: completion(nil, :unresolved, 0, 1)
+  # A known percent counts at face value whether the reading is live or the
+  # last one observed before an agent paused. A last-known reading is tagged,
+  # never discarded: dropping it would turn real work into a confident 0%.
+  defp core_completion(false, raw, :stale, observed_at, _lifecycle) when is_integer(raw) and raw in 0..100,
+    do: completion(raw, :resolved, 1, 1, 1, datetime_or_nil(observed_at))
+
+  defp core_completion(false, raw, :fresh, _observed_at, _lifecycle) when is_integer(raw) and raw in 0..100, do: completion(raw, :resolved, 1, 1)
+
+  # An open ticket with no reading — or a reading whose freshness cannot be
+  # established — is a different fact from zero work: nothing usable has been
+  # observed, so it stays unresolved rather than becoming a confident 0%.
+  defp core_completion(_merged, _raw, _freshness, _observed_at, _lifecycle), do: completion(nil, :unresolved, 0, 1)
 
   defp adhoc_completion(true, _raw), do: completion(100, :resolved, 1, 1)
   defp adhoc_completion(false, raw) when is_integer(raw) and raw in 0..100, do: completion(raw, :resolved, 1, 1)
   defp adhoc_completion(_merged, _raw), do: completion(nil, :unknown, nil, 1)
 
-  defp completion(progress, resolution, resolved_count, member_count) do
+  defp completion(progress, resolution, resolved_count, member_count, stale_count \\ 0, stale_observed_at \\ nil) do
     %{
       progress: progress,
       progress_resolution: resolution,
       progress_resolved_count: resolved_count,
-      member_count: member_count
+      member_count: member_count,
+      stale_count: stale_count,
+      stale_observed_at: stale_observed_at
     }
   end
+
+  defp datetime_or_nil(%DateTime{} = value), do: value
+  defp datetime_or_nil(_value), do: nil
 
   defp complexity(%Node{plan: %{complexity: complexity}}) when complexity in 1..5, do: complexity
   defp complexity(_node), do: nil
