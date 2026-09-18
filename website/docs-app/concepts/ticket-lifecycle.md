@@ -379,11 +379,8 @@ ticket stays paused until you answer. The CLI even tells you so: on
   fallback: :queue_next` (`src/lib/aiur/decision_dispatch.ex:29-56`), and the
   agent is told to emit `decision.acknowledged` then `decision.resolved`
   (`decision_dispatch.ex:75-79`). The agent that asked has usually stopped by
-  then, so the first delivery fails `target_agent_unavailable`. The answer stays
-  durable, and when the dispatcher spawns the next worker for the ticket it
-  asks the store to deliver each undelivered answer again
-  (`DecisionStore.deliver_pending_answers/2`). The new worker receives the
-  answer once, through its queue.
+  then; the ticket's next worker receives the answer (see
+  [Delivery rule for a decided answer](#delivery-rule-for-a-decided-answer)).
 
 ### Operator workflow
 
@@ -407,10 +404,10 @@ An answer is addressed to the ticket, not to the worker session that asked.
 Aiur delivers the newest answer of a `:decided` Command to whichever worker runs
 the ticket.
 
-If no worker runs it, delivery fails with `target_agent_unavailable` and the
-daemon tries again at its next start. So a worker that starts later for the
-same ticket, for example after a requeue, receives an answer that the first
-worker never saw.
+If no worker runs it, delivery fails with `target_agent_unavailable`. The
+answer stays durable. When the ticket's next worker starts, for example after
+the next poll or a requeue, Aiur sends it each undelivered answer again, in the
+order the Commands were decided. That worker receives each answer once.
 
 While no worker has picked up the answer for sending, the Executor can change
 it:

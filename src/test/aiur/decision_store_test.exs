@@ -4297,6 +4297,89 @@ defmodule Aiur.DecisionStoreTest do
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
     end
 
+    test "a mooted answer is never sent to the next worker", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("moot-before-spawn"))
+      id = decision.decision_id
+      assert {:ok, _answer} = answer(pid, id, %{"idempotency_key" => "moot-1", "expected_version" => 1, "option_id" => "ship"})
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+
+      assert {:ok, %{status: :accepted}} =
+               DecisionStore.moot(id, %{"reason_class" => "operator_changed_direction"}, [actor: %{kind: :executor, id: "executor"}], pid)
+
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
+    end
+
+    test "after a supersede only the newest answer reaches the next worker", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("supersede-before-spawn"))
+      id = decision.decision_id
+
+      assert {:ok, %{action: first}} =
+               answer(pid, id, %{"idempotency_key" => "supersede-1", "expected_version" => 1, "option_id" => "ship"})
+
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+
+      assert {:ok, %{action: newest}} =
+               DecisionStore.supersede(
+                 id,
+                 %{"idempotency_key" => "supersede-2", "expected_version" => 1, "option_id" => "hold", "rationale" => "Changed direction."},
+                 [actor: %{kind: :executor, id: "executor"}],
+                 pid
+               )
+
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid, id, &(&1.active_action_id == newest.action_id and &1.delivery_status == :failed))
+
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
+      assert action_id == newest.action_id
+      refute action_id == first.action_id
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
+    end
+
+    test "an answer whose send failed after handoff is sent again once at the next spawn", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+      start_worker!(worker)
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("failed-after-handoff"))
+      id = decision.decision_id
+      payload = %{"idempotency_key" => "handoff-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, id, payload)
+      assert_receive {:worker_received, ^id, _action_id, attempt_id}, 1_000
+      assert_receive {:worker_queue_item, ^id, item_id}
+      queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
+
+      # The delivery gate hands the answer to the worker, and the send fails
+      # without a provider confirmation.
+      item = correlated_queue_item(queued, action, attempt_id, item_id)
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+
+      failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      assert [%{status: :failed, handed_off_at: %DateTime{}, delivered_at: nil}] = Decision.active_dispatch_attempts(failed)
+      refute Decision.send_in_flight?(failed)
+
+      # The next worker receives it exactly once, even if spawned twice.
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
+      assert action_id == action.action_id
+      _queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
+    end
+
     test "an unanswered blocking Command sends nothing to a new worker", %{dir: dir} do
       worker = start_worker_flag!()
       pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0)
