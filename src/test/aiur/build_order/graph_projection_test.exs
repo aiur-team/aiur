@@ -884,30 +884,77 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
   end
 
-  # #2608, trigger half. On a poll-only repository no webhook writer ever runs,
-  # so the only thing that observes a member closing is the tracker poll's
-  # deposit into the store. That deposit used to be left to move the root's
-  # catalog fingerprint and nothing more — but the fingerprint is only consumed
-  # by whichever catalog rebuild happens to land, so eleven members closed and
-  # the selected-root graph stayed on its boot-time read for six hours. The
-  # member's own store change must re-read the roots it belongs to.
-  test "a member's own store change re-reads the selected root it belongs to and no other" do
+  # #2608, cost half. A member close is observed as an `:issue` store change;
+  # that change rebuilds the catalog from the store, the rebuild moves the
+  # root's lifecycle digest, and the moved marker buys the re-read. The member's
+  # own change must not buy a second read on top: dispatched against the old
+  # marker, it could not coalesce with the catalog's, so a close cost two
+  # GraphQL reads.
+  test "a member close costs exactly one selected read" do
     first = identity(1, "I1")
-    second = identity(2, "I2")
-
+    seed_sub_issues([{1, 17}])
     {:ok, projection} = start_projection()
-    _reader = await_reader(:catalog)
+    read_root_at(projection, first, normalized_root(1, ["OPEN", "OPEN", "OPEN"]))
+
+    send(projection, {:github_resource_changed, issue_change(:issue, "17")})
+
+    closed = catalog([normalized_root(1, ["CLOSED", "OPEN", "OPEN"])])
+    assert count_selected_reads(first, closed) == 1
+  end
+
+  # A comment, a title or body edit, or an ETag rotation deposits the issue
+  # again without moving its lifecycle. The rebuild finds the digest unchanged,
+  # and nothing buys a read.
+  test "a member change that moves no lifecycle costs no selected read" do
+    first = identity(1, "I1")
+    seed_sub_issues([{1, 17}])
+    {:ok, projection} = start_projection()
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    read_root_at(projection, first, open)
+
+    send(projection, {:github_resource_changed, issue_change(:issue, "17")})
+
+    assert count_selected_reads(first, catalog([open])) == 0
+  end
+
+  # Labels are rendered by the graph but not digested by the marker, so a
+  # member's label change reads the root itself — once per debounce window,
+  # however many labels move in it. A fleet relabelling forty tickets in a
+  # minute used to cost a read per label event.
+  test "a burst of label changes inside the debounce window costs one selected read" do
+    first = identity(1, "I1")
+    seed_sub_issues([{1, 17}, {1, 18}])
+    {:ok, projection} = start_projection(member_debounce_ms: 2_000)
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    read_root_at(projection, first, open)
+
+    reads =
+      Enum.reduce(1..10, 0, fn n, reads ->
+        send(projection, {:github_resource_changed, issue_change(:issue_labels, Integer.to_string(17 + rem(n, 2)))})
+        reads + count_selected_reads(first, catalog([open]), 20)
+      end)
+
+    assert reads + count_selected_reads(first, catalog([open]), 2_500) == 1
+  end
+
+  # The debounced read respects failure backoff: a root whose last read failed
+  # is left to its own retry timer instead of being read again on every label.
+  test "a label change does not read a root that is backing off a failed read" do
+    first = identity(1, "I1")
+    seed_sub_issues([{1, 17}])
+    {:ok, projection} = start_projection()
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
 
     assert {:ok, _} = GraphProjection.demand(projection, first)
-    assert {:ok, _} = GraphProjection.demand(projection, second)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:error, :rate_limited})
+    assert_receive {:projection_event, {:graph_projection_health, %Snapshot{scope: {:selected, ^first}, health: %{next_retry_at: %DateTime{}}}}}, 2_000
 
-    # Issue 1 closes, and the poll deposits it. Root 1 is watched, so it is
-    # re-read...
-    send(projection, {:github_resource_changed, issue_change(:issue, "1")})
+    send(projection, {:github_resource_changed, issue_change(:issue_labels, "17")})
 
-    assert {:selected, ^first} = await_selected_scope(first)
-    # ...and root 2, which that issue is no part of, is left alone.
-    refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
+    assert count_selected_reads(first, catalog([open])) == 0
   end
 
   # The same for a label transition, the other member-state change the ticket
@@ -925,12 +972,12 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     assert {:selected, ^first} = await_selected_scope(first)
   end
 
-  # #2608, the shape the Khala daemon reported: the issue that closes is not
-  # the root but one of its sub-issues (#17 and #52 under root #1). The only
-  # link between them is the `:sub_issue` edge the reconciliation deposited, so
-  # the member's own store change must resolve its root through that edge —
-  # and must not wake a root it is no member of.
-  test "a sub-issue's close re-reads the root it belongs to through the stored edge, and no other" do
+  # The shape the Khala daemon reported: the issue that changes is not the
+  # root but one of its sub-issues (#17 and #52 under root #1). The only link
+  # between them is the `:sub_issue` edge the reconciliation deposited, so the
+  # member's store change must resolve its root through that edge — and must
+  # not wake a root it is no member of.
+  test "a sub-issue's label change re-reads the root it belongs to through the stored edge, and no other" do
     first = identity(1, "I1")
     second = identity(2, "I2")
     seed_sub_issues([{1, 17}, {2, 30}])
@@ -941,7 +988,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     assert {:ok, _} = GraphProjection.demand(projection, first)
     assert {:ok, _} = GraphProjection.demand(projection, second)
 
-    send(projection, {:github_resource_changed, issue_change(:issue, "17")})
+    send(projection, {:github_resource_changed, issue_change(:issue_labels, "17")})
 
     assert {:selected, ^first} = await_selected_scope(first)
     refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
@@ -1172,6 +1219,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       refresh_timeout_ms: 30_000,
       max_selected_roots: max_selected_roots,
       max_inflight: 4,
+      member_debounce_ms: Keyword.get(opts, :member_debounce_ms, 0),
       after_broadcast: fn event -> send(parent, {:projection_event, event}) end
     )
   end
@@ -1238,6 +1286,35 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
         max_inflight: 4
       ]
     }
+  end
+
+  # Brings a watched root to a steady state: the catalog holds `root_summary`
+  # and the selected graph has been read against that marker.
+  defp read_root_at(projection, identity, root_summary) do
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root_summary]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, _} = GraphProjection.demand(projection, identity)
+    :ok = GraphProjection.refresh(projection, identity)
+    finish(await_reader({:selected, identity}), {:ok, ProviderResult.complete(selected(identity))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^identity}}}}, 2_000
+  end
+
+  # Answers every read the projection starts until it has been quiet for
+  # `quiet_ms` — catalog rebuilds with `catalog`, selected reads successfully —
+  # and returns how many selected reads of `identity` it bought.
+  defp count_selected_reads(identity, catalog, quiet_ms \\ 500, count \\ 0) do
+    receive do
+      {:reader_started, :catalog, reader} ->
+        finish(reader, {:ok, ProviderResult.complete(catalog)})
+        count_selected_reads(identity, catalog, quiet_ms, count)
+
+      {:reader_started, {:selected, ^identity}, reader} ->
+        finish(reader, {:ok, ProviderResult.complete(selected(identity))})
+        count_selected_reads(identity, catalog, quiet_ms, count + 1)
+    after
+      quiet_ms -> count
+    end
   end
 
   # The parent/sub-issue edge the reconciliation deposits, which is the only

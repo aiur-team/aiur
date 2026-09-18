@@ -80,6 +80,11 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       # differ. Without it there would be no cadence *and* no trigger, which is
       # not "need-driven", it is "never read".
       selected_fingerprints: %{},
+      # Root key => the debounce timer a label or dependency-edge change armed
+      # for it. A root already marked keeps its first timer, so a burst of
+      # changes inside the window costs one read.
+      member_due: %{},
+      member_debounce_ms: non_negative(opts, :member_debounce_ms, 3_000, 60_000),
       inflight_by_ref: %{},
       pending: MapSet.new(),
       # Scopes whose queued read was asked for explicitly (`refresh/2`) rather
@@ -214,6 +219,13 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
   defp positive(opts, key, default, maximum) do
     case Keyword.get(opts, key, default) do
       value when is_integer(value) and value > 0 and value <= maximum -> value
+      _ -> default
+    end
+  end
+
+  defp non_negative(opts, key, default, maximum) do
+    case Keyword.get(opts, key, default) do
+      value when is_integer(value) and value >= 0 and value <= maximum -> value
       _ -> default
     end
   end

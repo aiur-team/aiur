@@ -36,6 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       assigns
       |> assign(:show_panes?, is_nil(assigns.graph_failure) and not is_nil(assigns.model))
       |> assign(:saved_as_of, saved_as_of(assigns.model))
+      |> assign(:saved_plan?, saved_plan?(assigns.model))
 
     ~H"""
     <section class="bo-surface" aria-labelledby="build-order-details-title">
@@ -108,6 +109,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           model={@model}
           adhoc={@adhoc}
           saved_as_of={@saved_as_of}
+          saved_plan?={@saved_plan?}
           now={@now}
         />
       </section>
@@ -354,6 +356,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   # a healthy generation is current by definition and needs no dateline.
   defp saved_as_of(%{status: :provider_stale, planning_health: %{last_success_at: %DateTime{} = at}}), do: at
   defp saved_as_of(_model), do: nil
+
+  # Whether the graph on screen is the saved fallback at all. Kept apart from
+  # `saved_as_of/1`: a saved plan whose provider never reported a read time is
+  # just as stale, and its percentages must be marked all the same.
+  defp saved_plan?(%{status: :provider_stale}), do: true
+  defp saved_plan?(_model), do: false
 
   defp model_state_title(%{status: :provider_stale}), do: "Build Order plan"
   defp model_state_title(_model), do: "Build Order state"

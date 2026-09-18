@@ -1325,8 +1325,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       })
 
     assert html =~ "Showing the last saved plan. The counts and percentages below are as of when it was read, not now."
-    refute html =~ "is-stale"
-    refute html =~ "not current"
+    # The percentages are just as stale without a read time, so they are marked
+    # all the same; only the dateline has nothing to name.
+    assert html =~ "is-stale"
+    assert html =~ "Wave completion as of the last saved plan"
+    assert html =~ "As of an unrecorded read — not current"
   end
 
   # And the converse, which is what keeps the dateline meaningful: a current
