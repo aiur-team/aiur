@@ -185,11 +185,19 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 
 ## workspace
 
+The `wip_*` keys bound the save of uncommitted work described in [Saved uncommitted work](/reference/cli#saved-uncommitted-work).
+
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `workspace.root` | string path | tmp `aiur_workspaces` | Root for agent workspaces. |
 | `workspace.bootstrap_image` | string | nil | Docker image for warm build-cache seeding. |
 | `workspace.bootstrap_image_pull` | boolean | false | Pulls the bootstrap image before seeding. |
+| `workspace.wip_max_bytes` | integer | 52428800 | Cap in bytes of one save of uncommitted work (50 MiB). Untracked files past it are skipped; the tracked patch is always kept. |
+| `workspace.wip_max_file_bytes` | integer | 10485760 | An untracked file larger than this (10 MiB) is skipped in a save. |
+| `workspace.wip_max_dir_files` | integer | 10000 | An untracked directory with more files than this, or a nested repository, is skipped whole. |
+| `workspace.wip_command_timeout_ms` | integer | 60000 | Time limit of each `git` and `tar` command of a save. A timeout keeps the workspace, except for a closed ticket. |
+| `workspace.wip_retention_bytes` | integer | 2147483648 | Cap in bytes of all of `wip-preserved/` (2 GiB). Closed tickets' saves are pruned first. |
+| `workspace.wip_retention_days` | integer | 14 | Saves older than this are pruned. The newest save of an open ticket is never pruned. |
 
 ## worker
 

@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Refresh do
 
   require Logger
   alias Aiur.{AgentBuildGuard, Config}
-  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction, WipPreservation}
+  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
@@ -106,22 +106,10 @@ defmodule Aiur.Workspace.Refresh do
     end
   end
 
-  defp preserve_then_recreate(workspace, issue_context, nil) do
-    WipPreservation.guard_destroy(workspace, issue_context.issue_identifier, "recreate the stale workspace", fn ->
-      Provisioner.recreate(workspace, nil, issue_context.pr_head_ref, issue_context.branch_name)
-    end)
-  end
-
-  # The dirty state of a remote checkout cannot be saved to this daemon's
-  # runtime state directory, and the exit-65 refusal already proves the
-  # checkout is dirty. Hold the ticket instead of deleting the work.
-  defp preserve_then_recreate(workspace, issue_context, worker_host) when is_binary(worker_host) do
-    WipPreservation.refuse(
-      workspace,
-      issue_context.issue_identifier,
-      "recreate the stale workspace on #{worker_host}",
-      :remote_worker_unsupported
-    )
+  # `Provisioner.recreate/5` saves the uncommitted work first, and keeps the
+  # workspace when it cannot (a failed save, or a remote worker).
+  defp preserve_then_recreate(workspace, issue_context, worker_host) do
+    Provisioner.recreate(workspace, worker_host, issue_context.pr_head_ref, issue_context.branch_name, issue_context.issue_identifier)
   end
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do

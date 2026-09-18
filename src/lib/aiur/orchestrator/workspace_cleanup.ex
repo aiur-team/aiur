@@ -1,20 +1,32 @@
 defmodule Aiur.Orchestrator.WorkspaceCleanup do
   @moduledoc """
   Owns orchestrator WorkspaceCleanup behavior.
-  All functions execute inside the orchestrator GenServer process.
+
+  The functions run inside the orchestrator GenServer process, except the
+  save and delete of a closed ticket's workspace. That work can take as long
+  as the uncommitted-work save it includes (#2743), so
+  `start_terminal_workspace_cleanups/1` runs it in one task under
+  `Aiur.TaskSupervisor`, one workspace after the other, and sends
+  `{:workspace_cleanup_finished, workspace_identifier, result}` to the caller
+  after each. The startup todo cleanup stays in the Orchestrator because it
+  must finish before the first dispatch; it runs one `git status` with a short
+  time limit per workspace and keeps a dirty workspace for the dispatch-time
+  recreate, which saves the work in the runner process.
   """
 
   require Logger
 
   alias Aiur.{Config, Issue, SessionHandle, Tracker, Workspace}
   alias Aiur.Orchestrator.{DispatchPolicy, RetryEngine, State, TrackerHealth}
-  alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
+
+  @type terminal_cleanup :: {ticket :: String.t(), workspace_identifier :: String.t(), worker_host :: String.t() | nil}
 
   @spec cleanup_issue_workspace(binary() | term(), binary() | nil) :: :ok
   def cleanup_issue_workspace(identifier, worker_host \\ nil)
 
   def cleanup_issue_workspace(identifier, worker_host) when is_binary(identifier) do
-    Workspace.remove_issue_workspaces(identifier, worker_host)
+    Workspace.remove_issue_workspaces(identifier, worker_host, ticket: identifier, keep_dirty?: true)
   end
 
   @doc false
@@ -22,8 +34,47 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
   def cleanup_terminal_issue_artifacts(identifier, worker_host \\ nil)
 
   def cleanup_terminal_issue_artifacts(identifier, worker_host) when is_binary(identifier) do
-    cleanup_issue_workspace(identifier, worker_host)
+    start_terminal_workspace_cleanups([{identifier, identifier, worker_host}])
     clear_session_handle(identifier)
+  end
+
+  @doc """
+  Saves and deletes the workspaces of closed tickets off the calling process.
+  Each entry names the ticket (for alerts), the workspace identifier (the
+  workspace leaf) and the worker host. Closing a ticket also expires the
+  restore notices of its workspace.
+  """
+  @spec start_terminal_workspace_cleanups([terminal_cleanup()]) :: :ok
+  def start_terminal_workspace_cleanups([]), do: :ok
+
+  def start_terminal_workspace_cleanups(cleanups) when is_list(cleanups) do
+    notify = self()
+    run = fn -> Enum.each(cleanups, &run_terminal_workspace_cleanup_entry(&1, notify)) end
+
+    case Process.whereis(Aiur.TaskSupervisor) && Task.Supervisor.start_child(Aiur.TaskSupervisor, run) do
+      {:ok, _pid} ->
+        :ok
+
+      other ->
+        Logger.warning("Running terminal workspace cleanup inline; task supervisor unavailable: #{inspect(other)}")
+        run.()
+    end
+  end
+
+  defp run_terminal_workspace_cleanup_entry({ticket, workspace_identifier, worker_host}, notify) do
+    # One cleanup of a workspace at a time, even when a teardown and a sweep
+    # ask for the same one.
+    result =
+      :global.trans({{__MODULE__, workspace_identifier}, self()}, fn ->
+        Workspace.remove_issue_workspaces(workspace_identifier, worker_host, ticket: ticket, terminal?: true)
+        WipPreservation.expire_notices(Layout.safe_identifier(workspace_identifier))
+      end)
+
+    send(notify, {:workspace_cleanup_finished, workspace_identifier, result})
+  rescue
+    error ->
+      Logger.error("Terminal workspace cleanup failed ticket=#{ticket} workspace=#{workspace_identifier} error=#{Exception.message(error)}")
+      send(notify, {:workspace_cleanup_finished, workspace_identifier, {:error, Exception.message(error)}})
   end
 
   @doc false
@@ -114,7 +165,10 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
            quiet_auth_errors?: true
          ) do
       {:ok, issues} ->
-        Enum.each(issues, &cleanup_terminal_issue_workspace/1)
+        issues
+        |> Enum.flat_map(&terminal_issue_cleanup/1)
+        |> start_terminal_workspace_cleanups()
+
         state
 
       {:error, reason} ->
@@ -141,11 +195,15 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
     Logger.warning("Skipping startup terminal workspace cleanup; failed to fetch terminal issues: #{inspect(reason)}")
   end
 
-  defp cleanup_terminal_issue_workspace(%Issue{identifier: identifier})
-       when is_binary(identifier),
-       do: cleanup_terminal_issue_artifacts(identifier)
+  # The startup sweep of closed tickets runs in one task, one workspace after
+  # the other, so a long list neither blocks the Orchestrator nor starts a git
+  # process per ticket at once.
+  defp terminal_issue_cleanup(%Issue{identifier: identifier}) when is_binary(identifier) do
+    clear_session_handle(identifier)
+    [{identifier, identifier, nil}]
+  end
 
-  defp cleanup_terminal_issue_workspace(_issue), do: :ok
+  defp terminal_issue_cleanup(_issue), do: []
 
   # A todo ticket can still hold a workspace lease at startup, for example a
   # runner the Orchestrator just stopped whose guardian is still reaping it.

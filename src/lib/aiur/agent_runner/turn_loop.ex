@@ -91,7 +91,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     # announced at the top of the next turn, with the restore commands. The
     # notice stays pending until a turn that carried it completes.
     {prompt, wip_notices} =
-      WipPreservation.with_pending_notices(workspace, TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns))
+      WipPreservation.with_pending_notices(workspace, issue.identifier, TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns))
 
     callbacks =
       TurnCallbacks.build(

@@ -311,8 +311,10 @@ defmodule Aiur.AgentRunner do
         {:before_run_failed, status, output, reason}
 
       # The dirty workspace could not be saved, so it was not recreated (#2743).
-      # Hold the ticket on the same bounded before_run pause instead of letting
-      # a retry chain run; the workspace keeps the agent's work.
+      # Hold the ticket on the existing before_run pause instead of letting a
+      # retry chain run; the workspace keeps the agent's work. That pause has
+      # no timeout: it lasts until an Executor resume (or an authorized
+      # discard, then a resume).
       {:error, {:wip_preservation_failed, _workspace, detail} = reason} ->
         record_workspace_setup_end(issue, opts, :failed, reason)
         {:before_run_failed, :wip_preservation_failed, inspect(detail), reason}
