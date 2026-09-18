@@ -354,6 +354,9 @@ defmodule Aiur.Application do
       # the Publisher and before anything that polls or receives, so the first
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
+      # Owns the open-issue listing the dispatch gate reads as its close signal
+      # (#2714). A table owned by a poll writer would die with it.
+      Aiur.GitHub.OpenIssueSnapshot,
       Aiur.GitHub.ResourceStore,
       # The bounded time-series the `/github-cache` history charts draw. Starts
       # after the store it samples, so its first sample never races the store's

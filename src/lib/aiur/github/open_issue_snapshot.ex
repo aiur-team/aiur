@@ -14,18 +14,36 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   and the previous snapshot stays until it ages out. A missing snapshot only
   removes the close signal; it never releases a dependent.
 
-  The table is created by the first writer (the orchestrator's poll) and goes
-  away with it. A reader that finds no table answers `:none`.
+  The table is owned by this module's own supervised process, started with
+  the application before anything that polls. It must not belong to a writer:
+  short-lived processes also list open issues, and a table owned by one of
+  them would vanish with it. With no table (the process is not running), a
+  write is dropped and a read answers `:none`.
   """
 
+  use GenServer
+
   @table __MODULE__
+
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+
+  @impl true
+  def init(_opts) do
+    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+    {:ok, nil}
+  end
 
   @doc "Records a complete listing of open issue numbers for `owner/repo`."
   @spec put(String.t(), String.t(), [String.t() | integer()]) :: :ok
   def put(owner, repo, numbers) when is_binary(owner) and is_binary(repo) and is_list(numbers) do
     set = MapSet.new(numbers, &to_string/1)
-    true = :ets.insert(ensure_table(), {repo_key(owner, repo), set, now_ms()})
+    :ets.insert(@table, {repo_key(owner, repo), set, now_ms()})
     :ok
+  rescue
+    # No table: the owner is not running. Dropping the snapshot only removes
+    # the close signal; it never releases a dependent.
+    ArgumentError -> :ok
   end
 
   @doc """
@@ -43,37 +61,19 @@ defmodule Aiur.GitHub.OpenIssueSnapshot do
   @doc "Removes every snapshot. For tests."
   @spec reset() :: :ok
   def reset do
-    if :ets.whereis(@table) != :undefined, do: :ets.delete_all_objects(@table)
+    :ets.delete_all_objects(@table)
     :ok
+  rescue
+    ArgumentError -> :ok
   end
 
   defp lookup(key) do
-    case :ets.whereis(@table) do
-      :undefined ->
-        nil
-
-      table ->
-        case :ets.lookup(table, key) do
-          [{^key, set, taken_at_ms}] -> {set, taken_at_ms}
-          [] -> nil
-        end
+    case :ets.lookup(@table, key) do
+      [{^key, set, taken_at_ms}] -> {set, taken_at_ms}
+      [] -> nil
     end
   rescue
     ArgumentError -> nil
-  end
-
-  defp ensure_table do
-    case :ets.whereis(@table) do
-      :undefined -> create_table()
-      table -> table
-    end
-  end
-
-  # Two first writers can race; the loser uses the winner's table.
-  defp create_table do
-    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-  rescue
-    ArgumentError -> :ets.whereis(@table)
   end
 
   defp repo_key(owner, repo), do: String.downcase("#{owner}/#{repo}")

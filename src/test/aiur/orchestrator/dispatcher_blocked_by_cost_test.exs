@@ -307,13 +307,95 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
       repo_fun: fn -> "owner/repo" end
     )
 
-    assert_received {:routed, "/repos/owner/repo/issues/53"}
+    # The refresh runs off the calling process, so wait for its write.
+    assert_receive {:routed, "/repos/owner/repo/issues/53"}, 2_000
+    assert eventually(fn -> match?(%{"state" => "closed"}, ResourceStore.data(ResourceStore.key(:issue, "owner", "repo", "#{@blocker}"))) end)
     refute_received {:routed, "/repos/owner/repo/issues/60"}
 
     released = run_pass(candidate("14"), held)
     assert Map.has_key?(released.running, "14")
     assert blocked_by_reads() == []
     refute_received {:github, _path}
+  end
+
+  test "an epic PR refreshes at most 10 closing issues, off the calling process" do
+    test_pid = self()
+    references = Enum.map(101..140, &"Closes ##{&1}")
+
+    refresh_issue_fun = fn identifier ->
+      send(test_pid, {:refresh, identifier, self()})
+
+      receive do
+        :release -> :ok
+      end
+    end
+
+    merge =
+      Task.async(fn ->
+        CommentWake.mark_pr_merged_issue_done(%State{}, "100",
+          pr_body: Enum.join(["Closes #100" | references], "\n"),
+          target_state: "done",
+          refresh_issue_fun: refresh_issue_fun,
+          update_issue_state_fun: fn "100", "done" -> :ok end,
+          clear_session_handle_fun: fn _identifier -> :ok end,
+          observe_membership_fun: fn _identity, _lifecycle -> :ok end,
+          set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
+          mark_reconciled_fun: fn _identity -> :ok end,
+          terminate_running_issue_fun: fn state, _issue_id, _cleanup? -> state end,
+          resume_blockees_fun: fn state, _identifier -> state end,
+          merger_allowed_fun: fn _login -> true end,
+          emit_alert_fun: fn _name, _opts -> :ok end,
+          repo_fun: fn -> "owner/repo" end
+        )
+      end)
+
+    # Every refresh blocks until released, yet the merge path returns: the
+    # reads never run on the process that handles the merge.
+    assert {:ok, %State{}} = Task.yield(merge, 1_000) || Task.shutdown(merge, :brutal_kill)
+
+    refreshed = collect_refreshes()
+    assert length(refreshed) == 10
+    assert Enum.map(refreshed, &elem(&1, 0)) == Enum.map(101..110, &to_string/1)
+  end
+
+  test "the unconditional open-issue listing records the close signal too" do
+    Req.Test.stub(__MODULE__, fn conn ->
+      assert conn.request_path == "/repos/owner/repo/issues"
+      Req.Test.json(conn, [%{"number" => 99, "html_url" => "u99", "state" => "open", "labels" => []}])
+    end)
+
+    assert {:ok, _candidates} = Issues.fetch_candidate_issues()
+    assert {:ok, open, _taken_at_ms} = OpenIssueSnapshot.fetch("owner", "repo", 60_000)
+    assert MapSet.to_list(open) == ["99"]
+  end
+
+  test "a snapshot written by a short-lived process outlives it" do
+    # `IssueContext` and the comment wake list open issues from processes that
+    # exit right after; the table must not belong to them.
+    Task.async(fn -> OpenIssueSnapshot.put("owner", "repo", [7]) end) |> Task.await()
+
+    assert {:ok, open, _taken_at_ms} = OpenIssueSnapshot.fetch("owner", "repo", 60_000)
+    assert MapSet.to_list(open) == ["7"]
+  end
+
+  # Takes each blocked refresh as it arrives (they run one after another in
+  # one task) and releases it, until none arrives within 200 ms.
+  defp collect_refreshes(acc \\ []) do
+    receive do
+      {:refresh, identifier, pid} ->
+        send(pid, :release)
+        collect_refreshes([{identifier, pid} | acc])
+    after
+      200 -> Enum.reverse(acc)
+    end
+  end
+
+  defp eventually(check, attempts \\ 100) do
+    cond do
+      check.() -> true
+      attempts == 0 -> false
+      true -> Process.sleep(10) && eventually(check, attempts - 1)
+    end
   end
 
   defp run_pass(%Issue{} = issue, state \\ %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}) do

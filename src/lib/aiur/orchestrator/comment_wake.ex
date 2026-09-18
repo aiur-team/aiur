@@ -28,6 +28,8 @@ defmodule Aiur.Orchestrator.CommentWake do
   # open, and back in front of a human. Never `done` — see
   # `merged_pr_closes_ticket?/2`.
   @non_closing_merge_state "human-review"
+  # See `refresh_other_closed_issues/2`.
+  @max_closing_refreshes 10
 
   @spec maybe_reactivate_on_comment(
           State.t(),
@@ -175,9 +177,12 @@ defmodule Aiur.Orchestrator.CommentWake do
   # A PR can close more tickets than the one its branch names. GitHub closes
   # each of them, but only the branch ticket gets a store write from this path,
   # so a dependent of any other one would wait for the next open-issue poll to
-  # see the close (#2714). Re-read each of them now so its `:issue` record says
-  # closed. The read is conditional: it costs nothing when the record is
-  # already current.
+  # see the close (#2714). Re-read up to `@max_closing_refreshes` of them so
+  # their `:issue` records say closed. The reads are conditional (free when the
+  # record is current) and run off the Orchestrator process: an epic PR closing
+  # forty tickets must not stall polls and dispatch behind forty serial reads.
+  # References past the cap are left to the open-issue poll, which releases
+  # their dependents on the next tick for one `blocked_by` read each.
   defp refresh_other_closed_issues(identifier, opts) do
     case Keyword.get(opts, :pr_body) do
       body when is_binary(body) and body != "" ->
@@ -187,11 +192,28 @@ defmodule Aiur.Orchestrator.CommentWake do
         |> RecentMerge.closing_issue_identifiers_in_body(merge_repository(opts))
         |> Enum.uniq()
         |> Enum.reject(&(&1 == to_string(identifier)))
-        |> Enum.each(refresh_fun)
+        |> Enum.take(@max_closing_refreshes)
+        |> start_closing_refreshes(refresh_fun)
 
       _no_body ->
         :ok
     end
+  end
+
+  defp start_closing_refreshes([], _refresh_fun), do: :ok
+
+  defp start_closing_refreshes(identifiers, refresh_fun) do
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> Enum.each(identifiers, refresh_fun) end) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> Logger.info("PR merge closing-issue refresh not started: #{inspect(reason)}")
+    end
+
+    :ok
+  catch
+    # No task supervisor: skip. The open-issue poll still carries the close.
+    :exit, reason ->
+      Logger.info("PR merge closing-issue refresh not started: #{inspect(reason)}")
+      :ok
   end
 
   defp refresh_issue_record(identifier) do
