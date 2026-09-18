@@ -282,8 +282,11 @@ defmodule Aiur.GitHub.Issues do
   # It does *not* follow that re-depositing an unchanged issue is silent: the
   # store's change test includes `:source`, and these two readers deposit under
   # different sources, so alternating readers of an unchanged issue do publish.
-  # Nothing subscribes to `:issue` yet, and the honest fix belongs in the store's
-  # change test rather than here, so this is named rather than worked around.
+  # `Aiur.BuildOrder.GraphProjection` subscribes to `:issue`, and such a publish
+  # rebuilds its catalog from the store. That rebuild is a store read, not a
+  # GitHub read, and it buys no graph read unless a member's lifecycle actually
+  # moved (#2608). The honest fix belongs in the store's change test rather than
+  # here, so this is named rather than worked around.
   #
   # `:processed` is deliberately never passed: fetching an issue is not the same
   # as having acted on it, and marking it handled here would suppress the wake

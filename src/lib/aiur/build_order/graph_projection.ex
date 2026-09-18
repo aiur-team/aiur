@@ -171,7 +171,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
             # upstream cost, and holding it open a recurring one. Both are gone;
             # see `refresh/2` for the path that does spend.
             {state, identity} = add_demand(state, identity, pid)
-            events = events ++ capacity_events
+            {state, due_events} = request_superseded_demand(state, identity)
+            events = events ++ capacity_events ++ due_events
             broadcast_all(state, events)
             {:reply, {:ok, selected_snapshot(state, identity)}, state}
 
@@ -397,6 +398,20 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
+  def handle_info({:graph_projection_member_due, key, token}, state) do
+    case Map.get(state.member_due, key) do
+      %{token: ^token} ->
+        state = %{state | member_due: Map.delete(state.member_due, key)}
+        {state, reconcile_events} = reconcile(state)
+        {state, events} = request_member_due(state, key)
+        broadcast_all(state, reconcile_events ++ events)
+        {:noreply, state}
+
+      _stale ->
+        {:noreply, state}
+    end
+  end
+
   def handle_info({:workflow_config_updated, generation}, state) do
     {state, events} = reconcile(state, generation)
     {state, refresh_events} = request_scope(state, :catalog)
@@ -447,6 +462,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
       state
       |> cancel_all_tasks()
       |> cancel_all_timers()
+      |> cancel_member_due()
       |> clear_demand_monitors()
 
     now_ms = now_ms(state)
@@ -591,9 +607,21 @@ defmodule Aiur.BuildOrder.GraphProjection do
         # would tell a later re-selection of the same root that it was already
         # current when it holds nothing at all.
         selected_fingerprints: Map.delete(state.selected_fingerprints, key),
+        member_due: drop_member_due(state.member_due, key),
         pending: MapSet.delete(state.pending, entry.scope),
         forced: MapSet.delete(state.forced, entry.scope)
     }
+  end
+
+  defp drop_member_due(member_due, key) do
+    case Map.pop(member_due, key) do
+      {nil, member_due} ->
+        member_due
+
+      {%{timer: timer}, member_due} ->
+        Process.cancel_timer(timer)
+        member_due
+    end
   end
 
   defp evicted_snapshot(entry, state) do
@@ -616,6 +644,28 @@ defmodule Aiur.BuildOrder.GraphProjection do
         {key, entry} -> state |> evict_selected(key, entry) |> enforce_retention_bound()
         nil -> state
       end
+    end
+  end
+
+  # The one thing arriving demand does spend on, and deliberately not a cadence.
+  # A held graph the catalog has *already* said is superseded was requested once
+  # and declined, because `request_scope/2` refuses a root nobody is watching
+  # and nothing re-raises the request when a watcher returns. That is how a page
+  # comes to render six-hour-old percentages beside a live catalog (#2608).
+  #
+  # The gate is the catalog's own marker, not elapsed time: a page opened on an
+  # unmoved root buys nothing, holding it open buys nothing, and one catalog
+  # move buys exactly one read. A cold root is deliberately excluded — demand
+  # still never buys the *first* read, which is `refresh/2`'s job.
+  defp request_superseded_demand(state, identity) do
+    case Map.get(state.selected, Policy.root_key(identity)) do
+      %{data: data} = entry when not is_nil(data) ->
+        if selected_fingerprint_moved?(state, entry) and retry_due?(entry, state),
+          do: request_scope(state, entry.scope),
+          else: {state, []}
+
+      _entry ->
+        {state, []}
     end
   end
 
@@ -805,6 +855,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
         state =
           state
           |> put_scope_entry(entry, scope)
+          |> clear_member_due(scope)
           |> Map.put(:next_attempt, attempt + 1)
           |> Map.put(:inflight_by_ref, Map.put(state.inflight_by_ref, task.ref, inflight))
           |> Map.put(:pending, MapSet.delete(state.pending, scope))
@@ -928,13 +979,24 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  # `nil` on either side means "no comparable marker", which is not evidence of
-  # change. Treating it as change would make every catalog poll re-read every
-  # watched root — the deleted cadence back again, wearing the writer's clothes.
+  # A `nil` *current* marker means the catalog has nothing to compare against,
+  # which is not evidence of change. Treating it as change would make every
+  # catalog poll re-read every watched root — the deleted cadence back again,
+  # wearing the writer's clothes.
+  #
+  # A `nil` *recorded* marker is the opposite case and must not be folded into
+  # it. It means this graph was read at a moment the catalog held no marker for
+  # the root — the ordinary poll-only boot, where the store is empty until the
+  # reconciliation's deposits land — so the read corresponds to no catalog
+  # observation at all. Answering `false` there froze the root permanently:
+  # nothing else moves the recorded marker, so the entry could never become due
+  # again and only an explicit `refresh/2` ever re-read it (#2608). Answering
+  # `true` costs one read, after which the completion stamps a real marker and
+  # the root goes quiet again.
   defp selected_fingerprint_moved?(state, %{scope: {:selected, identity}}) do
     case {catalog_fingerprint(state, identity), Map.get(state.selected_fingerprints, Policy.root_key(identity))} do
       {nil, _recorded} -> false
-      {_current, nil} -> false
+      {_current, nil} -> true
       {current, recorded} -> current != recorded
     end
   end
@@ -1509,31 +1571,126 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp repository_match?(_state, _other), do: false
 
-  # A dependency-edge change re-reads every demanded root the edge touches, so a
-  # blocked-by relationship set outside Aiur reflects on the page. Only
-  # `:issue_dependency` changes need this: a sub-issue, label or lifecycle
-  # change already moves the root's catalog fingerprint, which is the existing
-  # trigger for selected re-reads. The edge's two ends are the blocked issue and
-  # the blocker; the affected roots are those the edge belongs to plus those
-  # whose member set includes either end.
+  # A store change that the catalog's change marker cannot see re-reads the
+  # watched roots it touches, after a short per-root debounce. Two kinds reach
+  # here:
+  #
+  #   * a dependency edge (`:issue_dependency`), so a blocked-by relationship set
+  #     outside Aiur reflects on the page (#2313). The edge's two ends are the
+  #     blocked issue and the blocker; the affected roots are those the edge
+  #     belongs to plus those whose member set includes either end;
+  #   * a member's labels (`:issue_labels`), which the graph renders but the
+  #     marker does not digest.
+  #
+  # A member's own `:issue` change deliberately buys nothing here. The only
+  # part of an issue body the graph's progress depends on is its lifecycle
+  # (`state`/`state_reason`), and that is exactly what the catalog's
+  # `member_state_digest` hashes. The same store change rebuilds the catalog
+  # (see `on_resource_change/2`), the rebuild moves the root's marker, and
+  # `request_changed_selected_roots/2` buys the one read (#2608). Buying a second
+  # read here as well was the double spend: this read was dispatched against
+  # the old marker, so the rebuild's read could not coalesce onto it. And a
+  # comment, a title or body edit, or an ETag rotation moves no lifecycle, so it
+  # moves no marker and buys no read.
   defp request_affected_selected(state, :issue_dependency, %{id: id}) do
     case parse_edge_id(id) do
-      {left, right} ->
-        members = CatalogStore.member_numbers(state.active_repository)
+      {left, right} -> debounce_roots_containing(state, [left, right])
+      _other -> {state, []}
+    end
+  end
 
-        state.selected
-        |> Enum.filter(fn {_key, entry} -> selected_touches?(entry, left, right, members) end)
-        |> Enum.reduce({state, []}, fn {_key, entry}, {state, events} ->
-          {state, next_events} = request_scope(state, entry.scope)
-          {state, events ++ next_events}
-        end)
-
-      _other ->
-        {state, []}
+  defp request_affected_selected(state, :issue_labels, %{id: id}) do
+    case issue_number(id) do
+      nil -> {state, []}
+      number -> debounce_roots_containing(state, [number])
     end
   end
 
   defp request_affected_selected(state, _type, _change), do: {state, []}
+
+  # Resolving the membership map means listing the store's sub-issue edges, so
+  # it is bought only when some root is actually being watched. Every other
+  # store change answers without touching the store.
+  #
+  # Nothing is read here. Each touched root is marked due after
+  # `member_debounce_ms`; a root already marked stays on its first timer, so a
+  # fleet relabelling forty tickets in a minute costs one read per root per
+  # window, not one per label event.
+  defp debounce_roots_containing(state, numbers) do
+    if Enum.any?(state.selected, fn {_key, entry} -> active_scope?(state, entry.scope) end) do
+      members = CatalogStore.member_numbers(state.active_repository)
+
+      state =
+        state.selected
+        |> Enum.filter(fn {_key, entry} -> active_scope?(state, entry.scope) and selected_touches?(entry, numbers, members) end)
+        |> Enum.reduce(state, fn {key, _entry}, state -> arm_member_due(state, key) end)
+
+      {state, []}
+    else
+      {state, []}
+    end
+  end
+
+  defp arm_member_due(state, key) do
+    if Map.has_key?(state.member_due, key) do
+      state
+    else
+      token = state.next_timer_token
+      timer = Process.send_after(self(), {:graph_projection_member_due, key, token}, state.member_debounce_ms)
+
+      %{state | member_due: Map.put(state.member_due, key, %{token: token, timer: timer}), next_timer_token: token + 1}
+    end
+  end
+
+  # Any selected read dispatched after the change observes it, whatever asked
+  # for it, so starting one spends the debounced request.
+  defp clear_member_due(state, {:selected, identity}) do
+    key = Policy.root_key(identity)
+
+    case Map.pop(state.member_due, key) do
+      {nil, _member_due} ->
+        state
+
+      {%{timer: timer}, member_due} ->
+        Process.cancel_timer(timer)
+        %{state | member_due: member_due}
+    end
+  end
+
+  defp clear_member_due(state, _scope), do: state
+
+  defp cancel_member_due(state) do
+    Enum.each(state.member_due, fn {_key, %{timer: timer}} -> Process.cancel_timer(timer) end)
+    %{state | member_due: %{}}
+  end
+
+  # The debounce window has closed. A read still inflight was dispatched before
+  # the change (starting one clears the mark), so it cannot answer it: wait for
+  # it, then read. A root in failure backoff is left to its retry timer, which
+  # re-reads it anyway.
+  defp request_member_due(state, key) do
+    case Map.get(state.selected, key) do
+      %{inflight: inflight} when not is_nil(inflight) ->
+        {arm_member_due(state, key), []}
+
+      %{scope: scope} = entry ->
+        if active_scope?(state, scope) and retry_due?(entry, state),
+          do: request_scope(state, scope),
+          else: {state, []}
+
+      _entry ->
+        {state, []}
+    end
+  end
+
+  defp issue_number(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {number, ""} when number > 0 -> number
+      _other -> nil
+    end
+  end
+
+  defp issue_number(_id), do: nil
 
   defp parse_edge_id(id) when is_binary(id) do
     case String.split(id, ":") do
@@ -1552,18 +1709,18 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp parse_edge_id(_id), do: nil
 
-  defp selected_touches?(%{scope: {:selected, identity}}, left, right, members) do
+  defp selected_touches?(%{scope: {:selected, identity}}, numbers, members) do
     root_number = identity_number(identity)
 
     if is_nil(root_number) do
       false
     else
       members_of_root = Map.get(members, root_number, [])
-      root_number in [left, right] or left in members_of_root or right in members_of_root
+      Enum.any?(numbers, &(&1 == root_number or &1 in members_of_root))
     end
   end
 
-  defp selected_touches?(_entry, _left, _right, _members), do: false
+  defp selected_touches?(_entry, _numbers, _members), do: false
 
   defp identity_number(%TrackerIdentity{identifier: identifier}) do
     case Integer.parse(identifier) do

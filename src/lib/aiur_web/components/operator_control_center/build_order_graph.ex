@@ -11,7 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   alias Aiur.BuildOrder.ProgressRenderer
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextSelection
-  alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, BuildOrderGridModel}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, BuildOrderGridModel, BuildOrderStatus}
 
   attr(:id, :string, required: true)
   attr(:root_id, :string, required: true)
@@ -19,6 +19,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   attr(:dom_generation, :integer, required: true)
   attr(:model, :any, default: nil)
   attr(:adhoc, :any, default: nil)
+  attr(:saved_as_of, :any, default: nil)
+  attr(:saved_plan?, :boolean, default: false)
+  attr(:now, :any, default: nil)
 
   @spec build_order_graph(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_graph(assigns) do
@@ -50,7 +53,17 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     >
       <h3 id={"#{@id}-title"} class="sr-only">Build order graph</h3>
 
-      <div :if={@core_waves != [] and not @planning?} class="bo-waves-head" aria-label="Wave completion">
+      <div
+        :if={@core_waves != [] and not @planning?}
+        class={["bo-waves-head", @saved_plan? && "is-stale"]}
+        aria-label={waves_label(@saved_plan?)}
+      >
+        <p :if={@saved_plan? and @saved_as_of} class="bo-waves-asof">
+          As of <time datetime={DateTime.to_iso8601(@saved_as_of)}>{asof_label(@saved_as_of, @now)}</time> — not current
+        </p>
+        <p :if={@saved_plan? and is_nil(@saved_as_of)} class="bo-waves-asof">
+          As of an unrecorded read — not current
+        </p>
 
         <div class="bo-wave-seg" data-progress-freshness={@overall_progress.freshness} title={@overall_progress.title}>
           <div class="bo-wave-seg-top">
@@ -221,6 +234,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   defp column_cap(_epic_count), do: 1
 
   # Hue ramps red (0%) → green (100%): percent*1.2 maps 100 → 120° (green).
+
+  # The percentages are computed from the graph the projection actually holds.
+  # When that graph is the saved fallback they are still real numbers — just
+  # real numbers about a moment that has passed — so they are labelled rather
+  # than blanked, and the label rides on the same element the operator reads
+  # the percentages off (#2608).
+  defp waves_label(true), do: "Wave completion as of the last saved plan"
+  defp waves_label(_saved_plan?), do: "Wave completion"
+
+  defp asof_label(%DateTime{} = saved_as_of, %DateTime{} = now),
+    do: "#{clock(saved_as_of)} (#{BuildOrderStatus.age_phrase(saved_as_of, now)})"
+
+  defp asof_label(%DateTime{} = saved_as_of, _now), do: clock(saved_as_of)
+
+  defp clock(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> Calendar.strftime("%H:%M:%SZ")
+
   defp wave_meter_style(%{percent: percent}) when is_integer(percent),
     do: "width:#{percent}%; background:hsl(#{round(percent * 1.2)} 68% 46%)"
 
