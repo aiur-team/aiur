@@ -41,7 +41,11 @@ defmodule Aiur.OrchestratorControlRoutingTest do
                  replacement_state
                )
 
-      assert stale_generation_state.running[issue_id] == replacement_state.running[issue_id]
+      # Rejection changes nothing but the rejected request's own pending
+      # pause reason, which must not outlive the request (#2730).
+      assert %{reason: :operator_pause} = replacement_state.running[issue_id].pending_pause_reason
+      refute Map.has_key?(stale_generation_state.running[issue_id], :pending_pause_reason)
+      assert stale_generation_state.running[issue_id] == Map.delete(replacement_state.running[issue_id], :pending_pause_reason)
 
       assert %{status: :rejected, rejection: %{class: :stale_generation}} =
                stale_generation_state.control_lifecycle.records[request_id]
@@ -385,7 +389,11 @@ defmodule Aiur.OrchestratorControlRoutingTest do
                  changed_state
                )
 
-      assert rejected_state.running[issue_id] == changed_state.running[issue_id]
+      # Rejection changes nothing but the rejected request's own pending
+      # pause reason, which must not outlive the request (#2730).
+      assert %{reason: :operator_pause} = changed_state.running[issue_id].pending_pause_reason
+      refute Map.has_key?(rejected_state.running[issue_id], :pending_pause_reason)
+      assert rejected_state.running[issue_id] == Map.delete(changed_state.running[issue_id], :pending_pause_reason)
 
       assert %{status: :rejected, rejection: %{class: :already_in_state}} =
                rejected_state.control_lifecycle.records[request_id]

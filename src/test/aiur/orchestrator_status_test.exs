@@ -4406,7 +4406,9 @@ defmodule Aiur.OrchestratorStatusTest do
 
     # Both signals come from the orchestrator process. Mailbox ordering proves
     # the durable input is visible before any worker wake can start a turn.
-    assert_receive {:agent_queue_updated, "MT-DECISION", item_id, true}, 500
+    # The queue notice does not ask a paused worker to deliver now: the
+    # correlated resume is its only wake (#2730).
+    assert_receive {:agent_queue_updated, "MT-DECISION", item_id, false}, 500
     assert item_id == item.id
     assert_receive {:resume_agent, _request_id, _generation}, 500
 

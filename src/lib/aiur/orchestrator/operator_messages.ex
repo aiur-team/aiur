@@ -235,7 +235,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         :ok
 
       running_entry ->
-        DeliveryPolicy.notify_running_queue_update(running_entry, item)
+        DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
     end
 
     next_state
@@ -355,12 +355,33 @@ defmodule Aiur.Orchestrator.OperatorMessages do
           {:reply, :empty | {:ok, map()}, State.t()}
   def claim_next_queue_item_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
-    {queue_store, item} =
-      AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
+    {state, queue_store, item} = claim_resume_input(state, issue_identifier)
 
     {queue_store, item} = maybe_coalesce_events(queue_store, issue_identifier, item)
     queue_claim_reply(state, queue_store, item)
   end
+
+  defp claim_resume_input(state, identifier) do
+    entry = State.find_running_by_identifier(state.running, identifier)
+    item_id = if entry, do: Map.get(entry, :resume_input_id)
+
+    {store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, &(&1.id == item_id))
+
+    state = clear_resume_input(state, entry)
+
+    if item do
+      {state, store, item}
+    else
+      {store, item} = AgentQueueStore.claim_next_deliverable(store, identifier)
+      {state, store, item}
+    end
+  end
+
+  defp clear_resume_input(state, %{issue: %{id: id}} = entry),
+    do: %{state | running: Map.put(state.running, id, Map.delete(entry, :resume_input_id))}
+
+  defp clear_resume_input(state, _entry), do: state
 
   @spec claim_next_checkpoint_queue_item_call(State.t(), String.t()) ::
           {:reply, :empty | {:ok, map()}, State.t()}
@@ -551,7 +572,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp enqueue_validated_operator_message(state, issue_identifier, text, request) do
     case replay_existing_correlated_message(state, issue_identifier, text, request) do
       {:handled, {{:ok, _duplicate}, _replayed_state} = result} ->
-        wake_target_for_replayed_message(result, issue_identifier)
+        wake_target_for_replayed_message(result, issue_identifier, request)
 
       {:handled, result} ->
         result
@@ -642,10 +663,11 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   # active-cap and per-state slot gates are the same ones the explicit operator
   # resume obeys. A refused wake is reported as a delivery failure rather than
   # a silent success, which puts it on `DecisionStore`'s bounded retry ladder.
-  defp wake_target_for_replayed_message({reply, state}, issue_identifier) do
+  defp wake_target_for_replayed_message({reply, state}, issue_identifier, request) do
     with running_entry when is_map(running_entry) <-
            State.find_running_by_identifier(state.running, issue_identifier),
-         true <- State.paused_running_entry?(running_entry),
+         true <- message_resumes_pause?(state, running_entry, request),
+         state = remember_resume_input(state, running_entry, reply),
          {{:ok, :resumed}, resumed_state} <-
            Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
       {reply, resumed_state}
@@ -666,13 +688,40 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       State.deactivated_running_entry?(running_entry) ->
         enqueue_after_reactivate(state, running_entry, issue_identifier, text, request)
 
-      State.paused_running_entry?(running_entry) ->
+      message_resumes_pause?(state, running_entry, request) ->
         enqueue_after_resume(state, running_entry, issue_identifier, text, request)
 
       true ->
         do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request)
     end
   end
+
+  # A plain operator message resumes any confirmed pause, as before (#2730
+  # leaves that path unchanged). A worker's own request for input also ends
+  # when the input arrives: a correlated answer or a plain message resumes it,
+  # even while the pause is still pending confirmation (control still reports
+  # working). Queue the input before superseding that pause, so the resume
+  # drains it first. This path never lifts an operator, label, or global hold.
+  # A confirmed pause with no recorded reason is a legacy entry; an answer
+  # resumed it before #2730 and still does.
+  defp message_resumes_pause?(state, entry, request) do
+    paused? = State.paused_running_entry?(entry)
+    (paused? and request.mode == :plain) or self_pause_ends_on_input?(state, entry, paused?)
+  end
+
+  defp self_pause_ends_on_input?(state, entry, true = _paused?) do
+    reason = Map.get(entry, :paused_reason)
+    (is_nil(reason) or PauseResume.input_pause_reason?(reason)) and no_hold?(state, entry)
+  end
+
+  # Only a pause request that is still the current pending control counts. A
+  # `pending_pause_reason` left by an expired or rejected request must not
+  # turn a message to a working worker into a resume.
+  defp self_pause_ends_on_input?(state, entry, false = _paused?),
+    do: PauseResume.pending_input_pause?(state, entry) and no_hold?(state, entry)
+
+  defp no_hold?(state, entry),
+    do: not state.globally_paused and not Aiur.Issue.paused?(Map.get(entry, :issue))
 
   # Mirrors `enqueue_after_resume/5` for the `:deactivated → :working`
   # transition. The fresh agent task spawned by `reactivate_issue/2`
@@ -693,6 +742,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     with :ok <- PauseResume.resume_paused_issue_preflight(state, running_entry),
          {{:ok, _queued} = queued, queued_state} <-
            do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request),
+         queued_state = remember_resume_input(queued_state, running_entry, queued),
          queued_entry when is_map(queued_entry) <-
            State.find_running_by_identifier(queued_state.running, issue_identifier),
          {{:ok, :resumed}, resumed_state} <-
@@ -704,6 +754,20 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       _missing_entry -> {{:error, :no_running_agent}, state}
     end
   end
+
+  # A restored interrupted input can precede the answer or message at the same
+  # priority. Pin this one resume's first claim without reordering the
+  # remaining queue. A correlated answer replies with its item; a plain
+  # message replies with its item ID.
+  defp remember_resume_input(state, %{issue: %{id: id}}, {:ok, %{item: %{id: item_id, status: :pending}}}) do
+    update_in(state.running[id], &Map.put(&1, :resume_input_id, item_id))
+  end
+
+  defp remember_resume_input(state, %{issue: %{id: id}}, {:ok, item_id}) when is_integer(item_id) do
+    update_in(state.running[id], &Map.put(&1, :resume_input_id, item_id))
+  end
+
+  defp remember_resume_input(state, _entry, _reply), do: state
 
   defp do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request) do
     capabilities = Capabilities.issue_control_capabilities(state, issue_identifier)
@@ -731,7 +795,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     case enqueue_plain(state.queue_store, attrs, request) do
       {:ok, queue_store, item, :accepted} ->
         record_operator_queued_evidence(item)
-        DeliveryPolicy.notify_running_queue_update(running_entry, item)
+        DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
 
         next_state =
           %{state | queue_store: queue_store}
@@ -753,7 +817,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       {:ok, queue_store, item, status} ->
         if status in [:accepted, :retried] do
           record_operator_queued_evidence(item)
-          DeliveryPolicy.notify_running_queue_update(running_entry, item)
+          DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
         end
 
         next_state =
@@ -1062,8 +1126,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  @spec notify_running_queue_update(map(), term()) :: :ok
-  defdelegate notify_running_queue_update(running_entry, item), to: DeliveryPolicy
+  @spec notify_running_queue_update(State.t(), map(), term()) :: :ok
+  defdelegate notify_running_queue_update(state, running_entry, item), to: DeliveryPolicy
 
   @doc false
   @spec comment_event_topic?(map()) :: boolean()

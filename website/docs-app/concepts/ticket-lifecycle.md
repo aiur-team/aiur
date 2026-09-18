@@ -382,6 +382,23 @@ ticket stays paused until you answer. The CLI even tells you so: on
   then; the ticket's next worker receives the answer (see
   [Delivery rule for a decided answer](#delivery-rule-for-a-decided-answer)).
 
+If the existing worker has requested its own pause for input, answering resumes
+that worker with the answer as its next input, including while pause confirmation
+is pending. Once work starts, the self-pause reason and its waiting attention
+clear.
+
+The pause request must still be pending. If it expired or was rejected, the
+worker is still working, and it receives the answer as a normal message.
+
+An answer resumes only a pause that waits for input (a self-pause, a
+worker-reported `input_required` pause, or a legacy pause with no recorded
+reason).
+
+It does not lift an operator, label, or global pause, or an automatic hold such
+as `ci_wait`, `blocker_dependency`, `github_budget_hold`, or
+`before_run_failure`. Those holds resume when their condition clears, or when
+you resume them explicitly.
+
 ### Operator workflow
 
 ```text
