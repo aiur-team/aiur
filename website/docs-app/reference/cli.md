@@ -60,15 +60,14 @@ Event counters, subscriptions, session handles and the alert ledger survive
 restarts in instance- and repository-scoped runtime state. Central alert and
 event-publication audit logs remain per launch; `--logs-root` controls those logs.
 
-On upgrade, legacy state is adopted only from launcher-shaped directories whose
-`log/aiur.crash` header matches this instance's release node and launch path.
-Missing or conflicting ownership is skipped, including clean launches with no
-crash record. This can miss a resume, but cannot select a foreign instance by
-repository basename alone.
+On upgrade, session handles and subscriptions start empty once, just as they
+previously did on every restart; state saved from that boot onward is durable.
 
-The newest proven-owned launch supplies the entire subscription or session set,
-even when empty. Deleted sessions stay deleted; the new launch's empty log
-directory is not a legacy snapshot. An adoption marker prevents later re-imports.
+The event counter seeds above the maximum across all launches' counters, logs,
+the journal and the clock; the alert ledger adopts only its exact project-scoped
+filename and backfill marker once.
+
+Launch mode determines which interfaces remain available:
 
 | Launch choice | Behavior |
 | --- | --- |

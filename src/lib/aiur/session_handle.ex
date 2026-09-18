@@ -15,9 +15,9 @@ defmodule Aiur.SessionHandle do
 
   The handles used to live in the per-launch log directory, which is new on
   every launch, so a restart — the one case the handle exists for — lost them
-  (#2722). On first use, the handles of the newest earlier launch are adopted
-  once (`Aiur.LaunchStateAdoption`); a handle that launch had cleared is not
-  brought back.
+  (#2722). On the first boot after upgrading, the durable store starts empty;
+  legacy handles are never imported because old snapshots can resurrect
+  cleared sessions. Handles saved from that boot onward survive restarts.
 
   `load/3` is the safety gate: it returns the handle only when it is for the
   same backend the runner is about to start AND was written on this host (a
@@ -32,11 +32,9 @@ defmodule Aiur.SessionHandle do
 
   alias Aiur.Config.Paths
   alias Aiur.JsonStore
-  alias Aiur.LaunchStateAdoption
 
   @schema_version 1
   @state_leaf "session-handles"
-  @adoption_marker ".adopted-from-launch-logs"
 
   @type attrs :: %{
           required(:backend) => String.t(),
@@ -112,23 +110,16 @@ defmodule Aiur.SessionHandle do
   @spec path_for(String.t(), keyword()) :: Path.t()
   def path_for(identifier, opts \\ []) do
     repo_name = Keyword.get(opts, :repo_name) || Paths.repo_name()
-    dir = Keyword.get(opts, :dir) || default_dir(repo_name)
+    dir = Keyword.get(opts, :dir) || default_dir()
     Path.join(dir, "#{repo_name}.#{Paths.sanitize(to_string(identifier))}.session.json")
   end
 
   # When the runtime state directory cannot be resolved, the per-launch log
   # directory is the only place left, which keeps the old behavior.
-  defp default_dir(repo_name) do
+  defp default_dir do
     case Paths.runtime_state_dir() do
       {:ok, root} ->
-        dir = Path.join(root, @state_leaf)
-        prefix = "#{repo_name}."
-
-        LaunchStateAdoption.adopt_set_once(dir, @adoption_marker, fn name ->
-          String.starts_with?(name, prefix) and String.ends_with?(name, ".session.json")
-        end)
-
-        dir
+        Path.join(root, @state_leaf)
 
       {:error, _reason} ->
         Paths.log_root_dir()

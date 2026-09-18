@@ -7,7 +7,7 @@ defmodule Aiur.DurableRuntimeStateTest do
   """
   use ExUnit.Case, async: false
 
-  alias Aiur.{AlertFeed, AlertLedger, LaunchStateAdoption, SessionHandle}
+  alias Aiur.{AlertFeed, AlertLedger, SessionHandle}
   alias Aiur.Config.Paths
   alias Aiur.Events.{IdGenerator, SubscriptionStore}
   alias Aiur.JsonStore
@@ -45,18 +45,6 @@ defmodule Aiur.DurableRuntimeStateTest do
   # Points the daemon at a launcher-shaped launch log directory, as a restart
   # does, and returns that directory.
   defp launch(logs_parent, launch_name) do
-    case Application.get_env(:aiur, :log_file) do
-      log_file when is_binary(log_file) ->
-        previous_log_dir = Path.dirname(log_file)
-
-        if String.starts_with?(previous_log_dir, logs_parent <> "/") do
-          record_owner!(previous_log_dir)
-        end
-
-      _ ->
-        :ok
-    end
-
     log_dir = Path.join([logs_parent, launch_name, "log"])
     File.mkdir_p!(log_dir)
     Application.put_env(:aiur, :log_file, Path.join(log_dir, "aiur.log"))
@@ -222,33 +210,6 @@ defmodule Aiur.DurableRuntimeStateTest do
       assert snapshot.last_seen_event_id == 77
       assert snapshot.open_attentions == ["needs-review"]
     end
-
-    test "adopts the newest launch's files once, and a deleted file is not brought back",
-         %{logs_parent: logs_parent, state_dir: state_dir} do
-      repo = Paths.repo_name()
-      payload = fn topic -> Jason.encode!(%{"subscribed_to" => [%{"topic" => topic, "reason" => "manual:test"}]}) end
-
-      # The older launch has a file for ticket 1 that the newer launch had
-      # already dropped; only the newer launch's snapshot is adopted.
-      older = launch(logs_parent, "20260101T000000Z-100")
-      write_legacy!(older, "#{repo}.1.subscriptions.json", payload.("ticket.1.x"), 1_000)
-      write_legacy!(older, "#{repo}.2.subscriptions.json", payload.("ticket.2.old"), 1_000)
-      newer = launch(logs_parent, "20260101T010000Z-200")
-      write_legacy!(newer, "#{repo}.2.subscriptions.json", payload.("ticket.2.new"), 2_000)
-      write_legacy!(newer, "otherrepo.3.subscriptions.json", payload.("ticket.3.x"), 2_000)
-
-      launch(logs_parent, "20260101T020000Z-300")
-      path2 = SubscriptionStore.path_for("2")
-
-      assert {:ok, %{"subscribed_to" => [%{"topic" => "ticket.2.new"}]}} = JsonStore.read(path2)
-      refute File.exists?(SubscriptionStore.path_for("1"))
-      refute File.exists?(Path.join([state_dir, "subscriptions", "otherrepo.3.subscriptions.json"]))
-
-      # Once: removing the adopted file and resolving again does not re-adopt.
-      File.rm!(path2)
-      write_legacy!(newer, "#{repo}.2.subscriptions.json", payload.("ticket.2.newer"), 3_000)
-      refute File.exists?(SubscriptionStore.path_for("2"))
-    end
   end
 
   describe "SessionHandle across a restart" do
@@ -260,25 +221,6 @@ defmodule Aiur.DurableRuntimeStateTest do
       launch(logs_parent, "20260101T010000Z-200")
 
       assert {:ok, %{thread_id: "thread-1"}} = SessionHandle.load("2722", "codex", hostname: @host)
-    end
-
-    test "adopts a legacy handle once; a cleared handle stays cleared", %{logs_parent: logs_parent} do
-      handle =
-        Jason.encode!(%{
-          "schema_version" => 1,
-          "backend" => "codex",
-          "thread_id" => "legacy-thread",
-          "hostname" => @host
-        })
-
-      older = launch(logs_parent, "20260101T000000Z-100")
-      write_legacy!(older, "#{Paths.repo_name()}.2722.session.json", handle, 1_000)
-
-      launch(logs_parent, "20260101T010000Z-200")
-      assert {:ok, %{thread_id: "legacy-thread"}} = SessionHandle.load("2722", "codex", hostname: @host)
-
-      :ok = SessionHandle.clear("2722")
-      assert SessionHandle.load("2722", "codex", hostname: @host) == :none
     end
   end
 
@@ -308,6 +250,7 @@ defmodule Aiur.DurableRuntimeStateTest do
       older = launch(logs_parent, "20260101T000000Z-100")
       write_legacy!(older, name, line.("system.old"), 1_000)
       newer = launch(logs_parent, "20260101T010000Z-200")
+      write_legacy!(newer, "other-project.alerts.ndjson", line.("system.foreign"), 9_000)
       write_legacy!(newer, name, line.("system.newest"), 2_000)
       write_legacy!(newer, name <> ".alerts.backfill", "complete\n", 2_000)
 
@@ -324,103 +267,19 @@ defmodule Aiur.DurableRuntimeStateTest do
     end
   end
 
-  describe "LaunchStateAdoption" do
-    test "only launcher-shaped sibling directories with matching ownership are scanned", %{logs_parent: logs_parent} do
-      earlier = launch(logs_parent, "20260101T000000Z-100")
-      launch(logs_parent, "20260101T020000Z-300")
-      unrelated = Path.join([logs_parent, "unrelated", "log"])
-      File.mkdir_p!(unrelated)
-      record_owner!(unrelated)
+  test "fresh durable stores ignore legacy sessions and subscriptions", %{logs_parent: logs_parent, state_dir: state_dir} do
+    legacy = launch(logs_parent, "20260101T000000Z-100")
+    write_snapshot!(legacy, "stale-thread", "ticket.2722.stale")
+    record_owner!(legacy)
+    launch(logs_parent, "20260101T010000Z-200")
+    refute File.exists?(state_dir)
 
-      assert LaunchStateAdoption.legacy_log_dirs() == [earlier]
-
-      custom = Path.join([logs_parent, "custom-root", "log"])
-      File.mkdir_p!(custom)
-      Application.put_env(:aiur, :log_file, Path.join(custom, "aiur.log"))
-      assert LaunchStateAdoption.legacy_log_dirs() == []
-      record_owner!(custom)
-      assert LaunchStateAdoption.legacy_log_dirs() == []
-    end
-
-    test "two instances with the same repo and ticket adopt only their own sessions and subscriptions",
-         %{logs_parent: logs_parent, state_dir: state_dir} do
-      own = launch(logs_parent, "20260101T000000Z-100")
-      write_snapshot!(own, "thread-a", "ticket.2722.instance-a")
-      record_owner!(own)
-
-      foreign = Path.join([logs_parent, "20260101T010000Z-200", "log"])
-      File.mkdir_p!(foreign)
-      set_instance("instance-b")
-      record_owner!(foreign)
-      write_snapshot!(foreign, "thread-b", "ticket.2722.instance-b", 2_000)
-
-      current = Path.join([logs_parent, "20260101T020000Z-300", "log"])
-      File.mkdir_p!(current)
-      Application.put_env(:aiur, :log_file, Path.join(current, "aiur.log"))
-
-      for {key, thread, topic} <- [
-            {"instance-a", "thread-a", "ticket.2722.instance-a"},
-            {"instance-b", "thread-b", "ticket.2722.instance-b"}
-          ] do
-        set_instance(key)
-        Application.put_env(:aiur, :runtime_state_dir, Path.join(state_dir, key))
-        assert {:ok, %{thread_id: ^thread}} = SessionHandle.load("2722", "codex", hostname: @host)
-        assert {:ok, %{"subscribed_to" => [%{"topic" => ^topic}]}} = JsonStore.read(SubscriptionStore.path_for("2722"))
-      end
-    end
-
-    test "missing or conflicting ownership never adopts sessions or subscriptions",
-         %{logs_parent: logs_parent, state_dir: state_dir} do
-      legacy = launch(logs_parent, "20260101T000000Z-100")
-      write_snapshot!(legacy, "unsafe-thread", "ticket.2722.unsafe")
-      current = Path.join([logs_parent, "20260101T020000Z-300", "log"])
-      File.mkdir_p!(current)
-      Application.put_env(:aiur, :log_file, Path.join(current, "aiur.log"))
-
-      for scenario <- [:missing_proof, :malformed_proof, :wrong_path, :missing_instance, :empty_instance, :conflicting_node, :conflicting_records] do
-        set_instance("instance-a")
-        record_owner!(legacy)
-
-        case scenario do
-          :missing_proof ->
-            File.rm!(Path.join(legacy, "aiur.crash"))
-
-          :malformed_proof ->
-            File.write!(Path.join(legacy, "aiur.crash"), "node: #{System.fetch_env!("AIUR_RELEASE_NODE")}\n")
-
-          :wrong_path ->
-            proof = Path.join(legacy, "aiur.crash")
-            File.write!(proof, String.replace(File.read!(proof), Path.dirname(legacy), Path.dirname(current)))
-
-          :missing_instance ->
-            System.delete_env("AIUR_INSTANCE_KEY")
-
-          :empty_instance ->
-            System.put_env("AIUR_INSTANCE_KEY", "")
-
-          :conflicting_node ->
-            System.put_env("AIUR_RELEASE_NODE", "aiur-test-instance-b@127.0.0.1")
-
-          :conflicting_records ->
-            proof = Path.join(legacy, "aiur.crash")
-            File.write!(proof, String.replace(File.read!(proof), "instance-a", "instance-b"), [:append])
-        end
-
-        Application.put_env(:aiur, :runtime_state_dir, Path.join(state_dir, Atom.to_string(scenario)))
-        assert SessionHandle.load("2722", "codex", hostname: @host) == :none
-        assert {:ok, nil} = JsonStore.read(SubscriptionStore.path_for("2722"))
-      end
-    end
-
-    test "the newest owned empty launch clears every legacy session and subscription despite older file mtimes",
-         %{logs_parent: logs_parent} do
-      older = launch(logs_parent, "20260101T000000Z-100")
-      write_snapshot!(older, "deleted-thread", "ticket.2722.deleted", 3_000)
-      launch(logs_parent, "20260101T010000Z-200")
-      launch(logs_parent, "20260101T020000Z-300")
-
-      assert SessionHandle.load("2722", "codex", hostname: @host) == :none
-      assert {:ok, nil} = JsonStore.read(SubscriptionStore.path_for("2722"))
-    end
+    assert SessionHandle.load("2722", "codex", hostname: @host) == :none
+    :ok = SubscriptionStore.attach("2722")
+    snapshot = SubscriptionStore.snapshot("2722")
+    :ok = SubscriptionStore.stop("2722")
+    assert snapshot.subscribed_to == []
+    assert snapshot.last_seen_event_id == nil
+    assert snapshot.open_attentions == []
   end
 end

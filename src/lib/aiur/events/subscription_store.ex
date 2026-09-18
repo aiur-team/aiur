@@ -10,8 +10,9 @@ defmodule Aiur.Events.SubscriptionStore do
 
   The runtime state directory (`Aiur.Config.Paths.runtime_state_dir/0`)
   survives a daemon restart; the per-launch log directory where these files
-  used to live does not (#2722). On first use, the files of the newest earlier
-  launch are adopted once (`Aiur.LaunchStateAdoption`).
+  used to live does not (#2722). On the first boot after upgrading, this store
+  starts empty, as it previously did on every restart. Legacy subscriptions
+  are never imported; subscriptions saved from that boot onward are durable.
 
   ## State shape (on disk)
 
@@ -64,10 +65,8 @@ defmodule Aiur.Events.SubscriptionStore do
   alias Aiur.Config.Paths
   alias Aiur.Events.{AgentSubscriptionPolicy, DebugLog, Exchange, IdGenerator, UniversalSubscriptions}
   alias Aiur.JsonStore
-  alias Aiur.LaunchStateAdoption
 
   @state_leaf "subscriptions"
-  @adoption_marker ".adopted-from-launch-logs"
   @max_stall_attempts 3
   @stall_base_retry_ms 1_000
 
@@ -617,20 +616,11 @@ defmodule Aiur.Events.SubscriptionStore do
     case Paths.runtime_state_dir() do
       {:ok, root} ->
         dir = Path.join(root, @state_leaf)
-        adopt_legacy_once(dir)
         Path.join(dir, file_name)
 
       {:error, _reason} ->
         Path.join(Paths.log_root_dir(), file_name)
     end
-  end
-
-  defp adopt_legacy_once(dir) do
-    prefix = "#{Paths.repo_name()}."
-
-    LaunchStateAdoption.adopt_set_once(dir, @adoption_marker, fn name ->
-      String.starts_with?(name, prefix) and String.ends_with?(name, ".subscriptions.json")
-    end)
   end
 
   defp load_persisted(state) do

@@ -8,7 +8,8 @@ defmodule Aiur.AlertLedger do
   boot, and the edge-triggered resolution check. It used to live in the
   per-launch log directory, which is new on every launch (#2722). On first use,
   the newest earlier launch's ledger (and its backfill marker) is adopted once
-  through `Aiur.LaunchStateAdoption`.
+  through `Aiur.LaunchStateAdoption`, using only this project's exact ledger
+  filename (owner/project identity plus hash), never another project's ledger.
 
   An explicit `:ledger_path`, `:ledger_paths` or `:log_roots` option still
   selects a ledger in those directories.

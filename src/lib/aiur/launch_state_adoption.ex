@@ -1,40 +1,26 @@
 defmodule Aiur.LaunchStateAdoption do
   @moduledoc """
-  One-time adoption of state that older builds wrote to the per-launch log
-  directory (#2722).
+  Legacy launch file discovery and one-time project alert-ledger adoption.
 
-  The launcher gives every daemon launch a new log directory,
-  `<logs-parent>/<launch>/log`, where `<launch>` is `<YYYYMMDDTHHMMSSZ>-<pid>`.
-  Stores that must survive a restart now live in
-  `Aiur.Config.Paths.runtime_state_dir/0`. When such a store is first used on
-  an upgraded daemon, it copies its newest per-launch file (or file set) into
-  the durable location. A marker (the durable file itself, or a marker file for
-  a set) records that adoption ran, so no later launch adopts again and a file
-  that a store deletes on purpose is never brought back from an old launch.
+  Scans the current log directory and launcher-shaped siblings across all
+  instances. Event counters take their maximum for uniqueness; alert ledgers
+  must use the exact project-specific filename, including its identity hash.
+  Session handles and subscriptions are never adopted.
 
-  Only launcher-shaped directories with a matching launcher crash record are
-  scanned. The record must prove the exact instance node and launch path;
-  missing or ambiguous ownership is skipped, including custom log roots.
-  A fresh current launch is not a legacy snapshot. Clean legacy launches
-  without that evidence are deliberately not adopted: missing a resume is
-  safer than resuming a foreign session.
-
-  Adoption is best-effort: a failure is logged and the store starts from what
-  is already in the durable location.
+  The durable ledger file marks adoption complete. Its backfill companions
+  are copied first. Failures are logged and retried on the next access.
   """
 
   require Logger
 
   alias Aiur.Config.Paths
   alias Aiur.Fs
-  alias Aiur.LaunchStateOwnership
 
   @launch_dir_pattern ~r/\A\d{8}T\d{6}Z-\d+\z/
 
   @doc """
-  Every log directory that can hold a legacy per-launch file for this daemon:
-  those with verified instance ownership, including the current directory
-  only if it holds a verified legacy snapshot.
+  Current and launcher-shaped sibling log directories, across all instances.
+  No ownership inference is needed when taking a maximum counter value.
   """
   @spec legacy_log_dirs() :: [Path.t()]
   def legacy_log_dirs do
@@ -42,7 +28,6 @@ defmodule Aiur.LaunchStateAdoption do
 
     [log_dir | sibling_launch_log_dirs(log_dir)]
     |> Enum.uniq()
-    |> Enum.filter(&LaunchStateOwnership.owned?/1)
   end
 
   @doc """
@@ -81,30 +66,6 @@ defmodule Aiur.LaunchStateAdoption do
       :ok
   end
 
-  @doc """
-  Copies a per-launch file set into `dest_dir` once.
-
-  `match?` selects the file names that belong to the set. The set is taken
-  from the newest owned launch by its launch timestamp, even when empty:
-  a file that launch already deleted is not brought back from an older launch.
-  A file that already exists in `dest_dir` is never overwritten. After the copy, the
-  marker file `marker` in `dest_dir` records that adoption is done.
-  """
-  @spec adopt_set_once(Path.t(), String.t(), (String.t() -> boolean())) :: :ok
-  def adopt_set_once(dest_dir, marker, match?) when is_binary(dest_dir) and is_binary(marker) and is_function(match?, 1) do
-    marker_path = Path.join(dest_dir, marker)
-
-    unless File.exists?(marker_path) do
-      :global.trans({{__MODULE__, :set, marker_path}, self()}, fn -> adopt_set(dest_dir, marker_path, match?) end)
-    end
-
-    :ok
-  rescue
-    error ->
-      Logger.warning("Could not adopt legacy files into #{dest_dir}: #{Exception.message(error)}")
-      :ok
-  end
-
   # Re-checked under the lock: a concurrent caller may have adopted already, and
   # overwriting its newer writes with the legacy file would lose them.
   defp adopt_file(dest, basename, opts) do
@@ -129,51 +90,6 @@ defmodule Aiur.LaunchStateAdoption do
     # exist until its companions are in place.
     copy_file(source, dest)
     Logger.info("Adopted legacy per-launch state #{source} into #{dest}")
-  end
-
-  defp adopt_set(dest_dir, marker_path, match?) do
-    if File.exists?(marker_path) do
-      :ok
-    else
-      copied = copy_newest_set(dest_dir, match?)
-      copy_bytes("adopted #{copied} file(s)\n", marker_path)
-
-      if copied > 0, do: Logger.info("Adopted #{copied} legacy per-launch file(s) into #{dest_dir}")
-    end
-  end
-
-  defp copy_newest_set(dest_dir, match?) do
-    case newest_launch_set(match?) do
-      nil ->
-        0
-
-      {dir, names} ->
-        Enum.count(names, &copy_unless_present(Path.join(dir, &1), Path.join(dest_dir, &1)))
-    end
-  end
-
-  defp copy_unless_present(source, dest) do
-    if File.exists?(dest) do
-      false
-    else
-      copy_file(source, dest)
-      true
-    end
-  end
-
-  defp newest_launch_set(match?) do
-    legacy_log_dirs()
-    |> Enum.max_by(&Path.basename(Path.dirname(&1)), fn -> nil end)
-    |> case do
-      nil -> nil
-      dir -> {dir, matching_names(dir, match?)}
-    end
-  end
-
-  defp matching_names(dir, match?) do
-    dir
-    |> File.ls!()
-    |> Enum.filter(&(match?.(&1) and File.regular?(Path.join(dir, &1))))
   end
 
   defp newest(paths) do
