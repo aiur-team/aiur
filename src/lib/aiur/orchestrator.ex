@@ -235,6 +235,13 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  # A closed ticket's workspace save and delete finished in its task (#2743).
+  # The task already logged and alerted anything that needs an operator.
+  def handle_info({:workspace_cleanup_finished, workspace_identifier, result}, state) do
+    Logger.debug("Terminal workspace cleanup finished workspace=#{workspace_identifier} result=#{inspect(result)}")
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}

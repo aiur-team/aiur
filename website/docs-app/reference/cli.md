@@ -137,6 +137,8 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted.
 Restart uses the same graceful agent-tree and workspace-descendant reap as `stop` before refreshing or starting the release.
 
+A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes. Aiur saves the changes first; see [Saved uncommitted work](#saved-uncommitted-work).
+
 Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
 
 | Development refresh evidence | Result |
@@ -144,6 +146,37 @@ Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from
 | Rebuild verified against the expected checkout and commit | Starts the rebuilt release. |
 | Rebuild cannot be verified | Leaves the daemon stopped, exits with code 70, and names the unconfirmed builder. |
 | Custom build command without verification support | Starts and reports the result as unverified. |
+
+### Saved uncommitted work
+
+Before Aiur deletes or recreates a ticket workspace that has uncommitted changes, it saves them in `wip-preserved/<workspace>/<timestamp>/` under the runtime state directory. The directories have mode 0700 and the files 0600, because untracked files can hold secrets.
+
+Each save holds these files:
+
+| File | Content |
+| --- | --- |
+| `tracked.patch` | A binary patch of the staged and unstaged tracked changes. |
+| `untracked.tar` | The untracked files that are not ignored and are within the size bounds. |
+| `unpushed-commits.bundle` | The commits that no remote-tracking ref holds, if there are any. |
+| `manifest.json` | HEAD, branch, file lists, `skipped_untracked` and the restore commands. |
+
+The save has bounds, set by the `workspace.wip_*` keys in the [configuration reference](/reference/configuration#workspace). A skipped untracked path is listed with its size under `skipped_untracked`. A skip never stops the delete.
+
+The restore commands apply the patch to the current HEAD, so they work also when the old branch was deleted after a squash merge. Only a bundle brings old commits back, on a local `aiur-wip/<timestamp>` branch.
+
+The next agent turn of the same ticket starts with the restore commands, and `ticket.<n>.workspace.wip_preserved` gives the path. Delivery is at least once: after a crash, the notice can repeat. If the ticket closes first, the notice expires and a reopened ticket does not get it.
+
+If the save fails, Aiur keeps the workspace. An open ticket stays paused as a preflight failure until an Executor resume. A closed ticket's save that times out is the exception: Aiur writes a manifest-only save, deletes the workspace and raises `ticket.<n>.workspace.wip_preservation_incomplete`.
+
+Aiur cannot save the work of a dirty workspace on a remote worker, so it keeps that workspace. Each workspace raises `ticket.<n>.workspace.wip_preservation_failed` once for each reason, and the message says whether the ticket is held or closed.
+
+To delete a kept workspace without a save, create the empty file `wip-preserved/<workspace>/discard-dirty-workspace` under the runtime state directory. Then resume the ticket, or restart Aiur for a closed ticket. Aiur deletes the workspace, raises `ticket.<n>.workspace.wip_discarded` and removes the file.
+
+The discard file is a deliberate operator signal outside the workspace, not an access control. Agents run as the same Unix user without a filesystem sandbox, so an agent can create the file too. It gives no capability that the same user does not already have. Real isolation needs a sandbox, which Aiur does not provide.
+
+If a closed ticket's cleanup crashes before the delete, Aiur keeps the workspace. The terminal sweep at the next Aiur start tries again. If a new run of a reopened ticket holds the workspace when the delete is due, Aiur keeps the workspace and the save, and the notice does not expire.
+
+To recover saved work by hand, run the `restore_commands` of `manifest.json` in order in a clone of the repository. Change the first command, `cd`, to point at that clone.
 
 ## Dashboard page commands
 

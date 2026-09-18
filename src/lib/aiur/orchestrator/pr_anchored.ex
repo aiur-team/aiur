@@ -6,10 +6,10 @@ defmodule Aiur.Orchestrator.PrAnchored do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue, TicketBranch, Workspace}
+  alias Aiur.{Alerts, Config, Issue, TicketBranch}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State}
+  alias Aiur.Orchestrator.{CommentWake, Dispatcher, Slots, State, WorkspaceCleanup}
 
   @pr_anchored_state "pr-watch"
 
@@ -308,7 +308,11 @@ defmodule Aiur.Orchestrator.PrAnchored do
     # start_agent_session persisted under), not the pr-<pr#> running key;
     # without this, a reopened PR would --resume the finished thread now that
     # claude-repl is resumable (#613).
-    Orchestrator.clear_session_handle(Map.get(running_entry, :identifier))
-    Workspace.remove_issue_workspaces(issue_id, Map.get(running_entry, :worker_host))
+    identifier = Map.get(running_entry, :identifier)
+    Orchestrator.clear_session_handle(identifier)
+    # The workspace lease is keyed by the identifier, so the cleanup names it
+    # as the ticket to re-check the lease before the delete.
+    ticket = if is_binary(identifier), do: identifier, else: issue_id
+    WorkspaceCleanup.start_terminal_workspace_cleanups([{ticket, issue_id, Map.get(running_entry, :worker_host)}])
   end
 end

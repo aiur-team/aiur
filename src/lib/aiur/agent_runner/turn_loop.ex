@@ -11,6 +11,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.Issue
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace
+  alias Aiur.Workspace.WipPreservation
 
   @type worker_host :: String.t() | nil
 
@@ -86,7 +87,11 @@ defmodule Aiur.AgentRunner.TurnLoop do
       max_turns: max_turns
     } = turn_context
 
-    prompt = TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
+    # Work that Aiur saved before it recreated this workspace (#2743) is
+    # announced at the top of the next turn, with the restore commands. The
+    # notice stays pending until a turn that carried it completes.
+    {prompt, wip_notices} =
+      WipPreservation.with_pending_notices(workspace, issue.identifier, TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns))
 
     callbacks =
       TurnCallbacks.build(
@@ -133,6 +138,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     case result do
       {:ok, turn_session} ->
+        :ok = WipPreservation.mark_delivered(wip_notices)
+
         SessionResume.maybe_persist_turn_handle(
           app_session,
           turn_session,

@@ -1,5 +1,5 @@
 defmodule Aiur.Workspace.Refresh do
-  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577) and the in-flight WIP skip (#653)."
+  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577), which saves uncommitted work before it deletes anything (#2743), and the in-flight WIP skip (#653)."
 
   require Logger
   alias Aiur.{AgentBuildGuard, Config}
@@ -69,20 +69,17 @@ defmodule Aiur.Workspace.Refresh do
         {:error, {:workspace_owned, Ownership.current(issue_context.issue_identifier)}}
 
       # A fresh todo dispatch that lands on a dirty *leftover* workspace
-      # (#577): the dirty content is not this agent's WIP, so recreate the
-      # workspace clean off the configured base and re-run before_run.
+      # (#577): recreate the workspace clean off the configured base and re-run
+      # before_run. The dirty content can still be an agent's unsaved work (a
+      # restart mid-turn, #2743), so it is saved outside the workspace first.
+      # If it cannot be saved, the workspace is not touched and the ticket is
+      # held on the named reason.
       Context.todo_dispatch?(issue_context) ->
         Logger.warning(
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
         )
 
-        with :ok <-
-               Provisioner.recreate(
-                 workspace,
-                 worker_host,
-                 issue_context.pr_head_ref,
-                 issue_context.branch_name
-               ),
+        with :ok <- preserve_then_recreate(workspace, issue_context, worker_host),
              :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host),
              :ok <- finalize_before_run_workspace(workspace, issue_context, worker_host) do
           # Recreation deleted the support tree `create_for_issue/3` installed
@@ -107,6 +104,12 @@ defmodule Aiur.Workspace.Refresh do
 
         finalize_before_run_workspace(workspace, issue_context, worker_host)
     end
+  end
+
+  # `Provisioner.recreate/5` saves the uncommitted work first, and keeps the
+  # workspace when it cannot (a failed save, or a remote worker).
+  defp preserve_then_recreate(workspace, issue_context, worker_host) do
+    Provisioner.recreate(workspace, worker_host, issue_context.pr_head_ref, issue_context.branch_name, issue_context.issue_identifier)
   end
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do

@@ -1045,6 +1045,8 @@ defmodule Aiur.OrchestratorStatusTest do
 
       assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
+      # The sweep saves and deletes in one task, off the Orchestrator (#2743).
+      assert_receive {:workspace_cleanup_finished, "610", :ok}, 10_000
       refute File.exists?(terminal_workspace)
       assert :none == SessionHandle.load("610", "codex")
     after
