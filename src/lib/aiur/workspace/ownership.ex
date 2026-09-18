@@ -144,6 +144,50 @@ defmodule Aiur.Workspace.Ownership do
   def wait_for_release(ticket, recipient, registry \\ @registry) when is_binary(ticket) and is_pid(recipient),
     do: Waiter.wait(ticket, recipient, registry)
 
+  @doc """
+  Lists every lease currently registered in `registry`.
+
+  The registry is local to this VM, so every entry belongs to this daemon's
+  session owner.
+  """
+  @spec leases(registry()) :: [lease()]
+  def leases(registry \\ @registry),
+    do: Registry.select(registry, [{{:"$1", :_, :"$2"}, [{:is_binary, :"$1"}], [:"$2"]}])
+
+  @type holder_entry :: %{ticket: String.t(), generation: pos_integer(), owner: pid(), holder: map()}
+
+  @doc """
+  Lists the live owner and claim metadata of every claimed generation.
+
+  This is a registry (ETS) read and never calls a guardian. A guardian drops
+  its entry as soon as its owner dies, so an entry means the owner was alive
+  when the entry was last read; callers still check `Process.alive?/1`.
+  """
+  @spec holders(registry()) :: [holder_entry()]
+  def holders(registry \\ @registry) do
+    registry
+    |> Registry.select([{{{:holder, :"$1"}, :_, :"$2"}, [], [{{:"$1", :"$2"}}]}])
+    |> Enum.map(fn {ticket, entry} -> Map.put(entry, :ticket, ticket) end)
+  end
+
+  @doc """
+  Returns the live owner and claim metadata of `lease`, read from the registry.
+
+  Returns `{:error, :workspace_ownership_lost}` when the owner is dead or the
+  registered generation is not the one in `lease`.
+  """
+  @spec holder(lease() | nil, registry()) :: {:ok, %{owner: pid(), holder: map()}} | {:error, :workspace_ownership_lost}
+  def holder(lease, registry \\ @registry)
+
+  def holder(%{ticket: ticket, generation: generation}, registry) when is_binary(ticket) do
+    case Registry.lookup(registry, Guardian.holder_key(ticket)) do
+      [{_guardian, %{generation: ^generation, owner: owner, holder: holder}}] -> {:ok, %{owner: owner, holder: holder}}
+      _other -> {:error, :workspace_ownership_lost}
+    end
+  end
+
+  def holder(_lease, _registry), do: {:error, :workspace_ownership_lost}
+
   @spec current(String.t(), registry()) :: {:ok, lease()} | :none
   def current(ticket, registry \\ @registry) when is_binary(ticket) do
     case Registry.lookup(registry, ticket) do

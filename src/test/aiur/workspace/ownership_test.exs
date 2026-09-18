@@ -142,6 +142,30 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
   end
 
+  test "a live generation reports its owner and claim metadata until the owner dies" do
+    ticket = "ownership-holder-#{System.unique_integer([:positive])}"
+    parent = self()
+    holder = %{issue_id: "issue-holder", update_recipient: parent, worker_host: nil}
+
+    owner =
+      spawn(fn ->
+        send(parent, {:claimed, Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, holder: holder)})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:claimed, {:ok, lease}}, 2_000
+    assert lease in Ownership.leases()
+    assert {:ok, %{owner: ^owner, holder: ^holder}} = Ownership.holder(lease)
+    assert {:error, :workspace_ownership_lost} = Ownership.holder(%{lease | generation: lease.generation + 1})
+
+    monitor = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert {:error, :workspace_ownership_lost} = Ownership.holder(lease)
+    refute Enum.any?(Ownership.leases(), &(&1.ticket == ticket))
+  end
+
   test "brutal runner death retains the lease until its tracked child group is reaped" do
     ticket = "ownership-child-#{System.unique_integer([:positive])}"
     process_group_id = System.unique_integer([:positive])
