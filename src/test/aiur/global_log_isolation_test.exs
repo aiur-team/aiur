@@ -3,7 +3,7 @@ defmodule Aiur.GlobalLogIsolationTest do
   Pins the suite-global `:log_file` isolation set in `config/config.exs`
   (test block). Without it, tests that never `use Aiur.TestSupport` — and
   the app's own boot (`Aiur.Events.IdGenerator` writes
-  `<log_root>/<repo>.event_id` during init, before test_helper.exs runs) —
+  `<runtime_state_dir>/event-id.json` during init, before test_helper.exs runs) —
   persist into the shared `<cwd>/log`, where `System.unique_integer/1`
   identifier reuse across VM boots resurrects stale subscription state
   (the #687 ghost auto-resume flake class). Companion to the per-test
@@ -30,9 +30,12 @@ defmodule Aiur.GlobalLogIsolationTest do
   end
 
   test "boot-time IdGenerator counter write landed in the isolation root" do
-    dir = Path.dirname(Application.get_env(:aiur, :log_file))
+    # The counter is durable runtime state (#2722), so it lives in the
+    # suite-global runtime state dir, which sits beside the isolated log dir.
+    log_dir = Path.dirname(Application.get_env(:aiur, :log_file))
+    assert {:ok, runtime_state_dir} = Paths.runtime_state_dir()
 
-    assert {:ok, entries} = File.ls(dir)
-    assert Enum.any?(entries, &String.ends_with?(&1, ".event_id"))
+    assert String.starts_with?(runtime_state_dir, log_dir)
+    assert File.regular?(Path.join(runtime_state_dir, "event-id.json"))
   end
 end

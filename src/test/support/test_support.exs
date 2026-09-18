@@ -93,6 +93,7 @@ defmodule Aiur.TestSupport do
     :github_cache_inspector_source,
     :repo_base_root,
     :executor_state_dir,
+    :runtime_state_dir,
     :executor_claims_lock_timeout_ms,
     :loadavg_source_override,
     :proc_stat_source_override,
@@ -115,6 +116,29 @@ defmodule Aiur.TestSupport do
       tick = System.unique_integer([:monotonic, :positive])
       {:ok, "cpu  #{100 * tick} 0 0 #{900 * tick} 0 0 0 0 0 0\nprocs_running 1\n"}
     end
+  end
+
+  @doc """
+  Points the durable runtime state directory (`Aiur.Config.Paths.runtime_state_dir/0`)
+  at `dir` for the calling test and puts the previous value back on exit.
+
+  Tests that isolate `:log_file` to a private directory and then read the alert
+  ledger from that directory with `log_roots: [dir]` call this with the same
+  directory: the ledger is durable runtime state (#2722), so it follows this
+  key, not `:log_file`.
+  """
+  @spec put_runtime_state_dir!(Path.t()) :: :ok
+  def put_runtime_state_dir!(dir) when is_binary(dir) do
+    previous = Application.get_env(:aiur, :runtime_state_dir)
+    Application.put_env(:aiur, :runtime_state_dir, dir)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if previous,
+        do: Application.put_env(:aiur, :runtime_state_dir, previous),
+        else: Application.delete_env(:aiur, :runtime_state_dir)
+    end)
+
+    :ok
   end
 
   @doc "The `:aiur` application keys isolated per TestSupport case."
@@ -296,6 +320,11 @@ defmodule Aiur.TestSupport do
         # test is absent from the run (e.g. `mix test test/aiur/core_test.exs`).
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
+
+        # Subscriptions, session handles and the alert ledger are durable
+        # runtime state that survives a restart (#2722); the same leak applies,
+        # so each case gets its own runtime state root.
+        Application.put_env(:aiur, :runtime_state_dir, Path.join(workflow_root, "runtime-state"))
 
         # Global pause is deliberately durable in production, but that makes a
         # suite-wide test path hazardous: a case that pauses the daemon can

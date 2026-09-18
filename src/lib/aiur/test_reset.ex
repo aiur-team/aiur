@@ -27,7 +27,7 @@ defmodule Aiur.TestReset do
   src/lib/aiur/sandbox/`) — refuses if HEAD doesn't contain the
   baseline files.
 
-  **Never deleted**: `<logs-root>/<repo>.event_id` (the
+  **Never deleted**: `<runtime-state>/event-id.json` (the
   `IdGenerator` counter file). Wiping it would let post-reset events
   re-use IDs from before the reset, breaking the at-least-once cursor
   contract.
@@ -36,6 +36,7 @@ defmodule Aiur.TestReset do
   require Logger
 
   alias Aiur.Config.Paths
+  alias Aiur.Events.SubscriptionStore
   alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
   alias Aiur.{JsonStore, TicketBranch}
@@ -486,7 +487,7 @@ defmodule Aiur.TestReset do
     say("  - If closed: remove detected agent:*/model:* labels and abort before launch")
     say("\nAlways:")
     say("  - Restore sandbox baseline (git checkout HEAD -- " <> Enum.join(@baseline_files, " "))
-    say("  - Preserve <repo>.event_id (IdGenerator counter)")
+    say("  - Preserve event-id.json (IdGenerator counter)")
   end
 
   defp reset_one(id, _opts) do
@@ -818,9 +819,7 @@ defmodule Aiur.TestReset do
     end
   end
 
-  defp subscriptions_path(id) do
-    Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.#{id}.subscriptions.json")
-  end
+  defp subscriptions_path(id), do: SubscriptionStore.path_for(to_string(id))
 
   defp say(msg), do: IO.puts(:stderr, msg)
   defp ok(msg), do: say("✅ #{msg}")

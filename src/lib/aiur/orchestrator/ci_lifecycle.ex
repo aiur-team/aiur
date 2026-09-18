@@ -7,7 +7,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   require Logger
 
   alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
-  alias Aiur.Config.Paths
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
 
@@ -936,7 +935,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         loader.()
 
       :error ->
-        [log_roots: [Paths.log_root_dir()], needs_attention: true]
+        [needs_attention: true]
         |> AlertFeed.list()
         |> Enum.reduce(MapSet.new(), &collect_active_alert_target(&1, &2, alert_name))
     end
