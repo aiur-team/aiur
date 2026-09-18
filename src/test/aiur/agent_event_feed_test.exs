@@ -6,19 +6,12 @@ defmodule Aiur.AgentEventFeedTest do
   alias Aiur.{AgentEventFeed, IssueLog}
   alias AiurWeb.{StreamdeckLogs, StreamdeckStrip}
 
+  # `use Aiur.TestSupport` already points `:log_file` at a per-test root and
+  # removes it after the test. Do not add a second root that is removed with
+  # `File.rm_rf!/1`: application children can still write into the current log
+  # root, and a write during the removal makes `rm_rf!` raise.
   setup do
-    original_log_file = Application.get_env(:aiur, :log_file)
-    identifier = "event-feed-#{System.unique_integer([:positive])}"
-    tmp = Aiur.TestSupport.tmp_root!("aiur-event-feed")
-    File.mkdir_p!(Path.join(tmp, "log"))
-    Application.put_env(:aiur, :log_file, Path.join(tmp, "log/aiur.log"))
-
-    on_exit(fn ->
-      if original_log_file, do: Application.put_env(:aiur, :log_file, original_log_file), else: Application.delete_env(:aiur, :log_file)
-      File.rm_rf!(tmp)
-    end)
-
-    %{identifier: identifier}
+    %{identifier: "event-feed-#{System.unique_integer([:positive])}"}
   end
 
   test "returns durable events newest first with every documented badge", %{identifier: identifier} do

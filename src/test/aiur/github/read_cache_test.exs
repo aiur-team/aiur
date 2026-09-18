@@ -837,6 +837,10 @@ defmodule Aiur.GitHub.ReadCacheTest do
       ref = Process.monitor(owner)
       GenServer.stop(owner)
       assert_receive {:DOWN, ^ref, :process, ^owner, _reason}
+
+      # The restart also restarts every later application child. Wait for all
+      # of them, so the next test does not start inside that cascade.
+      assert {:ok, _replacement} = Aiur.TestSupport.await_supervised_restart(ReadCache, owner)
     end
 
     test "counts every invalidation event and every mark it wrote" do
