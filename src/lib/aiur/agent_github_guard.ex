@@ -15,6 +15,9 @@ defmodule Aiur.AgentGitHubGuard do
   @gh_script_path Path.expand("../../priv/github_quota_guard.sh", __DIR__)
   @git_script_path Path.expand("../../priv/github_push_guard.sh", __DIR__)
   @broker_path Path.expand("../../priv/github_budget.py", __DIR__)
+  @deletion_guard_path Path.expand("../../../packaging/npm/aiur-cli/libexec/guard-pr-deletions.sh", __DIR__)
+  @external_resource @deletion_guard_path
+  @deletion_guard File.read!(@deletion_guard_path)
   @external_resource @gh_script_path
   @external_resource @git_script_path
   @external_resource @broker_path
@@ -44,7 +47,7 @@ defmodule Aiur.AgentGitHubGuard do
   # daemon-run broker in its own workspace — the same tension the issue called
   # out for either choice.
   @broker File.read!(@broker_path)
-  @scripts [{"gh", @gh_script}, {"git", @git_script}, {"aiur-github-budget", @broker}]
+  @scripts [{"gh", @gh_script}, {"git", @git_script}, {"aiur-github-budget", @broker}, {"guard-pr-deletions", @deletion_guard}]
   @relative_bin_dir ".aiur-runtime/bin"
   @relative_gh_config_dir ".aiur-runtime/gh"
   @relative_quota_dir ".aiur-runtime/github-quota"
