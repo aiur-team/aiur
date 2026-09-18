@@ -39,14 +39,15 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     case Registry.register(registry, ticket, lease) do
       {:ok, _value} ->
         state =
-          runtime_state(
-            registry,
+          registry
+          |> runtime_state(
             lease,
             Process.monitor(owner),
             false,
             %{provider_expected?: false, provider: nil, provider_cleanup: :not_started},
             opts
           )
+          |> Map.merge(%{owner: owner, holder: holder_metadata(opts)})
 
         case persist_state(state) do
           :ok ->
@@ -109,8 +110,19 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
       host_lock: Map.get(receipt, :host_lock),
       reaping?: false,
-      release_requested?: false
+      release_requested?: false,
+      # A restored receipt has no live owner in this VM, so it has nothing a
+      # caller could stop or rebind; only a claimed generation fills these.
+      owner: nil,
+      holder: %{}
     }
+  end
+
+  defp holder_metadata(opts) do
+    case Keyword.get(opts, :holder) do
+      holder when is_map(holder) -> holder
+      _other -> %{}
+    end
   end
 
   defp loop(state) do
@@ -178,6 +190,10 @@ defmodule Aiur.Workspace.Ownership.Guardian do
           loop(state)
         end
 
+      {:workspace_guardian_call, from, ref, {:holder, generation}} ->
+        reply(from, ref, holder(state, generation))
+        loop(state)
+
       {:workspace_guardian_call, from, ref, {:wait_for_release, recipient}} when is_pid(recipient) ->
         # Store the waiter before acknowledging it. The acknowledgement carries
         # this exact generation so a subscriber can reject an ABA replacement.
@@ -198,6 +214,15 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         loop(state)
     end
   end
+
+  # Only a live claimed generation reports its holder. Once the owner is dead
+  # the guardian alone decides when the lease ends, so there is no holder left
+  # to stop or adopt.
+  defp holder(%{lease: %{generation: generation}, owner_dead?: false, owner: owner} = state, generation)
+       when is_pid(owner),
+       do: {:ok, %{owner: owner, holder: state.holder}}
+
+  defp holder(_state, _generation), do: {:error, :workspace_ownership_lost}
 
   defp continue_after_provider_update(%{owner_dead?: true} = state), do: maybe_release_or_reap(state)
   defp continue_after_provider_update(state), do: loop(state)

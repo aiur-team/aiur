@@ -132,7 +132,12 @@ defmodule Aiur.AgentRunner do
       record_workspace_ownership(issue, opts, boundary, outcome, ownership)
     end
 
-    case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun) do
+    # The holder metadata lets the Orchestrator find this runner if it holds
+    # the lease without a running entry: its update target died in an
+    # Orchestrator crash, or a rolled-back state dropped its entry (#2705).
+    holder = %{issue_id: issue.id, update_recipient: codex_update_recipient, worker_host: worker_host}
+
+    case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun, holder: holder) do
       {:ok, ownership} ->
         try do
           with_workspace_host_lock(issue, opts, ownership, worker_host, fn ->

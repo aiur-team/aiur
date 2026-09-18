@@ -144,6 +144,25 @@ defmodule Aiur.Workspace.Ownership do
   def wait_for_release(ticket, recipient, registry \\ @registry) when is_binary(ticket) and is_pid(recipient),
     do: Waiter.wait(ticket, recipient, registry)
 
+  @doc """
+  Lists every lease currently registered in `registry`.
+
+  The registry is local to this VM, so every entry belongs to this daemon's
+  session owner.
+  """
+  @spec leases(registry()) :: [lease()]
+  def leases(registry \\ @registry), do: Registry.select(registry, [{{:_, :_, :"$1"}, [], [:"$1"]}])
+
+  @doc """
+  Returns the live process that holds `lease` and the metadata it claimed with.
+
+  A lease whose owner already died is being reaped by its guardian and has no
+  holder, so this returns `{:error, :workspace_ownership_lost}` for it.
+  """
+  @spec holder(lease() | nil) :: {:ok, %{owner: pid(), holder: map()}} | {:error, :workspace_ownership_lost}
+  def holder(%{guardian: guardian, generation: generation}) when is_pid(guardian), do: call(guardian, {:holder, generation})
+  def holder(_lease), do: {:error, :workspace_ownership_lost}
+
   @spec current(String.t(), registry()) :: {:ok, lease()} | :none
   def current(ticket, registry \\ @registry) when is_binary(ticket) do
     case Registry.lookup(registry, ticket) do
@@ -184,7 +203,8 @@ defmodule Aiur.Workspace.Ownership do
               :cancel_provider_expectation,
               :track_provider,
               :mark_provider_cleanup_unknown,
-              :mark_provider_cleanup_succeeded
+              :mark_provider_cleanup_succeeded,
+              :holder
             ],
        do: {:error, :workspace_ownership_lost}
 

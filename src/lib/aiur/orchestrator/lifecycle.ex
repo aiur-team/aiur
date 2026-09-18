@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     ControlLifecycleStore,
     DispatchPolicy,
     GlobalPauseStore,
+    OrphanedWorkers,
     PauseResume,
     RemoteControlMode,
     Slots,
@@ -147,6 +148,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
         Map.put(state.global_pause, :globally_paused, state.globally_paused)
       )
 
+    # Runner tasks survive an Orchestrator-only restart, but this generation
+    # cannot track them. Stop them before startup cleanup or the first poll, so
+    # the ticket is redispatched instead of refused as a live session (#2705).
+    state = OrphanedWorkers.stop_untracked_runners(state)
     state = WorkspaceCleanup.run_terminal_workspace_cleanup(state)
     state = WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
     RemoteControlMode.cleanup_stray_remote_control_servers()
@@ -222,6 +227,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec handle_tick(State.t()) :: {:noreply, State.t()}
   def handle_tick(%State{} = state) do
     state = refresh_runtime_config(state)
+    # A crashed control call can roll the state back past a runner it already
+    # spawned; that runner holds its lease with no running entry (#2705).
+    state = OrphanedWorkers.stop_untracked_runners(state)
     state = PauseResume.expire_pending_controls(state, DateTime.utc_now(), @control_ack_timeout_ms)
 
     state = %{
