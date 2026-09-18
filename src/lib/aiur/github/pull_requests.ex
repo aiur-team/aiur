@@ -8,6 +8,8 @@ defmodule Aiur.GitHub.PullRequests do
   alias Aiur.{Codeowners, TicketBranch}
   alias Aiur.GitHub.{Comments, Errors, Transport, WriteThrough}
 
+  @issue_events_page 100
+
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
   def fetch_pull_request_changed_paths(pr_number, opts \\ []) do
@@ -521,6 +523,47 @@ defmodule Aiur.GitHub.PullRequests do
       end
     end
   end
+
+  @doc """
+  Answers whether an open, non-draft pull request was ever a draft.
+
+  Used only when a poll first sees a ticket's PR already ready and holds no
+  earlier observation of it (#2707): GitHub's webhook sends
+  `ready_for_review` for a draft that went ready, and nothing for a PR opened
+  ready, so the poll needs the PR's history to match. The answer is recorded
+  durably, so this is at most one request per PR, and only for a PR no poll
+  ever saw as a draft.
+
+  Reads one page of the issue events, oldest first. A `ready_for_review` event
+  answers `true`. A page with fewer than 100 events and no such event answers
+  `false`. A full page with no such event answers `true`: the history is too
+  long to read cheaply, and a spare wake costs less than a lost one.
+  """
+  @spec fetch_pull_request_was_draft(String.t() | integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def fetch_pull_request_was_draft(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{pr_number}/events?per_page=#{@issue_events_page}"
+
+      case request_fun.(%{method: :get, url: url, token: token}) do
+        {:ok, %{status: 200, body: events}} when is_list(events) ->
+          {:ok, Enum.any?(events, &ready_for_review_event?/1) or length(events) >= @issue_events_page}
+
+        {:ok, %{status: 200}} ->
+          {:error, :issue_events_malformed}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  defp ready_for_review_event?(%{"event" => "ready_for_review"}), do: true
+  defp ready_for_review_event?(_event), do: false
 
   @doc """
   Fetches a pull request's head ref with `If-None-Match` support.
