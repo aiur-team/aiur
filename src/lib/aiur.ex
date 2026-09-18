@@ -101,13 +101,18 @@ defmodule Aiur.Application do
       #
       # `:rest_for_one` makes the ordering real: PubSub restarts first, then
       # everything after it, so dependents never start into a missing registry.
-      Supervisor.start_link(
+      start_supervisor(
         children ++ [supervision_health_child(children)],
-        strategy: :rest_for_one,
         name: Aiur.Supervisor
       )
       |> tap(fn _ -> start_upgrade_check() end)
     end
+  end
+
+  @doc false
+  @spec start_supervisor([Supervisor.child_spec() | {module(), term()} | module()], keyword()) :: Supervisor.on_start()
+  def start_supervisor(children, opts \\ []) do
+    Supervisor.start_link(children, Keyword.put(opts, :strategy, :rest_for_one))
   end
 
   # The `aiur run` version notice is deliberately out-of-band: it runs in a
