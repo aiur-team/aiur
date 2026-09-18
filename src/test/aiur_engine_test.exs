@@ -35,13 +35,16 @@ defmodule AiurEngineTest do
   test "resolves a per-instance keyed identity" do
     # Runs inside an aiur project (this repo has .aiur/config), so the node name is
     # keyed by the project root — two instances for the same user can't collide (#431).
-    id = identity([])
+    home = Aiur.TestSupport.tmp_root!("aiur-identity-home")
+    File.mkdir_p!(home)
+    on_exit(fn -> File.rm_rf!(home) end)
+    id = identity([{"HOME", home}, {"XDG_CONFIG_HOME", nil}])
 
     assert id["AIUR_SESSION_PREFIX"] == "aiur"
     assert id["AIUR_RELEASE_NODE"] =~ ~r/\Aaiur-tester-[0-9a-f]{1,12}@127\.0\.0\.1\z/
     assert id["AIUR_INSTANCE_KEY"] =~ ~r/\A[0-9a-f]{1,12}\z/
-    assert id["AIUR_BG_STATE_DIR"] =~ ~r{/\.config/aiur$}
-    assert id["AIUR_COOKIE_FILE"] =~ ~r{/\.config/aiur/cookie$}
+    assert id["AIUR_BG_STATE_DIR"] == Path.join(home, ".config/aiur")
+    assert id["AIUR_COOKIE_FILE"] == Path.join(home, ".config/aiur/cookie")
   end
 
   test "the state dir is redirectable so tests need not touch ~/.config/aiur" do
@@ -2414,6 +2417,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
 
     script = """
     sleep() { :; }
+    kill_beams_matching() { :; }
+    preflight_stale_manual_smoke() { :; }
     probe_control_liveness() {
       echo PROBE >> "$EVENTS"
       printf up
@@ -2433,6 +2438,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
         {"AIUR_BG_STATE_DIR", state},
+        {"XDG_RUNTIME_DIR", state},
+        {"HOME", state},
         {"AIUR_LOGS_ROOT", logs},
         {"AIUR_NODE_GRACE_TICKS", "2"},
         {"EVENTS", events},
@@ -2480,6 +2487,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
 
     script = """
     sleep() { :; }
+    kill_beams_matching() { :; }
+    preflight_stale_manual_smoke() { :; }
     probe_control_liveness() { printf up; }
     probe_dashboard_status() { :; }
     start_beam_death_watchdog() { printf '424242\n'; }
@@ -2493,6 +2502,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
         {"AIUR_BG_STATE_DIR", state},
+        {"XDG_RUNTIME_DIR", state},
+        {"HOME", state},
         {"AIUR_LOGS_ROOT", logs},
         {"PATH", path}
       ])

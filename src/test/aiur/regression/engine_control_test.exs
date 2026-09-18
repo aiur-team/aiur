@@ -862,6 +862,7 @@ defmodule Aiur.Regression.EngineControlTest do
         run_sourced_engine(script, [
           {"AIUR_RELEASE_DIR", rel},
           {"AIUR_BG_STATE_DIR", state},
+          {"XDG_RUNTIME_DIR", state},
           {"AIUR_LOGS_ROOT", Path.join(tmp, "logs")},
           {"AIUR_NODE_GRACE_TICKS", "2"},
           {"EVENTS", events},

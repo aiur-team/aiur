@@ -49,7 +49,6 @@ defmodule Aiur.AgentGitHubGuard do
   @relative_gh_config_dir ".aiur-runtime/gh"
   @relative_quota_dir ".aiur-runtime/github-quota"
   @broker_relative_path ".aiur-runtime/bin/aiur-github-budget"
-  @legacy_host_guard_path Path.join(System.user_home!(), ".aiur/github-budget/bin/gh")
   # #2356: the credential file the `gh` guard reads. It lives beside the shared
   # budget database — the same host-wide directory every agent on a host
   # already shares — so the wrapper can authenticate a governed call without a
@@ -295,7 +294,9 @@ defmodule Aiur.AgentGitHubGuard do
   defp real_directory?(path), do: match?({:ok, %File.Stat{type: :directory}}, File.lstat(path))
 
   @spec host_bin_dir() :: Path.t()
-  def host_bin_dir, do: Path.join(System.user_home!(), ".aiur/bin")
+  def host_bin_dir do
+    Application.get_env(:aiur, :host_guard_bin_dir) || Path.join(System.user_home!(), ".aiur/bin")
+  end
 
   @spec real_gh() :: Path.t() | nil
   def real_gh do
@@ -320,8 +321,7 @@ defmodule Aiur.AgentGitHubGuard do
   def install_host do
     bin = host_bin_dir()
 
-    with :ok <- ensure_directory(Path.join(System.user_home!(), ".aiur")),
-         :ok <- ensure_directory(Path.dirname(bin)),
+    with :ok <- ensure_directory(Path.dirname(bin)),
          :ok <- ensure_directory(bin),
          :ok <- atomic_install(Path.join(bin, "gh"), @gh_script),
          :ok <- atomic_install(Path.join(bin, "git"), @git_script),
@@ -511,16 +511,22 @@ defmodule Aiur.AgentGitHubGuard do
     path = Path.expand(path)
 
     path != Path.join(host_bin_dir(), "gh") and
-      path != Path.join(System.user_home!(), ".aiur/github-budget/bin/gh") and
+      path != legacy_host_guard_path() and
       not String.ends_with?(path, "/.aiur-runtime/bin/gh") and
       match?({:ok, %File.Stat{type: :regular, mode: mode}} when Bitwise.band(mode, 0o111) != 0, File.stat(path))
   end
 
+  # Resolve beside the host wrappers at runtime, never against a build host's
+  # compile-time HOME. A test override isolates migration/deletion as well.
+  defp legacy_host_guard_path do
+    Path.join([Path.dirname(host_bin_dir()), "github-budget", "bin", "gh"])
+  end
+
   defp retire_legacy_host_guard do
-    case File.read(@legacy_host_guard_path) do
+    case File.read(legacy_host_guard_path()) do
       {:ok, contents} ->
         if String.contains?(contents, "Fleet guard for agent-launched `gh` calls.") do
-          File.rm(@legacy_host_guard_path)
+          File.rm(legacy_host_guard_path())
         else
           :ok
         end
@@ -529,7 +535,7 @@ defmodule Aiur.AgentGitHubGuard do
         :ok
 
       {:error, reason} ->
-        {:error, {:legacy_host_guard_unavailable, @legacy_host_guard_path, reason}}
+        {:error, {:legacy_host_guard_unavailable, legacy_host_guard_path(), reason}}
     end
   end
 end
