@@ -354,6 +354,13 @@ defmodule Aiur.TestResetTest do
         #!/bin/sh
         printf '%s\\n' "$*" >> "$GH_TRACE"
 
+        # Inject the keyring lookup at the executable boundary. No host gh
+        # authentication or process-wide token is needed for this fixture.
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          printf '%s\\n' 'test-reset-token'
+          exit 0
+        fi
+
         if [ "$1" = "issue" ] && [ "$2" = "view" ] && [ "$3" = "99" ]; then
           printf '%s\\n' '{"state":"CLOSED","labels":[{"name":"agent:todo"}]}'
           exit 0
