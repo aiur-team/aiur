@@ -236,11 +236,15 @@ defmodule Aiur.DecisionStore do
   An open or deferred Command is retired with no answer, so it stays
   distinguishable in the durable record from a real decision.
 
-  A `:decided` Command can also be mooted while its answer is undelivered
-  (`Aiur.Decision.delivered?/1` is false). The recorded answer stays in the
+  A `:decided` Command can also be mooted while its answer is undelivered and
+  not yet handed to a worker (`Aiur.Decision.delivered?/1` and
+  `Aiur.Decision.handed_off?/1` are false). The recorded answer stays in the
   audit trail, but a mooted Command is never dispatched and a queued copy is
-  refused at the delivery gate (#2711). A delivered Command is refused with
-  `{:conflict, :answer_delivered}`.
+  refused at the delivery gate (#2711). Refusals: `{:conflict,
+  :answer_delivered}`, `{:conflict, :answer_in_flight}`, and for an Executor
+  actor an `:executor_scope` error unless an Executor recorded the answer or
+  could have recorded it. A payload `expected_version` must match the current
+  version.
 
   `opts[:actor]` is trusted runtime identity and is attributed in the event.
   `payload` carries a bounded `reason_class` (required) and an optional
@@ -267,7 +271,8 @@ defmodule Aiur.DecisionStore do
   recorded revision.
 
   Refusals: `{:conflict, :answer_delivered}` once any answer reached the
-  agent, `{:not_decided, status}` for a Command with no answer yet (answer it
+  agent, `{:conflict, :answer_in_flight}` once the delivery gate handed an
+  answer to a worker, `{:not_decided, status}` for a Command with no answer yet (answer it
   instead), and `{:conflict, status}` for a retired Command.
   """
   @spec supersede(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
@@ -948,7 +953,8 @@ defmodule Aiur.DecisionStore do
   end
 
   def handle_call({:validate_delivery, item}, _from, state) do
-    {:reply, validate_transport_delivery(state, item), state}
+    {reply, next_state} = validate_and_hand_off(state, item)
+    {:reply, reply, next_state}
   end
 
   def handle_call({:transport_transition, type, item, reason}, _from, state) do
@@ -1186,9 +1192,7 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp require_supersedable(%Decision{decision_status: :decided} = decision) do
-    if Decision.delivered?(decision), do: {:error, {:conflict, :answer_delivered}}, else: :ok
-  end
+  defp require_supersedable(%Decision{decision_status: :decided} = decision), do: require_withdrawable(decision)
 
   defp require_supersedable(%Decision{decision_status: status}) when status in [:open, :deferred],
     do: {:error, {:not_decided, status}}
@@ -1835,7 +1839,8 @@ defmodule Aiur.DecisionStore do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          {:ok, actor} <- fetch_actor(opts),
          {:ok, reason_class} <- moot_reason_class(payload),
-         {:ok, detail} <- moot_detail(payload) do
+         {:ok, detail} <- moot_detail(payload),
+         :ok <- require_moot_version(decision, payload) do
       case decision.decision_status do
         :open ->
           persist_mooting(decision, reason_class, detail, actor, state)
@@ -1866,9 +1871,8 @@ defmodule Aiur.DecisionStore do
   # delivery gate refuses a copy that is already queued (#2711). A delivered
   # answer is immutable, so this is refused once any action was delivered.
   defp moot_undelivered(decision, reason_class, detail, actor, state) do
-    if Decision.delivered?(decision) do
-      {:reply, {:error, {:conflict, :answer_delivered}}, state}
-    else
+    with :ok <- require_withdrawable(decision),
+         :ok <- require_executor_may_withdraw(decision, actor) do
       case persist_mooting(decision, reason_class, detail, actor, state) do
         {:reply, {:ok, %{status: :accepted}}, _next_state} = reply ->
           emit_withdrawn_delivery_resolution(decision, decision.active_action_id, :moot)
@@ -1877,6 +1881,52 @@ defmodule Aiur.DecisionStore do
         reply ->
           reply
       end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  # Delivered answers are immutable. A handed-off answer is in flight: the
+  # worker may already be sending it, so withdrawing it now would race the
+  # send (#2711).
+  defp require_withdrawable(decision) do
+    cond do
+      Decision.delivered?(decision) -> {:error, {:conflict, :answer_delivered}}
+      Decision.handed_off?(decision) -> {:error, {:conflict, :answer_in_flight}}
+      true -> :ok
+    end
+  end
+
+  # Mooting a decided Command withdraws a recorded answer, which is more than an
+  # Executor may do on its own. It may withdraw an answer that an Executor
+  # recorded, or one it could have recorded itself (the same authority and
+  # reversibility floor as `executor-answer`). Anything else is the operator's
+  # call, so the Executor must escalate it (#2711).
+  defp require_executor_may_withdraw(decision, %{kind: :executor}) do
+    cond do
+      match?(%DecisionAnswer{actor: %{kind: :executor}}, Decision.active_answer(decision)) ->
+        :ok
+
+      not DecisionAuthority.executor_authority_answerable?(decision) ->
+        {:error, {:answer_invalid, {:executor_scope, {:authority, decision.authority}}}}
+
+      not DecisionAuthority.executor_reversibility_answerable?(decision) ->
+        {:error, {:answer_invalid, {:executor_scope, {:reversibility, decision.reversibility}}}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp require_executor_may_withdraw(_decision, _actor), do: :ok
+
+  # `--expected-version` guards a moot against a stale view of the Command.
+  # Callers that send no version (the dashboard) are not checked.
+  defp require_moot_version(decision, payload) do
+    case payload_value(payload, :expected_version) do
+      nil -> :ok
+      version when version == decision.version -> :ok
+      version -> {:error, {:conflict, {:stale_version, version, decision.version}}}
     end
   end
 
@@ -2520,6 +2570,7 @@ defmodule Aiur.DecisionStore do
   defp lifecycle_slug(:revision_no_longer_applicable), do: "revision-no-longer-applicable"
   defp lifecycle_slug(:follow_up_required), do: "revision-follow-up-required"
   defp lifecycle_slug(:follow_up_handled), do: "revision-follow-up-handled"
+  defp lifecycle_slug(:handed_off), do: "handed-off"
   defp lifecycle_slug(:delivered), do: "delivered"
   defp lifecycle_slug(:restored), do: "restored"
   defp lifecycle_slug(:consumed), do: "consumed"
@@ -2680,6 +2731,57 @@ defmodule Aiur.DecisionStore do
     case withdrawn_delivery(state, item) do
       {:withdrawn, why} -> {:error, {:answer_withdrawn, why}}
       :not_withdrawn -> validate_correlated_delivery(state, item)
+    end
+  end
+
+  # The gate and the provider confirmation are separate steps, and the send
+  # happens between them. A moot or supersede in that window would race the
+  # send, so an accepted item is durably marked as handed off before the worker
+  # sends it. From then on the answer counts as in flight and cannot be
+  # withdrawn (#2711). If the mark cannot be written, the gate fails closed and
+  # the worker retries the item.
+  defp validate_and_hand_off(state, item) do
+    case validate_transport_delivery(state, item) do
+      {:ok, :accepted} -> record_handoff(state, item)
+      other -> {other, state}
+    end
+  end
+
+  defp record_handoff(state, item) do
+    case correlated_transport_context(state, item) do
+      {:ok, decision, attempt, context} when is_map(attempt) ->
+        if handoff_recorded?(attempt),
+          do: {{:ok, :accepted}, state},
+          else: persist_handoff(state, decision, context)
+
+      {:ok, decision, :missing_attempt, context} ->
+        persist_missing_attempt_handoff(state, decision, context)
+
+      _other ->
+        {{:ok, :accepted}, state}
+    end
+  end
+
+  defp handoff_recorded?(attempt),
+    do: not is_nil(Map.get(attempt, :handed_off_at)) or not is_nil(attempt.delivered_at)
+
+  defp persist_handoff(state, decision, context) do
+    data = %{action_id: context.action_id, attempt_id: context.attempt_id, queue_item_id: context.queue_item_id}
+
+    case build_and_persist_event(:handed_off, decision, data, DateTime.utc_now(), state) do
+      {:ok, next_state, _updated} -> {{:ok, :accepted}, next_state}
+      {:error, reason} -> {{:error, {:handoff_not_recorded, reason}}, state}
+    end
+  end
+
+  defp persist_missing_attempt_handoff(state, decision, context) do
+    data = %{action_id: context.action_id, attempt_id: context.attempt_id, queue_item_id: context.queue_item_id}
+    event_type = if revision_action?(decision, context.action_id), do: :revision_dispatched, else: :dispatch_queued
+
+    case build_and_persist_event(event_type, decision, data, DateTime.utc_now(), state) do
+      {:ok, %{writable?: true} = queued_state, queued_decision} -> persist_handoff(queued_state, queued_decision, context)
+      {:ok, queued_state, _queued_decision} -> {{:error, {:store_unavailable, queued_state.health}}, queued_state}
+      {:error, reason} -> {{:error, {:handoff_not_recorded, reason}}, state}
     end
   end
 
@@ -2848,6 +2950,7 @@ defmodule Aiur.DecisionStore do
       {:ok, :accepted, next_state, {updated, event}} ->
         finalized = repair_and_notify_lifecycle(next_state, [{updated, event}])
         finalized = maybe_project_delivery_attention(finalized, decision, updated, type, context.action_id)
+        maybe_alert_withdrawn_delivery(updated, type, context.action_id)
         {{:ok, :accepted}, finalized}
 
       {:error, transition_reason} ->
@@ -3199,6 +3302,36 @@ defmodule Aiur.DecisionStore do
       severity: "info"
     )
   end
+
+  # Backstop for #2711. The handoff mark makes a withdrawal after the gate
+  # impossible, so a provider confirmation for a mooted Command or a replaced
+  # action means an answer the operator withdrew reached an agent anyway. That
+  # needs a human, so it is raised, never silently recorded.
+  defp maybe_alert_withdrawn_delivery(%Decision{} = decision, :delivered, action_id) do
+    why =
+      cond do
+        decision.decision_status == :moot -> "the Command was mooted"
+        decision.active_action_id != action_id -> "a newer answer replaced it"
+        true -> nil
+      end
+
+    if why do
+      Alerts.emit_custom(
+        failure_attention_topic(decision, action_id) <> "-withdrawn",
+        "A withdrawn Decision answer reached the agent for #{decision.decision_id}.",
+        issue: decision.ticket.identifier,
+        reason:
+          "Decision #{decision.decision_id} action #{action_id} was delivered although #{why}. " <>
+            "Tell the agent on ticket #{decision.ticket.identifier} to ignore it.",
+        needs_attention: true,
+        severity: "warning"
+      )
+    end
+
+    :ok
+  end
+
+  defp maybe_alert_withdrawn_delivery(_decision, _type, _action_id), do: :ok
 
   # A withdrawn answer (mooted, or replaced by a newer one) will never be
   # delivered, so any delivery alert raised for it is cleared rather than left

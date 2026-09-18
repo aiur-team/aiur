@@ -76,6 +76,7 @@ defmodule Aiur.Decision do
           status: :queued | :delivered | :restored | :consumed | :failed,
           attempted_at: DateTime.t(),
           queued_at: DateTime.t() | nil,
+          handed_off_at: DateTime.t() | nil,
           delivered_at: DateTime.t() | nil,
           restored_at: DateTime.t() | nil,
           consumed_at: DateTime.t() | nil,
@@ -225,10 +226,10 @@ defmodule Aiur.Decision do
 
   Delivery is provider-confirmed evidence on a dispatch attempt (`delivered_at`
   is set once and never cleared), or an agent acknowledgement or resolution of
-  any action.
-  A queued or failed attempt without that evidence is not a delivery. Once
-  this is true the recorded answers are immutable for the Executor: it can
-  neither moot the Command nor supersede its answer (#2711).
+  any action. A queued or failed attempt without that evidence is not a
+  delivery. Once this is true the recorded answers are immutable for the
+  Executor: it can neither moot the Command nor supersede its answer (#2711).
+  See also `handed_off?/1`.
   """
   @spec delivered?(t()) :: boolean()
   def delivered?(%__MODULE__{decision_status: status}) when status in [:acknowledged, :resolved], do: true
@@ -236,6 +237,21 @@ defmodule Aiur.Decision do
   def delivered?(%__MODULE__{} = decision) do
     map_size(decision.acknowledgements) > 0 or
       Enum.any?(decision.dispatch_attempts, &(not is_nil(&1.delivered_at)))
+  end
+
+  @doc """
+  True once the delivery gate handed any answer action to a worker for sending
+  (`handed_off_at`), even if the provider has not confirmed it yet.
+
+  The provider confirmation (`delivered?/1`) arrives only after the send, so a
+  withdrawal between the gate and the confirmation would race the send. A
+  handed-off answer is in flight: the Executor can no longer moot or supersede
+  it (#2711). The mark stays after a failed send, because the provider may have
+  received the message anyway.
+  """
+  @spec handed_off?(t()) :: boolean()
+  def handed_off?(%__MODULE__{} = decision) do
+    Enum.any?(decision.dispatch_attempts, &(not is_nil(Map.get(&1, :handed_off_at))))
   end
 
   @doc "Returns only dispatch attempts correlated to the active action."

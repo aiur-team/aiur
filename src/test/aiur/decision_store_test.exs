@@ -3421,8 +3421,11 @@ defmodule Aiur.DecisionStoreTest do
       assert_receive {:handoff_before_settlement, dispatcher_pid, item}, 1_000
 
       assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      # The gate adopts the queue acceptance and marks the handoff (#2711), so
+      # a withdrawal cannot race the send that follows.
       assert {:ok, before_delivery} = DecisionStore.get(decision.decision_id, pid)
-      assert before_delivery.dispatch_attempts == []
+      assert [%{status: :queued, handed_off_at: %DateTime{}, attempt_id: handed_off_attempt}] = before_delivery.dispatch_attempts
+      assert handed_off_attempt == item.correlation.attempt_id
 
       assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
       delivered = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :delivered))

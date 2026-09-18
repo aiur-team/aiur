@@ -15,11 +15,12 @@ defmodule Aiur.DecisionWithdrawalTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.QueueDrain
-  alias Aiur.{Decision, DecisionEvent, DecisionPubSub, DecisionStore}
+  alias Aiur.{AlertFeed, Decision, DecisionEvent, DecisionPubSub, DecisionStore}
 
   @ticket %{identifier: "2711", title: "Withdraw undelivered answers", url: "https://github.com/aiur-team/aiur/issues/2711"}
   @source %{agent_id: "codex", session_id: "worker-session-1", event_id: "request-1"}
   @executor %{kind: :executor, id: "khala-executor"}
+  @operator %{kind: :operator, id: "operator-1"}
   @target_agent %{kind: :agent, id: "codex"}
   @reconcile_report_timeout_ms 30_000
 
@@ -214,6 +215,127 @@ defmodule Aiur.DecisionWithdrawalTest do
     end
   end
 
+  describe "an answer handed to a worker is in flight (review of #2712)" do
+    test "moot and supersede are refused between the gate and the provider confirmation", %{dir: dir, worker: worker} do
+      pid = start_store!(dir, worker)
+      {decision, original, item} = queued_answer(pid, worker)
+
+      # Before the gate, the queued answer can still be withdrawn in principle.
+      refute Decision.handed_off?(elem(DecisionStore.get(decision.decision_id, pid), 1))
+
+      # The worker passes the gate: the handoff is durable before the send.
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
+      assert [%DecisionEvent{data: %{action_id: action_id}}] = Enum.filter(audit, &(&1.type == :handed_off))
+      assert action_id == original.action_id
+
+      # The send is in progress. Neither withdrawal may race it, and the refusal
+      # survives a daemon restart.
+      assert {:error, {:conflict, :answer_in_flight}} = moot(pid, decision)
+      assert {:error, {:conflict, :answer_in_flight}} = supersede(pid, decision, "too-late", "Other plan")
+
+      GenServer.stop(pid)
+      restarted = start_store!(dir, worker)
+      assert {:error, {:conflict, :answer_in_flight}} = moot(restarted, decision)
+
+      # The provider then confirms: the one answer that went out is the recorded one.
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, restarted)
+      delivered = wait_for(restarted, decision.decision_id, &(&1.delivery_status == :delivered))
+      assert delivered.decision_status == :decided
+      assert delivered.revisions == []
+      assert {:error, {:conflict, :answer_delivered}} = moot(restarted, decision)
+    end
+
+    test "a provider confirmation for a withdrawn answer raises attention and cannot revive it", %{dir: dir, worker: worker} do
+      alert_opts = capture_alert_log(dir)
+      pid = start_store!(dir, worker)
+      {decision, original, item} = queued_answer(pid, worker)
+
+      # Mooted while only queued, before any handoff.
+      assert {:ok, %{status: :accepted}} = moot(pid, decision)
+
+      # A worker that skipped the gate reports provider delivery anyway.
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+      topic = "ticket.#{@ticket.identifier}.agent.attention.decision-delivery-#{String.replace(original.action_id, "_", "-")}-withdrawn"
+      assert AlertFeed.active_ticket_attention?(topic, alert_opts)
+
+      # The agent acknowledges it: refused, so the Command stays moot, also
+      # after a restart.
+      assert {:error, _reason} =
+               DecisionStore.agent_lifecycle(
+                 :acknowledged,
+                 %{decision_id: decision.decision_id, action_id: original.action_id, expected_version: decision.version},
+                 [ticket_identifier: @ticket.identifier, actor: @target_agent, source: @source],
+                 pid
+               )
+
+      assert {:ok, %{decision_status: :moot}} = DecisionStore.get(decision.decision_id, pid)
+      GenServer.stop(pid)
+      restarted = start_store!(dir, worker)
+      assert {:ok, %{decision_status: :moot}} = DecisionStore.get(decision.decision_id, restarted)
+    end
+
+    test "a revision cannot revive a mooted Command", %{dir: dir, worker: worker} do
+      pid = start_store!(dir, worker)
+      {decision, original} = undelivered_answer(pid)
+      assert {:ok, %{status: :accepted}} = moot(pid, decision)
+
+      assert {:error, {:conflict, :moot}} =
+               DecisionStore.revise(
+                 decision.decision_id,
+                 %{
+                   "idempotency_key" => "operator-revision",
+                   "expected_version" => decision.version,
+                   "expected_action_id" => original.action_id,
+                   "expected_revision_sequence" => 0,
+                   "custom_response" => "Revive it",
+                   "rationale" => "Operator revision"
+                 },
+                 [actor: @operator],
+                 pid
+               )
+
+      assert {:ok, %{decision_status: :moot, revisions: []}} = DecisionStore.get(decision.decision_id, pid)
+    end
+
+    test "a moot with a stale expected version is refused", %{dir: dir, worker: worker} do
+      pid = start_store!(dir, worker)
+      {decision, _original} = undelivered_answer(pid)
+
+      assert {:error, {:conflict, {:stale_version, 7, 1}}} =
+               DecisionStore.moot(
+                 decision.decision_id,
+                 %{"reason_class" => "operator_changed_direction", "expected_version" => 7},
+                 [actor: @executor],
+                 pid
+               )
+
+      assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, pid)
+    end
+  end
+
+  describe "Executor authority to withdraw a decided answer (review of #2712)" do
+    test "an Executor cannot moot an operator answer it could not have given", %{dir: dir, worker: worker} do
+      pid = start_store!(dir, worker)
+      assert {:ok, %{decision: decision}} = request(pid, "human_required")
+      assert {:ok, %{action: _answer}} = answer(pid, decision, "operator-answer", "Operator plan", @operator)
+
+      assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} = moot(pid, decision)
+      assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, pid)
+
+      # The operator can still withdraw it.
+      assert {:ok, %{status: :accepted}} = moot(pid, decision, @operator)
+    end
+
+    test "an Executor can moot an operator answer it could have given itself", %{dir: dir, worker: worker} do
+      pid = start_store!(dir, worker)
+      assert {:ok, %{decision: decision}} = request(pid, "supervisor_allowed")
+      assert {:ok, %{action: _answer}} = answer(pid, decision, "operator-answer", "Operator plan", @operator)
+
+      assert {:ok, %{status: :accepted, decision: %{decision_status: :moot}}} = moot(pid, decision)
+    end
+  end
+
   # -- helpers ---------------------------------------------------------------
 
   defp undelivered_answer(pid) do
@@ -230,12 +352,12 @@ defmodule Aiur.DecisionWithdrawalTest do
     {decision, original}
   end
 
-  defp request(pid) do
+  defp request(pid, authority \\ "supervisor_allowed") do
     DecisionStore.request(
       %{
         "question" => "Provide a disposable session, or accept inventory-only evidence?",
         "blocking" => true,
-        "authority" => "supervisor_allowed",
+        "authority" => authority,
         "reversibility" => "reversible"
       },
       [ticket: @ticket, source: @source],
@@ -243,7 +365,7 @@ defmodule Aiur.DecisionWithdrawalTest do
     )
   end
 
-  defp answer(pid, decision, key, response) do
+  defp answer(pid, decision, key, response, actor \\ @executor) do
     DecisionStore.answer(
       decision.decision_id,
       %{
@@ -252,9 +374,43 @@ defmodule Aiur.DecisionWithdrawalTest do
         "custom_response" => response,
         "rationale" => "Executor answer"
       },
-      [actor: @executor],
+      [actor: actor],
       pid
     )
+  end
+
+  defp moot(pid, decision, actor \\ @executor) do
+    DecisionStore.moot(
+      decision.decision_id,
+      %{"reason_class" => "operator_changed_direction", "expected_version" => decision.version},
+      [actor: actor],
+      pid
+    )
+  end
+
+  # A queued, not yet handed-off answer: a worker exists, so the dispatch
+  # enqueues it, but nothing has passed the delivery gate.
+  defp queued_answer(pid, worker, authority \\ "supervisor_allowed", actor \\ @executor) do
+    :atomics.put(worker, 1, @worker)
+    assert {:ok, %{decision: decision}} = request(pid, authority)
+    assert {:ok, %{action: original}} = answer(pid, decision, "queued-answer", "Proceed", actor)
+    assert_receive {:dispatched, _action_id, item}, 5_000
+    _queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+    {decision, original, item}
+  end
+
+  defp capture_alert_log(dir) do
+    previous_log_file = Application.get_env(:aiur, :log_file)
+    log_root = Path.join(dir, "withdrawal-alerts")
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if previous_log_file,
+        do: Application.put_env(:aiur, :log_file, previous_log_file),
+        else: Application.delete_env(:aiur, :log_file)
+    end)
+
+    [roots: [], log_roots: [log_root]]
   end
 
   defp supersede(pid, decision, key, response) do

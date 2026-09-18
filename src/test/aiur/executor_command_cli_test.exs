@@ -376,6 +376,31 @@ defmodule Aiur.ExecutorCommandCLITest do
       assert output =~ "cannot moot Command: its answer was already delivered to the agent"
     end
 
+    test "reports an answer in flight as not withdrawable" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.moot(
+                   [decision_id: "decision:42", expected_version: 3, reason_class: "operator_changed_direction"],
+                   moot_fun: fn _, _, _, _ -> {:error, {:conflict, :answer_in_flight}} end
+                 ) == 1
+        end)
+
+      assert output =~ "cannot moot Command: its answer was already handed to the agent's worker"
+    end
+
+    test "tells the Executor to escalate an answer it may not withdraw" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.moot(
+                   [decision_id: "decision:42", expected_version: 3, reason_class: "operator_changed_direction"],
+                   moot_fun: fn _, _, _, _ -> {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} end
+                 ) == 1
+        end)
+
+      assert output =~ "outside what the Executor may withdraw"
+      assert output =~ "executor-escalate"
+    end
+
     test "routes moot errors through an injected writer" do
       test_pid = self()
 

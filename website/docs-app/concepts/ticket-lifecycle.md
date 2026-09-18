@@ -406,17 +406,25 @@ daemon tries again at its next start. So a worker that starts later for the
 same ticket, for example after a requeue, receives an answer that the first
 worker never saw.
 
-While no agent has received the answer, the Executor can change it:
+While no worker has picked up the answer for sending, the Executor can change
+it:
 
 - `executor-moot` withdraws it. The Command becomes `:moot`, the answer stays
   in the audit history, and Aiur never delivers it.
 - `executor-answer --supersede` replaces it. The new answer is recorded as a
   revision, and only the newest answer is delivered.
 
-The delivery gate checks each queued answer again just before it reaches the
-agent. It refuses a queued copy of a mooted or replaced answer. After any
-answer reaches an agent, the Command is immutable for the Executor and both
-commands are refused.
+The delivery gate checks each queued answer again just before the worker sends
+it. It refuses a queued copy of a mooted or replaced answer. When it accepts an
+answer, it durably marks it as handed off. From then on the answer is in
+flight, and both commands are refused with "answer in flight".
+
+If a provider still confirms a withdrawn answer, Aiur raises a needs-attention
+alert, and the Command stays `:moot`.
+
+For a decided Command, the Executor may moot only an answer that an Executor
+recorded, or one that it could have recorded itself. Otherwise it must run
+`executor-escalate`.
 
 ## Step 5 — PR opened, agent pauses
 

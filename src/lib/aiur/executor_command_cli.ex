@@ -270,6 +270,26 @@ defmodule Aiur.ExecutorCommandCLI do
     1
   end
 
+  defp command_error(action, {:conflict, :answer_in_flight}, deps) do
+    write_error(
+      deps,
+      "aiur: cannot #{action} Command: its answer was already handed to the agent's worker for sending, " <>
+        "so the Executor cannot withdraw or replace it"
+    )
+
+    1
+  end
+
+  defp command_error("moot", {:answer_invalid, {:executor_scope, {field, value}}}, deps) do
+    write_error(
+      deps,
+      "aiur: this Command's answer is outside what the Executor may withdraw (#{field}: #{inspect(value)}) " <>
+        "and was not recorded by an Executor; run aiur executor-escalate for this decision instead"
+    )
+
+    1
+  end
+
   defp command_error("answer", {:not_decided, status}, deps) do
     write_error(deps, "aiur: cannot supersede Command: it has no answer yet (#{inspect(status)}); run executor-answer without --supersede")
     1

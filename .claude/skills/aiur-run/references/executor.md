@@ -176,8 +176,10 @@ idempotent and stale events cannot overwrite a later answer.
 A decided answer that no agent has received yet can still be changed. It is
 addressed to the ticket, so a later worker of the same ticket receives it.
 Withdraw it with `executor-moot`, or replace it with `executor-answer
---supersede`; the store never delivers a mooted or replaced answer. A delivered
-answer is immutable for the Executor.
+--supersede`; the store never delivers a mooted or replaced answer. Once a
+worker picks up the answer for sending, it is in flight and immutable for the
+Executor. Moot only an answer that an Executor recorded or could have recorded;
+otherwise escalate.
 
 If the Command is uncertain, irreversible, changes feature scope or product
 direction, exceeds the authority envelope, or requires the Executor to guess,
