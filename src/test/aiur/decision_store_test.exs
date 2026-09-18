@@ -477,6 +477,35 @@ defmodule Aiur.DecisionStoreTest do
                DecisionStore.get(non_blocking_id, pid)
     end
 
+    test "open_blocking_decision_ids/2 names the Commands that hold a ticket (#2699)", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: blocking}} =
+               request(pid, %{"question" => "Hold ticket 52?", "blocking" => true}, ticket: %{@ticket | identifier: "52"})
+
+      assert {:ok, %{decision: _notice}} =
+               request(pid, %{"question" => "Notice on 52?", "blocking" => false}, ticket: %{@ticket | identifier: "52"})
+
+      assert {:ok, %{decision: _other}} =
+               request(pid, %{"question" => "Hold ticket 53?", "blocking" => true}, ticket: %{@ticket | identifier: "53"})
+
+      assert DecisionStore.open_blocking_decision_ids(["52"], pid) == {:ok, [blocking.decision_id]}
+      assert DecisionStore.open_blocking_decision_ids(["unknown"], pid) == {:ok, []}
+
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, blocking.decision_id, %{
+                 "idempotency_key" => "answer-52",
+                 "expected_version" => blocking.version,
+                 "custom_response" => "Proceed"
+               })
+
+      assert DecisionStore.open_blocking_decision_ids(["52"], pid) == {:ok, []}
+    end
+
+    test "open_blocking_decision_ids/2 reports an unreachable store" do
+      assert DecisionStore.open_blocking_decision_ids(["52"], :no_such_decision_store) == {:error, :store_unavailable}
+    end
+
     test "a deferred blocking Command still gates dispatch until answered", %{dir: dir} do
       pid = start_store!(dir)
 

@@ -242,6 +242,15 @@ defmodule AiurWeb.ObservabilityApiController do
     error_response(conn, 409, "control_conflict", inspect(reason))
   end
 
+  defp render_control_response({:error, {:blocked_on_decision, _detail} = reason}, conn, _issue_identifier, _action) do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
+  defp render_control_response({:error, {tag, _detail} = reason}, conn, _issue_identifier, _action)
+       when tag in [:worker_startup_failed, :not_resumable_control_status] do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
   defp render_control_response({:error, reason}, conn, _issue_identifier, _action)
        when reason in [
               :already_inactive,
@@ -258,10 +267,13 @@ defmodule AiurWeb.ObservabilityApiController do
               :not_routable_to_worker,
               :not_resumable,
               :pause_override_still_present,
+              :ticket_parked,
               :globally_paused,
               :stale_generation,
               :tracker_issue_not_found,
               :waiting_for_dependencies,
+              :worker_not_running,
+              :worker_not_started,
               :workspace_ownership_waiting
             ] do
     error_response(conn, 409, "control_conflict", inspect(reason))

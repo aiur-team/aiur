@@ -659,6 +659,39 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :worker_capacity
           | :fleet_capacity
 
+  # The single list of every reason `dispatch_decision/5` and
+  # `manual_resume_decision/2` can decline with. Callers that translate a
+  # decline reason (the operator resume path) enumerate this list in tests, so
+  # a reason added to the policy without a translation fails a test instead of
+  # crashing `aiur resume` with a FunctionClauseError (#2699). Keep it in the
+  # same order as `t:dispatch_decline_reason/0`.
+  @dispatch_decline_reasons [
+    :invalid_issue,
+    :contradictory_state_labels,
+    :not_routable,
+    :unauthorized,
+    :paused,
+    :parked,
+    :inactive_state,
+    :no_agent_work_state,
+    :terminal_state,
+    :dependency,
+    :blocked_on_decision,
+    :already_running,
+    :auto_resume_pending,
+    :retry_backoff,
+    :model_fallback_waiting,
+    :workspace_ownership_waiting,
+    :claimed_without_runtime,
+    :state_capacity,
+    :worker_capacity,
+    :fleet_capacity
+  ]
+
+  @doc "Every reason the dispatch policy can decline an issue with."
+  @spec dispatch_decline_reasons() :: [dispatch_decline_reason(), ...]
+  def dispatch_decline_reasons, do: @dispatch_decline_reasons
+
   @spec dispatch_decision(term(), State.t()) :: :dispatch | {:skip, dispatch_decline_reason()}
   def dispatch_decision(issue, %State{} = state) do
     dispatch_decision(
