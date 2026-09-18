@@ -386,12 +386,51 @@ aiur commands --filter blocking       # tickets whose dispatch is held
 aiur commands <decision-id>           # one Command, its options and lifecycle
 aiur executor-answer <decision-id> --expected-version 1 --option <id> --rationale "..." --idempotency-key <key>
 aiur executor-escalate <decision-id> --expected-version 1 --reason "Needs the release owner"
+aiur executor-answer <decision-id> --expected-version 1 --custom-response "..." --rationale "..." --idempotency-key <key> --supersede
+aiur executor-moot <decision-id> --expected-version 1 --reason-class operator_changed_direction
 ```
 
 `executor-answer` requires `--expected-version`, `--rationale`,
 `--idempotency-key`, and exactly one of `--option` / `--custom-response`; a
 stale `--expected-version` is rejected as a conflict rather than overwriting a
 newer answer. See [CLI](/reference/cli) for the full flags.
+
+### Delivery rule for a decided answer
+
+An answer is addressed to the ticket, not to the worker session that asked.
+Aiur delivers the newest answer of a `:decided` Command to whichever worker runs
+the ticket.
+
+If no worker runs it, delivery fails with `target_agent_unavailable` and the
+daemon tries again at its next start. So a worker that starts later for the
+same ticket, for example after a requeue, receives an answer that the first
+worker never saw.
+
+While no worker has picked up the answer for sending, the Executor can change
+it:
+
+- `executor-moot` withdraws it. The Command becomes `:moot`, the answer stays
+  in the audit history, and Aiur never delivers it.
+- `executor-answer --supersede` replaces it. The new answer is recorded as a
+  revision, and only the newest answer is delivered.
+
+The delivery gate checks each queued answer again just before the worker sends
+it. It refuses a queued copy of a mooted or replaced answer.
+
+When the gate accepts an answer, it durably marks it as handed off. Until the provider confirms or
+rejects the send, the answer is in flight, and both commands are refused with
+"answer in flight". After a rejected send, the answer can be withdrawn again,
+or sent again by a retry or by a new worker.
+
+If a send stays in flight with no outcome for more than a minute, a refused
+withdrawal raises a needs-attention alert, because the outcome is unknown.
+
+If a provider still confirms a withdrawn answer, Aiur raises a needs-attention
+alert, and the Command stays `:moot`.
+
+For a decided Command, the Executor may moot only an answer that an Executor
+recorded, or one that it could have recorded itself. Otherwise it must run
+`executor-escalate`.
 
 ## Step 5 — PR opened, agent pauses
 

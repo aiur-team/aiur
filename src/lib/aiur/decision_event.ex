@@ -47,6 +47,7 @@ defmodule Aiur.DecisionEvent do
     :revision_no_longer_applicable,
     :follow_up_required,
     :follow_up_handled,
+    :handed_off,
     :delivered,
     :restored,
     :consumed,
@@ -54,7 +55,7 @@ defmodule Aiur.DecisionEvent do
     :acknowledged,
     :resolved
   ]
-  @transport_types [:dispatch_queued, :revision_dispatched, :delivered, :restored, :consumed, :failed]
+  @transport_types [:dispatch_queued, :revision_dispatched, :handed_off, :delivered, :restored, :consumed, :failed]
   @actor_types [:acknowledged, :resolved]
   @snapshot_types [:requested, :enriched]
 
@@ -73,6 +74,7 @@ defmodule Aiur.DecisionEvent do
           | :revision_no_longer_applicable
           | :follow_up_required
           | :follow_up_handled
+          | :handed_off
           | :delivered
           | :restored
           | :consumed

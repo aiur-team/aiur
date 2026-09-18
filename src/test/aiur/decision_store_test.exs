@@ -900,7 +900,9 @@ defmodule Aiur.DecisionStoreTest do
                DecisionStore.moot(decision.decision_id, %{"reason_class" => "ticket_closed"}, opts, pid)
     end
 
-    test "moot is refused for a Command that already has an answer", %{dir: dir} do
+    # #2711: a decided answer that never reached an agent can be withdrawn. The
+    # delivered case stays refused; see `Aiur.DecisionWithdrawalTest`.
+    test "moot withdraws a decided answer that was never delivered", %{dir: dir} do
       pid = start_store!(dir)
 
       assert {:ok, %{decision: decision}} =
@@ -918,9 +920,13 @@ defmodule Aiur.DecisionStoreTest do
                })
 
       assert answered.decision_status == :decided
+      refute Decision.delivered?(answered)
 
-      assert {:error, {:conflict, :decided}} =
+      assert {:ok, %{status: :accepted, decision: mooted}} =
                DecisionStore.moot(decision.decision_id, %{"reason_class" => "ticket_closed"}, [actor: %{kind: :operator, id: "dashboard"}], pid)
+
+      assert mooted.decision_status == :moot
+      assert mooted.answer == answered.answer
     end
   end
 
@@ -3415,8 +3421,11 @@ defmodule Aiur.DecisionStoreTest do
       assert_receive {:handoff_before_settlement, dispatcher_pid, item}, 1_000
 
       assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      # The gate adopts the queue acceptance and marks the handoff (#2711), so
+      # a withdrawal cannot race the send that follows.
       assert {:ok, before_delivery} = DecisionStore.get(decision.decision_id, pid)
-      assert before_delivery.dispatch_attempts == []
+      assert [%{status: :queued, handed_off_at: %DateTime{}, attempt_id: handed_off_attempt}] = before_delivery.dispatch_attempts
+      assert handed_off_attempt == item.correlation.attempt_id
 
       assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
       delivered = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :delivered))

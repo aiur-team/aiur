@@ -325,10 +325,11 @@ defmodule Aiur.DecisionProjection do
     {:ok, decision}
   end
 
-  # A Command is moot when its ticket closed or its originating agent is gone:
-  # the question itself is void, so neither `blocking` nor `authority` keeps it
-  # answerable. The event records why and who, and no answer is ever set, so a
-  # mooted Command is durably distinguishable from a decided one.
+  # A Command is moot when its ticket closed, its originating agent is gone, or
+  # (for a decided Command, below) its answer was withdrawn before delivery.
+  # The question itself is void, so neither `blocking` nor `authority` keeps it
+  # answerable. The event records why and who. An open or deferred Command gets
+  # no answer, so it stays durably distinguishable from a decided one.
   defp transition(%Decision{decision_status: status} = decision, %DecisionEvent{type: :decision_mooted})
        when status in [:open, :deferred] do
     {:ok, %{decision | decision_status: :moot, delivery_status: :not_dispatched}}
@@ -336,6 +337,18 @@ defmodule Aiur.DecisionProjection do
 
   defp transition(%Decision{decision_status: :moot} = decision, %DecisionEvent{type: :decision_mooted}) do
     {:ok, decision}
+  end
+
+  # A decided answer that no agent has received yet can still be withdrawn
+  # (#2711). The recorded answer stays in place for the audit trail, but the
+  # `:moot` status makes it undeliverable. Once any action was handed off to a
+  # worker or delivered, the answer is immutable and this event is refused.
+  defp transition(%Decision{decision_status: :decided} = decision, %DecisionEvent{type: :decision_mooted}) do
+    cond do
+      Decision.delivered?(decision) -> {:error, :answer_delivered}
+      Decision.send_in_flight?(decision) -> {:error, :answer_in_flight}
+      true -> {:ok, %{decision | decision_status: :moot, delivery_status: :not_dispatched}}
+    end
   end
 
   defp transition(%Decision{} = decision, %DecisionEvent{type: :revision_recorded, data: revision} = event) do
@@ -371,6 +384,24 @@ defmodule Aiur.DecisionProjection do
       queue_dispatch_attempt(decision, event)
     end
   end
+
+  # The delivery gate records that it handed an answer to a worker for sending.
+  # It changes no status: it only marks the attempt so that a withdrawal can
+  # no longer race the send (#2711).
+  defp transition(%Decision{} = decision, %DecisionEvent{type: :handed_off} = event) do
+    with {:ok, _answer} <- answer_for_event(decision, event),
+         {:ok, attempt} <- fetch_attempt(decision, event.data) do
+      handed_off = Map.put(attempt, :handed_off_at, event.occurred_at)
+      attempts = Enum.map(decision.dispatch_attempts, &if(&1.attempt_id == attempt.attempt_id, do: handed_off, else: &1))
+      {:ok, %{decision | dispatch_attempts: attempts}}
+    end
+  end
+
+  # A mooted Command was withdrawn before any delivery, so an agent cannot
+  # acknowledge or resolve it; accepting one would revive it (#2711).
+  defp transition(%Decision{decision_status: :moot}, %DecisionEvent{type: type})
+       when type in [:acknowledged, :resolved],
+       do: {:error, :decision_moot}
 
   defp transition(%Decision{} = decision, %DecisionEvent{type: type} = event)
        when type in [:delivered, :restored, :consumed, :failed] do
@@ -637,6 +668,7 @@ defmodule Aiur.DecisionProjection do
         status: :queued,
         attempted_at: event.occurred_at,
         queued_at: event.occurred_at,
+        handed_off_at: nil,
         delivered_at: nil,
         restored_at: nil,
         consumed_at: nil,
@@ -715,6 +747,7 @@ defmodule Aiur.DecisionProjection do
         status: :failed,
         attempted_at: event.occurred_at,
         queued_at: nil,
+        handed_off_at: nil,
         delivered_at: nil,
         restored_at: nil,
         consumed_at: nil,
@@ -861,6 +894,7 @@ defmodule Aiur.DecisionProjection do
       "status" => Atom.to_string(attempt.status),
       "attempted_at" => DateTime.to_iso8601(attempt.attempted_at),
       "queued_at" => timestamp(attempt.queued_at),
+      "handed_off_at" => timestamp(Map.get(attempt, :handed_off_at)),
       "delivered_at" => timestamp(attempt.delivered_at),
       "restored_at" => timestamp(attempt.restored_at),
       "consumed_at" => timestamp(attempt.consumed_at),

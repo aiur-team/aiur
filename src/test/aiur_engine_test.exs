@@ -1063,6 +1063,25 @@ defmodule AiurEngineTest do
     assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
   end
 
+  test "executor-answer --supersede asks the store to replace an undelivered answer" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --custom-response 'New plan' --rationale 'Operator changed direction' --idempotency-key 'exec:42:s1' --supersede|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_answer(["
+    assert out =~ ", supersede: true])"
+
+    {plain, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --option yes --rationale why --idempotency-key key|,
+        []
+      )
+
+    refute plain =~ "supersede"
+  end
+
   test "executor mutations describe their attempted decision and version to the wrapper" do
     for {function, args} <- [
           {"cmd_executor_answer", "'decision:42' --expected-version 3 --option yes --rationale why --idempotency-key key"},

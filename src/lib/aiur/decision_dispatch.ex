@@ -5,6 +5,15 @@ defmodule Aiur.DecisionDispatch do
   This module never persists state. `Aiur.DecisionStore` owns the outbox
   ordering and only calls `dispatch/2` after the answer event and current
   projection are durable.
+
+  Delivery rule (#2711): an answer is addressed to the ticket
+  (`decision.ticket.identifier`), not to the worker session that asked. The
+  store dispatches only the newest answer of a `:decided` Command, and
+  `OperatorMessages` queues it for whichever worker runs the ticket. So a later
+  worker of the same ticket, for example after a requeue or a daemon restart,
+  receives an answer that an earlier worker never saw. A `:moot` Command is
+  never dispatched, and `DecisionStore.validate_delivery/2` refuses a queued
+  copy of a mooted or replaced answer just before it reaches the agent.
   """
 
   alias Aiur.{Decision, DecisionAnswer, DecisionRevisionDispatch}
