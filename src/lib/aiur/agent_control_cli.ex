@@ -1649,7 +1649,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp report_resume(status, :applied) do
-    IO.puts("aiur: resumed #{display_identifier(status)} (was: paused)")
+    IO.puts("aiur: resumed #{display_identifier(status)} (was: #{resumed_from(status)})")
     :ok
   end
 
@@ -1657,6 +1657,21 @@ defmodule Aiur.AgentControlCLI do
     print_unapplied_resume(status, detail)
     {:error, {:resume_unconfirmed, detail}}
   end
+
+  # A `:running` row that took the queued-resume path had a pause the read
+  # model had not yet shown as applied.
+  defp resumed_from(%{state: :paused}), do: "paused"
+  defp resumed_from(_status), do: "pausing"
+
+  # The status row folds every registered, unpaused agent into `:running`.
+  # Name the control state the agent was really in, so reactivating a
+  # deactivated agent or restarting a completed one does not read as
+  # "(was: running)".
+  defp prior_state(%{state: :running, work_state: work_state})
+       when work_state in [:deactivated, :completed, :sleeping, :error, :paused],
+       do: work_state
+
+  defp prior_state(%{state: state}), do: state
 
   defp select_targets(:pause, :all, statuses) do
     Enum.filter(statuses, &(&1.state in [:running, :paused]))
@@ -1705,9 +1720,15 @@ defmodule Aiur.AgentControlCLI do
     resume_selected(status)
   end
 
+  # A `:running` row is not proof that a worker is running. The row comes from
+  # the published read model, which lags a pause: a pause is admitted before
+  # the worker acknowledges it, and the snapshot can predate both. Answering
+  # "already running" from the row left a paused worker stopped while the CLI
+  # reported success (#2699). The Orchestrator owns the live registry, so it
+  # decides: it resumes a pending or applied pause, and answers
+  # `:already_running` only for a live `:working` worker.
   defp control_one(:resume, %{state: :running} = status) do
-    IO.puts("aiur: already running #{display_identifier(status)}")
-    :ok
+    resume_selected(status)
   end
 
   defp control_one(:resume, %{state: :idle} = status) do
@@ -1727,14 +1748,25 @@ defmodule Aiur.AgentControlCLI do
       # agent a resume control request and answers before the agent acts on it.
       # `:started` and `:reactivated` have already moved the issue into the
       # running set by the time they are returned, so they are claimable.
-      {:ok, {:resumed, request_id}} when previous_state == :paused ->
+      # A receipt means the Orchestrator queued a resume for a paused agent or
+      # one whose pause was still pending, even when the read model still
+      # showed the row as `:running`. Confirm it the same way.
+      {:ok, {:resumed, request_id}} ->
         {:queued_resume, status, request_id}
 
       {:ok, :resumed} when previous_state == :paused ->
         {:queued_resume, status, nil}
 
+      {:ok, :already_running} ->
+        IO.puts("aiur: already running #{display_identifier(status)}")
+        :ok
+
+      {:ok, :sleeping} ->
+        IO.puts("aiur: already running #{display_identifier(status)} (sleeping: its stream closed while idle; it wakes on its next event)")
+        :ok
+
       {:ok, result} when result in [:started, :resumed, :reactivated] ->
-        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{previous_state})")
+        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{prior_state(status)})")
 
         :ok
 
@@ -3177,6 +3209,27 @@ defmodule Aiur.AgentControlCLI do
   defp format_reason({:state_concurrency_limit_reached, state}),
     do: "state concurrency limit reached for #{state}"
 
+  defp format_reason({:blocked_on_decision, %{decision_ids: [_ | _] = ids}}),
+    do: "ticket is held by open blocking decision #{Enum.join(ids, ", ")}; answer it (see `aiurdev commands`), then resume"
+
+  defp format_reason({:blocked_on_decision, %{store: :unavailable}}),
+    do: "ticket is held because the decision store could not be read, so an open blocking decision cannot be ruled out; retry after the store recovers"
+
+  defp format_reason({:blocked_on_decision, _detail}),
+    do: "ticket is held by an open blocking decision; answer it (see `aiurdev commands`), then resume"
+
+  defp format_reason({:worker_startup_failed, reason}),
+    do: "the agent's worker failed to start (#{inspect(reason, limit: 10, printable_limit: 200)}); resume does not start a second worker, the retry schedule restarts it (see `aiurdev status`)"
+
+  defp format_reason({:not_resumable_control_status, status}),
+    do: "the agent is in control state #{status}, which resume cannot act on"
+
+  defp format_reason({:unmapped_dispatch_decline, reason}),
+    do: "dispatch declined the ticket (#{inspect(reason)}); inspect `aiurdev status` and the daemon log"
+
+  defp format_reason({:control_call_crashed, action, summary}),
+    do: "the orchestrator hit an internal error handling #{action} (#{summary}); the agent registry was kept, see the daemon log"
+
   # Keep the real fault visible instead of collapsing it to a cause the CLI
   # has not established (#1634).
   defp format_reason({:orchestrator_call_failed, reason}),
@@ -3266,6 +3319,9 @@ defmodule Aiur.AgentControlCLI do
         not_routable_to_worker: "ticket is not routable to a worker",
         dispatch_not_authorized: "tracker label provenance does not authorize dispatch",
         pause_override_still_present: "tracker pause override is still present",
+        ticket_parked: "ticket is parked from fleet dispatch; unpark it, then resume",
+        worker_not_running: "the agent is registered as working but its worker process is gone; the next poll reconciles it, then resume",
+        worker_not_started: "the agent's replacement worker is still starting; retry once it is running",
         waiting_for_dependencies: "ticket is waiting for dependencies",
         already_claimed: "ticket is already claimed for dispatch",
         auto_resume_pending: "ticket already has a scheduled automatic resume",
