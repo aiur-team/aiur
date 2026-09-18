@@ -1298,7 +1298,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         next_state
 
       running_entry ->
-        OperatorMessages.notify_running_queue_update(running_entry, item)
+        OperatorMessages.notify_running_queue_update(state, running_entry, item)
         next_state
     end
   end

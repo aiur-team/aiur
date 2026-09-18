@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   """
 
   alias Aiur.Opencode.ActiveTurns
-  alias Aiur.Orchestrator.{CommentWake, EventTopics, State}
+  alias Aiur.Orchestrator.{CommentWake, EventTopics, PauseResume, State}
 
   @spec normalize_delivery_request(term(), term(), map()) ::
           {:ok, keyword()} | {:error, atom()}
@@ -47,19 +47,19 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
     {:error, :invalid_message}
   end
 
-  @spec notify_running_queue_update(map(), term()) :: :ok
-  def notify_running_queue_update(%{pid: pid} = running_entry, item) when is_pid(pid) do
+  @spec notify_running_queue_update(State.t(), map(), term()) :: :ok
+  def notify_running_queue_update(%State{} = state, %{pid: pid} = running_entry, item) when is_pid(pid) do
     if Process.alive?(pid) do
       send(
         pid,
-        {:agent_queue_updated, item.target_issue_identifier, item.id, deliver_now?(running_entry, item)}
+        {:agent_queue_updated, item.target_issue_identifier, item.id, deliver_now?(state, running_entry, item)}
       )
     end
 
     :ok
   end
 
-  def notify_running_queue_update(_running_entry, _item), do: :ok
+  def notify_running_queue_update(_state, _running_entry, _item), do: :ok
 
   @spec event_digest_delivery_opts(map() | nil, term()) :: keyword()
   def event_digest_delivery_opts(running_entry, event_or_events),
@@ -105,11 +105,19 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
 
   # The correlated resume is the sole wake for a paused (or pausing) worker.
   # An interrupt notification here can deliver an answer before the pause,
-  # or start a turn before resume has released containment.
-  defp deliver_now?(%{control: %{status: :paused}}, _item), do: false
-  defp deliver_now?(%{pending_pause_reason: %{}}, _item), do: false
+  # or start a turn before resume has released containment. "Pausing" means
+  # the entry's pause request is still the current pending control; a
+  # `pending_pause_reason` left by an expired or rejected request does not
+  # count (#2730).
+  defp deliver_now?(_state, %{control: %{status: :paused}}, _item), do: false
 
-  defp deliver_now?(running_entry, item) do
+  defp deliver_now?(state, running_entry, item) do
+    if PauseResume.current_pending_pause_reason(state, running_entry),
+      do: false,
+      else: wake_now?(running_entry, item)
+  end
+
+  defp wake_now?(running_entry, item) do
     queue_wake_required?(running_entry) or
       item.delivery[:interrupt_requested] == true or
       item.delivery[:immediate] == true

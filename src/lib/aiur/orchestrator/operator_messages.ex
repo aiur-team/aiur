@@ -18,8 +18,6 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
   @operator_message_call_timeout_ms 5_000
-  # Pause reasons that mean the worker itself is waiting for input (#2730).
-  @input_pause_reasons [:agent_pause_request, :input_required]
 
   @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
@@ -237,7 +235,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
         :ok
 
       running_entry ->
-        DeliveryPolicy.notify_running_queue_update(running_entry, item)
+        DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
     end
 
     next_state
@@ -711,11 +709,16 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     (paused? and request.mode == :plain) or self_pause_ends_on_input?(state, entry, paused?)
   end
 
-  defp self_pause_ends_on_input?(state, entry, true = _paused?),
-    do: Map.get(entry, :paused_reason) in [nil | @input_pause_reasons] and no_hold?(state, entry)
+  defp self_pause_ends_on_input?(state, entry, true = _paused?) do
+    reason = Map.get(entry, :paused_reason)
+    (is_nil(reason) or PauseResume.input_pause_reason?(reason)) and no_hold?(state, entry)
+  end
 
+  # Only a pause request that is still the current pending control counts. A
+  # `pending_pause_reason` left by an expired or rejected request must not
+  # turn a message to a working worker into a resume.
   defp self_pause_ends_on_input?(state, entry, false = _paused?),
-    do: get_in(entry, [:pending_pause_reason, :reason]) in @input_pause_reasons and no_hold?(state, entry)
+    do: PauseResume.pending_input_pause?(state, entry) and no_hold?(state, entry)
 
   defp no_hold?(state, entry),
     do: not state.globally_paused and not Aiur.Issue.paused?(Map.get(entry, :issue))
@@ -752,9 +755,15 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  # A restored interrupted input can precede the answer at the same priority.
-  # Pin this one resume's first claim without reordering the remaining queue.
+  # A restored interrupted input can precede the answer or message at the same
+  # priority. Pin this one resume's first claim without reordering the
+  # remaining queue. A correlated answer replies with its item; a plain
+  # message replies with its item ID.
   defp remember_resume_input(state, %{issue: %{id: id}}, {:ok, %{item: %{id: item_id, status: :pending}}}) do
+    update_in(state.running[id], &Map.put(&1, :resume_input_id, item_id))
+  end
+
+  defp remember_resume_input(state, %{issue: %{id: id}}, {:ok, item_id}) when is_integer(item_id) do
     update_in(state.running[id], &Map.put(&1, :resume_input_id, item_id))
   end
 
@@ -786,7 +795,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     case enqueue_plain(state.queue_store, attrs, request) do
       {:ok, queue_store, item, :accepted} ->
         record_operator_queued_evidence(item)
-        DeliveryPolicy.notify_running_queue_update(running_entry, item)
+        DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
 
         next_state =
           %{state | queue_store: queue_store}
@@ -808,7 +817,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       {:ok, queue_store, item, status} ->
         if status in [:accepted, :retried] do
           record_operator_queued_evidence(item)
-          DeliveryPolicy.notify_running_queue_update(running_entry, item)
+          DeliveryPolicy.notify_running_queue_update(state, running_entry, item)
         end
 
         next_state =
@@ -1117,8 +1126,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  @spec notify_running_queue_update(map(), term()) :: :ok
-  defdelegate notify_running_queue_update(running_entry, item), to: DeliveryPolicy
+  @spec notify_running_queue_update(State.t(), map(), term()) :: :ok
+  defdelegate notify_running_queue_update(state, running_entry, item), to: DeliveryPolicy
 
   @doc false
   @spec comment_event_topic?(map()) :: boolean()

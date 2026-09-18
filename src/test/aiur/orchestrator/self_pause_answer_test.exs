@@ -88,6 +88,27 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     assert_working(ctx.orchestrator, issue)
   end
 
+  test "a plain message precedes a restored interrupt input on a pending self-pause resume", ctx do
+    {issue, worker} = install_worker(ctx.orchestrator)
+
+    assert {:ok, old_id} =
+             OperatorMessages.send_operator_message(ctx.orchestrator, issue.identifier, %{kind: :text, body: "Earlier interrupted input", delivery_policy: :interrupt, fallback: :queue_next})
+
+    assert {:ok, %{id: ^old_id}} = OperatorMessages.claim_next_queue_item(ctx.orchestrator, issue.identifier)
+    assert :ok = OperatorMessages.restore_delivered_queue_items(ctx.orchestrator, issue.identifier)
+    send(worker, {:discard_queue_notice, old_id, self()})
+    receive_barrier(:queue_notice_discarded)
+    pause(ctx.orchestrator, issue, :pending)
+
+    assert {:ok, _id} =
+             OperatorMessages.send_operator_message(ctx.orchestrator, issue.identifier, %{kind: :text, body: "Fresh operator input", delivery_policy: :interrupt, fallback: :queue_next})
+
+    assert %{action: :resume} = ControlLifecycle.current_pending(:sys.get_state(ctx.orchestrator).control_lifecycle, issue.id)
+    send(worker, :run)
+    receive_barrier({:first_input, "Fresh operator input"})
+    assert {:ok, :pending} = OperatorMessages.operator_message_status(ctx.orchestrator, old_id)
+  end
+
   test "operator message clears a self-pause and cannot start another waiting episode", ctx do
     {issue, worker} = install_worker(ctx.orchestrator)
     pause(ctx.orchestrator, issue, :paused)
@@ -155,6 +176,82 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
       refute Enum.any?(messages, &match?({:agent_queue_updated, _, _, true}, &1))
       assert %{action: :pause} = ControlLifecycle.current_pending(:sys.get_state(ctx.orchestrator).control_lifecycle, issue.id)
     end
+  end
+
+  # A pause request that expires unacknowledged leaves a working worker. A
+  # message or answer must then reach it as on main: accepted, delivered now,
+  # and no resume (#2730 review). The stale variant re-adds the old
+  # `pending_pause_reason` to prove the checks gate on the live request.
+  for input <- [:message, :answer], stale <- [:cleared, :stale_field] do
+    test "after an expired self-pause a #{input} reaches the working worker now (#{stale})", ctx do
+      {issue, worker} = install_worker(ctx.orchestrator)
+      decision = request_decision(issue)
+      pause(ctx.orchestrator, issue, :pending)
+      pending = :sys.get_state(ctx.orchestrator).running[issue.id].pending_pause_reason
+      expire_pause(ctx.orchestrator, issue)
+
+      if unquote(stale) == :stale_field do
+        :sys.replace_state(ctx.orchestrator, &put_in(&1.running[issue.id][:pending_pause_reason], pending))
+      end
+
+      case unquote(input) do
+        :message ->
+          assert {:ok, _id} =
+                   OperatorMessages.send_operator_message(ctx.orchestrator, issue.identifier, %{kind: :text, body: "Continue", delivery_policy: :interrupt, fallback: :queue_next})
+
+        :answer ->
+          answer(decision)
+      end
+
+      send(worker, {:mailbox, self()})
+      receive_barrier({:mailbox, messages})
+      assert Enum.any?(messages, &match?({:agent_queue_updated, _, _, true}, &1))
+      refute Enum.any?(messages, &match?({:agent_queue_updated, _, _, false}, &1))
+      refute Enum.any?(messages, &match?({:resume_agent, _, _}, &1))
+      state = :sys.get_state(ctx.orchestrator)
+      assert state.running[issue.id].control.status == :working
+      assert ControlLifecycle.current_pending(state.control_lifecycle, issue.id) == nil
+    end
+  end
+
+  test "an expired self-pause request drops its pending pause reason", ctx do
+    {issue, _worker} = install_worker(ctx.orchestrator)
+    pause(ctx.orchestrator, issue, :pending)
+    assert %{reason: :agent_pause_request} = :sys.get_state(ctx.orchestrator).running[issue.id].pending_pause_reason
+    expire_pause(ctx.orchestrator, issue)
+    refute Map.has_key?(:sys.get_state(ctx.orchestrator).running[issue.id], :pending_pause_reason)
+  end
+
+  test "a rejected self-pause request drops its pending pause reason", ctx do
+    {issue, _worker} = install_worker(ctx.orchestrator)
+    pause(ctx.orchestrator, issue, :pending)
+    state = :sys.get_state(ctx.orchestrator)
+    request = ControlLifecycle.current_pending(state.control_lifecycle, issue.id)
+    send(ctx.orchestrator, {:worker_control_rejected, issue.id, request.request_id, request.generation, :control_failed})
+    state = :sys.get_state(ctx.orchestrator)
+    assert ControlLifecycle.current_pending(state.control_lifecycle, issue.id) == nil
+    refute Map.has_key?(state.running[issue.id], :pending_pause_reason)
+  end
+
+  test "resume preflight bypasses capacity only for a live pending input pause", ctx do
+    {issue, _worker} = install_worker(ctx.orchestrator)
+    pause(ctx.orchestrator, issue, :pending)
+    state = :sys.get_state(ctx.orchestrator)
+    entry = state.running[issue.id]
+    assert :ok = PauseResume.resume_paused_issue_preflight(state, entry)
+    expire_pause(ctx.orchestrator, issue)
+    state = :sys.get_state(ctx.orchestrator)
+    stale_entry = Map.put(state.running[issue.id], :pending_pause_reason, entry.pending_pause_reason)
+    assert {:error, :max_concurrent_agents_reached} = PauseResume.resume_paused_issue_preflight(state, stale_entry)
+  end
+
+  defp expire_pause(orchestrator, issue) do
+    %{action: :pause, request_id: request_id} = ControlLifecycle.current_pending(:sys.get_state(orchestrator).control_lifecycle, issue.id)
+    later = DateTime.add(DateTime.utc_now(), 3_600)
+    :sys.replace_state(orchestrator, &PauseResume.expire_pending_controls(&1, later, 30_000))
+    lifecycle = :sys.get_state(orchestrator).control_lifecycle
+    assert %{status: :expired} = ControlLifecycle.get(lifecycle, request_id)
+    assert ControlLifecycle.current_pending(lifecycle, issue.id) == nil
   end
 
   defp install_worker(orchestrator) do

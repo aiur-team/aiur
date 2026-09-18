@@ -32,6 +32,47 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec global_pause_reason() :: :global_pause
   def global_pause_reason, do: @global_pause_reason
 
+  # Pause reasons that mean the worker itself is waiting for input (#2730).
+  @input_pause_reasons [:agent_pause_request, :input_required]
+
+  @doc false
+  @spec input_pause_reason?(term()) :: boolean()
+  def input_pause_reason?(reason), do: reason in @input_pause_reasons
+
+  @doc """
+  Returns the entry's recorded pause reason only while its pause request is
+  still the issue's current pending control. A reason left by an expired,
+  rejected, or superseded request returns nil (#2730).
+  """
+  @spec current_pending_pause_reason(State.t(), map() | nil) :: atom() | nil
+  def current_pending_pause_reason(%State{} = state, running_entry) when is_map(running_entry) do
+    with %{reason: reason} <- Map.get(running_entry, :pending_pause_reason),
+         %{action: :pause} <- matching_pending_pause(state, running_entry, reason) do
+      reason
+    else
+      _ -> nil
+    end
+  end
+
+  def current_pending_pause_reason(%State{}, _running_entry), do: nil
+
+  # Deletes `pending_pause_reason` once its pause request is no longer the
+  # issue's current pending control (it expired, was rejected, or a newer
+  # request superseded it and then resolved).
+  @doc false
+  @spec drop_stale_pending_pause_reason(State.t(), term()) :: State.t()
+  def drop_stale_pending_pause_reason(%State{} = state, issue_id) do
+    case Map.get(state.running, issue_id) do
+      %{pending_pause_reason: %{}} = entry ->
+        if current_pending_pause_reason(state, entry),
+          do: state,
+          else: %{state | running: Map.put(state.running, issue_id, Map.delete(entry, :pending_pause_reason))}
+
+      _ ->
+        state
+    end
+  end
+
   @spec pause_agent(String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(issue_identifier), do: pause_agent(Aiur.Orchestrator, issue_identifier)
 
@@ -507,7 +548,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       Enum.each(expired, &publish_expired_control(state, &1))
 
-      state
+      Enum.reduce(expired, state, &drop_stale_pending_pause_reason(&2, &1.issue_id))
     end
   end
 
@@ -866,7 +907,7 @@ defmodule Aiur.Orchestrator.PauseResume do
                now: DateTime.utc_now()
              ) do
           {:ok, rejected, lifecycle} ->
-            state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+            state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() |> drop_stale_pending_pause_reason(issue_id)
             publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
             state
 
@@ -952,7 +993,7 @@ defmodule Aiur.Orchestrator.PauseResume do
                pause_reason: Map.get(running_entry, :paused_reason)
              }
            ) do
-      state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+      state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() |> drop_stale_pending_pause_reason(issue_id)
       publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
       StatusReport.notify_dashboard(state)
       {:noreply, state}
@@ -1083,7 +1124,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp reject_stale_control_evidence(state, running_entry, request, class) do
     case ControlLifecycle.reject(state.control_lifecycle, request.request_id, class, now: DateTime.utc_now()) do
       {:ok, rejected, lifecycle} ->
-        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() |> drop_stale_pending_pause_reason(request.issue_id)
         publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
         {:ignored, state}
 
@@ -1523,11 +1564,14 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @doc false
   @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, :max_concurrent_agents_reached}
-  def resume_paused_issue_preflight(%State{}, %{control: %{status: :working}, pending_pause_reason: %{reason: :agent_pause_request}}),
-    do: :ok
-
   def resume_paused_issue_preflight(%State{} = state, running_entry) do
     cond do
+      # A worker still working under its own pending input pause holds its
+      # slot; resuming it supersedes that pause and needs no new capacity.
+      # An expired or rejected pause request does not qualify (#2730).
+      pending_input_pause?(state, running_entry) ->
+        :ok
+
       # A CI-wait pause releases its reservation; other pauses retain one.
       # In both cases, resume must wait if the active count is already at the
       # cap (for example, after CI-wait capacity was filled by other work).
@@ -1543,6 +1587,13 @@ defmodule Aiur.Orchestrator.PauseResume do
       true ->
         :ok
     end
+  end
+
+  @doc false
+  @spec pending_input_pause?(State.t(), map()) :: boolean()
+  def pending_input_pause?(%State{} = state, running_entry) when is_map(running_entry) do
+    get_in(running_entry, [:control, :status]) == :working and
+      input_pause_reason?(current_pending_pause_reason(state, running_entry))
   end
 
   defp send_resume_control_message(%State{} = state, running_entry, operator?) do
@@ -1728,7 +1779,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp reject_admitted_control_request(state, issue_identifier, request, class) do
     case ControlLifecycle.reject(state.control_lifecycle, request.request_id, class, now: DateTime.utc_now()) do
       {:ok, rejected, lifecycle} ->
-        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() |> drop_stale_pending_pause_reason(request.issue_id)
         publish_control_lifecycle(issue_identifier, rejected)
         {{:error, {:control_rejected, rejected.rejection}}, state}
 
@@ -1745,7 +1796,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         accept_admitted_control_request(state, issue_identifier, request, request_id)
 
       {:error, reason} ->
-        state = reject_routing_failure(state, request.request_id, reason)
+        state = state |> reject_routing_failure(request.request_id, reason) |> drop_stale_pending_pause_reason(request.issue_id)
 
         case ControlLifecycle.get(state.control_lifecycle, request.request_id) do
           nil -> :ok
