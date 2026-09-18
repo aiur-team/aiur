@@ -113,6 +113,26 @@ defmodule Aiur.Scripts.AgentWorktreeTest do
     assert git!(path, ["branch", "--show-current"]) =~ "pr-123-"
   end
 
+  test "create does not prune another worktree between metadata creation and initialization" do
+    {repo, _origin} = new_repo!()
+    pr_head = add_pr!(repo, 123)
+
+    # Git creates this directory before writing its initializing lock and
+    # gitdir backlink. Another helper's fetch must not run maintenance in that
+    # interval: worktree-prune treats the incomplete directory as disposable.
+    git!(repo, ["config", "maintenance.auto", "true"])
+    git!(repo, ["config", "maintenance.autoDetach", "false"])
+    git!(repo, ["config", "maintenance.worktree-prune.enabled", "true"])
+    git!(repo, ["config", "maintenance.worktree-prune.auto", "1"])
+    initializing = Path.join(repo, ".git/worktrees/in-progress")
+    File.mkdir_p!(initializing)
+
+    {output, 0} = run_helper!(repo, ["create", "123"])
+
+    assert File.dir?(initializing), "fetch pruned a worktree whose initialization is still in progress"
+    assert git!(String.trim(output), ["rev-parse", "HEAD"]) == pr_head
+  end
+
   test "two concurrent worktree creations for the same PR get distinct paths and both succeed" do
     {repo, _origin} = new_repo!()
     pr_head = add_pr!(repo, 123)

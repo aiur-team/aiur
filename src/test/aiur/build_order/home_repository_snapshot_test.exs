@@ -28,6 +28,24 @@ defmodule Aiur.BuildOrder.HomeRepositorySnapshotTest do
     assert {:ok, {"team", "consumer"}} = GitHubConfig.configured_repo_from_value(nil)
   end
 
+  test "an unreadable config remains a configuration failure after repository authority is captured" do
+    state = Options.new(configured_repo: {"team", "consumer"})
+    Workflow.set_workflow_file_path(Path.join(Path.dirname(Workflow.workflow_file_path()), "missing-config"))
+
+    assert {:error, :configuration} = Configuration.snapshot(state, nil)
+  end
+
+  test "a config that fails schema validation remains a configuration failure" do
+    # `Aiur.LogFileTest` writes this exact fixture. Before the fix, the raise
+    # crashed the shared GraphProjection child and restarted every later child.
+    state = Options.new(configured_repo: {"team", "consumer"})
+    path = Path.join(Path.dirname(Workflow.workflow_file_path()), "invalid-config")
+    File.write!(path, "tracker:\n  kind: memory\npolling:\n  interval_ms: 1000\n")
+    Workflow.set_workflow_file_path(path)
+
+    assert {:error, :configuration} = Configuration.snapshot(state, nil)
+  end
+
   test "origin fallback stays disabled for non-GitHub workflows" do
     key = {GitHubConfig, :resolved_origin_repo}
     previous = :persistent_term.get(key, :not_cached)

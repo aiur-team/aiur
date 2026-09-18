@@ -711,6 +711,34 @@ defmodule Aiur.TestSupport do
   end
 
   @doc """
+  Waits until `Aiur.Supervisor` has replaced the child registered as `name`
+  after `prior` exited, and has restarted every child after it.
+
+  The tree is `:rest_for_one`, so one child's exit restarts every later child
+  too. The replacement registers its name while that cascade is still running.
+  A test that returns at that point leaves the later children (for example
+  `Aiur.Opencode.ActiveTurns`) down for the next test in the partition.
+
+  The supervisor restarts the whole cascade inside one callback. A call to it
+  therefore returns only when that restart is complete. Signal-based, never a
+  duration: the bound only decides how long a real failure takes to report.
+  """
+  @spec await_supervised_restart(atom(), pid(), non_neg_integer()) :: {:ok, pid()} | :error
+  def await_supervised_restart(name, prior, attempts \\ 500) when is_atom(name) and is_pid(prior) do
+    case Process.whereis(name) do
+      pid when is_pid(pid) and pid != prior ->
+        if supervisor_accepting_calls?(Process.whereis(Aiur.Supervisor)), do: {:ok, pid}, else: :error
+
+      _not_replaced when attempts > 0 ->
+        Process.sleep(10)
+        await_supervised_restart(name, prior, attempts - 1)
+
+      _not_replaced ->
+        :error
+    end
+  end
+
+  @doc """
   Restores the shared application children that ordinary tests rely on after a
   sibling intentionally stopped one for an unavailable-service case.
   """

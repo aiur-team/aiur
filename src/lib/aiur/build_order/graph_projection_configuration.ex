@@ -24,6 +24,10 @@ defmodule Aiur.BuildOrder.GraphProjection.Configuration do
     else
       _ -> {:error, :configuration}
     end
+  rescue
+    # A captured repository does not guarantee the workflow is still readable
+    # when limits are loaded. Keep that failure inside reconciliation.
+    ArgumentError -> {:error, :configuration}
   end
 
   defp normalize_snapshot({:ok, snapshot}, state, notified_generation),
