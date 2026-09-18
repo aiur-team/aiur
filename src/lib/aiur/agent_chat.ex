@@ -92,7 +92,8 @@ defmodule Aiur.AgentChat do
   end
 
   @spec resume_with_receipt(String.t()) ::
-          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+          {:ok, :resumed | :started | :reactivated | :already_running | {:resumed, pos_integer()}}
+          | {:error, term()}
   def resume_with_receipt(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.resume_agent_with_receipt(issue_identifier)
   end
