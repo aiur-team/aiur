@@ -32,7 +32,10 @@ defmodule Aiur.BuildOrder.HomeRepositorySnapshotTest do
     state = Options.new(configured_repo: {"team", "consumer"})
     Workflow.set_workflow_file_path(Path.join(Path.dirname(Workflow.workflow_file_path()), "missing-config"))
 
-    assert {:error, :configuration} = Configuration.snapshot(state, nil)
+    log = capture_log(fn -> assert {:error, :configuration} = Configuration.snapshot(state, nil) end)
+
+    # The failure stays contained, but a bad config must still leave a trace.
+    assert log =~ "GraphProjection configuration unavailable:"
   end
 
   test "a config that fails schema validation remains a configuration failure" do

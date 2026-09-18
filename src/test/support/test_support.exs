@@ -719,24 +719,67 @@ defmodule Aiur.TestSupport do
   A test that returns at that point leaves the later children (for example
   `Aiur.Opencode.ActiveTurns`) down for the next test in the partition.
 
-  The supervisor restarts the whole cascade inside one callback. A call to it
-  therefore returns only when that restart is complete. Signal-based, never a
-  duration: the bound only decides how long a real failure takes to report.
+  The steps are signal-based, never a duration:
+
+    1. monitor `prior` and wait for its `:DOWN`;
+    2. call the supervisor. It restarts the whole cascade inside one callback,
+       so the call returns only after any restart in progress is complete;
+    3. read the registered name. If the supervisor has not yet processed the
+       exit, wait briefly with a bounded `receive` and repeat step 2.
+
+  The whole wait is bounded by `timeout` (default 5s). The bound only decides
+  how long a real failure takes to report. A failure names the step:
+  `{:error, {:prior_not_down, name}}`, `{:error, {:supervisor_unresponsive,
+  Aiur.Supervisor}}` or `{:error, {:not_restarted, name}}`.
   """
-  @spec await_supervised_restart(atom(), pid(), non_neg_integer()) :: {:ok, pid()} | :error
-  def await_supervised_restart(name, prior, attempts \\ 500) when is_atom(name) and is_pid(prior) do
-    case Process.whereis(name) do
-      pid when is_pid(pid) and pid != prior ->
-        if supervisor_accepting_calls?(Process.whereis(Aiur.Supervisor)), do: {:ok, pid}, else: :error
+  @spec await_supervised_restart(atom(), pid(), non_neg_integer()) ::
+          {:ok, pid()}
+          | {:error, {:prior_not_down, atom()} | {:supervisor_unresponsive, atom()} | {:not_restarted, atom()}}
+  def await_supervised_restart(name, prior, timeout \\ 5_000)
+      when is_atom(name) and is_pid(prior) and is_integer(timeout) and timeout >= 0 do
+    deadline = System.monotonic_time(:millisecond) + timeout
 
-      _not_replaced when attempts > 0 ->
-        Process.sleep(10)
-        await_supervised_restart(name, prior, attempts - 1)
-
-      _not_replaced ->
-        :error
+    case await_process_down(prior, remaining_ms(deadline)) do
+      :ok -> await_registered_replacement(name, prior, deadline)
+      :error -> {:error, {:prior_not_down, name}}
     end
   end
+
+  defp await_registered_replacement(name, prior, deadline) do
+    # A floor on the call bound: at the deadline, a live supervisor must still
+    # answer, so the failure reads as `:not_restarted`, not as unresponsive.
+    with :ok <- await_supervisor_idle(Aiur.Supervisor, max(remaining_ms(deadline), 100)) do
+      case Process.whereis(name) do
+        pid when is_pid(pid) and pid != prior -> {:ok, pid}
+        _not_replaced -> recheck_registered_replacement(name, prior, deadline)
+      end
+    end
+  end
+
+  defp recheck_registered_replacement(name, prior, deadline) do
+    case remaining_ms(deadline) do
+      0 ->
+        {:error, {:not_restarted, name}}
+
+      remaining ->
+        # The exit signal can reach the supervisor after our call. Give it a
+        # moment, then call again: the call is the real barrier.
+        receive do
+        after
+          min(remaining, 10) -> :ok
+        end
+
+        await_registered_replacement(name, prior, deadline)
+    end
+  end
+
+  defp await_supervisor_idle(supervisor, timeout) do
+    if supervisor_accepting_calls?(Process.whereis(supervisor), timeout),
+      do: :ok,
+      else: {:error, {:supervisor_unresponsive, supervisor}}
+  end
+
+  defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
   @doc """
   Restores the shared application children that ordinary tests rely on after a
@@ -1086,8 +1129,14 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp supervisor_accepting_calls?(supervisor) do
-    Supervisor.which_children(supervisor)
+  defp supervisor_accepting_calls?(supervisor, timeout \\ :infinity)
+
+  defp supervisor_accepting_calls?(nil, _timeout), do: false
+
+  defp supervisor_accepting_calls?(supervisor, timeout) do
+    # `Supervisor.which_children/1` waits forever; the same call with a bound
+    # lets a caller with a deadline report a stuck supervisor.
+    GenServer.call(supervisor, :which_children, timeout)
     true
   catch
     :exit, _reason -> false

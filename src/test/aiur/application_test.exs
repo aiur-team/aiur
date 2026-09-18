@@ -657,6 +657,27 @@ defmodule Aiur.ApplicationTest do
       assert_receive :pubsub_recovered
     end
 
+    # The two tests above build their tree through `start_supervisor/2`, not
+    # the running application. This pins that `start/2` still uses it: the
+    # live `Aiur.Supervisor` must run `:rest_for_one`, with its children in
+    # the order that `child_specs/1` declares.
+    test "the running Aiur.Supervisor uses the production strategy and child order" do
+      state = :sys.get_state(Aiur.Supervisor)
+      assert elem(state, 0) == :state
+      assert elem(state, 2) == :rest_for_one, "Aiur.Application.start/2 no longer starts through start_supervisor/2"
+
+      declared =
+        AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
+        |> Enum.map(&(&1 |> Supervisor.child_spec([]) |> Map.fetch!(:id)))
+
+      # `which_children/1` lists the most recently started child first.
+      running = Aiur.Supervisor |> Supervisor.which_children() |> Enum.map(&elem(&1, 0)) |> Enum.reverse()
+      shared = Enum.filter(running, &(&1 in declared))
+
+      assert ModeTable in shared and Phoenix.PubSub.Supervisor in shared
+      assert shared == Enum.filter(declared, &(&1 in shared))
+    end
+
     test "a crashing shared child does not erase the recorded delivery modes" do
       %{supervisor: supervisor, mode_table: mode_table, table: table, probe: probe} = isolated_shared_children()
       owner = Process.whereis(mode_table)

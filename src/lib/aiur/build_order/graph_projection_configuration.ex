@@ -1,6 +1,8 @@
 defmodule Aiur.BuildOrder.GraphProjection.Configuration do
   @moduledoc false
 
+  require Logger
+
   alias Aiur.BuildOrder.{GitHubGraph.Settings, TicketDetail}
   alias Aiur.BuildOrder.GraphProjection.Options
 
@@ -27,7 +29,9 @@ defmodule Aiur.BuildOrder.GraphProjection.Configuration do
   rescue
     # A captured repository does not guarantee the workflow is still readable
     # when limits are loaded. Keep that failure inside reconciliation.
-    ArgumentError -> {:error, :configuration}
+    error in ArgumentError ->
+      Logger.warning("GraphProjection configuration unavailable: #{Exception.message(error)}")
+      {:error, :configuration}
   end
 
   defp normalize_snapshot({:ok, snapshot}, state, notified_generation),
