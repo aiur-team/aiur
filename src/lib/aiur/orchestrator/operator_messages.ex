@@ -355,12 +355,30 @@ defmodule Aiur.Orchestrator.OperatorMessages do
           {:reply, :empty | {:ok, map()}, State.t()}
   def claim_next_queue_item_call(%State{} = state, issue_identifier)
       when is_binary(issue_identifier) do
-    {queue_store, item} =
-      AgentQueueStore.claim_next_deliverable(state.queue_store, issue_identifier)
+    {state, queue_store, item} = claim_resume_input(state, issue_identifier)
 
     {queue_store, item} = maybe_coalesce_events(queue_store, issue_identifier, item)
     queue_claim_reply(state, queue_store, item)
   end
+
+  defp claim_resume_input(state, identifier) do
+    entry = State.find_running_by_identifier(state.running, identifier)
+    item_id = if entry, do: Map.get(entry, :resume_input_id)
+    {store, item} = AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, &(&1.id == item_id))
+    state = clear_resume_input(state, entry)
+
+    if item do
+      {state, store, item}
+    else
+      {store, item} = AgentQueueStore.claim_next_deliverable(store, identifier)
+      {state, store, item}
+    end
+  end
+
+  defp clear_resume_input(state, %{issue: %{id: id}} = entry),
+    do: %{state | running: Map.put(state.running, id, Map.delete(entry, :resume_input_id))}
+
+  defp clear_resume_input(state, _entry), do: state
 
   @spec claim_next_checkpoint_queue_item_call(State.t(), String.t()) ::
           {:reply, :empty | {:ok, map()}, State.t()}
@@ -646,6 +664,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     with running_entry when is_map(running_entry) <-
            State.find_running_by_identifier(state.running, issue_identifier),
          true <- message_resumes_pause?(state, running_entry, request),
+         state = remember_resume_input(state, running_entry, reply),
          {{:ok, :resumed}, resumed_state} <-
            Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
       {reply, resumed_state}
@@ -706,6 +725,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     with :ok <- PauseResume.resume_paused_issue_preflight(state, running_entry),
          {{:ok, _queued} = queued, queued_state} <-
            do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request),
+         queued_state = remember_resume_input(queued_state, running_entry, queued),
          queued_entry when is_map(queued_entry) <-
            State.find_running_by_identifier(queued_state.running, issue_identifier),
          {{:ok, :resumed}, resumed_state} <-
@@ -717,6 +737,14 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       _missing_entry -> {{:error, :no_running_agent}, state}
     end
   end
+
+  # A restored interrupted input can precede the answer at the same priority.
+  # Pin this one resume's first claim without reordering the remaining queue.
+  defp remember_resume_input(state, %{issue: %{id: id}}, {:ok, %{item: %{id: item_id, status: :pending}}}) do
+    update_in(state.running[id], &Map.put(&1, :resume_input_id, item_id))
+  end
+
+  defp remember_resume_input(state, _entry, _reply), do: state
 
   defp do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request) do
     capabilities = Capabilities.issue_control_capabilities(state, issue_identifier)

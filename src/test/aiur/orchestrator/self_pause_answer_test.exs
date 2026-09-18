@@ -57,11 +57,35 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
       decision = request_decision(issue)
       pause(ctx.orchestrator, issue, unquote(phase))
       answer(decision)
+
+      assert %{action: :resume, status: :accepted} =
+               ControlLifecycle.current_pending(:sys.get_state(ctx.orchestrator).control_lifecycle, issue.id)
+
       send(worker, :run)
-      assert_receive {:first_input, text}
+      receive_barrier({:first_input, text})
       assert text =~ "Custom response: Continue with the accepted contract"
       assert_working(ctx.orchestrator, issue)
     end
+  end
+
+  test "the answer precedes a restored interrupt input on resume", ctx do
+    {issue, worker} = install_worker(ctx.orchestrator)
+
+    assert {:ok, old_id} =
+             OperatorMessages.send_operator_message(ctx.orchestrator, issue.identifier, %{kind: :text, body: "Earlier interrupted input", delivery_policy: :interrupt, fallback: :queue_next})
+
+    assert {:ok, %{id: ^old_id}} = OperatorMessages.claim_next_queue_item(ctx.orchestrator, issue.identifier)
+    assert :ok = OperatorMessages.restore_delivered_queue_items(ctx.orchestrator, issue.identifier)
+    send(worker, {:discard_queue_notice, old_id, self()})
+    receive_barrier(:queue_notice_discarded)
+    decision = request_decision(issue)
+    pause(ctx.orchestrator, issue, :paused)
+    answer(decision)
+    send(worker, :run)
+    receive_barrier({:first_input, text})
+    assert text =~ "Custom response: Continue with the accepted contract"
+    assert {:ok, :pending} = OperatorMessages.operator_message_status(ctx.orchestrator, old_id)
+    assert_working(ctx.orchestrator, issue)
   end
 
   test "operator message clears a self-pause and cannot start another waiting episode", ctx do
@@ -70,7 +94,7 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
     seed_waiting_episode(ctx.orchestrator, issue)
     assert {:ok, _} = OperatorMessages.send_operator_message(ctx.orchestrator, issue.identifier, %{kind: :text, body: "Continue", delivery_policy: :interrupt, fallback: :queue_next})
     send(worker, :run)
-    assert_receive {:first_input, "Continue"}
+    receive_barrier({:first_input, "Continue"})
     assert_working(ctx.orchestrator, issue)
   end
 
@@ -99,13 +123,37 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
       # Inspect the actual messages the paused receive loop would see; none
       # may wake it. This barrier avoids a timing-based negative assertion.
       send(worker, {:mailbox, self()})
-      assert_receive {:mailbox, messages}
+      receive_barrier({:mailbox, messages})
       refute Enum.any?(messages, &match?({:resume_agent, _, _}, &1))
       refute Enum.any?(messages, &match?({:agent_queue_updated, _, _, true}, &1))
       assert {:ok, :resumed} = PauseResume.resume_agent(ctx.orchestrator, issue.identifier)
       send(worker, :run)
-      assert_receive {:first_input, text}
+      receive_barrier({:first_input, text})
       assert text =~ "Continue with the accepted contract"
+    end
+  end
+
+  for hold <- [:global, :label] do
+    test "an answer preserves a #{hold} hold over a pending self-pause", ctx do
+      {issue, worker} = install_worker(ctx.orchestrator)
+      decision = request_decision(issue)
+      pause(ctx.orchestrator, issue, :pending)
+
+      :sys.replace_state(ctx.orchestrator, fn state ->
+        case unquote(hold) do
+          :global -> %{state | globally_paused: true}
+          :label -> put_in(state.running[issue.id].issue.paused, true)
+        end
+      end)
+
+      answer(decision)
+      assert {:ok, decided} = DecisionStore.get(decision.decision_id)
+      assert {:ok, %{status: :duplicate}} = DecisionDispatch.dispatch(decided, attempt_id: "replay")
+      send(worker, {:mailbox, self()})
+      receive_barrier({:mailbox, messages})
+      refute Enum.any?(messages, &match?({:resume_agent, _, _}, &1))
+      refute Enum.any?(messages, &match?({:agent_queue_updated, _, _, true}, &1))
+      assert %{action: :pause} = ControlLifecycle.current_pending(:sys.get_state(ctx.orchestrator).control_lifecycle, issue.id)
     end
   end
 
@@ -143,6 +191,13 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
 
   defp await_run(orchestrator, issue, parent) do
     receive do
+      {:discard_queue_notice, item_id, caller} ->
+        receive do
+          {:agent_queue_updated, _, ^item_id, _} -> send(caller, :queue_notice_discarded)
+        end
+
+        await_run(orchestrator, issue, parent)
+
       {:mailbox, caller} ->
         {:messages, messages} = Process.info(self(), :messages)
         send(caller, {:mailbox, messages})
@@ -192,7 +247,8 @@ defmodule Aiur.Orchestrator.SelfPauseAnswerTest do
                actor: %{kind: :executor, id: "executor"}
              )
 
-    assert_receive {:answer_queued, {:ok, _}}
+    receive_barrier({:answer_queued, result})
+    assert {:ok, _} = result
   end
 
   defp seed_waiting_episode(orchestrator, issue) do
