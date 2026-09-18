@@ -436,6 +436,23 @@ defaults to `aiur-cli`. The expected version prevents a stale listener event
 from overwriting a later answer, while the idempotency key makes event replay
 safe.
 
+An answer is addressed to the ticket, not to the worker that asked. Until an
+agent receives it, Aiur delivers it to any worker that runs the ticket, also a
+new worker after a requeue or a daemon restart. If the operator changes
+direction before the answer is delivered, do not carry the new direction only
+in an issue comment. Withdraw or replace the answer:
+
+```bash
+"$AIUR_CMD" executor-moot <decision-id> --expected-version <n> \
+  --reason-class operator_changed_direction --reason <text>
+"$AIUR_CMD" executor-answer <decision-id> --expected-version <n> \
+  --custom-response <text> --rationale <text> --idempotency-key <key> --supersede
+```
+
+A mooted answer is never delivered, and only the newest answer is delivered
+after `--supersede`. After any answer reaches an agent, both commands are
+refused.
+
 When the choice is uncertain, irreversible, scope-changing, or depends on an
 Executor guess rather than a known fact, leave the Command unanswered and run
 `"$AIUR_CMD" executor-escalate`. That explicit escalation uses the existing

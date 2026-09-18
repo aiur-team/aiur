@@ -386,12 +386,35 @@ aiur commands --filter blocking       # tickets whose dispatch is held
 aiur commands <decision-id>           # one Command, its options and lifecycle
 aiur executor-answer <decision-id> --expected-version 1 --option <id> --rationale "..." --idempotency-key <key>
 aiur executor-escalate <decision-id> --expected-version 1 --reason "Needs the release owner"
+aiur executor-answer <decision-id> --expected-version 1 --custom-response "..." --rationale "..." --idempotency-key <key> --supersede
+aiur executor-moot <decision-id> --expected-version 1 --reason-class operator_changed_direction
 ```
 
 `executor-answer` requires `--expected-version`, `--rationale`,
 `--idempotency-key`, and exactly one of `--option` / `--custom-response`; a
 stale `--expected-version` is rejected as a conflict rather than overwriting a
 newer answer. See [CLI](/reference/cli) for the full flags.
+
+### Delivery rule for a decided answer
+
+An answer is addressed to the ticket, not to the worker session that asked.
+Aiur delivers the newest answer of a `:decided` Command to whichever worker runs
+the ticket. If no worker runs it, delivery fails with `target_agent_unavailable`
+and the daemon tries again at its next start. So a worker that starts later for
+the same ticket, for example after a requeue, receives an answer that the first
+worker never saw.
+
+While no agent has received the answer, the Executor can change it:
+
+- `executor-moot` withdraws it. The Command becomes `:moot`, the answer stays
+  in the audit history, and Aiur never delivers it.
+- `executor-answer --supersede` replaces it. The new answer is recorded as a
+  revision, and only the newest answer is delivered.
+
+The delivery gate checks each queued answer again just before it reaches the
+agent. It refuses a queued copy of a mooted or replaced answer. After any
+answer reaches an agent, the Command is immutable for the Executor and both
+commands are refused.
 
 ## Step 5 — PR opened, agent pauses
 

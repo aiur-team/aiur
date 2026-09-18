@@ -118,6 +118,74 @@ defmodule Aiur.ExecutorCommandCLITest do
       end
     end
 
+    test "--supersede routes the replacement answer through the store's supersede API (#2711)" do
+      test_pid = self()
+
+      params = [
+        decision_id: "decision:42",
+        expected_version: 3,
+        custom_response: "Use the new approach",
+        rationale: "The operator changed direction.",
+        idempotency_key: "executor:decision:42:supersede-1",
+        executor_id: "codex-executor",
+        supersede: true
+      ]
+
+      deps = [
+        answer_fun: fn _, _, _, _ -> flunk("--supersede must not record a first answer") end,
+        supersede_fun: fn decision_id, payload, opts, store ->
+          send(test_pid, {:supersede, decision_id, payload, opts, store})
+          {:ok, %{status: :accepted}}
+        end,
+        decision_store: :decision_store
+      ]
+
+      output = capture_io(fn -> assert ExecutorCommandCLI.answer(params, deps) == 0 end)
+
+      assert_received {:supersede, "decision:42", payload, [actor: %{kind: :executor, id: "codex-executor"}], :decision_store}
+
+      assert payload == %{
+               "expected_version" => 3,
+               "idempotency_key" => "executor:decision:42:supersede-1",
+               "custom_response" => "Use the new approach",
+               "rationale" => "The operator changed direction."
+             }
+
+      assert output =~ "Executor codex-executor superseded the answer of Command decision:42"
+    end
+
+    test "points a re-answer of a decided Command at --supersede and executor-moot" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.answer(
+                   [decision_id: "decision:42", expected_version: 3, option_id: "yes", rationale: "why", idempotency_key: "key-2"],
+                   answer_fun: fn _, _, _, _ -> {:error, {:conflict, {:already_decided, "act_1"}}} end
+                 ) == 1
+        end)
+
+      assert output =~ "rerun with --supersede"
+      assert output =~ "executor-moot"
+    end
+
+    test "reports a delivered Command as immutable" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.answer(
+                   [
+                     decision_id: "decision:42",
+                     expected_version: 3,
+                     option_id: "yes",
+                     rationale: "why",
+                     idempotency_key: "key-3",
+                     supersede: true
+                   ],
+                   supersede_fun: fn _, _, _, _ -> {:error, {:conflict, :answer_delivered}} end
+                 ) == 1
+        end)
+
+      assert output =~ "already delivered to the agent"
+    end
+
     test "requires exactly one option or custom response" do
       answer_fun = fn _decision_id, _payload, _opts, _store -> flunk("invalid answers must not reach the store") end
       required = [decision_id: "decision:42", expected_version: 3, rationale: "Known answer", idempotency_key: "key"]
@@ -294,6 +362,18 @@ defmodule Aiur.ExecutorCommandCLITest do
         end)
 
       assert output =~ "cannot moot Command because it is :decided"
+    end
+
+    test "reports a delivered Command as immutable" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.moot(
+                   [decision_id: "decision:42", expected_version: 3, reason_class: "operator_changed_direction"],
+                   moot_fun: fn _, _, _, _ -> {:error, {:conflict, :answer_delivered}} end
+                 ) == 1
+        end)
+
+      assert output =~ "cannot moot Command: its answer was already delivered to the agent"
     end
 
     test "routes moot errors through an injected writer" do

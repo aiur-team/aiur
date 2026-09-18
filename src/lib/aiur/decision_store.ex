@@ -226,14 +226,21 @@ defmodule Aiur.DecisionStore do
   end
 
   @doc """
-  Durably retires a still-undecided Command whose question is moot — its ticket
-  closed or its originating agent is gone.
+  Durably retires a Command whose question is moot — its ticket closed, its
+  originating agent is gone, or the operator changed direction before the
+  answer reached any agent.
 
   Unlike `dismiss`, this is the disposition for a question that is void, so a
   blocking Command may be retired here: a closed ticket or a gone agent makes
-  the block moot too, and a moot record delivers nothing to a waiting agent
-  (there is none). No answer is ever recorded, so a mooted Command stays
+  the block moot too, and a moot record delivers nothing to a waiting agent.
+  An open or deferred Command is retired with no answer, so it stays
   distinguishable in the durable record from a real decision.
+
+  A `:decided` Command can also be mooted while its answer is undelivered
+  (`Aiur.Decision.delivered?/1` is false). The recorded answer stays in the
+  audit trail, but a mooted Command is never dispatched and a queued copy is
+  refused at the delivery gate (#2711). A delivered Command is refused with
+  `{:conflict, :answer_delivered}`.
 
   `opts[:actor]` is trusted runtime identity and is attributed in the event.
   `payload` carries a bounded `reason_class` (required) and an optional
@@ -244,6 +251,30 @@ defmodule Aiur.DecisionStore do
   def moot(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_binary(decision_id) and is_map(payload) and is_list(opts) do
     GenServer.call(server, {:moot, decision_id, payload, opts}, timeout)
+  end
+
+  @doc """
+  Durably replaces the undelivered answer of a `:decided` Command with a new
+  answer (#2711).
+
+  The new answer is recorded as an ordered revision of the active action, so
+  the replaced answer stays in the audit trail. Only the newest answer is
+  dispatched, and a queued copy of a replaced answer is refused at the
+  delivery gate. The revision correlation (`expected_action_id`,
+  `expected_revision_sequence`) is taken from the current record, so the
+  caller supplies only the answer fields, `expected_version`, `rationale` and
+  `idempotency_key`. A retry with the same idempotency key replays the
+  recorded revision.
+
+  Refusals: `{:conflict, :answer_delivered}` once any answer reached the
+  agent, `{:not_decided, status}` for a Command with no answer yet (answer it
+  instead), and `{:conflict, status}` for a retired Command.
+  """
+  @spec supersede(String.t(), map(), keyword(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def supersede(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_map(payload) and is_list(opts) do
+    GenServer.call(server, {:supersede, decision_id, payload, opts}, timeout)
   end
 
   @doc "Durably records an ordered correction to the active Decision action."
@@ -861,6 +892,14 @@ defmodule Aiur.DecisionStore do
     handle_moot(decision_id, payload, opts, state)
   end
 
+  def handle_call({:supersede, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:supersede, decision_id, payload, opts}, _from, state) do
+    handle_supersede(decision_id, payload, opts, state)
+  end
+
   def handle_call({:revise, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
   end
@@ -1096,13 +1135,85 @@ defmodule Aiur.DecisionStore do
          {:ok, actor} <- fetch_actor(opts) do
       case find_revision_replay(decision, payload) do
         %DecisionRevision{} = accepted -> replay_revision(decision, accepted, payload, actor, opts, state)
-        nil -> accept_revision(decision, payload, actor, opts, state)
+        nil -> accept_revision_unless_moot(decision, payload, actor, opts, state)
       end
     else
       nil -> {:reply, {:error, :answer_missing}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
+
+  # A mooted Command must never deliver again, so a new revision cannot revive
+  # it: the revision transition would set it back to `:decided` (#2711).
+  defp accept_revision_unless_moot(%Decision{decision_status: :moot}, _payload, _actor, _opts, state),
+    do: {:reply, {:error, {:conflict, :moot}}, state}
+
+  defp accept_revision_unless_moot(decision, payload, actor, opts, state),
+    do: accept_revision(decision, payload, actor, opts, state)
+
+  # Supersede is the Executor's way to replace a decided answer that no agent
+  # has received (#2711). It reuses the revision record, so the replaced answer
+  # stays in the audit trail and only the newest action is dispatched. The
+  # correlation comes from the current record inside this serialized call. An
+  # exact retry keeps the correlation it was first recorded with, so it
+  # replays as a duplicate even after the answer is delivered.
+  defp handle_supersede(decision_id, payload, opts, state) do
+    with {:ok, decision} <- fetch_decision(state, decision_id),
+         {:ok, _actor} <- fetch_actor(opts) do
+      case find_revision_replay(decision, payload) do
+        %DecisionRevision{} = accepted ->
+          correlated = supersede_payload(payload, accepted.prior_action_id, accepted.sequence - 1)
+          handle_revision(decision_id, correlated, opts, state)
+
+        nil ->
+          supersede_current(decision, payload, opts, state)
+      end
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp supersede_current(decision, payload, opts, state) do
+    case require_supersedable(decision) do
+      :ok ->
+        prior_action_id = decision.active_action_id
+        correlated = supersede_payload(payload, prior_action_id, decision.revision_sequence)
+        reply = handle_revision(decision.decision_id, correlated, opts, state)
+        clear_superseded_delivery_attention(reply, decision, prior_action_id)
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp require_supersedable(%Decision{decision_status: :decided} = decision) do
+    if Decision.delivered?(decision), do: {:error, {:conflict, :answer_delivered}}, else: :ok
+  end
+
+  defp require_supersedable(%Decision{decision_status: status}) when status in [:open, :deferred],
+    do: {:error, {:not_decided, status}}
+
+  defp require_supersedable(%Decision{decision_status: status}) when status in [:acknowledged, :resolved],
+    do: {:error, {:conflict, :answer_delivered}}
+
+  defp require_supersedable(%Decision{decision_status: status}), do: {:error, {:conflict, status}}
+
+  defp supersede_payload(payload, expected_action_id, expected_revision_sequence) do
+    payload
+    |> Map.drop([:expected_action_id, :expected_revision_sequence])
+    |> Map.put("expected_action_id", expected_action_id)
+    |> Map.put("expected_revision_sequence", expected_revision_sequence)
+  end
+
+  # A replaced answer may have raised a delivery-failure alert (the Khala #12
+  # and #13 answers did). Nothing will retry that action again, so the alert is
+  # cleared once the replacement is durable.
+  defp clear_superseded_delivery_attention({:reply, {:ok, %{status: :accepted}}, _state} = reply, decision, action_id) do
+    emit_withdrawn_delivery_resolution(decision, action_id, :superseded)
+    reply
+  end
+
+  defp clear_superseded_delivery_attention(reply, _decision, _action_id), do: reply
 
   defp find_revision_replay(decision, payload) do
     case payload_value(payload, :idempotency_key) do
@@ -1735,11 +1846,37 @@ defmodule Aiur.DecisionStore do
         :moot ->
           {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
 
+        :decided ->
+          moot_undelivered(decision, reason_class, detail, actor, state)
+
+        status when status in [:acknowledged, :resolved] ->
+          {:reply, {:error, {:conflict, :answer_delivered}}, state}
+
         status ->
           {:reply, {:error, {:conflict, status}}, state}
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  # The operator can change direction after a Command is decided but before its
+  # answer reaches an agent. Mooting withdraws that answer: the answer stays in
+  # the audit trail, the `:moot` status stops every later dispatch, and the
+  # delivery gate refuses a copy that is already queued (#2711). A delivered
+  # answer is immutable, so this is refused once any action was delivered.
+  defp moot_undelivered(decision, reason_class, detail, actor, state) do
+    if Decision.delivered?(decision) do
+      {:reply, {:error, {:conflict, :answer_delivered}}, state}
+    else
+      case persist_mooting(decision, reason_class, detail, actor, state) do
+        {:reply, {:ok, %{status: :accepted}}, _next_state} = reply ->
+          emit_withdrawn_delivery_resolution(decision, decision.active_action_id, :moot)
+          reply
+
+        reply ->
+          reply
+      end
     end
   end
 
@@ -2535,7 +2672,26 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  # This is the last check before a queued answer reaches the provider. It is
+  # keyed to the ticket, not to the worker session, so it also guards a later
+  # worker of the same ticket: a mooted Command or a replaced (non-active)
+  # action is refused here even if its queue item was created earlier (#2711).
   defp validate_transport_delivery(state, item) do
+    case withdrawn_delivery(state, item) do
+      {:withdrawn, why} -> {:error, {:answer_withdrawn, why}}
+      :not_withdrawn -> validate_correlated_delivery(state, item)
+    end
+  end
+
+  defp withdrawn_delivery(state, item) do
+    case correlated_decision_context(state, item) do
+      {:ok, %Decision{decision_status: :moot}, _context} -> {:withdrawn, :moot}
+      {:ok, %Decision{active_action_id: active}, %{action_id: action_id}} when active != action_id -> {:withdrawn, :superseded}
+      _other -> :not_withdrawn
+    end
+  end
+
+  defp validate_correlated_delivery(state, item) do
     case correlated_transport_context(state, item) do
       {:ok, _decision, %{status: status}, _context}
       when status in [:queued, :restored, :delivered] ->
@@ -2556,15 +2712,21 @@ defmodule Aiur.DecisionStore do
   end
 
   defp correlated_transport_context(state, item) do
+    with {:ok, decision, context} <- correlated_decision_context(state, item),
+         {:ok, attempt} <- resolve_dispatch_attempt(decision, context) do
+      {:ok, decision, attempt, context}
+    end
+  end
+
+  defp correlated_decision_context(state, item) do
     correlation = Map.get(item, :correlation)
     action_id = Map.get(item, :action_id)
 
     if is_map(correlation) and is_binary(action_id) do
       with {:ok, context} <- normalize_transport_context(item, correlation, action_id),
            {:ok, decision} <- fetch_decision(state, context.decision_id),
-           :ok <- validate_transport_decision(decision, context),
-           {:ok, attempt} <- resolve_dispatch_attempt(decision, context) do
-        {:ok, decision, attempt, context}
+           :ok <- validate_transport_decision(decision, context) do
+        {:ok, decision, context}
       end
     else
       {:ok, :ignored}
@@ -2826,7 +2988,7 @@ defmodule Aiur.DecisionStore do
     failed =
       state.current
       |> Map.values()
-      |> Enum.filter(&(&1.delivery_status == :failed and not is_nil(Decision.active_answer(&1))))
+      |> Enum.filter(&(&1.delivery_status == :failed and &1.decision_status != :moot and not is_nil(Decision.active_answer(&1))))
 
     {non_actionable, checkable} = Enum.split_with(failed, &non_actionable_failure?/1)
 
@@ -2948,6 +3110,9 @@ defmodule Aiur.DecisionStore do
   # clear — which both retires a prior raise (e.g. an earlier `send_failed`
   # attempt on the same topic) and keeps the decision off the needs-attention
   # feed (#2419, review).
+  defp emit_failure_attention(%Decision{decision_status: :moot} = decision),
+    do: emit_withdrawn_delivery_resolution(decision, decision.active_action_id, :moot)
+
   defp emit_failure_attention(decision) do
     if non_actionable_failure?(decision) do
       emit_failure_resolution(decision, :non_actionable)
@@ -3035,8 +3200,34 @@ defmodule Aiur.DecisionStore do
     )
   end
 
+  # A withdrawn answer (mooted, or replaced by a newer one) will never be
+  # delivered, so any delivery alert raised for it is cleared rather than left
+  # asking the operator to retry an answer that must not arrive (#2711).
+  defp emit_withdrawn_delivery_resolution(decision, action_id, why) when is_binary(action_id) do
+    detail =
+      case why do
+        :moot -> "the Command was mooted before its answer reached an agent"
+        :superseded -> "a newer answer replaced it before it reached an agent"
+      end
+
+    Alerts.emit_custom(
+      failure_attention_topic(decision, action_id) <> ".resolved",
+      "Decision answer delivery withdrawn for #{decision.decision_id}: #{detail}.",
+      issue: decision.ticket.identifier,
+      reason: "Decision #{decision.decision_id} action #{action_id} is withdrawn; #{detail}. It will not be delivered.",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
+  defp emit_withdrawn_delivery_resolution(_decision, _action_id, _why), do: :ok
+
   defp failure_attention_topic(decision) do
-    action_slug = decision |> Decision.active_answer() |> Map.fetch!(:action_id) |> String.replace("_", "-")
+    failure_attention_topic(decision, decision |> Decision.active_answer() |> Map.fetch!(:action_id))
+  end
+
+  defp failure_attention_topic(decision, action_id) do
+    action_slug = String.replace(action_id, "_", "-")
     "ticket.#{decision.ticket.identifier}.agent.attention.decision-delivery-#{action_slug}"
   end
 
@@ -3990,7 +4181,9 @@ defmodule Aiur.DecisionStore do
 
   defp dispatch_allowed?(decision, retry_failed?, :normal), do: dispatchable?(decision, retry_failed?)
   defp dispatch_allowed?(decision, _retry_failed?, :reconcile_queue), do: queue_reconcilable?(decision)
-  defp dispatch_allowed?(%Decision{decision_status: status}, _retry_failed?, :recover_append), do: status != :resolved
+
+  defp dispatch_allowed?(%Decision{decision_status: status}, _retry_failed?, :recover_append),
+    do: status not in [:resolved, :moot]
 
   defp queue_reconcilable?(%Decision{decision_status: :decided} = decision) do
     attempts = Decision.active_dispatch_attempts(decision)
@@ -4029,6 +4222,7 @@ defmodule Aiur.DecisionStore do
 
   defp dispatchable?(%Decision{} = decision, _retry_failed?) when is_nil(decision.answer), do: false
   defp dispatchable?(%Decision{decision_status: :resolved}, _retry_failed?), do: false
+  defp dispatchable?(%Decision{decision_status: :moot}, _retry_failed?), do: false
   defp dispatchable?(%Decision{revision_result: :no_longer_applicable}, _retry_failed?), do: false
 
   defp dispatchable?(%Decision{} = decision, retry_failed?) do

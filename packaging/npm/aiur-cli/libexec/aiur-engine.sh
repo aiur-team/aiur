@@ -456,7 +456,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
-       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
+       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
@@ -2671,7 +2671,7 @@ encode_control_value() {
 # These are explicit trusted-Executor mutations, deliberately separate from
 # the read-only `commands` catalog. Revisions remain dashboard-owned.
 cmd_executor_answer() {
-  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" arg
+  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" supersede=0 arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
     echo "aiur: executor-answer expects exactly one decision ID" >&2
     exit 64
@@ -2693,6 +2693,7 @@ cmd_executor_answer() {
       --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
       --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
       --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      --supersede) supersede=1 ;;
       -*) echo "aiur: executor-answer received an unknown option: $arg" >&2; exit 64 ;;
       *) echo "aiur: executor-answer expects exactly one decision ID" >&2; exit 64 ;;
     esac
@@ -2717,6 +2718,9 @@ cmd_executor_answer() {
   opts="$opts, rationale: Base.decode64!(\"$(encode_control_value "$rationale")\")"
   opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
   opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  if [ "$supersede" -eq 1 ]; then
+    opts="$opts, supersede: true"
+  fi
   local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
   run_control_rpc "Aiur.AgentControlCLI.executor_answer([$opts])"
 }

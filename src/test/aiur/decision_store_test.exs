@@ -900,7 +900,9 @@ defmodule Aiur.DecisionStoreTest do
                DecisionStore.moot(decision.decision_id, %{"reason_class" => "ticket_closed"}, opts, pid)
     end
 
-    test "moot is refused for a Command that already has an answer", %{dir: dir} do
+    # #2711: a decided answer that never reached an agent can be withdrawn. The
+    # delivered case stays refused; see `Aiur.DecisionWithdrawalTest`.
+    test "moot withdraws a decided answer that was never delivered", %{dir: dir} do
       pid = start_store!(dir)
 
       assert {:ok, %{decision: decision}} =
@@ -918,9 +920,13 @@ defmodule Aiur.DecisionStoreTest do
                })
 
       assert answered.decision_status == :decided
+      refute Decision.delivered?(answered)
 
-      assert {:error, {:conflict, :decided}} =
+      assert {:ok, %{status: :accepted, decision: mooted}} =
                DecisionStore.moot(decision.decision_id, %{"reason_class" => "ticket_closed"}, [actor: %{kind: :operator, id: "dashboard"}], pid)
+
+      assert mooted.decision_status == :moot
+      assert mooted.answer == answered.answer
     end
   end
 

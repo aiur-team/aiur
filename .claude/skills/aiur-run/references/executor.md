@@ -173,6 +173,12 @@ a rationale, and an idempotency key. Use a stable `--executor-id` for the run
 when available (the CLI otherwise records `aiur-cli`), so replay stays
 idempotent and stale events cannot overwrite a later answer.
 
+A decided answer that no agent has received yet can still be changed. It is
+addressed to the ticket, so a later worker of the same ticket receives it.
+Withdraw it with `executor-moot`, or replace it with `executor-answer
+--supersede`; the store never delivers a mooted or replaced answer. A delivered
+answer is immutable for the Executor.
+
 If the Command is uncertain, irreversible, changes feature scope or product
 direction, exceeds the authority envelope, or requires the Executor to guess,
 do not answer it. Use the `executor-escalate` command to invoke the existing

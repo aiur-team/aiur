@@ -338,6 +338,16 @@ defmodule Aiur.DecisionProjection do
     {:ok, decision}
   end
 
+  # A decided answer that no agent has received yet can still be withdrawn
+  # (#2711). The recorded answer stays in place for the audit trail, but the
+  # `:moot` status makes it undeliverable. Once any action was delivered, the
+  # answer is immutable and this event is refused.
+  defp transition(%Decision{decision_status: :decided} = decision, %DecisionEvent{type: :decision_mooted}) do
+    if Decision.delivered?(decision),
+      do: {:error, :answer_delivered},
+      else: {:ok, %{decision | decision_status: :moot, delivery_status: :not_dispatched}}
+  end
+
   defp transition(%Decision{} = decision, %DecisionEvent{type: :revision_recorded, data: revision} = event) do
     with :ok <- require_current_version(decision, event.decision_version),
          {:ok, _answer} <- require_answer(decision),

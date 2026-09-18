@@ -220,6 +220,24 @@ defmodule Aiur.Decision do
     |> Enum.find(&(&1.action_id == action_id))
   end
 
+  @doc """
+  True once any answer action of this Decision has reached the agent.
+
+  Delivery is provider-confirmed evidence on a dispatch attempt (`delivered_at`
+  is set once and never cleared), or an agent acknowledgement or resolution of
+  any action.
+  A queued or failed attempt without that evidence is not a delivery. Once
+  this is true the recorded answers are immutable for the Executor: it can
+  neither moot the Command nor supersede its answer (#2711).
+  """
+  @spec delivered?(t()) :: boolean()
+  def delivered?(%__MODULE__{decision_status: status}) when status in [:acknowledged, :resolved], do: true
+
+  def delivered?(%__MODULE__{} = decision) do
+    map_size(decision.acknowledgements) > 0 or
+      Enum.any?(decision.dispatch_attempts, &(not is_nil(&1.delivered_at)))
+  end
+
   @doc "Returns only dispatch attempts correlated to the active action."
   @spec active_dispatch_attempts(t()) :: [dispatch_attempt()]
   def active_dispatch_attempts(%__MODULE__{} = decision) do

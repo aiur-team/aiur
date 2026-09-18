@@ -247,6 +247,13 @@ defmodule Aiur.AgentRunner.QueueDrain do
       {:ok, :ignored} ->
         correlation_delivery_failed(item, identifier, action_id, :decision_correlation_ignored)
 
+      # The answer was mooted or replaced before it reached the agent (#2711).
+      # This is a final verdict, not a correlation fault: the item is failed at
+      # once, with no retry and no correlation alert, so it is never delivered.
+      {:error, {:answer_withdrawn, why} = reason} ->
+        Logger.info("Decision answer withdrawn before delivery issue=#{identifier} action_id=#{action_id} reason=#{why}")
+        {:error, {:failed, reason}}
+
       {:error, reason} ->
         correlation_delivery_failed(item, identifier, action_id, reason)
     end
