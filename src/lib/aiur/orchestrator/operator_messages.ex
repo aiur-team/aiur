@@ -551,7 +551,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp enqueue_validated_operator_message(state, issue_identifier, text, request) do
     case replay_existing_correlated_message(state, issue_identifier, text, request) do
       {:handled, {{:ok, _duplicate}, _replayed_state} = result} ->
-        wake_target_for_replayed_message(result, issue_identifier)
+        wake_target_for_replayed_message(result, issue_identifier, request)
 
       {:handled, result} ->
         result
@@ -642,10 +642,10 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   # active-cap and per-state slot gates are the same ones the explicit operator
   # resume obeys. A refused wake is reported as a delivery failure rather than
   # a silent success, which puts it on `DecisionStore`'s bounded retry ladder.
-  defp wake_target_for_replayed_message({reply, state}, issue_identifier) do
+  defp wake_target_for_replayed_message({reply, state}, issue_identifier, request) do
     with running_entry when is_map(running_entry) <-
            State.find_running_by_identifier(state.running, issue_identifier),
-         true <- State.paused_running_entry?(running_entry),
+         true <- message_resumes_pause?(state, running_entry, request),
          {{:ok, :resumed}, resumed_state} <-
            Aiur.Orchestrator.resume_paused_issue(state, running_entry) do
       {reply, resumed_state}
@@ -666,12 +666,25 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       State.deactivated_running_entry?(running_entry) ->
         enqueue_after_reactivate(state, running_entry, issue_identifier, text, request)
 
-      State.paused_running_entry?(running_entry) ->
+      message_resumes_pause?(state, running_entry, request) ->
         enqueue_after_resume(state, running_entry, issue_identifier, text, request)
 
       true ->
         do_enqueue_running_operator_message(state, running_entry, issue_identifier, text, request)
     end
+  end
+
+  # A pending self-pause still reports working until the worker confirms it.
+  # Queue the answer before superseding that pause, so the resume drains the
+  # answer first. Correlated answers must never lift an operator/global hold.
+  defp message_resumes_pause?(state, entry, request) do
+    pending_reason = get_in(entry, [:pending_pause_reason, :reason])
+    pause_reason = pending_reason || Map.get(entry, :paused_reason)
+    paused? = State.paused_running_entry?(entry) or pending_reason == :agent_pause_request
+
+    paused? and not state.globally_paused and
+      (request.mode == :plain or pause_reason == :agent_pause_request) and
+      not Aiur.Issue.paused?(Map.get(entry, :issue))
   end
 
   # Mirrors `enqueue_after_resume/5` for the `:deactivated → :working`

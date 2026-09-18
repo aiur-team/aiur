@@ -382,6 +382,12 @@ ticket stays paused until you answer. The CLI even tells you so: on
   then; the ticket's next worker receives the answer (see
   [Delivery rule for a decided answer](#delivery-rule-for-a-decided-answer)).
 
+If the existing worker has requested its own pause for input, answering resumes
+that worker with the answer as its next input, including while pause confirmation
+is pending. Once work starts, the self-pause reason and its waiting attention
+clear. An answer does not lift an operator, label, or global pause; explicitly
+resume those holds.
+
 ### Operator workflow
 
 ```text

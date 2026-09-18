@@ -1119,6 +1119,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp action_matches_status?(_action, _status), do: false
 
   defp put_control_status(running_entry, status) do
+    running_entry = clear_agent_pause_on_work(running_entry, status)
     control = Map.get(running_entry, :control, %{})
     current_status = Map.get(control, :status, :working)
 
@@ -1129,6 +1130,11 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     Map.put(running_entry, :control, control)
   end
+
+  defp clear_agent_pause_on_work(%{paused_reason: :agent_pause_request} = entry, :working),
+    do: Map.delete(entry, :paused_reason)
+
+  defp clear_agent_pause_on_work(entry, _status), do: entry
 
   defp maybe_increment_control_version(control, status, status), do: control
 
@@ -1190,7 +1196,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(%State{} = state, running_entry, new_status, reason) do
     previous_pause_reason = Map.get(running_entry, :paused_reason)
-    running_entry = normalize_pause_context(running_entry, new_status)
+    running_entry = running_entry |> normalize_pause_context(new_status) |> clear_agent_pause_on_work(new_status)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     existing = Map.get(running_entry, :control, %{})
@@ -1517,6 +1523,9 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @doc false
   @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, :max_concurrent_agents_reached}
+  def resume_paused_issue_preflight(%State{}, %{control: %{status: :working}, pending_pause_reason: %{reason: :agent_pause_request}}),
+    do: :ok
+
   def resume_paused_issue_preflight(%State{} = state, running_entry) do
     cond do
       # A CI-wait pause releases its reservation; other pauses retain one.

@@ -103,6 +103,12 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
 
   def comment_event_topic?(_event), do: false
 
+  # The correlated resume is the sole wake for a paused (or pausing) worker.
+  # An interrupt notification here can deliver an answer before the pause,
+  # or start a turn before resume has released containment.
+  defp deliver_now?(%{control: %{status: :paused}}, _item), do: false
+  defp deliver_now?(%{pending_pause_reason: %{}}, _item), do: false
+
   defp deliver_now?(running_entry, item) do
     queue_wake_required?(running_entry) or
       item.delivery[:interrupt_requested] == true or
