@@ -387,6 +387,24 @@ defmodule Aiur.DecisionStore do
     :exit, _reason -> {:error, :store_unavailable}
   end
 
+  @doc """
+  Returns the ids of the open blocking Commands that gate dispatch for any of
+  `ticket_identifiers`, by the same rule as `blocked_ticket_ids/1`.
+
+  The operator resume path uses it to name the Decision that holds a ticket
+  instead of refusing with a bare reason (#2699). It runs inside an operator
+  control call, so the default timeout is short: a slow store degrades the
+  refusal to "store unavailable" rather than timing out the whole resume.
+  """
+  @spec open_blocking_decision_ids([String.t()], GenServer.server(), timeout()) ::
+          {:ok, [String.t()]} | {:error, :store_unavailable}
+  def open_blocking_decision_ids(ticket_identifiers, server \\ __MODULE__, timeout \\ 1_000)
+      when is_list(ticket_identifiers) do
+    GenServer.call(server, {:open_blocking_decision_ids, ticket_identifiers}, timeout)
+  catch
+    :exit, _reason -> {:error, :store_unavailable}
+  end
+
   @doc "Returns a bounded dashboard window, prioritizing unresolved and blocking Decisions."
   @spec recent_decisions(non_neg_integer(), GenServer.server()) :: [Decision.t()]
   def recent_decisions(limit \\ @recent_decision_limit, server \\ __MODULE__)
@@ -974,6 +992,23 @@ defmodule Aiur.DecisionStore do
         |> Enum.filter(&open_blocking_command?/1)
         |> Enum.map(& &1.ticket.identifier)
         |> MapSet.new()
+
+      {:reply, {:ok, ids}, state}
+    else
+      {:reply, {:error, :store_unavailable}, state}
+    end
+  end
+
+  def handle_call({:open_blocking_decision_ids, ticket_identifiers}, _from, state) do
+    if readable?(state.health) do
+      wanted = MapSet.new(ticket_identifiers)
+
+      ids =
+        state.current
+        |> Map.values()
+        |> Enum.filter(&(open_blocking_command?(&1) and MapSet.member?(wanted, &1.ticket.identifier)))
+        |> Enum.map(& &1.decision_id)
+        |> Enum.sort()
 
       {:reply, {:ok, ids}, state}
     else

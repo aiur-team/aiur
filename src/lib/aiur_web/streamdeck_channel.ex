@@ -79,7 +79,7 @@ defmodule AiurWeb.StreamdeckChannel do
       when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
     result =
       case action do
-        "pause" -> AgentChat.pause(identifier)
+        "pause" -> pause_agent(identifier)
         "resume" -> AgentChat.resume(identifier)
       end
 
@@ -456,6 +456,13 @@ defmodule AiurWeb.StreamdeckChannel do
     case Endpoint.config(:agent_chat_send_fun) do
       fun when is_function(fun, 2) -> fun.(identifier, message)
       _fun -> AgentChat.send(identifier, message)
+    end
+  end
+
+  defp pause_agent(identifier) do
+    case Endpoint.config(:agent_chat_pause_fun) do
+      fun when is_function(fun, 1) -> fun.(identifier)
+      _fun -> AgentChat.pause(identifier)
     end
   end
 
