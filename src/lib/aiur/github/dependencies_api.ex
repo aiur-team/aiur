@@ -92,10 +92,11 @@ defmodule Aiur.GitHub.DependenciesApi do
   # `Aiur.GitHub.IssueDependencies` with zero upstream calls.
   #
   # A held body is served as-is unless `revalidate: true` is passed — the
-  # dispatch gate's `hydrate_blocked_by` passes it so a blocker added outside
-  # Aiur's own writes, or one that closed since the list was stored, cannot be
-  # silently missed for a cycle (fail-closed). See `revalidation_etag/2` for why
-  # that read cannot be a conditional one.
+  # dispatch gate (`Aiur.GitHub.BoundedBlockedBy`) passes it once the held edges
+  # or a blocker's `:issue` record is older than its bound, so a blocker added
+  # outside Aiur's own writes, or one that closed since the list was stored,
+  # cannot be missed for longer than that bound (fail-closed). See
+  # `revalidation_etag/2` for why that read cannot be a conditional one.
   defp blocked_by_get(issue_number, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do

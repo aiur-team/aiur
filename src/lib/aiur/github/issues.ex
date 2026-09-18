@@ -7,6 +7,7 @@ defmodule Aiur.GitHub.Issues do
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
 
   alias Aiur.GitHub.{
+    BoundedBlockedBy,
     CycleFetchCache,
     DependenciesApi,
     DispatchAuthorization,
@@ -1003,6 +1004,10 @@ defmodule Aiur.GitHub.Issues do
   per-cycle fetch cache so repeated dispatch attempts of the same issue reuse
   the same dependency snapshot.
 
+  Across cycles, the edge list and each blocker's state are served from the
+  store while younger than `Aiur.GitHub.BoundedBlockedBy.max_age_ms/0`, and
+  re-read unconditionally only once either is older (#2714).
+
   Returns `{:error, reason}` when the dependency read fails; callers treat that
   as *unknown* blockers and hold dispatch (fail-closed), because dispatching on
   unknown blockers would reintroduce exactly the "dispatches work GitHub knows
@@ -1013,13 +1018,13 @@ defmodule Aiur.GitHub.Issues do
     # The dispatch gate must never be served a blocked-by list the store holds
     # that has silently gone stale — a blocker added on GitHub's side without
     # Aiur's own write or a webhook delivery must still hold dispatch, and a
-    # blocker that has since closed must stop holding it. So this entry point
-    # always revalidates instead of serving the held body blind (#2326), and
-    # that revalidation is unconditional: the endpoint's own ETag tracks the
-    # blocked issue, not the blocker state embedded in its response, so a
-    # conditional read is answered `304` by a blocker that merged hours ago
-    # (#2550, #2552). See `DependenciesApi.revalidation_etag/2`.
-    hydrate_blocked_by(issue, revalidate: true)
+    # blocker that has since closed must stop holding it (#2326). The held
+    # body's embedded blocker states cannot be trusted and a conditional read
+    # cannot refresh them (#2550, #2552), but re-reading the list on every pass
+    # cost two thirds of a daemon's core budget (#2714). So the gate reads the
+    # edges and the blocker states separately, each within a stated bound: see
+    # `Aiur.GitHub.BoundedBlockedBy`.
+    hydrate_blocked_by(issue, revalidate: :bounded)
   end
 
   @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
@@ -1028,9 +1033,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
-    case CycleFetchCache.fetch({:blocked_by, id}, fn ->
-           DependenciesApi.fetch_blocked_by(id, opts)
-         end) do
+    case CycleFetchCache.fetch({:blocked_by, id}, fn -> fetch_blocked_by(id, opts) end) do
       {:ok, blockers} when is_list(blockers) ->
         {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
 
@@ -1043,6 +1046,13 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{} = issue, _opts), do: {:ok, issue}
+
+  defp fetch_blocked_by(id, opts) do
+    case Keyword.get(opts, :revalidate) do
+      :bounded -> BoundedBlockedBy.fetch(id, Keyword.delete(opts, :revalidate))
+      _other -> DependenciesApi.fetch_blocked_by(id, opts)
+    end
+  end
 
   # Reduces GitHub's native dependency issue objects to the same `blocked_by`
   # shape Linear's normalize_issue produces (`%{id, identifier, state, url}`)
