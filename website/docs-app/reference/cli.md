@@ -137,6 +137,12 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted.
 Restart uses the same graceful agent-tree and workspace-descendant reap as `stop` before refreshing or starting the release.
 
+A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes. Before it does, Aiur saves the changes under the runtime state directory in `wip-preserved/<ticket>/<timestamp>/`: a binary patch of tracked changes, a tar of untracked files, a bundle of unpushed commits, and `manifest.json` with the restore commands.
+
+The next agent turn for the ticket starts with those restore commands, and the `ticket.<n>.workspace.wip_preserved` alert gives the path. Aiur keeps the newest 5 saves for each workspace.
+
+If the save fails, Aiur does not delete the workspace. It pauses the ticket as a preflight failure and raises `ticket.<n>.workspace.wip_preservation_failed`. Aiur never deletes a dirty workspace on a remote worker; it holds the ticket in the same way.
+
 Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
 
 | Development refresh evidence | Result |

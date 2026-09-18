@@ -1,9 +1,9 @@
 defmodule Aiur.Workspace.Refresh do
-  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577) and the in-flight WIP skip (#653)."
+  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577), which saves uncommitted work before it deletes anything (#2743), and the in-flight WIP skip (#653)."
 
   require Logger
   alias Aiur.{AgentBuildGuard, Config}
-  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction}
+  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction, WipPreservation}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
@@ -69,20 +69,17 @@ defmodule Aiur.Workspace.Refresh do
         {:error, {:workspace_owned, Ownership.current(issue_context.issue_identifier)}}
 
       # A fresh todo dispatch that lands on a dirty *leftover* workspace
-      # (#577): the dirty content is not this agent's WIP, so recreate the
-      # workspace clean off the configured base and re-run before_run.
+      # (#577): recreate the workspace clean off the configured base and re-run
+      # before_run. The dirty content can still be an agent's unsaved work (a
+      # restart mid-turn, #2743), so it is saved outside the workspace first.
+      # If it cannot be saved, the workspace is not touched and the ticket is
+      # held on the named reason.
       Context.todo_dispatch?(issue_context) ->
         Logger.warning(
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
         )
 
-        with :ok <-
-               Provisioner.recreate(
-                 workspace,
-                 worker_host,
-                 issue_context.pr_head_ref,
-                 issue_context.branch_name
-               ),
+        with :ok <- preserve_then_recreate(workspace, issue_context, worker_host),
              :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host),
              :ok <- finalize_before_run_workspace(workspace, issue_context, worker_host) do
           # Recreation deleted the support tree `create_for_issue/3` installed
@@ -107,6 +104,24 @@ defmodule Aiur.Workspace.Refresh do
 
         finalize_before_run_workspace(workspace, issue_context, worker_host)
     end
+  end
+
+  defp preserve_then_recreate(workspace, issue_context, nil) do
+    WipPreservation.guard_destroy(workspace, issue_context.issue_identifier, "recreate the stale workspace", fn ->
+      Provisioner.recreate(workspace, nil, issue_context.pr_head_ref, issue_context.branch_name)
+    end)
+  end
+
+  # The dirty state of a remote checkout cannot be saved to this daemon's
+  # runtime state directory, and the exit-65 refusal already proves the
+  # checkout is dirty. Hold the ticket instead of deleting the work.
+  defp preserve_then_recreate(workspace, issue_context, worker_host) when is_binary(worker_host) do
+    WipPreservation.refuse(
+      workspace,
+      issue_context.issue_identifier,
+      "recreate the stale workspace on #{worker_host}",
+      :remote_worker_unsupported
+    )
   end
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do

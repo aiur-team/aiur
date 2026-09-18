@@ -1,8 +1,18 @@
 defmodule Aiur.Workspace.Remove do
-  @moduledoc "Workspace removal: local and remote rm-rf with before_remove hook dispatch and per-issue multi-host fanout."
+  @moduledoc """
+  Workspace removal: local and remote rm-rf with before_remove hook dispatch
+  and per-issue multi-host fanout.
+
+  A local checkout with uncommitted work is saved by
+  `Aiur.Workspace.WipPreservation` before it is removed, and is kept when the
+  save fails. A dirty remote checkout is never removed (#2743).
+  """
 
   alias Aiur.Config
-  alias Aiur.Workspace.{Hooks, Layout, Remote}
+  alias Aiur.Workspace.{Hooks, Layout, Remote, WipPreservation}
+
+  # Exit status of the remote removal script when the checkout is dirty.
+  @remote_dirty_status 75
 
   @type worker_host :: String.t() | nil
 
@@ -15,8 +25,7 @@ defmodule Aiur.Workspace.Remove do
       true ->
         case Layout.validate_workspace_path(workspace, nil) do
           :ok ->
-            maybe_run_before_remove_hook(workspace, nil)
-            File.rm_rf(workspace)
+            remove_preserved(workspace)
 
           {:error, reason} ->
             {:error, reason, ""}
@@ -33,6 +42,10 @@ defmodule Aiur.Workspace.Remove do
     script =
       [
         Remote.remote_shell_assign("workspace", workspace),
+        "if [ -e \"$workspace/.git\" ] && [ -n \"$(git -C \"$workspace\" status --porcelain --untracked-files=all 2>/dev/null | head -n 1)\" ]; then",
+        "  echo 'workspace has uncommitted changes; not removed' >&2",
+        "  exit #{@remote_dirty_status}",
+        "fi",
         "rm -rf \"$workspace\""
       ]
       |> Enum.join("\n")
@@ -40,6 +53,12 @@ defmodule Aiur.Workspace.Remove do
     case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} ->
         {:ok, []}
+
+      {:ok, {_output, @remote_dirty_status}} ->
+        {:error, reason} =
+          WipPreservation.refuse(workspace, Path.basename(workspace), "remove the workspace on #{worker_host}", :remote_worker_unsupported)
+
+        {:error, reason, ""}
 
       {:ok, {output, status}} ->
         {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
@@ -84,6 +103,16 @@ defmodule Aiur.Workspace.Remove do
 
   def remove_issue_workspaces(_identifier, _worker_host) do
     :ok
+  end
+
+  defp remove_preserved(workspace) do
+    case WipPreservation.guard_destroy(workspace, Path.basename(workspace), "remove the workspace", fn ->
+           maybe_run_before_remove_hook(workspace, nil)
+           File.rm_rf(workspace)
+         end) do
+      {:error, {:wip_preservation_failed, _workspace, _reason} = reason} -> {:error, reason, ""}
+      result -> result
+    end
   end
 
   defp maybe_run_before_remove_hook(workspace, nil) do
