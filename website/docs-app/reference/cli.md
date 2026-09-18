@@ -151,6 +151,8 @@ Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from
 
 Before Aiur deletes or recreates a ticket workspace that has uncommitted changes, it saves them in `wip-preserved/<workspace>/<timestamp>/` under the runtime state directory. The directories have mode 0700 and the files 0600, because untracked files can hold secrets.
 
+Each save holds these files:
+
 | File | Content |
 | --- | --- |
 | `tracked.patch` | A binary patch of the staged and unstaged tracked changes. |
