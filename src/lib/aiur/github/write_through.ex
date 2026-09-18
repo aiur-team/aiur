@@ -283,7 +283,10 @@ defmodule Aiur.GitHub.WriteThrough do
         _absent -> nil
       end,
       source: source(opts),
-      version: &issue_version/1
+      version: &issue_version/1,
+      # Only `"labels"` is new. The rest of the held body, `"state"` included,
+      # is as old as it was, so this does not count as a full-body write.
+      partial: true
     )
   end
 

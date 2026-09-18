@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.CurrentRunMembership
   alias Aiur.Events.UniversalSubscriptions
   alias Aiur.GitHub.{Config, LocalHold}
+  alias Aiur.GitHub.Issues, as: GitHubIssues
   alias Aiur.Issue
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, MergedTicketReconciler, PrAnchored, PushRouting, ReviewFreshness, ReworkGate, State}
@@ -166,7 +167,45 @@ defmodule Aiur.Orchestrator.CommentWake do
       emit_alert_fun
     )
 
+    refresh_other_closed_issues(identifier, opts)
+
     terminal_state
+  end
+
+  # A PR can close more tickets than the one its branch names. GitHub closes
+  # each of them, but only the branch ticket gets a store write from this path,
+  # so a dependent of any other one would wait for the next open-issue poll to
+  # see the close (#2714). Re-read each of them now so its `:issue` record says
+  # closed. The read is conditional: it costs nothing when the record is
+  # already current.
+  defp refresh_other_closed_issues(identifier, opts) do
+    case Keyword.get(opts, :pr_body) do
+      body when is_binary(body) and body != "" ->
+        refresh_fun = Keyword.get(opts, :refresh_issue_fun, &refresh_issue_record/1)
+
+        body
+        |> RecentMerge.closing_issue_identifiers_in_body(merge_repository(opts))
+        |> Enum.uniq()
+        |> Enum.reject(&(&1 == to_string(identifier)))
+        |> Enum.each(refresh_fun)
+
+      _no_body ->
+        :ok
+    end
+  end
+
+  defp refresh_issue_record(identifier) do
+    if Dispatcher.github_tracker_kind?() do
+      case GitHubIssues.fetch_issue_raw_conditional(identifier, revalidate: true) do
+        {:ok, _body, _freshness} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.info("PR merge could not refresh closed issue ##{identifier}: #{inspect(reason)}")
+      end
+    end
+
+    :ok
   end
 
   # The state a merged-PR ticket should land in. Callers that already ran

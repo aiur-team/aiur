@@ -13,6 +13,7 @@ defmodule Aiur.GitHub.Issues do
     DispatchAuthorization,
     Errors,
     Labels,
+    OpenIssueSnapshot,
     ResourceStore,
     StatePolicy,
     Transport
@@ -385,6 +386,7 @@ defmodule Aiur.GitHub.Issues do
       active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
 
       with {:ok, issues} <- fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, []) do
+        record_open_issues(owner, repo, issues)
         {:ok, filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -407,6 +409,8 @@ defmodule Aiur.GitHub.Issues do
 
       case fetch_label_issue_pages_conditional(ctx, url, cache) do
         {:ok, issues, updated_cache} ->
+          record_open_issues(ctx.owner, ctx.repo, issues)
+
           candidates =
             filter_and_authorize_candidates_with_degenerate(
               issues,
@@ -424,6 +428,13 @@ defmodule Aiur.GitHub.Issues do
           error
       end
     end
+  end
+
+  # Both listings are unfiltered and fully paginated, and they answer `{:ok, _}`
+  # only when every page was read, so `issues` names every open issue. That is
+  # the close signal the dispatch gate's blocker states use (#2714).
+  defp record_open_issues(owner, repo, issues) do
+    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id))
   end
 
   defp filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix) do

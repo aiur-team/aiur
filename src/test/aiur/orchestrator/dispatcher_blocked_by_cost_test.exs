@@ -11,8 +11,8 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{CycleFetchCache, Quota, ResourceStore}
-  alias Aiur.Orchestrator.{Dispatcher, State}
+  alias Aiur.GitHub.{CycleFetchCache, Issues, OpenIssueSnapshot, Quota, ResourceStore, WriteThrough}
+  alias Aiur.Orchestrator.{CommentWake, Dispatcher, State}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
   @blocker 53
@@ -46,9 +46,11 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     )
 
     ResourceStore.reset()
+    OpenIssueSnapshot.reset()
 
     on_exit(fn ->
       ResourceStore.reset()
+      OpenIssueSnapshot.reset()
       File.write!(workflow_path, original_workflow)
       restore_app_env(:github_transport_test_options, previous_options)
       restore_app_env(:github_quota_server, previous_quota)
@@ -198,6 +200,122 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     assert blocked_by_reads() == []
   end
 
+  test "a blocker closed on GitHub with no running entry and no store write releases its dependent after the next poll, for one read" do
+    open_blocker = [blocker_body("open", [%{"name" => "sym:human-review"}])]
+    stub_github(fn _number -> open_blocker end)
+
+    assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
+    assert blocked_by_reads() == ["14"]
+
+    # Closed by a manual close, or by a PR whose branch is not `aiur/53`: no
+    # agent, no mutation, no webhook. Only the open-issue poll can see it.
+    Process.sleep(2)
+    assert {:ok, _candidates, _cache} = poll_open_issues()
+
+    closed_blocker = [blocker_body("closed", [], "2026-09-18T03:00:00Z")]
+    stub_github(fn _number -> closed_blocker end)
+
+    released = run_pass(candidate("14"))
+
+    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+    assert dispatched.id == "14"
+    assert Map.has_key?(released.running, "14")
+    assert blocked_by_reads() == ["14"]
+    assert %{"state" => "closed"} = ResourceStore.data(ResourceStore.key(:issue, "owner", "repo", "#{@blocker}"))
+
+    # The re-read wrote the close back, so later passes need no read.
+    run_pass(candidate("14"), released)
+    assert blocked_by_reads() == []
+  end
+
+  test "a failed open-issue poll gives no close signal" do
+    stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:human-review"}])] end)
+
+    assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
+    assert blocked_by_reads() == ["14"]
+
+    Process.sleep(2)
+    assert {:error, _reason} = poll_open_issues(500)
+    stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:human-review"}])] end)
+
+    assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
+    assert blocked_by_reads() == []
+  end
+
+  test "an open-issue listing taken before the blocker's record gives no close signal" do
+    # The listing predates the blocker (it opened, or reopened, afterwards).
+    assert {:ok, _candidates, _cache} = poll_open_issues()
+    Process.sleep(2)
+
+    stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:human-review"}])] end)
+
+    for _pass <- 1..3 do
+      assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
+    end
+
+    assert blocked_by_reads() == ["14"]
+  end
+
+  test "a label write does not make a blocker's old state look fresh" do
+    Application.put_env(:aiur, :blocked_by_max_age_ms, 100)
+    stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:human-review"}])] end)
+
+    assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
+    assert blocked_by_reads() == ["14"]
+
+    Process.sleep(150)
+
+    # Aiur relabels #53 and refreshes the edges: both entries have a new
+    # `fetched_at_ms`, but #53's `"state"` is still 150 ms old.
+    WriteThrough.issue_labels(@blocker, [%{"name" => "sym:rework"}])
+    edges_key = ResourceStore.key(:issue_blocked_by, "owner", "repo", "14")
+    ResourceStore.put_resource(edges_key, ResourceStore.data(edges_key), source: :webhook)
+
+    assert %{"labels" => [%{"name" => "sym:rework"}]} =
+             ResourceStore.data(ResourceStore.key(:issue, "owner", "repo", "#{@blocker}"))
+
+    assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
+    assert blocked_by_reads() == ["14"]
+  end
+
+  test "a merged PR refreshes every other issue it closes, and their dependents dispatch with no blocked_by read" do
+    stub_github(fn _number -> [blocker_body("open", [%{"name" => "sym:human-review"}])] end)
+
+    held = run_pass(candidate("14"))
+    assert held.dispatch_declines["14"] == :dependency
+    assert blocked_by_reads() == ["14"]
+
+    # PR `aiur/60-…` closes #60 (its branch ticket) and #53.
+    closed = blocker_body("closed", [], "2026-09-18T03:00:00Z")
+
+    stub_github(fn _number -> [closed] end, %{
+      "/repos/owner/repo/issues/#{@blocker}" => &Req.Test.json(&1, closed)
+    })
+
+    CommentWake.mark_pr_merged_issue_done(%State{}, "60",
+      pr_body: "Closes #60\nFixes #53",
+      target_state: "done",
+      update_issue_state_fun: fn "60", "done" -> :ok end,
+      clear_session_handle_fun: fn _identifier -> :ok end,
+      observe_membership_fun: fn _identity, _lifecycle -> :ok end,
+      set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
+      mark_reconciled_fun: fn _identity -> :ok end,
+      terminate_running_issue_fun: fn state, _issue_id, _cleanup? -> state end,
+      resume_blockees_fun: fn state, _identifier -> state end,
+      merger_allowed_fun: fn _login -> true end,
+      emit_alert_fun: fn _name, _opts -> :ok end,
+      repo_fun: fn -> "owner/repo" end
+    )
+
+    assert_received {:routed, "/repos/owner/repo/issues/53"}
+    refute_received {:routed, "/repos/owner/repo/issues/60"}
+
+    released = run_pass(candidate("14"), held)
+    assert Map.has_key?(released.running, "14")
+    assert blocked_by_reads() == []
+    refute_received {:github, _path}
+  end
+
   defp run_pass(%Issue{} = issue, state \\ %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}) do
     test_pid = self()
 
@@ -236,7 +354,9 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     }
   end
 
-  defp stub_github(blockers_for) do
+  # `routes` answers other paths: `%{path => fun(conn) -> conn}`. Each one is
+  # reported as `{:routed, path}`; any other path is a failure the tests refute.
+  defp stub_github(blockers_for, routes \\ %{}) do
     test_pid = self()
 
     Req.Test.stub(__MODULE__, fn conn ->
@@ -246,10 +366,38 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
           Req.Test.json(conn, blockers_for.(number))
 
         nil ->
-          send(test_pid, {:github, conn.request_path})
-          Plug.Conn.send_resp(conn, 500, "unexpected request")
+          route(conn, routes, test_pid)
       end
     end)
+  end
+
+  defp route(conn, routes, test_pid) do
+    case Map.fetch(routes, conn.request_path) do
+      {:ok, respond} ->
+        send(test_pid, {:routed, conn.request_path})
+        respond.(conn)
+
+      :error ->
+        send(test_pid, {:github, conn.request_path})
+        Plug.Conn.send_resp(conn, 500, "unexpected request")
+    end
+  end
+
+  # One tick of the candidate poll, through the real conditional reader. The
+  # listing names only issue #99 (open, no `agent:*` label), so it needs no
+  # authorization reads, and #53 is absent: GitHub has closed it.
+  defp poll_open_issues(status \\ 200) do
+    Req.Test.stub(__MODULE__, fn conn ->
+      assert conn.request_path == "/repos/owner/repo/issues"
+
+      if status == 200 do
+        Req.Test.json(conn, [%{"number" => 99, "html_url" => "u99", "state" => "open", "labels" => []}])
+      else
+        Plug.Conn.send_resp(conn, status, "boom")
+      end
+    end)
+
+    Issues.fetch_candidate_issues_conditional(%{})
   end
 
   # Drains the blocked_by reads received so far. Every one of them must be
