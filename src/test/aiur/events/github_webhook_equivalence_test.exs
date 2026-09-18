@@ -378,6 +378,47 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       refute_received {:history_read, _url}
     end
 
+    # The comment poll folds an observation read when its task started. A
+    # stale draft reading folded after the PR was announced must not re-arm
+    # the same head, or the next ready poll announces it again.
+    test "a stale draft reading after the announcement does not re-announce the same head" do
+      topic = "ticket.62.pr.ready_for_review"
+      :ok = Exchange.subscribe(topic)
+
+      announced =
+        %State{}
+        |> poll_draft_flag("62", 907, "ready-head", true)
+        |> poll_draft_flag("62", 907, "ready-head", false)
+
+      assert %{pr: %{"number" => 907}} = await_event(topic)
+
+      stale = poll_draft_flag(announced, "62", 907, "ready-head", true)
+      assert stale.pr_ready_ledger[{"62", 907}] == {:announced, "ready-head"}
+
+      clear_replay_window()
+      _state = poll_draft_flag(stale, "62", 907, "ready-head", false)
+      refute_receive {:event, %{topic: ^topic}}, 100
+    end
+
+    test "a failed history read is not retried on every poll" do
+      topic = "ticket.63.pr.ready_for_review"
+      :ok = Exchange.subscribe(topic)
+
+      state = poll_draft_flag(%State{}, "63", 908, "ready-head", false, {:status, 404})
+      assert_received {:history_read, _url}
+      refute_receive {:event, %{topic: ^topic}}, 100
+
+      state = poll_draft_flag(state, "63", 908, "ready-head", false, {:status, 404})
+      refute_received {:history_read, _url}
+
+      # The backoff expires: the read is due again.
+      assert {:history_failed, retry_at_ms} = state.pr_ready_ledger[{"63", 908}]
+
+      observation = ReadyForReviewTransitions.observation("63", 908, "ready-head", false)
+      refute ReadyForReviewTransitions.needs_history?(state.pr_ready_ledger, observation, retry_at_ms - 1)
+      assert ReadyForReviewTransitions.needs_history?(state.pr_ready_ledger, observation, retry_at_ms)
+    end
+
     # The webhook sends only `opened` for a PR opened ready (see the
     # `pull request opened` case above), so the poll publishes nothing either.
     test "a PR opened ready publishes no ready_for_review and reads its history once" do
@@ -863,7 +904,7 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     request_fun = fn %{url: url} ->
       if url =~ "/issues/#{pr_number}/events" do
         send(test_pid, {:history_read, url})
-        {:ok, %{status: 200, body: history}}
+        history_response(history)
       else
         flunk("unexpected GitHub request #{url}")
       end
@@ -891,6 +932,9 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     ref = make_ref()
     CommentPolling.apply_async(%{state | github_comment_poll: %{ref: ref}}, ref, {:ok, %{}, [], {[target], poll_result}})
   end
+
+  defp history_response({:status, status}), do: {:ok, %{status: status, body: %{"message" => "Not Found"}}}
+  defp history_response(events) when is_list(events), do: {:ok, %{status: 200, body: events}}
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)

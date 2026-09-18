@@ -42,12 +42,16 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   # newest PRs only, so the ledger stays small without tracking PR closure.
   @max_entries 1_000
 
+  # A failed history read (a 403 or 404 that persists, a transient error) is
+  # retried after this long, not on every comment poll.
+  @history_retry_ms 15 * 60 * 1_000
+
   @type observation :: %{
           required(:ticket) => String.t(),
           required(:pr_number) => pos_integer(),
           required(:head_sha) => String.t(),
           required(:draft?) => boolean(),
-          optional(:was_draft?) => boolean() | nil
+          optional(:was_draft?) => boolean() | :error | nil
         }
 
   @doc """
@@ -87,11 +91,18 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   True when `observation` is a ready PR the ledger has never seen, which only
   the PR's history can classify.
   """
-  @spec needs_history?(PrReadyLedgerStore.ledger(), observation() | nil) :: boolean()
-  def needs_history?(ledger, %{draft?: false, ticket: ticket, pr_number: pr_number}) when is_map(ledger),
-    do: not Map.has_key?(ledger, {ticket, pr_number})
+  @spec needs_history?(PrReadyLedgerStore.ledger(), observation() | nil, integer()) :: boolean()
+  def needs_history?(ledger, observation, now_ms \\ System.system_time(:millisecond))
 
-  def needs_history?(_ledger, _observation), do: false
+  def needs_history?(ledger, %{draft?: false, ticket: ticket, pr_number: pr_number}, now_ms) when is_map(ledger) do
+    case Map.get(ledger, {ticket, pr_number}) do
+      nil -> true
+      {:history_failed, retry_at_ms} -> now_ms >= retry_at_ms
+      _known -> false
+    end
+  end
+
+  def needs_history?(_ledger, _observation, _now_ms), do: false
 
   @doc """
   Returns the ledger, loading it from disk on first use.
@@ -122,6 +133,14 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
     key = {ticket, pr_number}
 
     case {draft?, Map.get(ledger, key)} do
+      # The comment poll folds an observation taken when its task started, so
+      # a stale draft reading can arrive after the CI poll already announced
+      # the same head. The fold is monotonic for that head: only a draft at a
+      # different head re-arms the PR. A real same-head re-draft loses nothing,
+      # because its next ready would carry the announced dedup key anyway.
+      {true, {:announced, head_sha}} ->
+        if head_sha == observation.head_sha, do: ledger, else: Map.put(ledger, key, :draft)
+
       {true, _entry} ->
         Map.put(ledger, key, :draft)
 
@@ -129,11 +148,10 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
         announce(ledger, key, observation, opts)
 
       {false, nil} ->
-        case Map.get(observation, :was_draft?) do
-          true -> announce(ledger, key, observation, opts)
-          false -> Map.put(ledger, key, :never_draft)
-          _unknown -> ledger
-        end
+        classify_from_history(ledger, key, observation, opts)
+
+      {false, {:history_failed, _retry_at_ms}} ->
+        classify_from_history(ledger, key, observation, opts)
 
       {false, _announced_or_never_draft} ->
         ledger
@@ -141,6 +159,23 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   end
 
   defp apply_observation(ledger, _observation, _opts), do: ledger
+
+  defp classify_from_history(ledger, key, observation, opts) do
+    case Map.get(observation, :was_draft?) do
+      true ->
+        announce(ledger, key, observation, opts)
+
+      false ->
+        Map.put(ledger, key, :never_draft)
+
+      :error ->
+        now_ms = Keyword.get_lazy(opts, :now_ms, fn -> System.system_time(:millisecond) end)
+        Map.put(ledger, key, {:history_failed, now_ms + @history_retry_ms})
+
+      _not_read ->
+        ledger
+    end
+  end
 
   defp announce(ledger, {ticket, pr_number} = key, %{head_sha: head_sha}, opts) do
     repo_fun = Keyword.get(opts, :repo_fun, &GitHubConfig.repo/0)

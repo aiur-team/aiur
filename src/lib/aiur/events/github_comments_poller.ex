@@ -441,7 +441,9 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {:error, reason} ->
           Logger.warning("GithubCommentsPoller PR draft history read failed: pr=#{observation.pr_number} reason=#{inspect(reason)}")
 
-          observation
+          # Recorded with a backoff by the orchestrator, so a persistent 403
+          # or 404 does not cost a read on every poll.
+          Map.put(observation, :was_draft?, :error)
       end
     else
       _no_history_needed -> observation
