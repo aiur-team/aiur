@@ -10,7 +10,7 @@ defmodule Aiur.AgentControlCLITest do
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State, StatusReport}
   alias Aiur.TrackerIdentity
 
   test "executor-wait prints and acknowledges a pending wake" do
@@ -2383,7 +2383,6 @@ defmodule Aiur.AgentControlCLITest do
 
   test "a queued resume with no correlatable lifecycle says why is unknown", %{orchestrator: pid} do
     Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, {:resumed, 999}} end)
-    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -2393,6 +2392,28 @@ defmodule Aiur.AgentControlCLITest do
       }
     end)
 
+    # This test owns the readable-status premise. Building the row through the
+    # production reporter keeps its shape faithful while avoiding an unrelated
+    # SnapshotStore transport timeout selecting the distinct unreadable-status
+    # diagnostic path.
+    readable_statuses =
+      pid
+      |> :sys.get_state()
+      |> StatusReport.agent_statuses(fn _timeout -> {:unavailable, nil} end)
+
+    assert [%{identifier: "repo#44", state: :paused, control: control}] = readable_statuses
+    assert control.status == :paused
+    assert Map.get(control, :latest_control) == nil
+    assert Map.get(control, :latest_resume_control) == nil
+    assert Map.get(control, :recent_controls, []) == []
+
+    Application.put_env(:aiur, :agent_control_cli_confirmation_status_fun, fn _server, _timeout -> readable_statuses end)
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :agent_control_cli_resume_fun)
+      Application.delete_env(:aiur, :agent_control_cli_confirmation_status_fun)
+    end)
+
     stderr =
       capture_io(:stderr, fn ->
         output =
@@ -2400,7 +2421,8 @@ defmodule Aiur.AgentControlCLITest do
             capture_io(fn -> AgentControlCLI.resume(["44"]) end)
           end)
 
-        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1\n"
+        refute output =~ "__AIUR_CONTROL_EXIT__:124"
       end)
 
     assert stderr =~ "why it was not applied could not be determined"
