@@ -175,6 +175,28 @@ defmodule Aiur.OperatorSendTimeoutTest do
       assert :empty = OperatorMessages.claim_next_queue_item(orchestrator, @identifier)
     end
 
+    # The lookup after a timeout must not report an older message as this
+    # send just because the id matches. Other text under the id is a conflict.
+    test "a timed-out send that reused a message id for other text reports a conflict" do
+      {orchestrator, orchestrator_pid} = start_orchestrator!(:TimeoutConflict)
+
+      assert {:ok, first_id} =
+               OperatorMessages.send_operator_message(orchestrator, @identifier, %{kind: :text, body: "yes", message_id: "m-1"})
+
+      :ok = :sys.suspend(orchestrator_pid)
+
+      spawn(fn ->
+        Process.sleep(@call_timeout_ms + div(@call_timeout_ms, 2))
+        :sys.resume(orchestrator_pid)
+      end)
+
+      assert {:error, {:message_id_conflict, ^first_id}} =
+               OperatorMessages.send_operator_message(orchestrator, @identifier, %{kind: :text, body: "no", message_id: "m-1"})
+
+      assert {:ok, %{id: ^first_id}} = OperatorMessages.claim_next_queue_item(orchestrator, @identifier)
+      assert :empty = OperatorMessages.claim_next_queue_item(orchestrator, @identifier)
+    end
+
     test "a send that times out reports the item once the Orchestrator catches up" do
       {orchestrator, orchestrator_pid} = start_orchestrator!(:PlainLookup)
       payload = %{kind: :text, body: "Please rebase", message_id: "msg-lookup"}

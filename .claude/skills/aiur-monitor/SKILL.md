@@ -71,6 +71,7 @@ ladder:
 
 1. inspect the ticket/PR, alert, workpad, and relevant logs;
 2. message the worker with `scripts/aiurdev message <id> <text>`;
+   exit 124 = outcome unknown: check the ticket log first, then retry only with the printed `--message-id` command, never a plain resend (a plain resend now queues a second copy).
 3. correct authoritative queue/dependency state only within granted authority;
    in a GitHub workflow, use the `agent:paused` tracker overlay to shelve an
    undispatched ticket;

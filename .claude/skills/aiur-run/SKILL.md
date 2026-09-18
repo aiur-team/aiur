@@ -723,7 +723,7 @@ On every observation:
   the PR in an ownership vacuum or another identical loop;
 - treat `ci-wait` as an automatic gate unless evidence shows the poller failed;
 - use `"$AIUR_CMD" message <id> <text>`, `pause`, and `resume` as the least
-  invasive controls;
+  invasive controls; for `message`, exit 124 = outcome unknown: check the ticket log first, then retry only with the printed `--message-id` command, never a plain resend (a plain resend now queues a second copy).
 - preserve decisions and incidents in the durable handoff/workpad.
 
 A PR becomes review-ready only when its configured base is correct, that base's

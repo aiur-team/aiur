@@ -31,8 +31,21 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
     server
     |> control_api_call({:send_operator_message, issue_identifier, payload}, timeout)
-    |> reconcile_send_timeout(server, {:message_id, payload_key(payload, :message_id)}, timeout, &{:ok, &1.id})
+    |> reconcile_send_timeout(
+      server,
+      {:message_id, payload_key(payload, :message_id)},
+      timeout,
+      &{:ok, &1.id},
+      expected_message(issue_identifier, payload)
+    )
   end
+
+  # The lookup after a timeout must prove the item is this send, not an older
+  # message that reused the id with other text (#2717).
+  defp expected_message(issue_identifier, %{body: body}) when is_binary(body),
+    do: %{target: issue_identifier, text: body}
+
+  defp expected_message(_issue_identifier, _payload), do: nil
 
   @doc "Send one idempotent action-correlated Executor message and return its queue snapshot."
   @spec send_correlated_operator_message(String.t(), map()) ::
@@ -64,19 +77,25 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   # with that item. If it proves no item exists, nothing was queued. If it
   # also times out, the outcome is unknown, never a failure, and a retry with
   # the same key is safe because enqueue is idempotent by that key.
-  defp reconcile_send_timeout({:error, :timeout}, server, {_kind, key} = lookup, timeout, found)
+  defp reconcile_send_timeout(result, server, lookup, timeout, found, expected \\ nil)
+
+  defp reconcile_send_timeout({:error, :timeout}, server, {_kind, key} = lookup, timeout, found, expected)
        when is_binary(key) do
-    case control_api_call(server, {:lookup_operator_message, lookup}, timeout) do
+    case control_api_call(server, lookup_request(lookup, expected), timeout) do
       {:ok, item} -> found.(item)
       {:error, :unknown_message} -> {:error, {:not_queued, :timeout}}
+      {:error, {:message_id_conflict, _item_id}} = conflict -> conflict
       {:error, _reason} -> {:error, {:outcome_unknown, outcome_unknown_info(lookup)}}
     end
   end
 
-  defp reconcile_send_timeout({:error, :timeout}, _server, lookup, _timeout, _found),
+  defp reconcile_send_timeout({:error, :timeout}, _server, lookup, _timeout, _found, _expected),
     do: {:error, {:outcome_unknown, outcome_unknown_info(lookup)}}
 
-  defp reconcile_send_timeout(result, _server, _lookup, _timeout, _found), do: result
+  defp reconcile_send_timeout(result, _server, _lookup, _timeout, _found, _expected), do: result
+
+  defp lookup_request(lookup, nil), do: {:lookup_operator_message, lookup}
+  defp lookup_request(lookup, expected), do: {:lookup_operator_message, lookup, expected}
 
   defp outcome_unknown_info({kind, key}), do: %{kind => key, item_id: nil}
 
@@ -409,6 +428,35 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     case item do
       nil -> {:reply, {:error, :unknown_message}, state}
       item -> {:reply, {:ok, item}, state}
+    end
+  end
+
+  @doc """
+  Find the item a keyed plain send created, and check it is that send: the
+  same target and text. An id reused for other text is a conflict (#2717).
+  """
+  @spec lookup_operator_message_call(State.t(), {:message_id, String.t()}, %{target: term(), text: String.t()}) ::
+          {:reply, {:ok, Aiur.AgentQueueItem.t()} | {:error, term()}, State.t()}
+  def lookup_operator_message_call(%State{} = state, {:message_id, _key} = lookup, %{target: target, text: text}) do
+    case lookup_operator_message_call(state, lookup) do
+      {:reply, {:ok, item}, state} ->
+        expected = %{target_issue_identifier: lookup_target(state, target), body: %{text: String.trim(text)}}
+
+        if AgentQueueStore.same_message?(item, expected),
+          do: {:reply, {:ok, item}, state},
+          else: {:reply, {:error, {:message_id_conflict, item.id}}, state}
+
+      reply ->
+        reply
+    end
+  end
+
+  defp lookup_target(_state, target) when is_binary(target), do: target
+
+  defp lookup_target(state, %TrackerIdentity{} = identity) do
+    case State.find_unique_running_by_identity(state.running, identity) do
+      {:ok, _entry, issue_identifier} -> issue_identifier
+      {:error, _reason} -> identity.identifier
     end
   end
 

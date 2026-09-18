@@ -97,6 +97,10 @@ defmodule Aiur.ExtensionsTest do
     def handle_call({:lookup_operator_message, _lookup}, _from, state) do
       {:reply, Keyword.get(state, :lookup_operator_message, {:error, :unknown_message}), state}
     end
+
+    def handle_call({:lookup_operator_message, _lookup, _expected}, _from, state) do
+      {:reply, Keyword.get(state, :lookup_operator_message, {:error, :unknown_message}), state}
+    end
   end
 
   defmodule StaticDecisionStore do

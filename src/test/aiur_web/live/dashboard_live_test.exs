@@ -4645,7 +4645,7 @@ defmodule AiurWeb.DashboardLiveTest do
         send(test_pid, {:retry_agent_message, text, Keyword.fetch!(opts, :message_id)})
         :counters.add(replies, 1, 1)
 
-        if :counters.get(replies, 1) == 1,
+        if :counters.get(replies, 1) <= 2,
           do: {:error, {:outcome_unknown, %{message_id: Keyword.fetch!(opts, :message_id), item_id: nil}}},
           else: {:ok, 7}
       end
@@ -4658,12 +4658,19 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_receive {:retry_agent_message, "continue", first_id}
     assert html =~ "may still be queued"
 
-    render_submit(view, "send-operator-message", %{"message" => "continue"})
-    assert_receive {:retry_agent_message, "continue", ^first_id}
+    # An edited draft is a new message, so it gets a fresh id.
+    render_submit(view, "send-operator-message", %{"message" => "continue, please"})
+    assert_receive {:retry_agent_message, "continue, please", edited_id}
+    refute edited_id == first_id
 
-    render_submit(view, "send-operator-message", %{"message" => "continue"})
-    assert_receive {:retry_agent_message, "continue", third_id}
-    refute third_id == first_id
+    # Send again with the same draft retries it under the kept id.
+    render_submit(view, "send-operator-message", %{"message" => "continue, please"})
+    assert_receive {:retry_agent_message, "continue, please", ^edited_id}
+
+    # After a success, the same text is a new message.
+    render_submit(view, "send-operator-message", %{"message" => "continue, please"})
+    assert_receive {:retry_agent_message, "continue, please", fourth_id}
+    refute fourth_id in [first_id, edited_id]
   end
 
   test "the chat modal composer carries the writable agent log and passes the typed Unit identity" do

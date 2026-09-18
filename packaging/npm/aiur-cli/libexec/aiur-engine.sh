@@ -2586,7 +2586,7 @@ cmd_reset_budget() {
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
 cmd_message() {
   local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\" or aiur message 44 --message-id ID \"ship it\")"
-  local message_id=""
+  local message_id="" message_id_given=0
 
   local issue="${1:-}"
   if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
@@ -2601,15 +2601,17 @@ cmd_message() {
     --message-id)
       [ "$#" -gt 1 ] || { echo "aiur: message --message-id requires a value" >&2; exit 64; }
       message_id="$2"
+      message_id_given=1
       shift 2
       ;;
     --message-id=*)
       message_id="${1#--message-id=}"
+      message_id_given=1
       shift
       ;;
   esac
-  if [ -n "$message_id" ] && [[ ! "$message_id" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
-    echo "aiur: message --message-id must be 1-128 letters, digits, '.', '_', ':' or '-'" >&2
+  if [ "$message_id_given" = 1 ] && [[ ! "$message_id" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+    echo "aiur: message --message-id must be 1-128 letters, digits, '.', '_', ':' or '-' (it cannot be empty)" >&2
     exit 64
   fi
 
