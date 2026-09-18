@@ -2642,6 +2642,9 @@ defmodule Aiur.AgentControlCLI do
   # `waiting=waiting_for_human` — never from the raw work state alone. A live
   # agent blocked on an open decision used to read `working` here while
   # `status` read `waiting_for_human` for the same ticket (#2698).
+  defp agents_state_label(%{work_state: state}) when state in [:paused, "paused", :deactivated, "deactivated"],
+    do: to_string(state)
+
   defp agents_state_label(agent) do
     if WaitingReason.waiting_for_human?(agent),
       do: "waiting",

@@ -3312,6 +3312,32 @@ defmodule Aiur.AgentControlCLITest do
       refute agents_line.(17) =~ "waiting"
     end
 
+    test "preserves paused and deactivated states alongside open attentions", %{orchestrator: pid} do
+      for identifier <- ["repo#46", "repo#47"] do
+        :ok = SubscriptionStore.attach(identifier)
+        :ok = SubscriptionStore.add_attention(identifier, "github-credential-missing")
+        on_exit(fn -> SubscriptionStore.stop(identifier) end)
+      end
+
+      paused =
+        "issue-46"
+        |> running_entry("repo#46", :paused)
+        |> update_in([:issue], &%{&1 | paused: true})
+        |> Map.put(:paused_reason, :label_override)
+
+      deactivated = running_entry("issue-47", "repo#47", :deactivated)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-46" => paused, "issue-47" => deactivated}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ ~r/^#46\s+paused\s+.*\(waiting_for_human: 1 open decision\)/m
+      assert output =~ ~r/^#47\s+deactivated\s+.*\(waiting_for_human: 1 open decision\)/m
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
     test "shows label override as the pause reason", %{orchestrator: pid} do
       paused =
         "issue-46"
