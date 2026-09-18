@@ -20,6 +20,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
   alias Aiur.Codex.{DynamicTool, SessionRecovery}
   alias Aiur.CodingAgent
+  alias Aiur.Workspace
 
   @max_delivery_correlation_attempts 3
 
@@ -637,24 +638,28 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
     :ok = DynamicTool.reset_turn_quotas()
 
+    # #2697: a queued operator message starts a turn too; verify the agent's
+    # GitHub support first, exactly as `TurnLoop.run_turns/10` does.
     result =
-      coding_agent_run_turn(opts).(
-        app_session,
-        text,
-        issue,
-        on_message: message_handler,
-        on_safe_checkpoint: callbacks.on_safe_checkpoint,
-        on_operator_message: callbacks.on_operator_message,
-        on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
-        tool_executor:
-          ToolExecutor.build(
-            issue,
-            workspace,
-            worker_host,
-            app_session,
-            attempt_id: Keyword.get(opts, :telemetry_attempt_id)
-          )
-      )
+      with :ok <- Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
+        coding_agent_run_turn(opts).(
+          app_session,
+          text,
+          issue,
+          on_message: message_handler,
+          on_safe_checkpoint: callbacks.on_safe_checkpoint,
+          on_operator_message: callbacks.on_operator_message,
+          on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
+          tool_executor:
+            ToolExecutor.build(
+              issue,
+              workspace,
+              worker_host,
+              app_session,
+              attempt_id: Keyword.get(opts, :telemetry_attempt_id)
+            )
+        )
+      end
 
     TurnStreams.close(issue, aiur_turn_id, TurnLoop.turn_done_reason(result))
 

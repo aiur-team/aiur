@@ -83,8 +83,11 @@ defmodule Aiur.Workspace.Refresh do
                  issue_context.pr_head_ref,
                  issue_context.branch_name
                ),
-             :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host) do
-          finalize_before_run_workspace(workspace, issue_context, worker_host)
+             :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host),
+             :ok <- finalize_before_run_workspace(workspace, issue_context, worker_host) do
+          # Recreation deleted the support tree `create_for_issue/3` installed
+          # (#2697). Reinstall all of it, not only the build wrappers.
+          Provisioner.maybe_install_agent_support(workspace, worker_host)
         end
 
       # An in-flight / resumed agent (NOT a todo dispatch) whose "dirty"
@@ -145,8 +148,14 @@ defmodule Aiur.Workspace.Refresh do
     Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
   end
 
+  # Promotion replaces the whole workspace, so the agent support tree from
+  # `create_for_issue/3` is gone. Install the full local set on the promoted
+  # path: the GitHub guard, gh config and quota dirs, skills and scratch, not
+  # only the build wrappers the staged hook needed (#2697).
   defp reconstruct_before_run_workspace(command, workspace, issue_context) do
-    Reconstruction.run(workspace, &prepare_reconstructed_workspace(&1, command, issue_context))
+    with :ok <- Reconstruction.run(workspace, &prepare_reconstructed_workspace(&1, command, issue_context)) do
+      Provisioner.maybe_install_agent_support(workspace, nil)
+    end
   end
 
   defp prepare_reconstructed_workspace(stage, command, issue_context) do

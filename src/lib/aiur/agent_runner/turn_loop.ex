@@ -10,6 +10,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Workspace
 
   @type worker_host :: String.t() | nil
 
@@ -88,16 +89,20 @@ defmodule Aiur.AgentRunner.TurnLoop do
       backend: SessionLifecycle.session_backend_label(app_session)
     })
 
+    # #2697: never start a turn (first, continuation or post-resume) while the
+    # workspace lacks the gh shim, gh config or quota dir the agent env names.
     result =
-      CodingAgent.run_turn(
-        app_session,
-        prompt,
-        issue,
-        on_message: message_handler,
-        on_safe_checkpoint: callbacks.on_safe_checkpoint,
-        on_operator_message: callbacks.on_operator_message,
-        tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
-      )
+      with :ok <- Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
+        CodingAgent.run_turn(
+          app_session,
+          prompt,
+          issue,
+          on_message: message_handler,
+          on_safe_checkpoint: callbacks.on_safe_checkpoint,
+          on_operator_message: callbacks.on_operator_message,
+          tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
+        )
+      end
 
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
 
