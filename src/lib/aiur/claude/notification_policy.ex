@@ -57,6 +57,42 @@ defmodule Aiur.Claude.NotificationPolicy do
   def usage_limit_exhausted?(_payload), do: false
 
   @doc """
+  Classifies the refusal the `claude` CLI itself reported for a failed turn.
+
+  The CLI prints the session-limit banner as a synthetic assistant message
+  (`error: "rate_limit"`, `is_api_error_message: true`) and a result with
+  `api_error_status: 429`, then exits 1 with nothing on stderr. The aiur-claude
+  app server forwards that provenance as `turn/failed.params.provider_error`.
+  Only this field is trusted: assistant text that repeats the banner is not a
+  refusal (#2727).
+  """
+  @spec provider_refusal(map(), DateTime.t()) :: {:paused, map()} | :unclassified
+  def provider_refusal(%{"provider_error" => %{"error" => error} = provider_error}, now) when is_binary(error) do
+    if error in @limit_types or provider_error["api_error_status"] in @limit_statuses do
+      reason =
+        case provider_error["message"] do
+          message when is_binary(message) and message != "" -> message
+          _ -> "Claude usage limit exhausted"
+        end
+
+      hint = reset_hint(reason)
+
+      {:paused,
+       %{
+         kind: :usage_limit_exhausted,
+         reason: reason,
+         reset_hint: hint,
+         reset_at: ResetTime.parse(hint, now),
+         provider_error: error
+       }}
+    else
+      :unclassified
+    end
+  end
+
+  def provider_refusal(_params, _now), do: :unclassified
+
+  @doc """
   Classifies free-text provider output — the non-JSON lines a refusing `claude`
   prints before exiting — as a usage-limit pause or nothing at all.
 

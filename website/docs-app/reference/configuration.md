@@ -296,7 +296,7 @@ means direct-only, always. Routing through OpenRouter is something you write.
 
 #### What happens when a route fails
 
-A session-limit refusal from the provider error channel or CLI stderr pauses the worker without spending a retry. Assistant text alone is not trusted. A configured, eligible fallback can take over; otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured, eligible fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
 
 An expired explicit reset timestamp is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
 

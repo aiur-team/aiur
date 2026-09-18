@@ -529,6 +529,65 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert {:error, {:turn_failed, %{"error" => "Error: claude exited with code 1"}}} = result
   end
 
+  test "the observed Khala refusal pauses from CLI provenance at the banner's reset without a retry" do
+    # #2727: the CLI printed the banner as a synthetic assistant message
+    # (error "rate_limit", api_error_status 429) and exited 1 with no stderr.
+    # These are the frames aiur-claude emits for that CLI stream once it
+    # forwards provenance; the banner text alone is never trusted.
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_provider_refusal")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_with_provider_refusal(frames)
+    )
+
+    issue = %Issue{id: "khala-20", identifier: "test:khala-20", title: "khala-20", selected_backend: "claude", state: "In Progress"}
+    test_pid = self()
+    on_message = fn message -> send(test_pid, {:agent_message, message}) end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace, clock: fn -> ~U[2026-09-18 04:53:32Z] end)
+    on_exit(fn -> ClaudeAgent.stop_session(session) end)
+
+    assert {:paused, pause} = ClaudeAgent.run_turn(session, "rework PR #74", issue, on_message: on_message)
+    assert pause.kind == :usage_limit_exhausted
+    assert pause.reason == "You've hit your session limit · resets 12:20am (America/Los_Angeles)"
+    assert pause.reset_hint == "12:20am (America/Los_Angeles)"
+    assert pause.reset_at == "2026-09-18T07:20:00Z"
+    refute_received {:agent_message, %{event: :turn_ended_with_error}}
+
+    entry = %{
+      issue: issue,
+      identifier: issue.identifier,
+      pid: self(),
+      ref: make_ref(),
+      started_at: DateTime.utc_now(),
+      retry_attempt: 2,
+      control: %{status: :working, can_interrupt: true}
+    }
+
+    state = %State{running: %{issue.id => entry}, max_concurrent_agents: 6}
+    assert {:noreply, paused} = Orchestrator.handle_info({:worker_control_state, issue.id, :paused, pause}, state)
+    assert paused.retry_attempts == state.retry_attempts
+    assert paused.running[issue.id].retry_attempt == 2
+    assert paused.running[issue.id].paused_reason == :usage_limit_exhausted
+    assert paused.running[issue.id].usage_limit_reset_at == "2026-09-18T07:20:00Z"
+
+    # Provenance for a different provider error is still a turn failure.
+    assert {:error, {:turn_failed, %{"provider_error" => %{"error" => "model_not_found"}}}} =
+             ClaudeAgent.run_turn(session, "unknown model", issue, on_message: on_message)
+
+    # The legacy wire shape (untagged banner text, bare exit 1) stays a failure.
+    assert {:error, {:turn_failed, %{"error" => "Error: claude exited with code 1"} = params}} =
+             ClaudeAgent.run_turn(session, "untagged banner", issue, on_message: on_message)
+
+    refute Map.has_key?(params, "provider_error")
+  end
+
   test "an ordinary turn failure is still a turn failure" do
     root = Aiur.TestSupport.tmp_root!("aiur_claude_turn_failed")
     workspace = Path.join(root, "agent-1")
@@ -663,6 +722,52 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
         "else " <>
         "case \"$n\" in 4) echo '#{stale}' ;; 5) echo '#{quoted}' ;; 6) echo '#{tool}' ;; esac; " <>
         "echo '#{failed}'; fi ;; " <>
+        "esac; done"
+
+    File.write!(frames <> ".sh", script)
+    "bash #{frames}.sh"
+  end
+
+  # Frames captured from aiur-claude replaying the CLI stream-json of the Khala
+  # incident (turn ids normalized to u1): the synthesized text is tagged and
+  # turn/failed carries the CLI's error class, HTTP status and banner.
+  defp fake_app_server_with_provider_refusal(frames) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+    banner = "You've hit your session limit · resets 12:20am (America/Los_Angeles)"
+    not_found = "There's an issue with the selected model (claude-nonexistent-model-probe)."
+
+    encode = fn frame -> frame |> Jason.encode!() |> String.replace("'", "\\u0027") end
+
+    progress = encode.(%{"jsonrpc" => "2.0", "method" => "item/progress", "params" => %{"turn_id" => "u1", "delta" => %{"type" => "text", "text" => banner}}})
+
+    created = fn provider_error ->
+      item = %{"id" => "i1", "created_at" => 1_789_723_858_759, "type" => "text", "text" => banner}
+      item = if provider_error, do: Map.put(item, "provider_error", provider_error), else: item
+      encode.(%{"jsonrpc" => "2.0", "method" => "item/created", "params" => %{"turn_id" => "u1", "item" => item}})
+    end
+
+    failed = fn provider_error ->
+      params = %{"turn_id" => "u1", "error" => "Error: claude exited with code 1"}
+      params = if provider_error, do: Map.put(params, "provider_error", provider_error), else: params
+      encode.(%{"jsonrpc" => "2.0", "method" => "turn/failed", "params" => params})
+    end
+
+    refusal = %{"error" => "rate_limit", "api_error_status" => 429, "message" => banner}
+    model = %{"error" => "model_not_found", "api_error_status" => 404, "message" => not_found}
+
+    script =
+      "n=0; while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+        "case \"$line\" in " <>
+        "*'\"initialize\"'*) echo '#{init}' ;; " <>
+        "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+        "*'\"turn/start\"'*) n=$((n + 1)); echo '#{turn}'; " <>
+        "case \"$n\" in " <>
+        "1) echo '#{progress}'; echo '#{created.("rate_limit")}'; echo '#{failed.(refusal)}' ;; " <>
+        "2) echo '#{failed.(model)}' ;; " <>
+        "*) echo '#{progress}'; echo '#{created.(nil)}'; echo '#{failed.(nil)}' ;; " <>
+        "esac ;; " <>
         "esac; done"
 
     File.write!(frames <> ".sh", script)
