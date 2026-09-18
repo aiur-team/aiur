@@ -118,9 +118,20 @@ defmodule Aiur.GitHub.Client do
   Hydrates `blocked_by` on a GitHub `Issue.t()` from the native Issue
   Dependencies API. Only meaningful for issues that are actually being
   considered for dispatch (see `Aiur.GitHub.Issues.hydrate_blocked_by/1`).
+
+  The one-argument form is the dispatch gate's entry point
+  (`Tracker.hydrate_blocked_by/1`), so it must reach the *revalidating*
+  `Issues.hydrate_blocked_by/1`. An `opts \\ []` default here used to turn it
+  into `Issues.hydrate_blocked_by(issue, [])`, which serves the held
+  `:issue_blocked_by` body with no request at all: a blocker that closed after
+  the list was stored held its dependents at `dispatch_decline=:dependency`
+  indefinitely (#2709, a regression path around the #2550 fix).
   """
+  @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def hydrate_blocked_by(issue), do: Issues.hydrate_blocked_by(issue)
+
   @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
-  def hydrate_blocked_by(issue, opts \\ []), do: Issues.hydrate_blocked_by(issue, opts)
+  def hydrate_blocked_by(issue, opts), do: Issues.hydrate_blocked_by(issue, opts)
 
   @spec add_dependency(integer() | String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
