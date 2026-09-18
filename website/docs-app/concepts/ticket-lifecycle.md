@@ -399,9 +399,11 @@ newer answer. See [CLI](/reference/cli) for the full flags.
 
 An answer is addressed to the ticket, not to the worker session that asked.
 Aiur delivers the newest answer of a `:decided` Command to whichever worker runs
-the ticket. If no worker runs it, delivery fails with `target_agent_unavailable`
-and the daemon tries again at its next start. So a worker that starts later for
-the same ticket, for example after a requeue, receives an answer that the first
+the ticket.
+
+If no worker runs it, delivery fails with `target_agent_unavailable` and the
+daemon tries again at its next start. So a worker that starts later for the
+same ticket, for example after a requeue, receives an answer that the first
 worker never saw.
 
 While no agent has received the answer, the Executor can change it:

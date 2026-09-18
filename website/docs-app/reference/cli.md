@@ -206,7 +206,9 @@ do not erase whole-host pressure; and missing values remain `null` in JSON and
 
 A mooted Command leaves `aiur commands --blocking` and the open/blocking counts, and stays visible under `--filter resolved`. A Command mooted while open keeps its answer unset in the audit history. A Command mooted after it was decided keeps its undelivered answer in the audit history, but that answer is never delivered.
 
-A decided answer is addressed to the ticket, not to one worker session. Until an agent receives it, Aiur delivers it to whichever worker runs the ticket, including a new worker after a requeue or a daemon restart. If the operator changes direction before delivery, run `executor-moot` to withdraw the answer or `executor-answer --supersede` to replace it. A delivered answer is immutable for the Executor.
+A decided answer is addressed to the ticket, not to one worker session. Until an agent receives it, Aiur delivers it to whichever worker runs the ticket, including a new worker after a requeue or a daemon restart.
+
+If the operator changes direction before delivery, run `executor-moot` to withdraw the answer or `executor-answer --supersede` to replace it. A delivered answer is immutable for the Executor.
 
 Executor mutation failures include a remedy on stderr. Supply any named missing flag and retry; when `--expected-version` is stale, read the current version from the error and retry only after confirming the Command has not changed unexpectedly.
 
