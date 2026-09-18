@@ -258,7 +258,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   def resume_issue_call(%State{} = state, issue_identifier) do
-    guard_control_call(state, :resume, fn ->
+    guard_control_call(state, :resume, issue_identifier, fn ->
       {reply, state} = resume_issue(state, issue_identifier)
       StatusReport.notify_dashboard(state)
       {:reply, reply, state}
@@ -287,7 +287,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     do: {:reply, {:error, :globally_paused}, state}
 
   def pause_agent_call(%State{} = state, issue_identifier) do
-    guard_control_call(state, :pause, fn ->
+    guard_control_call(state, :pause, issue_identifier, fn ->
       {reply, state} = pause_agent_reply(state, issue_identifier)
       {:reply, reply, state}
     end)
@@ -302,17 +302,52 @@ defmodule Aiur.Orchestrator.PauseResume do
   # to lose the registry. Reply with a named error instead and keep the state
   # from before the call, because a handler that raised part way through
   # leaves no state that is safe to keep.
-  @spec guard_control_call(State.t(), atom(), (-> {:reply, term(), State.t()})) :: {:reply, term(), State.t()}
-  def guard_control_call(%State{} = state, action, fun) when is_atom(action) and is_function(fun, 0) do
+  #
+  # The rollback covers in-memory Orchestrator state only. Side effects the
+  # handler completed before it raised are not undone: a tracker label it
+  # already changed stays changed, and a dispatch task it already spawned keeps
+  # running without a registry entry (orphan adoption is #2705). That is why a
+  # crash also raises an operator alert, not only a log line.
+  @spec guard_control_call(State.t(), atom(), term(), (-> {:reply, term(), State.t()})) ::
+          {:reply, term(), State.t()}
+  def guard_control_call(%State{} = state, action, target, fun) when is_atom(action) and is_function(fun, 0) do
     fun.()
   catch
     kind, reason ->
       stacktrace = __STACKTRACE__
+      summary = control_crash_summary(kind, reason, stacktrace)
 
-      Logger.error("Operator #{action} control call failed; the orchestrator kept its agent registry: " <> Exception.format(kind, reason, stacktrace))
+      Logger.error(
+        "Operator #{action} control call failed for #{control_target_label(target)}; the orchestrator kept its agent registry: " <>
+          Exception.format(kind, reason, stacktrace)
+      )
 
-      {:reply, {:error, {:control_call_crashed, action, control_crash_summary(kind, reason, stacktrace)}}, state}
+      emit_control_crash_alert(action, target, summary)
+      {:reply, {:error, {:control_call_crashed, action, summary}}, state}
   end
+
+  defp emit_control_crash_alert(action, target, summary) do
+    label = control_target_label(target)
+
+    Alerts.emit_custom(
+      "ticket.#{label}.agent.attention.control-call-crashed",
+      "Operator #{action} of #{label} crashed inside the orchestrator (#{summary}). The agent registry was kept, " <>
+        "but side effects the call made before it crashed (tracker labels, a started worker) were not undone; check the ticket.",
+      issue: label,
+      reason: summary,
+      needs_attention: true,
+      severity: "warning",
+      event_source: :system
+    )
+  rescue
+    exception ->
+      Logger.warning("Control-call crash alert could not be emitted: #{Exception.message(exception)}")
+      :ok
+  end
+
+  defp control_target_label(%TrackerIdentity{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp control_target_label(target) when is_binary(target), do: target
+  defp control_target_label(target), do: inspect(target)
 
   defp control_crash_summary(:error, reason, stacktrace) do
     :error
@@ -334,7 +369,9 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   def request_control_call(%State{} = state, issue_identifier, action, request_id)
       when is_binary(issue_identifier) and action in [:pause, :resume] and is_integer(request_id) and request_id > 0 do
-    guard_control_call(state, action, fn -> request_running_control(state, issue_identifier, action, request_id) end)
+    guard_control_call(state, action, issue_identifier, fn ->
+      request_running_control(state, issue_identifier, action, request_id)
+    end)
   end
 
   defp request_running_control(state, issue_identifier, action, request_id) do
@@ -482,7 +519,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec resume_issue(State.t(), String.t()) ::
-          {{:ok, :resumed | :started | :reactivated | :already_running} | {:error, term()}, State.t()}
+          {{:ok, :resumed | :started | :reactivated | :already_running | :sleeping} | {:error, term()}, State.t()}
   def resume_issue(%State{} = state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
@@ -524,17 +561,25 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   # Nothing is paused and no pause is pending, so there is nothing to resume.
-  # Report which of the two cases this is instead of a blanket `:resumed`: a
-  # `:working` entry with a live worker is genuinely running, but a `:working`
-  # entry whose worker process is gone is not, and claiming it resumed (or is
-  # "already running") hides a stopped agent from the operator (#2699). Other
-  # statuses (`:sleeping`, legacy entries) keep the prior acknowledgement.
+  # Say what the entry actually is instead of a blanket `:resumed` (#2699):
+  #
+  # * `:working` with a live worker is genuinely running (`:already_running`);
+  #   with a dead worker it is not (`:worker_not_running`); with no pid yet it
+  #   is a staged replacement that has not started (`:worker_not_started`).
+  # * `:sleeping` is a live worker whose stream closed while idle. It wakes on
+  #   its next event, so resume has nothing to do and says so (`:sleeping`).
+  # * `:error` is a worker that failed to start. Resume refuses by name rather
+  #   than starting a second worker behind the retry engine, which owns the
+  #   restart of a failed start (and the dispatch budget that bounds it).
+  # * Any other status is refused by name rather than reported as resumed.
   defp resume_unpaused_running_issue(state, running_entry) do
     case worker_liveness(running_entry) do
       :alive -> {{:ok, :already_running}, state}
       :dead -> {{:error, :worker_not_running}, state}
       :starting -> {{:error, :worker_not_started}, state}
-      :not_working -> {{:ok, :resumed}, state}
+      :sleeping -> {{:ok, :sleeping}, state}
+      {:error, failure} -> {{:error, {:worker_startup_failed, failure}}, state}
+      {:other, status} -> {{:error, {:not_resumable_control_status, status}}, state}
     end
   end
 
@@ -542,11 +587,21 @@ defmodule Aiur.Orchestrator.PauseResume do
   # (for example a rate-limit fallback redispatch), so it has not started yet
   # rather than stopped.
   defp worker_liveness(running_entry) do
-    cond do
-      (get_in(running_entry, [:control, :status]) || :working) != :working -> :not_working
-      is_nil(Map.get(running_entry, :pid)) -> :starting
-      worker_pid_alive?(Map.get(running_entry, :pid)) -> :alive
-      true -> :dead
+    case get_in(running_entry, [:control, :status]) || :working do
+      :working -> working_worker_liveness(Map.get(running_entry, :pid))
+      :sleeping -> :sleeping
+      :error -> {:error, startup_failure_reason(running_entry)}
+      status -> {:other, status}
+    end
+  end
+
+  defp working_worker_liveness(nil), do: :starting
+  defp working_worker_liveness(pid), do: if(worker_pid_alive?(pid), do: :alive, else: :dead)
+
+  defp startup_failure_reason(running_entry) do
+    case Map.get(running_entry, :runtime_terminal_failure) do
+      %{reason: reason} when not is_nil(reason) -> reason
+      _unknown -> :unknown
     end
   end
 

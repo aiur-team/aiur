@@ -1663,6 +1663,16 @@ defmodule Aiur.AgentControlCLI do
   defp resumed_from(%{state: :paused}), do: "paused"
   defp resumed_from(_status), do: "pausing"
 
+  # The status row folds every registered, unpaused agent into `:running`.
+  # Name the control state the agent was really in, so reactivating a
+  # deactivated agent or restarting a completed one does not read as
+  # "(was: running)".
+  defp prior_state(%{state: :running, work_state: work_state})
+       when work_state in [:deactivated, :completed, :sleeping, :error, :paused],
+       do: work_state
+
+  defp prior_state(%{state: state}), do: state
+
   defp select_targets(:pause, :all, statuses) do
     Enum.filter(statuses, &(&1.state in [:running, :paused]))
   end
@@ -1751,8 +1761,12 @@ defmodule Aiur.AgentControlCLI do
         IO.puts("aiur: already running #{display_identifier(status)}")
         :ok
 
+      {:ok, :sleeping} ->
+        IO.puts("aiur: already running #{display_identifier(status)} (sleeping: its stream closed while idle; it wakes on its next event)")
+        :ok
+
       {:ok, result} when result in [:started, :resumed, :reactivated] ->
-        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{previous_state})")
+        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{prior_state(status)})")
 
         :ok
 
@@ -3181,6 +3195,12 @@ defmodule Aiur.AgentControlCLI do
 
   defp format_reason({:blocked_on_decision, _detail}),
     do: "ticket is held by an open blocking decision; answer it (see `aiurdev commands`), then resume"
+
+  defp format_reason({:worker_startup_failed, reason}),
+    do: "the agent's worker failed to start (#{inspect(reason, limit: 10, printable_limit: 200)}); resume does not start a second worker, the retry schedule restarts it (see `aiurdev status`)"
+
+  defp format_reason({:not_resumable_control_status, status}),
+    do: "the agent is in control state #{status}, which resume cannot act on"
 
   defp format_reason({:unmapped_dispatch_decline, reason}),
     do: "dispatch declined the ticket (#{inspect(reason)}); inspect `aiurdev status` and the daemon log"
