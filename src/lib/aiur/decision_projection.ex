@@ -346,7 +346,7 @@ defmodule Aiur.DecisionProjection do
   defp transition(%Decision{decision_status: :decided} = decision, %DecisionEvent{type: :decision_mooted}) do
     cond do
       Decision.delivered?(decision) -> {:error, :answer_delivered}
-      Decision.handed_off?(decision) -> {:error, :answer_in_flight}
+      Decision.send_in_flight?(decision) -> {:error, :answer_in_flight}
       true -> {:ok, %{decision | decision_status: :moot, delivery_status: :not_dispatched}}
     end
   end
@@ -391,7 +391,7 @@ defmodule Aiur.DecisionProjection do
   defp transition(%Decision{} = decision, %DecisionEvent{type: :handed_off} = event) do
     with {:ok, _answer} <- answer_for_event(decision, event),
          {:ok, attempt} <- fetch_attempt(decision, event.data) do
-      handed_off = Map.put(attempt, :handed_off_at, Map.get(attempt, :handed_off_at) || event.occurred_at)
+      handed_off = Map.put(attempt, :handed_off_at, event.occurred_at)
       attempts = Enum.map(decision.dispatch_attempts, &if(&1.attempt_id == attempt.attempt_id, do: handed_off, else: &1))
       {:ok, %{decision | dispatch_attempts: attempts}}
     end

@@ -229,7 +229,7 @@ defmodule Aiur.Decision do
   any action. A queued or failed attempt without that evidence is not a
   delivery. Once this is true the recorded answers are immutable for the
   Executor: it can neither moot the Command nor supersede its answer (#2711).
-  See also `handed_off?/1`.
+  A handed-off send is not a delivery; see `send_in_flight?/1`.
   """
   @spec delivered?(t()) :: boolean()
   def delivered?(%__MODULE__{decision_status: status}) when status in [:acknowledged, :resolved], do: true
@@ -240,19 +240,37 @@ defmodule Aiur.Decision do
   end
 
   @doc """
-  True once the delivery gate handed any answer action to a worker for sending
-  (`handed_off_at`), even if the provider has not confirmed it yet.
+  True while any answer action is in flight: the delivery gate handed it to a
+  worker for sending (`handed_off_at`) and no outcome is recorded yet.
 
   The provider confirmation (`delivered?/1`) arrives only after the send, so a
-  withdrawal between the gate and the confirmation would race the send. A
-  handed-off answer is in flight: the Executor can no longer moot or supersede
-  it (#2711). The mark stays after a failed send, because the provider may have
-  received the message anyway.
+  withdrawal between the gate and the confirmation would race the send. While
+  a send is in flight the Executor cannot moot or supersede the answer (#2711).
+
+  A definite outcome ends the flight. A confirmation makes the answer
+  delivered. A failure (`failed_at`) or a restore to the queue (`restored_at`)
+  after the handoff means the provider did not take it, so the answer can be
+  withdrawn again, or sent again by a retry or by a new worker (#2713). The
+  gate records a fresh handoff for each new send.
   """
-  @spec handed_off?(t()) :: boolean()
-  def handed_off?(%__MODULE__{} = decision) do
-    Enum.any?(decision.dispatch_attempts, &(not is_nil(Map.get(&1, :handed_off_at))))
+  @spec send_in_flight?(t()) :: boolean()
+  def send_in_flight?(%__MODULE__{} = decision), do: Enum.any?(decision.dispatch_attempts, &attempt_in_flight?/1)
+
+  @doc "True while one dispatch attempt is handed off without a recorded outcome."
+  @spec attempt_in_flight?(dispatch_attempt()) :: boolean()
+  def attempt_in_flight?(attempt) when is_map(attempt) do
+    case Map.get(attempt, :handed_off_at) do
+      nil ->
+        false
+
+      handed_off_at ->
+        is_nil(attempt.delivered_at) and not outcome_after?(attempt.failed_at, handed_off_at) and
+          not outcome_after?(attempt.restored_at, handed_off_at)
+    end
   end
+
+  defp outcome_after?(nil, _handed_off_at), do: false
+  defp outcome_after?(at, handed_off_at), do: DateTime.compare(at, handed_off_at) != :lt
 
   @doc "Returns only dispatch attempts correlated to the active action."
   @spec active_dispatch_attempts(t()) :: [dispatch_attempt()]

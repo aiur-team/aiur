@@ -415,9 +415,15 @@ it:
   revision, and only the newest answer is delivered.
 
 The delivery gate checks each queued answer again just before the worker sends
-it. It refuses a queued copy of a mooted or replaced answer. When it accepts an
-answer, it durably marks it as handed off. From then on the answer is in
-flight, and both commands are refused with "answer in flight".
+it. It refuses a queued copy of a mooted or replaced answer.
+
+When the gate accepts an answer, it durably marks it as handed off. Until the provider confirms or
+rejects the send, the answer is in flight, and both commands are refused with
+"answer in flight". After a rejected send, the answer can be withdrawn again,
+or sent again by a retry or by a new worker.
+
+If a send stays in flight with no outcome for more than a minute, a refused
+withdrawal raises a needs-attention alert, because the outcome is unknown.
 
 If a provider still confirms a withdrawn answer, Aiur raises a needs-attention
 alert, and the Command stays `:moot`.

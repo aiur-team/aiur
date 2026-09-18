@@ -208,7 +208,7 @@ A mooted Command leaves `aiur commands --blocking` and the open/blocking counts,
 
 A decided answer is addressed to the ticket, not to one worker session. Until an agent receives it, Aiur delivers it to whichever worker runs the ticket, including a new worker after a requeue or a daemon restart.
 
-If the operator changes direction before delivery, run `executor-moot` to withdraw the answer or `executor-answer --supersede` to replace it. Once a worker picks up the answer for sending, it is in flight and immutable for the Executor.
+If the operator changes direction before delivery, run `executor-moot` to withdraw the answer or `executor-answer --supersede` to replace it. While a worker is sending it, the answer is in flight and cannot be changed. If the send fails, it can be changed again.
 
 Executor mutation failures include a remedy on stderr. Supply any named missing flag and retry; when `--expected-version` is stale, read the current version from the error and retry only after confirming the Command has not changed unexpectedly.
 

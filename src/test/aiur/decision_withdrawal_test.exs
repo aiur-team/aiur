@@ -221,7 +221,7 @@ defmodule Aiur.DecisionWithdrawalTest do
       {decision, original, item} = queued_answer(pid, worker)
 
       # Before the gate, the queued answer can still be withdrawn in principle.
-      refute Decision.handed_off?(elem(DecisionStore.get(decision.decision_id, pid), 1))
+      refute Decision.send_in_flight?(elem(DecisionStore.get(decision.decision_id, pid), 1))
 
       # The worker passes the gate: the handoff is durable before the send.
       assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
@@ -244,6 +244,91 @@ defmodule Aiur.DecisionWithdrawalTest do
       assert delivered.decision_status == :decided
       assert delivered.revisions == []
       assert {:error, {:conflict, :answer_delivered}} = moot(restarted, decision)
+    end
+
+    test "a send that failed after the handoff is no longer in flight and can be withdrawn", %{dir: dir, worker: worker} do
+      pid = start_store!(dir, worker)
+      {decision, _original, item} = queued_answer(pid, worker)
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      assert {:error, {:conflict, :answer_in_flight}} = moot(pid, decision)
+
+      # The provider rejected the send: a definite outcome.
+      :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+      failed = wait_for(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      refute Decision.send_in_flight?(failed)
+      refute Decision.delivered?(failed)
+
+      # This is the shape a new worker's redelivery (#2713) looks for: the newest
+      # attempt failed and none was confirmed.
+      attempts = Decision.active_dispatch_attempts(failed)
+      assert match?(%{status: :failed}, List.last(attempts))
+      assert Enum.all?(attempts, &is_nil(&1.delivered_at))
+
+      assert {:ok, %{status: :accepted, decision: %{decision_status: :moot}}} = moot(pid, decision)
+    end
+
+    test "a send that failed after the handoff is sent again once, and that send is in flight", %{dir: dir, worker: worker} do
+      pid = start_store!(dir, worker)
+      {decision, original, item} = queued_answer(pid, worker)
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+      _failed = wait_for(pid, decision.decision_id, &(&1.delivery_status == :failed))
+
+      assert {:ok, :scheduled} = DecisionStore.retry_dispatch(decision.decision_id, original.action_id, pid)
+      assert_receive {:dispatched, resent_action_id, resent_item}, 5_000
+      assert resent_action_id == original.action_id
+      assert resent_item.correlation.attempt_id != item.correlation.attempt_id
+      _queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
+      refute_received {:dispatched, _action_id, _item}
+
+      # The new send passes the gate and gets its own handoff, so it is in
+      # flight and cannot be withdrawn.
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(resent_item, pid)
+      assert {:error, {:conflict, :answer_in_flight}} = moot(pid, decision)
+
+      assert {:ok, :accepted} = DecisionStore.record_delivery(resent_item, pid)
+      delivered = wait_for(pid, decision.decision_id, &(&1.delivery_status == :delivered))
+
+      assert [confirmed] = Enum.reject(delivered.dispatch_attempts, &is_nil(&1.delivered_at))
+      assert confirmed.attempt_id == resent_item.correlation.attempt_id
+      assert length(delivered.dispatch_attempts) == 2
+    end
+
+    test "a send restored to the queue gets a fresh handoff when the worker picks it up again", %{dir: dir, worker: worker} do
+      pid = start_store!(dir, worker)
+      {decision, _original, item} = queued_answer(pid, worker)
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+
+      # The send failed before the provider took it, and a retry put the same
+      # item back in the queue: the flight is over.
+      :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+      _failed = wait_for(pid, decision.decision_id, &(&1.delivery_status == :failed))
+      :ok = DecisionStore.record_transport_async(:restored, item, nil, pid)
+
+      restored =
+        wait_for(pid, decision.decision_id, fn current ->
+          match?([%{restored_at: %DateTime{}}], current.dispatch_attempts)
+        end)
+
+      refute Decision.send_in_flight?(restored)
+
+      # The worker drains the same item again: a new flight, refused again.
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      assert {:ok, again} = DecisionStore.get(decision.decision_id, pid)
+      assert Decision.send_in_flight?(again)
+      assert {:error, {:conflict, :answer_in_flight}} = moot(pid, decision)
+    end
+
+    test "a refused withdrawal of a send with an unknown outcome raises attention", %{dir: dir, worker: worker} do
+      alert_opts = capture_alert_log(dir)
+      pid = start_store!(dir, worker, handoff_unknown_after_ms: 0)
+      {decision, original, item} = queued_answer(pid, worker)
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+
+      assert {:error, {:conflict, :answer_in_flight}} = moot(pid, decision)
+
+      topic = "ticket.#{@ticket.identifier}.agent.attention.decision-delivery-#{String.replace(original.action_id, "_", "-")}-unknown"
+      assert AlertFeed.active_ticket_attention?(topic, alert_opts)
     end
 
     test "a provider confirmation for a withdrawn answer raises attention and cannot revive it", %{dir: dir, worker: worker} do
@@ -427,7 +512,7 @@ defmodule Aiur.DecisionWithdrawalTest do
     )
   end
 
-  defp start_store!(dir, worker) do
+  defp start_store!(dir, worker, extra_opts \\ []) do
     parent = self()
 
     dispatcher = fn decision, opts ->
@@ -448,7 +533,7 @@ defmodule Aiur.DecisionWithdrawalTest do
     Application.put_env(:aiur, :decision_state_dir, dir)
 
     {:ok, pid} =
-      DecisionStore.start_link(
+      [
         name: nil,
         state_dir: dir,
         filesystem_sync_fun: fn -> :ok end,
@@ -458,7 +543,9 @@ defmodule Aiur.DecisionWithdrawalTest do
         dispatcher: dispatcher,
         revision_follow_up_projector: fn _decision, _action_id -> :ok end,
         revision_follow_up_resolver: fn _decision, _action_id -> :ok end
-      )
+      ]
+      |> Keyword.merge(extra_opts)
+      |> DecisionStore.start_link()
 
     pid
   end

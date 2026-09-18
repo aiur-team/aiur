@@ -450,8 +450,8 @@ in an issue comment. Withdraw or replace the answer:
 ```
 
 A mooted answer is never delivered, and only the newest answer is delivered
-after `--supersede`. Once a worker picks up the answer for sending, both
-commands are refused ("answer in flight"). You may moot only an answer that an
+after `--supersede`. While a worker is sending the answer, both commands are
+refused ("answer in flight"); after a failed send they work again. You may moot only an answer that an
 Executor recorded or could have recorded; otherwise escalate.
 
 When the choice is uncertain, irreversible, scope-changing, or depends on an

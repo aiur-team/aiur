@@ -71,6 +71,10 @@ defmodule Aiur.DecisionStore do
   @default_reconcile_delay_ms 250
   @decision_dispatch_monitor_retry_ms 25
   @default_retry_delays_ms [250, 1_000, 5_000]
+  # A handed-off send with no outcome after this long has an unknown outcome
+  # (for example, the daemon stopped mid-send). A withdrawal is still refused,
+  # but the operator is told, because only they can check the agent (#2711).
+  @handoff_unknown_after_ms 60_000
   # Creation-time dedup (#2099): two Commands from one agent on one ticket inside
   # a short window that *paraphrase* the same question collapse to one at
   # creation. Only paraphrases are collapsed: an exact-identical re-file is the
@@ -238,7 +242,7 @@ defmodule Aiur.DecisionStore do
 
   A `:decided` Command can also be mooted while its answer is undelivered and
   not yet handed to a worker (`Aiur.Decision.delivered?/1` and
-  `Aiur.Decision.handed_off?/1` are false). The recorded answer stays in the
+  `Aiur.Decision.send_in_flight?/1` are false). The recorded answer stays in the
   audit trail, but a mooted Command is never dispatched and a queued copy is
   refused at the delivery gate (#2711). Refusals: `{:conflict,
   :answer_delivered}`, `{:conflict, :answer_in_flight}`, and for an Executor
@@ -542,6 +546,7 @@ defmodule Aiur.DecisionStore do
         dispatch_delay_ms: Keyword.get(opts, :dispatch_delay_ms, @default_dispatch_delay_ms),
         reconcile_delay_ms: Keyword.get(opts, :reconcile_delay_ms, @default_reconcile_delay_ms),
         retry_delays_ms: Keyword.get(opts, :retry_delays_ms, @default_retry_delays_ms),
+        handoff_unknown_after_ms: Keyword.get(opts, :handoff_unknown_after_ms, @handoff_unknown_after_ms),
         terminal_ticket_resolver: Keyword.get(opts, :terminal_ticket_resolver, &default_terminal_ticket_resolver/1),
         dispatch_scheduler: Keyword.get(opts, :dispatch_scheduler, &Process.send_after/3),
         revision_follow_up_projector: revision_projector,
@@ -1188,7 +1193,7 @@ defmodule Aiur.DecisionStore do
         clear_superseded_delivery_attention(reply, decision, prior_action_id)
 
       {:error, reason} ->
-        {:reply, {:error, reason}, state}
+        {:reply, {:error, withdrawal_refused(state, decision, reason)}, state}
     end
   end
 
@@ -1882,17 +1887,50 @@ defmodule Aiur.DecisionStore do
           reply
       end
     else
-      {:error, reason} -> {:reply, {:error, reason}, state}
+      {:error, reason} -> {:reply, {:error, withdrawal_refused(state, decision, reason)}, state}
     end
   end
 
-  # Delivered answers are immutable. A handed-off answer is in flight: the
-  # worker may already be sending it, so withdrawing it now would race the
-  # send (#2711).
+  defp withdrawal_refused(state, decision, {:conflict, :answer_in_flight} = reason) do
+    maybe_alert_unknown_handoff(state, decision)
+    reason
+  end
+
+  defp withdrawal_refused(_state, _decision, reason), do: reason
+
+  defp maybe_alert_unknown_handoff(state, decision) do
+    now = DateTime.utc_now()
+
+    stale =
+      Enum.find(decision.dispatch_attempts, fn attempt ->
+        Decision.attempt_in_flight?(attempt) and
+          DateTime.diff(now, attempt.handed_off_at, :millisecond) >= state.handoff_unknown_after_ms
+      end)
+
+    if stale do
+      Alerts.emit_custom(
+        failure_attention_topic(decision, stale.action_id) <> "-unknown",
+        "Decision answer send outcome is unknown for #{decision.decision_id}.",
+        issue: decision.ticket.identifier,
+        reason:
+          "Decision #{decision.decision_id} action #{stale.action_id} was handed to a worker at " <>
+            "#{DateTime.to_iso8601(stale.handed_off_at)} with no confirmation or failure since. " <>
+            "It cannot be withdrawn; check whether the agent on ticket #{decision.ticket.identifier} received it.",
+        needs_attention: true,
+        severity: "warning"
+      )
+    end
+
+    :ok
+  end
+
+  # Delivered answers are immutable. A handed-off answer with no outcome yet
+  # is in flight: the worker may be sending it, so withdrawing it now would
+  # race the send (#2711). After a recorded failure it can be withdrawn again.
   defp require_withdrawable(decision) do
     cond do
       Decision.delivered?(decision) -> {:error, {:conflict, :answer_delivered}}
-      Decision.handed_off?(decision) -> {:error, {:conflict, :answer_in_flight}}
+      Decision.send_in_flight?(decision) -> {:error, {:conflict, :answer_in_flight}}
       true -> :ok
     end
   end
@@ -2762,8 +2800,9 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  defp handoff_recorded?(attempt),
-    do: not is_nil(Map.get(attempt, :handed_off_at)) or not is_nil(attempt.delivered_at)
+  # A send after a recorded failure or restore is a new flight, so it gets a
+  # fresh handoff mark.
+  defp handoff_recorded?(attempt), do: Decision.attempt_in_flight?(attempt) or not is_nil(attempt.delivered_at)
 
   defp persist_handoff(state, decision, context) do
     data = %{action_id: context.action_id, attempt_id: context.attempt_id, queue_item_id: context.queue_item_id}
