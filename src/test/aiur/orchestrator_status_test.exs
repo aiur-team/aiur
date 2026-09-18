@@ -8,6 +8,7 @@ defmodule Aiur.OrchestratorStatusTest do
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.SnapshotFenceSupport
   alias Aiur.TicketActivity.Projection
   alias Aiur.Workspace.Ownership
 
@@ -4168,7 +4169,10 @@ defmodule Aiur.OrchestratorStatusTest do
     original_state = :sys.get_state(orchestrator_pid)
 
     on_exit(fn ->
-      if Process.alive?(orchestrator_pid), do: :sys.replace_state(orchestrator_pid, fn _state -> original_state end)
+      if Process.alive?(orchestrator_pid) do
+        generation = SnapshotFenceSupport.fence_snapshot_read_model()
+        :sys.replace_state(orchestrator_pid, fn _state -> %{original_state | snapshot_generation: generation} end)
+      end
     end)
 
     next = Reconciler.refresh_running_issue_states(paused)
@@ -4179,7 +4183,10 @@ defmodule Aiur.OrchestratorStatusTest do
     assert is_reference(replacement.ref)
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
 
-    :sys.replace_state(orchestrator_pid, fn _state -> next end)
+    # The CLI reads the shared SnapshotStore read model first; fence out any
+    # projection an earlier case published so it reads the state injected here.
+    generation = SnapshotFenceSupport.fence_snapshot_read_model()
+    :sys.replace_state(orchestrator_pid, fn _state -> %{next | snapshot_generation: generation} end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~
              "#{active_issue.identifier} running #{active_issue.title}"

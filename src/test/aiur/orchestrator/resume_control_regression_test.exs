@@ -16,16 +16,25 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
   alias Aiur.Orchestrator.{ControlLifecycle, PauseResume}
   alias Aiur.TrackerIdentity
 
+  import Aiur.SnapshotFenceSupport, only: [fence_snapshot_read_model: 0]
+
   setup do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
+
+    # Control queries read the SnapshotStore read model first, keyed by the
+    # shared registered name, so a projection an earlier module published would
+    # hide the running entries these cases inject. A new generation fences
+    # in-flight projections, and the Orchestrator adopts it (as in #2719).
+    snapshot_generation = fence_snapshot_read_model()
 
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
 
       %{
         state
-        | running: %{},
+        | snapshot_generation: snapshot_generation,
+          running: %{},
           last_polled_issues: %{},
           claimed: MapSet.new(),
           blocked_ticket_ids: nil,
@@ -43,7 +52,10 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
     end)
 
     on_exit(fn ->
-      if Process.alive?(pid), do: :sys.replace_state(pid, fn _state -> original_state end)
+      if Process.alive?(pid) do
+        snapshot_generation = fence_snapshot_read_model()
+        :sys.replace_state(pid, fn _state -> %{original_state | snapshot_generation: snapshot_generation} end)
+      end
     end)
 
     {:ok, orchestrator: pid}
