@@ -274,9 +274,15 @@ defmodule Aiur.Orchestrator.IssueSync do
   # state only when a prior running/last-polled entry carries one, and when
   # there is no evidence at all alert without writing and leave the labels
   # alone (#2420).
+  #
+  # `agent:paused` is a marker suffix, not a state suffix, so an operator-gated
+  # ticket carrying only `agent:paused` normalizes to zero state labels. It is
+  # the documented parking marker for deliberately held work, so it gates the
+  # heal exactly like `agent:parked` — otherwise every poll of a paused ticket
+  # raised a false `state-label-missing-no-evidence` attention (#2610).
   defp heal_or_leave_missing_state_label(%Issue{} = issue, state, update_state_fun) do
     cond do
-      Issue.parked?(issue) or parked_marker?(issue) ->
+      Issue.paused?(issue) or Issue.parked?(issue) or parked_marker?(issue) ->
         {issue, state}
 
       restore_target_for(issue, state) == nil and not workflow_evidence?(state, issue) ->
