@@ -296,6 +296,10 @@ means direct-only, always. Routing through OpenRouter is something you write.
 
 #### What happens when a route fails
 
+An account session-limit refusal pauses the worker without spending a retry. A configured, eligible fallback can take over. Otherwise, a provider reset time resumes the paused worker on a later poll, subject to capacity and operator pauses.
+
+Claude clock hints with an IANA timezone are converted to UTC; unknown reset times require a fresh recovery observation.
+
 | Cause | Behaviour |
 | --- | --- |
 | **No API key configured** | The route is skipped at selection time and the next entry is used. Named once at startup in the log, not per claim. If *every* entry lacks its key, aiur fails loudly rather than dispatching nothing. |

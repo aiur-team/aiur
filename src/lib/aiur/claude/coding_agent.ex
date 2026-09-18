@@ -388,6 +388,8 @@ defmodule Aiur.Claude.CodingAgent do
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
       when is_binary(method) do
+    retain_session_limit(session, state, payload)
+
     Messages.emit_message(
       state.on_message,
       :notification,
@@ -398,6 +400,22 @@ defmodule Aiur.Claude.CodingAgent do
     Logger.debug("Claude notification: #{inspect(method)}")
     {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
   end
+
+  # The CLI's refusal is an assistant text item on stdout, translated by
+  # aiur-claude to item/created. Retain only the complete refusal, scoped to
+  # this turn, and classify it when the terminal failure arrives (#2727).
+  defp retain_session_limit(session, state, %{
+         "method" => "item/created",
+         "params" => %{"turn_id" => turn_id, "item" => %{"type" => "text", "text" => text}}
+       })
+       when is_binary(text) do
+    if turn_id == Map.get(state, :current_turn_id) and
+         Regex.match?(~r/\AYou've hit your session limit · resets [^\n]+\z/, text) do
+      StreamDiagnostics.record(session.port, text)
+    end
+  end
+
+  defp retain_session_limit(_session, _state, _payload), do: :ok
 
   @impl Aiur.AppServer.Adapter
   @doc false

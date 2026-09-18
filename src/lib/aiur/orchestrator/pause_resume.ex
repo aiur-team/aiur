@@ -972,6 +972,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> put_control_status(status)
       |> State.apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
       |> maybe_put_worker_pause_reason(status, pause_reason)
+      |> put_usage_limit_reset(status, pause_reason, pause_payload)
       |> maybe_clear_control_owned_pause(request, status)
       |> maybe_clear_pending_pause_reason(request, status)
       |> maybe_clear_interrupted_turn(status)
@@ -996,6 +997,11 @@ defmodule Aiur.Orchestrator.PauseResume do
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end
+
+  defp put_usage_limit_reset(entry, :paused, :usage_limit_exhausted, %{reset_at: reset}) when is_binary(reset),
+    do: Map.put(entry, :usage_limit_reset_at, reset)
+
+  defp put_usage_limit_reset(entry, _status, _reason, _payload), do: Map.delete(entry, :usage_limit_reset_at)
 
   defp maybe_clear_interrupted_turn(running_entry, :paused),
     do: Map.delete(running_entry, :interrupted_turn_observed_at)

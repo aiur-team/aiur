@@ -6,6 +6,8 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   the existing ticket-scoped alerts with their original Executor guidance.
   """
 
+  require Logger
+
   alias Aiur.{Alerts, CodingAgent, Issue}
   alias Aiur.CodingAgent.RouteFailure
 
@@ -19,7 +21,10 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     reset_hint = pause_payload[:reset_hint]
     backend = Aiur.ModelAvailability.backend_key(pause_payload[:backend])
 
-    Aiur.ModelAvailability.mark_limited(backend, reset_hint)
+    case Aiur.ModelAvailability.mark_limited(backend, pause_payload[:reset_at] || reset_hint) do
+      :ok -> :ok
+      {:error, reason} -> Logger.error("Unable to persist provider limit issue=#{issue.identifier} backend=#{backend} reason=#{inspect(reason)}; reset remains in worker pause state")
+    end
 
     reset_suffix = if is_binary(reset_hint), do: " (try again at #{reset_hint})", else: ""
     backend_suffix = " Backend detail: #{backend}."

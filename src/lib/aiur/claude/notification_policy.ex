@@ -1,6 +1,8 @@
 defmodule Aiur.Claude.NotificationPolicy do
   @moduledoc false
 
+  alias Aiur.Claude.ResetTime
+
   @limit_markers [
     "rate limit",
     "rate_limit",
@@ -120,13 +122,13 @@ defmodule Aiur.Claude.NotificationPolicy do
   def usage_limit_pause(payload) do
     reason = error_reason(payload)
 
+    hint = find_value(payload, ["reset_at", :reset_at, "resetAt", :resetAt]) || reset_hint(reason)
+
     %{
       kind: :usage_limit_exhausted,
       reason: reason,
-      # A structured reset field when the provider sent one; otherwise the
-      # "resets <time>" the refusal states in prose, which is the only form the
-      # session-limit banner carries.
-      reset_hint: find_value(payload, ["reset_at", :reset_at, "resetAt", :resetAt]) || reset_hint(reason)
+      reset_hint: hint,
+      reset_at: ResetTime.parse(hint)
     }
   end
 

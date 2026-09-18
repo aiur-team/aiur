@@ -65,7 +65,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   # Runtime dependencies in `opts` keep the decision pure in tests.
   @doc false
   @spec decide(map(), Issue.t(), keyword()) ::
-          :engage | :prepare_revert | :revert | :cancel_revert | :noop
+          :engage | :prepare_revert | :revert | :cancel_revert | :resume | :noop
   def decide(running_entry, %Issue{} = issue, opts \\ []) do
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
 
@@ -153,7 +153,32 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp decide_unengaged(running_entry, issue, opts) do
-    if usage_limited_on_primary?(running_entry, issue, opts), do: :engage, else: :noop
+    cond do
+      usage_pause_recovered?(running_entry, issue, opts) -> :resume
+      usage_limited_on_primary?(running_entry, issue, opts) -> :engage
+      true -> :noop
+    end
+  end
+
+  defp usage_pause_recovered?(entry, issue, opts) do
+    backend = Keyword.get_lazy(opts, :current_backend, fn -> CodingAgent.backend_for(issue) end)
+
+    State.paused_running_entry?(entry) and
+      Map.get(entry, :paused_reason) == :usage_limit_exhausted and
+      not Issue.paused?(issue) and
+      usage_reset_recovered?(entry, backend, opts)
+  end
+
+  # Keep a worker's explicit deadline even if writing the shared ledger failed.
+  # An older positive ledger observation must not undo a newly reported limit.
+  defp usage_reset_recovered?(entry, backend, opts) do
+    with reset when is_binary(reset) <- Map.get(entry, :usage_limit_reset_at),
+         {:ok, reset_at, _offset} <- DateTime.from_iso8601(reset) do
+      now = Keyword.get(opts, :now, DateTime.utc_now())
+      DateTime.compare(now, reset_at) != :lt and ModelAvailability.available?(backend, opts)
+    else
+      _ -> ModelAvailability.recovery_confirmed?(backend, opts)
+    end
   end
 
   defp reconcile_until_limit(
@@ -183,6 +208,17 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   defp reconcile_entry(state, _entry, _opts), do: {state, false}
 
   defp apply_decision(state, _running_entry, _issue, :noop, _opts), do: {state, false}
+
+  defp apply_decision(%State{globally_paused: true} = state, _entry, _issue, :resume, _opts), do: {state, false}
+
+  defp apply_decision(state, running_entry, _issue, :resume, opts) do
+    resume = Keyword.get(opts, :resume_fun, &PauseResume.resume_paused_issue(&1, &2, false))
+
+    case resume.(state, running_entry) do
+      {{:ok, :resumed}, resumed_state} -> {resumed_state, true}
+      {_error, deferred_state} -> {deferred_state, false}
+    end
+  end
 
   defp apply_decision(state, running_entry, issue, :engage, opts) do
     fallback_backend = fallback_backend(opts)
