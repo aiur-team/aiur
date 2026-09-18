@@ -316,6 +316,30 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:retry_dispatch, decision_id, action_id})
   end
 
+  @doc """
+  Redelivers a ticket's undelivered answers to the worker that just started for
+  it (#2713).
+
+  An agent that files a blocking Command ends its run, so an answer recorded
+  later has no worker to reach: the dispatch fails `target_agent_unavailable`
+  and the bounded retry ladder is spent within seconds. The answer itself is
+  durable in this store. The Orchestrator calls this when it spawns a worker
+  for the ticket, and each `:decided` Command of that ticket whose newest
+  (active) answer failed delivery and never reached an agent is dispatched
+  again, with a fresh retry ladder. The new worker then receives the answer
+  through its queue.
+
+  Delivery stays exactly once: an answer with provider-confirmed delivery, an
+  answer that is queued or in flight, and a Command that is no longer
+  `:decided` (mooted, acknowledged or resolved) are skipped. Only the active
+  answer is dispatched, so an answer replaced by a revision is never
+  redelivered. The call is a cast, so a spawn never waits on this store.
+  """
+  @spec deliver_pending_answers(String.t(), GenServer.server()) :: :ok
+  def deliver_pending_answers(ticket_identifier, server \\ __MODULE__) when is_binary(ticket_identifier) do
+    GenServer.cast(server, {:deliver_pending_answers, ticket_identifier})
+  end
+
   @doc "Synchronously validate one correlated item before attempting provider delivery."
   @spec validate_delivery(map(), GenServer.server()) ::
           {:ok, :accepted | :ignored} | {:error, term()}
@@ -1118,6 +1142,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_cast({:transport_transitions, type, items, reason}, state) do
     {:noreply, apply_transport_transitions(state, type, items, reason)}
+  end
+
+  def handle_cast({:deliver_pending_answers, _ticket_identifier}, %{writable?: false} = state) do
+    {:noreply, state}
+  end
+
+  def handle_cast({:deliver_pending_answers, ticket_identifier}, state) do
+    {:noreply, schedule_pending_answer_delivery(state, ticket_identifier)}
   end
 
   defp handle_answer(decision_id, payload, opts, state) do
@@ -4432,6 +4464,54 @@ defmodule Aiur.DecisionStore do
   defp lifecycle_append_failed?(state, action_id) do
     MapSet.member?(Map.get(state, :lifecycle_append_failures, MapSet.new()), action_id)
   end
+
+  # A new worker for the ticket is a new delivery target, so each answer that
+  # failed to reach the previous (ended) worker is dispatched again with a
+  # fresh retry ladder (#2713). `dispatch_active?/2` and the `:failed` attempt
+  # check keep a second spawn, or a ladder retry racing this one, from sending
+  # the same answer twice. The answers go out in the order the Commands were
+  # decided: each dispatch is admitted here, in that order, and
+  # `DecisionDispatchTasks` keeps admission order for one ticket.
+  defp schedule_pending_answer_delivery(state, ticket_identifier) do
+    state.current
+    |> Map.values()
+    |> Enum.filter(&answer_awaiting_worker?(&1, ticket_identifier))
+    |> Enum.sort_by(&{&1.answer.accepted_at, &1.decision_id}, fn {left_at, left_id}, {right_at, right_id} ->
+      case DateTime.compare(left_at, right_at) do
+        :eq -> left_id <= right_id
+        order -> order == :lt
+      end
+    end)
+    |> Enum.reduce(state, fn decision, acc ->
+      action_id = Decision.active_answer(decision).action_id
+
+      if dispatch_active?(acc, action_id) or lifecycle_append_failed?(acc, action_id) do
+        acc
+      else
+        Logger.info("Redelivering Decision answer to the new worker ticket=#{ticket_identifier} decision_id=#{decision.decision_id} action_id=#{action_id}")
+
+        %{acc | retry_counts: Map.delete(acc.retry_counts, action_id)}
+        |> maybe_start_dispatch(dispatch_fence(decision), true)
+      end
+    end)
+  end
+
+  # Only the active answer of a `:decided` Command qualifies, and only while
+  # `dispatchable?/2` would send it: no attempt yet, or a failed newest attempt.
+  # A queued, restored or consumed answer is not sent again. An attempt that
+  # the provider confirmed (`delivered_at`) and that later failed is excluded
+  # too, because the agent already saw that answer. A `:moot` Command (#2711)
+  # is not `:decided`, and a replaced answer is not the active one, so neither
+  # is ever redelivered.
+  defp answer_awaiting_worker?(
+         %Decision{decision_status: :decided, ticket: %{identifier: ticket_identifier}} = decision,
+         ticket_identifier
+       ) do
+    dispatchable?(decision, true) and
+      Enum.all?(Decision.active_dispatch_attempts(decision), &is_nil(&1.delivered_at))
+  end
+
+  defp answer_awaiting_worker?(_decision, _ticket_identifier), do: false
 
   defp notify(decision, event_id, state) do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.requested"

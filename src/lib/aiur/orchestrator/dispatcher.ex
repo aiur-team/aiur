@@ -2495,6 +2495,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))
 
         running = Map.put(state.running, issue.id, running_entry)
+        deliver_pending_answers(issue, opts)
 
         %{
           state
@@ -2518,6 +2519,34 @@ defmodule Aiur.Orchestrator.Dispatcher do
         })
     end
   end
+
+  # An agent that files a blocking Command ends its run, so the answer usually
+  # arrives when no worker runs the ticket and its delivery fails (#2713). The
+  # answer stays durable in the DecisionStore; this new worker is where it must
+  # land. The store dispatches each undelivered answer of the ticket again, and
+  # it reaches this worker through its queue.
+  #
+  # The spawn runs inside an Orchestrator handler, often a whole poll. The
+  # store's dispatch task calls back into the Orchestrator, so a request sent
+  # now would wait behind the rest of that handler and could time out on a
+  # slow poll. The request is therefore posted to this process and sent to the
+  # store only after the handler returns (`handle_pending_answer_delivery/1`).
+  defp deliver_pending_answers(%Issue{identifier: identifier}, opts) when is_binary(identifier) do
+    send(self(), {:deliver_pending_answers, identifier, Keyword.get(opts, :decision_store, DecisionStore)})
+    :ok
+  end
+
+  defp deliver_pending_answers(_issue, _opts), do: :ok
+
+  @doc """
+  Handles the `{:deliver_pending_answers, identifier, store}` message that a
+  worker spawn posts to the Orchestrator. It runs after the spawning handler
+  has returned, so the store's dispatch task finds the Orchestrator free and
+  the new running entry in its state (#2713).
+  """
+  @spec handle_pending_answer_delivery({:deliver_pending_answers, String.t(), GenServer.server()}) :: :ok
+  def handle_pending_answer_delivery({:deliver_pending_answers, identifier, store}) when is_binary(identifier),
+    do: DecisionStore.deliver_pending_answers(identifier, store)
 
   defp dispatch_attempt_ticket(%Issue{} = issue) do
     case dispatch_attempt_identity(issue) do
