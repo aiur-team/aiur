@@ -2560,14 +2560,36 @@ defmodule Aiur.AgentControlCLI do
       IO.puts([
         String.pad_trailing(display_identifier(agent), 6),
         " ",
-        String.pad_trailing(to_string(Map.get(agent, :work_state, :working)), 10),
+        String.pad_trailing(agents_state_label(agent), 10),
         " ",
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
-        agent_activity(agent)
+        agents_activity(agent)
       ])
     end)
   end
+
+  # The STATE and ACTIVITY columns read the human wait from the row's derived
+  # `waiting_reason` — the same fact `aiur status` prints as
+  # `waiting=waiting_for_human` — never from the raw work state alone. A live
+  # agent blocked on an open decision used to read `working` here while
+  # `status` read `waiting_for_human` for the same ticket (#2698).
+  defp agents_state_label(agent) do
+    if WaitingReason.waiting_for_human?(agent),
+      do: "waiting",
+      else: to_string(Map.get(agent, :work_state, :working))
+  end
+
+  defp agents_activity(agent) do
+    if WaitingReason.waiting_for_human?(agent),
+      do: "(#{WaitingReason.render(:waiting_for_human)}: #{human_wait_cause(agent)})",
+      else: agent_activity(agent)
+  end
+
+  defp human_wait_cause(%{open_decision_count: count}) when is_integer(count) and count > 0,
+    do: "#{count} open decision#{if count == 1, do: "", else: "s"}"
+
+  defp human_wait_cause(_agent), do: "agent requested input"
 
   defp agent_activity(agent) do
     case Map.get(agent, :work_state, :working) do

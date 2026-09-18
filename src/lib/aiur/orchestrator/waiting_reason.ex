@@ -218,6 +218,20 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
   defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
 
+  @doc """
+  True when a fleet row's derived waiting reason is `:waiting_for_human`.
+
+  Every operator surface that says "waiting for a human" asks this one
+  question of the row's `waiting_reason`, so `aiur status` and `aiur agents`
+  can never disagree about the same ticket (#2698). Accepts the atom or its
+  rendered string, because rows can cross a serialization boundary.
+  """
+  @spec waiting_for_human?(map()) :: boolean()
+  def waiting_for_human?(%{waiting_reason: reason}) when reason in [:waiting_for_human, "waiting_for_human"],
+    do: true
+
+  def waiting_for_human?(_row), do: false
+
   # An idle in-progress row has a tracker claim but no live runtime. Before the
   # one-shot startup pass runs it is an `:orphaned_claim` awaiting recovery;
   # after the pass completes it is a post-pass `:stale_claim`. Either way it is
@@ -235,11 +249,14 @@ defmodule Aiur.Orchestrator.WaitingReason do
     end
   end
 
+  # `rework` is deliberately absent: it is agent-owned work (the agent addresses
+  # review feedback), not a wait on a human. Only an open decision or an
+  # agent's own request for input may read `:waiting_for_human`, so `aiur
+  # status` and `aiur agents` derive the human wait from the same fact (#2698).
   defp by_tracker_state(state) when is_binary(state) do
     case state |> String.downcase() |> String.trim() do
       "ci-wait" -> :waiting_for_ci
       "human-review" -> :waiting_for_review
-      "rework" -> :waiting_for_human
       "merging" -> :waiting_for_supervisor
       _ -> :active
     end

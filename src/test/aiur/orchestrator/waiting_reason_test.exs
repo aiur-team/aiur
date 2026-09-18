@@ -142,11 +142,23 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              }) == :waiting_for_review
     end
 
-    test "tracker state rework maps to waiting_for_human" do
+    test "a live agent working a rework ticket is active, not waiting for a human (#2698)" do
       assert WaitingReason.for_running(%{
                tracker_state: "rework",
                pause_reason: nil,
                work_state: :working,
+               open_decision_count: 0,
+               stale_for_seconds: 5,
+               stall_timeout_seconds: 3600
+             }) == :active
+    end
+
+    test "a rework ticket with an open decision waits for a human" do
+      assert WaitingReason.for_running(%{
+               tracker_state: "rework",
+               pause_reason: nil,
+               work_state: :working,
+               open_decision_count: 1,
                stale_for_seconds: 5,
                stall_timeout_seconds: 3600
              }) == :waiting_for_human
@@ -241,7 +253,7 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
     test "falls back to tracker-state classification" do
       assert WaitingReason.for_idle("ci-wait", false, 0) == :waiting_for_ci
       assert WaitingReason.for_idle("human-review", false, 0) == :waiting_for_review
-      assert WaitingReason.for_idle("rework", false, 0) == :waiting_for_human
+      assert WaitingReason.for_idle("rework", false, 0) == :active
       assert WaitingReason.for_idle("merging", false, 0) == :waiting_for_supervisor
       assert WaitingReason.for_idle("todo", false, 0) == :active
       assert WaitingReason.for_idle(nil, false, 0) == :active
@@ -318,7 +330,7 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
     end
 
     test "no #1453 evidence falls back to the base idle classification" do
-      assert WaitingReason.for_idle("rework", false, 0, []) == :waiting_for_human
+      assert WaitingReason.for_idle("rework", false, 0, []) == :active
       assert WaitingReason.for_idle("todo", false, 0, latched_lifetime: false) == :active
     end
 
