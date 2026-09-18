@@ -1017,6 +1017,30 @@ defmodule Aiur.Config do
     settings!().agent.budget_broker_degraded_alert_after_seconds
   end
 
+  @doc """
+  The IANA zone Codex usage-limit reset text is read in
+  (`agent.codex.reset_time_zone`), or `:local` for the daemon host's zone.
+  """
+  @spec codex_reset_time_zone() :: String.t() | :local
+  def codex_reset_time_zone do
+    case settings() do
+      {:ok, %{agent: %{codex: %{reset_time_zone: zone}}}} when is_binary(zone) -> zone
+      _ -> :local
+    end
+  end
+
+  @doc """
+  The least time Aiur waits before it resumes a worker whose Codex usage-limit
+  text names a reset that already passed (`agent.codex.reset_min_delay_seconds`).
+  """
+  @spec codex_reset_min_delay_seconds() :: pos_integer()
+  def codex_reset_min_delay_seconds do
+    case settings() do
+      {:ok, %{agent: %{codex: %{reset_min_delay_seconds: seconds}}}} when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> 300
+    end
+  end
+
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()
   def codex_turn_sandbox_policy(workspace \\ nil) do
     case Schema.resolve_runtime_turn_sandbox_policy(settings!(), workspace) do

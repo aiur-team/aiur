@@ -3,6 +3,11 @@ defmodule Aiur.Codex.NotificationPolicy do
   Pure predicates for classifying Codex notifications, errors, and quota events.
   """
 
+  alias Aiur.Codex.{ExhaustedReset, ResetTime}
+
+  # Matches the default of `agent.codex.reset_min_delay_seconds`.
+  @default_reset_min_delay_seconds 300
+
   # Identify error-class notifications that should be surfaced at info
   # level with their payload, not buried at debug. Codex sends "error"
   # as a top-level method when the API itself fails (rate limit, auth,
@@ -92,14 +97,110 @@ defmodule Aiur.Codex.NotificationPolicy do
 
   # Pause payload for a quota-exhaustion turn error. `kind` lets the agent
   # runner emit the Executor alert; `reset_hint` carries the human-readable
-  # "try again at …" time when codex provides one.
-  @spec usage_limit_pause(map(), String.t()) :: map()
-  def usage_limit_pause(payload, method) do
+  # "try again at …" time when codex provides one, and `reset_at` is the reset
+  # in UTC: the exhausted window's numeric `resetsAt` when known, else the hint
+  # (see `Aiur.Codex.ResetTime`). The rate-limit fallback resumes at `reset_at`.
+  @spec usage_limit_pause(map(), String.t(), keyword()) :: map()
+  def usage_limit_pause(payload, method, opts \\ []) do
+    hint = usage_limit_reset_hint(payload)
+
     %{
       kind: :usage_limit_exhausted,
       reason: codex_error_reason(payload, method),
-      reset_hint: usage_limit_reset_hint(payload)
+      reset_hint: hint,
+      reset_at: parse_reset(hint, opts)
     }
+  end
+
+  @doc """
+  Classifies a `turn/completed` that ended the turn on the account usage limit.
+
+  Codex 0.154.0 reports the refusal on the turn itself: `turn.status` is
+  `"failed"` and `turn.error` is a `TurnError` whose `codexErrorInfo` is
+  `"usageLimitExceeded"`. Only `turn.error` is read, never `turn.items`, so
+  assistant or tool text that quotes the refusal does not pause the worker.
+  """
+  @spec turn_usage_limit_pause(map(), keyword()) :: {:paused, map()} | :unclassified
+  def turn_usage_limit_pause(payload, opts \\ []) do
+    with %{"status" => "failed", "error" => %{} = error} <- completed_turn(payload),
+         true <- usage_limit_turn_error?(error) do
+      hint = usage_limit_reset_hint(error)
+
+      {:paused,
+       %{
+         kind: :usage_limit_exhausted,
+         reason: "turn/completed: " <> turn_error_message(error),
+         reset_hint: hint,
+         reset_at: parse_reset(hint, opts)
+       }}
+    else
+      _ -> :unclassified
+    end
+  end
+
+  defp completed_turn(%{"params" => %{"turn" => %{} = turn}}), do: turn
+  defp completed_turn(%{"turn" => %{} = turn}), do: turn
+  defp completed_turn(_payload), do: nil
+
+  defp usage_limit_turn_error?(error) do
+    error_info_usage_limit?(Map.get(error, "codexErrorInfo")) or
+      error_info_usage_limit?(Map.get(error, "codex_error_info")) or
+      (is_binary(error["message"]) and String.contains?(String.downcase(error["message"]), "usage limit"))
+  end
+
+  defp error_info_usage_limit?(info) when info in ["usageLimitExceeded", "usage_limit_exceeded"], do: true
+  defp error_info_usage_limit?(%{"usageLimitExceeded" => _}), do: true
+  defp error_info_usage_limit?(_info), do: false
+
+  defp turn_error_message(%{"message" => message}) when is_binary(message) and message != "", do: message
+  defp turn_error_message(_error), do: "usageLimitExceeded"
+
+  @doc """
+  Reset options from a Codex session: `:now` (the session `:clock`), `:zone`
+  (the session `:reset_time_zone`), `:min_delay_seconds` (the session
+  `:reset_min_delay_seconds`) and `:numeric_reset`, the exhausted window's
+  future `resetsAt` from `account/rateLimits`, when Aiur has one.
+  """
+  @spec reset_opts(map()) :: keyword()
+  def reset_opts(session) when is_map(session) do
+    now = Map.get(session, :clock, &DateTime.utc_now/0).()
+
+    [
+      now: now,
+      zone: Map.get(session, :reset_time_zone, :local),
+      min_delay_seconds: Map.get(session, :reset_min_delay_seconds, @default_reset_min_delay_seconds),
+      numeric_reset: ExhaustedReset.latest(session, now)
+    ]
+  end
+
+  # The numeric reset is exact; the text is truncated to the minute and names
+  # no zone, so it is only the fallback.
+  defp parse_reset(hint, opts) do
+    case Keyword.get(opts, :numeric_reset) do
+      %DateTime{} = reset ->
+        reset |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_iso8601()
+
+      _ ->
+        now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+        hint |> ResetTime.parse(now, Keyword.get(opts, :zone, :local)) |> not_before_min_delay(now, opts)
+    end
+  end
+
+  # A text reset that already passed names a reset that did not help: the zone
+  # can be wrong (a remote worker) or Codex still refuses just after it. It must
+  # not resume the worker at once, so it moves to `now` plus the minimum delay
+  # (#2737). A future text reset is kept.
+  defp not_before_min_delay(nil, _now, _opts), do: nil
+
+  defp not_before_min_delay(reset, now, opts) do
+    {:ok, reset_at, _offset} = DateTime.from_iso8601(reset)
+
+    if DateTime.compare(reset_at, now) == :gt do
+      reset
+    else
+      delay = Keyword.get(opts, :min_delay_seconds, @default_reset_min_delay_seconds)
+      now |> DateTime.add(delay, :second) |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_iso8601()
+    end
   end
 
   # Best-effort human-readable reason for the failure tuple/log/alert. Control
