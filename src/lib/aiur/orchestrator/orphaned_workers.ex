@@ -16,9 +16,12 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
   Either way a redispatch of the ticket finds the workspace owned and waits for
   a release that never comes. This check runs when the Orchestrator starts and
   on every tick. It stops a runner when all of these are true: its lease is
-  provisioning or active, its owner is alive, no running entry has its pid, it
-  runs on this host, and its update recipient is this Orchestrator or a dead
-  process. A runner that reports to some other live process is left alone.
+  provisioning or active, its owner is alive, no running entry has its pid or
+  its ticket (whatever that entry's shape: working, paused, pause pending,
+  sleeping, completed, deactivated or staged), it runs on this host, and its update recipient is either this Orchestrator or a
+  dead process that was registered under this Orchestrator's name. A runner
+  that reports to any other process, live or dead, is left alone: it belongs
+  to a different Orchestrator (or a test harness), not to this one.
 
   The scan reads only the ownership registry (ETS) and never calls a guardian,
   so a guardian that is busy in the ownership store cannot stall a tick.
@@ -66,11 +69,15 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
     registry = Keyword.get(opts, :registry, @registry)
 
     if registry_available?(registry) do
-      tracked_pids = tracked_runner_pids(state.running)
+      scope = %{
+        tracked_pids: tracked_runner_pids(state.running),
+        tracked_issue_ids: MapSet.new(Map.keys(state.running)),
+        name: own_name()
+      }
 
       registry
       |> Ownership.holders()
-      |> Enum.filter(&untracked?(&1, tracked_pids))
+      |> Enum.filter(&untracked?(&1, scope))
       |> Enum.reduce(state, &stop_if_current(&1, &2, registry))
     else
       state
@@ -88,18 +95,37 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
     end)
   end
 
-  # A tracked runner is rejected on the pid set alone, before any liveness
-  # probe. A remote runner is never a candidate (see the moduledoc). A runner
-  # that reports to another live process belongs to that process.
-  defp untracked?(%{owner: owner, holder: %{issue_id: issue_id, update_recipient: recipient} = holder}, tracked_pids)
-       when is_pid(owner) and is_binary(issue_id) and is_pid(recipient) do
-    not MapSet.member?(tracked_pids, owner) and not remote?(holder) and Process.alive?(owner) and
-      (recipient == self() or not Process.alive?(recipient))
+  defp own_name do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, name} when is_atom(name) -> name
+      _unnamed -> nil
+    end
   end
 
-  defp untracked?(_entry, _tracked_pids), do: false
+  # A tracked runner is rejected on the pid and ticket sets alone, before any
+  # liveness probe. A running entry for the ticket, in any shape, owns it: its
+  # own flow decides when a runner starts or stops. A remote runner is never a
+  # candidate (see the moduledoc).
+  defp untracked?(%{owner: owner, holder: %{issue_id: issue_id, update_recipient: recipient} = holder}, scope)
+       when is_pid(owner) and is_binary(issue_id) and is_pid(recipient) do
+    not MapSet.member?(scope.tracked_pids, owner) and not MapSet.member?(scope.tracked_issue_ids, issue_id) and
+      not remote?(holder) and Process.alive?(owner) and
+      owned_by_this_orchestrator?(recipient, holder, scope.name)
+  end
+
+  defp untracked?(_entry, _scope), do: false
 
   defp remote?(holder), do: is_binary(Map.get(holder, :worker_host))
+
+  # The recipient is this process, or a dead predecessor that ran under the
+  # same registered name (an Orchestrator restart). An unnamed Orchestrator
+  # can only ever claim its own runners.
+  defp owned_by_this_orchestrator?(recipient, _holder, _name) when recipient == self(), do: true
+
+  defp owned_by_this_orchestrator?(recipient, holder, name) when is_atom(name) and not is_nil(name),
+    do: Map.get(holder, :update_recipient_name) == name and not Process.alive?(recipient)
+
+  defp owned_by_this_orchestrator?(_recipient, _holder, _name), do: false
 
   # Confirm against the lease itself: the holder entry must describe the
   # generation that currently owns the ticket, in a phase a live owner holds.

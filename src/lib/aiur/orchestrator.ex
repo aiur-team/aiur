@@ -113,7 +113,7 @@ defmodule Aiur.Orchestrator do
   def handle_info({:workspace_ownership_available, identifier, guardian, generation}, state)
       when is_binary(identifier) and is_pid(guardian) and is_integer(generation) and generation > 0 do
     state = RetryEngine.release_workspace_wait(state, identifier, guardian, generation)
-    {:noreply, Lifecycle.schedule_tick(state, 0)}
+    {:noreply, Lifecycle.wake_tick(state)}
   end
 
   # A waiter that observed the registry empty has no guardian generation to
@@ -121,7 +121,7 @@ defmodule Aiur.Orchestrator do
   # subsequent owner will make the redispatch contend and subscribe again.
   def handle_info({:workspace_ownership_available, identifier, :none, nil}, state) when is_binary(identifier) do
     state = RetryEngine.release_workspace_wait(state, identifier)
-    {:noreply, Lifecycle.schedule_tick(state, 0)}
+    {:noreply, Lifecycle.wake_tick(state)}
   end
 
   # Never let a pre-generation waiter from an older process release a current

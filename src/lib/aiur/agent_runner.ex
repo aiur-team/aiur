@@ -135,7 +135,12 @@ defmodule Aiur.AgentRunner do
     # The holder metadata lets the Orchestrator find this runner if it holds
     # the lease without a running entry: its update target died in an
     # Orchestrator crash, or a rolled-back state dropped its entry (#2705).
-    holder = %{issue_id: issue.id, update_recipient: codex_update_recipient, worker_host: worker_host}
+    holder = %{
+      issue_id: issue.id,
+      update_recipient: codex_update_recipient,
+      update_recipient_name: registered_name(codex_update_recipient),
+      worker_host: worker_host
+    }
 
     case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun, holder: holder) do
       {:ok, ownership} ->
@@ -177,6 +182,15 @@ defmodule Aiur.AgentRunner do
         {:error, {:workspace_ownership_unavailable, reason}}
     end
   end
+
+  defp registered_name(pid) when is_pid(pid) and node(pid) == node() do
+    case Process.info(pid, :registered_name) do
+      {:registered_name, name} when is_atom(name) -> name
+      _unnamed_or_dead -> nil
+    end
+  end
+
+  defp registered_name(_recipient), do: nil
 
   # `Ownership.claim/3` excludes a second session inside *this* daemon, but the
   # workspace path is derived purely from repo and ticket, so a second daemon on

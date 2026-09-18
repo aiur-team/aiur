@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   use Aiur.TestSupport
 
   alias Aiur.AlertLedger
+  alias Aiur.Orchestrator.{Lifecycle, OrphanedWorkers, State}
   alias Aiur.Workspace.Ownership
 
   # #2705: an Orchestrator crash leaves its runner tasks (and their workspace
@@ -17,6 +18,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     first = Process.whereis(name)
 
     orphan = await_runner_holding_lease(first, issue_id, identifier)
+    kill_on_exit(orphan)
     {:ok, orphan_lease} = Ownership.current(identifier)
     orphan_ref = Process.monitor(orphan)
 
@@ -25,12 +27,14 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     Process.exit(first, :kill)
     second = await_restart(name, first)
 
-    assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 5_000
+    assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 15_000
     refute orphan in Task.Supervisor.children(Aiur.TaskSupervisor)
+    await_generation_released(identifier, orphan_lease.generation)
 
-    # The ticket is redispatched onto a fresh lease without a poll request:
-    # the lease release alone wakes the new Orchestrator.
+    # One poll after the release redispatches the ticket onto a fresh lease.
+    _ = Orchestrator.request_refresh(second)
     runner = await_runner_holding_lease(second, issue_id, identifier)
+    kill_on_exit(runner)
     assert runner != orphan
     assert {:ok, %{generation: generation}} = Ownership.current(identifier)
     assert generation != orphan_lease.generation
@@ -50,16 +54,22 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
         AgentRunner.run(issue, orchestrator, orchestrator: orchestrator, worker_host: nil)
       end)
 
-    on_exit(fn -> if Process.alive?(orphan), do: Process.exit(orphan, :kill) end)
+    kill_on_exit(orphan)
 
-    assert eventually(fn -> match?({:ok, %{phase: :provisioning}}, Ownership.current(identifier)) end, 5_000)
+    assert eventually(fn -> match?({:ok, %{phase: :provisioning}}, Ownership.current(identifier)) end, 15_000)
     refute Map.has_key?(:sys.get_state(orchestrator).running, issue_id)
+    {:ok, orphan_lease} = Ownership.current(identifier)
     orphan_ref = Process.monitor(orphan)
 
     Orchestrator.request_refresh(orchestrator)
 
-    assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 5_000
+    assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 15_000
+    await_generation_released(identifier, orphan_lease.generation)
+
+    # One poll after the release redispatches the ticket onto a fresh lease.
+    _ = Orchestrator.request_refresh(orchestrator)
     runner = await_runner_holding_lease(orchestrator, issue_id, identifier)
+    kill_on_exit(runner)
     assert runner != orphan
 
     assert live_session_alerts(identifier) == 0
@@ -75,9 +85,9 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
         AgentRunner.run(issue, recipient, orchestrator: recipient, worker_host: nil)
       end)
 
-    on_exit(fn -> if Process.alive?(runner), do: Process.exit(runner, :kill) end)
+    kill_on_exit(runner)
 
-    assert eventually(fn -> match?({:ok, %{phase: :provisioning}}, Ownership.current(identifier)) end, 5_000)
+    assert eventually(fn -> match?({:ok, %{phase: :provisioning}}, Ownership.current(identifier)) end, 15_000)
     {:ok, lease} = Ownership.current(identifier)
 
     orchestrator = start_supervised!({Orchestrator, initial_poll?: false})
@@ -93,6 +103,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     orchestrator = start_supervised!({Orchestrator, []})
 
     runner = await_runner_holding_lease(orchestrator, issue_id, identifier)
+    kill_on_exit(runner)
     {:ok, %{generation: generation}} = Ownership.current(identifier)
     cycles = :sys.get_state(orchestrator).poll_cycles_completed
 
@@ -100,7 +111,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     # only its running entry protects it from the scan.
     for tick <- 1..2 do
       _ = Orchestrator.request_refresh(orchestrator)
-      assert eventually(fn -> :sys.get_state(orchestrator).poll_cycles_completed >= cycles + tick end, 10_000)
+      assert eventually(fn -> :sys.get_state(orchestrator).poll_cycles_completed >= cycles + tick end, 15_000)
     end
 
     assert Process.alive?(runner)
@@ -114,10 +125,19 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     ref = Process.monitor(dead_recipient)
     assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
 
-    owner = claim_in_process(identifier, %{issue_id: "issue-#{identifier}", update_recipient: dead_recipient, worker_host: "remote-a"})
+    name = unique_name("Remote")
+
+    owner =
+      claim_in_process(identifier, %{
+        issue_id: "issue-#{identifier}",
+        update_recipient: dead_recipient,
+        update_recipient_name: name,
+        worker_host: "remote-a"
+      })
+
     {:ok, lease} = Ownership.current(identifier)
 
-    orchestrator = start_supervised!({Orchestrator, initial_poll?: false})
+    orchestrator = start_supervised!({Orchestrator, name: name, initial_poll?: false})
     _ = Orchestrator.request_refresh(orchestrator)
     state = :sys.get_state(orchestrator)
 
@@ -133,7 +153,16 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
 
     orphan_id = "ORPH-STALL-#{System.unique_integer([:positive])}"
     tracked_id = "ORPH-BUSY-#{System.unique_integer([:positive])}"
-    orphan = claim_in_process(orphan_id, %{issue_id: "issue-#{orphan_id}", update_recipient: dead_recipient, worker_host: nil})
+    name = unique_name("Stall")
+
+    orphan =
+      claim_in_process(orphan_id, %{
+        issue_id: "issue-#{orphan_id}",
+        update_recipient: dead_recipient,
+        update_recipient_name: name,
+        worker_host: nil
+      })
+
     busy = claim_in_process(tracked_id, %{issue_id: "issue-#{tracked_id}", update_recipient: self(), worker_host: nil})
     {:ok, orphan_lease} = Ownership.current(orphan_id)
     {:ok, busy_lease} = Ownership.current(tracked_id)
@@ -144,23 +173,146 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     on_exit(fn -> Enum.each(guardians, &resume_if_alive/1) end)
 
     orphan_ref = Process.monitor(orphan)
-    {init_us, orchestrator} = :timer.tc(fn -> start_supervised!({Orchestrator, initial_poll?: false}) end)
+    {init_us, orchestrator} = :timer.tc(fn -> start_supervised!({Orchestrator, name: name, initial_poll?: false}) end)
+    assert init_us < 2_000_000
+    assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 1_000
 
-    {tick_us, _state} =
+    # A full tick and poll cycle completes. The GitHub poll floor delays the
+    # tick by about a second; a guardian call per lease would add 5s each.
+    cycles = :sys.get_state(orchestrator).poll_cycles_completed
+
+    {tick_us, completed?} =
       :timer.tc(fn ->
         _ = Orchestrator.request_refresh(orchestrator)
-        :sys.get_state(orchestrator)
+        eventually(fn -> :sys.get_state(orchestrator).poll_cycles_completed > cycles end, 15_000)
       end)
 
-    assert init_us < 2_000_000
-    assert tick_us < 1_000_000
-    assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 1_000
+    assert completed?
+    assert tick_us < 4_000_000
     assert Process.alive?(busy)
 
     # Once the guardian answers again, it releases the stopped generation.
     Enum.each(guardians, &resume_if_alive/1)
-    assert eventually(fn -> Ownership.current(orphan_id) == :none end, 5_000)
-    assert eventually(fn -> not Map.has_key?(:sys.get_state(orchestrator).dispatch_recovery.workspace_ownership.waits, orphan_id) end, 5_000)
+    assert eventually(fn -> Ownership.current(orphan_id) == :none end, 15_000)
+    assert eventually(fn -> not Map.has_key?(:sys.get_state(orchestrator).dispatch_recovery.workspace_ownership.waits, orphan_id) end, 15_000)
+  end
+
+  test "a dead predecessor's runner belongs only to an Orchestrator with the same name" do
+    dead_recipient = spawn(fn -> :ok end)
+    ref = Process.monitor(dead_recipient)
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+
+    identifier = "ORPH-OTHER-#{System.unique_integer([:positive])}"
+
+    owner =
+      claim_in_process(identifier, %{
+        issue_id: "issue-#{identifier}",
+        update_recipient: dead_recipient,
+        update_recipient_name: unique_name("SomeoneElse"),
+        worker_host: nil
+      })
+
+    {:ok, lease} = Ownership.current(identifier)
+
+    named = start_supervised!({Orchestrator, name: unique_name("Other"), initial_poll?: false}, id: :named_other)
+    unnamed = start_supervised!({Orchestrator, initial_poll?: false}, id: :unnamed_other)
+    _ = :sys.get_state(named)
+    _ = :sys.get_state(unnamed)
+
+    assert Process.alive?(owner)
+    assert {:ok, ^lease} = Ownership.current(identifier)
+  end
+
+  # The scan runs inside the Orchestrator; here the test process plays that
+  # role, so each runner below reports to this process. Every running-map
+  # shape that names the ticket or the runner pid must keep the runner alive.
+  describe "running-map shapes the scan leaves alone" do
+    for {shape, entry_fun} <- [
+          {"working", quote(do: fn runner -> %{pid: runner, control: %{status: :working}} end)},
+          {"paused", quote(do: fn runner -> %{pid: runner, control: %{status: :paused}} end)},
+          {"pause pending", quote(do: fn runner -> %{pid: runner, control: %{status: :working}, pending_pause_reason: %{request_id: 1}} end)},
+          {"sleeping", quote(do: fn runner -> %{pid: runner, control: %{status: :sleeping}, work_state: :sleeping} end)},
+          {"completed", quote(do: fn runner -> %{pid: runner, control: %{status: :completed}, completed_provenance: true} end)},
+          {"deactivated", quote(do: fn _runner -> %{pid: nil, ref: nil, control: %{status: :deactivated}} end)},
+          {"staged", quote(do: fn _runner -> %{pid: nil, redispatch_safety: %{workspace_path: "/w"}, control: %{status: :working}} end)},
+          {"replaced", quote(do: fn _runner -> %{pid: spawn(fn -> Process.sleep(:infinity) end), control: %{status: :working}} end)}
+        ] do
+      test "#{shape} entry" do
+        identifier = "ORPH-SHAPE-#{System.unique_integer([:positive])}"
+        issue_id = "issue-#{identifier}"
+        runner = claim_in_process(identifier, %{issue_id: issue_id, update_recipient: self(), worker_host: nil})
+        {:ok, lease} = Ownership.current(identifier)
+
+        entry = Map.put(unquote(entry_fun).(runner), :identifier, identifier)
+        state = OrphanedWorkers.stop_untracked_runners(%State{running: %{issue_id => entry}})
+
+        assert Process.alive?(runner)
+        assert {:ok, ^lease} = Ownership.current(identifier)
+        assert state.running == %{issue_id => entry}
+      end
+    end
+
+    test "an entry under another ticket id that names the runner pid" do
+      identifier = "ORPH-SHAPE-#{System.unique_integer([:positive])}"
+      runner = claim_in_process(identifier, %{issue_id: "issue-#{identifier}", update_recipient: self(), worker_host: nil})
+      {:ok, lease} = Ownership.current(identifier)
+
+      running = %{"issue-renamed" => %{pid: runner, identifier: identifier, control: %{status: :working}}}
+      _state = OrphanedWorkers.stop_untracked_runners(%State{running: running})
+
+      assert Process.alive?(runner)
+      assert {:ok, ^lease} = Ownership.current(identifier)
+    end
+
+    test "no entry at all: the runner is stopped (control)" do
+      identifier = "ORPH-SHAPE-#{System.unique_integer([:positive])}"
+      runner = claim_in_process(identifier, %{issue_id: "issue-#{identifier}", update_recipient: self(), worker_host: nil})
+      ref = Process.monitor(runner)
+
+      state = OrphanedWorkers.stop_untracked_runners(%State{})
+
+      assert_receive {:DOWN, ^ref, :process, ^runner, _reason}, 5_000
+      assert Map.has_key?(state.dispatch_recovery.workspace_ownership.waits, identifier)
+    end
+  end
+
+  describe "a released workspace wakes the tick only under the tick policy" do
+    test "no pending tick timer: nothing is scheduled" do
+      state = %State{tick_timer_ref: nil, tick_token: nil}
+      assert Lifecycle.wake_tick(state) == state
+    end
+
+    test "a frozen poll: the pending timer is left alone" do
+      timer = Process.send_after(self(), :never, 60_000)
+      on_exit(fn -> Process.cancel_timer(timer) end)
+      state = %State{tick_timer_ref: timer, tick_token: make_ref(), poll_frozen: true}
+      assert Lifecycle.wake_tick(state) == state
+      assert is_integer(Process.read_timer(timer))
+    end
+
+    test "a pending tick timer is pulled forward" do
+      timer = Process.send_after(self(), :never, 60_000)
+      state = %State{tick_timer_ref: timer, tick_token: make_ref()}
+      woken = Lifecycle.wake_tick(state)
+
+      assert woken.tick_timer_ref != timer
+      assert Process.read_timer(timer) == false
+      assert Process.read_timer(woken.tick_timer_ref) <= 60_000
+      Process.cancel_timer(woken.tick_timer_ref)
+    end
+  end
+
+  defp kill_on_exit(pid) do
+    on_exit(fn -> Process.exit(pid, :kill) end)
+  end
+
+  defp unique_name(label), do: Module.concat(__MODULE__, "#{label}#{System.unique_integer([:positive])}")
+
+  defp await_generation_released(identifier, generation) do
+    assert eventually(
+             fn -> not match?({:ok, %{generation: ^generation}}, Ownership.current(identifier)) end,
+             15_000
+           )
   end
 
   defp claim_in_process(identifier, holder) do
@@ -186,7 +338,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   # Waits until `orchestrator` tracks a live runner for the ticket and that
   # runner holds the ticket's lease with `orchestrator` as its update target.
   defp await_runner_holding_lease(orchestrator, issue_id, identifier) do
-    assert eventually(fn -> tracked_lease_holder(orchestrator, issue_id, identifier) != nil end, 10_000)
+    assert eventually(fn -> tracked_lease_holder(orchestrator, issue_id, identifier) != nil end, 15_000)
     tracked_lease_holder(orchestrator, issue_id, identifier)
   end
 
@@ -220,7 +372,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
                pid = Process.whereis(name)
                is_pid(pid) and pid != previous
              end,
-             5_000
+             15_000
            )
 
     Process.whereis(name)

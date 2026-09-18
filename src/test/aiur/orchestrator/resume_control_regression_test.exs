@@ -37,7 +37,8 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
           poll_frozen: true,
           candidate_snapshot_fresh?: true,
           snapshot_ready?: false,
-          globally_paused: false
+          globally_paused: false,
+          dispatch_recovery: %{state.dispatch_recovery | workspace_ownership: %{waits: %{}, ready: %{}}}
       }
     end)
 

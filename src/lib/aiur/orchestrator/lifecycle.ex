@@ -331,6 +331,22 @@ defmodule Aiur.Orchestrator.Lifecycle do
     }
   end
 
+  @doc """
+  Pulls the next scheduled tick forward after an event made work dispatchable.
+
+  It only moves a tick that is already scheduled, and never ahead of the
+  GitHub poll floor. An Orchestrator with no pending tick timer either has a
+  poll cycle in flight (whose end schedules the next tick) or has polling
+  disabled or frozen, and an event must not restart polling behind that
+  policy.
+  """
+  @spec wake_tick(State.t()) :: State.t()
+  def wake_tick(%State{tick_timer_ref: timer_ref, poll_frozen: frozen} = state)
+      when is_reference(timer_ref) and frozen != true,
+      do: schedule_tick(state, TrackerHealth.github_next_poll_delay_ms(state) || 0)
+
+  def wake_tick(%State{} = state), do: state
+
   defp schedule_initial_tick(state, false), do: %{state | next_poll_due_at_ms: nil}
   defp schedule_initial_tick(state, _initial_poll?), do: schedule_tick(state, 0)
 
