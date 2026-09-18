@@ -1,10 +1,25 @@
 defmodule Aiur.CIApprovalStore do
-  @moduledoc false
+  @moduledoc """
+  Durable record of CI lifecycle facts per ticket PR: the head CI approved for
+  human review, the head whose `test` failure was already deferred once, and the
+  base-repair journal.
+
+  The facts must survive a daemon restart (#2716). The file therefore lives in
+  the daemon-private state directory (`Aiur.Config.Paths.decision_state_dir/0`),
+  not in the per-launch log directory, which is new on every launch.
+
+  Files that older builds wrote to the per-launch log directory are adopted
+  once: when the durable file is missing, the newest
+  `<logs-parent>/*/log/<repo>.ci-approvals.json` is copied into place. The
+  durable file then exists, so no later launch adopts a legacy file again.
+  """
 
   require Logger
 
   alias Aiur.Config.Paths
   alias Aiur.JsonStore
+
+  @file_name "ci-approvals.json"
 
   @type heads :: %{optional(String.t()) => String.t()}
   @type base_repair_state :: :repairing | :repaired
@@ -118,9 +133,122 @@ defmodule Aiur.CIApprovalStore do
   @doc false
   @spec path_for() :: Path.t()
   def path_for do
-    Application.get_env(:aiur, :ci_approval_store_path) ||
-      Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.ci-approvals.json")
+    case Application.get_env(:aiur, :ci_approval_store_path) do
+      path when is_binary(path) and path != "" -> path
+      _ -> durable_path()
+    end
   end
+
+  # When the instance state directory cannot be resolved (no launcher instance
+  # key or no project identity), the per-launch log directory is the only
+  # place left. That keeps the old behavior instead of dropping the journal.
+  defp durable_path do
+    case Paths.decision_state_dir() do
+      {:ok, dir} ->
+        path = Path.join(dir, @file_name)
+        adopt_legacy_once(path)
+        path
+
+      {:error, reason} ->
+        warn_legacy_fallback(reason)
+        legacy_path()
+    end
+  end
+
+  @doc false
+  @spec legacy_path() :: Path.t()
+  def legacy_path, do: Path.join(Paths.log_root_dir(), legacy_file_name())
+
+  defp legacy_file_name, do: "#{Paths.repo_name()}.ci-approvals.json"
+
+  # One-time adoption of the newest per-launch file. The durable file is the
+  # marker: once it exists, adoption never runs again. When no legacy file
+  # exists, an empty store is written so later lookups skip the directory scan.
+  defp adopt_legacy_once(path) do
+    unless File.exists?(path) do
+      :global.trans({{__MODULE__, :adopt, path}, self()}, fn -> adopt_legacy(path) end)
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("CI approval store could not adopt a legacy file into #{path}: #{Exception.message(error)}")
+      :ok
+  end
+
+  # Re-checked under the lock: a concurrent caller may have adopted already, and
+  # overwriting its newer writes with the legacy file would lose them.
+  defp adopt_legacy(path) do
+    if File.exists?(path), do: :ok, else: write_adopted(path)
+  end
+
+  defp write_adopted(path) do
+    case newest_legacy_file() do
+      nil ->
+        JsonStore.write!(path, empty_payload())
+
+      source ->
+        case JsonStore.read(source, %{}) do
+          {:ok, %{} = persisted} ->
+            JsonStore.write!(path, persisted)
+            Logger.info("CI approval store adopted #{source} into #{path}")
+
+          _unreadable ->
+            JsonStore.write!(path, empty_payload())
+        end
+    end
+  end
+
+  # A launched daemon logs to `<logs-parent>/<launch>/log/aiur.log`, so every
+  # earlier launch of this repository left its file at
+  # `<logs-parent>/*/log/<repo>.ci-approvals.json`. Any other layout has no
+  # sibling launches; only the current log directory is checked.
+  defp newest_legacy_file do
+    log_dir = Paths.log_root_dir()
+
+    candidates =
+      if Path.basename(log_dir) == "log" do
+        logs_parent = log_dir |> Path.dirname() |> Path.dirname()
+
+        case File.ls(logs_parent) do
+          {:ok, launches} -> Enum.map(launches, &Path.join([logs_parent, &1, "log", legacy_file_name()]))
+          {:error, _reason} -> [legacy_path()]
+        end
+      else
+        [legacy_path()]
+      end
+
+    candidates
+    |> Enum.flat_map(fn candidate ->
+      case File.stat(candidate, time: :posix) do
+        {:ok, %File.Stat{type: :regular, mtime: mtime}} -> [{mtime, candidate}]
+        _missing -> []
+      end
+    end)
+    |> Enum.max(fn -> nil end)
+    |> case do
+      {_mtime, newest} -> newest
+      nil -> nil
+    end
+  end
+
+  defp warn_legacy_fallback(reason) do
+    key = {__MODULE__, :legacy_fallback_warned}
+
+    unless :persistent_term.get(key, false) do
+      :persistent_term.put(key, true)
+
+      Logger.warning(
+        "CI approval store has no instance state directory (#{inspect(reason)}); " <>
+          "using the per-launch log directory, which a restart does not keep"
+      )
+    end
+
+    :ok
+  end
+
+  defp empty_payload,
+    do: %{"approved_heads" => %{}, "test_failure_heads" => %{}, "base_repair_invalidations" => %{}}
 
   defp normalize(heads) when is_map(heads) do
     Enum.reduce(heads, %{}, fn
