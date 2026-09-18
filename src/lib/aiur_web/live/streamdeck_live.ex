@@ -55,12 +55,15 @@ defmodule AiurWeb.StreamdeckLive do
   # reachable from the dashboard's own controls.
   @control_commands ~w(pause)
 
+  # The rolling `streamdeck-nightly` pre-release replaces this fixed-name asset
+  # in place whenever `packages/streamdeck` changes, so the link never goes
+  # stale and never needs a per-commit release to exist. The manifest beside it
+  # (`aiur-streamdeck-nightly-linux-x64.json`) records the commit and SHA-256.
   @streamdeck_package %{
-    version: "0.0.0-dev.0098e3ac86a2",
-    commit: "0098e3ac86a2e49e685e8e6ff67248373de43f1d",
+    channel: "nightly",
     url:
-      "https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac86a2e49e685e8e6ff67248373de43f1d/" <>
-        "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
+      "https://github.com/aiur-team/aiur/releases/download/streamdeck-nightly/" <>
+        "aiur-streamdeck-nightly-linux-x64.tar.gz"
   }
 
   # The web emulator's own drawing routine, fed entirely by the shared key-face

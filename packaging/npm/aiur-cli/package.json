@@ -1,6 +1,6 @@
 {
   "name": "aiur-cli",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "AI Unit Runtime for Executors.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/aiur-team/aiur",
@@ -35,8 +35,8 @@
   ],
   "opencodeVersion": "1.17.10",
   "optionalDependencies": {
-    "aiur-cli-linux-x64": "0.0.5",
-    "aiur-cli-linux-arm64": "0.0.5",
-    "aiur-cli-darwin-arm64": "0.0.5"
+    "aiur-cli-linux-x64": "0.0.6",
+    "aiur-cli-linux-arm64": "0.0.6",
+    "aiur-cli-darwin-arm64": "0.0.6"
   }
 }

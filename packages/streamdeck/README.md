@@ -12,17 +12,20 @@ permanently-authorized operator client. Terminal end-to-end
 proof remains tracked in
 [#1358](https://github.com/aiur-team/aiur/issues/1358).
 
-Download the Linux x64 Stream Deck archive from its commit-addressed release
-asset, extract it, and copy the extracted directory to
-`~/.local/share/aiur/streamdeck`. The archive contains the Node runtime,
+Download the Linux x64 Stream Deck archive from the rolling
+[`streamdeck-nightly`](https://github.com/aiur-team/aiur/releases/tag/streamdeck-nightly)
+pre-release (asset `aiur-streamdeck-nightly-linux-x64.tar.gz`), extract it, and
+copy the extracted directory to `~/.local/share/aiur/streamdeck`. The archive contains the Node runtime,
 compiled sidecar, and production dependencies, so installation does not need
 Node, npm, or a native build toolchain. `BUILD-INFO.json` records the exact
 Aiur commit, version, target, and reproducible-build timestamp; compare its
 `commit` field to the daemon revision when diagnosing a mismatch.
 
-The archive filename is content-addressed: its final `<sha256>` component is
-the expected SHA-256 digest. Verify that digest from the release link before
-extracting the archive or installing its root-owned udev rule.
+The manifest beside the archive, `aiur-streamdeck-nightly-linux-x64.json`,
+records the archive's SHA-256 digest, version, and commit. Verify that digest
+before extracting the archive or installing its root-owned udev rule. Archives
+attached to a real `vX.Y.Z` release keep a content-addressed filename whose
+final `<sha256>` component is the same digest.
 
 The archive targets 64-bit glibc Linux (`x86_64`, glibc 2.28 or newer), which
 includes the supported Arch Linux target. It does not run on Alpine/musl Linux,
@@ -30,11 +33,13 @@ ARM, or older glibc distributions. Check a host with `getconf GNU_LIBC_VERSION`
 before installing it. The bundled Node 24 runtime needs glibc 2.28; the bundled
 `usb` prebuild needs glibc 2.17, so the Node runtime defines the floor.
 
-Each `develop` commit receives an immutable prerelease named
-`streamdeck-<commit>`. Those prereleases have no automatic expiry: their
-content-addressed assets are the stable download contract for the web layer and
-operators investigating daemon/package mismatches. Release housekeeping must
-preserve any asset referenced by a published download link.
+`streamdeck-nightly` is the only Stream Deck pre-release. The scheduled
+`Stream Deck package` workflow rebuilds it in place whenever
+`packages/streamdeck` has changed since the commit the tag points at: the tag
+moves to the new commit and both assets are replaced. A night with no changes
+touches nothing. The download URL is therefore stable, but its contents are
+not: compare the manifest's `commit` to the daemon revision when diagnosing a
+mismatch rather than assuming an archive downloaded earlier still matches.
 
 `STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
 sidecar reapplies on open and on resume.
@@ -105,8 +110,11 @@ environment file. The entry point reads `STREAMDECK_BRIGHTNESS`,
 ```sh
 install -d -m755 ~/.local/share/aiur
 install -d -m755 ~/.local/share/aiur/streamdeck
-expected_sha=<sha256-from-the-archive-filename>
-archive=aiur-streamdeck-<version>-linux-x64-${expected_sha}.tar.gz
+release=https://github.com/aiur-team/aiur/releases/download/streamdeck-nightly
+archive=aiur-streamdeck-nightly-linux-x64.tar.gz
+curl -fsSLO "$release/$archive"
+curl -fsSLO "$release/aiur-streamdeck-nightly-linux-x64.json"
+expected_sha=$(jq -r .sha256 aiur-streamdeck-nightly-linux-x64.json)
 printf '%s  %s\n' "$expected_sha" "$archive" | sha256sum --check --strict -
 tar -xzf "$archive" \
   -C ~/.local/share/aiur/streamdeck --strip-components=1
