@@ -153,6 +153,10 @@ defmodule Aiur.Orchestrator.State do
           # `:ci` class cadence (#2309). `nil` until the first run.
           last_ci_poll_started_at_ms: integer() | nil,
           pr_review_seen_at: map(),
+          # What the polls know about each ticket PR's draft state, loaded from
+          # `PrReadyLedgerStore` on first use (`nil` until then). See
+          # `ReadyForReviewTransitions` (#2707).
+          pr_ready_ledger: Aiur.PrReadyLedgerStore.ledger() | nil,
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
           github_poll_delays: map(),
@@ -305,6 +309,7 @@ defmodule Aiur.Orchestrator.State do
     last_comment_poll_started_at_ms: nil,
     last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
+    pr_ready_ledger: nil,
     github_command_scan_since: nil,
     github_connectivity: %{},
     github_poll_delays: %{},

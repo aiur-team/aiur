@@ -468,6 +468,43 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
     end
 
+    # #2707: the CI poll saw the draft while the ticket sat in ci-wait. CI
+    # passed and the ticket went back to in-progress, so the CI poll pruned its
+    # cache entry. The agent then ran `gh pr ready` itself and moved the ticket
+    # to human-review. The first CI poll after that must still see a
+    # transition, whoever made it.
+    test "a PR marked ready after its ticket left ci-wait publishes ready_for_review once" do
+      identifier = unique_identifier("ready-after-ci-wait")
+      topic = "ticket.#{identifier}.pr.ready_for_review"
+      recorder = start_recorder(topic)
+      ci_wait_issue = issue(identifier, "ci-wait")
+      review_issue = issue(identifier, "human-review")
+
+      state = poll_ci(running_state(ci_wait_issue, recorder, :working, []), ci_wait_issue, %{decision: :pending, head_sha: "draft-head", pr_number: 942, draft?: true})
+
+      state =
+        CiLifecycle.poll_github_ci(state,
+          parked_ready_alert_loader: fn -> MapSet.new() end,
+          draft_stall_alert_loader: fn -> MapSet.new() end,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end,
+          ci_poller: fn _targets, _opts -> flunk("no ticket is in a CI poll state") end
+        )
+
+      refute Map.has_key?(state.ci_lifecycle.poll_cache, identifier)
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+
+      state = poll_ci(state, review_issue, %{decision: :passed, head_sha: "draft-head", pr_number: 942, draft?: false})
+      sync_recorder(recorder)
+
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 942, "head" => %{"sha" => "draft-head"}}}}}
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+
+      _state = poll_ci(state, review_issue, %{decision: :passed, head_sha: "draft-head", pr_number: 942, draft?: false})
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+    end
+
     test "alerts once when an approved, green PR is still a draft (#1974)" do
       identifier = unique_identifier("ci-draft-stall")
       alert_topic = "ticket.#{identifier}.pr.draft_approved_green"

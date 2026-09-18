@@ -8,9 +8,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
   alias Aiur.Config.Paths
-  alias Aiur.Events.{GithubCIPoller, GithubKeys, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
+  alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
-  alias Aiur.GitHub.Config, as: GitHubConfig
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -19,6 +18,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     LifecycleFence,
     OperatorMessages,
     PauseResume,
+    ReadyForReviewTransitions,
     Reconciler,
     RetryEngine,
     State,
@@ -985,30 +985,26 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # GitHub's repository Events API does not expose draft-to-ready transitions.
-  # The CI poll already reads draft state for every in-flight PR, so compare its
-  # complete consecutive observations and publish the same PR lifecycle topic
-  # the webhook emits. The Publisher key suppresses repeated observations of
-  # the same PR head while the live daemon remains up.
+  # GitHub's repository Events API does not expose draft-to-ready transitions,
+  # so the CI poll feeds the draft flag it already reads into the shared,
+  # durable ledger (#2707). Only a complete current-head observation carries
+  # `:draft?`; any other result (head changed, PR not visible, poll error) is
+  # not evidence either way. The ledger is not `poll_cache`, which
+  # `prune_ci_lifecycle_state/3` drops when a ticket leaves `ci-wait` — exactly
+  # when an agent tends to run `gh pr ready`.
   defp publish_ready_for_review_transition(%State{} = state, %Issue{} = issue, result) do
-    target = ci_target_for_issue(issue)
-    previous = get_in(state.ci_lifecycle, [:poll_cache, target])
-
-    with %{draft?: true, pr_number: pr_number, head_sha: _previous_head_sha} <- previous,
-         false <- Map.get(result, :draft?),
-         ^pr_number <- Map.get(result, :pr_number),
-         head_sha when is_binary(head_sha) and head_sha != "" <- Map.get(result, :head_sha),
-         true <- is_integer(pr_number),
-         repo when is_binary(repo) <- GitHubConfig.repo() do
-      Publisher.publish(
-        "ticket.#{target}.pr.ready_for_review",
-        %{action: "ready_for_review", pr: %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}},
-        issue_number: target,
-        dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", head_sha)
+    observation =
+      ReadyForReviewTransitions.observation(
+        ci_target_for_issue(issue),
+        Map.get(result, :pr_number),
+        Map.get(result, :head_sha),
+        Map.get(result, :draft?)
       )
-    end
 
-    state
+    case observation do
+      nil -> state
+      observation -> ReadyForReviewTransitions.observe(state, [observation])
+    end
   end
 
   defp ci_result_projection(result, previous) do

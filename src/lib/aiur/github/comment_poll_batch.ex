@@ -374,7 +374,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp pull_request_identity_fields do
     """
-    number state headRefName headRefOid baseRefName reviewDecision
+    number state headRefName headRefOid baseRefName isDraft reviewDecision
     commits(last: 1) { nodes { commit { committedDate } } }
     """
   end
@@ -544,6 +544,9 @@ defmodule Aiur.GitHub.CommentPollBatch do
       "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
       "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
       "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
+      # The draft flag feeds poll-side draft-to-ready detection (#2707). A
+      # scalar on a node the query already selects adds no rate-limit points.
+      "draft" => Map.get(pull_request, "isDraft"),
       # Review-staleness context for the rework gate (#1756). `reviewDecision`
       # is nil until the first review lands; `head_committed_at` is the commit
       # date of the head commit the reviews are (or are not) talking about.

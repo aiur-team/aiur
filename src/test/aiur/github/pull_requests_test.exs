@@ -119,6 +119,35 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  describe "fetch_pull_request_was_draft/2" do
+    # #2707: classifies a PR a poll first sees ready. Only a `ready_for_review`
+    # event proves it was a draft; a PR opened ready has none.
+    test "answers true when the issue events hold a ready_for_review event" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/issues/10/events?per_page=100"
+        {:ok, %{status: 200, body: [%{"event" => "labeled"}, %{"event" => "ready_for_review"}]}}
+      end
+
+      assert {:ok, true} = PullRequests.fetch_pull_request_was_draft(10, request_fun: request_fun)
+    end
+
+    test "answers false for a short history with no ready_for_review event" do
+      request_fun = fn _request -> {:ok, %{status: 200, body: [%{"event" => "labeled"}]}} end
+      assert {:ok, false} = PullRequests.fetch_pull_request_was_draft(10, request_fun: request_fun)
+    end
+
+    test "answers true for a full page it cannot see past" do
+      events = List.duplicate(%{"event" => "labeled"}, 100)
+      request_fun = fn _request -> {:ok, %{status: 200, body: events}} end
+      assert {:ok, true} = PullRequests.fetch_pull_request_was_draft(10, request_fun: request_fun)
+    end
+
+    test "returns an error for a failed read" do
+      request_fun = fn _request -> {:ok, %{status: 502, body: %{}}} end
+      assert {:error, _reason} = PullRequests.fetch_pull_request_was_draft(10, request_fun: request_fun)
+    end
+  end
+
   describe "fetch_pull_request_head_ref_conditional/2" do
     # #2352 row 5: the `/pulls/{n}` read had no validator at all. This variant
     # gives the read an ETag path so an unchanged PR is a 304 instead of a

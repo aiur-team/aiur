@@ -26,6 +26,8 @@ Label read/create failures stop startup before agents start and explain the requ
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
 
+The repository events feed does not carry a pull request going from draft to ready, so without a webhook the polls infer it. The comment poll and the CI poll already read each ticket PR's draft flag. A durable per-PR ledger records what they saw, so `ticket.<id>.pr.ready_for_review` is published once per draft period, whoever ran `gh pr ready`, and a restart neither loses nor repeats it. A ticket PR first seen already ready costs one issue-events read, once, to tell a former draft from a PR opened ready; like the webhook, a PR opened ready gets no `ready_for_review`. The poll uses the webhook's dedup key, so a repository with a webhook is not woken twice for the same head.
+
 Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
 
 The CI poll drops from its batch a target a `check_run` delivery already answered since the last read — the read is not bought again. Displacement is per target: a ticket with no delivery keeps its cadence, and only the read is skipped; no verdict is served from the held body. An unmatched check-run id keeps the target polled; polling stays the fallback.

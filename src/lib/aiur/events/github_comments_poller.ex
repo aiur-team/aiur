@@ -12,6 +12,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
   alias Aiur.Events.{CommentFilter, GithubKeys, GithubReviewThreadIdentity, Publisher, Sanitizer}
   alias Aiur.GitHub.{Client, ResourceStore}
+  alias Aiur.Orchestrator.ReadyForReviewTransitions
 
   @type target :: String.t() | integer()
   @default_max_concurrency 4
@@ -87,13 +88,23 @@ defmodule Aiur.Events.GithubCommentsPoller do
       end)
       |> Map.new()
 
+    # The draft flag of each PR this poll read, for the orchestrator's
+    # draft-to-ready tracking (#2707). The flag rides on the PR read the poll
+    # already makes, so it costs no request.
+    pr_draft_observations =
+      Enum.flat_map(results, fn
+        %{pr_draft_observation: %{} = observation} -> [observation]
+        _ -> []
+      end)
+
     {:ok,
      %{
        since: next_since,
        etags: next_etags,
        count: count,
        errors: errors,
-       pr_review_seen_at: pr_review_seen_at
+       pr_review_seen_at: pr_review_seen_at,
+       pr_draft_observations: pr_draft_observations
      }}
   end
 
@@ -170,7 +181,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
     {issue_count, issue_newest, issue_result, issue_etag} =
       poll_issue_comments(target, since, Map.get(etags, :issue), repo, opts)
 
-    {pr_count, pr_newest, pr_results, pr_etags, review_seen_at} =
+    {pr_count, pr_newest, pr_results, pr_etags, review_seen_at, pr_draft_observation} =
       poll_pr_comments(target, since, etags, repo, opts)
 
     results = [issue_result | pr_results]
@@ -186,7 +197,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
       since: if(watermark_errors == [], do: advance_since(since, newest_seen_at), else: since),
       etags: etags |> Map.put(:issue, issue_etag) |> Map.merge(pr_etags),
       errors: errors,
-      review_seen_at: review_seen_at
+      review_seen_at: review_seen_at,
+      pr_draft_observation: pr_draft_observation
     }
   end
 
@@ -361,7 +373,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller PR lookup/comments failed: issue=#{target} reason=#{inspect(reason)}")
 
-            {0, nil, [{:error, {:pr_lookup, reason}}], %{}, nil}
+            {0, nil, [{:error, {:pr_lookup, reason}}], %{}, nil, nil}
         end
     end
   end
@@ -401,16 +413,40 @@ defmodule Aiur.Events.GithubCommentsPoller do
           conversation_newest,
           [conversation_result, thread_result, review_result],
           %{{:pr_issue, pr_number} => conversation_etag, :pr_reviews => review_etag},
-          review_seen_at
+          review_seen_at,
+          pr_draft_observation(pr, opts)
         }
 
       nil ->
-        {0, nil, [:ok], %{}, nil}
+        {0, nil, [:ok], %{}, nil, nil}
     end
   end
 
   defp poll_pr_comments_for_open_pull_request(_target, nil, _since, _etags, _repo, _opts),
-    do: {0, nil, [:ok], %{}, nil}
+    do: {0, nil, [:ok], %{}, nil, nil}
+
+  # A ready PR the orchestrator's ledger has never seen is classified here, in
+  # the poll task, so the one history read it needs never blocks the
+  # orchestrator. Only an orchestrator-driven poll passes the ledger; without
+  # it the observation goes back unclassified and costs nothing.
+  defp pr_draft_observation(pr, opts) do
+    observation = ReadyForReviewTransitions.from_pull_request(pr)
+
+    with {:ok, ledger} <- Keyword.fetch(opts, :pr_ready_ledger),
+         true <- ReadyForReviewTransitions.needs_history?(ledger, observation) do
+      case Client.fetch_pull_request_was_draft(observation.pr_number, opts) do
+        {:ok, was_draft?} ->
+          Map.put(observation, :was_draft?, was_draft?)
+
+        {:error, reason} ->
+          Logger.warning("GithubCommentsPoller PR draft history read failed: pr=#{observation.pr_number} reason=#{inspect(reason)}")
+
+          observation
+      end
+    else
+      _no_history_needed -> observation
+    end
+  end
 
   defp poll_pr_issue_comments(target, pr_number, since, etag, repo, review_context, opts) do
     case batch_value(opts, target, :pr_issue_comments) do

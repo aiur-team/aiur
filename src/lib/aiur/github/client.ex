@@ -269,6 +269,10 @@ defmodule Aiur.GitHub.Client do
     end)
   end
 
+  @spec fetch_pull_request_was_draft(String.t() | integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def fetch_pull_request_was_draft(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_was_draft(pr_number, opts)
+
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def fetch_pull_request_head_ref(pr_number, opts \\ []),
