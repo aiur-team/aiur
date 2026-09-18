@@ -160,6 +160,27 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
     end
   end
 
+  @doc """
+  Whether a scope with this health may be read again at `now`.
+
+  A recorded `next_retry_at` (the failure backoff, or a provider's retry-after)
+  is honoured. A failure recorded without one still waits the minimum backoff
+  from its last attempt, so a failed read is never repeated back to back. With
+  no failure recorded, a read is due.
+  """
+  @spec retry_due?(ProviderHealth.t(), DateTime.t()) :: boolean()
+  def retry_due?(%ProviderHealth{next_retry_at: %DateTime{} = next_retry_at}, now),
+    do: DateTime.compare(now, next_retry_at) != :lt
+
+  def retry_due?(%ProviderHealth{failure: nil}, _now), do: true
+
+  def retry_due?(%ProviderHealth{last_attempt_at: %DateTime{} = last_attempt_at, retry_count: retry_count}, now) do
+    delay = retry_delay_ms(max(retry_count - 1, 0), @maximum_provider_retry_ms, nil, now)
+    DateTime.compare(now, DateTime.add(last_attempt_at, delay, :millisecond)) != :lt
+  end
+
+  def retry_due?(_health, _now), do: true
+
   @spec failure_class(term()) :: atom()
   def failure_class({:github, classification, _detail}) when classification in [:auth, :forbidden], do: :permission
 

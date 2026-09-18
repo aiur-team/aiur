@@ -5,12 +5,13 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
   alias Aiur.AgentRunner.QueueDrain
+  alias Aiur.Events.SubscriptionStore
   alias Aiur.Executor.Claims
   alias Aiur.Executor.StatePaths
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State, StatusReport}
   alias Aiur.TrackerIdentity
 
   test "executor-wait prints and acknowledges a pending wake" do
@@ -2383,7 +2384,6 @@ defmodule Aiur.AgentControlCLITest do
 
   test "a queued resume with no correlatable lifecycle says why is unknown", %{orchestrator: pid} do
     Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, {:resumed, 999}} end)
-    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -2393,6 +2393,28 @@ defmodule Aiur.AgentControlCLITest do
       }
     end)
 
+    # This test owns the readable-status premise. Building the row through the
+    # production reporter keeps its shape faithful while avoiding an unrelated
+    # SnapshotStore transport timeout selecting the distinct unreadable-status
+    # diagnostic path.
+    readable_statuses =
+      pid
+      |> :sys.get_state()
+      |> StatusReport.agent_statuses(fn _timeout -> {:unavailable, nil} end)
+
+    assert [%{identifier: "repo#44", state: :paused, control: control}] = readable_statuses
+    assert control.status == :paused
+    assert Map.get(control, :latest_control) == nil
+    assert Map.get(control, :latest_resume_control) == nil
+    assert Map.get(control, :recent_controls, []) == []
+
+    Application.put_env(:aiur, :agent_control_cli_confirmation_status_fun, fn _server, _timeout -> readable_statuses end)
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :agent_control_cli_resume_fun)
+      Application.delete_env(:aiur, :agent_control_cli_confirmation_status_fun)
+    end)
+
     stderr =
       capture_io(:stderr, fn ->
         output =
@@ -2400,7 +2422,8 @@ defmodule Aiur.AgentControlCLITest do
             capture_io(fn -> AgentControlCLI.resume(["44"]) end)
           end)
 
-        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1\n"
+        refute output =~ "__AIUR_CONTROL_EXIT__:124"
       end)
 
     assert stderr =~ "why it was not applied could not be determined"
@@ -3097,6 +3120,55 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "#88"
       assert output =~ "(paused)"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "status and agents agree on the human wait for a decision and a rework ticket (#2698)",
+         %{orchestrator: pid} do
+      # Khala #17 and #52 were both live, working and labelled `rework`. #52 had
+      # an open decision; #17 had none. `status` said waiting_for_human for both
+      # while `agents` said working for both.
+      :ok = SubscriptionStore.attach("repo#52")
+      :ok = SubscriptionStore.add_attention("repo#52", "github-credential-missing")
+      on_exit(fn -> SubscriptionStore.stop("repo#52") end)
+
+      working_rework = fn issue_id, identifier ->
+        issue_id
+        |> running_entry(identifier, :working)
+        |> update_in([:issue], &%{&1 | state: "rework"})
+        |> Map.merge(%{
+          codex_app_server_pid: nil,
+          last_codex_timestamp: DateTime.utc_now(),
+          last_codex_event: "usage/update",
+          last_codex_message: nil
+        })
+      end
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{
+              "issue-17" => working_rework.("issue-17", "repo#17"),
+              "issue-52" => working_rework.("issue-52", "repo#52")
+            }
+        }
+      end)
+
+      status = capture_io(fn -> AgentControlCLI.status() end)
+      agents = capture_io(fn -> AgentControlCLI.agents() end)
+
+      status_line = fn number -> Enum.find(String.split(status, "\n"), &String.starts_with?(&1, "##{number} ")) end
+      agents_line = fn number -> Enum.find(String.split(agents, "\n"), &String.starts_with?(&1, "##{number} ")) end
+
+      # Open decision: both surfaces say the agent waits for a human.
+      assert status_line.(52) =~ "waiting=waiting_for_human"
+      assert agents_line.(52) =~ ~r/^#52\s+waiting\s/
+      assert agents_line.(52) =~ "(waiting_for_human: 1 open decision)"
+
+      # No decision: neither surface says waiting_for_human; both say it works.
+      assert status_line.(17) =~ "waiting=active"
+      refute status =~ ~r/^#17 .*waiting_for_human/m
+      assert agents_line.(17) =~ ~r/^#17\s+working\s/
+      refute agents_line.(17) =~ "waiting"
     end
 
     test "shows label override as the pause reason", %{orchestrator: pid} do

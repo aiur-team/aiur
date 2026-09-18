@@ -247,7 +247,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.map(model.phase_groups, & &1.key) == [2, 3]
 
     grid = BuildOrderGridModel.build(model, nil)
-    assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+    assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
     assert Enum.find(grid.columns, &(&1.lane == "runtime")).completion.progress == 100
     assert Enum.find(grid.waves, &(&1.phase == 2)).completion.progress == 100
     assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :unresolved
@@ -282,7 +282,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
     grid = BuildOrderGridModel.build(model, nil)
-    assert grid.overall_completion == %{progress: 0, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+    assert grid.overall_completion == %{progress: 0, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
     assert Enum.find(grid.columns, &(&1.lane == "runtime")).completion.progress == 0
   end
 
@@ -417,7 +417,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert draft.lifecycle.state == :open
 
     grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
-    assert grid.overall_completion == %{progress: 0, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+    assert grid.overall_completion == %{progress: 0, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
     assert Enum.find(grid.cards, &(&1.id == "4101")).completion.progress_resolution == :unresolved
   end
 
@@ -454,9 +454,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert active.lifecycle.state_reason == :none
 
     grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
-    assert grid.overall_completion == %{progress: 60, progress_resolution: :resolved, progress_resolved_count: 2, member_count: 2}
+    # The grid agrees with the catalog root: the open member with no activity reading is unresolved, not a resolved 0%.
+    assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
     assert Enum.find(grid.waves, &(&1.phase == 2)).completion.progress == 100
-    assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :resolved
+    assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :unresolved
   end
 
   test "preserves PackStatus budget exhaustion through an incomplete projection" do

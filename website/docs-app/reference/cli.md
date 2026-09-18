@@ -4,6 +4,10 @@ pageClass: cli-reference
 
 # CLI
 
+When no repository-local config exists, `aiur` and `aiurdev` use `~/.aiur/config` without requiring `init` in each repository. Global GitHub launches announce the config and `origin` target, then ensure workflow/marker and complexity labels before dispatch. They do not seed model labels.
+
+Keep shared credentials in `~/.aiur/.env`; exported values win. If required labels are missing and credentials lack Issues write access, startup fails before agents start. Omit `tracker.github.repo` for portable global settings; a conflicting explicit repo fails safely. Local config takes precedence.
+
 `aiur` exists so an **agent can run Aiur on your behalf**.
 
 | Design goal | Result |
@@ -74,7 +78,7 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | `aiur github-cost --json` | Emits the ranking as one versioned envelope. | `aiur github-cost --json` |
 | `aiur github-usage` | Prints per-actor (daemon vs each agent workspace) GitHub usage: Core, GraphQL and `search` `used`/`limit` with reset times, read from the shared admission broker's `admissions`. Limits are request-count ceilings (the broker sees requests, not GraphQL points); `0` in the config means no ceiling. Issues no GitHub request of its own. | `aiur github-usage` |
 | `aiur github-usage --json` | Emits the per-actor usage as one versioned envelope. | `aiur github-usage --json` |
-| `aiur agents` | Prints each active agent's state and current activity. | `aiur agents` |
+| `aiur agents` | Prints each active agent's state and current activity. An agent with an open decision, or one that asked for input, reads `waiting` with `(waiting_for_human: <cause>)`, the same wait `aiur status` prints as `waiting=waiting_for_human`. A `rework` label alone is agent-owned work and never reads as waiting for a human. | `aiur agents` |
 | `aiur units` | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished`, choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
 | `aiur units --condition alert` | Repeats to require any of the selected Unit conditions. | `aiur units --condition alert --condition paused` |
 | `aiur units --format records` | Chooses `auto`, `table`, or line-oriented `records` output. | `aiur units --format records` |
@@ -143,6 +147,14 @@ Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from
 Every `--json` result is one versioned envelope with `schema_version`, `page`, `snapshot.captured_at`, `request`, `sources`, `data`, and `auxiliary`. `snapshot.captured_at` is when the command ran; it is not a claim that every source was observed then.
 
 `aiur build-orders --json` uses schema version 2. Its completion objects report `progress_resolution: "empty"` with `progress: null` when a Build Order has no members, distinguishing an observed empty plan from 0% progress.
+
+Member, wave, lane, and graph completion objects on a selected root also carry `progress_stale_count` and `progress_stale_observed_at`. These report the number of resolved members using a last-known activity reading, rather than a live reading or accepted lifecycle completion, plus the oldest such reading.
+
+Human output prints the same state as `80% (last known 12m ago)`, measured from `snapshot.captured_at`. An open member with no usable activity reading is `unresolved`, rather than a resolved 0%.
+
+A member closed without completing (not planned, duplicate, cancelled) is resolved 0% regardless of any earlier reading. Catalog root completion is lifecycle-derived and does not carry these fields.
+
+`aiur build-orders <root>` starts the first GitHub read of a root that has no graph yet, the same as opening `/build-orders/<root>` does. You do not need the Dashboard open. While that read runs, `data.graph.status` and `sources.planning_graph.state` are `loading`. Run the command again to get the graph. `provider_unavailable` means that a read failed.
 
 Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 

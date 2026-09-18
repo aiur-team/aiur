@@ -2,6 +2,18 @@
 
 Aiur reads GitHub to find work, follow each ticket, and return completed changes for review.
 
+## Repository setup from global defaults
+
+A new run using `~/.aiur/config` bootstraps the current GitHub repository before starting supervision or dispatch. It resolves the repository from `origin` and rejects conflicting explicit `tracker.github.repo`.
+
+Setup uses normal App/PAT/keyring credential resolution after launcher dotenv loading: repository `.env`, then `~/.aiur/.env`, filling only unset variables. Repository GitHub credential groups exclude global credentials.
+
+Setup reads repository labels through the governed transport in pages of 100, bounded to ten pages. It creates only missing workflow lifecycle, marker, and complexity labels through the existing idempotent label API.
+
+No model/effort/alias labels are seeded and existing labels are neither deleted nor changed. Requests are attributed normally; no quota saving is claimed.
+
+Label read/create failures stop startup before agents start and explain the required Issues permissions. Repository-local configurations keep the explicit init flow.
+
 ## What Aiur polls
 
 | Poll | What it tracks | Why it exists |
@@ -221,7 +233,7 @@ system runs only when a page opens or a degradation needs a re-list.
 
 | View state | Behaviour |
 | --- | --- |
-| Opening, focusing, or holding a page open | Zero API calls. |
+| Opening, focusing, or holding a page open | Zero API calls. One exception: a Build Order root with no graph yet gets one first read, when `/build-orders/<root>` opens or `aiur build-orders <root>` runs. |
 | Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately, with no fetch. One listing per daemon boot establishes the baseline; a `webhooks` degradation re-lists while deliveries are known to be dropped, and recovery re-lists once more on the gap's trailing edge. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
 | Divergence watermark | On the same sweep cadence, one bounded `updated_at`-ordered head page of the open-issue listing. It does two jobs the deleted polls used to do: it records poller corroboration for the silence sweep (so an `issues` delivery loss can degrade the repo instead of looking like an idle one), and it re-lists the event-sourced sources when GitHub's newest open issue is newer than the store's — the proof that a delivery was dropped. One page, never a paged listing. |
 | Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, so moving it to the event stream is a separate change. |

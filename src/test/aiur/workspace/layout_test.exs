@@ -1,7 +1,36 @@
 defmodule Aiur.Workspace.LayoutTest do
   use Aiur.TestSupport
 
+  alias Aiur.AlertFeed
   alias Aiur.Workspace.Layout
+
+  test "origin-resolved GitHub repository namespaces omitted-repo workspaces" do
+    root = tmp_path("layout-global-root")
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: nil, workspace_root: root)
+    cache_origin_repo("owner/repo")
+
+    assert Layout.issue_workspace_path(root, "17") == Path.join([root, "owner", "repo", "17"])
+    assert Layout.issue_workspace_path(Path.join([root, "owner", "repo"]), "17") == Path.join([root, "owner", "repo", "17"])
+  end
+
+  test "origin-resolved alert backfill excludes sibling repositories including same-number tickets" do
+    root = tmp_path("layout-global-alerts")
+    ledger = Path.join(root, "current.alerts.ndjson")
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: nil, workspace_root: root)
+    cache_origin_repo("owner/repo")
+
+    for {repo, ticket, message} <- [{"repo", "17", "current repository"}, {"other", "1674", "foreign ticket"}, {"other", "17", "foreign same-number ticket"}] do
+      path = Path.join([root, "owner", repo, ticket, "logs", "agent.ndjson"])
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, Jason.encode!(%{event: "alert", topic: "ticket.#{ticket}.agent.paused", message: message, needs_attention: true}) <> "\n")
+    end
+
+    project_root = root |> Layout.issue_workspace_path("__aiur_attention_probe__") |> Path.dirname()
+    assert :ok = AlertFeed.backfill(roots: [project_root], log_roots: [], ledger_path: ledger)
+    assert [alert] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
+    assert alert["source_ticket_id"] == "17"
+    assert alert["message"] == "current repository"
+  end
 
   test "issue_workspace_path nests the github owner repo segment" do
     root = tmp_path("layout-github-root")
@@ -75,5 +104,15 @@ defmodule Aiur.Workspace.LayoutTest do
 
   defp tmp_path(name) do
     Aiur.TestSupport.tmp_root!("#{name}")
+  end
+
+  defp cache_origin_repo(repo) do
+    key = {Aiur.GitHub.Config, :resolved_origin_repo}
+    previous = :persistent_term.get(key, :not_cached)
+    :persistent_term.put(key, repo)
+
+    on_exit(fn ->
+      if previous == :not_cached, do: :persistent_term.erase(key), else: :persistent_term.put(key, previous)
+    end)
   end
 end
