@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :awaiting_dispatch
           | :paused_operator
           | :paused_transient
+          | :provider_limited
           | :latched_lifetime
           | :tracker_unavailable
           | :backing_off
@@ -92,6 +93,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render(:awaiting_dispatch), do: "awaiting_dispatch"
   def render(:paused_operator), do: "paused_operator"
   def render(:paused_transient), do: "paused_transient"
+  def render(:provider_limited), do: "provider_limited"
   def render(:latched_lifetime), do: "latched_lifetime"
   def render(:tracker_unavailable), do: "tracker_unavailable"
   def render(:backing_off), do: "backing_off"
@@ -209,6 +211,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp running_state_reason(attrs) do
     cond do
       Map.get(attrs, :pause_reason) == :github_budget_hold -> :paused_transient
+      # A provider account limit is a wait on the provider's reset, not on a
+      # human (#2737). The rate-limit fallback resumes it.
+      provider_limited?(attrs) -> :provider_limited
       agent_requested_human?(Map.get(attrs, :pause_reason)) -> :waiting_for_human
       Map.get(attrs, :pause_reason) == :global_pause -> :run_paused
       Map.get(attrs, :work_state) in [:paused, :sleeping] -> :paused
@@ -217,6 +222,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
   end
 
   defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
+
+  defp provider_limited?(%{pause_reason: :usage_limit_exhausted, work_state: :paused}), do: true
+  defp provider_limited?(_attrs), do: false
 
   @doc """
   True when a fleet row's derived waiting reason is `:waiting_for_human`.

@@ -300,6 +300,12 @@ A session-limit refusal pauses the worker without spending a retry. Aiur trusts 
 
 An expired explicit reset timestamp is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
 
+A Codex usage-limit refusal (`codexErrorInfo: usageLimitExceeded` on an `error` notification or a failed `turn/completed`) takes the same path. Aiur reads only the error fields, never assistant or tool text. The ticket status reads `provider_limited`, not `waiting_for_human`.
+
+The Codex reset comes from the exhausted window's numeric `resetsAt` in `account/rateLimits`. Without it, Aiur reads the refusal text, such as "try again at Sep 21st, 2026 6:26 PM", and rounds it up to the end of that minute.
+
+The text names no zone. Aiur reads it in `agent.codex.reset_time_zone`, or in the daemon host's zone when that key is unset. A clock time that passed in the last two hours, or a date without a year that passed in the last day, resumes now instead of a day or a year later.
+
 Claude clock hints with an IANA timezone are converted to UTC; unknown reset times require a fresh recovery observation.
 
 | Cause | Behaviour |
@@ -410,6 +416,7 @@ is rejected with a migration hint rather than silently falling back to defaults.
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
+| `agent.codex.reset_time_zone` | string or nil | nil | IANA zone for the reset time in Codex usage-limit text. Nil uses the daemon host's zone. For a remote `worker_host`, set the worker's zone: Aiur cannot read it. The numeric `resetsAt` needs no zone and wins when present. |
 
 ## Model discovery
 

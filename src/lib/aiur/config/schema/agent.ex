@@ -20,6 +20,10 @@ defmodule Aiur.Config.Schema.Codex do
     # Codex-specific thrash guard (moved out of the shared agent section).
     field(:thrash_max_per_window, :integer, default: 6)
     field(:thrash_window_seconds, :integer, default: 60)
+    # IANA zone that Codex's "try again at 6:26 PM" usage-limit text is read in
+    # (#2737). nil reads it in the daemon host's local zone. Set it to the
+    # worker's zone when the app-server runs on a remote worker_host.
+    field(:reset_time_zone, :string)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -34,7 +38,8 @@ defmodule Aiur.Config.Schema.Codex do
         :turn_sandbox_policy,
         :read_timeout_ms,
         :thrash_max_per_window,
-        :thrash_window_seconds
+        :thrash_window_seconds,
+        :reset_time_zone
       ],
       empty_values: []
     )
@@ -43,6 +48,14 @@ defmodule Aiur.Config.Schema.Codex do
     |> validate_number(:read_timeout_ms, greater_than: 0)
     |> validate_number(:thrash_max_per_window, greater_than: 0)
     |> validate_number(:thrash_window_seconds, greater_than: 0)
+    |> validate_change(:reset_time_zone, &validate_time_zone/2)
+  end
+
+  defp validate_time_zone(field, zone) do
+    case DateTime.now(zone, Tz.TimeZoneDatabase) do
+      {:ok, _now} -> []
+      {:error, _reason} -> [{field, "must be an IANA time zone, for example America/Los_Angeles"}]
+    end
   end
 end
 

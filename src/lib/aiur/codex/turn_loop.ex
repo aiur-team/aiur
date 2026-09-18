@@ -3,7 +3,9 @@ defmodule Aiur.Codex.TurnLoop do
   Codex-specific app-server method routing for turn events and notifications.
   """
 
-  alias Aiur.AppServer.{Messages, OperatorDelivery, Rpc, TurnState}
+  require Logger
+
+  alias Aiur.AppServer.{Messages, OperatorDelivery, ProviderTurnLedger, Rpc, TurnState}
   alias Aiur.Codex.{Approvals, NotificationPolicy, Notifications, TurnEvents}
 
   @spec handle_method(map(), map(), map(), String.t(), String.t()) :: term()
@@ -25,6 +27,7 @@ defmodule Aiur.Codex.TurnLoop do
 
     case TurnState.turn_completion_status(payload) do
       "interrupted" -> TurnState.continue_after_turn_interrupted(state, payload)
+      "failed" -> continue_after_failed_turn(session, state, payload)
       _ -> TurnState.continue_after_turn_completion(state, payload)
     end
   end
@@ -91,6 +94,28 @@ defmodule Aiur.Codex.TurnLoop do
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
       when is_binary(method) do
     handle_turn_method(session, state, payload, payload_string, method)
+  end
+
+  # A turn that Codex failed on the account usage limit is a provider pause
+  # (#2737): no retry is spent and the rate-limit fallback owns recovery. Other
+  # failed turns keep the completion path they always had.
+  # The late failed completion of a turn the pause already retired belongs to
+  # that pause, so it must not pause the resumed turn again.
+  defp continue_after_failed_turn(session, state, payload) do
+    classification =
+      if ProviderTurnLedger.retired?(state, get_in(payload, ["params", "turn", "id"])),
+        do: :unclassified,
+        else: NotificationPolicy.turn_usage_limit_pause(payload, NotificationPolicy.reset_opts(session))
+
+    case classification do
+      {:paused, pause} ->
+        Logger.warning("Codex turn failed on the account usage limit; pausing agent instead of burning retries: #{pause.reason}")
+        _ = TurnState.retire_provider_work(state)
+        {:paused, pause}
+
+      :unclassified ->
+        TurnState.continue_after_turn_completion(state, payload)
+    end
   end
 
   @spec handle_malformed(map(), String.t(), port()) :: {:continue, map()}
