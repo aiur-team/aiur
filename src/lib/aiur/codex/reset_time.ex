@@ -17,10 +17,11 @@ defmodule Aiur.Codex.ResetTime do
 
   A time with no date is its next occurrence. A date with no year is its next
   occurrence too. A time that passed only recently (two hours for a clock
-  time, a day for a yearless date) keeps its past value, so the worker resumes
-  now instead of waiting a day or a year. Other past times and text that is
-  not a reset time return `nil`, so recovery needs a fresh provider
-  observation.
+  time, a day for a yearless date) keeps its past value instead of moving a
+  day or a year ahead. The caller does not resume at a past value:
+  `Aiur.Codex.NotificationPolicy` moves it to now plus
+  `agent.codex.reset_min_delay_seconds`. Other past times and text that is not
+  a reset time return `nil`, so recovery needs a fresh provider observation.
   """
 
   # How long a parsed time can be in the past and still name the reset that

@@ -34,7 +34,8 @@ defmodule Aiur.Codex.CodingAgent do
           account_generation_topic: String.t(),
           provider_turn_store: pid(),
           clock: (-> DateTime.t()),
-          reset_time_zone: Aiur.Codex.ResetTime.zone()
+          reset_time_zone: Aiur.Codex.ResetTime.zone(),
+          reset_min_delay_seconds: pos_integer()
         }
   @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -133,7 +134,8 @@ defmodule Aiur.Codex.CodingAgent do
            account_generation_notification_handler: notification_handler,
            provider_turn_store: provider_turn_store,
            clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
-           reset_time_zone: Keyword.get_lazy(opts, :reset_time_zone, &Config.codex_reset_time_zone/0)
+           reset_time_zone: Keyword.get_lazy(opts, :reset_time_zone, &Config.codex_reset_time_zone/0),
+           reset_min_delay_seconds: Keyword.get_lazy(opts, :reset_min_delay_seconds, &Config.codex_reset_min_delay_seconds/0)
          })}
       else
         {:error, reason} ->

@@ -24,6 +24,9 @@ defmodule Aiur.Config.Schema.Codex do
     # (#2737). nil reads it in the daemon host's local zone. Set it to the
     # worker's zone when the app-server runs on a remote worker_host.
     field(:reset_time_zone, :string)
+    # A usage-limit text reset that already passed resumes no sooner than this
+    # many seconds after the refusal (#2737).
+    field(:reset_min_delay_seconds, :integer, default: 300)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -39,7 +42,8 @@ defmodule Aiur.Config.Schema.Codex do
         :read_timeout_ms,
         :thrash_max_per_window,
         :thrash_window_seconds,
-        :reset_time_zone
+        :reset_time_zone,
+        :reset_min_delay_seconds
       ],
       empty_values: []
     )
@@ -48,6 +52,7 @@ defmodule Aiur.Config.Schema.Codex do
     |> validate_number(:read_timeout_ms, greater_than: 0)
     |> validate_number(:thrash_max_per_window, greater_than: 0)
     |> validate_number(:thrash_window_seconds, greater_than: 0)
+    |> validate_number(:reset_min_delay_seconds, greater_than: 0)
     |> validate_change(:reset_time_zone, &validate_time_zone/2)
   end
 

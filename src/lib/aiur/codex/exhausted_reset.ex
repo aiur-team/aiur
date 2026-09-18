@@ -8,7 +8,9 @@ defmodule Aiur.Codex.ExhaustedReset do
   minute precision (#2737: text 01:26:00Z, `resetsAt` 1790040385 =
   01:26:25Z), so a pause prefers this value.
 
-  Each observation replaces what is stored for its limit id. A window at 100
+  Each observation replaces what is stored for its limit id. An update with no
+  limit id is the account's "codex" limit, the same key as the snapshot's
+  "codex" bucket, so both are compared as one account. A window at 100
   percent with a `resetsAt` is exhausted. The latest reset is the latest
   exhausted reset that is still in the future. The store lives in the process
   that owns the app-server port, like the account-generation context.
@@ -21,7 +23,7 @@ defmodule Aiur.Codex.ExhaustedReset do
   def observe(%{port: port}, %{} = rate_limits) when is_port(port) do
     case limit_resets(rate_limits) do
       :no_windows -> :ok
-      resets -> put(port, Map.get(rate_limits, "limitId") || "default", resets)
+      resets -> put(port, limit_key(Map.get(rate_limits, "limitId")), resets)
     end
   end
 
@@ -62,6 +64,11 @@ defmodule Aiur.Codex.ExhaustedReset do
   end
 
   def clear(_session), do: :ok
+
+  # A bare `account/rateLimits` update has no `limitId`; it is the account's
+  # own "codex" limit, so it replaces what the keyed snapshot stored for it.
+  defp limit_key(limit_id) when limit_id in [nil, "", "default"], do: "codex"
+  defp limit_key(limit_id), do: limit_id
 
   defp with_limit_id(%{} = bucket, limit_id), do: Map.put_new(bucket, "limitId", limit_id)
   defp with_limit_id(bucket, _limit_id), do: bucket

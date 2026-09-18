@@ -5,6 +5,9 @@ defmodule Aiur.Codex.NotificationPolicy do
 
   alias Aiur.Codex.{ExhaustedReset, ResetTime}
 
+  # Matches the default of `agent.codex.reset_min_delay_seconds`.
+  @default_reset_min_delay_seconds 300
+
   # Identify error-class notifications that should be surfaced at info
   # level with their payload, not buried at debug. Codex sends "error"
   # as a top-level method when the API itself fails (rate limit, auth,
@@ -154,13 +157,20 @@ defmodule Aiur.Codex.NotificationPolicy do
 
   @doc """
   Reset options from a Codex session: `:now` (the session `:clock`), `:zone`
-  (the session `:reset_time_zone`) and `:numeric_reset`, the exhausted
-  window's future `resetsAt` from `account/rateLimits`, when Aiur has one.
+  (the session `:reset_time_zone`), `:min_delay_seconds` (the session
+  `:reset_min_delay_seconds`) and `:numeric_reset`, the exhausted window's
+  future `resetsAt` from `account/rateLimits`, when Aiur has one.
   """
   @spec reset_opts(map()) :: keyword()
   def reset_opts(session) when is_map(session) do
     now = Map.get(session, :clock, &DateTime.utc_now/0).()
-    [now: now, zone: Map.get(session, :reset_time_zone, :local), numeric_reset: ExhaustedReset.latest(session, now)]
+
+    [
+      now: now,
+      zone: Map.get(session, :reset_time_zone, :local),
+      min_delay_seconds: Map.get(session, :reset_min_delay_seconds, @default_reset_min_delay_seconds),
+      numeric_reset: ExhaustedReset.latest(session, now)
+    ]
   end
 
   # The numeric reset is exact; the text is truncated to the minute and names
@@ -172,7 +182,24 @@ defmodule Aiur.Codex.NotificationPolicy do
 
       _ ->
         now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-        ResetTime.parse(hint, now, Keyword.get(opts, :zone, :local))
+        hint |> ResetTime.parse(now, Keyword.get(opts, :zone, :local)) |> not_before_min_delay(now, opts)
+    end
+  end
+
+  # A text reset that already passed names a reset that did not help: the zone
+  # can be wrong (a remote worker) or Codex still refuses just after it. It must
+  # not resume the worker at once, so it moves to `now` plus the minimum delay
+  # (#2737). A future text reset is kept.
+  defp not_before_min_delay(nil, _now, _opts), do: nil
+
+  defp not_before_min_delay(reset, now, opts) do
+    {:ok, reset_at, _offset} = DateTime.from_iso8601(reset)
+
+    if DateTime.compare(reset_at, now) == :gt do
+      reset
+    else
+      delay = Keyword.get(opts, :min_delay_seconds, @default_reset_min_delay_seconds)
+      now |> DateTime.add(delay, :second) |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_iso8601()
     end
   end
 
