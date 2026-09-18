@@ -12,7 +12,7 @@ defmodule Aiur.Workspace.WipPreservation do
         <workspace leaf>/                           mode 0700
           generation                                notice generation (see below)
           hold-alerted.json                         the refusal already alerted
-          discard-dirty-workspace                   operator discard authorization
+          discard-dirty-workspace                   discard signal (not access control)
           <UTC stamp>/                              mode 0700, files mode 0600
             tracked.patch            git diff --binary against HEAD (staged and unstaged)
             untracked.tar            untracked files that are not ignored
@@ -35,10 +35,20 @@ defmodule Aiur.Workspace.WipPreservation do
   `{:error, {:wip_preservation_failed, workspace, reason}}` and one operator
   alert fires per workspace and reason. There are two exceptions. A terminal
   cleanup (`terminal?: true`) whose save timed out writes a manifest-only save
-  and deletes the workspace, with an alert. An operator can authorize the
-  delete of a workspace whose work cannot be saved, remote ones included,
-  with `authorize_discard/1` or by creating the `discard-dirty-workspace`
-  file.
+  and deletes the workspace, with an alert. The delete of a workspace whose
+  work cannot be saved, remote ones included, is authorized with
+  `authorize_discard/1` or by creating the `discard-dirty-workspace` file.
+
+  The discard file is a deliberate operator signal that lives outside the
+  workspace. It is not an access control: agents run as the same Unix user
+  as the daemon, without a filesystem sandbox, so an agent can create it too.
+  It gives no capability beyond what that user already has, since the same
+  user can delete the workspace directly. Real isolation needs a sandbox,
+  which this module does not provide.
+
+  A closed ticket's cleanup that crashes before the delete leaves the
+  workspace in place. It is tried again only by the terminal sweep at the
+  next daemon start.
 
   ## Worker notice
 
@@ -102,7 +112,9 @@ defmodule Aiur.Workspace.WipPreservation do
   go straight to `destroy_fun`. A dirty one is saved first; the
   `ticket.<ticket>.workspace.wip_preserved` alert fires after `destroy_fun`
   returns. When the save fails, `destroy_fun` does not run, except as the
-  module doc describes. Options: `terminal?` (the ticket is closed).
+  module doc describes. `destroy_fun` can return `{:skipped, reason}` to keep
+  the workspace after the save (a new run claimed it); the save is kept.
+  Options: `terminal?` (the ticket is closed).
   """
   @spec guard_destroy(Path.t(), String.t(), String.t(), (-> result), keyword()) ::
           result | {:error, {:wip_preservation_failed, Path.t(), term()}}
@@ -152,7 +164,7 @@ defmodule Aiur.Workspace.WipPreservation do
     case write_incomplete(workspace, ticket, action, reason) do
       {:ok, artifact} ->
         result = destroy_fun.()
-        emit_incomplete_alert(ticket, workspace, reason, artifact)
+        unless match?({:skipped, _reason}, result), do: emit_incomplete_alert(ticket, workspace, reason, artifact)
         destroyed(Path.basename(workspace), result)
 
       {:error, write_reason} ->
@@ -378,7 +390,7 @@ defmodule Aiur.Workspace.WipPreservation do
          do: write_file(Path.join(dir, @discard_file), DateTime.utc_now() |> DateTime.to_iso8601())
   end
 
-  @doc "True when an operator authorized the delete of this workspace leaf without a save."
+  @doc "True when the discard file authorizes the delete of this workspace leaf without a save."
   @spec discard_authorized?(String.t()) :: boolean()
   def discard_authorized?(leaf), do: File.exists?(discard_path(leaf))
 

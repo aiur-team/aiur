@@ -5,8 +5,13 @@ defmodule Aiur.Workspace.WipPreservation.Command do
 
   `System.cmd/3` has no timeout, and a `git` or `tar` run over a huge or
   hung checkout could block its caller without end. This runner kills the
-  OS process with `SIGKILL` when the limit expires and returns
+  command with `SIGKILL` when the limit expires and returns
   `{:error, {:command_timeout, command, args, timeout_ms}}`.
+
+  The BEAM starts each port program in its own session and process group
+  (`erl_child_setup` calls `setsid`), so the kill goes to the whole group:
+  children that `git` or `tar` started die too. A child that started its
+  own session or process group is not reached.
   """
 
   @type result :: {:ok, {binary(), non_neg_integer()}} | {:error, term()}
@@ -70,7 +75,12 @@ defmodule Aiur.Workspace.WipPreservation.Command do
   end
 
   defp kill(port, os_pid) do
-    if is_integer(os_pid), do: System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
+    if is_integer(os_pid) do
+      # The group has the id of its leader, the port program. The direct kill
+      # covers a program that is not a group leader.
+      System.cmd("kill", ["-KILL", "--", "-#{os_pid}"], stderr_to_stdout: true)
+      System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
+    end
 
     try do
       Port.close(port)

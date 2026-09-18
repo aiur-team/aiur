@@ -170,6 +170,10 @@ Aiur cannot save the work of a dirty workspace on a remote worker, so it keeps t
 
 To delete a kept workspace without a save, create the empty file `wip-preserved/<workspace>/discard-dirty-workspace` under the runtime state directory. Then resume the ticket, or restart Aiur for a closed ticket. Aiur deletes the workspace, raises `ticket.<n>.workspace.wip_discarded` and removes the file.
 
+The discard file is a deliberate operator signal outside the workspace, not an access control. Agents run as the same Unix user without a filesystem sandbox, so an agent can create the file too. It gives no capability that the same user does not already have. Real isolation needs a sandbox, which Aiur does not provide.
+
+If a closed ticket's cleanup crashes before the delete, Aiur keeps the workspace. The terminal sweep at the next Aiur start tries again. If a new run of a reopened ticket holds the workspace when the delete is due, Aiur keeps the workspace and the save, and the notice does not expire.
+
 To recover saved work by hand, run the `restore_commands` of `manifest.json` in order in a clone of the repository. Change the first command, `cd`, to point at that clone.
 
 ## Dashboard page commands

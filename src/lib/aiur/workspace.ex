@@ -49,7 +49,7 @@ defmodule Aiur.Workspace do
   @spec remove(Path.t(), worker_host()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
   defdelegate remove(workspace, worker_host), to: Remove
 
-  @spec remove(Path.t(), worker_host(), keyword()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
+  @spec remove(Path.t(), worker_host(), keyword()) :: {:ok, [String.t()]} | {:error, term(), String.t()} | {:skipped, term()}
   defdelegate remove(workspace, worker_host, opts), to: Remove
 
   @spec remove_issue_workspaces(term()) :: :ok
@@ -58,7 +58,7 @@ defmodule Aiur.Workspace do
   @spec remove_issue_workspaces(term(), worker_host()) :: :ok
   defdelegate remove_issue_workspaces(identifier, worker_host), to: Remove
 
-  @spec remove_issue_workspaces(term(), worker_host(), keyword()) :: :ok
+  @spec remove_issue_workspaces(term(), worker_host(), keyword()) :: :ok | {:skipped, term()}
   defdelegate remove_issue_workspaces(identifier, worker_host, opts), to: Remove
 
   defp provision_workspace(workspace, worker_host, issue_context, lifecycle) do

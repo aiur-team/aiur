@@ -5,7 +5,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
 
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{AgentTeardown, WorkspaceCleanup}
-  alias Aiur.Workspace.{Layout, Provisioner, Refresh, Remove, WipPreservation}
+  alias Aiur.Workspace.{Layout, Ownership, Provisioner, Refresh, Remove, WipPreservation}
   alias Aiur.Workspace.WipPreservation.Retention
 
   setup do
@@ -316,6 +316,72 @@ defmodule Aiur.Workspace.WipPreservationTest do
       refute File.exists?(workspace)
       assert [%{"complete" => true}] = manifests(identifier)
     end
+
+    # The cleanup runs in a task, so a reopened ticket can be dispatched while
+    # the save runs. The new run's lease must stop the delete.
+    test "a terminal cleanup keeps the workspace when a new run claims it during the save", %{test_root: test_root} do
+      identifier = "RACE-#{System.unique_integer([:positive])}"
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: Path.join(test_root, "workspaces"))
+      {:ok, workspace} = Layout.workspace_path_for_issue(identifier, nil)
+      clone_at!(test_root, workspace)
+      File.write!(Path.join(workspace, "README.md"), "changed\n")
+      fake_git!(test_root, {:delay, 2})
+
+      assert :ok = WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, nil)
+      assert {:ok, lease} = Ownership.claim(identifier)
+      on_exit(fn -> Ownership.release(lease) end)
+      File.write!(Path.join(workspace, "new-run.txt"), "new run\n")
+
+      assert_receive {:workspace_cleanup_finished, ^identifier, {:skipped, :live_lease}}, 20_000
+      assert File.read!(Path.join(workspace, "new-run.txt")) == "new run\n"
+      assert [%{"complete" => true}] = manifests(identifier)
+      assert [_notice] = WipPreservation.pending_notices(workspace, identifier)
+    end
+
+    test "a crash in one terminal cleanup entry does not stop the next one", %{test_root: test_root} do
+      identifier = "AFTER-CRASH-#{System.unique_integer([:positive])}"
+      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: Path.join(test_root, "workspaces"))
+      {:ok, workspace} = Layout.workspace_path_for_issue(identifier, nil)
+      clone_at!(test_root, workspace)
+
+      # A non-binary workspace identifier makes the first entry fail.
+      assert :ok = WorkspaceCleanup.start_terminal_workspace_cleanups([{"CRASH", :not_a_leaf, nil}, {identifier, identifier, nil}])
+      assert_receive {:workspace_cleanup_finished, :not_a_leaf, {:error, _message}}, 10_000
+      assert_receive {:workspace_cleanup_finished, ^identifier, :ok}, 10_000
+      refute File.exists?(workspace)
+    end
+
+    test "an exception, an exit or a throw in a cleanup entry becomes an error result" do
+      assert {:error, "boom"} = WorkspaceCleanup.contain("T", "T", fn -> raise "boom" end)
+      assert {:error, "exit: :boom"} = WorkspaceCleanup.contain("T", "T", fn -> exit(:boom) end)
+      assert {:error, "throw: :boom"} = WorkspaceCleanup.contain("T", "T", fn -> throw(:boom) end)
+      assert :ok = WorkspaceCleanup.contain("T", "T", fn -> :ok end)
+    end
+
+    @tag timeout: 60_000
+    test "a timed-out save command is killed with its child processes", %{test_root: test_root} do
+      workspace = cloned_workspace!(test_root, "GROUP-KILL", workspace_wip: [command_timeout_ms: 500])
+      File.write!(Path.join(workspace, "README.md"), "changed\n")
+      pid_file = Path.join(test_root, "child.pid")
+      real_git = System.find_executable("git")
+      git = Path.join(test_root, "forking-git")
+
+      File.write!(git, """
+      #!/bin/sh
+      case " $* " in
+        *" ls-files "*) sleep 30 & echo $! > #{shell_quote(pid_file)}; wait ;;
+      esac
+      exec #{shell_quote(real_git)} "$@"
+      """)
+
+      File.chmod!(git, 0o755)
+      Application.put_env(:aiur, :wip_preservation_git, git)
+      on_exit(fn -> Application.delete_env(:aiur, :wip_preservation_git) end)
+
+      assert {:error, {:wip_preservation_failed, ^workspace, {:command_timeout, _git, _args, 500}}, ""} = Remove.remove(workspace, nil)
+      child = pid_file |> File.read!() |> String.trim()
+      assert_eventually(fn -> not File.exists?("/proc/#{child}") or zombie?(child) end)
+    end
   end
 
   describe "retention bounds" do
@@ -467,6 +533,22 @@ defmodule Aiur.Workspace.WipPreservationTest do
       last_call = trace |> File.read!() |> String.split("\n--\n", trim: true) |> List.last()
       assert last_call =~ "rm -rf"
       refute last_call =~ "status --porcelain"
+    end
+
+    test "a dirty remote workspace does not run its before_remove hook", %{trace: trace} do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: "/remote/ws",
+        worker_ssh_hosts: ["worker-1"],
+        hook_before_remove: "echo remove-hook-ran"
+      )
+
+      assert {:error, {:wip_preservation_failed, "/remote/ws/RT-HOOK", :remote_worker_unsupported}, ""} =
+               Remove.remove("/remote/ws/RT-HOOK", "worker-1", ticket: "RT-HOOK", terminal?: true)
+
+      calls = trace |> File.read!() |> String.split("\n--\n", trim: true)
+      assert [call] = calls
+      assert call =~ "status --porcelain"
+      refute call =~ "remove-hook-ran"
     end
 
     test "the remote recreate holds the ticket with one alert until an operator authorizes the discard", %{trace: trace} do
@@ -691,6 +773,21 @@ defmodule Aiur.Workspace.WipPreservationTest do
     |> Enum.filter(&Retention.artifact_name?/1)
     |> Enum.sort()
     |> Enum.map(&(Path.join([dir, &1, "manifest.json"]) |> File.read!() |> Jason.decode!()))
+  end
+
+  defp assert_eventually(fun, attempts \\ 50) do
+    cond do
+      fun.() -> :ok
+      attempts > 0 -> Process.sleep(100) && assert_eventually(fun, attempts - 1)
+      true -> flunk("condition not met in time")
+    end
+  end
+
+  defp zombie?(pid) do
+    case File.read("/proc/#{pid}/stat") do
+      {:ok, stat} -> stat |> String.split(") ", parts: 2) |> List.last() |> String.starts_with?("Z")
+      {:error, _reason} -> true
+    end
   end
 
   defp mode(path), do: Bitwise.band(File.stat!(path).mode, 0o777)
