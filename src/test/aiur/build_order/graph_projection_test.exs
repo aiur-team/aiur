@@ -5,6 +5,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   alias Aiur.BuildOrder.GitHubGraph.Normalizer
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.{Failure, Policy, Snapshot}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TrackerIdentity
 
   @repository {"owner", "repo"}
@@ -924,6 +925,66 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     assert {:selected, ^first} = await_selected_scope(first)
   end
 
+  # #2608, the shape the Khala daemon reported: the issue that closes is not
+  # the root but one of its sub-issues (#17 and #52 under root #1). The only
+  # link between them is the `:sub_issue` edge the reconciliation deposited, so
+  # the member's own store change must resolve its root through that edge —
+  # and must not wake a root it is no member of.
+  test "a sub-issue's close re-reads the root it belongs to through the stored edge, and no other" do
+    first = identity(1, "I1")
+    second = identity(2, "I2")
+    seed_sub_issues([{1, 17}, {2, 30}])
+
+    {:ok, projection} = start_projection()
+    _reader = await_reader(:catalog)
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    assert {:ok, _} = GraphProjection.demand(projection, second)
+
+    send(projection, {:github_resource_changed, issue_change(:issue, "17")})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
+  end
+
+  # #2608, the one-shot caller. `aiur build-orders <root> --json` registers
+  # demand from an RPC process that is gone before the read it bought lands.
+  # The read must still run to completion and be kept, so the next caller is
+  # served the reconciled graph rather than buying the same read again.
+  test "a read bought by a demander that has already exited is kept for the next caller" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([normalized_root(1, ["OPEN", "OPEN", "OPEN"])]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}, generation: held}}}, 2_000
+    :ok = GraphProjection.release(projection, first)
+
+    # A member closes while nobody watches; the catalog tracks it.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([normalized_root(1, ["CLOSED", "OPEN", "OPEN"])]))})
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+
+    # A short-lived caller demands the root and exits before the read lands.
+    caller = Task.async(fn -> GraphProjection.demand(projection, first) end)
+    assert {:ok, %Snapshot{generation: ^held}} = Task.await(caller)
+    reader = await_reader({:selected, first})
+    finish(reader, {:ok, ProviderResult.complete(selected(first))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}, generation: fresh}}}, 2_000
+    assert fresh > held
+    assert {:ok, %Snapshot{generation: ^fresh}} = GraphProjection.selected(projection, first)
+
+    # The graph now matches the catalog, so the next caller buys nothing.
+    caller = Task.async(fn -> GraphProjection.demand(projection, first) end)
+    assert {:ok, %Snapshot{generation: ^fresh}} = Task.await(caller)
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+  end
+
   # #2608, freeze half — the failure that made the six hours *permanent* rather
   # than merely slow.
   #
@@ -1177,6 +1238,22 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
         max_inflight: 4
       ]
     }
+  end
+
+  # The parent/sub-issue edge the reconciliation deposits, which is the only
+  # thing `CatalogStore.member_numbers/1` resolves a member's root from.
+  defp seed_sub_issues(edges) do
+    ResourceStore.reset()
+    on_exit(fn -> if Process.whereis(ResourceStore), do: ResourceStore.reset() end)
+
+    Enum.each(edges, fn {parent, sub} ->
+      ResourceStore.put_resource(
+        ResourceStore.key_for_repo(:sub_issue, "owner/repo", "#{parent}:#{sub}"),
+        %{"present" => true, "parent_issue_number" => parent, "sub_issue_number" => sub},
+        source: :poll,
+        version: "2026-07-15T12:00:00Z"
+      )
+    end)
   end
 
   # A store deposit as the tracker poll records one: the same shape the webhook
