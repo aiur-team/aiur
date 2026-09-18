@@ -11,7 +11,7 @@ defmodule Aiur.AgentControlCLITest do
   alias Aiur.ExecutorWakeInbox
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Quota
-  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State, StatusReport}
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, SnapshotStore, State, StatusReport}
   alias Aiur.TrackerIdentity
 
   test "executor-wait prints and acknowledges a pending wake" do
@@ -380,6 +380,12 @@ defmodule Aiur.AgentControlCLITest do
     end)
   end
 
+  defp fence_snapshot_read_model do
+    generation = SnapshotStore.begin_generation(Orchestrator)
+    :ok = SnapshotStore.forget(Orchestrator)
+    generation
+  end
+
   defp with_resume_confirm_timeout(timeout_ms, fun) do
     Application.put_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms, timeout_ms)
     fun.()
@@ -429,12 +435,23 @@ defmodule Aiur.AgentControlCLITest do
     Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
     Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1"} end)
 
+    # Every control query reads the SnapshotStore read model before it asks the
+    # Orchestrator, and that model is keyed by the shared registered name, so it
+    # outlives whichever case or module published it. One retained projection
+    # made the CLI ignore the state injected below and fail most of this file at
+    # once ("no running agent", "(no active agents)"; main run 35281894177).
+    # `forget/1` alone is not enough: a projection already queued in
+    # SnapshotStore lands after it. A new generation fences that in-flight work,
+    # and the Orchestrator adopts it so its own later publishes stay valid.
+    snapshot_generation = fence_snapshot_read_model()
+
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
 
       %{
         state
-        | running: %{},
+        | snapshot_generation: snapshot_generation,
+          running: %{},
           last_polled_issues: %{},
           # Freeze the live poll for the duration of each case, the same way
           # orchestrator_status_test does. These cases inject `running` and
@@ -467,7 +484,10 @@ defmodule Aiur.AgentControlCLITest do
 
     on_exit(fn ->
       if Process.alive?(pid) do
-        :sys.replace_state(pid, fn _state -> original_state end)
+        # Drop anything this case published, then hand the Orchestrator its
+        # prior state under the generation that is now active.
+        snapshot_generation = fence_snapshot_read_model()
+        :sys.replace_state(pid, fn _state -> %{original_state | snapshot_generation: snapshot_generation} end)
       end
 
       if original_health_status_fun do
@@ -2175,6 +2195,66 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "status unreadable: orchestrator timed out"
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
+  end
+
+  # Each confirmation read is capped by the time left, so the last poll before
+  # the deadline gets only a sliver of the budget. On a loaded coverage shard
+  # that sliver is routinely too short, and a status the CLI had already read
+  # was then reported as unreadable with exit 124 (#2632, #2690). A read that
+  # misses the final sliver must not erase what an earlier read observed.
+  test "resume confirmation keeps the last observed status when only a late read times out", %{orchestrator: pid} do
+    entry = modern_running_entry("issue-44", "repo#44", :paused) |> Map.put(:paused_reason, :operator_pause)
+
+    attrs = %{
+      request_id: 999,
+      issue_id: "issue-44",
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 999, 1, now: ~U[2026-08-11 12:00:01Z])
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => entry}, control_lifecycle: lifecycle}
+    end)
+
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, {:resumed, 999}} end)
+
+    readable_statuses =
+      pid
+      |> :sys.get_state()
+      |> StatusReport.agent_statuses(fn _timeout -> {:unavailable, nil} end)
+
+    reads = :counters.new(1, [])
+
+    Application.put_env(:aiur, :agent_control_cli_confirmation_status_fun, fn _server, _timeout ->
+      :counters.add(reads, 1, 1)
+      if :counters.get(reads, 1) == 1, do: readable_statuses, else: :timeout
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :agent_control_cli_resume_fun)
+      Application.delete_env(:aiur, :agent_control_cli_confirmation_status_fun)
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = with_resume_confirm_timeout(400, fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
+
+        assert output =~ "__AIUR_CONTROL_EXIT__:1\n"
+      end)
+
+    assert :counters.get(reads, 1) > 1
+    assert stderr =~ "aiur: resume request accepted for #44"
+    assert stderr =~ "confirmation window elapsed"
+    assert stderr =~ "control status remains paused"
+    refute stderr =~ "status unreadable"
   end
 
   test "message status timeout exits 124" do

@@ -1423,7 +1423,7 @@ defmodule Aiur.AgentControlCLI do
       results
     else
       deadline = System.monotonic_time(:millisecond) + resume_confirm_timeout_ms()
-      outcomes = await_resumes_applied(queued, deadline, %{})
+      outcomes = await_resumes_applied(queued, deadline, %{}, nil)
 
       Enum.map(results, fn
         {:queued_resume, status, _request_id} ->
@@ -1435,14 +1435,25 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp await_resumes_applied(pending, deadline, outcomes) do
+  # `last_observed` is the most recent read that succeeded. Each read is capped
+  # by the time left, so the final poll before the deadline gets only a sliver
+  # of the budget; a read that misses that sliver says nothing about the control
+  # state. When an earlier read did observe it, the window elapsed with that
+  # state still unsettled, which is the verdict to report. "Status unreadable"
+  # is reserved for a window in which no read succeeded at all (#2632, #2690).
+  defp await_resumes_applied(pending, deadline, outcomes, last_observed) do
     case read_control_states(pending, remaining_ms(deadline)) do
       {:error, error} ->
-        if remaining_ms(deadline) <= @resume_confirm_poll_ms do
-          settle_all(pending, {:unknown, %{reason: {:status_unreadable, error}}}, outcomes)
-        else
-          Process.sleep(@resume_confirm_poll_ms)
-          await_resumes_applied(pending, deadline, outcomes)
+        cond do
+          remaining_ms(deadline) > @resume_confirm_poll_ms ->
+            Process.sleep(@resume_confirm_poll_ms)
+            await_resumes_applied(pending, deadline, outcomes, last_observed)
+
+          is_map(last_observed) ->
+            settle_timed_out(pending, last_observed, outcomes)
+
+          true ->
+            settle_all(pending, {:unknown, %{reason: {:status_unreadable, error}}}, outcomes)
         end
 
       {:ok, observed} ->
@@ -1458,7 +1469,7 @@ defmodule Aiur.AgentControlCLI do
 
           true ->
             Process.sleep(@resume_confirm_poll_ms)
-            await_resumes_applied(waiting, deadline, outcomes)
+            await_resumes_applied(waiting, deadline, outcomes, observed)
         end
     end
   end
