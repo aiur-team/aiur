@@ -81,10 +81,36 @@ defmodule Aiur.BuildOrdersCLIFirstReadTest do
     assert failed["sources"]["planning_graph"]["state"] == "unavailable"
   end
 
+  # The failed read lands after the CLI process has exited, so no watcher
+  # schedules its retry, and `refresh` does not consult backoff. Without a guard
+  # every poll would restart one GraphQL read and ignore any retry-after.
+  test "a poll inside a failed first read's backoff window starts no new read" do
+    root_identity = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(Catalog.new([root(root_identity)], healthy()))})
+    await_catalog(projection)
+
+    assert cli_read(projection, "1")["data"]["graph"]["status"] == "loading"
+    finish(await_reader({:selected, root_identity}), {:error, :transport})
+    await_status(projection, "1", "provider_unavailable")
+    # Drain any read the polling above may have started, so the refute below
+    # measures only the next poll.
+    refute_received {:reader_started, {:selected, ^root_identity}, _reader}
+
+    assert cli_read(projection, "1")["data"]["graph"]["status"] == "provider_unavailable"
+    refute_receive {:reader_started, {:selected, ^root_identity}, _reader}, 200
+
+    # Once the backoff has elapsed, the next poll asks again.
+    later = DateTime.add(@now, 3_600, :second)
+    assert cli_read(projection, "1", later)["data"]["graph"]["status"] in ["loading", "provider_unavailable"]
+    await_reader({:selected, root_identity})
+  end
+
   # Each read runs in its own short-lived process, as the RPC behind the CLI
   # does, so no demander outlives the command.
-  defp cli_read(projection, root) do
-    task = Task.async(fn -> BuildOrdersCLI.build(root: root, source: {ProjectionSource, projection}, now: @now) end)
+  defp cli_read(projection, root, now \\ @now) do
+    task = Task.async(fn -> BuildOrdersCLI.build(root: root, source: {ProjectionSource, projection}, now: now) end)
     assert {:ok, envelope} = Task.await(task)
     envelope
   end

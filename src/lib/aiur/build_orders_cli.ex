@@ -11,6 +11,7 @@ defmodule Aiur.BuildOrdersCLI do
   """
 
   alias Aiur.BuildOrder.{Catalog, ProgressRenderer, ProviderHealth, RootSummary}
+  alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{JSONSafe, TrackerIdentity}
   alias AiurWeb.BuildOrder.{DataSource, Runtime}
@@ -79,7 +80,7 @@ defmodule Aiur.BuildOrdersCLI do
     with {:ok, identity} <- root_identity(catalog, root),
          {:ok, %Snapshot{} = demanded} <- Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
          sources when is_map(sources) <- Runtime.safe_source_call(source, :load_runtime_sources, [], %{}) do
-      planning = first_read(source, identity, demanded)
+      planning = first_read(source, identity, demanded, captured_at)
 
       model = BuildOrderPresenter.present(planning, Map.get(sources, :execution), Map.get(sources, :activity))
       grid = BuildOrderGridModel.build(model, nil)
@@ -117,7 +118,19 @@ defmodule Aiur.BuildOrdersCLI do
   # LiveView does (`AiurWeb.BuildOrder.SourceRuntime`), then re-reads what is held
   # so the reply shows the read in flight. Without this the CLI reported
   # `provider_unavailable` until a dashboard happened to open the root (#2695).
-  defp first_read(source, identity, %Snapshot{data: nil} = demanded) do
+  #
+  # `refresh` does not consult backoff, and a read that fails lands after this
+  # process has exited, so nothing retries it on a schedule. Asking again on
+  # every poll would restart one GraphQL read per poll and ignore a provider's
+  # retry-after. So a root whose first read failed is asked for again only once
+  # the projection's own retry rule says it is due.
+  defp first_read(source, identity, %Snapshot{data: nil} = demanded, now) do
+    if GraphProjection.read_due?(demanded, now), do: refresh_held(source, identity, demanded), else: demanded
+  end
+
+  defp first_read(_source, _identity, %Snapshot{} = demanded, _now), do: demanded
+
+  defp refresh_held(source, identity, demanded) do
     _ = Runtime.safe_source_call(source, :refresh, [identity], :ok)
 
     case Runtime.safe_source_call(source, :selected, [identity], {:error, :unavailable}) do
@@ -125,8 +138,6 @@ defmodule Aiur.BuildOrdersCLI do
       _failure -> demanded
     end
   end
-
-  defp first_read(_source, _identity, %Snapshot{} = demanded), do: demanded
 
   # A graph that was never read and has no recorded failure is loading, not
   # unavailable: the same rule the page's route state applies before it shows its
