@@ -33,7 +33,7 @@ defmodule Aiur.Events.IdGenerator do
      *unused* IDs (a gap in the sequence); no issued ID is ever re-issued.
   2. **Cold-boot fallback** — if the file is missing or corrupt, collect
      every durable trace of an earlier ID: the per-launch `<repo>.event_id`
-     counters of every earlier launch (this is also the one-time migration
+     counters of every proven-owned earlier launch (this is also the one-time migration
      from the old location), the current launch's `IssueLog` files and the
      Executor journal. Seed at `max(disk_max, system_time(:microsecond)) +
      safety_margin`. Always runs, never "if suspicious."
@@ -266,7 +266,7 @@ defmodule Aiur.Events.IdGenerator do
   The counter file path: `event-id.json` in the durable runtime state
   directory. When that directory cannot be resolved (no launcher instance key
   or no project identity), the per-launch log directory is the only place
-  left; the cold-boot scan of every launch's counter keeps IDs monotonic there
+  left; the cold-boot scan of proven-owned launches' counters keeps IDs monotonic there
   too.
   """
   @spec default_path() :: Path.t()

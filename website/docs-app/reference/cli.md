@@ -56,6 +56,20 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 
+Event counters, subscriptions, session handles and the alert ledger survive
+restarts in instance- and repository-scoped runtime state. Central alert and
+event-publication audit logs remain per launch; `--logs-root` controls those logs.
+
+On upgrade, legacy state is adopted only from launcher-shaped directories whose
+`log/aiur.crash` header matches this instance's release node and launch path.
+Missing or conflicting ownership is skipped, including clean launches with no
+crash record. This can miss a resume, but cannot select a foreign instance by
+repository basename alone.
+
+The newest proven-owned launch supplies the entire subscription or session set,
+even when empty. Deleted sessions stay deleted; the new launch's empty log
+directory is not a legacy snapshot. An adoption marker prevents later re-imports.
+
 | Launch choice | Behavior |
 | --- | --- |
 | Foreground | Shows the terminal board and chat panes. A later bare `aiur` from the same repository reattaches to that session. |

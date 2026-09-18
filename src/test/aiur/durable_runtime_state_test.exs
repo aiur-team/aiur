@@ -22,11 +22,18 @@ defmodule Aiur.DurableRuntimeStateTest do
 
     previous = Map.new([:log_file, :runtime_state_dir], &{&1, Application.get_env(:aiur, &1)})
     Application.put_env(:aiur, :runtime_state_dir, state_dir)
+    previous_identity = Map.new(["AIUR_INSTANCE_KEY", "AIUR_RELEASE_NODE"], &{&1, System.get_env(&1)})
+    set_instance("instance-a")
 
     on_exit(fn ->
       Enum.each(previous, fn
         {key, nil} -> Application.delete_env(:aiur, key)
         {key, value} -> Application.put_env(:aiur, key, value)
+      end)
+
+      Enum.each(previous_identity, fn
+        {key, nil} -> System.delete_env(key)
+        {key, value} -> System.put_env(key, value)
       end)
 
       File.rm_rf(root)
@@ -38,10 +45,55 @@ defmodule Aiur.DurableRuntimeStateTest do
   # Points the daemon at a launcher-shaped launch log directory, as a restart
   # does, and returns that directory.
   defp launch(logs_parent, launch_name) do
+    case Application.get_env(:aiur, :log_file) do
+      log_file when is_binary(log_file) ->
+        previous_log_dir = Path.dirname(log_file)
+
+        if String.starts_with?(previous_log_dir, logs_parent <> "/") do
+          record_owner!(previous_log_dir)
+        end
+
+      _ ->
+        :ok
+    end
+
     log_dir = Path.join([logs_parent, launch_name, "log"])
     File.mkdir_p!(log_dir)
     Application.put_env(:aiur, :log_file, Path.join(log_dir, "aiur.log"))
     log_dir
+  end
+
+  defp set_instance(key) do
+    System.put_env("AIUR_INSTANCE_KEY", key)
+    System.put_env("AIUR_RELEASE_NODE", "aiur-test-#{key}@127.0.0.1")
+  end
+
+  defp record_owner!(log_dir) do
+    File.write!(Path.join(log_dir, "aiur.crash"), """
+    aiur background BEAM exited unexpectedly
+    timestamp: 2026-01-01T00:00:00Z
+    node: #{System.fetch_env!("AIUR_RELEASE_NODE")}
+    run_log_dir: #{Path.dirname(log_dir)}
+    detected_by: background BEAM-death watchdog (no clean stop sentinel)
+    """)
+  end
+
+  defp write_snapshot!(log_dir, thread, topic, mtime \\ 1_000) do
+    repo = Paths.repo_name()
+
+    write_legacy!(
+      log_dir,
+      "#{repo}.2722.session.json",
+      Jason.encode!(%{"schema_version" => 1, "backend" => "codex", "thread_id" => thread, "hostname" => @host}),
+      mtime
+    )
+
+    write_legacy!(
+      log_dir,
+      "#{repo}.2722.subscriptions.json",
+      Jason.encode!(%{"subscribed_to" => [%{"topic" => topic, "reason" => "manual:test"}]}),
+      mtime
+    )
   end
 
   defp write_legacy!(log_dir, name, contents, mtime) do
@@ -273,19 +325,102 @@ defmodule Aiur.DurableRuntimeStateTest do
   end
 
   describe "LaunchStateAdoption" do
-    test "only launcher-shaped sibling directories are scanned", %{logs_parent: logs_parent} do
-      current = launch(logs_parent, "20260101T020000Z-300")
-      earlier = Path.join([logs_parent, "20260101T000000Z-100", "log"])
-      File.mkdir_p!(earlier)
-      File.mkdir_p!(Path.join([logs_parent, "unrelated", "log"]))
+    test "only launcher-shaped sibling directories with matching ownership are scanned", %{logs_parent: logs_parent} do
+      earlier = launch(logs_parent, "20260101T000000Z-100")
+      launch(logs_parent, "20260101T020000Z-300")
+      unrelated = Path.join([logs_parent, "unrelated", "log"])
+      File.mkdir_p!(unrelated)
+      record_owner!(unrelated)
 
-      assert Enum.sort(LaunchStateAdoption.legacy_log_dirs()) == Enum.sort([current, earlier])
+      assert LaunchStateAdoption.legacy_log_dirs() == [earlier]
 
-      # A non-launcher layout (custom --logs-root, a test root) has no siblings.
       custom = Path.join([logs_parent, "custom-root", "log"])
       File.mkdir_p!(custom)
       Application.put_env(:aiur, :log_file, Path.join(custom, "aiur.log"))
-      assert LaunchStateAdoption.legacy_log_dirs() == [custom]
+      assert LaunchStateAdoption.legacy_log_dirs() == []
+      record_owner!(custom)
+      assert LaunchStateAdoption.legacy_log_dirs() == []
+    end
+
+    test "two instances with the same repo and ticket adopt only their own sessions and subscriptions",
+         %{logs_parent: logs_parent, state_dir: state_dir} do
+      own = launch(logs_parent, "20260101T000000Z-100")
+      write_snapshot!(own, "thread-a", "ticket.2722.instance-a")
+      record_owner!(own)
+
+      foreign = Path.join([logs_parent, "20260101T010000Z-200", "log"])
+      File.mkdir_p!(foreign)
+      set_instance("instance-b")
+      record_owner!(foreign)
+      write_snapshot!(foreign, "thread-b", "ticket.2722.instance-b", 2_000)
+
+      current = Path.join([logs_parent, "20260101T020000Z-300", "log"])
+      File.mkdir_p!(current)
+      Application.put_env(:aiur, :log_file, Path.join(current, "aiur.log"))
+
+      for {key, thread, topic} <- [
+            {"instance-a", "thread-a", "ticket.2722.instance-a"},
+            {"instance-b", "thread-b", "ticket.2722.instance-b"}
+          ] do
+        set_instance(key)
+        Application.put_env(:aiur, :runtime_state_dir, Path.join(state_dir, key))
+        assert {:ok, %{thread_id: ^thread}} = SessionHandle.load("2722", "codex", hostname: @host)
+        assert {:ok, %{"subscribed_to" => [%{"topic" => ^topic}]}} = JsonStore.read(SubscriptionStore.path_for("2722"))
+      end
+    end
+
+    test "missing or conflicting ownership never adopts sessions or subscriptions",
+         %{logs_parent: logs_parent, state_dir: state_dir} do
+      legacy = launch(logs_parent, "20260101T000000Z-100")
+      write_snapshot!(legacy, "unsafe-thread", "ticket.2722.unsafe")
+      current = Path.join([logs_parent, "20260101T020000Z-300", "log"])
+      File.mkdir_p!(current)
+      Application.put_env(:aiur, :log_file, Path.join(current, "aiur.log"))
+
+      for scenario <- [:missing_proof, :malformed_proof, :wrong_path, :missing_instance, :empty_instance, :conflicting_node, :conflicting_records] do
+        set_instance("instance-a")
+        record_owner!(legacy)
+
+        case scenario do
+          :missing_proof ->
+            File.rm!(Path.join(legacy, "aiur.crash"))
+
+          :malformed_proof ->
+            File.write!(Path.join(legacy, "aiur.crash"), "node: #{System.fetch_env!("AIUR_RELEASE_NODE")}\n")
+
+          :wrong_path ->
+            proof = Path.join(legacy, "aiur.crash")
+            File.write!(proof, String.replace(File.read!(proof), Path.dirname(legacy), Path.dirname(current)))
+
+          :missing_instance ->
+            System.delete_env("AIUR_INSTANCE_KEY")
+
+          :empty_instance ->
+            System.put_env("AIUR_INSTANCE_KEY", "")
+
+          :conflicting_node ->
+            System.put_env("AIUR_RELEASE_NODE", "aiur-test-instance-b@127.0.0.1")
+
+          :conflicting_records ->
+            proof = Path.join(legacy, "aiur.crash")
+            File.write!(proof, String.replace(File.read!(proof), "instance-a", "instance-b"), [:append])
+        end
+
+        Application.put_env(:aiur, :runtime_state_dir, Path.join(state_dir, Atom.to_string(scenario)))
+        assert SessionHandle.load("2722", "codex", hostname: @host) == :none
+        assert {:ok, nil} = JsonStore.read(SubscriptionStore.path_for("2722"))
+      end
+    end
+
+    test "the newest owned empty launch clears every legacy session and subscription despite older file mtimes",
+         %{logs_parent: logs_parent} do
+      older = launch(logs_parent, "20260101T000000Z-100")
+      write_snapshot!(older, "deleted-thread", "ticket.2722.deleted", 3_000)
+      launch(logs_parent, "20260101T010000Z-200")
+      launch(logs_parent, "20260101T020000Z-300")
+
+      assert SessionHandle.load("2722", "codex", hostname: @host) == :none
+      assert {:ok, nil} = JsonStore.read(SubscriptionStore.path_for("2722"))
     end
   end
 end

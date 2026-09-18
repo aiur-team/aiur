@@ -12,11 +12,12 @@ defmodule Aiur.LaunchStateAdoption do
   a set) records that adoption ran, so no later launch adopts again and a file
   that a store deletes on purpose is never brought back from an old launch.
 
-  Only sibling directories that match the launcher's launch-name pattern are
-  scanned. Any other layout (a custom `--logs-root`, a test root) has no sibling
-  launches, and only the current log directory is checked. That keeps adoption
-  from copying state out of an unrelated directory that happens to be a
-  neighbour.
+  Only launcher-shaped directories with a matching launcher crash record are
+  scanned. The record must prove the exact instance node and launch path;
+  missing or ambiguous ownership is skipped, including custom log roots.
+  A fresh current launch is not a legacy snapshot. Clean legacy launches
+  without that evidence are deliberately not adopted: missing a resume is
+  safer than resuming a foreign session.
 
   Adoption is best-effort: a failure is logged and the store starts from what
   is already in the durable location.
@@ -26,18 +27,22 @@ defmodule Aiur.LaunchStateAdoption do
 
   alias Aiur.Config.Paths
   alias Aiur.Fs
+  alias Aiur.LaunchStateOwnership
 
   @launch_dir_pattern ~r/\A\d{8}T\d{6}Z-\d+\z/
 
   @doc """
   Every log directory that can hold a legacy per-launch file for this daemon:
-  the current one, plus each earlier launch beside it when the current log
-  directory has the launcher layout.
+  those with verified instance ownership, including the current directory
+  only if it holds a verified legacy snapshot.
   """
   @spec legacy_log_dirs() :: [Path.t()]
   def legacy_log_dirs do
     log_dir = Paths.log_root_dir()
-    [log_dir | sibling_launch_log_dirs(log_dir)] |> Enum.uniq()
+
+    [log_dir | sibling_launch_log_dirs(log_dir)]
+    |> Enum.uniq()
+    |> Enum.filter(&LaunchStateOwnership.owned?/1)
   end
 
   @doc """
@@ -80,10 +85,9 @@ defmodule Aiur.LaunchStateAdoption do
   Copies a per-launch file set into `dest_dir` once.
 
   `match?` selects the file names that belong to the set. The set is taken
-  from the newest launch that holds any matching file, because that launch
-  is the state the daemon had when it last stopped: a file that launch had
-  already deleted is not brought back from an older launch. A file that
-  already exists in `dest_dir` is never overwritten. After the copy, the
+  from the newest owned launch by its launch timestamp, even when empty:
+  a file that launch already deleted is not brought back from an older launch.
+  A file that already exists in `dest_dir` is never overwritten. After the copy, the
   marker file `marker` in `dest_dir` records that adoption is done.
   """
   @spec adopt_set_once(Path.t(), String.t(), (String.t() -> boolean())) :: :ok
@@ -159,26 +163,17 @@ defmodule Aiur.LaunchStateAdoption do
 
   defp newest_launch_set(match?) do
     legacy_log_dirs()
-    |> Enum.flat_map(fn dir ->
-      names = matching_names(dir, match?)
-
-      case names |> Enum.map(&mtime(Path.join(dir, &1))) |> Enum.reject(&is_nil/1) do
-        [] -> []
-        mtimes -> [{Enum.max(mtimes), dir, names}]
-      end
-    end)
-    |> Enum.max_by(fn {mtime, dir, _names} -> {mtime, dir} end, fn -> nil end)
+    |> Enum.max_by(&Path.basename(Path.dirname(&1)), fn -> nil end)
     |> case do
       nil -> nil
-      {_mtime, dir, names} -> {dir, names}
+      dir -> {dir, matching_names(dir, match?)}
     end
   end
 
   defp matching_names(dir, match?) do
-    case File.ls(dir) do
-      {:ok, names} -> Enum.filter(names, &(match?.(&1) and File.regular?(Path.join(dir, &1))))
-      {:error, _reason} -> []
-    end
+    dir
+    |> File.ls!()
+    |> Enum.filter(&(match?.(&1) and File.regular?(Path.join(dir, &1))))
   end
 
   defp newest(paths) do
