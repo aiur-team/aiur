@@ -107,6 +107,8 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | `aiur cleanup-stale --dry-run` | Reports stale leftovers without reaping them. | `aiur cleanup-stale --dry-run` |
 | `aiur guard-pr-deletions main` | Refuses a PR that deletes more than 50 files the branch never touched. Reads the base branch from the argument or `AIUR_BASE_BRANCH`, and the branch start from `AIUR_BRANCH_START_SHA` or `refs/aiur/branch-start`. Exit 1 is a refusal, exit 2 is an unusable input such as a dirty tree, an unfetchable base, or a missing branch-start ref. | `aiur guard-pr-deletions main` |
 
+If the daemon does not answer `aiur message` in time, the command prints `outcome unknown` and exits 124. The daemon may still queue the message. The ticket log tags the echo `queued item=N` until the agent gets it. Running the same command again within 10 minutes does not queue a second copy.
+
 ### Restart semantics
 
 | Restart case | Result |

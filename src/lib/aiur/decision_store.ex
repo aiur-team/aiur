@@ -102,6 +102,9 @@ defmodule Aiur.DecisionStore do
   # never retried — and, being non-actionable below, never raised either. The
   # answer was silently dropped and only an operator noticing a stuck agent
   # found it (#2558).
+  # Dispatch failures whose caller timed out: the Orchestrator may still have
+  # queued the item (#2717).
+  @timeout_failure_classes ["orchestrator_timeout", "decision_dispatch_timeout"]
   @transient_failure_classes [
     "orchestrator_unavailable",
     "orchestrator_timeout",
@@ -2636,6 +2639,7 @@ defmodule Aiur.DecisionStore do
   defp lifecycle_slug(:enriched), do: "enriched"
   defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
   defp lifecycle_slug(:dispatch_queued), do: "queued"
+  defp lifecycle_slug(:dispatch_outcome_unknown), do: "dispatch-outcome-unknown"
   defp lifecycle_slug(:revision_dispatched), do: "revision-dispatched"
   defp lifecycle_slug(:revision_no_longer_applicable), do: "revision-no-longer-applicable"
   defp lifecycle_slug(:follow_up_required), do: "revision-follow-up-required"
@@ -2967,9 +2971,17 @@ defmodule Aiur.DecisionStore do
     case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == context.attempt_id)) do
       nil -> {:error, :attempt_not_found}
       %{queue_item_id: queue_item_id} = attempt when queue_item_id == context.queue_item_id -> {:ok, attempt}
-      _attempt -> {:error, :queue_item_mismatch}
+      attempt -> if adoptable_attempt?(attempt), do: {:ok, :missing_attempt}, else: {:error, :queue_item_mismatch}
     end
   end
+
+  # An attempt whose dispatch timed out (`:unknown`), or an older build's
+  # `orchestrator_timeout` failure, has no queue item on record. If an item
+  # with that attempt id reaches the gate, the Orchestrator did queue it after
+  # the caller gave up. It is adopted as that attempt, the same way as an item
+  # with no attempt record, instead of being refused as a mismatch (#2717).
+  defp adoptable_attempt?(%{queue_item_id: nil, status: status}) when status in [:unknown, :failed], do: true
+  defp adoptable_attempt?(_attempt), do: false
 
   defp persist_missing_attempt_delivery(state, decision, context) do
     data = %{
@@ -3133,11 +3145,16 @@ defmodule Aiur.DecisionStore do
 
   defp project_delivery_attention(state, prior, updated, type)
        when type in [:dispatch_queued, :restored, :delivered, :acknowledged] do
-    if prior.delivery_status == :failed, do: emit_failure_resolution(updated)
+    if prior.delivery_status == :failed or outcome_unknown_pending?(prior), do: emit_failure_resolution(updated)
     state
   end
 
   defp project_delivery_attention(state, _prior, _updated, _type), do: state
+
+  # A retry ladder spent on unknown outcomes raises an alert, and the late item
+  # can still be adopted after that, so adoption clears it (#2717).
+  defp outcome_unknown_pending?(decision),
+    do: match?(%{status: :unknown}, List.last(Decision.active_dispatch_attempts(decision)))
 
   defp maybe_project_delivery_attention(state, prior, updated, type, action_id) do
     if prior.active_action_id == action_id,
@@ -3816,6 +3833,7 @@ defmodule Aiur.DecisionStore do
          false <- dispatch_active?(state, answer.action_id),
          true <- dispatch_allowed?(decision, retry_failed?, mode) do
       attempt_id = next_attempt_id(decision)
+      retry_failed? = retry_failed? or orphan_recovery?(decision)
       dispatch_decision = decision_for_dispatch(state, decision)
       store = self()
       dispatcher = state.dispatcher
@@ -3993,7 +4011,7 @@ defmodule Aiur.DecisionStore do
           settle_revision_no_longer_applicable(state, decision, action_id, reason)
 
         {:error, reason} ->
-          settle_dispatch_failure(state, decision, action_id, attempt_id, reason)
+          settle_dispatch_error(state, decision, action_id, attempt_id, reason)
 
         _other ->
           settle_dispatch_failure(state, decision, action_id, attempt_id, :invalid_dispatch_result)
@@ -4077,21 +4095,7 @@ defmodule Aiur.DecisionStore do
 
     case find_queue_attempt(decision, restored_attempt_id, item.id) do
       nil ->
-        data = %{
-          action_id: action_id,
-          attempt_id: restored_attempt_id,
-          queue_item_id: item.id
-        }
-
-        case build_and_persist_event(:restored, decision, data, DateTime.utc_now(), state) do
-          {:ok, next_state, updated} ->
-            next_state
-            |> maybe_project_delivery_attention(decision, updated, :restored, action_id)
-            |> then(&%{&1 | retry_counts: Map.delete(&1.retry_counts, action_id)})
-
-          {:error, reason} ->
-            recover_background_append(state, decision, action_id, :restored, reason)
-        end
+        settle_retried_queue_item(state, decision, action_id, restored_attempt_id, item)
 
       attempt ->
         reconcile_existing_queue_snapshot(state, decision, attempt, item)
@@ -4113,6 +4117,36 @@ defmodule Aiur.DecisionStore do
     case find_queue_attempt(decision, accepted_attempt_id, item.id) do
       nil -> settle_queue_acceptance(state, decision, action_id, accepted_attempt_id, item)
       attempt -> reconcile_existing_queue_snapshot(state, decision, attempt, item)
+    end
+  end
+
+  # A restored item whose attempt has no queue item on record is the late item
+  # of a timed-out dispatch that was refused before this build (#2717). It is
+  # adopted as that attempt, so a refused orphan never strands the answer.
+  defp settle_retried_queue_item(state, decision, action_id, attempt_id, item) do
+    adoptable? =
+      Enum.any?(decision.dispatch_attempts, &(&1.attempt_id == attempt_id and adoptable_attempt?(&1)))
+
+    if adoptable?,
+      do: settle_queue_acceptance(state, decision, action_id, attempt_id, item),
+      else: persist_restored_queue_item(state, decision, action_id, attempt_id, item)
+  end
+
+  defp persist_restored_queue_item(state, decision, action_id, restored_attempt_id, item) do
+    data = %{
+      action_id: action_id,
+      attempt_id: restored_attempt_id,
+      queue_item_id: item.id
+    }
+
+    case build_and_persist_event(:restored, decision, data, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        next_state
+        |> maybe_project_delivery_attention(decision, updated, :restored, action_id)
+        |> then(&%{&1 | retry_counts: Map.delete(&1.retry_counts, action_id)})
+
+      {:error, reason} ->
+        recover_background_append(state, decision, action_id, :restored, reason)
     end
   end
 
@@ -4205,6 +4239,34 @@ defmodule Aiur.DecisionStore do
     end)
     |> elem(0)
   end
+
+  # A timed-out dispatch may still have queued its item: the Orchestrator
+  # handles the call after the caller gave up (#2717). The attempt is recorded
+  # as an unknown outcome, never as a failure, and no failure alert is raised.
+  # The bounded retry is kept: the retry is idempotent by action id, so it
+  # either queues the item once or returns the late item, which the store then
+  # adopts as this attempt. The delivery gate adopts it the same way.
+  defp settle_dispatch_outcome_unknown(state, decision, action_id, attempt_id, reason) do
+    data = %{action_id: action_id, attempt_id: attempt_id, queue_item_id: nil, reason_class: dispatch_failure_class(reason)}
+
+    case build_and_persist_event(:dispatch_outcome_unknown, decision, data, DateTime.utc_now(), state) do
+      {:ok, next_state, updated} ->
+        maybe_retry_transient(next_state, updated, action_id, data.reason_class)
+
+      {:error, append_reason} ->
+        recover_background_append(state, decision, action_id, :dispatch_outcome_unknown, append_reason)
+    end
+  end
+
+  defp settle_dispatch_error(state, decision, action_id, attempt_id, reason) do
+    if dispatch_outcome_unknown?(reason),
+      do: settle_dispatch_outcome_unknown(state, decision, action_id, attempt_id, reason),
+      else: settle_dispatch_failure(state, decision, action_id, attempt_id, reason)
+  end
+
+  defp dispatch_outcome_unknown?({:outcome_unknown, _info}), do: true
+  defp dispatch_outcome_unknown?(:timeout), do: true
+  defp dispatch_outcome_unknown?(_reason), do: false
 
   defp settle_dispatch_failure(state, decision, action_id, attempt_id, reason) do
     reason_class = dispatch_failure_class(reason)
@@ -4344,7 +4406,7 @@ defmodule Aiur.DecisionStore do
         issue: decision.ticket.identifier,
         reason:
           "Decision #{decision.decision_id} action #{action_id} exhausted its bounded delivery " <>
-            "retries; the answer is recorded but undelivered and needs an operator retry.",
+            "retries; #{exhausted_outcome(decision)}",
         needs_attention: true,
         severity: "warning"
       )
@@ -4352,10 +4414,20 @@ defmodule Aiur.DecisionStore do
     :ok
   end
 
+  # A ladder that ended on a timeout does not know if the item was queued
+  # (#2717). The alert says so, and the delivery gate still adopts a late item.
+  defp exhausted_outcome(decision) do
+    if outcome_unknown_pending?(decision),
+      do: "the Orchestrator did not answer in time, so the answer may still be queued. Retry is safe: it cannot queue a second copy.",
+      else: "the answer is recorded but undelivered and needs an operator retry."
+  end
+
   defp transient_failure?(%Decision{}, reason_class), do: reason_class in @transient_failure_classes
 
   defp dispatch_failure_class(:unavailable), do: "orchestrator_unavailable"
   defp dispatch_failure_class(:timeout), do: "orchestrator_timeout"
+  defp dispatch_failure_class({:outcome_unknown, _info}), do: "orchestrator_timeout"
+  defp dispatch_failure_class({:not_queued, :timeout}), do: "orchestrator_timeout"
   defp dispatch_failure_class(:no_running_agent), do: "target_agent_unavailable"
   # A wake refused because the fleet is at its active cap is the same fault as
   # a restarting agent — the target cannot take the answer *right now* — so it
@@ -4377,6 +4449,19 @@ defmodule Aiur.DecisionStore do
 
   defp dispatch_failure_class({:target_revalidation_failed, _reason}), do: "target_revalidation_failed"
   defp dispatch_failure_class(_reason), do: "dispatch_rejected"
+
+  # When the newest attempt timed out with no queue item on record, a queue
+  # item for this action can only be its late item. If the delivery gate
+  # refused and failed that item, the retry restores it instead of replaying
+  # the failed copy, so the answer is never stranded (#2717). Older builds
+  # recorded such a timeout as a failure with a timeout class.
+  defp orphan_recovery?(decision) do
+    case List.last(Decision.active_dispatch_attempts(decision)) do
+      %{queue_item_id: nil, status: :unknown} -> true
+      %{queue_item_id: nil, status: :failed, failure_reason_class: class} -> class in @timeout_failure_classes
+      _other -> false
+    end
+  end
 
   defp next_attempt_id(decision) do
     active_answer = Decision.active_answer(decision)
@@ -4434,6 +4519,7 @@ defmodule Aiur.DecisionStore do
       nil -> true
       %{status: :failed} when retry_failed? -> true
       %{status: :failed, failure_reason_class: reason} -> transient_failure?(decision, reason)
+      %{status: :unknown} -> true
       _other -> false
     end
   end
@@ -4457,7 +4543,7 @@ defmodule Aiur.DecisionStore do
   end
 
   defp retryable_dispatch?(state, decision, action_id) do
-    match?(%{status: :failed}, List.last(Decision.active_dispatch_attempts(decision))) or
+    match?(%{status: status} when status in [:failed, :unknown], List.last(Decision.active_dispatch_attempts(decision))) or
       lifecycle_append_failed?(state, action_id)
   end
 

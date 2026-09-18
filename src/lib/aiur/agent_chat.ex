@@ -7,6 +7,7 @@ defmodule Aiur.AgentChat do
 
   alias Aiur.Opencode.SlotRegistry
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.TrackerIdentity
 
   @spec send(String.t() | TrackerIdentity.t(), String.t()) :: {:ok, integer()} | {:error, term()}
@@ -23,21 +24,50 @@ defmodule Aiur.AgentChat do
     delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
     fallback = Keyword.get(opts, :fallback, :queue_next)
     turn_id = Keyword.get(opts, :turn_id)
+    {message_id, message_id_scope} = message_key(issue_identifier, text, opts)
 
     Logger.info("AgentChat.send issue=#{issue_identifier} bytes=#{byte_size(text)} body=#{inspect(preview(text))}")
 
     result =
       Orchestrator.send_operator_message(
         target,
-        %{kind: :text, body: text, delivery_policy: delivery_policy, fallback: fallback, turn_id: turn_id}
+        %{
+          kind: :text,
+          body: text,
+          delivery_policy: delivery_policy,
+          fallback: fallback,
+          turn_id: turn_id,
+          message_id: message_id,
+          message_id_scope: message_id_scope
+        }
       )
 
-    if match?({:error, _reason}, result) do
-      Logger.warning("AgentChat.send issue=#{issue_identifier} failed: #{inspect(result)}")
-    end
-
+    log_send_result(issue_identifier, result)
     result
   end
+
+  # Every send carries an idempotency key, so a retry after a timeout cannot
+  # queue a second copy (#2717). A caller-supplied `:message_id` is strict. The
+  # default key is derived from the target and the text and replays only a
+  # pending or recent copy, so the same text sent much later is new.
+  defp message_key(issue_identifier, text, opts) do
+    case Keyword.get(opts, :message_id) do
+      message_id when is_binary(message_id) and message_id != "" -> {message_id, :any}
+      _default -> {OperatorMessages.content_message_id(issue_identifier, text), :recent}
+    end
+  end
+
+  # A caller-side timeout is not a failure: the Orchestrator may still queue the
+  # message (#2717). It is logged as an unknown outcome, never as failed.
+  defp log_send_result(issue_identifier, {:error, {:outcome_unknown, info}}) do
+    Logger.warning("AgentChat.send issue=#{issue_identifier} outcome unknown after timeout: #{inspect(info)}; a retry is safe")
+  end
+
+  defp log_send_result(issue_identifier, {:error, _reason} = result) do
+    Logger.warning("AgentChat.send issue=#{issue_identifier} failed: #{inspect(result)}")
+  end
+
+  defp log_send_result(_issue_identifier, _result), do: :ok
 
   defp preview(text) when is_binary(text) do
     if byte_size(text) > 500, do: binary_part(text, 0, 500) <> "…", else: text

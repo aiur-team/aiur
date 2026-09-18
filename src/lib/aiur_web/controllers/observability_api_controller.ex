@@ -8,6 +8,7 @@ defmodule AiurWeb.ObservabilityApiController do
   alias Aiur.AgentEventFeed
   alias Aiur.Claude.HookEvents
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.PollCadence
   alias AiurWeb.{Endpoint, Presenter, StreamDeckGrid}
   alias Plug.Conn
@@ -62,7 +63,7 @@ defmodule AiurWeb.ObservabilityApiController do
     text = Map.get(params, "text") || Map.get(params, "message") || ""
 
     issue_identifier
-    |> send_operator_message(text)
+    |> send_operator_message(text, Map.get(params, "message_id"))
     |> render_send_message_response(conn, issue_identifier)
   end
 
@@ -180,8 +181,21 @@ defmodule AiurWeb.ObservabilityApiController do
 
   defp legacy_snapshot_error(payload), do: payload
 
-  defp send_operator_message(issue_identifier, text) do
-    Orchestrator.send_operator_message(orchestrator(), issue_identifier, %{kind: :text, body: text})
+  # Every API send is keyed, so a client retry after a timeout cannot queue a
+  # second copy (#2717). A client `message_id` is strict; without one the key
+  # is derived from the target and text and covers a prompt retry only.
+  defp send_operator_message(issue_identifier, text, message_id) do
+    {message_id, scope} =
+      if is_binary(message_id) and message_id != "",
+        do: {message_id, :any},
+        else: {OperatorMessages.content_message_id(issue_identifier, to_string(text)), :recent}
+
+    Orchestrator.send_operator_message(orchestrator(), issue_identifier, %{
+      kind: :text,
+      body: text,
+      message_id: message_id,
+      message_id_scope: scope
+    })
   end
 
   defp pause_agent(issue_identifier),
@@ -194,6 +208,21 @@ defmodule AiurWeb.ObservabilityApiController do
     conn
     |> put_status(202)
     |> json(%{request_id: request_id, issue_identifier: issue_identifier})
+  end
+
+  # A timeout is an unknown outcome, not a failure: the daemon may still queue
+  # the message (#2717). 202 tells the client the send may be in progress, and
+  # a retry with the same `message_id` is safe.
+  defp render_send_message_response({:error, {:outcome_unknown, info}}, conn, issue_identifier) do
+    conn
+    |> put_status(202)
+    |> json(%{
+      outcome: "unknown",
+      request_id: Map.get(info, :item_id),
+      message_id: Map.get(info, :message_id),
+      issue_identifier: issue_identifier,
+      retry_safe: true
+    })
   end
 
   defp render_send_message_response({:error, :no_running_agent}, conn, _issue_identifier) do

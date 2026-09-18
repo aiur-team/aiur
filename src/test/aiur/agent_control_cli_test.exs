@@ -2945,6 +2945,33 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  # #2717. The daemon may still queue a message after the send timed out, so a
+  # timeout is an unknown outcome. It must not read as a failed send.
+  test "message reports a timed-out send as outcome unknown, not as a failure", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
+      {:error, {:outcome_unknown, %{message_id: "content:abc", item_id: nil}}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
+
+        assert output =~ "aiur: outcome unknown for message to #44"
+        assert output =~ "will not queue a duplicate"
+        refute output =~ "failed to message"
+        refute output =~ "__AIUR_CONTROL_ERROR__"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+      end)
+
+    refute stderr =~ "failed"
+  end
+
   test "message to a non-running issue fails with a clear error" do
     stderr =
       capture_io(:stderr, fn ->

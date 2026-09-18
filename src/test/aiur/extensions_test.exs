@@ -93,6 +93,10 @@ defmodule Aiur.ExtensionsTest do
 
       {:reply, reply, state}
     end
+
+    def handle_call({:lookup_operator_message, _lookup}, _from, state) do
+      {:reply, Keyword.get(state, :lookup_operator_message, {:error, :unknown_message}), state}
+    end
   end
 
   defmodule StaticDecisionStore do
@@ -729,6 +733,43 @@ defmodule Aiur.ExtensionsTest do
       |> post("/api/v1/MT-HTTP/messages", %{"text" => "hello"})
 
     assert json_response(conn, 202) == %{"issue_identifier" => "MT-HTTP", "request_id" => 1}
+  end
+
+  # #2717. The daemon may still queue a message after the API call timed out,
+  # so a timeout is reported as an unknown outcome that is safe to retry.
+  test "message api reports a timed-out send as an unknown outcome" do
+    original_timeout = Application.get_env(:aiur, :operator_message_call_timeout_ms)
+    Application.put_env(:aiur, :operator_message_call_timeout_ms, 50)
+
+    on_exit(fn ->
+      if original_timeout,
+        do: Application.put_env(:aiur, :operator_message_call_timeout_ms, original_timeout),
+        else: Application.delete_env(:aiur, :operator_message_call_timeout_ms)
+    end)
+
+    orchestrator_name = Module.concat(__MODULE__, :SlowSendOrchestrator)
+
+    slow_send = fn _issue_identifier ->
+      Process.sleep(300)
+      {:ok, 9}
+    end
+
+    start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: static_snapshot(), send_operator_message: slow_send})
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("origin", "http://127.0.0.1")
+      |> Plug.Conn.put_req_header("x-aiur-request", "1")
+      |> post("/api/v1/MT-HTTP/messages", %{"text" => "hello", "message_id" => "client-1"})
+
+    assert json_response(conn, 202) == %{
+             "outcome" => "unknown",
+             "request_id" => nil,
+             "message_id" => "client-1",
+             "issue_identifier" => "MT-HTTP",
+             "retry_safe" => true
+           }
   end
 
   test "observability issue details include tracker-active idle rows" do

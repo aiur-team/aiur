@@ -1249,9 +1249,28 @@ defmodule Aiur.AgentControlCLI do
         report_message_outcome(status, request_id, await_message_delivery(request_id))
         0
 
+      # The daemon did not answer in time, but it may still queue the message
+      # (#2717). That is an unknown outcome, not a failure. Sends are keyed, so
+      # running the same command again cannot queue a second copy.
+      {:error, {:outcome_unknown, info}} ->
+        IO.puts(
+          "aiur: outcome unknown for message to #{display_identifier(status)}: the daemon did not answer in time " <>
+            "and may still queue it (#{format_outcome_unknown(info)}). Check the ticket log; " <>
+            "running the same command again will not queue a duplicate."
+        )
+
+        control_query_exit_code(:timeout)
+
       {:error, reason} ->
         print_failure(:message, status, reason)
         control_query_exit_code(reason)
+    end
+  end
+
+  defp format_outcome_unknown(info) when is_map(info) do
+    case Map.get(info, :item_id) do
+      item_id when is_integer(item_id) -> "request #{item_id}"
+      _unknown -> "request not known yet"
     end
   end
 
@@ -3353,6 +3372,7 @@ defmodule Aiur.AgentControlCLI do
   defp format_message_reason(:agent_finished), do: "agent is not accepting messages (agent finished)"
   defp format_message_reason(:immediate_not_supported), do: "agent is not accepting immediate messages"
   defp format_message_reason(:interrupt_not_supported), do: "agent is not accepting interrupt messages"
+  defp format_message_reason({:not_queued, :timeout}), do: "the daemon timed out and did not queue it; a retry is safe"
   defp format_message_reason(reason), do: format_reason(reason)
 
   defp exit_marker(code) do

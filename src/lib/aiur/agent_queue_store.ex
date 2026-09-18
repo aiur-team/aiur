@@ -10,14 +10,16 @@ defmodule Aiur.AgentQueueStore do
           next_sequence: integer(),
           items: %{optional(integer()) => AgentQueueItem.t()},
           pending_ids_by_target: %{optional(String.t()) => [integer()]},
-          item_id_by_action: %{optional(String.t()) => integer()}
+          item_id_by_action: %{optional(String.t()) => integer()},
+          item_id_by_message_id: %{optional(String.t()) => integer()}
         }
 
   defstruct next_id: 1,
             next_sequence: 1,
             items: %{},
             pending_ids_by_target: %{},
-            item_id_by_action: %{}
+            item_id_by_action: %{},
+            item_id_by_message_id: %{}
 
   @type enqueue_attrs :: %{
           required(:target_issue_identifier) => String.t(),
@@ -28,11 +30,14 @@ defmodule Aiur.AgentQueueStore do
           optional(:delivery) => map(),
           optional(:action_id) => String.t(),
           optional(:correlation) => map(),
+          optional(:message_id) => String.t(),
           optional(:dedupe_key) => String.t(),
           optional(:causal_refs) => [String.t()],
           optional(:turn_id) => String.t(),
           optional(:subscription) => map()
         }
+
+  @recent_replay_ms 600_000
 
   @spec new() :: t()
   def new, do: %__MODULE__{}
@@ -54,6 +59,7 @@ defmodule Aiur.AgentQueueStore do
       delivery: delivery,
       action_id: Map.get(attrs, :action_id),
       correlation: Map.get(attrs, :correlation),
+      message_id: Map.get(attrs, :message_id),
       dedupe_key: Map.get(attrs, :dedupe_key),
       causal_refs: Map.get(attrs, :causal_refs, []),
       turn_id: Map.get(attrs, :turn_id),
@@ -92,6 +98,56 @@ defmodule Aiur.AgentQueueStore do
         %AgentQueueItem{} = existing ->
           replay_correlated(store, existing, attrs, Keyword.get(opts, :retry_failed, false))
       end
+    end
+  end
+
+  @doc """
+  Enqueue one Executor message keyed by a caller-supplied `message_id`, or
+  return the item that key already created (#2717).
+
+  A caller whose send timed out cannot know if the first call queued the
+  message, so it retries with the same key. `scope: :any` replays the existing
+  item in every state (an explicit, caller-owned id). `scope: :recent` replays
+  it while it is pending or for #{div(@recent_replay_ms, 60_000)} minutes after it was queued, so
+  a key derived from the message content covers an operator retry but not a
+  deliberate re-send much later.
+  """
+  @spec enqueue_idempotent(t(), enqueue_attrs(), :any | :recent) ::
+          {t(), AgentQueueItem.t(), :accepted | :duplicate}
+  def enqueue_idempotent(%__MODULE__{} = store, %{message_id: message_id} = attrs, scope)
+      when is_binary(message_id) and scope in [:any, :recent] do
+    case find_by_message_id(store, message_id) do
+      %AgentQueueItem{} = existing ->
+        if replayable?(existing, scope),
+          do: {store, existing, :duplicate},
+          else: enqueue_keyed(store, attrs, message_id)
+
+      nil ->
+        enqueue_keyed(store, attrs, message_id)
+    end
+  end
+
+  defp enqueue_keyed(store, attrs, message_id) do
+    {store, item} = enqueue(store, attrs)
+    {%{store | item_id_by_message_id: Map.put(store.item_id_by_message_id, message_id, item.id)}, item, :accepted}
+  end
+
+  @doc "True when a keyed send with this scope must return `item` instead of queueing a copy."
+  @spec replayable?(AgentQueueItem.t(), :any | :recent) :: boolean()
+  def replayable?(%AgentQueueItem{}, :any), do: true
+
+  def replayable?(%AgentQueueItem{status: :pending}, :recent), do: true
+
+  def replayable?(%AgentQueueItem{inserted_at: %DateTime{} = inserted_at}, :recent),
+    do: DateTime.diff(DateTime.utc_now(), inserted_at, :millisecond) <= @recent_replay_ms
+
+  def replayable?(%AgentQueueItem{}, _scope), do: false
+
+  @spec find_by_message_id(t(), String.t()) :: AgentQueueItem.t() | nil
+  def find_by_message_id(%__MODULE__{} = store, message_id) when is_binary(message_id) do
+    case Map.get(store.item_id_by_message_id, message_id) do
+      nil -> nil
+      item_id -> Map.get(store.items, item_id)
     end
   end
 

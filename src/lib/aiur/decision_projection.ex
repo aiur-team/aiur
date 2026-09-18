@@ -410,6 +410,35 @@ defmodule Aiur.DecisionProjection do
     end
   end
 
+  # The caller of a dispatch timed out, so the queue item may or may not exist
+  # (#2717). The attempt is recorded as `:unknown`, not failed. A later
+  # `dispatch_queued` for the same attempt adopts the item that did arrive.
+  defp transition(%Decision{} = decision, %DecisionEvent{type: :dispatch_outcome_unknown} = event) do
+    with {:ok, _answer} <- answer_for_event(decision, event),
+         :ok <- require_new_attempt(decision, event.data) do
+      attempt = %{
+        action_id: event.data.action_id,
+        attempt_id: event.data.attempt_id,
+        queue_item_id: nil,
+        run_id: event.run_id,
+        status: :unknown,
+        attempted_at: event.occurred_at,
+        queued_at: nil,
+        delivered_at: nil,
+        restored_at: nil,
+        consumed_at: nil,
+        failed_at: nil,
+        failure_reason_class: event.data.reason_class
+      }
+
+      updated = %{decision | dispatch_attempts: decision.dispatch_attempts ++ [attempt]}
+
+      if decision.active_action_id == event.data.action_id,
+        do: {:ok, %{updated | delivery_status: :pending}},
+        else: {:ok, updated}
+    end
+  end
+
   defp transition(%Decision{} = decision, %DecisionEvent{type: :acknowledged} = event) do
     with {:ok, _answer} <- active_answer_for_event(decision, event),
          :ok <- require_absent(decision.acknowledgement, :already_acknowledged) do
@@ -638,7 +667,7 @@ defmodule Aiur.DecisionProjection do
 
   defp queue_dispatch_attempt(decision, event) do
     case Enum.find(decision.dispatch_attempts, &(&1.attempt_id == event.data.attempt_id)) do
-      %{status: :failed, queue_item_id: nil} = failed ->
+      %{status: status, queue_item_id: nil} = failed when status in [:failed, :unknown] ->
         queued = %{
           failed
           | queue_item_id: event.data.queue_item_id,
