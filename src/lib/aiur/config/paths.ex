@@ -5,26 +5,28 @@ defmodule Aiur.Config.Paths do
 
   Single source of truth for:
 
-    * `log_root_dir/0` — the directory under which `<repo>.<id>.log`,
-      `<repo>.<id>.subscriptions.json`, `<repo>.event_id`, and similar
-      files live. Respects `Application.get_env(:aiur, :log_file)` (set
-      by the `--logs-root` CLI flag), falls back to `<cwd>/log`.
+    * `log_root_dir/0` — the per-launch directory under which
+      `<repo>.<id>.log` and other run logs live. Respects
+      `Application.get_env(:aiur, :log_file)` (set by the `--logs-root` CLI
+      flag), falls back to `<cwd>/log`. The launcher makes a new one on every
+      daemon launch, so state that must survive a restart belongs in
+      `runtime_state_dir/0` or `decision_state_dir/0` instead.
     * `repo_name/0` — the sanitized identifier used to prefix per-issue
       files. Comes from `Aiur.Tracker.project_identity/0`; failure-safe.
     * `sanitize/1` — replaces shell/path-unsafe characters with `_` so
       values from external sources (label slugs, repo names) can't escape
       filesystem boundaries.
 
-  Consumers: `Aiur.IssueLog`, `Aiur.LogFile`, and (forthcoming) the
-  `Aiur.Events.IdGenerator` + `Aiur.Events.SubscriptionStore` modules.
+  Consumers: `Aiur.IssueLog`, `Aiur.LogFile`, and the durable stores that
+  adopt their per-launch files through `Aiur.LaunchStateAdoption`.
   """
 
   alias Aiur.PathSafety
   alias Aiur.Tracker
 
   @doc """
-  Returns the directory where per-issue and per-repo persistent files
-  live. Defaults to `<cwd>/log` when no `--logs-root` was set.
+  Returns the per-launch log directory. Defaults to `<cwd>/log` when no
+  `--logs-root` was set. It does not survive a daemon restart.
   """
   @spec log_root_dir() :: Path.t()
   def log_root_dir do
@@ -208,6 +210,26 @@ defmodule Aiur.Config.Paths do
         with {:ok, root} <- decision_state_dir() do
           {:ok, Path.join(root, "balance-baselines")}
         end
+    end
+  end
+
+  @doc """
+  Resolves the daemon-private runtime state directory.
+
+  Runtime state is what the daemon reads back after a restart: the event-ID
+  high-water mark, per-ticket event subscriptions, agent session resume handles
+  and the project alert ledger. `log_root_dir/0` is new on every launch
+  (`~/.aiur/logs/<launch>/log`), so none of it may live there (#2722). It shares
+  the instance- and repository-qualified root of other daemon-private state.
+
+  An `Application` env override (`:runtime_state_dir`) wins outright; tests use
+  it to give each case its own root.
+  """
+  @spec runtime_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def runtime_state_dir do
+    case Application.get_env(:aiur, :runtime_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> decision_state_dir()
     end
   end
 

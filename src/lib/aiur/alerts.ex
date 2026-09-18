@@ -248,6 +248,10 @@ defmodule Aiur.Alerts do
   # Keep the historical central file as an audit-compatible auxiliary output.
   # AlertFeed reads the project-scoped ledger above, which also receives local
   # workspace alerts that intentionally remain absent from this file.
+  #
+  # This file is per-launch on purpose (#2722): it is a run log, not state. No
+  # running code reads it back except the one-time `AlertFeed.backfill/1`
+  # import into the durable ledger; the ledger is what survives a restart.
   defp maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts) do
     if is_binary(workspace) and worker_host == nil and not Keyword.get(opts, :central, false) do
       :ok

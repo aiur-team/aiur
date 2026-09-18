@@ -2538,6 +2538,7 @@ defmodule Aiur.DecisionStoreTest do
     previous_log_file = Application.get_env(:aiur, :log_file)
     log_root = Path.join(dir, "executor-escalation-log")
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
       if previous_log_file,
@@ -2795,6 +2796,7 @@ defmodule Aiur.DecisionStoreTest do
       log_root = Path.join(dir, "dispatch-saturation-alert-log")
       original_log_file = Application.get_env(:aiur, :log_file)
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file,
@@ -3189,6 +3191,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "target-failure-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3240,6 +3243,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "target-exhausted-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3298,6 +3302,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "append-failure-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3531,6 +3536,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3582,6 +3588,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "absent-agent-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3631,6 +3638,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "absent-agent-clears-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3708,6 +3716,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "absent-agent-backlog-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3755,6 +3764,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "expired-backlog-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3811,6 +3821,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "expired-visible-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3886,6 +3897,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "terminal-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do

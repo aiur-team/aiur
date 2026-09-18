@@ -5627,6 +5627,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
       File.mkdir_p!(tmp_dir)
       original_log_file = Application.get_env(:aiur, :log_file)
       Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))
+      original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
+      Application.put_env(:aiur, :runtime_state_dir, Path.join(tmp_dir, "runtime-state"))
 
       identifier = "BLOCKEE-#{System.unique_integer([:positive])}"
       :ok = SubscriptionStore.attach(identifier)
@@ -5639,6 +5641,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
           Application.put_env(:aiur, :log_file, original_log_file)
         else
           Application.delete_env(:aiur, :log_file)
+        end
+
+        if original_runtime_state_dir do
+          Application.put_env(:aiur, :runtime_state_dir, original_runtime_state_dir)
+        else
+          Application.delete_env(:aiur, :runtime_state_dir)
         end
 
         File.rm_rf(tmp_dir)

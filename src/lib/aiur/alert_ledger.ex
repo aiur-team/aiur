@@ -1,11 +1,25 @@
 defmodule Aiur.AlertLedger do
-  @moduledoc false
+  @moduledoc """
+  The project-scoped alert ledger that `Aiur.AlertFeed` reads.
+
+  By default the ledger lives in the durable runtime state directory
+  (`Aiur.Config.Paths.runtime_state_dir/0`). Readers depend on
+  it surviving a restart: the parked-ready and active-attention reseed after
+  boot, and the edge-triggered resolution check. It used to live in the
+  per-launch log directory, which is new on every launch (#2722). On first use,
+  the newest earlier launch's ledger (and its backfill marker) is adopted once
+  through `Aiur.LaunchStateAdoption`.
+
+  An explicit `:ledger_path`, `:ledger_paths` or `:log_roots` option still
+  selects a ledger in those directories.
+  """
 
   require Logger
 
   alias Aiur.AlertLedger.Tail
   alias Aiur.{AlertTopic, Fs, Jsonl}
   alias Aiur.Config.Paths
+  alias Aiur.LaunchStateAdoption
 
   @ledger_suffix ".alerts.ndjson"
   @backfill_suffix ".alerts.backfill"
@@ -53,7 +67,7 @@ defmodule Aiur.AlertLedger do
   def path(opts \\ []) do
     case Keyword.get(opts, :ledger_path) do
       path when is_binary(path) and path != "" -> path
-      _ -> Path.join(log_root(opts), Paths.project_name() <> @ledger_suffix)
+      _ -> Path.join(log_root(opts), ledger_file_name())
     end
   end
 
@@ -66,7 +80,7 @@ defmodule Aiur.AlertLedger do
       _ ->
         case Keyword.get(opts, :ledger_path) do
           path when is_binary(path) and path != "" -> [path]
-          _ -> Enum.map(log_roots(opts), &Path.join(&1, Paths.project_name() <> @ledger_suffix))
+          _ -> Enum.map(log_roots(opts), &Path.join(&1, ledger_file_name()))
         end
     end
   end
@@ -358,15 +372,31 @@ defmodule Aiur.AlertLedger do
     end
   end
 
-  defp log_root(opts), do: List.first(log_roots(opts)) || Paths.log_root_dir()
+  defp log_root(opts), do: List.first(log_roots(opts)) || default_root()
 
   defp log_roots(opts) do
     case Keyword.get(opts, :log_roots) do
       roots when is_list(roots) -> roots
-      _ -> [Paths.log_root_dir()]
+      _ -> [default_root()]
     end
     |> Enum.filter(&is_binary/1)
     |> Enum.map(&Path.expand/1)
     |> Enum.uniq()
+  end
+
+  defp ledger_file_name, do: Paths.project_name() <> @ledger_suffix
+
+  # When the runtime state directory cannot be resolved, the per-launch log
+  # directory is the only place left, which keeps the old behavior.
+  defp default_root do
+    case Paths.runtime_state_dir() do
+      {:ok, root} ->
+        file_name = ledger_file_name()
+        LaunchStateAdoption.adopt_file_once(Path.join(root, file_name), file_name, companions: [@backfill_suffix], empty: "")
+        root
+
+      {:error, _reason} ->
+        Paths.log_root_dir()
+    end
   end
 end

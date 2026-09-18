@@ -2,7 +2,6 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   use ExUnit.Case, async: false
 
   alias Aiur.{AgentPubSub, AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
-  alias Aiur.Config.Paths
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.PauseResume
@@ -24,6 +23,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     Application.delete_env(:aiur, :dispatch_budget_store_path)
     Application.put_env(:aiur, :decision_state_dir, Path.join(dir, "stable-state"))
     Application.put_env(:aiur, :log_file, Path.join([dir, "session-one", "aiur.log"]))
+    Aiur.TestSupport.put_runtime_state_dir!(Path.join(dir, "stable-state"))
 
     on_exit(fn ->
       File.rm_rf!(dir)
@@ -643,7 +643,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     topic = "ticket.repo#lifetime-central.agent.attention.error-lifetime_latch"
 
     assert Enum.any?(
-             AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()]),
+             AlertFeed.list(roots: []),
              &(&1["topic"] == topic)
            )
   end

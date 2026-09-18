@@ -6,6 +6,17 @@ defmodule Aiur.EventPublicationLog do
   Aiur runtime. Keeping these small coordination facts in the daemon-owned run log
   avoids duplicate transcript ownership and prevents an agent-controlled workspace
   from redirecting the append through a symlink.
+
+  ## Per-launch on purpose
+
+  The stream lives in the per-launch log directory and is intentionally split
+  per launch (#2722). "Durable" here means each append is fsynced before it is
+  acknowledged, not that one file spans restarts. The daemon only appends; no
+  running code reads the stream back, so a restart loses nothing it depends
+  on. The only reader is the offline calibration collector
+  (`docs/build-order/scripts/capture_progress_estimates.py`), which globs
+  every launch's `<logs-root>/*/log/event-publications.ndjson` and so already
+  sees the whole history.
   """
 
   alias Aiur.Config.Paths
@@ -14,7 +25,7 @@ defmodule Aiur.EventPublicationLog do
 
   @filename "event-publications.ndjson"
 
-  @doc "Canonical daemon-owned publication outcome stream for this run."
+  @doc "Canonical daemon-owned publication outcome stream for this launch."
   @spec publication_file() :: Path.t()
   def publication_file do
     Application.get_env(
@@ -25,7 +36,7 @@ defmodule Aiur.EventPublicationLog do
   end
 
   @doc """
-  Appends one publication outcome to the daemon-owned durable stream.
+  Appends one publication outcome to the daemon-owned, fsynced stream.
 
   The workspace argument is retained for caller compatibility but is never used
   to resolve the destination path.

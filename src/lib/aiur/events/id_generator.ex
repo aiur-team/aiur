@@ -10,21 +10,36 @@ defmodule Aiur.Events.IdGenerator do
   starts back at 0 on the next boot). This module gives event IDs a stable
   monotonic identity across BEAM restarts.
 
+  ## Where the high-water mark lives
+
+  The counter file is `event-id.json` in the daemon-private runtime state
+  directory (`Aiur.Config.Paths.runtime_state_dir/0`), which survives a
+  restart. It used to be `<repo>.event_id` in the per-launch log directory,
+  which is new on every launch (#2722): every boot then took the cold-boot
+  path below, and its only guard against re-issuing an earlier launch's IDs
+  was the wall clock. A clock that stepped back across a restart (an RTC that
+  is wrong until NTP syncs, a VM restored from a snapshot) could then re-issue
+  IDs that durable consumers still hold — Decision records, the Executor wake
+  cursor and journal, and subscription cursors.
+
   ## Recovery layers
 
-  1. **Happy path** — read `<logs-root>/<repo>.event_id` on boot. The file
-     stores `last_id` + `reserved_through`. Resume at `reserved_through + 1`.
-     A `kill -9` between writes loses at most one batch of *unused* IDs (a
-     gap in the sequence); no issued ID is ever re-issued.
-  2. **Cold-boot fallback** — if the file is missing or corrupt, scan
-     existing per-issue `IssueLog` files for the max event ID emitted in
-     the past, then seed at `max(disk_max, system_time(:microsecond)) +
-     safety_margin`. Always runs, never "if suspicious." Cost is one
-     filesystem walk per boot; benefit is provable monotonicity even after
-     NTP step-backwards, leap seconds, or VM clock drift.
-  3. **Genuinely fresh install** — no `IssueLog`, no counter file. Seed at
-     `System.system_time(:microsecond)`. Wall-clock, not monotonic_time
-     (which resets at BEAM start).
+  1. **Happy path** — read the durable counter file on boot. The file stores
+     `last_id` + `reserved_through`. Resume at
+     `max(reserved_through, system_time(:microsecond)) + 1`. The persisted
+     block alone guarantees monotonicity, so a clock that stepped back cannot
+     cause reuse; the wall clock only keeps IDs close to microsecond time
+     when it is ahead. A `kill -9` between writes loses at most one batch of
+     *unused* IDs (a gap in the sequence); no issued ID is ever re-issued.
+  2. **Cold-boot fallback** — if the file is missing or corrupt, collect
+     every durable trace of an earlier ID: the per-launch `<repo>.event_id`
+     counters of every earlier launch (this is also the one-time migration
+     from the old location), the current launch's `IssueLog` files and the
+     Executor journal. Seed at `max(disk_max, system_time(:microsecond)) +
+     safety_margin`. Always runs, never "if suspicious."
+  3. **Genuinely fresh install** — no trace and no counter file. Seed at
+     `System.system_time(:microsecond)` + safety margin. Wall-clock, not
+     monotonic_time (which resets at BEAM start).
 
   ## Reserve-before-return (Snowflake pattern)
 
@@ -48,9 +63,11 @@ defmodule Aiur.Events.IdGenerator do
   alias Aiur.Config.Paths
   alias Aiur.Executor.StatePaths
   alias Aiur.JsonStore
+  alias Aiur.LaunchStateAdoption
 
   @default_batch_size 50
   @cold_boot_safety_margin_us 1_000_000
+  @durable_file_name "event-id.json"
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -93,7 +110,9 @@ defmodule Aiur.Events.IdGenerator do
   @impl true
   def init(opts) do
     batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
-    path = Keyword.get(opts, :path, default_path())
+    path = Keyword.get(opts, :path) || default_path()
+    clock = Keyword.get(opts, :clock, fn -> System.system_time(:microsecond) end)
+    legacy_counter_files = Keyword.get(opts, :legacy_counter_files, &legacy_counter_files/0)
 
     {:ok,
      %{
@@ -102,7 +121,9 @@ defmodule Aiur.Events.IdGenerator do
        batch_size: batch_size,
        path: path,
        persist_warning_emitted: false,
-       durable?: false
+       durable?: false,
+       clock: clock,
+       legacy_counter_files: legacy_counter_files
      }, {:continue, :load}}
   end
 
@@ -171,8 +192,9 @@ defmodule Aiur.Events.IdGenerator do
         # Happy path: resume past the previously-reserved block. Issuing IDs
         # from inside a partially-consumed reservation could re-issue an
         # already-issued ID after a crash, so we jump past `reserved_through`
-        # entirely.
-        new_current = reserved_through
+        # entirely. The wall clock can only move the start forward: a clock
+        # that stepped back never takes the counter below the reserved block.
+        new_current = max(max(reserved_through, last_id), state.clock.())
         reserve_next_batch(%{state | current: new_current, reserved_through: new_current})
 
       {:ok, nil} ->
@@ -191,8 +213,8 @@ defmodule Aiur.Events.IdGenerator do
   end
 
   defp cold_boot_seed(state, reason) do
-    disk_max = scan_durable_event_logs_for_max_id()
-    wall_clock_floor = System.system_time(:microsecond)
+    disk_max = max(scan_durable_event_logs_for_max_id(), legacy_counter_max(state.legacy_counter_files.()))
+    wall_clock_floor = state.clock.()
 
     seed = max(disk_max, wall_clock_floor) + @cold_boot_safety_margin_us
 
@@ -240,8 +262,59 @@ defmodule Aiur.Events.IdGenerator do
     %{state | persist_warning_emitted: true, durable?: false}
   end
 
-  defp default_path do
-    Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.event_id")
+  @doc """
+  The counter file path: `event-id.json` in the durable runtime state
+  directory. When that directory cannot be resolved (no launcher instance key
+  or no project identity), the per-launch log directory is the only place
+  left; the cold-boot scan of every launch's counter keeps IDs monotonic there
+  too.
+  """
+  @spec default_path() :: Path.t()
+  def default_path do
+    case Paths.runtime_state_dir() do
+      {:ok, dir} ->
+        Path.join(dir, @durable_file_name)
+
+      {:error, reason} ->
+        Logger.warning(
+          "IdGenerator has no runtime state directory (#{inspect(reason)}); " <>
+            "using the per-launch log directory, which a restart does not keep"
+        )
+
+        legacy_path()
+    end
+  end
+
+  @doc false
+  @spec legacy_path() :: Path.t()
+  def legacy_path, do: Path.join(Paths.log_root_dir(), legacy_file_name())
+
+  defp legacy_file_name, do: "#{Paths.repo_name()}.event_id"
+
+  defp legacy_counter_files do
+    LaunchStateAdoption.legacy_files(legacy_file_name())
+  rescue
+    _ -> []
+  end
+
+  # The highest ID any earlier counter file had issued or reserved. Every
+  # earlier launch left its own counter, so all of them are read, not only the
+  # newest: under a clock that stepped back, the newest file by mtime need not
+  # hold the highest ID.
+  defp legacy_counter_max(paths) do
+    Enum.reduce(paths, 0, fn path, acc ->
+      case JsonStore.read(path) do
+        {:ok, %{} = counter} ->
+          counter
+          |> Map.take(["last_id", "reserved_through"])
+          |> Map.values()
+          |> Enum.filter(&is_integer/1)
+          |> Enum.reduce(acc, &max/2)
+
+        _unreadable ->
+          acc
+      end
+    end)
   end
 
   defp scan_durable_event_logs_for_max_id do
