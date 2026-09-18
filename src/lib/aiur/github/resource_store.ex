@@ -409,6 +409,7 @@ defmodule Aiur.GitHub.ResourceStore do
           version: String.t() | nil,
           source: atom() | nil,
           fetched_at_ms: integer() | nil,
+          full_body_at_ms: integer() | nil,
           etag: String.t() | nil
         }
 
@@ -724,7 +725,10 @@ defmodule Aiur.GitHub.ResourceStore do
   put it back" — merging labels into a held issue, folding a mutation's response
   into a fuller object. `fun` receives the held body, or `nil` when the store
   holds none, and its result is deposited exactly as `put_resource/3` would
-  deposit it. Options are `put_resource/3`'s.
+  deposit it. Options are `put_resource/3`'s, plus `partial: true` for a write
+  that replaces only some fields of the held body: `:fetched_at_ms` still moves,
+  but `:full_body_at_ms` in `fetch/1`'s answer keeps the time of the last
+  whole-body write.
 
   ## The concurrency guarantee, stated plainly
 
@@ -941,6 +945,7 @@ defmodule Aiur.GitHub.ResourceStore do
           # other direction and discards a held validator when the body moved.
           {existing
            |> Map.put(:fetched_at_ms, now_ms())
+           |> Map.put(:full_body_at_ms, now_ms())
            |> deposit_etag(confirmed_data, confirmed_data, etag), :confirmed}
 
         _newer ->
@@ -1048,6 +1053,9 @@ defmodule Aiur.GitHub.ResourceStore do
              # split.
              source: Map.get(entry, :data_source) || Map.get(entry, :source),
              fetched_at_ms: Map.get(entry, :fetched_at_ms),
+             # When a whole body was last written or confirmed; `nil` for an
+             # entry recorded before the field existed. See `stamp_full_body/2`.
+             full_body_at_ms: Map.get(entry, :full_body_at_ms),
              etag: Map.get(entry, :etag)
            }}
         end
@@ -1554,10 +1562,21 @@ defmodule Aiur.GitHub.ResourceStore do
       |> Map.put(:data, data)
       |> Map.put(:data_version, version)
       |> Map.put(:fetched_at_ms, now_ms())
+      |> stamp_full_body(opts)
       |> Map.put(:data_source, source)
       |> deposit_etag(Map.get(entry, :data), data, Keyword.get(opts, :etag))
 
     apply_processed_mark(entry, source, version, opts)
+  end
+
+  # `:full_body_at_ms` is when a whole body was last written or confirmed. A
+  # `partial: true` write (a label merge that swaps one field of the held issue)
+  # still moves `:fetched_at_ms`, because the labels it wrote are current, but
+  # leaves this alone: every other field, `"state"` included, is exactly as old
+  # as it was. A reader that needs a field the partial write did not touch
+  # judges its age by this, never by `:fetched_at_ms` (#2714).
+  defp stamp_full_body(entry, opts) do
+    if Keyword.get(opts, :partial, false), do: entry, else: Map.put(entry, :full_body_at_ms, now_ms())
   end
 
   # `:version` moves only alongside `:processed_at_ms`. See the moduledoc:
@@ -1979,7 +1998,8 @@ defmodule Aiur.GitHub.ResourceStore do
       "data" => encoded_data,
       "data_version" => Map.get(entry, :data_version),
       "data_source" => entry |> Map.get(:data_source) |> encode_atom(),
-      "fetched_at_ms" => Map.get(entry, :fetched_at_ms)
+      "fetched_at_ms" => Map.get(entry, :fetched_at_ms),
+      "full_body_at_ms" => Map.get(entry, :full_body_at_ms)
     }
   end
 
@@ -2107,7 +2127,8 @@ defmodule Aiur.GitHub.ResourceStore do
       data: decode_data(Map.get(value, "data")),
       data_version: string_or_nil(Map.get(value, "data_version")),
       data_source: value |> Map.get("data_source") |> decode_source(),
-      fetched_at_ms: integer_or_nil(Map.get(value, "fetched_at_ms"))
+      fetched_at_ms: integer_or_nil(Map.get(value, "fetched_at_ms")),
+      full_body_at_ms: integer_or_nil(Map.get(value, "full_body_at_ms"))
     }
   end
 
