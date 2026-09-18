@@ -604,7 +604,31 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   defp maybe_broadcast_turn_completed(_turn_id, _issue), do: :ok
 
+  # #2697: a queued operator message starts a turn too; verify the agent's
+  # GitHub support first, exactly as `TurnLoop.run_turns/10` does. A refused
+  # turn never started, so the delivered item is restored to pending through
+  # the confirmed restore boundary instead of being marked failed.
   defp run_recorded_queue_item_turn(
+         app_session,
+         issue,
+         item,
+         orchestrator,
+         codex_update_recipient,
+         opts
+       ) do
+    workspace = SessionLifecycle.session_workspace(app_session)
+    worker_host = SessionLifecycle.session_worker_host(app_session)
+
+    case Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
+      :ok ->
+        run_supported_queue_item_turn(app_session, issue, item, orchestrator, codex_update_recipient, opts)
+
+      {:error, _reason} = error ->
+        TurnLoop.confirm_restore_for_replacement(orchestrator, issue, opts, error)
+    end
+  end
+
+  defp run_supported_queue_item_turn(
          app_session,
          issue,
          item,
@@ -638,28 +662,24 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
     :ok = DynamicTool.reset_turn_quotas()
 
-    # #2697: a queued operator message starts a turn too; verify the agent's
-    # GitHub support first, exactly as `TurnLoop.run_turns/10` does.
     result =
-      with :ok <- Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
-        coding_agent_run_turn(opts).(
-          app_session,
-          text,
-          issue,
-          on_message: message_handler,
-          on_safe_checkpoint: callbacks.on_safe_checkpoint,
-          on_operator_message: callbacks.on_operator_message,
-          on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
-          tool_executor:
-            ToolExecutor.build(
-              issue,
-              workspace,
-              worker_host,
-              app_session,
-              attempt_id: Keyword.get(opts, :telemetry_attempt_id)
-            )
-        )
-      end
+      coding_agent_run_turn(opts).(
+        app_session,
+        text,
+        issue,
+        on_message: message_handler,
+        on_safe_checkpoint: callbacks.on_safe_checkpoint,
+        on_operator_message: callbacks.on_operator_message,
+        on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
+        tool_executor:
+          ToolExecutor.build(
+            issue,
+            workspace,
+            worker_host,
+            app_session,
+            attempt_id: Keyword.get(opts, :telemetry_attempt_id)
+          )
+      )
 
     TurnStreams.close(issue, aiur_turn_id, TurnLoop.turn_done_reason(result))
 

@@ -409,7 +409,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
       assert ".aiur-runtime/gh" in missing
       refute_received :turn_started
-      assert_receive {:queue_item_failed, ^identifier, {:agent_support_repair_failed, ^workspace, _missing, _reason}}
+      # The turn never started: the operator message goes back to the queue.
+      assert_receive {:queue_item_restored, ^identifier}
+      refute_received {:queue_item_failed, ^identifier, _reason}
     end
 
     test "a provider active-turn (-32_003) rejection restores the queued message instead of failing it" do

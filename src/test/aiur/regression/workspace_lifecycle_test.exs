@@ -290,7 +290,10 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
   end
 
   describe "agent support after restart recreation (#2697)" do
-    test "restart dispatch that recreates a dirty leftover workspace reinstalls the full .aiur-runtime" do
+    # End to end: the Refresh reinstall and the dispatch check both restore these
+    # pieces, so either one alone keeps this green. RefreshTest's exit-65 test
+    # proves the Refresh reinstall on its own.
+    test "restart dispatch that recreates a dirty leftover workspace ends with the full .aiur-runtime" do
       test_root = test_root("restart-support")
 
       try do
