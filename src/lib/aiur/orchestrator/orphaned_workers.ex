@@ -17,8 +17,8 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
   a release that never comes. This check runs when the Orchestrator starts and
   on every tick. It stops a runner when all of these are true: its lease is
   provisioning or active, its owner is alive, no running entry has its pid or
-  its ticket (whatever that entry's shape: working, paused, pause pending,
-  sleeping, completed, deactivated or staged), it runs on this host, and its update recipient is either this Orchestrator or a
+  its ticket while that entry can still own a runner (a live pid, a staged
+  backend replacement, or a pending pause), it runs on this host, and its update recipient is either this Orchestrator or a
   dead process that was registered under this Orchestrator's name. A runner
   that reports to any other process, live or dead, is left alone: it belongs
   to a different Orchestrator (or a test harness), not to this one.
@@ -71,7 +71,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
     if registry_available?(registry) do
       scope = %{
         tracked_pids: tracked_runner_pids(state.running),
-        tracked_issue_ids: MapSet.new(Map.keys(state.running)),
+        tracked_issue_ids: protected_issue_ids(state.running),
         name: own_name()
       }
 
@@ -88,6 +88,22 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
   defp registry_available?(registry) when is_pid(registry), do: Process.alive?(registry)
   defp registry_available?(_registry), do: false
 
+  # A running entry protects its ticket only while it can still own a runner:
+  # its pid is alive (the runner, or a replacement), a backend replacement is
+  # staged, or a pause is pending. A deactivated or completed entry with no
+  # pid had its runner killed synchronously (`AgentTeardown`), so a live lease
+  # holder beside it is an orphan, for example after a rolled-back reactivate.
+  defp protected_issue_ids(running) do
+    Enum.reduce(running, MapSet.new(), fn {issue_id, entry}, ids ->
+      if protects_ticket?(entry), do: MapSet.put(ids, issue_id), else: ids
+    end)
+  end
+
+  defp protects_ticket?(%{pid: pid}) when is_pid(pid), do: Process.alive?(pid)
+  defp protects_ticket?(%{redispatch_safety: safety}) when is_map(safety), do: true
+  defp protects_ticket?(%{pending_pause_reason: reason}) when not is_nil(reason), do: true
+  defp protects_ticket?(_entry), do: false
+
   defp tracked_runner_pids(running) do
     Enum.reduce(running, MapSet.new(), fn
       {_issue_id, %{pid: pid}}, pids when is_pid(pid) -> MapSet.put(pids, pid)
@@ -103,9 +119,9 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
   end
 
   # A tracked runner is rejected on the pid and ticket sets alone, before any
-  # liveness probe. A running entry for the ticket, in any shape, owns it: its
-  # own flow decides when a runner starts or stops. A remote runner is never a
-  # candidate (see the moduledoc).
+  # probe of the owner. A running entry that can still own a runner (see
+  # `protects_ticket?/1`) owns the ticket: its own flow decides when a runner
+  # starts or stops. A remote runner is never a candidate (see the moduledoc).
   defp untracked?(%{owner: owner, holder: %{issue_id: issue_id, update_recipient: recipient} = holder}, scope)
        when is_pid(owner) and is_binary(issue_id) and is_pid(recipient) do
     not MapSet.member?(scope.tracked_pids, owner) and not MapSet.member?(scope.tracked_issue_ids, issue_id) and

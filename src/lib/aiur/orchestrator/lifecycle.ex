@@ -334,18 +334,35 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @doc """
   Pulls the next scheduled tick forward after an event made work dispatchable.
 
-  It only moves a tick that is already scheduled, and never ahead of the
-  GitHub poll floor. An Orchestrator with no pending tick timer either has a
-  poll cycle in flight (whose end schedules the next tick) or has polling
-  disabled or frozen, and an event must not restart polling behind that
-  policy.
+  It only moves a tick that is already scheduled, and only earlier. The new
+  due time is never ahead of the GitHub poll floor, measured from the last
+  dispatch poll. If the pending tick is already due at or before that time,
+  it is left alone, so a burst of events can never keep pushing polling back.
+  An Orchestrator with no pending tick timer either has a poll cycle in flight
+  (whose end schedules the next tick) or has polling disabled or frozen, and
+  an event must not restart polling behind that policy.
   """
   @spec wake_tick(State.t()) :: State.t()
   def wake_tick(%State{tick_timer_ref: timer_ref, poll_frozen: frozen} = state)
-      when is_reference(timer_ref) and frozen != true,
-      do: schedule_tick(state, TrackerHealth.github_next_poll_delay_ms(state) || 0)
+      when is_reference(timer_ref) and frozen != true do
+    now_ms = System.monotonic_time(:millisecond)
+    target_ms = max(now_ms, earliest_poll_at_ms(state, now_ms))
+
+    if is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= target_ms,
+      do: state,
+      else: schedule_tick(state, target_ms - now_ms)
+  end
 
   def wake_tick(%State{} = state), do: state
+
+  defp earliest_poll_at_ms(state, now_ms) do
+    floor_ms = TrackerHealth.github_next_poll_delay_ms(state) || 0
+
+    case state.last_dispatch_poll_at_ms do
+      last_ms when is_integer(last_ms) -> last_ms + floor_ms
+      _never_polled -> now_ms + floor_ms
+    end
+  end
 
   defp schedule_initial_tick(state, false), do: %{state | next_poll_due_at_ms: nil}
   defp schedule_initial_tick(state, _initial_poll?), do: schedule_tick(state, 0)

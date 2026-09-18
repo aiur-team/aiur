@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.State do
           snapshot_ready?: boolean(),
           candidate_snapshot_fresh?: boolean(),
           poll_cycles_completed: non_neg_integer(),
+          last_dispatch_poll_at_ms: integer() | nil,
           queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
@@ -329,6 +330,7 @@ defmodule Aiur.Orchestrator.State do
     # restarted daemon — which has observed no idleness yet — polls at the base
     # interval first instead of starting already backed off (#2138).
     poll_cycles_completed: 0,
+    last_dispatch_poll_at_ms: nil,
     # Tickets queued locally (`aiur --todo`) that the tracker poll has not yet
     # shown, keyed by identifier to the poll-cycle count until which each one
     # still counts as dispatchable demand. The idle backoff must not widen on

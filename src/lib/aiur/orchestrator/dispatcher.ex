@@ -66,6 +66,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
       # observed no idleness, so the idle backoff may only apply from the
       # second scheduling decision onward (#2138).
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
+      # The GitHub poll floor is measured from here, so an event that pulls
+      # the next tick forward cannot land it closer than the floor allows.
+      |> Map.put(:last_dispatch_poll_at_ms, System.monotonic_time(:millisecond))
       # Counted first, then pruned: a hint whose budget this cycle exhausted
       # is dropped here, and a ticket this poll finally showed is dropped
       # because the ordinary demand scan sees it now (#2640).
