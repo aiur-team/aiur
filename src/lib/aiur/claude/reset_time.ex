@@ -8,7 +8,7 @@ defmodule Aiur.Claude.ResetTime do
 
   def parse(hint, now) when is_binary(hint) do
     case DateTime.from_iso8601(hint) do
-      {:ok, time, _offset} -> DateTime.to_iso8601(time)
+      {:ok, time, _offset} -> if DateTime.compare(time, now) == :lt, do: nil, else: DateTime.to_iso8601(time)
       _ -> parse_clock(hint, now)
     end
   end

@@ -23,6 +23,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   alias Aiur.Init.AgentCli
 
   alias Aiur.Orchestrator.{
+    ControlLifecycle,
     Dispatcher,
     PauseResume,
     RemoteControlMode,
@@ -202,7 +203,10 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp reconcile_entry(state, %{issue: %Issue{} = issue} = running_entry, opts) do
-    apply_decision(state, running_entry, issue, decide(running_entry, issue, opts), opts)
+    case ControlLifecycle.current_pending(state.control_lifecycle, issue.id) do
+      %{action: :resume} -> {state, false}
+      _ -> apply_decision(state, running_entry, issue, decide(running_entry, issue, opts), opts)
+    end
   end
 
   defp reconcile_entry(state, _entry, _opts), do: {state, false}

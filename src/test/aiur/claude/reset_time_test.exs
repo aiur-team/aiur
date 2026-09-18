@@ -26,10 +26,19 @@ defmodule Aiur.Claude.ResetTimeTest do
   end
 
   test "keeps explicit timestamps and leaves invalid or zoneless clocks unknown" do
-    assert ResetTime.parse("2026-09-18T00:20:00-07:00") == "2026-09-18T07:20:00Z"
+    assert ResetTime.parse("2026-09-18T00:20:00-07:00", ~U[2026-09-18 07:00:00Z]) ==
+             "2026-09-18T07:20:00Z"
 
     for hint <- [nil, "12:20am", "12:20am (Unknown/Zone)", "13:20pm (Etc/UTC)", "12:99am (Etc/UTC)"] do
       assert ResetTime.parse(hint) == nil
+    end
+  end
+
+  test "repeated expired explicit deadlines stay unknown across recovery polls" do
+    deadline = ~U[2026-09-18 07:20:00Z]
+
+    for seconds <- [1, 30, 60], hint <- ["2026-09-18T07:20:00Z", "2026-09-18T00:20:00-07:00"] do
+      assert ResetTime.parse(hint, DateTime.add(deadline, seconds, :second)) == nil
     end
   end
 end

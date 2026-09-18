@@ -132,7 +132,12 @@ defmodule Aiur.Claude.NotificationPolicy do
     }
   end
 
+  # The app-server puts provider stderr in error. Envelope metadata such as
+  # turn_id is not part of the diagnostic and must not contaminate reset hints.
   @spec error_reason(term()) :: String.t()
+  def error_reason(%{"error" => error}) when is_binary(error), do: error
+  def error_reason(%{error: error}) when is_binary(error), do: error
+
   def error_reason(payload) do
     case payload_text(payload) do
       "" -> "Claude usage limit exhausted"

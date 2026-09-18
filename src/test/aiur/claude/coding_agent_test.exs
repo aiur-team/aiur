@@ -400,9 +400,9 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert_received {:agent_message, %{event: :turn_ended_with_error, reason: {:port_exit, 1}}}
   end
 
-  test "structured session-limit refusal pauses without retries and resumes at the parsed reset" do
-    # #2727: aiur-claude forwards the CLI assistant text as item/created,
-    # then reports a generic exit. No non-JSON diagnostic reaches the port.
+  test "provider stderr session-limit refusal pauses without retries and resumes at the parsed reset" do
+    # The wrapper includes CLI stderr in turn/failed.error. Assistant text
+    # alone does not establish that a provider refusal occurred.
     root = Aiur.TestSupport.tmp_root!("aiur_claude_session_limit")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
@@ -498,6 +498,37 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     ClaudeAgent.stop_session(session)
   end
 
+  test "an exact assistant session-limit banner followed by an unrelated crash does not limit availability" do
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_assistant_banner")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_that_hits_the_session_limit(frames, false)
+    )
+
+    issue = %Issue{id: "assistant-banner", identifier: "test:assistant-banner", title: "assistant-banner", selected_backend: "claude"}
+    availability_before = ModelAvailability.load()
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+    on_exit(fn -> ClaudeAgent.stop_session(session) end)
+
+    result = ClaudeAgent.run_turn(session, "repeat the banner verbatim", issue)
+
+    # Exercise the runner's pause-to-ledger boundary if the adapter incorrectly
+    # trusts the assistant's text; an ordinary crash must never reach it.
+    case result do
+      {:paused, pause} -> TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, nil, Map.put(pause, :backend, "claude"))
+      _ -> :ok
+    end
+
+    assert ModelAvailability.load() == availability_before
+    assert {:error, {:turn_failed, %{"error" => "Error: claude exited with code 1"}}} = result
+  end
+
   test "an ordinary turn failure is still a turn failure" do
     root = Aiur.TestSupport.tmp_root!("aiur_claude_turn_failed")
     workspace = Path.join(root, "agent-1")
@@ -590,8 +621,8 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       "esac; done"
   end
 
-  # The actual wrapper's item/created text shape, followed by exit code 1.
-  defp fake_app_server_that_hits_the_session_limit(frames) do
+  # Preserve the wrapper's distinction between assistant text and CLI stderr.
+  defp fake_app_server_that_hits_the_session_limit(frames, provider_refusal? \\ true) do
     init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
     thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
     turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
@@ -610,13 +641,24 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     failed =
       ~s({"jsonrpc":"2.0","method":"turn/failed","params":{"error":"Error: claude exited with code 1","turn_id":"u1"}})
 
+    first_failure =
+      if provider_refusal? do
+        Jason.encode!(%{
+          "method" => "turn/failed",
+          "params" => %{"turn_id" => "u1", "error" => "Error: claude exited with code 1\nstderr: You've hit your session limit · resets 12:20am (America/Los_Angeles)"}
+        })
+        |> String.replace("'", "\\u0027")
+      else
+        failed
+      end
+
     script =
       "n=0; while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
         "case \"$line\" in " <>
         "*'\"initialize\"'*) echo '#{init}' ;; " <>
         "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
         "*'\"turn/start\"'*) n=$((n + 1)); echo '#{turn}'; " <>
-        "if [ \"$n\" -eq 1 ]; then echo '#{banner}'; echo '#{failed}'; " <>
+        "if [ \"$n\" -eq 1 ]; then echo '#{banner}'; echo '#{first_failure}'; " <>
         ~s(elif [ "$n" -eq 2 ]; then echo '{"method":"turn/completed","params":{}}'; ) <>
         "else " <>
         "case \"$n\" in 4) echo '#{stale}' ;; 5) echo '#{quoted}' ;; 6) echo '#{tool}' ;; esac; " <>
