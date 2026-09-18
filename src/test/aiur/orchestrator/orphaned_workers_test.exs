@@ -88,6 +88,101 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert {:ok, ^lease} = Ownership.current(identifier)
   end
 
+  test "a tracked runner survives repeated ticks on the same lease generation" do
+    %{issue: %Issue{id: issue_id, identifier: identifier}} = prepare_workflow!("tracked")
+    orchestrator = start_supervised!({Orchestrator, []})
+
+    runner = await_runner_holding_lease(orchestrator, issue_id, identifier)
+    {:ok, %{generation: generation}} = Ownership.current(identifier)
+    cycles = :sys.get_state(orchestrator).poll_cycles_completed
+
+    # The runner reports to this Orchestrator and has no dead recipient, so
+    # only its running entry protects it from the scan.
+    for tick <- 1..2 do
+      _ = Orchestrator.request_refresh(orchestrator)
+      assert eventually(fn -> :sys.get_state(orchestrator).poll_cycles_completed >= cycles + tick end, 10_000)
+    end
+
+    assert Process.alive?(runner)
+    assert %{pid: ^runner} = :sys.get_state(orchestrator).running[issue_id]
+    assert {:ok, %{generation: ^generation}} = Ownership.current(identifier)
+  end
+
+  test "a remote runner whose recipient died is left to release its own lease" do
+    identifier = "ORPH-REMOTE-#{System.unique_integer([:positive])}"
+    dead_recipient = spawn(fn -> :ok end)
+    ref = Process.monitor(dead_recipient)
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+
+    owner = claim_in_process(identifier, %{issue_id: "issue-#{identifier}", update_recipient: dead_recipient, worker_host: "remote-a"})
+    {:ok, lease} = Ownership.current(identifier)
+
+    orchestrator = start_supervised!({Orchestrator, initial_poll?: false})
+    _ = Orchestrator.request_refresh(orchestrator)
+    state = :sys.get_state(orchestrator)
+
+    assert Process.alive?(owner)
+    assert {:ok, ^lease} = Ownership.current(identifier)
+    refute Map.has_key?(state.dispatch_recovery.workspace_ownership.waits, identifier)
+  end
+
+  test "a guardian that does not answer cannot stall the Orchestrator" do
+    dead_recipient = spawn(fn -> :ok end)
+    ref = Process.monitor(dead_recipient)
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+
+    orphan_id = "ORPH-STALL-#{System.unique_integer([:positive])}"
+    tracked_id = "ORPH-BUSY-#{System.unique_integer([:positive])}"
+    orphan = claim_in_process(orphan_id, %{issue_id: "issue-#{orphan_id}", update_recipient: dead_recipient, worker_host: nil})
+    busy = claim_in_process(tracked_id, %{issue_id: "issue-#{tracked_id}", update_recipient: self(), worker_host: nil})
+    {:ok, orphan_lease} = Ownership.current(orphan_id)
+    {:ok, busy_lease} = Ownership.current(tracked_id)
+
+    # Freeze both guardians, as a guardian blocked in the ownership store is.
+    guardians = [orphan_lease.guardian, busy_lease.guardian]
+    Enum.each(guardians, &:erlang.suspend_process/1)
+    on_exit(fn -> Enum.each(guardians, &resume_if_alive/1) end)
+
+    orphan_ref = Process.monitor(orphan)
+    {init_us, orchestrator} = :timer.tc(fn -> start_supervised!({Orchestrator, initial_poll?: false}) end)
+
+    {tick_us, _state} =
+      :timer.tc(fn ->
+        _ = Orchestrator.request_refresh(orchestrator)
+        :sys.get_state(orchestrator)
+      end)
+
+    assert init_us < 2_000_000
+    assert tick_us < 1_000_000
+    assert_receive {:DOWN, ^orphan_ref, :process, ^orphan, _reason}, 1_000
+    assert Process.alive?(busy)
+
+    # Once the guardian answers again, it releases the stopped generation.
+    Enum.each(guardians, &resume_if_alive/1)
+    assert eventually(fn -> Ownership.current(orphan_id) == :none end, 5_000)
+    assert eventually(fn -> not Map.has_key?(:sys.get_state(orchestrator).dispatch_recovery.workspace_ownership.waits, orphan_id) end, 5_000)
+  end
+
+  defp claim_in_process(identifier, holder) do
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        send(parent, {:claimed, Ownership.claim(identifier, Aiur.Workspace.Ownership.Registry, holder: holder)})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:claimed, {:ok, _lease}}, 5_000
+    on_exit(fn -> Process.exit(owner, :kill) end)
+    owner
+  end
+
+  defp resume_if_alive(pid) do
+    :erlang.resume_process(pid)
+  rescue
+    ArgumentError -> :ok
+  end
+
   # Waits until `orchestrator` tracks a live runner for the ticket and that
   # runner holds the ticket's lease with `orchestrator` as its update target.
   defp await_runner_holding_lease(orchestrator, issue_id, identifier) do

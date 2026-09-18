@@ -379,6 +379,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # store the acknowledged guardian generation that is allowed to release it.
   defp synchronize_workspace_wait(state, identifier, :available), do: release_workspace_wait(state, identifier)
 
+  # The caller already knows the exact generation and subscribes on its own,
+  # so the Orchestrator never blocks on a guardian that is slow to answer.
+  defp synchronize_workspace_wait(state, identifier, {:bound, guardian, generation})
+       when is_pid(guardian) and is_integer(generation),
+       do: bind_workspace_wait(state, identifier, guardian, generation)
+
   defp synchronize_workspace_wait(state, identifier, _wait) do
     case Ownership.wait_for_release(identifier, self()) do
       :available -> release_workspace_wait(state, identifier)

@@ -47,7 +47,8 @@ defmodule Aiur.Workspace.Ownership.Guardian do
             %{provider_expected?: false, provider: nil, provider_cleanup: :not_started},
             opts
           )
-          |> Map.merge(%{owner: owner, holder: holder_metadata(opts)})
+
+        publish_holder(registry, lease, owner, opts)
 
         case persist_state(state) do
           :ok ->
@@ -56,6 +57,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
             loop(state)
 
           {:error, reason} ->
+            Registry.unregister(registry, holder_key(ticket))
             Registry.unregister(registry, ticket)
             send(owner, {:workspace_guardian_claimed, self(), {:error, {:workspace_ownership_unavailable, reason}}})
         end
@@ -110,19 +112,27 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
       host_lock: Map.get(receipt, :host_lock),
       reaping?: false,
-      release_requested?: false,
-      # A restored receipt has no live owner in this VM, so it has nothing a
-      # caller could stop or rebind; only a claimed generation fills these.
-      owner: nil,
-      holder: %{}
+      release_requested?: false
     }
   end
 
-  defp holder_metadata(opts) do
-    case Keyword.get(opts, :holder) do
-      holder when is_map(holder) -> holder
-      _other -> %{}
-    end
+  @doc false
+  @spec holder_key(String.t()) :: {:holder, String.t()}
+  def holder_key(ticket), do: {:holder, ticket}
+
+  # A claimed generation publishes its live owner and claim metadata as a
+  # second registry entry, so a reader can find untracked owners with an ETS
+  # read and never has to call a guardian that may be blocked in the store.
+  # A restored receipt has no live owner in this VM and publishes nothing.
+  defp publish_holder(registry, lease, owner, opts) do
+    holder =
+      case Keyword.get(opts, :holder) do
+        holder when is_map(holder) -> holder
+        _other -> %{}
+      end
+
+    _ = Registry.register(registry, holder_key(lease.ticket), %{generation: lease.generation, owner: owner, holder: holder})
+    :ok
   end
 
   defp loop(state) do
@@ -190,10 +200,6 @@ defmodule Aiur.Workspace.Ownership.Guardian do
           loop(state)
         end
 
-      {:workspace_guardian_call, from, ref, {:holder, generation}} ->
-        reply(from, ref, holder(state, generation))
-        loop(state)
-
       {:workspace_guardian_call, from, ref, {:wait_for_release, recipient}} when is_pid(recipient) ->
         # Store the waiter before acknowledging it. The acknowledgement carries
         # this exact generation so a subscriber can reject an ABA replacement.
@@ -202,6 +208,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         loop(next)
 
       {:DOWN, owner_ref, :process, _owner, _reason} when owner_ref == state.owner_ref ->
+        Registry.unregister(state.registry, holder_key(state.lease.ticket))
         maybe_release_or_reap(%{state | owner_dead?: true})
 
       {:workspace_guardian_reaped, kind, identifier} ->
@@ -214,15 +221,6 @@ defmodule Aiur.Workspace.Ownership.Guardian do
         loop(state)
     end
   end
-
-  # Only a live claimed generation reports its holder. Once the owner is dead
-  # the guardian alone decides when the lease ends, so there is no holder left
-  # to stop or adopt.
-  defp holder(%{lease: %{generation: generation}, owner_dead?: false, owner: owner} = state, generation)
-       when is_pid(owner),
-       do: {:ok, %{owner: owner, holder: state.holder}}
-
-  defp holder(_state, _generation), do: {:error, :workspace_ownership_lost}
 
   defp continue_after_provider_update(%{owner_dead?: true} = state), do: maybe_release_or_reap(state)
   defp continue_after_provider_update(state), do: loop(state)
@@ -562,6 +560,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       :ok ->
         HostLock.release(state.host_lock)
         final_lease = %{state.lease | phase: :released}
+        Registry.unregister(state.registry, holder_key(state.lease.ticket))
         Registry.unregister(state.registry, state.lease.ticket)
         emit_telemetry(%{state | lease: final_lease}, :end, :released)
 

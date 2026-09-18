@@ -9,6 +9,7 @@ defmodule Aiur.OrchestratorStatusTest do
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.TicketActivity.Projection
+  alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
     CiLifecycle,
@@ -1069,8 +1070,12 @@ defmodule Aiur.OrchestratorStatusTest do
 
       todo_workspace = Path.join([workspace_root, "owner", "repo", "586"])
       in_progress_workspace = Path.join([workspace_root, "owner", "repo", "587"])
+      leased_todo_identifier = "leased-todo-#{System.unique_integer([:positive])}"
+      leased_todo_workspace = Path.join([workspace_root, "owner", "repo", leased_todo_identifier])
       File.mkdir_p!(todo_workspace)
       File.mkdir_p!(in_progress_workspace)
+      File.mkdir_p!(leased_todo_workspace)
+      File.write!(Path.join(leased_todo_workspace, "dirty.txt"), "leased")
       File.write!(Path.join(todo_workspace, "dirty.txt"), "leftover")
       File.write!(Path.join(in_progress_workspace, "dirty.txt"), "keep")
 
@@ -1089,8 +1094,21 @@ defmodule Aiur.OrchestratorStatusTest do
 
       Application.put_env(:aiur, :startup_cleanup_issues, [
         %Issue{id: "issue-586", identifier: "586", title: "Todo", state: "todo"},
-        %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"}
+        %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"},
+        %Issue{id: "issue-leased", identifier: leased_todo_identifier, title: "Leased", state: "todo"}
       ])
+
+      # A lease still held on a todo ticket (a stopped runner mid-reap) owns
+      # its checkout, so startup cleanup must leave that workspace alone.
+      parent = self()
+
+      lease_owner =
+        spawn(fn ->
+          send(parent, {:leased, Ownership.claim(leased_todo_identifier)})
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive {:leased, {:ok, _lease}}, 5_000
 
       # `todo` is NOT a terminal state, so this startup cleanup must remove the
       # stale workspace WITHOUT clearing the resume handle — a re-dispatched todo
@@ -1107,6 +1125,8 @@ defmodule Aiur.OrchestratorStatusTest do
       refute File.exists?(todo_workspace)
       assert File.exists?(in_progress_workspace)
       assert File.read!(Path.join(in_progress_workspace, "dirty.txt")) == "keep"
+      assert File.read!(Path.join(leased_todo_workspace, "dirty.txt")) == "leased"
+      Process.exit(lease_owner, :kill)
       # Non-terminal cleanup leaves the resume handle intact.
       assert {:ok, %{thread_id: "thread-keep"}} = SessionHandle.load("586", "claude-repl")
     after

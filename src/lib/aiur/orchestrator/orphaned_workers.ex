@@ -16,9 +16,12 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
   Either way a redispatch of the ticket finds the workspace owned and waits for
   a release that never comes. This check runs when the Orchestrator starts and
   on every tick. It stops a runner when all of these are true: its lease is
-  live, its owner is alive, no running entry has its pid, and its update
-  recipient is this Orchestrator or a dead process. A runner that reports to
-  some other live process is left alone.
+  provisioning or active, its owner is alive, no running entry has its pid, it
+  runs on this host, and its update recipient is this Orchestrator or a dead
+  process. A runner that reports to some other live process is left alone.
+
+  The scan reads only the ownership registry (ETS) and never calls a guardian,
+  so a guardian that is busy in the ownership store cannot stall a tick.
 
   The runner is stopped, not adopted. Its update target is fixed at spawn and
   threaded through the whole turn loop, and this Orchestrator has none of the
@@ -36,11 +39,16 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
   The workspace is kept. Commits and uncommitted edits from the stopped session
   stay in place for the redispatched session.
 
+  A runner on a remote worker host is not stopped. Its guardian cannot prove a
+  remote cwd unused after the owner dies, so it would retain the lease forever
+  and the ticket would never be redispatched. Such a runner keeps running and
+  releases through its own `release_and_wait` when it finishes, as before.
+
   If no running entry owns the ticket, it is parked in the workspace-ownership
-  wait, so a poll cannot dispatch into the lease before the guardian releases
-  it. The release moves the ticket to the ready set and schedules an immediate
-  tick, and the redispatch claims the workspace without contention. If a
-  running entry already owns the ticket, that entry's own flow redispatches it.
+  wait, bound to the stopped generation. A separate process subscribes for the
+  release, and the release moves the ticket to the ready set and schedules an
+  immediate tick. If a running entry already owns the ticket, that entry's own
+  flow redispatches it.
 
   All functions execute inside the orchestrator GenServer process.
   """
@@ -61,8 +69,9 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
       tracked_pids = tracked_runner_pids(state.running)
 
       registry
-      |> Ownership.leases()
-      |> Enum.reduce(state, &stop_if_untracked(&1, &2, tracked_pids))
+      |> Ownership.holders()
+      |> Enum.filter(&untracked?(&1, tracked_pids))
+      |> Enum.reduce(state, &stop_if_current(&1, &2, registry))
     else
       state
     end
@@ -79,42 +88,37 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
     end)
   end
 
-  defp stop_if_untracked(%{ticket: identifier} = lease, %State{} = state, tracked_pids) when is_binary(identifier) do
-    case untracked_holder(lease, tracked_pids) do
-      {:ok, owner, holder} -> stop_runner(state, lease, owner, holder)
-      :tracked -> state
-    end
+  # A tracked runner is rejected on the pid set alone, before any liveness
+  # probe. A remote runner is never a candidate (see the moduledoc). A runner
+  # that reports to another live process belongs to that process.
+  defp untracked?(%{owner: owner, holder: %{issue_id: issue_id, update_recipient: recipient} = holder}, tracked_pids)
+       when is_pid(owner) and is_binary(issue_id) and is_pid(recipient) do
+    not MapSet.member?(tracked_pids, owner) and not remote?(holder) and Process.alive?(owner) and
+      (recipient == self() or not Process.alive?(recipient))
   end
 
-  defp stop_if_untracked(_lease, state, _tracked_pids), do: state
+  defp untracked?(_entry, _tracked_pids), do: false
 
-  defp untracked_holder(%{phase: phase} = lease, tracked_pids) when phase in [:provisioning, :active] do
-    case Ownership.holder(lease) do
-      {:ok, %{owner: owner, holder: %{issue_id: issue_id, update_recipient: recipient} = holder}}
-      when is_pid(owner) and is_binary(issue_id) and is_pid(recipient) ->
-        if untracked?(owner, recipient, tracked_pids), do: {:ok, owner, holder}, else: :tracked
+  defp remote?(holder), do: is_binary(Map.get(holder, :worker_host))
+
+  # Confirm against the lease itself: the holder entry must describe the
+  # generation that currently owns the ticket, in a phase a live owner holds.
+  defp stop_if_current(%{ticket: identifier, generation: generation} = entry, %State{} = state, registry) do
+    case Ownership.current(identifier, registry) do
+      {:ok, %{generation: ^generation, phase: phase} = lease} when phase in [:provisioning, :active] ->
+        stop_runner(state, lease, entry.owner, entry.holder)
 
       _other ->
-        :tracked
+        state
     end
-  end
-
-  defp untracked_holder(_lease, _tracked_pids), do: :tracked
-
-  # A dead owner is already being reaped by its guardian. A runner that reports
-  # to another live process belongs to that process, not to this Orchestrator.
-  defp untracked?(owner, recipient, tracked_pids) do
-    Process.alive?(owner) and not MapSet.member?(tracked_pids, owner) and
-      (recipient == self() or not Process.alive?(recipient))
   end
 
   defp stop_runner(%State{} = state, lease, owner, holder) do
     identifier = lease.ticket
-    issue_id = holder.issue_id
 
     Logger.warning(
       "Stopping an agent runner that holds a workspace lease but has no running entry; it will be redispatched " <>
-        "issue_id=#{issue_id} issue_identifier=#{identifier} runner=#{inspect(owner)} " <>
+        "issue_id=#{holder.issue_id} issue_identifier=#{identifier} runner=#{inspect(owner)} " <>
         "update_recipient=#{inspect(holder.update_recipient)} workspace_generation=#{lease.generation}"
     )
 
@@ -127,14 +131,35 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
     if Map.has_key?(state.running, issue_id) or Map.has_key?(state.dispatch_recovery.workspace_ownership.waits, lease.ticket) do
       state
     else
-      RetryEngine.wait_for_workspace_ownership(
-        state,
-        issue_id,
-        lease.ticket,
-        {:ok, lease},
-        :waiting,
-        %{worker_host: Map.get(holder, :worker_host), prior_work: Config.agent_prior_work_continuation?()}
-      )
+      state =
+        RetryEngine.wait_for_workspace_ownership(
+          state,
+          issue_id,
+          lease.ticket,
+          {:ok, lease},
+          {:bound, lease.guardian, lease.generation},
+          %{worker_host: Map.get(holder, :worker_host), prior_work: Config.agent_prior_work_continuation?()}
+        )
+
+      subscribe_for_release(lease, self())
+      state
     end
+  end
+
+  # `Ownership.wait_for_release/2` blocks its caller until the guardian
+  # acknowledges, so it runs in its own process. A guardian-bound release is
+  # delivered straight to the Orchestrator. If the subscription finds the lease
+  # already gone, or bound to another generation, the Orchestrator gets the
+  # unbound availability message, which lifts the wait; a later owner then
+  # makes the redispatch contend and wait through the normal path.
+  defp subscribe_for_release(%{ticket: identifier, guardian: guardian, generation: generation}, orchestrator) do
+    spawn(fn ->
+      case Ownership.wait_for_release(identifier, orchestrator) do
+        {:waiting, ^guardian, ^generation} -> :ok
+        _available_or_other -> send(orchestrator, {:workspace_ownership_available, identifier, :none, nil})
+      end
+    end)
+
+    :ok
   end
 end
