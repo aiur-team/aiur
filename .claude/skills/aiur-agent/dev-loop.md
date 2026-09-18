@@ -281,7 +281,8 @@ blocking finding is the only enforcement they have.
    relabelled as this self-clearing condition.
 
    Immediately before pushing, run
-   `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. The command fetches the exact
+   `guard-pr-deletions "$AIUR_BASE_BRANCH"` from the provisioned
+   `.aiur-runtime/bin` on PATH (bundled with the daemon release). The command fetches the exact
    configured base and refuses a PR when its tree deletes more than 50 base
    files that none of the feature commits touched. Never bypass a refusal:
    repair the wrong or stale base, or alert the Executor.

@@ -55,6 +55,30 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert File.stat!(mix_wrapper).inode == mix_inode
   end
 
+  test "provisioned deletion guard resolves on PATH and is required before a turn" do
+    workspace = Aiur.TestSupport.tmp_root!("aiur-provision-deletion-guard")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> File.rm_rf(workspace) end)
+
+    assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
+    bin = Aiur.AgentGitHubGuard.bin_dir(workspace)
+    guard = Path.join(bin, "guard-pr-deletions")
+    env = [{"PATH", bin <> ":" <> System.get_env("PATH")}, {"AIUR_BASE_BRANCH", nil}]
+
+    assert {resolved, 0} = System.cmd("sh", ["-c", "command -v guard-pr-deletions"], cd: workspace, env: env)
+    assert String.trim(resolved) == guard
+
+    assert {output, 2} = System.cmd("sh", ["-c", "guard-pr-deletions"], cd: workspace, env: env, stderr_to_stdout: true)
+    assert output =~ "base branch is required (argument or AIUR_BASE_BRANCH)"
+    assert Aiur.AgentGitHubGuard.missing_workspace_support(workspace) == []
+
+    File.rm!(guard)
+    assert Aiur.AgentGitHubGuard.missing_workspace_support(workspace) == [".aiur-runtime/bin/guard-pr-deletions"]
+    assert :ok = Provisioner.ensure_local_agent_support(workspace)
+    assert Aiur.AgentGitHubGuard.missing_workspace_support(workspace) == []
+    assert File.regular?(guard)
+  end
+
   @tag @linux_only
   test "bulk workspace creation caps external POSIX after_create child builds" do
     test_root = Aiur.TestSupport.tmp_root!("workspace-build-gate")
