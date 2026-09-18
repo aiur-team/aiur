@@ -296,6 +296,12 @@ means direct-only, always. Routing through OpenRouter is something you write.
 
 #### What happens when a route fails
 
+A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured, eligible fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+
+An expired explicit reset timestamp is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
+
+Claude clock hints with an IANA timezone are converted to UTC; unknown reset times require a fresh recovery observation.
+
 | Cause | Behaviour |
 | --- | --- |
 | **No API key configured** | The route is skipped at selection time and the next entry is used. Named once at startup in the log, not per claim. If *every* entry lacks its key, aiur fails loudly rather than dispatching nothing. |
