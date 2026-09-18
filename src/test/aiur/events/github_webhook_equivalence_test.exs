@@ -303,7 +303,9 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
                topic: ^topic,
                action: "ready_for_review",
                pr: %{"number" => 902, "draft" => false, "head" => %{"sha" => "ready-head"}}
-             } = await_event(topic)
+             } = event = await_event(topic)
+
+      refute Map.has_key?(event, :observation)
 
       refute_receive {:event, %{topic: ^topic}}, 100
 
@@ -371,9 +373,11 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
 
       assert_received {:history_read, url}
       assert url =~ "/repos/owner/repo/issues/905/events"
-      assert %{pr: %{"number" => 905, "head" => %{"sha" => "ready-head"}}} = await_event(topic)
+      assert %{observation: "initial_sync", pr: %{"number" => 905, "head" => %{"sha" => "ready-head"}}} = await_event(topic)
 
-      _state = poll_draft_flag(state, "60", 905, "ready-head", false, history)
+      assert state.pr_ready_ledger[{"60", 905}] == {:announced, "ready-head"}
+      clear_replay_window()
+      _after_restart = poll_draft_flag(%State{}, "60", 905, "ready-head", false, history)
       refute_receive {:event, %{topic: ^topic}}, 100
       refute_received {:history_read, _url}
     end

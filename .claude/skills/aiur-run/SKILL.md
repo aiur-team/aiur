@@ -204,7 +204,7 @@ if [ ! -f "$wake_path" ]; then
 fi
 
 tail -F -n0 "$wake_path" \
-  | jq -rc --unbuffered 'select((.topic_class // "") | test("branch\\.push|pr\\.ready_for_review|pr\\.opened|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-")"'
+  | jq -rc --unbuffered 'select((.topic_class // "") | test("branch\\.push|pr\\.ready_for_review|pr\\.opened|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-") observation=\(.observation // "-")"'
 ```
 
 Each detail is a trap someone already hit: `tail -F` (follow by name), not
@@ -288,6 +288,8 @@ applies. It reconciles a compile-time set of reviewed bindings on every start:
   `ticket.*.agent.paused`, `ticket.*.agent.error.tokens_exhausted`,
   `ticket.*.agent.retry_exhausted`, `ticket.*.pr.parked_ready`, and
   `ticket.*.ci.{passed,failed}`
+
+Treat `ready_for_review` wakes marked `observation: "initial_sync"` as "review if not already reviewed"; they backfill first-sight history rather than signal a new transition.
 
 The `executor.*` journal retains its own replay watermark. Non-Executor events
 are projected into identifier-only records and appended to a separate durable
