@@ -18,6 +18,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
   @operator_message_call_timeout_ms 5_000
+  # Pause reasons that mean the worker itself is waiting for input (#2730).
+  @input_pause_reasons [:agent_pause_request, :input_required]
 
   @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
@@ -364,7 +366,10 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   defp claim_resume_input(state, identifier) do
     entry = State.find_running_by_identifier(state.running, identifier)
     item_id = if entry, do: Map.get(entry, :resume_input_id)
-    {store, item} = AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, &(&1.id == item_id))
+
+    {store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, &(&1.id == item_id))
+
     state = clear_resume_input(state, entry)
 
     if item do
@@ -693,18 +698,27 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  # A pending self-pause still reports working until the worker confirms it.
-  # Queue the answer before superseding that pause, so the resume drains the
-  # answer first. Correlated answers must never lift an operator/global hold.
+  # A plain operator message resumes any confirmed pause, as before (#2730
+  # leaves that path unchanged). A worker's own request for input also ends
+  # when the input arrives: a correlated answer or a plain message resumes it,
+  # even while the pause is still pending confirmation (control still reports
+  # working). Queue the input before superseding that pause, so the resume
+  # drains it first. This path never lifts an operator, label, or global hold.
+  # A confirmed pause with no recorded reason is a legacy entry; an answer
+  # resumed it before #2730 and still does.
   defp message_resumes_pause?(state, entry, request) do
-    pending_reason = get_in(entry, [:pending_pause_reason, :reason])
-    pause_reason = pending_reason || Map.get(entry, :paused_reason)
-    paused? = State.paused_running_entry?(entry) or pending_reason == :agent_pause_request
-
-    paused? and not state.globally_paused and
-      (request.mode == :plain or pause_reason == :agent_pause_request) and
-      not Aiur.Issue.paused?(Map.get(entry, :issue))
+    paused? = State.paused_running_entry?(entry)
+    (paused? and request.mode == :plain) or self_pause_ends_on_input?(state, entry, paused?)
   end
+
+  defp self_pause_ends_on_input?(state, entry, true = _paused?),
+    do: Map.get(entry, :paused_reason) in [nil | @input_pause_reasons] and no_hold?(state, entry)
+
+  defp self_pause_ends_on_input?(state, entry, false = _paused?),
+    do: get_in(entry, [:pending_pause_reason, :reason]) in @input_pause_reasons and no_hold?(state, entry)
+
+  defp no_hold?(state, entry),
+    do: not state.globally_paused and not Aiur.Issue.paused?(Map.get(entry, :issue))
 
   # Mirrors `enqueue_after_resume/5` for the `:deactivated → :working`
   # transition. The fresh agent task spawned by `reactivate_issue/2`
