@@ -2975,11 +2975,12 @@ defmodule Aiur.DecisionStore do
     end
   end
 
-  # An attempt whose dispatch timed out (`:unknown`), or an older build's
-  # `orchestrator_timeout` failure, has no queue item on record. If an item
-  # with that attempt id reaches the gate, the Orchestrator did queue it after
-  # the caller gave up. It is adopted as that attempt, the same way as an item
-  # with no attempt record, instead of being refused as a mismatch (#2717).
+  # An attempt with no queue item on record is adoptable: an `:unknown`
+  # (timed-out) attempt, or any dispatch-level failure, such as an older
+  # build's `orchestrator_timeout`. An item that carries that attempt id proves
+  # the Orchestrator queued it after the caller gave up or saw an error, so it
+  # is adopted as that attempt, the same way as an item with no attempt record,
+  # instead of being refused as a mismatch (#2717).
   defp adoptable_attempt?(%{queue_item_id: nil, status: status}) when status in [:unknown, :failed], do: true
   defp adoptable_attempt?(_attempt), do: false
 

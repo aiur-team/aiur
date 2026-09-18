@@ -87,17 +87,6 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  @doc """
-  Default idempotency key for an Executor message: the target and the trimmed
-  text. It is used with `message_id_scope: :recent`, so it replays a copy that
-  is still queued or was queued a few minutes ago, not an old one.
-  """
-  @spec content_message_id(String.t(), String.t()) :: String.t()
-  def content_message_id(issue_identifier, text) when is_binary(issue_identifier) and is_binary(text) do
-    digest = :crypto.hash(:sha256, [issue_identifier, 0, String.trim(text)])
-    "content:" <> Base.encode16(digest, case: :lower)
-  end
-
   @doc false
   @spec operator_message_call_timeout_ms() :: pos_integer()
   def operator_message_call_timeout_ms,
@@ -499,7 +488,6 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       correlation: if(mode == :correlated, do: Map.get(payload, :correlation)),
       retry_failed: mode == :correlated and Map.get(payload, :retry_failed, false) == true,
       message_id: if(mode == :plain, do: payload_key(payload, :message_id)),
-      message_id_scope: message_id_scope(payload),
       mode: mode
     }
 
@@ -572,29 +560,23 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   # A keyed plain message is idempotent by its message id (#2717): a retry
   # after a caller-side timeout returns the item the first call queued
-  # instead of queueing a second copy.
-  defp replay_existing_correlated_message(state, _issue_identifier, _text, %{mode: :plain, message_id: message_id} = request)
+  # instead of queueing a second copy. The id names one user action, so a
+  # different target or text under the same id is refused, never replayed.
+  defp replay_existing_correlated_message(state, issue_identifier, text, %{mode: :plain, message_id: message_id})
        when is_binary(message_id) do
     case AgentQueueStore.find_by_message_id(state.queue_store, message_id) do
       nil ->
         :continue
 
       existing ->
-        if AgentQueueStore.replayable?(existing, request.message_id_scope),
+        if AgentQueueStore.same_message?(existing, %{target_issue_identifier: issue_identifier, body: %{text: text}}),
           do: {:handled, {{:ok, existing.id}, state}},
-          else: :continue
+          else: {:handled, {{:error, {:message_id_conflict, existing.id}}, state}}
     end
   end
 
   defp replay_existing_correlated_message(_state, _issue_identifier, _text, _request),
     do: :continue
-
-  defp message_id_scope(payload) do
-    case Map.get(payload, :message_id_scope) do
-      :recent -> :recent
-      _explicit -> :any
-    end
-  end
 
   # A correlated answer that resolves to an already-enqueued item short-circuits
   # `enqueue_for_running_entry/5` — and with it the paused-agent wake that path
@@ -698,16 +680,24 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   end
 
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain} = request) do
-    {queue_store, item} = enqueue_plain(state.queue_store, attrs, request)
-    record_operator_queued_evidence(item)
-    DeliveryPolicy.notify_running_queue_update(running_entry, item)
+    case enqueue_plain(state.queue_store, attrs, request) do
+      {:ok, queue_store, item, :accepted} ->
+        record_operator_queued_evidence(item)
+        DeliveryPolicy.notify_running_queue_update(running_entry, item)
 
-    next_state =
-      %{state | queue_store: queue_store}
-      |> maybe_replace_completed_runner(running_entry)
-      |> LifecycleFence.protect_queued_item(item.target_issue_identifier, item)
+        next_state =
+          %{state | queue_store: queue_store}
+          |> maybe_replace_completed_runner(running_entry)
+          |> LifecycleFence.protect_queued_item(item.target_issue_identifier, item)
 
-    {{:ok, item.id}, next_state}
+        {{:ok, item.id}, next_state}
+
+      {:ok, queue_store, item, :duplicate} ->
+        {{:ok, item.id}, %{state | queue_store: queue_store}}
+
+      {:error, _reason} = error ->
+        {error, state}
+    end
   end
 
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :correlated} = request) do
@@ -730,15 +720,13 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  defp enqueue_plain(queue_store, attrs, %{message_id: message_id, message_id_scope: scope})
-       when is_binary(message_id) do
-    {queue_store, item, _status} =
-      AgentQueueStore.enqueue_idempotent(queue_store, Map.put(attrs, :message_id, message_id), scope)
+  defp enqueue_plain(queue_store, attrs, %{message_id: message_id}) when is_binary(message_id),
+    do: AgentQueueStore.enqueue_idempotent(queue_store, Map.put(attrs, :message_id, message_id))
 
-    {queue_store, item}
+  defp enqueue_plain(queue_store, attrs, _request) do
+    {queue_store, item} = AgentQueueStore.enqueue(queue_store, attrs)
+    {:ok, queue_store, item, :accepted}
   end
-
-  defp enqueue_plain(queue_store, attrs, _request), do: AgentQueueStore.enqueue(queue_store, attrs)
 
   defp maybe_replace_completed_runner(state, running_entry) do
     case Map.get(running_entry, :issue) do

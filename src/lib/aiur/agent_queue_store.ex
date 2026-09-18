@@ -37,8 +37,6 @@ defmodule Aiur.AgentQueueStore do
           optional(:subscription) => map()
         }
 
-  @recent_replay_ms 600_000
-
   @spec new() :: t()
   def new, do: %__MODULE__{}
 
@@ -106,42 +104,30 @@ defmodule Aiur.AgentQueueStore do
   return the item that key already created (#2717).
 
   A caller whose send timed out cannot know if the first call queued the
-  message, so it retries with the same key. `scope: :any` replays the existing
-  item in every state (an explicit, caller-owned id). `scope: :recent` replays
-  it while it is pending or for #{div(@recent_replay_ms, 60_000)} minutes after it was queued, so
-  a key derived from the message content covers an operator retry but not a
-  deliberate re-send much later.
+  message, so it retries with the same key and gets the same item back. The
+  key belongs to one user action: a replay must carry the same target and
+  text, or it is refused as a conflict. It never returns a different message.
   """
-  @spec enqueue_idempotent(t(), enqueue_attrs(), :any | :recent) ::
-          {t(), AgentQueueItem.t(), :accepted | :duplicate}
-  def enqueue_idempotent(%__MODULE__{} = store, %{message_id: message_id} = attrs, scope)
-      when is_binary(message_id) and scope in [:any, :recent] do
+  @spec enqueue_idempotent(t(), enqueue_attrs()) ::
+          {:ok, t(), AgentQueueItem.t(), :accepted | :duplicate} | {:error, {:message_id_conflict, integer()}}
+  def enqueue_idempotent(%__MODULE__{} = store, %{message_id: message_id} = attrs) when is_binary(message_id) do
     case find_by_message_id(store, message_id) do
-      %AgentQueueItem{} = existing ->
-        if replayable?(existing, scope),
-          do: {store, existing, :duplicate},
-          else: enqueue_keyed(store, attrs, message_id)
-
       nil ->
-        enqueue_keyed(store, attrs, message_id)
+        {store, item} = enqueue(store, attrs)
+        {:ok, %{store | item_id_by_message_id: Map.put(store.item_id_by_message_id, message_id, item.id)}, item, :accepted}
+
+      %AgentQueueItem{} = existing ->
+        if same_message?(existing, attrs),
+          do: {:ok, store, existing, :duplicate},
+          else: {:error, {:message_id_conflict, existing.id}}
     end
   end
 
-  defp enqueue_keyed(store, attrs, message_id) do
-    {store, item} = enqueue(store, attrs)
-    {%{store | item_id_by_message_id: Map.put(store.item_id_by_message_id, message_id, item.id)}, item, :accepted}
+  @doc "True when `attrs` is a replay of `item`: the same target and the same text."
+  @spec same_message?(AgentQueueItem.t(), map()) :: boolean()
+  def same_message?(%AgentQueueItem{} = item, attrs) when is_map(attrs) do
+    item.target_issue_identifier == Map.get(attrs, :target_issue_identifier) and item.body == Map.get(attrs, :body)
   end
-
-  @doc "True when a keyed send with this scope must return `item` instead of queueing a copy."
-  @spec replayable?(AgentQueueItem.t(), :any | :recent) :: boolean()
-  def replayable?(%AgentQueueItem{}, :any), do: true
-
-  def replayable?(%AgentQueueItem{status: :pending}, :recent), do: true
-
-  def replayable?(%AgentQueueItem{inserted_at: %DateTime{} = inserted_at}, :recent),
-    do: DateTime.diff(DateTime.utc_now(), inserted_at, :millisecond) <= @recent_replay_ms
-
-  def replayable?(%AgentQueueItem{}, _scope), do: false
 
   @spec find_by_message_id(t(), String.t()) :: AgentQueueItem.t() | nil
   def find_by_message_id(%__MODULE__{} = store, message_id) when is_binary(message_id) do

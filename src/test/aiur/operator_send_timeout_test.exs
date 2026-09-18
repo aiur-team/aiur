@@ -192,20 +192,68 @@ defmodule Aiur.OperatorSendTimeoutTest do
       assert :empty = OperatorMessages.claim_next_queue_item(orchestrator, @identifier)
     end
 
-    test "a content key replays a recent copy but not an old delivered one" do
-      key = OperatorMessages.content_message_id(@identifier, "  ship it ")
-      assert key == OperatorMessages.content_message_id(@identifier, "ship it")
-      refute key == OperatorMessages.content_message_id("other", "ship it")
+    # Executors repeat short replies such as "continue". Without a message id,
+    # each send is its own message, even after the first was delivered.
+    test "the same text sent twice without a message id queues two messages" do
+      {orchestrator, _orchestrator_pid} = start_orchestrator!(:SameTextTwice)
+      payload = %{kind: :text, body: "continue"}
 
-      attrs = Map.put(Aiur.AgentQueue.operator_message(@identifier, "ship it"), :message_id, key)
-      {store, first, :accepted} = AgentQueueStore.enqueue_idempotent(AgentQueueStore.new(), attrs, :recent)
-      {store, ^first, :duplicate} = AgentQueueStore.enqueue_idempotent(store, attrs, :recent)
+      assert {:ok, first_id} = OperatorMessages.send_operator_message(orchestrator, @identifier, payload)
+      assert {:ok, %{id: ^first_id}} = OperatorMessages.claim_next_queue_item(orchestrator, @identifier)
+      assert :ok = OperatorMessages.mark_queue_item_consumed(orchestrator, first_id)
 
-      old = %{first | status: :consumed, inserted_at: DateTime.add(DateTime.utc_now(), -3_600, :second)}
-      store = %{store | items: Map.put(store.items, first.id, old)}
-      assert {_store, second, :accepted} = AgentQueueStore.enqueue_idempotent(store, attrs, :recent)
-      refute second.id == first.id
-      assert {_store, ^old, :duplicate} = AgentQueueStore.enqueue_idempotent(store, attrs, :any)
+      assert {:ok, second_id} = OperatorMessages.send_operator_message(orchestrator, @identifier, payload)
+      refute second_id == first_id
+      assert_receive {:agent_queue_updated, @identifier, ^first_id, _delivery}, 1_000
+      assert_receive {:agent_queue_updated, @identifier, ^second_id, _delivery}, 1_000
+      assert {:ok, %{id: ^second_id}} = OperatorMessages.claim_next_queue_item(orchestrator, @identifier)
+    end
+
+    # The facade the dashboard, Stream Deck and opencode use adds no key of
+    # its own, so a repeated "continue" is never folded into the first one.
+    test "AgentChat sends the same text twice as two messages" do
+      free_global_orchestrator_name!()
+      {Orchestrator, _orchestrator_pid} = start_orchestrator!({:name, Orchestrator})
+
+      assert {:ok, first_id} = Aiur.AgentChat.send(@identifier, "continue")
+      assert {:ok, second_id} = Aiur.AgentChat.send(@identifier, "continue")
+      refute second_id == first_id
+
+      # Only the caller's own id makes a repeat a retry of the same send.
+      assert {:ok, third_id} = Aiur.AgentChat.send(@identifier, "continue", message_id: "press-1")
+      assert {:ok, ^third_id} = Aiur.AgentChat.send(@identifier, "continue", message_id: "press-1")
+      refute third_id in [first_id, second_id]
+    end
+
+    # A message id names one send. Reusing it for other text is a caller
+    # error, and it must never report the other message as this send.
+    test "a message id reused for different text is refused, not replayed" do
+      {orchestrator, _orchestrator_pid} = start_orchestrator!(:IdConflict)
+
+      assert {:ok, first_id} =
+               OperatorMessages.send_operator_message(orchestrator, @identifier, %{kind: :text, body: "yes", message_id: "m-1"})
+
+      assert {:error, {:message_id_conflict, ^first_id}} =
+               OperatorMessages.send_operator_message(orchestrator, @identifier, %{kind: :text, body: "no", message_id: "m-1"})
+
+      assert {:ok, ^first_id} =
+               OperatorMessages.send_operator_message(orchestrator, @identifier, %{kind: :text, body: "yes", message_id: "m-1"})
+
+      assert {:ok, %{id: ^first_id}} = OperatorMessages.claim_next_queue_item(orchestrator, @identifier)
+      assert :empty = OperatorMessages.claim_next_queue_item(orchestrator, @identifier)
+    end
+
+    test "the queue store replays only the same target and text under one message id" do
+      attrs = Map.put(Aiur.AgentQueue.operator_message(@identifier, "ship it"), :message_id, "m-2")
+      {:ok, store, first, :accepted} = AgentQueueStore.enqueue_idempotent(AgentQueueStore.new(), attrs)
+      assert {:ok, ^store, ^first, :duplicate} = AgentQueueStore.enqueue_idempotent(store, attrs)
+
+      other_text = Map.put(Aiur.AgentQueue.operator_message(@identifier, "hold"), :message_id, "m-2")
+      assert {:error, {:message_id_conflict, first_id}} = AgentQueueStore.enqueue_idempotent(store, other_text)
+      assert first_id == first.id
+
+      other_target = Map.put(Aiur.AgentQueue.operator_message("other", "ship it"), :message_id, "m-2")
+      assert {:error, {:message_id_conflict, ^first_id}} = AgentQueueStore.enqueue_idempotent(store, other_target)
     end
   end
 
@@ -219,6 +267,19 @@ defmodule Aiur.OperatorSendTimeoutTest do
     {decision, action}
   end
 
+  # AgentChat always calls the globally named Orchestrator, so the test
+  # borrows that name and gives it back afterwards.
+  defp free_global_orchestrator_name! do
+    original = Process.whereis(Orchestrator)
+    if is_pid(original), do: Process.unregister(Orchestrator)
+
+    on_exit(fn ->
+      if is_pid(original) and Process.alive?(original) and is_nil(Process.whereis(Orchestrator)) do
+        Process.register(original, Orchestrator)
+      end
+    end)
+  end
+
   defp start_store!(dir, opts) do
     defaults = [name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, reconcile_delay_ms: 5_000]
     {:ok, pid} = DecisionStore.start_link(Keyword.merge(defaults, opts))
@@ -226,8 +287,10 @@ defmodule Aiur.OperatorSendTimeoutTest do
     pid
   end
 
-  defp start_orchestrator!(suffix) do
-    name = Module.concat(__MODULE__, suffix)
+  defp start_orchestrator!({:name, name}), do: start_named_orchestrator!(name)
+  defp start_orchestrator!(suffix), do: start_named_orchestrator!(Module.concat(__MODULE__, suffix))
+
+  defp start_named_orchestrator!(name) do
     {:ok, pid} = Orchestrator.start_link(name: name)
     parent = self()
     worker_pid = spawn(fn -> worker_probe(parent) end)

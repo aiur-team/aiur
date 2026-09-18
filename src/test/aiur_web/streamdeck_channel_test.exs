@@ -983,6 +983,29 @@ defmodule AiurWeb.StreamdeckChannelTest do
       assert_received {:sent, "AIUR-1", "ship the fix"}
     end
 
+    # #2717. The sidecar sends one id per say press; the channel passes it on
+    # so a re-sent frame cannot queue a copy, and an unknown outcome is named.
+    test "passes the say press message id to delivery and names an unknown outcome" do
+      test_pid = self()
+
+      put_endpoint_config(
+        agent_chat_send_fun: fn identifier, text, opts ->
+          send(test_pid, {:sent, identifier, text, Keyword.fetch!(opts, :message_id)})
+          {:error, {:outcome_unknown, %{message_id: Keyword.fetch!(opts, :message_id), item_id: nil}}}
+        end
+      )
+
+      socket = joined_socket()
+      say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "continue", "message_id" => "press-1"})
+
+      assert_reply(say, :error, %{reason: "outcome_unknown"})
+      assert_received {:sent, "AIUR-1", "continue", "press-1"}
+
+      plain = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "continue"})
+      assert_reply(plain, :error, %{reason: "outcome_unknown"})
+      assert_received {:sent, "AIUR-1", "continue", nil}
+    end
+
     test "surfaces a delivery error as a reason string" do
       put_endpoint_config(agent_chat_send_fun: fn _identifier, _text -> {:error, :no_agent} end)
 

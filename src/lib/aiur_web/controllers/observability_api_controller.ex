@@ -8,7 +8,6 @@ defmodule AiurWeb.ObservabilityApiController do
   alias Aiur.AgentEventFeed
   alias Aiur.Claude.HookEvents
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.PollCadence
   alias AiurWeb.{Endpoint, Presenter, StreamDeckGrid}
   alias Plug.Conn
@@ -181,21 +180,16 @@ defmodule AiurWeb.ObservabilityApiController do
 
   defp legacy_snapshot_error(payload), do: payload
 
-  # Every API send is keyed, so a client retry after a timeout cannot queue a
-  # second copy (#2717). A client `message_id` is strict; without one the key
-  # is derived from the target and text and covers a prompt retry only.
+  # `message_id` is optional (#2717). A client that sends one gets its retry
+  # deduplicated: the same id, target and text return the first item. Without
+  # one, every request is a new message.
   defp send_operator_message(issue_identifier, text, message_id) do
-    {message_id, scope} =
-      if is_binary(message_id) and message_id != "",
-        do: {message_id, :any},
-        else: {OperatorMessages.content_message_id(issue_identifier, to_string(text)), :recent}
+    payload = %{kind: :text, body: text}
 
-    Orchestrator.send_operator_message(orchestrator(), issue_identifier, %{
-      kind: :text,
-      body: text,
-      message_id: message_id,
-      message_id_scope: scope
-    })
+    payload =
+      if is_binary(message_id) and message_id != "", do: Map.put(payload, :message_id, message_id), else: payload
+
+    Orchestrator.send_operator_message(orchestrator(), issue_identifier, payload)
   end
 
   defp pause_agent(issue_identifier),
@@ -211,18 +205,25 @@ defmodule AiurWeb.ObservabilityApiController do
   end
 
   # A timeout is an unknown outcome, not a failure: the daemon may still queue
-  # the message (#2717). 202 tells the client the send may be in progress, and
-  # a retry with the same `message_id` is safe.
+  # the message (#2717). 202 tells the client the send may be in progress. A
+  # retry is safe only with the same `message_id`, so `retry_safe` says if the
+  # request carried one.
   defp render_send_message_response({:error, {:outcome_unknown, info}}, conn, issue_identifier) do
+    message_id = Map.get(info, :message_id)
+
     conn
     |> put_status(202)
     |> json(%{
       outcome: "unknown",
       request_id: Map.get(info, :item_id),
-      message_id: Map.get(info, :message_id),
+      message_id: message_id,
       issue_identifier: issue_identifier,
-      retry_safe: true
+      retry_safe: is_binary(message_id)
     })
+  end
+
+  defp render_send_message_response({:error, {:message_id_conflict, _item_id}}, conn, _issue_identifier) do
+    error_response(conn, 409, "message_id_conflict", "message_id was already used for a different message")
   end
 
   defp render_send_message_response({:error, :no_running_agent}, conn, _issue_identifier) do

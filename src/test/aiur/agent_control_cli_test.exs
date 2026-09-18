@@ -2946,10 +2946,14 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   # #2717. The daemon may still queue a message after the send timed out, so a
-  # timeout is an unknown outcome. It must not read as a failed send.
-  test "message reports a timed-out send as outcome unknown, not as a failure", %{orchestrator: pid} do
-    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
-      {:error, {:outcome_unknown, %{message_id: "content:abc", item_id: nil}}}
+  # timeout is an unknown outcome. It must not read as a failed send, and it
+  # must name the one retry that is safe: the same command with this send's id.
+  test "message reports a timed-out send as outcome unknown with the exact retry command", %{orchestrator: pid} do
+    parent = self()
+
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text, opts ->
+      send(parent, {:message_id, Keyword.fetch!(opts, :message_id)})
+      {:error, {:outcome_unknown, %{message_id: Keyword.fetch!(opts, :message_id), item_id: nil}}}
     end)
 
     on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
@@ -2960,16 +2964,46 @@ defmodule Aiur.AgentControlCLITest do
 
     stderr =
       capture_io(:stderr, fn ->
-        output = capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
+        output = capture_io(fn -> AgentControlCLI.message("44", "don't stop") end)
+        assert_receive {:message_id, "cli-" <> _ = message_id}
 
         assert output =~ "aiur: outcome unknown for message to #44"
-        assert output =~ "will not queue a duplicate"
+        assert output =~ "(message id #{message_id})"
+        assert output =~ ~s(run: aiur message 44 --message-id #{message_id} 'don'\\''t stop')
+        refute output =~ "will not queue a duplicate"
         refute output =~ "failed to message"
         refute output =~ "__AIUR_CONTROL_ERROR__"
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       end)
 
     refute stderr =~ "failed"
+  end
+
+  test "message sends a given --message-id and a new id for each plain send", %{orchestrator: pid} do
+    parent = self()
+
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, text, opts ->
+      send(parent, {:sent, text, Keyword.fetch!(opts, :message_id)})
+      {:ok, 7}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+    stub_message_delivery_status({:ok, :delivered})
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    capture_io(fn ->
+      AgentControlCLI.message("44", "continue", "retry-1")
+      AgentControlCLI.message("44", "continue")
+      AgentControlCLI.message("44", "continue")
+    end)
+
+    assert_receive {:sent, "continue", "retry-1"}
+    assert_receive {:sent, "continue", "cli-" <> _ = second}
+    assert_receive {:sent, "continue", "cli-" <> _ = third}
+    refute second == third
   end
 
   test "message to a non-running issue fails with a clear error" do

@@ -7,7 +7,6 @@ defmodule Aiur.AgentChat do
 
   alias Aiur.Opencode.SlotRegistry
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.OperatorMessages
   alias Aiur.TrackerIdentity
 
   @spec send(String.t() | TrackerIdentity.t(), String.t()) :: {:ok, integer()} | {:error, term()}
@@ -20,11 +19,15 @@ defmodule Aiur.AgentChat do
   def send(issue_identifier, text, opts) when is_binary(issue_identifier) and is_binary(text),
     do: do_send(issue_identifier, issue_identifier, text, opts)
 
+  # `opts[:message_id]` names one user action (#2717). A caller that may retry
+  # after a timeout creates it once and passes the same id on its retry, which
+  # then returns the first item instead of queueing a copy. Without an id,
+  # every send is a new message.
   defp do_send(target, issue_identifier, text, opts) do
     delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
     fallback = Keyword.get(opts, :fallback, :queue_next)
     turn_id = Keyword.get(opts, :turn_id)
-    {message_id, message_id_scope} = message_key(issue_identifier, text, opts)
+    message_id = Keyword.get(opts, :message_id)
 
     Logger.info("AgentChat.send issue=#{issue_identifier} bytes=#{byte_size(text)} body=#{inspect(preview(text))}")
 
@@ -37,8 +40,7 @@ defmodule Aiur.AgentChat do
           delivery_policy: delivery_policy,
           fallback: fallback,
           turn_id: turn_id,
-          message_id: message_id,
-          message_id_scope: message_id_scope
+          message_id: message_id
         }
       )
 
@@ -46,21 +48,10 @@ defmodule Aiur.AgentChat do
     result
   end
 
-  # Every send carries an idempotency key, so a retry after a timeout cannot
-  # queue a second copy (#2717). A caller-supplied `:message_id` is strict. The
-  # default key is derived from the target and the text and replays only a
-  # pending or recent copy, so the same text sent much later is new.
-  defp message_key(issue_identifier, text, opts) do
-    case Keyword.get(opts, :message_id) do
-      message_id when is_binary(message_id) and message_id != "" -> {message_id, :any}
-      _default -> {OperatorMessages.content_message_id(issue_identifier, text), :recent}
-    end
-  end
-
   # A caller-side timeout is not a failure: the Orchestrator may still queue the
   # message (#2717). It is logged as an unknown outcome, never as failed.
   defp log_send_result(issue_identifier, {:error, {:outcome_unknown, info}}) do
-    Logger.warning("AgentChat.send issue=#{issue_identifier} outcome unknown after timeout: #{inspect(info)}; a retry is safe")
+    Logger.warning("AgentChat.send issue=#{issue_identifier} outcome unknown after timeout: #{inspect(info)}")
   end
 
   defp log_send_result(issue_identifier, {:error, _reason} = result) do
