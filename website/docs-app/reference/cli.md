@@ -154,6 +154,8 @@ Human output prints the same state as `80% (last known 12m ago)`, measured from 
 
 A member closed without completing (not planned, duplicate, cancelled) is resolved 0% regardless of any earlier reading. Catalog root completion is lifecycle-derived and does not carry these fields.
 
+`aiur build-orders <root>` starts the first GitHub read of a root that has no graph yet, the same as opening `/build-orders/<root>` does. You do not need the Dashboard open. While that read runs, `data.graph.status` and `sources.planning_graph.state` are `loading`. Run the command again to get the graph. `provider_unavailable` means that a read failed.
+
 Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 
 Fleet-capacity and build-gate evidence have independent source states: stale fleet

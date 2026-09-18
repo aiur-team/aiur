@@ -77,6 +77,17 @@ defmodule Aiur.BuildOrder.GraphProjection do
     GenServer.cast(server, {:refresh_selected, identity})
   end
 
+  @doc """
+  Whether a caller holding `snapshot` may ask for another read at `now`.
+
+  `refresh/2` is a stated need and does not consult backoff, so a caller that
+  asks on every poll uses this to avoid restarting a read that has just failed
+  or that the provider asked to be retried later. It is the same rule the
+  projection applies to its own retries.
+  """
+  @spec read_due?(Snapshot.t(), DateTime.t()) :: boolean()
+  def read_due?(%Snapshot{health: health}, %DateTime{} = now), do: Policy.retry_due?(health, now)
+
   @spec release(GenServer.server(), TrackerIdentity.t()) :: :ok | {:error, Failure.t()}
   def release(server \\ __MODULE__, identity), do: GenServer.call(server, {:release, identity})
 
@@ -691,10 +702,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  defp retry_due?(%{health: %{next_retry_at: nil}}, _state), do: true
-
-  defp retry_due?(%{health: %{next_retry_at: next_retry_at}}, state),
-    do: DateTime.compare(now(state), next_retry_at) != :lt
+  defp retry_due?(%{health: health}, state), do: Policy.retry_due?(health, now(state))
 
   defp request_scope(state, scope, opts \\ []) do
     entry = scope_entry(state, scope)
