@@ -17,6 +17,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   alias Aiur.Orchestrator.OperatorMessages.{Capabilities, DeliveryPolicy}
   @max_operator_message_chars 8_000
+  @operator_message_call_timeout_ms 5_000
 
   @spec send_operator_message(String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
@@ -25,8 +26,26 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   @spec send_operator_message(GenServer.server(), String.t() | TrackerIdentity.t(), map()) ::
           {:ok, integer()} | {:error, term()}
-  def send_operator_message(server, issue_identifier, payload),
-    do: control_api_call(server, {:send_operator_message, issue_identifier, payload}, 5_000)
+  def send_operator_message(server, issue_identifier, payload) do
+    timeout = operator_message_call_timeout_ms()
+
+    server
+    |> control_api_call({:send_operator_message, issue_identifier, payload}, timeout)
+    |> reconcile_send_timeout(
+      server,
+      {:message_id, payload_key(payload, :message_id)},
+      timeout,
+      &{:ok, &1.id},
+      expected_message(issue_identifier, payload)
+    )
+  end
+
+  # The lookup after a timeout must prove the item is this send, not an older
+  # message that reused the id with other text (#2717).
+  defp expected_message(issue_identifier, %{body: body}) when is_binary(body),
+    do: %{target: issue_identifier, text: body}
+
+  defp expected_message(_issue_identifier, _payload), do: nil
 
   @doc "Send one idempotent action-correlated Executor message and return its queue snapshot."
   @spec send_correlated_operator_message(String.t(), map()) ::
@@ -38,8 +57,59 @@ defmodule Aiur.Orchestrator.OperatorMessages do
   @spec send_correlated_operator_message(GenServer.server(), String.t(), map()) ::
           {:ok, %{status: :accepted | :duplicate | :retried, item: Aiur.AgentQueueItem.t()}}
           | {:error, term()}
-  def send_correlated_operator_message(server, issue_identifier, payload),
-    do: control_api_call(server, {:send_correlated_operator_message, issue_identifier, payload}, 5_000)
+  def send_correlated_operator_message(server, issue_identifier, payload) do
+    timeout = operator_message_call_timeout_ms()
+
+    server
+    |> control_api_call({:send_correlated_operator_message, issue_identifier, payload}, timeout)
+    |> reconcile_send_timeout(
+      server,
+      {:action_id, payload_key(payload, :action_id)},
+      timeout,
+      &{:ok, %{status: :duplicate, item: &1}}
+    )
+  end
+
+  # A caller-side timeout does not mean the Orchestrator dropped the send: the
+  # call stays in its mailbox and can still queue the item seconds later
+  # (#2717). The lookup is sent from the same process to the same server, so
+  # it is handled after the send. If it finds the item, the send is reported
+  # with that item. If it proves no item exists, nothing was queued. If it
+  # also times out, the outcome is unknown, never a failure, and a retry with
+  # the same key is safe because enqueue is idempotent by that key.
+  defp reconcile_send_timeout(result, server, lookup, timeout, found, expected \\ nil)
+
+  defp reconcile_send_timeout({:error, :timeout}, server, {_kind, key} = lookup, timeout, found, expected)
+       when is_binary(key) do
+    case control_api_call(server, lookup_request(lookup, expected), timeout) do
+      {:ok, item} -> found.(item)
+      {:error, :unknown_message} -> {:error, {:not_queued, :timeout}}
+      {:error, {:message_id_conflict, _item_id}} = conflict -> conflict
+      {:error, _reason} -> {:error, {:outcome_unknown, outcome_unknown_info(lookup)}}
+    end
+  end
+
+  defp reconcile_send_timeout({:error, :timeout}, _server, lookup, _timeout, _found, _expected),
+    do: {:error, {:outcome_unknown, outcome_unknown_info(lookup)}}
+
+  defp reconcile_send_timeout(result, _server, _lookup, _timeout, _found, _expected), do: result
+
+  defp lookup_request(lookup, nil), do: {:lookup_operator_message, lookup}
+  defp lookup_request(lookup, expected), do: {:lookup_operator_message, lookup, expected}
+
+  defp outcome_unknown_info({kind, key}), do: %{kind => key, item_id: nil}
+
+  defp payload_key(payload, key) do
+    case Map.get(payload, key) do
+      value when is_binary(value) and value != "" -> value
+      _other -> nil
+    end
+  end
+
+  @doc false
+  @spec operator_message_call_timeout_ms() :: pos_integer()
+  def operator_message_call_timeout_ms,
+    do: Application.get_env(:aiur, :operator_message_call_timeout_ms, @operator_message_call_timeout_ms)
 
   @doc """
   Read the queue status of one enqueued operator message by its request id.
@@ -345,6 +415,51 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
+  @doc "Find the queue item a keyed send created: by message id, or by decision action id."
+  @spec lookup_operator_message_call(State.t(), {:message_id | :action_id, String.t()}) ::
+          {:reply, {:ok, Aiur.AgentQueueItem.t()} | {:error, :unknown_message}, State.t()}
+  def lookup_operator_message_call(%State{} = state, {kind, key}) when is_binary(key) do
+    item =
+      case kind do
+        :message_id -> AgentQueueStore.find_by_message_id(state.queue_store, key)
+        :action_id -> AgentQueueStore.find_by_action(state.queue_store, key)
+      end
+
+    case item do
+      nil -> {:reply, {:error, :unknown_message}, state}
+      item -> {:reply, {:ok, item}, state}
+    end
+  end
+
+  @doc """
+  Find the item a keyed plain send created, and check it is that send: the
+  same target and text. An id reused for other text is a conflict (#2717).
+  """
+  @spec lookup_operator_message_call(State.t(), {:message_id, String.t()}, %{target: term(), text: String.t()}) ::
+          {:reply, {:ok, Aiur.AgentQueueItem.t()} | {:error, term()}, State.t()}
+  def lookup_operator_message_call(%State{} = state, {:message_id, _key} = lookup, %{target: target, text: text}) do
+    case lookup_operator_message_call(state, lookup) do
+      {:reply, {:ok, item}, state} ->
+        expected = %{target_issue_identifier: lookup_target(state, target), body: %{text: String.trim(text)}}
+
+        if AgentQueueStore.same_message?(item, expected),
+          do: {:reply, {:ok, item}, state},
+          else: {:reply, {:error, {:message_id_conflict, item.id}}, state}
+
+      reply ->
+        reply
+    end
+  end
+
+  defp lookup_target(_state, target) when is_binary(target), do: target
+
+  defp lookup_target(state, %TrackerIdentity{} = identity) do
+    case State.find_unique_running_by_identity(state.running, identity) do
+      {:ok, _entry, issue_identifier} -> issue_identifier
+      {:error, _reason} -> identity.identifier
+    end
+  end
+
   @spec mark_queue_item_consumed_call(State.t(), integer()) :: {:reply, :ok, State.t()}
   def mark_queue_item_consumed_call(%State{} = state, item_id) when is_integer(item_id) do
     update_queue_store(state, &AgentQueueStore.mark_consumed(&1, item_id), :consumed)
@@ -420,6 +535,7 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       action_id: if(mode == :correlated, do: Map.get(payload, :action_id)),
       correlation: if(mode == :correlated, do: Map.get(payload, :correlation)),
       retry_failed: mode == :correlated and Map.get(payload, :retry_failed, false) == true,
+      message_id: if(mode == :plain, do: payload_key(payload, :message_id)),
       mode: mode
     }
 
@@ -487,6 +603,23 @@ defmodule Aiur.Orchestrator.OperatorMessages do
           {:error, _reason} = error ->
             {:handled, {error, state}}
         end
+    end
+  end
+
+  # A keyed plain message is idempotent by its message id (#2717): a retry
+  # after a caller-side timeout returns the item the first call queued
+  # instead of queueing a second copy. The id names one user action, so a
+  # different target or text under the same id is refused, never replayed.
+  defp replay_existing_correlated_message(state, issue_identifier, text, %{mode: :plain, message_id: message_id})
+       when is_binary(message_id) do
+    case AgentQueueStore.find_by_message_id(state.queue_store, message_id) do
+      nil ->
+        :continue
+
+      existing ->
+        if AgentQueueStore.same_message?(existing, %{target_issue_identifier: issue_identifier, body: %{text: text}}),
+          do: {:handled, {{:ok, existing.id}, state}},
+          else: {:handled, {{:error, {:message_id_conflict, existing.id}}, state}}
     end
   end
 
@@ -594,17 +727,25 @@ defmodule Aiur.Orchestrator.OperatorMessages do
     end
   end
 
-  defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain}) do
-    {queue_store, item} = AgentQueueStore.enqueue(state.queue_store, attrs)
-    record_operator_queued_evidence(item)
-    DeliveryPolicy.notify_running_queue_update(running_entry, item)
+  defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :plain} = request) do
+    case enqueue_plain(state.queue_store, attrs, request) do
+      {:ok, queue_store, item, :accepted} ->
+        record_operator_queued_evidence(item)
+        DeliveryPolicy.notify_running_queue_update(running_entry, item)
 
-    next_state =
-      %{state | queue_store: queue_store}
-      |> maybe_replace_completed_runner(running_entry)
-      |> LifecycleFence.protect_queued_item(item.target_issue_identifier, item)
+        next_state =
+          %{state | queue_store: queue_store}
+          |> maybe_replace_completed_runner(running_entry)
+          |> LifecycleFence.protect_queued_item(item.target_issue_identifier, item)
 
-    {{:ok, item.id}, next_state}
+        {{:ok, item.id}, next_state}
+
+      {:ok, queue_store, item, :duplicate} ->
+        {{:ok, item.id}, %{state | queue_store: queue_store}}
+
+      {:error, _reason} = error ->
+        {error, state}
+    end
   end
 
   defp finish_operator_enqueue(state, running_entry, attrs, %{mode: :correlated} = request) do
@@ -625,6 +766,14 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       {:error, _reason} = error ->
         {error, state}
     end
+  end
+
+  defp enqueue_plain(queue_store, attrs, %{message_id: message_id}) when is_binary(message_id),
+    do: AgentQueueStore.enqueue_idempotent(queue_store, Map.put(attrs, :message_id, message_id))
+
+  defp enqueue_plain(queue_store, attrs, _request) do
+    {queue_store, item} = AgentQueueStore.enqueue(queue_store, attrs)
+    {:ok, queue_store, item, :accepted}
   end
 
   defp maybe_replace_completed_runner(state, running_entry) do
@@ -788,14 +937,25 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       AgentEvents.transcript_event(:user, text,
         turn_id: item.turn_id,
         payload: %{
-          operator_message: %{
-            request_id: request_id,
-            status: :queued
-          }
+          operator_message:
+            %{request_id: request_id, status: :queued}
+            |> put_decision_id(item)
         }
       )
     )
   end
+
+  # The echo is written when the message is queued, not when the agent gets
+  # it, so the ticket log labels it with its queue item and, for a Decision
+  # answer, the decision id (#2717). Delivery is logged separately below.
+  defp put_decision_id(evidence, %{correlation: correlation}) when is_map(correlation) do
+    case Map.get(correlation, :decision_id, Map.get(correlation, "decision_id")) do
+      decision_id when is_binary(decision_id) -> Map.put(evidence, :decision_id, decision_id)
+      _other -> evidence
+    end
+  end
+
+  defp put_decision_id(evidence, _item), do: evidence
 
   defp record_provider_delivery_evidence(
          %{

@@ -73,7 +73,7 @@ defmodule Aiur.Decision do
           attempt_id: String.t(),
           queue_item_id: pos_integer() | nil,
           run_id: String.t(),
-          status: :queued | :delivered | :restored | :consumed | :failed,
+          status: :queued | :delivered | :restored | :consumed | :failed | :unknown,
           attempted_at: DateTime.t(),
           queued_at: DateTime.t() | nil,
           handed_off_at: DateTime.t() | nil,

@@ -359,6 +359,30 @@ defmodule AiurEngineTest do
     refute out =~ "sweep"
   end
 
+  # #2717. `--message-id` names one send, so the retry the CLI prints after an
+  # unknown outcome reaches the daemon with the same id.
+  test "message passes --message-id to the control RPC and validates it" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|run_control_rpc() { echo "RPC=$1"; }; cmd_message 44 --message-id cli-1a2b continue now; | <>
+          ~S|cmd_message 44 --message-id=x.y:z yes; cmd_message 44 plain text; | <>
+          ~S|if (cmd_message 44 --message-id 'bad id' x) 2>/dev/null; then echo "BAD=0"; else echo "BAD=$?"; fi; | <>
+          ~S|if (cmd_message 44 --message-id "" x) 2>/dev/null; then echo "EMPTY=0"; else echo "EMPTY=$?"; fi; | <>
+          ~S|if (cmd_message 44 --message-id= x) 2>/dev/null; then echo "EMPTY_EQ=0"; else echo "EMPTY_EQ=$?"; fi|,
+        []
+      )
+
+    encoded = Base.encode64("continue now")
+    assert out =~ ~s|RPC=Aiur.AgentControlCLI.message("44", Base.decode64!("#{encoded}"), "cli-1a2b")|
+    assert out =~ ~s|Base.decode64!("#{Base.encode64("yes")}"), "x.y:z")|
+    assert out =~ ~s|RPC=Aiur.AgentControlCLI.message("44", Base.decode64!("#{Base.encode64("plain text")}"))|
+    assert out =~ "BAD=64"
+    # An empty id is an error, never a silent fallback to a plain send.
+    assert out =~ "EMPTY=64"
+    assert out =~ "EMPTY_EQ=64"
+    refute out =~ ~s|Base.decode64!("#{Base.encode64("x")}"))|
+  end
+
   test "an incomplete dev release returns the retryable control code" do
     rel = fake_release()
     state = tmp_state()

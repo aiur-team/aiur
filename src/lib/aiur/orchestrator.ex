@@ -854,6 +854,14 @@ defmodule Aiur.Orchestrator do
       when is_integer(item_id),
       do: OM.operator_message_status_call(state, item_id)
 
+  def handle_call({:lookup_operator_message, {kind, key} = lookup}, _from, state)
+      when kind in [:message_id, :action_id] and is_binary(key),
+      do: OM.lookup_operator_message_call(state, lookup)
+
+  def handle_call({:lookup_operator_message, {:message_id, key} = lookup, %{target: _, text: text} = expected}, _from, state)
+      when is_binary(key) and is_binary(text),
+      do: OM.lookup_operator_message_call(state, lookup, expected)
+
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: OM.claim_next_queue_item_call(state, issue_identifier)

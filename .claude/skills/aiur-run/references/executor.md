@@ -294,6 +294,7 @@ ticket it will not pick up:
 1. inspect `aiurdev watch --full`, `aiurdev alerts --needs-attention`, the
    ticket/PR, and the agent workpad/log evidence;
 2. send a concise, ticket-specific message with `aiurdev message <id> <text>`;
+   exit 124 = outcome unknown: check the ticket log first, then retry only with the printed `--message-id` command, never a plain resend (a plain resend now queues a second copy).
 3. correct labels, dependency state, or queue state only when the authoritative
    source proves it is wrong and the authority envelope permits it; in a GitHub
    workflow, shelve an undispatched ticket with the `agent:paused` tracker

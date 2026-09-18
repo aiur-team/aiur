@@ -173,10 +173,10 @@ defmodule AiurWeb.StreamdeckChannel do
   # a deep failure, so this channel trims the text and refuses an empty or
   # over-long dictation up front (see `validate_message/1`), which the dashboard
   # chat box does not do.
-  def handle_in("say", %{"identifier" => identifier, "text" => text}, %{assigns: %{streamdeck_authenticated: true}} = socket)
+  def handle_in("say", %{"identifier" => identifier, "text" => text} = payload, %{assigns: %{streamdeck_authenticated: true}} = socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 and is_binary(text) do
     case validate_message(String.trim(text)) do
-      {:ok, message} -> reply_to_say(identifier, message, socket)
+      {:ok, message} -> reply_to_say(identifier, message, say_message_id(payload), socket)
       {:error, reason} -> {:reply, {:error, %{reason: reason}}, socket}
     end
   end
@@ -413,12 +413,21 @@ defmodule AiurWeb.StreamdeckChannel do
     end
   end
 
-  defp reply_to_say(identifier, message, socket) do
-    case send_agent_message(identifier, message) do
+  defp reply_to_say(identifier, message, message_id, socket) do
+    case send_agent_message(identifier, message, message_id) do
       {:ok, request_id} -> {:reply, {:ok, %{"request_id" => request_id}}, socket}
+      {:error, {:outcome_unknown, _info}} -> {:reply, {:error, %{reason: "outcome_unknown"}}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
+
+  # The sidecar sends one id per say press and reuses it when it re-pushes the
+  # same frame, so a re-push after a timeout cannot queue a copy (#2717).
+  defp say_message_id(%{"message_id" => message_id})
+       when is_binary(message_id) and byte_size(message_id) in 1..128,
+       do: message_id
+
+  defp say_message_id(_payload), do: nil
 
   # Atom/binary reasons (`:no_agent`, `:message_too_long`) render as the bare
   # word the device shows; anything structured falls back to `inspect/1` rather
@@ -452,10 +461,11 @@ defmodule AiurWeb.StreamdeckChannel do
 
   # Same injection seam as the dashboard's chat box (`DashboardLive`), so tests
   # can observe delivery without a live orchestrator.
-  defp send_agent_message(identifier, message) do
+  defp send_agent_message(identifier, message, message_id) do
     case Endpoint.config(:agent_chat_send_fun) do
+      fun when is_function(fun, 3) -> fun.(identifier, message, message_id: message_id)
       fun when is_function(fun, 2) -> fun.(identifier, message)
-      _fun -> AgentChat.send(identifier, message)
+      _fun -> AgentChat.send(identifier, message, message_id: message_id)
     end
   end
 

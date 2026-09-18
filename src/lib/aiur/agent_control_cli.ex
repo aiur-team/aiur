@@ -1215,27 +1215,38 @@ defmodule Aiur.AgentControlCLI do
     Application.get_env(:aiur, :agent_control_cli_set_global_pause_fun, &Orchestrator.set_global_pause/2).(on?, source)
   end
 
-  @spec message(String.t(), String.t()) :: :ok
-  def message(issue, text) when is_binary(issue) and is_binary(text) do
+  @doc """
+  Send Executor text to one running agent.
+
+  `message_id` names this one send (#2717). When it is `nil`, a new id is
+  created. If the daemon does not answer in time, the output prints the id
+  and the exact command that retries this send without queueing a copy.
+  """
+  @spec message(String.t(), String.t(), String.t() | nil) :: :ok
+  def message(issue, text, message_id \\ nil) when is_binary(issue) and is_binary(text) do
+    message_id = if is_binary(message_id) and message_id != "", do: message_id, else: new_message_id()
+
     guarded("message", fn ->
       issue
-      |> message_status(text, control_status_snapshot())
+      |> message_status(text, message_id, control_status_snapshot())
       |> exit_marker()
     end)
   end
 
-  defp message_status(issue, text, statuses) when is_list(statuses) do
+  defp new_message_id, do: "cli-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+  defp message_status(issue, text, message_id, statuses) when is_list(statuses) do
     case Enum.find(statuses, &target_matches?(&1, issue)) do
       nil ->
         print_failure(:message, %{identifier: issue, issue_id: issue}, :no_running_agent)
         1
 
       status ->
-        deliver_message(status, text)
+        deliver_message(status, issue, text, message_id)
     end
   end
 
-  defp message_status(_issue, _text, error) when error in [:timeout, :unavailable] do
+  defp message_status(_issue, _text, _message_id, error) when error in [:timeout, :unavailable] do
     print_orchestrator_status_error(error)
     control_query_exit_code(error)
   end
@@ -1243,17 +1254,31 @@ defmodule Aiur.AgentControlCLI do
   # Empty/whitespace-only and over-long text are validated downstream by
   # Orchestrator.send_operator_message (the shared delivery path), which returns
   # {:error, :empty_message | :message_too_long}; we surface those via format_reason.
-  defp deliver_message(status, text) do
-    case send_message(canonical_identifier(status), text) do
+  defp deliver_message(status, issue, text, message_id) do
+    case send_message(canonical_identifier(status), text, message_id) do
       {:ok, request_id} ->
         report_message_outcome(status, request_id, await_message_delivery(request_id))
         0
+
+      # The daemon did not answer in time, but it may still queue the message
+      # (#2717). That is an unknown outcome, not a failure. Only a retry with
+      # this send's message id is deduplicated, so the output prints it.
+      {:error, {:outcome_unknown, _info}} ->
+        IO.puts(
+          "aiur: outcome unknown for message to #{display_identifier(status)}: the daemon did not answer in time " <>
+            "and may still queue it (message id #{message_id}). Check the ticket log before you send it again. " <>
+            "To retry this send without a duplicate, run: aiur message #{issue} --message-id #{message_id} #{shell_quote(text)}"
+        )
+
+        control_query_exit_code(:timeout)
 
       {:error, reason} ->
         print_failure(:message, status, reason)
         control_query_exit_code(reason)
     end
   end
+
+  defp shell_quote(text), do: "'" <> String.replace(text, "'", "'\\''") <> "'"
 
   # A successful send returns a queue handle, not a delivery receipt: the
   # message is enqueued for the agent and is claimed later, and with
@@ -1312,11 +1337,11 @@ defmodule Aiur.AgentControlCLI do
     IO.puts("aiur: queued message for #{display_identifier(status)} (request #{request_id}); delivery is unconfirmed")
   end
 
-  defp send_message(identifier, text) do
-    Application.get_env(:aiur, :agent_control_cli_message_fun, &AgentChat.send/2).(
-      identifier,
-      text
-    )
+  defp send_message(identifier, text, message_id) do
+    case Application.get_env(:aiur, :agent_control_cli_message_fun, &AgentChat.send/3) do
+      fun when is_function(fun, 3) -> fun.(identifier, text, message_id: message_id)
+      fun when is_function(fun, 2) -> fun.(identifier, text)
+    end
   end
 
   # The read never outlives the confirmation budget, so `message` cannot walk
@@ -3353,6 +3378,11 @@ defmodule Aiur.AgentControlCLI do
   defp format_message_reason(:agent_finished), do: "agent is not accepting messages (agent finished)"
   defp format_message_reason(:immediate_not_supported), do: "agent is not accepting immediate messages"
   defp format_message_reason(:interrupt_not_supported), do: "agent is not accepting interrupt messages"
+  defp format_message_reason({:not_queued, :timeout}), do: "the daemon timed out and did not queue it; a retry is safe"
+
+  defp format_message_reason({:message_id_conflict, _item_id}),
+    do: "that --message-id was already used for a different message; use a new id"
+
   defp format_message_reason(reason), do: format_reason(reason)
 
   defp exit_marker(code) do

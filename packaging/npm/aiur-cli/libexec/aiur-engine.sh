@@ -480,7 +480,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
-       aiur message <id> <text>  send Executor text to a running agent
+       aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
@@ -2585,7 +2585,8 @@ cmd_reset_budget() {
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
 cmd_message() {
-  local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\")"
+  local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\" or aiur message 44 --message-id ID \"ship it\")"
+  local message_id="" message_id_given=0
 
   local issue="${1:-}"
   if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
@@ -2593,6 +2594,26 @@ cmd_message() {
     exit 64
   fi
   shift
+
+  # `--message-id ID` names this send, so a retry after an unknown outcome
+  # returns the first copy instead of queueing a second one (#2717).
+  case "${1:-}" in
+    --message-id)
+      [ "$#" -gt 1 ] || { echo "aiur: message --message-id requires a value" >&2; exit 64; }
+      message_id="$2"
+      message_id_given=1
+      shift 2
+      ;;
+    --message-id=*)
+      message_id="${1#--message-id=}"
+      message_id_given=1
+      shift
+      ;;
+  esac
+  if [ "$message_id_given" = 1 ] && [[ ! "$message_id" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+    echo "aiur: message --message-id must be 1-128 letters, digits, '.', '_', ':' or '-' (it cannot be empty)" >&2
+    exit 64
+  fi
 
   local text="$*"
   if [ -z "$text" ]; then
@@ -2602,7 +2623,11 @@ cmd_message() {
 
   local encoded
   encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
-  run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"))"
+  if [ -n "$message_id" ]; then
+    run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"), \"$message_id\")"
+  else
+    run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"))"
+  fi
 }
 
 # `aiur agents` — concise one-line-per-agent state + current activity from a
