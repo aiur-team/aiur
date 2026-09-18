@@ -374,10 +374,16 @@ ticket stays paused until you answer. The CLI even tells you so: on
   `{:skip, :blocked_on_decision}` at `:823`). A ticket that opens a blocking
   Command while already running has its agent stopped by the reconciler, which
   deliberately fails **open** on store outage (`reconciler.ex:540-560`).
-  Answering removes the ticket from that set and dispatch resumes; the answer
-  is delivered with `delivery_policy: :interrupt, fallback: :queue_next`
-  (`src/lib/aiur/decision_dispatch.ex:29-56`), and the agent is told to emit
-  `decision.acknowledged` then `decision.resolved` (`decision_dispatch.ex:75-79`).
+  Answering removes the ticket from that set, so the next poll dispatches it
+  again. The answer is delivered with `delivery_policy: :interrupt,
+  fallback: :queue_next` (`src/lib/aiur/decision_dispatch.ex:29-56`), and the
+  agent is told to emit `decision.acknowledged` then `decision.resolved`
+  (`decision_dispatch.ex:75-79`). The agent that asked has usually stopped by
+  then, so the first delivery fails `target_agent_unavailable`. The answer stays
+  durable, and when the dispatcher spawns the next worker for the ticket it
+  asks the store to deliver each undelivered answer again
+  (`DecisionStore.deliver_pending_answers/2`). The new worker receives the
+  answer once, through its queue.
 
 ### Operator workflow
 

@@ -2495,6 +2495,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))
 
         running = Map.put(state.running, issue.id, running_entry)
+        deliver_pending_answers(issue, opts)
 
         %{
           state
@@ -2518,6 +2519,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
         })
     end
   end
+
+  # An agent that files a blocking Command ends its run, so the answer usually
+  # arrives when no worker runs the ticket and its delivery fails (#2713). The
+  # answer stays durable in the DecisionStore; this new worker is where it must
+  # land. The store dispatches each undelivered answer of the ticket again, and
+  # it reaches this worker through its queue. The call is a cast: it never
+  # blocks the Orchestrator, and the store's dispatch task reaches this
+  # Orchestrator only after the new running entry is in its state.
+  defp deliver_pending_answers(%Issue{identifier: identifier}, opts) when is_binary(identifier) do
+    Keyword.get(opts, :pending_answer_delivery, &DecisionStore.deliver_pending_answers/1).(identifier)
+    :ok
+  end
+
+  defp deliver_pending_answers(_issue, _opts), do: :ok
 
   defp dispatch_attempt_ticket(%Issue{} = issue) do
     case dispatch_attempt_identity(issue) do

@@ -503,6 +503,99 @@ defmodule Aiur.Orchestrator.DispatcherTest do
              ) == :dispatch
     end
 
+    test "an answer recorded a minute after the blocking run ended resumes the ticket within one poll (#2713)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      restore_workflow_file_after_test()
+      test_pid = self()
+      ticket_id = "answer-resume-#{System.unique_integer([:positive])}"
+      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "todo", selected_backend: "codex"}
+
+      # `worker` is true while a worker runs the ticket. The fake dispatcher
+      # stands in for `OperatorMessages`: it refuses `:no_running_agent` until
+      # then, and reports each answer the worker receives.
+      worker = start_supervised!({Agent, fn -> false end})
+
+      dispatcher = fn decision, _opts ->
+        if Agent.get(worker, & &1) do
+          send(test_pid, {:worker_received, decision.decision_id})
+          {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}
+        else
+          send(test_pid, {:no_worker, decision.decision_id})
+          {:error, :no_running_agent}
+        end
+      end
+
+      dir = Aiur.TestSupport.tmp_root!("dispatcher-answer-resume")
+
+      store =
+        start_supervised!(
+          {Aiur.DecisionStore,
+           [
+             name: nil,
+             state_dir: dir,
+             filesystem_sync_fun: fn -> :ok end,
+             dispatcher: dispatcher,
+             dispatch_delay_ms: 0,
+             retry_delays_ms: [0, 0, 0]
+           ]},
+          id: :dispatcher_answer_resume_store
+        )
+
+      poll = fn state ->
+        {:ok, ids} = Aiur.DecisionStore.blocked_ticket_ids(store)
+
+        Dispatcher.choose_issues(%{state | blocked_ticket_ids: ids}, [candidate],
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: fn dispatched, _recipient, _opts -> send(test_pid, {:agent_runner_run, dispatched.id}) end,
+          # The running entry is in the Orchestrator state from this point on.
+          pending_answer_delivery: fn identifier ->
+            Agent.update(worker, fn _running -> true end)
+            Aiur.DecisionStore.deliver_pending_answers(identifier, store)
+          end
+        )
+      end
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 %{
+                   "question" => "Which path should this ticket take?",
+                   "blocking" => true,
+                   "options" => [%{"id" => "a", "label" => "Path A"}, %{"id" => "b", "label" => "Path B"}]
+                 },
+                 [ticket: %{identifier: ticket_id, title: ticket_id, url: nil}, source: %{agent_id: "dispatcher-test", session_id: "s-1", event_id: nil}],
+                 store
+               )
+
+      id = decision.decision_id
+
+      # The run that filed the Command has ended, and the ticket is held.
+      held = poll.(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4})
+      assert held.dispatch_declines[ticket_id] == :blocked_on_decision
+      refute Map.has_key?(held.running, ticket_id)
+
+      # The answer arrives a minute later, when no worker runs the ticket: the
+      # first delivery and the whole retry ladder fail.
+      assert {:ok, %{status: :accepted}} =
+               Aiur.DecisionStore.answer(
+                 id,
+                 %{"idempotency_key" => "resume-#{id}", "expected_version" => decision.version, "option_id" => "b"},
+                 [actor: %{kind: :operator, id: "dispatcher-test"}, now: DateTime.add(DateTime.utc_now(), 60, :second)],
+                 store
+               )
+
+      for _attempt <- 1..4, do: assert_receive({:no_worker, ^id}, 1_000)
+      refute_receive {:no_worker, ^id}, 100
+
+      # One poll dispatches the ticket, and its new worker receives the answer once.
+      resumed = poll.(held)
+      assert_receive {:agent_runner_run, ^ticket_id}, 1_000
+      assert Map.has_key?(resumed.running, ticket_id)
+      refute Map.has_key?(resumed.dispatch_declines, ticket_id)
+      assert_receive {:worker_received, ^id}, 1_000
+      refute_receive {:worker_received, ^id}, 300
+    end
+
     test "a ticket with an open blocking Command is declined and the reason is visible in status" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
       candidate = issue("blocked-command")
