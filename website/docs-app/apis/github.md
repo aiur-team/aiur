@@ -33,6 +33,7 @@ A durable per-PR ledger records what they saw:
 - `ticket.<id>.pr.ready_for_review` is published once per draft period, whoever ran `gh pr ready`.
 - A restart neither loses nor repeats it.
 - A ticket PR first seen already ready costs one issue-events read, once, to tell a former draft from a PR opened ready. A failed read is retried after a backoff, not on every poll.
+- First-sight backfill wakes carry `observation: "initial_sync"`: review if not already reviewed. Observed draft-to-ready transitions carry no marker.
 - Like the webhook, a PR opened ready gets no `ready_for_review`.
 - The poll uses the webhook's dedup key, so a repository with a webhook is not woken twice for the same head.
 

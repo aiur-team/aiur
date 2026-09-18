@@ -766,7 +766,8 @@ defmodule Aiur.AgentControlCLI do
   defp print_executor_wakes(records, false, role) do
     Enum.each(records, fn record ->
       ticket = if record["ticket"], do: " ticket=#{record["ticket"]}", else: ""
-      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}")
+      observation = if record["observation"] == "initial_sync", do: " observation=initial_sync", else: ""
+      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}#{observation}")
     end)
   end
 
