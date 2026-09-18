@@ -5,7 +5,7 @@ defmodule Aiur.Workspace.Provisioner do
   """
 
   require Logger
-  alias Aiur.{Config, RepoBase, TicketBranch, Tracker}
+  alias Aiur.{AgentGitHubGuard, Config, RepoBase, TicketBranch, Tracker}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.{Checkout, Context, Materialize, Reconstruction, Remote}
 
@@ -31,6 +31,39 @@ defmodule Aiur.Workspace.Provisioner do
 
   def maybe_install_agent_support(workspace, worker_host) when is_binary(worker_host) do
     maybe_install_agent_support(workspace, worker_host, &Remote.run_remote_script/3)
+  end
+
+  @doc false
+  # The last check before an agent turn starts on a local workspace (#2697).
+  # A workspace can be rebuilt after `create_for_issue/3` installed its support
+  # tree (before_run reconstruction or stale-leftover recreation), and the agent
+  # environment still points PATH, GH_CONFIG_DIR and the quota path into it. A
+  # missing piece is repaired with the full local install; if it is still
+  # missing, dispatch is refused with the names of the missing pieces.
+  @spec ensure_local_agent_support(Path.t()) :: :ok | {:error, term()}
+  def ensure_local_agent_support(workspace) when is_binary(workspace) do
+    case AgentGitHubGuard.missing_workspace_support(workspace) do
+      [] ->
+        :ok
+
+      missing ->
+        Logger.warning("Repairing incomplete agent support before dispatch workspace=#{workspace} missing=#{inspect(missing)}")
+
+        case maybe_install_agent_support(workspace, nil) do
+          :ok ->
+            verify_local_agent_support(workspace)
+
+          {:error, reason} ->
+            {:error, {:agent_support_repair_failed, workspace, AgentGitHubGuard.missing_workspace_support(workspace), reason}}
+        end
+    end
+  end
+
+  defp verify_local_agent_support(workspace) do
+    case AgentGitHubGuard.missing_workspace_support(workspace) do
+      [] -> :ok
+      missing -> {:error, {:agent_support_incomplete, workspace, missing}}
+    end
   end
 
   @doc false

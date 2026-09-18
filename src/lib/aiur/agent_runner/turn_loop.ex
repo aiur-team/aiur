@@ -10,6 +10,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Workspace
 
   @type worker_host :: String.t() | nil
 
@@ -59,6 +60,32 @@ defmodule Aiur.AgentRunner.TurnLoop do
       max_turns: max_turns
     }
 
+    # #2697: never start a turn (first, continuation or post-resume) while the
+    # workspace lacks the gh shim, gh config or quota dir the agent env names.
+    # Repair happens here; a refused turn never reaches the provider.
+    case Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
+      :ok -> run_supported_turn(turn_context, app_session)
+      {:error, _reason} = error -> refuse_unsupported_turn(turn_context, error)
+    end
+  end
+
+  # The turn never started, so any delivered queue item goes back to pending
+  # through the confirmed restore boundary instead of being failed.
+  defp refuse_unsupported_turn(%{orchestrator: orchestrator, issue: issue, opts: opts}, error),
+    do: confirm_restore_for_replacement(orchestrator, issue, opts, error)
+
+  defp run_supported_turn(turn_context, app_session) do
+    %{
+      workspace: workspace,
+      issue: issue,
+      codex_update_recipient: codex_update_recipient,
+      opts: opts,
+      orchestrator: orchestrator,
+      worker_host: worker_host,
+      turn_number: turn_number,
+      max_turns: max_turns
+    } = turn_context
+
     prompt = TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
 
     callbacks =
@@ -89,7 +116,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     })
 
     result =
-      CodingAgent.run_turn(
+      coding_agent_run_turn(opts).(
         app_session,
         prompt,
         issue,
@@ -431,4 +458,6 @@ defmodule Aiur.AgentRunner.TurnLoop do
     |> String.trim()
     |> String.downcase()
   end
+
+  defp coding_agent_run_turn(opts), do: Keyword.get(opts, :run_turn, &CodingAgent.run_turn/4)
 end

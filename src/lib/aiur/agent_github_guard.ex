@@ -47,6 +47,7 @@ defmodule Aiur.AgentGitHubGuard do
   @scripts [{"gh", @gh_script}, {"git", @git_script}, {"aiur-github-budget", @broker}]
   @relative_bin_dir ".aiur-runtime/bin"
   @relative_gh_config_dir ".aiur-runtime/gh"
+  @relative_quota_dir ".aiur-runtime/github-quota"
   @broker_relative_path ".aiur-runtime/bin/aiur-github-budget"
   @legacy_host_guard_path Path.join(System.user_home!(), ".aiur/github-budget/bin/gh")
   # #2356: the credential file the `gh` guard reads. It lives beside the shared
@@ -258,6 +259,41 @@ defmodule Aiur.AgentGitHubGuard do
   @spec gh_config_dir(Path.t()) :: Path.t()
   def gh_config_dir(workspace), do: Path.join(workspace, @relative_gh_config_dir)
 
+  @doc "Agent-private GitHub quota state directory (`AIUR_AGENT_QUOTA_STATE_PATH`)."
+  @spec quota_dir(Path.t()) :: Path.t()
+  def quota_dir(workspace), do: Path.join(workspace, @relative_quota_dir)
+
+  @doc """
+  Names the agent GitHub support pieces a local workspace is missing.
+
+  The agent environment always points `PATH`, `GH_CONFIG_DIR` and
+  `AIUR_AGENT_QUOTA_STATE_PATH` into the workspace. If any of these pieces is
+  absent, `gh` falls through to the unauthenticated real binary and
+  `GH_CONFIG_DIR` dangles (#2697), so dispatch checks this list before a turn
+  starts. An empty list means the workspace is fully wired. A symlink never
+  counts as present: it could point the agent at the operator's `gh` config.
+  """
+  @spec missing_workspace_support(Path.t()) :: [String.t()]
+  def missing_workspace_support(workspace) when is_binary(workspace) do
+    commands =
+      for {name, _script} <- @scripts,
+          not executable_file?(Path.join(bin_dir(workspace), name)),
+          do: Path.join(@relative_bin_dir, name)
+
+    directories =
+      for relative <- [@relative_gh_config_dir, @relative_quota_dir],
+          not real_directory?(Path.join(workspace, relative)),
+          do: relative
+
+    commands ++ directories
+  end
+
+  defp executable_file?(path) do
+    match?({:ok, %File.Stat{type: :regular, mode: mode}} when Bitwise.band(mode, 0o111) != 0, File.lstat(path))
+  end
+
+  defp real_directory?(path), do: match?({:ok, %File.Stat{type: :directory}}, File.lstat(path))
+
   @spec host_bin_dir() :: Path.t()
   def host_bin_dir, do: Path.join(System.user_home!(), ".aiur/bin")
 
@@ -311,7 +347,7 @@ defmodule Aiur.AgentGitHubGuard do
         end
       end)
 
-    case with(:ok <- result, do: ensure_gh_config_dir(workspace)) do
+    case with(:ok <- result, :ok <- ensure_gh_config_dir(workspace), do: ensure_quota_dir(workspace)) do
       :ok ->
         :ok
 
@@ -354,12 +390,16 @@ defmodule Aiur.AgentGitHubGuard do
     # and the launch fails loudly rather than exporting a variable that points
     # somewhere the agent controls.
     config_dir = Aiur.Shell.escape(gh_config_dir(workspace))
+    quota_dir = Aiur.Shell.escape(quota_dir(workspace))
     token_file = remote_agent_token_script(opts)
 
     scripts <>
       "\nif [ -L #{config_dir} ] || { [ -e #{config_dir} ] && [ ! -d #{config_dir} ]; }; then\n" <>
       "  echo 'unsafe agent gh config dir' >&2\n  exit 73\nfi\n" <>
       "mkdir -p #{config_dir} || { echo 'agent gh config dir is unavailable' >&2; exit 73; }\n" <>
+      "if [ -L #{quota_dir} ] || { [ -e #{quota_dir} ] && [ ! -d #{quota_dir} ]; }; then\n" <>
+      "  echo 'unsafe agent quota dir' >&2\n  exit 73\nfi\n" <>
+      "mkdir -p #{quota_dir} || { echo 'agent quota dir is unavailable' >&2; exit 73; }\n" <>
       token_file
   end
 
@@ -427,6 +467,18 @@ defmodule Aiur.AgentGitHubGuard do
     case ensure_directory(directory) do
       :ok -> :ok
       {:error, reason} -> {:error, {:agent_gh_config_dir_unavailable, directory, reason}}
+    end
+  end
+
+  # The `gh` guard creates this lazily on its first call, but only when the
+  # guard itself is on PATH. Installing it here makes a missing quota dir a
+  # provisioning gap that dispatch can see, not a silent side effect (#2697).
+  defp ensure_quota_dir(workspace) do
+    directory = quota_dir(workspace)
+
+    case ensure_directory(directory) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:agent_quota_dir_unavailable, directory, reason}}
     end
   end
 

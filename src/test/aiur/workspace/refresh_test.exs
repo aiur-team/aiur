@@ -75,7 +75,7 @@ defmodule Aiur.Workspace.RefreshTest do
     refute File.exists?(before_run_marker)
   end
 
-  test "run/3 exit-65 recreation restores permanent build wrappers before dispatch", %{
+  test "run/3 exit-65 recreation restores the full agent support tree before dispatch", %{
     workspace: workspace,
     test_root: test_root
   } do
@@ -111,9 +111,17 @@ defmodule Aiur.Workspace.RefreshTest do
       assert File.regular?(Path.join([workspace, ".aiur-runtime", "build-bin", command]))
     end
 
-    refute File.exists?(Path.join([workspace, ".aiur-runtime", "bin"]))
-    refute File.exists?(Path.join([workspace, ".aiur-runtime", "tmp"]))
-    refute File.exists?(Path.join([workspace, ".claude", "skills", "aiur-agent"]))
+    # #2697: recreation must reinstall every support piece, not only the build
+    # wrappers. The agent env points PATH, GH_CONFIG_DIR and the quota path here.
+    for command <- ~w(gh git aiur-github-budget) do
+      assert File.regular?(Path.join([workspace, ".aiur-runtime", "bin", command]))
+    end
+
+    assert File.dir?(Path.join([workspace, ".aiur-runtime", "gh"]))
+    assert File.dir?(Path.join([workspace, ".aiur-runtime", "github-quota"]))
+    assert File.dir?(Path.join([workspace, ".aiur-runtime", "tmp"]))
+    assert File.dir?(Path.join([workspace, ".claude", "skills", "aiur-agent"]))
+    assert Aiur.AgentGitHubGuard.missing_workspace_support(workspace) == []
 
     probe_bin = Path.join(test_root, "probe-bin")
     File.mkdir_p!(probe_bin)
