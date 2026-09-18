@@ -4469,11 +4469,19 @@ defmodule Aiur.DecisionStore do
   # failed to reach the previous (ended) worker is dispatched again with a
   # fresh retry ladder (#2713). `dispatch_active?/2` and the `:failed` attempt
   # check keep a second spawn, or a ladder retry racing this one, from sending
-  # the same answer twice.
+  # the same answer twice. The answers go out in the order the Commands were
+  # decided: each dispatch is admitted here, in that order, and
+  # `DecisionDispatchTasks` keeps admission order for one ticket.
   defp schedule_pending_answer_delivery(state, ticket_identifier) do
     state.current
     |> Map.values()
     |> Enum.filter(&answer_awaiting_worker?(&1, ticket_identifier))
+    |> Enum.sort_by(&{&1.answer.accepted_at, &1.decision_id}, fn {left_at, left_id}, {right_at, right_id} ->
+      case DateTime.compare(left_at, right_at) do
+        :eq -> left_id <= right_id
+        order -> order == :lt
+      end
+    end)
     |> Enum.reduce(state, fn decision, acc ->
       action_id = Decision.active_answer(decision).action_id
 
@@ -4482,26 +4490,25 @@ defmodule Aiur.DecisionStore do
       else
         Logger.info("Redelivering Decision answer to the new worker ticket=#{ticket_identifier} decision_id=#{decision.decision_id} action_id=#{action_id}")
 
-        schedule_dispatch(acc, decision, true, 0)
         %{acc | retry_counts: Map.delete(acc.retry_counts, action_id)}
+        |> maybe_start_dispatch(dispatch_fence(decision), true)
       end
     end)
   end
 
-  # Only the active answer of a `:decided` Command qualifies. Its newest
-  # attempt failed, and no attempt was confirmed delivered, so the agent has
-  # never seen it. A `:moot` Command (#2711) is not `:decided`, and a replaced
-  # answer is not the active one, so neither is ever redelivered.
+  # Only the active answer of a `:decided` Command qualifies, and only while
+  # `dispatchable?/2` would send it: no attempt yet, or a failed newest attempt.
+  # A queued, restored or consumed answer is not sent again. An attempt that
+  # the provider confirmed (`delivered_at`) and that later failed is excluded
+  # too, because the agent already saw that answer. A `:moot` Command (#2711)
+  # is not `:decided`, and a replaced answer is not the active one, so neither
+  # is ever redelivered.
   defp answer_awaiting_worker?(
          %Decision{decision_status: :decided, ticket: %{identifier: ticket_identifier}} = decision,
          ticket_identifier
        ) do
-    attempts = Decision.active_dispatch_attempts(decision)
-
-    decision.revision_result != :no_longer_applicable and
-      not is_nil(Decision.active_answer(decision)) and
-      match?(%{status: :failed}, List.last(attempts)) and
-      Enum.all?(attempts, &is_nil(&1.delivered_at))
+    dispatchable?(decision, true) and
+      Enum.all?(Decision.active_dispatch_attempts(decision), &is_nil(&1.delivered_at))
   end
 
   defp answer_awaiting_worker?(_decision, _ticket_identifier), do: false

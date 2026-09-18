@@ -4237,6 +4237,66 @@ defmodule Aiur.DecisionStoreTest do
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
     end
 
+    test "several undelivered answers reach the new worker in the order they were given", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+
+      questions = ["Pick the database engine?", "Name the release branch?", "Choose the rollout region?"]
+
+      ids =
+        for {question, index} <- Enum.with_index(questions) do
+          payload = %{two_option_request("ordered-#{index}") | "question" => question}
+          assert {:ok, %{decision: decision}} = request(pid, payload)
+          decision.decision_id
+        end
+
+      # Answer against the store's own key order, so map order cannot pass.
+      answer_order = Enum.sort(ids, :desc)
+
+      for id <- answer_order do
+        assert {:ok, _answer} = answer(pid, id, %{"idempotency_key" => "order-#{id}", "expected_version" => 1, "option_id" => "ship"})
+        assert_no_worker_attempts(id, 1)
+        _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      end
+
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+
+      received =
+        for _id <- answer_order do
+          assert_receive {:worker_received, id, _action_id, _attempt_id}, 1_000
+          id
+        end
+
+      assert received == answer_order
+    end
+
+    test "an answer the provider confirmed is not sent again after its turn failed", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+      start_worker!(worker)
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("delivered-then-failed"))
+      id = decision.decision_id
+      payload = %{"idempotency_key" => "confirmed-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, id, payload)
+      assert_receive {:worker_received, ^id, _action_id, attempt_id}, 1_000
+      assert_receive {:worker_queue_item, ^id, item_id}
+      queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
+
+      # The provider confirms the answer, then the worker's turn fails.
+      item = correlated_queue_item(queued, action, attempt_id, item_id)
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+      assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+
+      failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      assert [%{status: :failed, delivered_at: %DateTime{}}] = Decision.active_dispatch_attempts(failed)
+
+      # The next worker must not receive it a second time.
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
+    end
+
     test "an unanswered blocking Command sends nothing to a new worker", %{dir: dir} do
       worker = start_worker_flag!()
       pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0)

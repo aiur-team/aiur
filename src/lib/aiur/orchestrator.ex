@@ -230,6 +230,11 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  def handle_info({:deliver_pending_answers, _identifier, _store} = message, state) do
+    :ok = Dispatcher.handle_pending_answer_delivery(message)
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
