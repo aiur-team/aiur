@@ -2474,6 +2474,58 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert healed_state.last_polled_issues == %{}
     end
 
+    test "leaves an agent:paused zero-label ticket alone and raises no attention alert" do
+      # `agent:paused` is a marker suffix, not a state suffix, so an
+      # operator-gated ticket carrying only `agent:paused` normalizes to zero
+      # state labels. It is deliberate parking, so the heal must neither rewrite
+      # it nor raise `state-label-missing-no-evidence` (#2610).
+      topic = "ticket.its-everdred/aiur#held.agent.attention.state-label-missing-no-evidence"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = %{issue("held", nil) | state_labels: [], paused: true, labels: ["agent:paused", "complexity:2"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [held],
+          fn _id, _target -> flunk("must not rewrite a paused ticket") end
+        )
+
+      assert [left_alone] = healed_issues
+      assert left_alone.id == "held"
+      assert left_alone.state_labels == []
+      assert is_nil(left_alone.state)
+      assert healed_state.last_polled_issues == %{}
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
+    test "leaves an agent:paused zero-label ticket alone even with prior workflow evidence" do
+      # A ticket the operator paused after it had been running still carries the
+      # parking marker, so the last-known-state heal must not fire and re-arm
+      # dispatch behind the operator's back (#2610).
+      held = %{issue("held", nil) | state_labels: [], paused: true, labels: ["agent:paused"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{last_polled_issues: %{held.id => issue("held", "in-progress")}},
+          [held],
+          fn _id, _target -> flunk("must not rewrite a paused ticket") end
+        )
+
+      assert [left_alone] = healed_issues
+      assert left_alone.state_labels == []
+      assert is_nil(left_alone.state)
+      assert healed_state.last_polled_issues[held.id].state == "in-progress"
+      assert healed_state.last_polled_issues[held.id].state_labels == nil
+    end
+
     test "restores a zero-label ticket to its last known running state and alerts" do
       topic = "ticket.its-everdred/aiur#sweep.agent.attention.state-label-missing"
       Publisher.set_tracked_fn(fn _ -> true end)
