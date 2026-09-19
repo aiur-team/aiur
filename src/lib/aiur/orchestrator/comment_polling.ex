@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
-  alias Aiur.Orchestrator.{State, TrackerHealth}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth}
 
   @recent_merge_persistence_retry_limit 3
 
@@ -942,6 +942,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> Keyword.put_new(:titles_by_target, running_titles_by_target(state))
       |> Keyword.put(:review_submission_targets, review_submission_targets)
       |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at)
+      |> Keyword.put(:pr_ready_ledger, ReadyForReviewTransitions.ledger(state))
 
     put_comment_batch(poll_opts, targets)
   end
@@ -950,7 +951,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   defp apply_poll_outcome(%State{} = state, human_review_targets, {targets, poll_result}) do
     case poll_result do
-      {:ok, %{since: since, etags: etags, count: count, errors: errors, pr_review_seen_at: new_review_seen_at}} ->
+      {:ok, %{since: since, etags: etags, count: count, errors: errors, pr_review_seen_at: new_review_seen_at} = polled} ->
         if count > 0,
           do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
 
@@ -977,8 +978,18 @@ defmodule Aiur.Orchestrator.CommentPolling do
               ),
             pr_review_seen_at: Map.merge(state.pr_review_seen_at, new_review_seen_at)
         }
+        |> fold_pr_draft_observations(Map.get(polled, :pr_draft_observations, []))
     end
   end
+
+  # The comment poll reads the branch PR of every running ticket, which the CI
+  # poll does not (it covers only `ci-wait` and `human-review`). An agent that
+  # runs `gh pr ready` mid-turn is seen here first (#2707).
+  defp fold_pr_draft_observations(%State{} = state, observations) when is_list(observations) do
+    ReadyForReviewTransitions.observe(state, observations)
+  end
+
+  defp fold_pr_draft_observations(%State{} = state, _observations), do: state
 
   # GitHub issues carry no branch name, so the comment batch derives each
   # running ticket's generated `aiur/<id>-<slug>` branch from its title. Without

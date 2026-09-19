@@ -1215,27 +1215,38 @@ defmodule Aiur.AgentControlCLI do
     Application.get_env(:aiur, :agent_control_cli_set_global_pause_fun, &Orchestrator.set_global_pause/2).(on?, source)
   end
 
-  @spec message(String.t(), String.t()) :: :ok
-  def message(issue, text) when is_binary(issue) and is_binary(text) do
+  @doc """
+  Send Executor text to one running agent.
+
+  `message_id` names this one send (#2717). When it is `nil`, a new id is
+  created. If the daemon does not answer in time, the output prints the id
+  and the exact command that retries this send without queueing a copy.
+  """
+  @spec message(String.t(), String.t(), String.t() | nil) :: :ok
+  def message(issue, text, message_id \\ nil) when is_binary(issue) and is_binary(text) do
+    message_id = if is_binary(message_id) and message_id != "", do: message_id, else: new_message_id()
+
     guarded("message", fn ->
       issue
-      |> message_status(text, control_status_snapshot())
+      |> message_status(text, message_id, control_status_snapshot())
       |> exit_marker()
     end)
   end
 
-  defp message_status(issue, text, statuses) when is_list(statuses) do
+  defp new_message_id, do: "cli-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+  defp message_status(issue, text, message_id, statuses) when is_list(statuses) do
     case Enum.find(statuses, &target_matches?(&1, issue)) do
       nil ->
         print_failure(:message, %{identifier: issue, issue_id: issue}, :no_running_agent)
         1
 
       status ->
-        deliver_message(status, text)
+        deliver_message(status, issue, text, message_id)
     end
   end
 
-  defp message_status(_issue, _text, error) when error in [:timeout, :unavailable] do
+  defp message_status(_issue, _text, _message_id, error) when error in [:timeout, :unavailable] do
     print_orchestrator_status_error(error)
     control_query_exit_code(error)
   end
@@ -1243,17 +1254,31 @@ defmodule Aiur.AgentControlCLI do
   # Empty/whitespace-only and over-long text are validated downstream by
   # Orchestrator.send_operator_message (the shared delivery path), which returns
   # {:error, :empty_message | :message_too_long}; we surface those via format_reason.
-  defp deliver_message(status, text) do
-    case send_message(canonical_identifier(status), text) do
+  defp deliver_message(status, issue, text, message_id) do
+    case send_message(canonical_identifier(status), text, message_id) do
       {:ok, request_id} ->
         report_message_outcome(status, request_id, await_message_delivery(request_id))
         0
+
+      # The daemon did not answer in time, but it may still queue the message
+      # (#2717). That is an unknown outcome, not a failure. Only a retry with
+      # this send's message id is deduplicated, so the output prints it.
+      {:error, {:outcome_unknown, _info}} ->
+        IO.puts(
+          "aiur: outcome unknown for message to #{display_identifier(status)}: the daemon did not answer in time " <>
+            "and may still queue it (message id #{message_id}). Check the ticket log before you send it again. " <>
+            "To retry this send without a duplicate, run: aiur message #{issue} --message-id #{message_id} #{shell_quote(text)}"
+        )
+
+        control_query_exit_code(:timeout)
 
       {:error, reason} ->
         print_failure(:message, status, reason)
         control_query_exit_code(reason)
     end
   end
+
+  defp shell_quote(text), do: "'" <> String.replace(text, "'", "'\\''") <> "'"
 
   # A successful send returns a queue handle, not a delivery receipt: the
   # message is enqueued for the agent and is claimed later, and with
@@ -1312,11 +1337,11 @@ defmodule Aiur.AgentControlCLI do
     IO.puts("aiur: queued message for #{display_identifier(status)} (request #{request_id}); delivery is unconfirmed")
   end
 
-  defp send_message(identifier, text) do
-    Application.get_env(:aiur, :agent_control_cli_message_fun, &AgentChat.send/2).(
-      identifier,
-      text
-    )
+  defp send_message(identifier, text, message_id) do
+    case Application.get_env(:aiur, :agent_control_cli_message_fun, &AgentChat.send/3) do
+      fun when is_function(fun, 3) -> fun.(identifier, text, message_id: message_id)
+      fun when is_function(fun, 2) -> fun.(identifier, text)
+    end
   end
 
   # The read never outlives the confirmation budget, so `message` cannot walk
@@ -1423,7 +1448,7 @@ defmodule Aiur.AgentControlCLI do
       results
     else
       deadline = System.monotonic_time(:millisecond) + resume_confirm_timeout_ms()
-      outcomes = await_resumes_applied(queued, deadline, %{})
+      outcomes = await_resumes_applied(queued, deadline, %{}, nil)
 
       Enum.map(results, fn
         {:queued_resume, status, _request_id} ->
@@ -1435,14 +1460,25 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp await_resumes_applied(pending, deadline, outcomes) do
+  # `last_observed` is the most recent read that succeeded. Each read is capped
+  # by the time left, so the final poll before the deadline gets only a sliver
+  # of the budget; a read that misses that sliver says nothing about the control
+  # state. When an earlier read did observe it, the window elapsed with that
+  # state still unsettled, which is the verdict to report. "Status unreadable"
+  # is reserved for a window in which no read succeeded at all (#2632, #2690).
+  defp await_resumes_applied(pending, deadline, outcomes, last_observed) do
     case read_control_states(pending, remaining_ms(deadline)) do
       {:error, error} ->
-        if remaining_ms(deadline) <= @resume_confirm_poll_ms do
-          settle_all(pending, {:unknown, %{reason: {:status_unreadable, error}}}, outcomes)
-        else
-          Process.sleep(@resume_confirm_poll_ms)
-          await_resumes_applied(pending, deadline, outcomes)
+        cond do
+          remaining_ms(deadline) > @resume_confirm_poll_ms ->
+            Process.sleep(@resume_confirm_poll_ms)
+            await_resumes_applied(pending, deadline, outcomes, last_observed)
+
+          is_map(last_observed) ->
+            settle_timed_out(pending, last_observed, outcomes)
+
+          true ->
+            settle_all(pending, {:unknown, %{reason: {:status_unreadable, error}}}, outcomes)
         end
 
       {:ok, observed} ->
@@ -1458,7 +1494,7 @@ defmodule Aiur.AgentControlCLI do
 
           true ->
             Process.sleep(@resume_confirm_poll_ms)
-            await_resumes_applied(waiting, deadline, outcomes)
+            await_resumes_applied(waiting, deadline, outcomes, observed)
         end
     end
   end
@@ -1649,7 +1685,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp report_resume(status, :applied) do
-    IO.puts("aiur: resumed #{display_identifier(status)} (was: paused)")
+    IO.puts("aiur: resumed #{display_identifier(status)} (was: #{resumed_from(status)})")
     :ok
   end
 
@@ -1657,6 +1693,21 @@ defmodule Aiur.AgentControlCLI do
     print_unapplied_resume(status, detail)
     {:error, {:resume_unconfirmed, detail}}
   end
+
+  # A `:running` row that took the queued-resume path had a pause the read
+  # model had not yet shown as applied.
+  defp resumed_from(%{state: :paused}), do: "paused"
+  defp resumed_from(_status), do: "pausing"
+
+  # The status row folds every registered, unpaused agent into `:running`.
+  # Name the control state the agent was really in, so reactivating a
+  # deactivated agent or restarting a completed one does not read as
+  # "(was: running)".
+  defp prior_state(%{state: :running, work_state: work_state})
+       when work_state in [:deactivated, :completed, :sleeping, :error, :paused],
+       do: work_state
+
+  defp prior_state(%{state: state}), do: state
 
   defp select_targets(:pause, :all, statuses) do
     Enum.filter(statuses, &(&1.state in [:running, :paused]))
@@ -1705,9 +1756,15 @@ defmodule Aiur.AgentControlCLI do
     resume_selected(status)
   end
 
+  # A `:running` row is not proof that a worker is running. The row comes from
+  # the published read model, which lags a pause: a pause is admitted before
+  # the worker acknowledges it, and the snapshot can predate both. Answering
+  # "already running" from the row left a paused worker stopped while the CLI
+  # reported success (#2699). The Orchestrator owns the live registry, so it
+  # decides: it resumes a pending or applied pause, and answers
+  # `:already_running` only for a live `:working` worker.
   defp control_one(:resume, %{state: :running} = status) do
-    IO.puts("aiur: already running #{display_identifier(status)}")
-    :ok
+    resume_selected(status)
   end
 
   defp control_one(:resume, %{state: :idle} = status) do
@@ -1727,14 +1784,25 @@ defmodule Aiur.AgentControlCLI do
       # agent a resume control request and answers before the agent acts on it.
       # `:started` and `:reactivated` have already moved the issue into the
       # running set by the time they are returned, so they are claimable.
-      {:ok, {:resumed, request_id}} when previous_state == :paused ->
+      # A receipt means the Orchestrator queued a resume for a paused agent or
+      # one whose pause was still pending, even when the read model still
+      # showed the row as `:running`. Confirm it the same way.
+      {:ok, {:resumed, request_id}} ->
         {:queued_resume, status, request_id}
 
       {:ok, :resumed} when previous_state == :paused ->
         {:queued_resume, status, nil}
 
+      {:ok, :already_running} ->
+        IO.puts("aiur: already running #{display_identifier(status)}")
+        :ok
+
+      {:ok, :sleeping} ->
+        IO.puts("aiur: already running #{display_identifier(status)} (sleeping: its stream closed while idle; it wakes on its next event)")
+        :ok
+
       {:ok, result} when result in [:started, :resumed, :reactivated] ->
-        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{previous_state})")
+        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{prior_state(status)})")
 
         :ok
 
@@ -2560,14 +2628,36 @@ defmodule Aiur.AgentControlCLI do
       IO.puts([
         String.pad_trailing(display_identifier(agent), 6),
         " ",
-        String.pad_trailing(to_string(Map.get(agent, :work_state, :working)), 10),
+        String.pad_trailing(agents_state_label(agent), 10),
         " ",
         String.pad_trailing(format_runtime(Map.get(agent, :runtime_seconds)), 8),
         " ",
-        agent_activity(agent)
+        agents_activity(agent)
       ])
     end)
   end
+
+  # The STATE and ACTIVITY columns read the human wait from the row's derived
+  # `waiting_reason` — the same fact `aiur status` prints as
+  # `waiting=waiting_for_human` — never from the raw work state alone. A live
+  # agent blocked on an open decision used to read `working` here while
+  # `status` read `waiting_for_human` for the same ticket (#2698).
+  defp agents_state_label(agent) do
+    if WaitingReason.waiting_for_human?(agent),
+      do: "waiting",
+      else: to_string(Map.get(agent, :work_state, :working))
+  end
+
+  defp agents_activity(agent) do
+    if WaitingReason.waiting_for_human?(agent),
+      do: "(#{WaitingReason.render(:waiting_for_human)}: #{human_wait_cause(agent)})",
+      else: agent_activity(agent)
+  end
+
+  defp human_wait_cause(%{open_decision_count: count}) when is_integer(count) and count > 0,
+    do: "#{count} open decision#{if count == 1, do: "", else: "s"}"
+
+  defp human_wait_cause(_agent), do: "agent requested input"
 
   defp agent_activity(agent) do
     case Map.get(agent, :work_state, :working) do
@@ -3155,6 +3245,27 @@ defmodule Aiur.AgentControlCLI do
   defp format_reason({:state_concurrency_limit_reached, state}),
     do: "state concurrency limit reached for #{state}"
 
+  defp format_reason({:blocked_on_decision, %{decision_ids: [_ | _] = ids}}),
+    do: "ticket is held by open blocking decision #{Enum.join(ids, ", ")}; answer it (see `aiurdev commands`), then resume"
+
+  defp format_reason({:blocked_on_decision, %{store: :unavailable}}),
+    do: "ticket is held because the decision store could not be read, so an open blocking decision cannot be ruled out; retry after the store recovers"
+
+  defp format_reason({:blocked_on_decision, _detail}),
+    do: "ticket is held by an open blocking decision; answer it (see `aiurdev commands`), then resume"
+
+  defp format_reason({:worker_startup_failed, reason}),
+    do: "the agent's worker failed to start (#{inspect(reason, limit: 10, printable_limit: 200)}); resume does not start a second worker, the retry schedule restarts it (see `aiurdev status`)"
+
+  defp format_reason({:not_resumable_control_status, status}),
+    do: "the agent is in control state #{status}, which resume cannot act on"
+
+  defp format_reason({:unmapped_dispatch_decline, reason}),
+    do: "dispatch declined the ticket (#{inspect(reason)}); inspect `aiurdev status` and the daemon log"
+
+  defp format_reason({:control_call_crashed, action, summary}),
+    do: "the orchestrator hit an internal error handling #{action} (#{summary}); the agent registry was kept, see the daemon log"
+
   # Keep the real fault visible instead of collapsing it to a cause the CLI
   # has not established (#1634).
   defp format_reason({:orchestrator_call_failed, reason}),
@@ -3244,6 +3355,9 @@ defmodule Aiur.AgentControlCLI do
         not_routable_to_worker: "ticket is not routable to a worker",
         dispatch_not_authorized: "tracker label provenance does not authorize dispatch",
         pause_override_still_present: "tracker pause override is still present",
+        ticket_parked: "ticket is parked from fleet dispatch; unpark it, then resume",
+        worker_not_running: "the agent is registered as working but its worker process is gone; the next poll reconciles it, then resume",
+        worker_not_started: "the agent's replacement worker is still starting; retry once it is running",
         waiting_for_dependencies: "ticket is waiting for dependencies",
         already_claimed: "ticket is already claimed for dispatch",
         auto_resume_pending: "ticket already has a scheduled automatic resume",
@@ -3264,6 +3378,11 @@ defmodule Aiur.AgentControlCLI do
   defp format_message_reason(:agent_finished), do: "agent is not accepting messages (agent finished)"
   defp format_message_reason(:immediate_not_supported), do: "agent is not accepting immediate messages"
   defp format_message_reason(:interrupt_not_supported), do: "agent is not accepting interrupt messages"
+  defp format_message_reason({:not_queued, :timeout}), do: "the daemon timed out and did not queue it; a retry is safe"
+
+  defp format_message_reason({:message_id_conflict, _item_id}),
+    do: "that --message-id was already used for a different message; use a new id"
+
   defp format_message_reason(reason), do: format_reason(reason)
 
   defp exit_marker(code) do

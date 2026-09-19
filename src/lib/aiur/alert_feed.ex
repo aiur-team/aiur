@@ -63,7 +63,7 @@ defmodule Aiur.AlertFeed do
   @doc false
   @spec active_system_attention?(String.t(), keyword()) :: boolean()
   def active_system_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
-    opts = opts |> Keyword.put_new(:log_roots, [Paths.log_root_dir()]) |> Keyword.put(:agents, ["system"])
+    opts = Keyword.put(opts, :agents, ["system"])
 
     Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
   end
@@ -71,7 +71,7 @@ defmodule Aiur.AlertFeed do
   @doc false
   @spec active_ticket_attention?(String.t(), keyword()) :: boolean()
   def active_ticket_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
-    opts = opts |> Keyword.put_new(:log_roots, [Paths.log_root_dir()]) |> Keyword.put(:agents, ["system"])
+    opts = Keyword.put(opts, :agents, ["system"])
 
     Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
   end

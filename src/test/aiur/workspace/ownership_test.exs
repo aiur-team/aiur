@@ -2,8 +2,61 @@ defmodule Aiur.Workspace.OwnershipTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.{HostLock, Ownership}
   alias Aiur.Workspace.Ownership.{Guardian, Store}
+
+  test "restored guardian releases its persisted host lock only after provider drainage" do
+    ticket = "ownership-restored-host-lock-#{System.unique_integer([:positive])}"
+    workspace = Path.join(Aiur.TestSupport.tmp_root!("ownership-restored-host-lock"), ticket)
+    parent = self()
+    group = System.unique_integer([:positive])
+    {:ok, alive} = Agent.start_link(fn -> true end)
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(alive)
+      _ = Store.delete(ticket)
+    end)
+
+    assert {:ok, lock} = HostLock.acquire(workspace, ticket, alive_fun: fn _ -> true end)
+
+    receipt = %{
+      ticket: ticket,
+      generation: 1,
+      owner_id: "workspace:1",
+      phase: :reaping,
+      provider_expected?: true,
+      provider: %{process_group_id: group, process_identities: %{{:group, group} => {:known, :restored_group}}},
+      provider_cleanup: :unresolved,
+      host_lock: lock
+    }
+
+    assert {:ok, lease} =
+             Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
+               group_alive_fun: fn ^group -> Agent.get(alive, & &1) end,
+               process_identity_fun: fn ^group -> {:ok, :restored_group} end,
+               reap_fun: fn ^group ->
+                 send(parent, {:restored_host_lock_reap_started, self()})
+
+                 receive do
+                   :drain_restored_provider -> :ok
+                 end
+
+                 Agent.update(alive, fn _ -> false end)
+                 :ok
+               end
+             )
+
+    guardian = lease.guardian
+    monitor = Process.monitor(guardian)
+    assert_receive {:restored_host_lock_reap_started, reaper}, 2_000
+    assert {:ok, holder} = HostLock.holder(workspace)
+    assert holder.owner_id == lock.holder.owner_id
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    send(reaper, :drain_restored_provider)
+    assert_eventually(fn -> HostLock.holder(workspace) == :none and Ownership.current(ticket) == :none end)
+    assert_receive {:DOWN, ^monitor, :process, ^guardian, :normal}, 2_000
+  end
 
   test "a generation excludes a competing runner until it releases" do
     ticket = "ownership-#{System.unique_integer([:positive])}"
@@ -87,6 +140,30 @@ defmodule Aiur.Workspace.OwnershipTest do
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
+  end
+
+  test "a live generation reports its owner and claim metadata until the owner dies" do
+    ticket = "ownership-holder-#{System.unique_integer([:positive])}"
+    parent = self()
+    holder = %{issue_id: "issue-holder", update_recipient: parent, worker_host: nil}
+
+    owner =
+      spawn(fn ->
+        send(parent, {:claimed, Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, holder: holder)})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:claimed, {:ok, lease}}, 2_000
+    assert lease in Ownership.leases()
+    assert {:ok, %{owner: ^owner, holder: ^holder}} = Ownership.holder(lease)
+    assert {:error, :workspace_ownership_lost} = Ownership.holder(%{lease | generation: lease.generation + 1})
+
+    monitor = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert {:error, :workspace_ownership_lost} = Ownership.holder(lease)
+    refute Enum.any?(Ownership.leases(), &(&1.ticket == ticket))
   end
 
   test "brutal runner death retains the lease until its tracked child group is reaped" do

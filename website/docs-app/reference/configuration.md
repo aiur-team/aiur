@@ -1,6 +1,8 @@
 # Configuration reference
 
-Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files.
+Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels.
+
+Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
 
 Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory.
 
@@ -294,6 +296,22 @@ means direct-only, always. Routing through OpenRouter is something you write.
 
 #### What happens when a route fails
 
+A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured, eligible fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+
+A Claude reset timestamp that already passed is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
+
+A Codex usage-limit refusal (`codexErrorInfo: usageLimitExceeded` on an `error` notification or a failed `turn/completed`) takes the same path. Aiur reads only the error fields, never assistant or tool text. The ticket status reads `provider_limited`, not `waiting_for_human`.
+
+The Codex reset comes from the exhausted window's numeric `resetsAt` in `account/rateLimits`. Without it, Aiur reads the refusal text, such as "try again at Sep 21st, 2026 6:26 PM", and rounds it up to the end of that minute.
+
+The text names no zone. Aiur reads it in `agent.codex.reset_time_zone`, or in the daemon host's zone when that key is unset. A clock time that passed in the last two hours, or a date without a year that passed in the last day, is not moved a day or a year ahead.
+
+A text reset that already passed never resumes the worker at once. Aiur sets the reset to the refusal time plus `agent.codex.reset_min_delay_seconds` (default 300). A future text reset and the numeric `resetsAt` are kept as they are.
+
+A usage-limit refusal that comes within two hours of the previous one for the same backend backs off. The second refusal holds the backend for 10 minutes, and each later one doubles the hold, to at most one hour. A later provider reset still wins.
+
+Claude clock hints with an IANA timezone are converted to UTC; unknown reset times require a fresh recovery observation.
+
 | Cause | Behaviour |
 | --- | --- |
 | **No API key configured** | The route is skipped at selection time and the next entry is used. Named once at startup in the log, not per claim. If *every* entry lacks its key, aiur fails loudly rather than dispatching nothing. |
@@ -402,6 +420,8 @@ is rejected with a migration hint rather than silently falling back to defaults.
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
+| `agent.codex.reset_time_zone` | string or nil | nil | IANA zone for the reset time in Codex usage-limit text. Nil uses the daemon host's zone. For a remote `worker_host`, set the worker's zone: Aiur cannot read it. The numeric `resetsAt` needs no zone and wins when present. |
+| `agent.codex.reset_min_delay_seconds` | integer | 300 | Least wait before a resume when the Codex usage-limit text names a reset that already passed. |
 
 ## Model discovery
 

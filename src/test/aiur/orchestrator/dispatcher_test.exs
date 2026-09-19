@@ -14,6 +14,52 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
   end
 
+  # A stand-in Orchestrator whose poll outlasts a delivery call into it. It
+  # handles the spawn's redelivery message as `Aiur.Orchestrator` does.
+  defmodule SlowPollOrchestrator do
+    use GenServer
+
+    alias Aiur.Orchestrator.Dispatcher
+
+    def start_link(test_pid), do: GenServer.start_link(__MODULE__, test_pid)
+
+    @impl true
+    def init(test_pid), do: {:ok, test_pid}
+
+    @impl true
+    def handle_call({:poll, poll_fun, poll_ms}, _from, test_pid) do
+      result = poll_fun.()
+      Process.sleep(poll_ms)
+      {:reply, result, test_pid}
+    end
+
+    def handle_call({:enqueue_answer, decision_id}, _from, test_pid) do
+      send(test_pid, {:worker_received, decision_id})
+      {:reply, {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}, test_pid}
+    end
+
+    @impl true
+    def handle_info({:deliver_pending_answers, _identifier, _store} = message, test_pid) do
+      :ok = Dispatcher.handle_pending_answer_delivery(message)
+      {:noreply, test_pid}
+    end
+
+    # The spawned runner's `:DOWN` and other Orchestrator traffic.
+    def handle_info(_message, test_pid), do: {:noreply, test_pid}
+  end
+
+  defp wait_until(fun, attempts \\ 200)
+  defp wait_until(_fun, 0), do: flunk("condition was not reached")
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(10)
+      wait_until(fun, attempts - 1)
+    end
+  end
+
   setup do
     CiReadiness.clear_cached_result()
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
@@ -501,6 +547,186 @@ defmodule Aiur.Orchestrator.DispatcherTest do
                DispatchPolicy.terminal_state_set(),
                next_state.blocked_ticket_ids
              ) == :dispatch
+    end
+
+    test "an answer recorded a minute after the blocking run ended resumes the ticket within one poll (#2713)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      restore_workflow_file_after_test()
+      test_pid = self()
+      ticket_id = "answer-resume-#{System.unique_integer([:positive])}"
+      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "todo", selected_backend: "codex"}
+
+      # `worker` is true while a worker runs the ticket. The fake dispatcher
+      # stands in for `OperatorMessages`: it refuses `:no_running_agent` until
+      # then, and reports each answer the worker receives.
+      worker = start_supervised!({Agent, fn -> false end})
+
+      dispatcher = fn decision, _opts ->
+        if Agent.get(worker, & &1) do
+          send(test_pid, {:worker_received, decision.decision_id})
+          {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}
+        else
+          send(test_pid, {:no_worker, decision.decision_id})
+          {:error, :no_running_agent}
+        end
+      end
+
+      dir = Aiur.TestSupport.tmp_root!("dispatcher-answer-resume")
+
+      store =
+        start_supervised!(
+          {Aiur.DecisionStore,
+           [
+             name: nil,
+             state_dir: dir,
+             filesystem_sync_fun: fn -> :ok end,
+             dispatcher: dispatcher,
+             dispatch_delay_ms: 0,
+             retry_delays_ms: [0, 0, 0]
+           ]},
+          id: :dispatcher_answer_resume_store
+        )
+
+      poll = fn state ->
+        {:ok, ids} = Aiur.DecisionStore.blocked_ticket_ids(store)
+
+        Dispatcher.choose_issues(%{state | blocked_ticket_ids: ids}, [candidate],
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: fn dispatched, _recipient, _opts -> send(test_pid, {:agent_runner_run, dispatched.id}) end,
+          decision_store: store
+        )
+      end
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 %{
+                   "question" => "Which path should this ticket take?",
+                   "blocking" => true,
+                   "options" => [%{"id" => "a", "label" => "Path A"}, %{"id" => "b", "label" => "Path B"}]
+                 },
+                 [ticket: %{identifier: ticket_id, title: ticket_id, url: nil}, source: %{agent_id: "dispatcher-test", session_id: "s-1", event_id: nil}],
+                 store
+               )
+
+      id = decision.decision_id
+
+      # The run that filed the Command has ended, and the ticket is held.
+      held = poll.(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4})
+      assert held.dispatch_declines[ticket_id] == :blocked_on_decision
+      refute Map.has_key?(held.running, ticket_id)
+
+      # The answer arrives a minute later, when no worker runs the ticket: the
+      # first delivery and the whole retry ladder fail.
+      assert {:ok, %{status: :accepted}} =
+               Aiur.DecisionStore.answer(
+                 id,
+                 %{"idempotency_key" => "resume-#{id}", "expected_version" => decision.version, "option_id" => "b"},
+                 [actor: %{kind: :operator, id: "dispatcher-test"}, now: DateTime.add(DateTime.utc_now(), 60, :second)],
+                 store
+               )
+
+      for _attempt <- 1..4, do: assert_receive({:no_worker, ^id}, 1_000)
+      refute_receive {:no_worker, ^id}, 100
+
+      # One poll dispatches the ticket, and its new worker receives the answer once.
+      resumed = poll.(held)
+      assert_receive {:agent_runner_run, ^ticket_id}, 1_000
+      assert Map.has_key?(resumed.running, ticket_id)
+      refute Map.has_key?(resumed.dispatch_declines, ticket_id)
+
+      # The spawn posts the redelivery to the Orchestrator (this process) and
+      # does not reach the store during the poll. The Orchestrator handles it
+      # next, with the new running entry in its state.
+      assert_received {:deliver_pending_answers, ^ticket_id, ^store} = message
+      refute_received {:no_worker, ^id}
+      Agent.update(worker, fn _running -> true end)
+      assert :ok = Dispatcher.handle_pending_answer_delivery(message)
+      assert_receive {:worker_received, ^id}, 1_000
+      refute_receive {:worker_received, ^id}, 300
+    end
+
+    test "a slow poll does not time out the redelivery to the worker it spawned (#2713)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      restore_workflow_file_after_test()
+      test_pid = self()
+      ticket_id = "answer-slow-poll-#{System.unique_integer([:positive])}"
+      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "todo", selected_backend: "codex"}
+      worker = start_supervised!({Agent, fn -> false end})
+      orchestrator = start_supervised!({SlowPollOrchestrator, test_pid})
+
+      # Like `OperatorMessages`, delivery to a running worker is a bounded call
+      # into the Orchestrator. The poll below is slower than that bound.
+      dispatcher = fn decision, _opts ->
+        if Agent.get(worker, & &1) do
+          GenServer.call(orchestrator, {:enqueue_answer, decision.decision_id}, 300)
+        else
+          {:error, :no_running_agent}
+        end
+      end
+
+      store =
+        start_supervised!(
+          {Aiur.DecisionStore,
+           [
+             name: nil,
+             state_dir: Aiur.TestSupport.tmp_root!("dispatcher-answer-slow-poll"),
+             filesystem_sync_fun: fn -> :ok end,
+             dispatcher: dispatcher,
+             dispatch_delay_ms: 0,
+             retry_delays_ms: []
+           ]},
+          id: :dispatcher_answer_slow_poll_store
+        )
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 %{
+                   "question" => "Which path should this ticket take?",
+                   "blocking" => true,
+                   "options" => [%{"id" => "a", "label" => "Path A"}, %{"id" => "b", "label" => "Path B"}]
+                 },
+                 [ticket: %{identifier: ticket_id, title: ticket_id, url: nil}, source: %{agent_id: "dispatcher-test", session_id: "s-1", event_id: nil}],
+                 store
+               )
+
+      id = decision.decision_id
+
+      assert {:ok, %{status: :accepted}} =
+               Aiur.DecisionStore.answer(
+                 id,
+                 %{"idempotency_key" => "slow-#{id}", "expected_version" => decision.version, "option_id" => "a"},
+                 [actor: %{kind: :operator, id: "dispatcher-test"}],
+                 store
+               )
+
+      wait_until(fn -> match?({:ok, %{delivery_status: :failed}}, Aiur.DecisionStore.get(id, store)) end)
+
+      poll = fn ->
+        state = %State{max_concurrent_agents: 4, effective_concurrent_agents: 4, blocked_ticket_ids: MapSet.new()}
+
+        next =
+          Dispatcher.choose_issues(state, [candidate],
+            issue_fetcher: fn [ticket] -> {:ok, [%{candidate | id: ticket}]} end,
+            blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+            runner: fn _dispatched, _recipient, _opts -> :ok end,
+            decision_store: store
+          )
+
+        # The running entry exists from here; the rest of the poll is slow.
+        Agent.update(worker, fn _running -> true end)
+        Map.has_key?(next.running, ticket_id)
+      end
+
+      assert GenServer.call(orchestrator, {:poll, poll, 800}, 5_000)
+      assert_receive {:worker_received, ^id}, 2_000
+
+      wait_until(fn -> match?({:ok, %{delivery_status: :queued}}, Aiur.DecisionStore.get(id, store)) end)
+      {:ok, queued} = Aiur.DecisionStore.get(id, store)
+      # One failure from before the worker existed, then one queued delivery:
+      # the redelivery did not time out behind the poll.
+      assert Enum.map(queued.dispatch_attempts, & &1.status) == [:failed, :queued]
+      refute_receive {:worker_received, ^id}, 300
     end
 
     test "a ticket with an open blocking Command is declined and the reason is visible in status" do

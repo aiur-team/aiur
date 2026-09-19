@@ -49,12 +49,46 @@ describe("Stream Deck Phoenix channel", () => {
     // not as a `control` verb; the server length-caps it and hands it to the
     // same AgentChat path as the dashboard chat box.
     channel.say("1358", "run the tests again");
-    expect(JSON.parse(socket.sent[2])).toEqual(["4", "3", "streamdeck:fleet", "say", { identifier: "1358", text: "run the tests again" }]);
+    expect(JSON.parse(socket.sent[2])).toEqual([
+      "4", "3", "streamdeck:fleet", "say",
+      { identifier: "1358", text: "run the tests again", message_id: expect.stringMatching(/^[0-9a-f-]{36}$/) },
+    ]);
     expect(events.snapshot).toHaveBeenCalledOnce();
     expect(events.grid).toHaveBeenCalledOnce();
     expect(events.logs).toHaveBeenCalledWith({ event_keys: [{ label: "LIVE" }], transcript: [{ body: "chat" }] });
     expect(events.transcript).toHaveBeenNthCalledWith(1, { kind: "message", role: "tool", body: "ran the tests", tool: null });
     expect(events.transcript).toHaveBeenNthCalledWith(2, { kind: "message", role: "agent", body: "", tool: null });
+  });
+
+  // #2717. Each say press is one message with its own id. A frame queued
+  // before the join is re-sent with the id it was created with, so the server
+  // can tell a re-send from a second press.
+  it("gives each say press its own message id and keeps it on a queued re-send", async () => {
+    const socket = socketHarness();
+    const events = {
+      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), commands: vi.fn(), commandAnswered: vi.fn(), commandsError: vi.fn(),
+      voiceStarted: vi.fn(), voice: vi.fn(), voiceError: vi.fn(), voiceClosed: vi.fn(), voiceAvailability: vi.fn(), closed: vi.fn(),
+    };
+    const channel = await connectStreamDeckChannel({
+      baseUrl: "http://aiur.test:4000",
+      username: "operator",
+      password: "secret",
+      fetch: vi.fn(async () => ({ ok: true, json: async () => ({ token: "signed-token" }) })),
+      websocket: vi.fn(() => socket),
+      events,
+    });
+
+    channel.say("1358", "continue");
+    channel.say("1358", "continue");
+    socket.open();
+    socket.message(["4", "1", "streamdeck:fleet", "phx_reply", { status: "ok", response: {} }]);
+
+    const [first, second] = socket.sent.slice(1).map((frame) => JSON.parse(frame)[4] as { text: string; message_id: string });
+    expect(first.text).toBe("continue");
+    expect(second.text).toBe("continue");
+    expect(first.message_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(second.message_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(first.message_id).not.toBe(second.message_id);
   });
 
   it("queues focus until join and reports Phoenix channel shutdown frames", async () => {

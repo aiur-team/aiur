@@ -79,6 +79,7 @@ defmodule Aiur.DecisionApi.PublicLifecycleProjection do
       "status" => attempt |> value(:status) |> atom_name(),
       "attempted_at" => attempt |> value(:attempted_at) |> timestamp(),
       "queued_at" => attempt |> value(:queued_at) |> timestamp(),
+      "handed_off_at" => attempt |> value(:handed_off_at) |> timestamp(),
       "delivered_at" => attempt |> value(:delivered_at) |> timestamp(),
       "restored_at" => attempt |> value(:restored_at) |> timestamp(),
       "consumed_at" => attempt |> value(:consumed_at) |> timestamp(),

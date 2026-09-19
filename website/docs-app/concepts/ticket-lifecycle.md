@@ -374,10 +374,30 @@ ticket stays paused until you answer. The CLI even tells you so: on
   `{:skip, :blocked_on_decision}` at `:823`). A ticket that opens a blocking
   Command while already running has its agent stopped by the reconciler, which
   deliberately fails **open** on store outage (`reconciler.ex:540-560`).
-  Answering removes the ticket from that set and dispatch resumes; the answer
-  is delivered with `delivery_policy: :interrupt, fallback: :queue_next`
-  (`src/lib/aiur/decision_dispatch.ex:29-56`), and the agent is told to emit
-  `decision.acknowledged` then `decision.resolved` (`decision_dispatch.ex:75-79`).
+  Answering removes the ticket from that set, so the next poll dispatches it
+  again. The answer is delivered with `delivery_policy: :interrupt,
+  fallback: :queue_next` (`src/lib/aiur/decision_dispatch.ex:29-56`), and the
+  agent is told to emit `decision.acknowledged` then `decision.resolved`
+  (`decision_dispatch.ex:75-79`). The agent that asked has usually stopped by
+  then; the ticket's next worker receives the answer (see
+  [Delivery rule for a decided answer](#delivery-rule-for-a-decided-answer)).
+
+If the existing worker has requested its own pause for input, answering resumes
+that worker with the answer as its next input, including while pause confirmation
+is pending. Once work starts, the self-pause reason and its waiting attention
+clear.
+
+The pause request must still be pending. If it expired or was rejected, the
+worker is still working, and it receives the answer as a normal message.
+
+An answer resumes only a pause that waits for input (a self-pause, a
+worker-reported `input_required` pause, or a legacy pause with no recorded
+reason).
+
+It does not lift an operator, label, or global pause, or an automatic hold such
+as `ci_wait`, `blocker_dependency`, `github_budget_hold`, or
+`before_run_failure`. Those holds resume when their condition clears, or when
+you resume them explicitly.
 
 ### Operator workflow
 
@@ -386,12 +406,51 @@ aiur commands --filter blocking       # tickets whose dispatch is held
 aiur commands <decision-id>           # one Command, its options and lifecycle
 aiur executor-answer <decision-id> --expected-version 1 --option <id> --rationale "..." --idempotency-key <key>
 aiur executor-escalate <decision-id> --expected-version 1 --reason "Needs the release owner"
+aiur executor-answer <decision-id> --expected-version 1 --custom-response "..." --rationale "..." --idempotency-key <key> --supersede
+aiur executor-moot <decision-id> --expected-version 1 --reason-class operator_changed_direction
 ```
 
 `executor-answer` requires `--expected-version`, `--rationale`,
 `--idempotency-key`, and exactly one of `--option` / `--custom-response`; a
 stale `--expected-version` is rejected as a conflict rather than overwriting a
 newer answer. See [CLI](/reference/cli) for the full flags.
+
+### Delivery rule for a decided answer
+
+An answer is addressed to the ticket, not to the worker session that asked.
+Aiur delivers the newest answer of a `:decided` Command to whichever worker runs
+the ticket.
+
+If no worker runs it, delivery fails with `target_agent_unavailable`. The
+answer stays durable. When the ticket's next worker starts, for example after
+the next poll or a requeue, Aiur sends it each undelivered answer again, in the
+order the Commands were decided. That worker receives each answer once.
+
+While no worker has picked up the answer for sending, the Executor can change
+it:
+
+- `executor-moot` withdraws it. The Command becomes `:moot`, the answer stays
+  in the audit history, and Aiur never delivers it.
+- `executor-answer --supersede` replaces it. The new answer is recorded as a
+  revision, and only the newest answer is delivered.
+
+The delivery gate checks each queued answer again just before the worker sends
+it. It refuses a queued copy of a mooted or replaced answer.
+
+When the gate accepts an answer, it durably marks it as handed off. Until the provider confirms or
+rejects the send, the answer is in flight, and both commands are refused with
+"answer in flight". After a rejected send, the answer can be withdrawn again,
+or sent again by a retry or by a new worker.
+
+If a send stays in flight with no outcome for more than a minute, a refused
+withdrawal raises a needs-attention alert, because the outcome is unknown.
+
+If a provider still confirms a withdrawn answer, Aiur raises a needs-attention
+alert, and the Command stays `:moot`.
+
+For a decided Command, the Executor may moot only an answer that an Executor
+recorded, or one that it could have recorded itself. Otherwise it must run
+`executor-escalate`.
 
 ## Step 5 — PR opened, agent pauses
 

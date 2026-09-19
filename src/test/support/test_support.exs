@@ -93,6 +93,7 @@ defmodule Aiur.TestSupport do
     :github_cache_inspector_source,
     :repo_base_root,
     :executor_state_dir,
+    :runtime_state_dir,
     :executor_claims_lock_timeout_ms,
     :loadavg_source_override,
     :proc_stat_source_override,
@@ -115,6 +116,29 @@ defmodule Aiur.TestSupport do
       tick = System.unique_integer([:monotonic, :positive])
       {:ok, "cpu  #{100 * tick} 0 0 #{900 * tick} 0 0 0 0 0 0\nprocs_running 1\n"}
     end
+  end
+
+  @doc """
+  Points the durable runtime state directory (`Aiur.Config.Paths.runtime_state_dir/0`)
+  at `dir` for the calling test and puts the previous value back on exit.
+
+  Tests that isolate `:log_file` to a private directory and then read the alert
+  ledger from that directory with `log_roots: [dir]` call this with the same
+  directory: the ledger is durable runtime state (#2722), so it follows this
+  key, not `:log_file`.
+  """
+  @spec put_runtime_state_dir!(Path.t()) :: :ok
+  def put_runtime_state_dir!(dir) when is_binary(dir) do
+    previous = Application.get_env(:aiur, :runtime_state_dir)
+    Application.put_env(:aiur, :runtime_state_dir, dir)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      if previous,
+        do: Application.put_env(:aiur, :runtime_state_dir, previous),
+        else: Application.delete_env(:aiur, :runtime_state_dir)
+    end)
+
+    :ok
   end
 
   @doc "The `:aiur` application keys isolated per TestSupport case."
@@ -296,6 +320,11 @@ defmodule Aiur.TestSupport do
         # test is absent from the run (e.g. `mix test test/aiur/core_test.exs`).
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
+
+        # Subscriptions, session handles and the alert ledger are durable
+        # runtime state that survives a restart (#2722); the same leak applies,
+        # so each case gets its own runtime state root.
+        Application.put_env(:aiur, :runtime_state_dir, Path.join(workflow_root, "runtime-state"))
 
         # Global pause is deliberately durable in production, but that makes a
         # suite-wide test path hazardous: a case that pauses the daemon can
@@ -682,6 +711,77 @@ defmodule Aiur.TestSupport do
   end
 
   @doc """
+  Waits until `Aiur.Supervisor` has replaced the child registered as `name`
+  after `prior` exited, and has restarted every child after it.
+
+  The tree is `:rest_for_one`, so one child's exit restarts every later child
+  too. The replacement registers its name while that cascade is still running.
+  A test that returns at that point leaves the later children (for example
+  `Aiur.Opencode.ActiveTurns`) down for the next test in the partition.
+
+  The steps are signal-based, never a duration:
+
+    1. monitor `prior` and wait for its `:DOWN`;
+    2. call the supervisor. It restarts the whole cascade inside one callback,
+       so the call returns only after any restart in progress is complete;
+    3. read the registered name. If the supervisor has not yet processed the
+       exit, wait briefly with a bounded `receive` and repeat step 2.
+
+  The whole wait is bounded by `timeout` (default 5s). The bound only decides
+  how long a real failure takes to report. A failure names the step:
+  `{:error, {:prior_not_down, name}}`, `{:error, {:supervisor_unresponsive,
+  Aiur.Supervisor}}` or `{:error, {:not_restarted, name}}`.
+  """
+  @spec await_supervised_restart(atom(), pid(), non_neg_integer()) ::
+          {:ok, pid()}
+          | {:error, {:prior_not_down, atom()} | {:supervisor_unresponsive, atom()} | {:not_restarted, atom()}}
+  def await_supervised_restart(name, prior, timeout \\ 5_000)
+      when is_atom(name) and is_pid(prior) and is_integer(timeout) and timeout >= 0 do
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    case await_process_down(prior, remaining_ms(deadline)) do
+      :ok -> await_registered_replacement(name, prior, deadline)
+      :error -> {:error, {:prior_not_down, name}}
+    end
+  end
+
+  defp await_registered_replacement(name, prior, deadline) do
+    # A floor on the call bound: at the deadline, a live supervisor must still
+    # answer, so the failure reads as `:not_restarted`, not as unresponsive.
+    with :ok <- await_supervisor_idle(Aiur.Supervisor, max(remaining_ms(deadline), 100)) do
+      case Process.whereis(name) do
+        pid when is_pid(pid) and pid != prior -> {:ok, pid}
+        _not_replaced -> recheck_registered_replacement(name, prior, deadline)
+      end
+    end
+  end
+
+  defp recheck_registered_replacement(name, prior, deadline) do
+    case remaining_ms(deadline) do
+      0 ->
+        {:error, {:not_restarted, name}}
+
+      remaining ->
+        # The exit signal can reach the supervisor after our call. Give it a
+        # moment, then call again: the call is the real barrier.
+        receive do
+        after
+          min(remaining, 10) -> :ok
+        end
+
+        await_registered_replacement(name, prior, deadline)
+    end
+  end
+
+  defp await_supervisor_idle(supervisor, timeout) do
+    if supervisor_accepting_calls?(Process.whereis(supervisor), timeout),
+      do: :ok,
+      else: {:error, {:supervisor_unresponsive, supervisor}}
+  end
+
+  defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  @doc """
   Restores the shared application children that ordinary tests rely on after a
   sibling intentionally stopped one for an unavailable-service case.
   """
@@ -1029,8 +1129,14 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp supervisor_accepting_calls?(supervisor) do
-    Supervisor.which_children(supervisor)
+  defp supervisor_accepting_calls?(supervisor, timeout \\ :infinity)
+
+  defp supervisor_accepting_calls?(nil, _timeout), do: false
+
+  defp supervisor_accepting_calls?(supervisor, timeout) do
+    # `Supervisor.which_children/1` waits forever; the same call with a bound
+    # lets a caller with a deadline report a stuck supervisor.
+    GenServer.call(supervisor, :which_children, timeout)
     true
   catch
     :exit, _reason -> false
@@ -1330,6 +1436,7 @@ defmodule Aiur.TestSupport do
     thread_sandbox = Keyword.get(config, :codex_thread_sandbox)
     turn_sandbox_policy = Keyword.get(config, :codex_turn_sandbox_policy)
     read_timeout_ms = Keyword.get(config, :agent_read_timeout_ms)
+    reset_time_zone = Keyword.get(config, :codex_reset_time_zone)
 
     [
       "  codex:",
@@ -1337,8 +1444,10 @@ defmodule Aiur.TestSupport do
       "    approval_policy: #{yaml_value(approval_policy)}",
       "    thread_sandbox: #{yaml_value(thread_sandbox)}",
       "    turn_sandbox_policy: #{yaml_value(turn_sandbox_policy)}",
-      "    read_timeout_ms: #{yaml_value(read_timeout_ms)}"
+      "    read_timeout_ms: #{yaml_value(read_timeout_ms)}",
+      reset_time_zone && "    reset_time_zone: #{yaml_value(reset_time_zone)}"
     ]
+    |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
   end
 

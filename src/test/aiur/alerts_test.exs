@@ -57,6 +57,8 @@ defmodule Aiur.AlertsTest do
 
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
 
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
+
     on_exit(fn ->
       if previous_log_file do
         Application.put_env(:aiur, :log_file, previous_log_file)
@@ -195,6 +197,7 @@ defmodule Aiur.AlertsTest do
 
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
       if original_log_file do
@@ -229,6 +232,7 @@ defmodule Aiur.AlertsTest do
     original_log_file = Application.get_env(:aiur, :log_file)
     File.mkdir_p!(workspace)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
     on_exit(fn ->
@@ -266,6 +270,7 @@ defmodule Aiur.AlertsTest do
 
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
       if original_log_file do
@@ -302,6 +307,7 @@ defmodule Aiur.AlertsTest do
     log_root = Aiur.TestSupport.tmp_root!("aiur-takeover-alert")
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
       if original_log_file do
@@ -356,6 +362,7 @@ defmodule Aiur.AlertsTest do
       log_root = Aiur.TestSupport.tmp_root!("aiur-alert-resolution")
       original_log_file = Application.get_env(:aiur, :log_file)
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do

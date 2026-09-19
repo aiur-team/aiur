@@ -119,7 +119,7 @@ defmodule Aiur.Orchestrator do
   def handle_info({:workspace_ownership_available, identifier, guardian, generation}, state)
       when is_binary(identifier) and is_pid(guardian) and is_integer(generation) and generation > 0 do
     state = RetryEngine.release_workspace_wait(state, identifier, guardian, generation)
-    {:noreply, Lifecycle.schedule_tick(state, 0)}
+    {:noreply, Lifecycle.wake_tick(state)}
   end
 
   # A waiter that observed the registry empty has no guardian generation to
@@ -127,7 +127,7 @@ defmodule Aiur.Orchestrator do
   # subsequent owner will make the redispatch contend and subscribe again.
   def handle_info({:workspace_ownership_available, identifier, :none, nil}, state) when is_binary(identifier) do
     state = RetryEngine.release_workspace_wait(state, identifier)
-    {:noreply, Lifecycle.schedule_tick(state, 0)}
+    {:noreply, Lifecycle.wake_tick(state)}
   end
 
   # Never let a pre-generation waiter from an older process release a current
@@ -233,6 +233,11 @@ defmodule Aiur.Orchestrator do
     # and the capacity-deferred pending_auto_resume hint is never drained.
     state = PushRouting.recover_github_budget_pause(state, identifier, generation)
     {:reply, _result, state} = Lifecycle.request_refresh(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:deliver_pending_answers, _identifier, _store} = message, state) do
+    :ok = Dispatcher.handle_pending_answer_delivery(message)
     {:noreply, state}
   end
 
@@ -854,6 +859,14 @@ defmodule Aiur.Orchestrator do
   def handle_call({:operator_message_status, item_id}, _from, state)
       when is_integer(item_id),
       do: OM.operator_message_status_call(state, item_id)
+
+  def handle_call({:lookup_operator_message, {kind, key} = lookup}, _from, state)
+      when kind in [:message_id, :action_id] and is_binary(key),
+      do: OM.lookup_operator_message_call(state, lookup)
+
+  def handle_call({:lookup_operator_message, {:message_id, key} = lookup, %{target: _, text: text} = expected}, _from, state)
+      when is_binary(key) and is_binary(text),
+      do: OM.lookup_operator_message_call(state, lookup, expected)
 
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),

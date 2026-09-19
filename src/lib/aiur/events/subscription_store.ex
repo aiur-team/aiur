@@ -3,10 +3,16 @@ defmodule Aiur.Events.SubscriptionStore do
   Per-issue GenServer that owns the persistent subscription state for one
   Aiur ticket.
 
-  Persists to `<logs-root>/<repo>.<id>.subscriptions.json` via the
-  atomic-rename helper in `Aiur.JsonStore`. On `init/1` it reads the file
-  and re-registers every binding with `Aiur.Events.Exchange` so a BEAM
+  Persists to `<runtime-state>/subscriptions/<repo>.<id>.subscriptions.json`
+  via the atomic-rename helper in `Aiur.JsonStore`. On `init/1` it reads the
+  file and re-registers every binding with `Aiur.Events.Exchange` so a BEAM
   restart doesn't drop subscriptions silently.
+
+  The runtime state directory (`Aiur.Config.Paths.runtime_state_dir/0`)
+  survives a daemon restart; the per-launch log directory where these files
+  used to live does not (#2722). On the first boot after upgrading, this store
+  starts empty, as it previously did on every restart. Legacy subscriptions
+  are never imported; subscriptions saved from that boot onward are durable.
 
   ## State shape (on disk)
 
@@ -60,6 +66,7 @@ defmodule Aiur.Events.SubscriptionStore do
   alias Aiur.Events.{AgentSubscriptionPolicy, DebugLog, Exchange, IdGenerator, UniversalSubscriptions}
   alias Aiur.JsonStore
 
+  @state_leaf "subscriptions"
   @max_stall_attempts 3
   @stall_base_retry_ms 1_000
 
@@ -595,9 +602,25 @@ defmodule Aiur.Events.SubscriptionStore do
 
   defp via(identifier), do: {:via, Registry, {@registry, identifier}}
 
-  defp path_for(identifier) do
-    safe = Paths.sanitize(identifier)
-    Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.#{safe}.subscriptions.json")
+  @doc """
+  Absolute path of the subscription file for `identifier`.
+
+  The file lives in the durable runtime state directory. When that directory
+  cannot be resolved, the per-launch log directory is the only place left,
+  which keeps the old behavior instead of dropping subscriptions.
+  """
+  @spec path_for(String.t()) :: Path.t()
+  def path_for(identifier) when is_binary(identifier) do
+    file_name = "#{Paths.repo_name()}.#{Paths.sanitize(identifier)}.subscriptions.json"
+
+    case Paths.runtime_state_dir() do
+      {:ok, root} ->
+        dir = Path.join(root, @state_leaf)
+        Path.join(dir, file_name)
+
+      {:error, _reason} ->
+        Path.join(Paths.log_root_dir(), file_name)
+    end
   end
 
   defp load_persisted(state) do

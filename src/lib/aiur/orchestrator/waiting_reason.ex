@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :awaiting_dispatch
           | :paused_operator
           | :paused_transient
+          | :provider_limited
           | :latched_lifetime
           | :tracker_unavailable
           | :backing_off
@@ -92,6 +93,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render(:awaiting_dispatch), do: "awaiting_dispatch"
   def render(:paused_operator), do: "paused_operator"
   def render(:paused_transient), do: "paused_transient"
+  def render(:provider_limited), do: "provider_limited"
   def render(:latched_lifetime), do: "latched_lifetime"
   def render(:tracker_unavailable), do: "tracker_unavailable"
   def render(:backing_off), do: "backing_off"
@@ -209,6 +211,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp running_state_reason(attrs) do
     cond do
       Map.get(attrs, :pause_reason) == :github_budget_hold -> :paused_transient
+      # A provider account limit is a wait on the provider's reset, not on a
+      # human (#2737). The rate-limit fallback resumes it.
+      provider_limited?(attrs) -> :provider_limited
       agent_requested_human?(Map.get(attrs, :pause_reason)) -> :waiting_for_human
       Map.get(attrs, :pause_reason) == :global_pause -> :run_paused
       Map.get(attrs, :work_state) in [:paused, :sleeping] -> :paused
@@ -217,6 +222,23 @@ defmodule Aiur.Orchestrator.WaitingReason do
   end
 
   defp agent_requested_human?(reason), do: reason in [:agent_pause_request, :input_required]
+
+  defp provider_limited?(%{pause_reason: :usage_limit_exhausted, work_state: :paused}), do: true
+  defp provider_limited?(_attrs), do: false
+
+  @doc """
+  True when a fleet row's derived waiting reason is `:waiting_for_human`.
+
+  Every operator surface that says "waiting for a human" asks this one
+  question of the row's `waiting_reason`, so `aiur status` and `aiur agents`
+  can never disagree about the same ticket (#2698). Accepts the atom or its
+  rendered string, because rows can cross a serialization boundary.
+  """
+  @spec waiting_for_human?(map()) :: boolean()
+  def waiting_for_human?(%{waiting_reason: reason}) when reason in [:waiting_for_human, "waiting_for_human"],
+    do: true
+
+  def waiting_for_human?(_row), do: false
 
   # An idle in-progress row has a tracker claim but no live runtime. Before the
   # one-shot startup pass runs it is an `:orphaned_claim` awaiting recovery;
@@ -235,11 +257,14 @@ defmodule Aiur.Orchestrator.WaitingReason do
     end
   end
 
+  # `rework` is deliberately absent: it is agent-owned work (the agent addresses
+  # review feedback), not a wait on a human. Only an open decision or an
+  # agent's own request for input may read `:waiting_for_human`, so `aiur
+  # status` and `aiur agents` derive the human wait from the same fact (#2698).
   defp by_tracker_state(state) when is_binary(state) do
     case state |> String.downcase() |> String.trim() do
       "ci-wait" -> :waiting_for_ci
       "human-review" -> :waiting_for_review
-      "rework" -> :waiting_for_human
       "merging" -> :waiting_for_supervisor
       _ -> :active
     end

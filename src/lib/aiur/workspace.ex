@@ -140,7 +140,7 @@ defmodule Aiur.Workspace do
   defp ensure_dispatch_ready(workspace, issue_or_identifier, nil) do
     case Provisioner.workspace_readiness(workspace) do
       :ready ->
-        :ok
+        ensure_agent_support(workspace, issue_or_identifier)
 
       not_ready ->
         reason = {:workspace_provisioning_incomplete, workspace, not_ready}
@@ -149,13 +149,62 @@ defmodule Aiur.Workspace do
     end
   end
 
+  @doc """
+  Verifies, and repairs if needed, the agent GitHub support of a local
+  workspace before a turn starts (#2697).
+
+  Dispatch checks this once in `run_before_run_hook/3`, but a live session also
+  starts later turns: after a pause and resume, or for a queued operator
+  message. The agent process reads PATH and GH_CONFIG_DIR from its workspace on
+  every command, so repairing the tree on disk also restores a running agent.
+  Remote workers and workspaces that do not exist are left to their own launch
+  checks.
+  """
+  @spec ensure_agent_support_before_turn(term(), map() | String.t() | nil, worker_host()) :: :ok | {:error, term()}
+  def ensure_agent_support_before_turn(workspace, issue_or_identifier, nil) when is_binary(workspace) do
+    if File.dir?(workspace), do: ensure_agent_support(workspace, issue_or_identifier), else: :ok
+  end
+
+  def ensure_agent_support_before_turn(_workspace, _issue_or_identifier, _worker_host), do: :ok
+
+  # A genuine checkout is not enough: the agent environment points PATH,
+  # GH_CONFIG_DIR and the quota path into `.aiur-runtime`. Never start a turn
+  # with a dangling GH_CONFIG_DIR and the unauthenticated real `gh` (#2697).
+  defp ensure_agent_support(workspace, issue_or_identifier) do
+    case Provisioner.ensure_local_agent_support(workspace) do
+      :ok ->
+        :ok
+
+      {:error, reason} = error ->
+        emit_dispatch_refusal_alert(
+          "agent_support_incomplete",
+          "Workspace #{workspace} is missing agent GitHub support after repair; refusing to dispatch. Reason: #{inspect(reason)}",
+          workspace,
+          issue_or_identifier,
+          reason
+        )
+
+        error
+    end
+  end
+
   defp emit_provisioning_incomplete_alert(workspace, issue_or_identifier, reason) do
+    emit_dispatch_refusal_alert(
+      "provisioning_incomplete",
+      "Workspace #{workspace} is not a genuine checkout after provisioning; refusing to dispatch. Reason: #{inspect(reason)}",
+      workspace,
+      issue_or_identifier,
+      reason
+    )
+  end
+
+  defp emit_dispatch_refusal_alert(kind, message, workspace, issue_or_identifier, reason) do
     issue_context = Context.build(issue_or_identifier)
     identifier = issue_context.issue_identifier
 
     Alerts.emit_custom(
-      "ticket.#{identifier}.workspace.provisioning_incomplete",
-      "Workspace #{workspace} is not a genuine checkout after provisioning; refusing to dispatch. Reason: #{inspect(reason)}",
+      "ticket.#{identifier}.workspace.#{kind}",
+      message,
       issue: identifier,
       workspace: workspace,
       reason: inspect(reason),

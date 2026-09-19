@@ -107,7 +107,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     Application.put_env(:aiur, Endpoint, config)
 
     Aiur.TestSupport.start_owned_endpoint!()
-    Endpoint.config_change(config, [])
+    Endpoint.config_change([{Endpoint, config}], [])
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, original_config)
@@ -898,15 +898,22 @@ defmodule AiurWeb.StreamdeckChannelTest do
   end
 
   test "a failed control action reports the same bare reason wording as say" do
+    test_pid = self()
+
+    put_endpoint_config(
+      agent_chat_pause_fun: fn identifier ->
+        send(test_pid, {:paused, identifier})
+        {:error, :no_running_agent}
+      end
+    )
+
     socket = joined_socket()
     control = push(socket, "control", %{"identifier" => "AIUR-1", "action" => "pause"})
 
     # One wire convention: an atom reason from the AgentChat facade reaches the
     # device as the bare word, never inspect-quoted (`":no_running_agent"`).
-    # Which atom comes back depends on orchestrator state, so pin the wording,
-    # not the value.
-    assert_reply(control, :error, %{reason: reason})
-    assert reason =~ ~r/^[a-z_]+$/
+    assert_receive {:paused, "AIUR-1"}
+    assert_reply(control, :error, %{reason: "no_running_agent"})
   end
 
   describe "control: implement" do
@@ -974,6 +981,29 @@ defmodule AiurWeb.StreamdeckChannelTest do
       assert_reply(say, :ok, %{"request_id" => 42})
       # Trimmed, and delivered through the one existing chat path.
       assert_received {:sent, "AIUR-1", "ship the fix"}
+    end
+
+    # #2717. The sidecar sends one id per say press; the channel passes it on
+    # so a re-sent frame cannot queue a copy, and an unknown outcome is named.
+    test "passes the say press message id to delivery and names an unknown outcome" do
+      test_pid = self()
+
+      put_endpoint_config(
+        agent_chat_send_fun: fn identifier, text, opts ->
+          send(test_pid, {:sent, identifier, text, Keyword.fetch!(opts, :message_id)})
+          {:error, {:outcome_unknown, %{message_id: Keyword.fetch!(opts, :message_id), item_id: nil}}}
+        end
+      )
+
+      socket = joined_socket()
+      say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "continue", "message_id" => "press-1"})
+
+      assert_reply(say, :error, %{reason: "outcome_unknown"})
+      assert_received {:sent, "AIUR-1", "continue", "press-1"}
+
+      plain = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "continue"})
+      assert_reply(plain, :error, %{reason: "outcome_unknown"})
+      assert_received {:sent, "AIUR-1", "continue", nil}
     end
 
     test "surfaces a delivery error as a reason string" do

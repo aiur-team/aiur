@@ -7,11 +7,13 @@ defmodule Aiur.GitHub.Issues do
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
 
   alias Aiur.GitHub.{
+    BoundedBlockedBy,
     CycleFetchCache,
     DependenciesApi,
     DispatchAuthorization,
     Errors,
     Labels,
+    OpenIssueSnapshot,
     ResourceStore,
     StatePolicy,
     Transport
@@ -282,8 +284,11 @@ defmodule Aiur.GitHub.Issues do
   # It does *not* follow that re-depositing an unchanged issue is silent: the
   # store's change test includes `:source`, and these two readers deposit under
   # different sources, so alternating readers of an unchanged issue do publish.
-  # Nothing subscribes to `:issue` yet, and the honest fix belongs in the store's
-  # change test rather than here, so this is named rather than worked around.
+  # `Aiur.BuildOrder.GraphProjection` subscribes to `:issue`, and such a publish
+  # rebuilds its catalog from the store. That rebuild is a store read, not a
+  # GitHub read, and it buys no graph read unless a member's lifecycle actually
+  # moved (#2608). The honest fix belongs in the store's change test rather than
+  # here, so this is named rather than worked around.
   #
   # `:processed` is deliberately never passed: fetching an issue is not the same
   # as having acted on it, and marking it handled here would suppress the wake
@@ -381,6 +386,7 @@ defmodule Aiur.GitHub.Issues do
       active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
 
       with {:ok, issues} <- fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, []) do
+        record_open_issues(owner, repo, issues)
         {:ok, filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -403,6 +409,8 @@ defmodule Aiur.GitHub.Issues do
 
       case fetch_label_issue_pages_conditional(ctx, url, cache) do
         {:ok, issues, updated_cache} ->
+          record_open_issues(ctx.owner, ctx.repo, issues)
+
           candidates =
             filter_and_authorize_candidates_with_degenerate(
               issues,
@@ -420,6 +428,13 @@ defmodule Aiur.GitHub.Issues do
           error
       end
     end
+  end
+
+  # Both listings are unfiltered and fully paginated, and they answer `{:ok, _}`
+  # only when every page was read, so `issues` names every open issue. That is
+  # the close signal the dispatch gate's blocker states use (#2714).
+  defp record_open_issues(owner, repo, issues) do
+    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id))
   end
 
   defp filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix) do
@@ -1000,6 +1015,10 @@ defmodule Aiur.GitHub.Issues do
   per-cycle fetch cache so repeated dispatch attempts of the same issue reuse
   the same dependency snapshot.
 
+  Across cycles, the edge list and each blocker's state are served from the
+  store while younger than `Aiur.GitHub.BoundedBlockedBy.max_age_ms/0`, and
+  re-read unconditionally only once either is older (#2714).
+
   Returns `{:error, reason}` when the dependency read fails; callers treat that
   as *unknown* blockers and hold dispatch (fail-closed), because dispatching on
   unknown blockers would reintroduce exactly the "dispatches work GitHub knows
@@ -1010,13 +1029,13 @@ defmodule Aiur.GitHub.Issues do
     # The dispatch gate must never be served a blocked-by list the store holds
     # that has silently gone stale — a blocker added on GitHub's side without
     # Aiur's own write or a webhook delivery must still hold dispatch, and a
-    # blocker that has since closed must stop holding it. So this entry point
-    # always revalidates instead of serving the held body blind (#2326), and
-    # that revalidation is unconditional: the endpoint's own ETag tracks the
-    # blocked issue, not the blocker state embedded in its response, so a
-    # conditional read is answered `304` by a blocker that merged hours ago
-    # (#2550, #2552). See `DependenciesApi.revalidation_etag/2`.
-    hydrate_blocked_by(issue, revalidate: true)
+    # blocker that has since closed must stop holding it (#2326). The held
+    # body's embedded blocker states cannot be trusted and a conditional read
+    # cannot refresh them (#2550, #2552), but re-reading the list on every pass
+    # cost two thirds of a daemon's core budget (#2714). So the gate reads the
+    # edges and the blocker states separately, each within a stated bound: see
+    # `Aiur.GitHub.BoundedBlockedBy`.
+    hydrate_blocked_by(issue, revalidate: :bounded)
   end
 
   @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
@@ -1025,9 +1044,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
-    case CycleFetchCache.fetch({:blocked_by, id}, fn ->
-           DependenciesApi.fetch_blocked_by(id, opts)
-         end) do
+    case CycleFetchCache.fetch({:blocked_by, id}, fn -> fetch_blocked_by(id, opts) end) do
       {:ok, blockers} when is_list(blockers) ->
         {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
 
@@ -1040,6 +1057,13 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{} = issue, _opts), do: {:ok, issue}
+
+  defp fetch_blocked_by(id, opts) do
+    case Keyword.get(opts, :revalidate) do
+      :bounded -> BoundedBlockedBy.fetch(id, Keyword.delete(opts, :revalidate))
+      _other -> DependenciesApi.fetch_blocked_by(id, opts)
+    end
+  end
 
   # Reduces GitHub's native dependency issue objects to the same `blocked_by`
   # shape Linear's normalize_issue produces (`%{id, identifier, state, url}`)

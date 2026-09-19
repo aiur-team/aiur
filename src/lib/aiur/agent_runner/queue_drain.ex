@@ -20,6 +20,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
   alias Aiur.Codex.{DynamicTool, SessionRecovery}
   alias Aiur.CodingAgent
+  alias Aiur.Workspace
 
   @max_delivery_correlation_attempts 3
 
@@ -246,6 +247,13 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
       {:ok, :ignored} ->
         correlation_delivery_failed(item, identifier, action_id, :decision_correlation_ignored)
+
+      # The answer was mooted or replaced before it reached the agent (#2711).
+      # This is a final verdict, not a correlation fault: the item is failed at
+      # once, with no retry and no correlation alert, so it is never delivered.
+      {:error, {:answer_withdrawn, why} = reason} ->
+        Logger.info("Decision answer withdrawn before delivery issue=#{identifier} action_id=#{action_id} reason=#{why}")
+        {:error, {:failed, reason}}
 
       {:error, reason} ->
         correlation_delivery_failed(item, identifier, action_id, reason)
@@ -603,7 +611,31 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   defp maybe_broadcast_turn_completed(_turn_id, _issue), do: :ok
 
+  # #2697: a queued operator message starts a turn too; verify the agent's
+  # GitHub support first, exactly as `TurnLoop.run_turns/10` does. A refused
+  # turn never started, so the delivered item is restored to pending through
+  # the confirmed restore boundary instead of being marked failed.
   defp run_recorded_queue_item_turn(
+         app_session,
+         issue,
+         item,
+         orchestrator,
+         codex_update_recipient,
+         opts
+       ) do
+    workspace = SessionLifecycle.session_workspace(app_session)
+    worker_host = SessionLifecycle.session_worker_host(app_session)
+
+    case Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
+      :ok ->
+        run_supported_queue_item_turn(app_session, issue, item, orchestrator, codex_update_recipient, opts)
+
+      {:error, _reason} = error ->
+        TurnLoop.confirm_restore_for_replacement(orchestrator, issue, opts, error)
+    end
+  end
+
+  defp run_supported_queue_item_turn(
          app_session,
          issue,
          item,

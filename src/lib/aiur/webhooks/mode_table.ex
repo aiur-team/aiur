@@ -38,8 +38,8 @@ defmodule Aiur.Webhooks.ModeTable do
   end
 
   @impl true
-  def init(_opts) do
-    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
+  def init(opts) do
+    :ets.new(Keyword.get(opts, :table, @table), [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
     {:ok, %{}}
   end
 

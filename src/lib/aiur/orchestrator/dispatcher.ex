@@ -66,6 +66,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
       # observed no idleness, so the idle backoff may only apply from the
       # second scheduling decision onward (#2138).
       |> Map.update!(:poll_cycles_completed, &(&1 + 1))
+      # The GitHub poll floor is measured from here, so an event that pulls
+      # the next tick forward cannot land it closer than the floor allows.
+      |> Map.put(:last_dispatch_poll_at_ms, System.monotonic_time(:millisecond))
       # Counted first, then pruned: a hint whose budget this cycle exhausted
       # is dropped here, and a ticket this poll finally showed is dropped
       # because the ordinary demand scan sees it now (#2640).
@@ -1240,6 +1243,47 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
+    case held_by_dependency_before_refresh(state, issue, opts) do
+      {:held, %Issue{} = hydrated} ->
+        Logger.info(
+          "Skipping dispatch before refresh; issue is blocked by a non-terminal dependency: " <>
+            "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+        )
+
+        emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
+
+      :continue ->
+        refresh_and_dispatch_issue(state, issue, attempt, preferred_worker_host, opts)
+    end
+  end
+
+  # A todo ticket held by an open dependency cannot dispatch whatever its
+  # refreshed state says, so the dependency gate runs first and a held ticket
+  # spends no `issue_by_id` refresh and no `dispatch_authorization` read. Before
+  # #2714 every held dependent paid both on every pass, which was a third of a
+  # daemon's core spend on its own.
+  #
+  # Only a definite hold short-circuits. A failed or odd hydration, an issue
+  # with no dependency hold, and an issue also held on a blocking Command
+  # (whose decline reason takes precedence) all take the ordinary path, which
+  # refreshes the issue and runs every gate again, fail-closed as before. The
+  # gate needs the candidate to be `todo`, and the candidate's state is the
+  # latest tracker poll's.
+  defp held_by_dependency_before_refresh(%State{} = state, %Issue{} = issue, opts) do
+    hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
+
+    with false <- DispatchPolicy.blocked_on_decision?(issue, state.blocked_ticket_ids),
+         {:ok, %Issue{} = hydrated} <- hydrator.(issue),
+         true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
+      {:held, hydrated}
+    else
+      _not_held -> :continue
+    end
+  end
+
+  defp held_by_dependency_before_refresh(_state, _issue, _opts), do: :continue
+
+  defp refresh_and_dispatch_issue(state, issue, attempt, preferred_worker_host, opts) do
     issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
 
     case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set(), opts) do
@@ -2667,6 +2711,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))
 
         running = Map.put(state.running, issue.id, running_entry)
+        deliver_pending_answers(issue, opts)
 
         %{
           state
@@ -2690,6 +2735,34 @@ defmodule Aiur.Orchestrator.Dispatcher do
         })
     end
   end
+
+  # An agent that files a blocking Command ends its run, so the answer usually
+  # arrives when no worker runs the ticket and its delivery fails (#2713). The
+  # answer stays durable in the DecisionStore; this new worker is where it must
+  # land. The store dispatches each undelivered answer of the ticket again, and
+  # it reaches this worker through its queue.
+  #
+  # The spawn runs inside an Orchestrator handler, often a whole poll. The
+  # store's dispatch task calls back into the Orchestrator, so a request sent
+  # now would wait behind the rest of that handler and could time out on a
+  # slow poll. The request is therefore posted to this process and sent to the
+  # store only after the handler returns (`handle_pending_answer_delivery/1`).
+  defp deliver_pending_answers(%Issue{identifier: identifier}, opts) when is_binary(identifier) do
+    send(self(), {:deliver_pending_answers, identifier, Keyword.get(opts, :decision_store, DecisionStore)})
+    :ok
+  end
+
+  defp deliver_pending_answers(_issue, _opts), do: :ok
+
+  @doc """
+  Handles the `{:deliver_pending_answers, identifier, store}` message that a
+  worker spawn posts to the Orchestrator. It runs after the spawning handler
+  has returned, so the store's dispatch task finds the Orchestrator free and
+  the new running entry in its state (#2713).
+  """
+  @spec handle_pending_answer_delivery({:deliver_pending_answers, String.t(), GenServer.server()}) :: :ok
+  def handle_pending_answer_delivery({:deliver_pending_answers, identifier, store}) when is_binary(identifier),
+    do: DecisionStore.deliver_pending_answers(identifier, store)
 
   defp dispatch_attempt_ticket(%Issue{} = issue) do
     case dispatch_attempt_identity(issue) do

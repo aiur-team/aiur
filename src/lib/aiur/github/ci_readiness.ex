@@ -848,7 +848,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp required_check_identity(_item), do: nil
 
   defp pull_request_workflow?(source, base_branch) do
-    case YamlElixir.read_from_string(source) do
+    case Aiur.Yaml.read_from_string(source) do
       {:ok, workflow} ->
         trigger = Map.get(workflow, "on") || Map.get(workflow, true)
         pull_request_trigger?(trigger, base_branch)
@@ -944,7 +944,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp workflow_check_names({_path, source}) do
-    with {:ok, workflow} <- YamlElixir.read_from_string(source), jobs when is_map(jobs) <- Map.get(workflow, "jobs") do
+    with {:ok, workflow} <- Aiur.Yaml.read_from_string(source), jobs when is_map(jobs) <- Map.get(workflow, "jobs") do
       jobs
       |> Enum.filter(fn {_id, job} -> job_runs_on_pull_request?(job) end)
       |> Enum.flat_map(&job_check_names/1)

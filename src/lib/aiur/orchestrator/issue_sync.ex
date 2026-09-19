@@ -7,7 +7,6 @@ defmodule Aiur.Orchestrator.IssueSync do
   require Logger
 
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
-  alias Aiur.Config.Paths
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
@@ -673,7 +672,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp active_attention_topics do
-    [log_roots: [Paths.log_root_dir()], needs_attention: true]
+    [needs_attention: true]
     |> AlertFeed.list()
     |> MapSet.new(& &1["topic"])
   end
@@ -1299,7 +1298,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         next_state
 
       running_entry ->
-        OperatorMessages.notify_running_queue_update(running_entry, item)
+        OperatorMessages.notify_running_queue_update(state, running_entry, item)
         next_state
     end
   end

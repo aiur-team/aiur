@@ -122,12 +122,22 @@ defmodule Aiur.BuildOrder.TicketDetail.Repository do
 
   defp configured_snapshot_from_store do
     with {:ok, %{config: config}, generation} <- WorkflowStore.current_with_generation(),
-         repository when is_binary(repository) <- get_in(config, ["tracker", "github", "repo"]),
-         [owner, name] <- String.split(String.trim(repository), "/"),
-         {:ok, repository} <- configured_repository_result({owner, name}) do
+         {:ok, repository} <- snapshot_repository(config) do
       {:ok, repository, normalize_generation(generation)}
     else
       _ -> {:error, %Failure{kind: :configuration}}
+    end
+  end
+
+  defp snapshot_repository(config) do
+    repository = get_in(config, ["tracker", "github", "repo"])
+
+    if is_nil(repository) and get_in(config, ["tracker", "kind"]) != "github" do
+      {:error, %Failure{kind: :configuration}}
+    else
+      repository
+      |> GitHub.Config.configured_repo_from_value()
+      |> configured_repository_result()
     end
   end
 

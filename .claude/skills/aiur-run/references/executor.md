@@ -173,6 +173,14 @@ a rationale, and an idempotency key. Use a stable `--executor-id` for the run
 when available (the CLI otherwise records `aiur-cli`), so replay stays
 idempotent and stale events cannot overwrite a later answer.
 
+A decided answer that no agent has received yet can still be changed. It is
+addressed to the ticket, so a later worker of the same ticket receives it.
+Withdraw it with `executor-moot`, or replace it with `executor-answer
+--supersede`; the store never delivers a mooted or replaced answer. While a
+worker is sending the answer it is in flight and cannot be changed; after a
+failed send it can. Moot only an answer that an Executor recorded or could have recorded;
+otherwise escalate.
+
 If the Command is uncertain, irreversible, changes feature scope or product
 direction, exceeds the authority envelope, or requires the Executor to guess,
 do not answer it. Use the `executor-escalate` command to invoke the existing
@@ -286,6 +294,7 @@ ticket it will not pick up:
 1. inspect `aiurdev watch --full`, `aiurdev alerts --needs-attention`, the
    ticket/PR, and the agent workpad/log evidence;
 2. send a concise, ticket-specific message with `aiurdev message <id> <text>`;
+   exit 124 = outcome unknown: check the ticket log first, then retry only with the printed `--message-id` command, never a plain resend (a plain resend now queues a second copy).
 3. correct labels, dependency state, or queue state only when the authoritative
    source proves it is wrong and the authority envelope permits it; in a GitHub
    workflow, shelve an undispatched ticket with the `agent:paused` tracker

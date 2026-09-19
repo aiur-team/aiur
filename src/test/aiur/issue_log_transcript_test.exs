@@ -99,6 +99,31 @@ defmodule Aiur.IssueLogTranscriptTest do
            |> File.read!() =~ "after the partition died"
   end
 
+  # #2717. The echo is written when an Executor message is queued, not when the
+  # agent gets it, so the ticket log must not tag it `[user]`.
+  test "labels a queued Executor message echo with its item and decision id", %{identifier: identifier} do
+    event =
+      AgentEvents.transcript_event(:user, "Selected option `ship`: Ship it", payload: %{operator_message: %{request_id: 42, status: :queued, decision_id: "dec_2717"}})
+
+    write_transcript(identifier, event)
+    log = identifier |> IssueLog.log_path() |> File.read!()
+
+    assert log =~ "[queued item=42 decision=dec_2717] Selected option `ship`: Ship it"
+    refute log =~ "[user] Selected option"
+  end
+
+  test "labels a queued plain message echo with its item and keeps other user turns", %{identifier: identifier} do
+    queued =
+      AgentEvents.transcript_event(:user, "Please rebase", payload: %{operator_message: %{request_id: 7, status: :queued}})
+
+    write_transcript(identifier, queued)
+    write_transcript(identifier, AgentEvents.transcript_event(:user, "typed in the pane"))
+    log = identifier |> IssueLog.log_path() |> File.read!()
+
+    assert log =~ "[queued item=7] Please rebase"
+    assert log =~ "[user] typed in the pane"
+  end
+
   defp write_transcript(identifier, event) do
     :ok = IssueLog.attach(identifier)
     pid = writer_pid(identifier)

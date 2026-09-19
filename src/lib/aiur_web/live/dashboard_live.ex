@@ -128,6 +128,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot())
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
+      |> assign(:pending_message_ids, %{})
       |> assign(:chat_errors, %{})
       |> assign(:decision_actions, %{})
       |> assign(:global_pause_error, nil)
@@ -2598,6 +2599,7 @@ defmodule AiurWeb.DashboardLive do
   defp clear_chat_state(socket, identifier) do
     socket
     |> assign(:drafts, Map.delete(socket.assigns.drafts, identifier))
+    |> assign(:pending_message_ids, Map.delete(socket.assigns.pending_message_ids, identifier))
     |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))
   end
 
@@ -2607,17 +2609,43 @@ defmodule AiurWeb.DashboardLive do
 
   defp send_operator_message(socket, _target, _key, ""), do: socket
 
+  # Each Send press is one user action with its own message id (#2717). When
+  # the daemon does not answer in time, the outcome is unknown: the id and the
+  # draft are kept, so pressing Send again with the same text retries this
+  # send and cannot queue a copy. Success clears both. A changed draft is a
+  # new message and gets a new id.
   defp send_operator_message(socket, target, key, text) do
-    case send_agent_message(target, text) do
-      {:ok, _request_id} -> clear_chat_state(socket, key)
-      {:error, reason} -> put_chat_error(socket, key, reason)
+    message_id = message_id_for_send(socket, key, text)
+
+    case send_agent_message(target, text, message_id) do
+      {:ok, _request_id} ->
+        clear_chat_state(socket, key)
+
+      {:error, {:outcome_unknown, _info} = reason} ->
+        socket
+        |> assign(:pending_message_ids, Map.put(socket.assigns.pending_message_ids, key, {message_id, text}))
+        |> assign(:drafts, Map.put(socket.assigns.drafts, key, text))
+        |> put_chat_error(key, reason)
+
+      {:error, reason} ->
+        socket
+        |> assign(:pending_message_ids, Map.delete(socket.assigns.pending_message_ids, key))
+        |> put_chat_error(key, reason)
     end
   end
 
-  defp send_agent_message(target, text) do
+  defp message_id_for_send(socket, key, text) do
+    case Map.get(socket.assigns.pending_message_ids, key) do
+      {message_id, ^text} -> message_id
+      _new_action -> "dashboard-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    end
+  end
+
+  defp send_agent_message(target, text, message_id) do
     case Endpoint.config(:agent_chat_send_fun) do
+      fun when is_function(fun, 3) -> fun.(target, text, message_id: message_id)
       fun when is_function(fun, 2) -> fun.(target, text)
-      _fun -> AgentChat.send(target, text)
+      _fun -> AgentChat.send(target, text, message_id: message_id)
     end
   end
 

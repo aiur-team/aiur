@@ -11,6 +11,7 @@ defmodule Aiur.BuildOrdersCLI do
   """
 
   alias Aiur.BuildOrder.{Catalog, ProgressRenderer, ProviderHealth, RootSummary}
+  alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{JSONSafe, TrackerIdentity}
   alias AiurWeb.BuildOrder.{DataSource, Runtime}
@@ -77,8 +78,10 @@ defmodule Aiur.BuildOrdersCLI do
 
   defp envelope(%{root: root}, %Snapshot{data: %Catalog{} = catalog}, source, captured_at) do
     with {:ok, identity} <- root_identity(catalog, root),
-         {:ok, %Snapshot{} = planning} <- Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
+         {:ok, %Snapshot{} = demanded} <- Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
          sources when is_map(sources) <- Runtime.safe_source_call(source, :load_runtime_sources, [], %{}) do
+      planning = first_read(source, identity, demanded, captured_at)
+
       model = BuildOrderPresenter.present(planning, Map.get(sources, :execution), Map.get(sources, :activity))
       grid = BuildOrderGridModel.build(model, nil)
 
@@ -89,13 +92,13 @@ defmodule Aiur.BuildOrdersCLI do
          snapshot: %{captured_at: captured_at},
          request: %{root: root},
          sources: %{
-           planning_graph: planning_source(planning, captured_at),
+           planning_graph: graph_source(planning, captured_at),
            execution: runtime_source(model.execution_health),
            activity: runtime_source(model.activity_health)
          },
          data: %{
            root: model.root,
-           graph: graph(model, grid),
+           graph: graph(model, grid, planning),
            runtime: %{execution: model.execution_health, activity: model.activity_health}
          },
          auxiliary: %{}
@@ -108,6 +111,40 @@ defmodule Aiur.BuildOrdersCLI do
 
   defp envelope(_request, _snapshot, _source, _captured_at), do: {:error, "could not read the Build Order catalog"}
 
+  # Registering demand buys nothing (writer-driven design), so a root nobody has
+  # read since the daemon started has no graph, and a catalog completion only
+  # re-reads roots a live page is watching. A terminal read of one root is as much
+  # a stated need as opening its page, so it buys the first read the same way the
+  # LiveView does (`AiurWeb.BuildOrder.SourceRuntime`), then re-reads what is held
+  # so the reply shows the read in flight. Without this the CLI reported
+  # `provider_unavailable` until a dashboard happened to open the root (#2695).
+  #
+  # `refresh` does not consult backoff, and a read that fails lands after this
+  # process has exited, so nothing retries it on a schedule. Asking again on
+  # every poll would restart one GraphQL read per poll and ignore a provider's
+  # retry-after. So a root whose first read failed is asked for again only once
+  # the projection's own retry rule says it is due.
+  defp first_read(source, identity, %Snapshot{data: nil} = demanded, now) do
+    if GraphProjection.read_due?(demanded, now), do: refresh_held(source, identity, demanded), else: demanded
+  end
+
+  defp first_read(_source, _identity, %Snapshot{} = demanded, _now), do: demanded
+
+  defp refresh_held(source, identity, demanded) do
+    _ = Runtime.safe_source_call(source, :refresh, [identity], :ok)
+
+    case Runtime.safe_source_call(source, :selected, [identity], {:error, :unavailable}) do
+      {:ok, %Snapshot{} = selected} -> selected
+      _failure -> demanded
+    end
+  end
+
+  # A graph that was never read and has no recorded failure is loading, not
+  # unavailable: the same rule the page's route state applies before it shows its
+  # shimmer. A recorded failure is the only honest "unavailable".
+  defp loading?(%Snapshot{data: nil, health: %ProviderHealth{state: :unavailable, failure: nil}}), do: true
+  defp loading?(_snapshot), do: false
+
   defp root_identity(%Catalog{entries: entries}, root) do
     case Enum.filter(entries, &(match?(%{identity: %TrackerIdentity{identifier: ^root}}, &1) and TrackerIdentity.joinable?(&1.identity))) do
       [%{identity: identity}] -> {:ok, identity}
@@ -116,9 +153,9 @@ defmodule Aiur.BuildOrdersCLI do
     end
   end
 
-  defp graph(model, grid) do
+  defp graph(model, grid, planning) do
     %{
-      status: model.status,
+      status: graph_status(model, planning),
       summary: model.summary,
       completion: ProgressRenderer.json(grid.overall_completion),
       # `ProgressRenderer.json/1` is the shared contract and carries no
@@ -130,8 +167,18 @@ defmodule Aiur.BuildOrdersCLI do
       waves: grid.waves,
       members: members(model, grid),
       edges: edges(grid),
-      diagnostics: model.diagnostics
+      diagnostics: graph_diagnostics(model, planning)
     }
+  end
+
+  defp graph_status(model, planning), do: if(loading?(planning), do: :loading, else: model.status)
+
+  # The presenter's `provider_unavailable` diagnostic describes a fetch that
+  # failed; a first read still in flight has not failed, so it does not carry it.
+  defp graph_diagnostics(model, planning) do
+    if loading?(planning),
+      do: Enum.reject(model.diagnostics, &match?(%{code: :provider_unavailable}, &1)),
+      else: model.diagnostics
   end
 
   defp members(model, grid) do
@@ -160,6 +207,12 @@ defmodule Aiur.BuildOrdersCLI do
     Enum.map(grid.edges, fn edge ->
       %{from: edge.source, to: edge.target, direction: :blocker_to_blocked, state: edge.state}
     end)
+  end
+
+  defp graph_source(%Snapshot{} = snapshot, captured_at) do
+    if loading?(snapshot),
+      do: %{state: :loading, observed_at: nil, age_ms: nil, freshness: :unknown, partial: true, reasons: []},
+      else: planning_source(snapshot, captured_at)
   end
 
   defp planning_source(%Snapshot{data: data, health: health}, captured_at) do

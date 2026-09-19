@@ -14,6 +14,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
     original_log_file = Application.get_env(:aiur, :log_file)
     log_root = Aiur.TestSupport.tmp_root!("aiur-queue-drain")
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
       if original_log_file do
@@ -347,6 +348,71 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert_receive {:provider_delivered, 7, %{turn_id: "follow-up-turn"}}
       assert_receive {:queue_item_consumed, ^identifier}
       refute_receive {:follow_up_turn, _other}
+    end
+
+    # #2697: a paused-then-resumed or queued turn runs in a live session, so
+    # dispatch's before_run check never sees it. The turn must repair the
+    # workspace's agent GitHub support first, or refuse with a named reason.
+    test "a queued turn repairs a workspace that lost its gh shim, gh config and quota dir", %{log_root: log_root} do
+      parent = self()
+      identifier = "QD-2697-repair-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier}
+      item = %{category: :operator_message, id: 26, body: %{text: "resume after pause"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, parent)
+      workspace = Path.join(log_root, "ws-repair")
+      File.mkdir_p!(Path.join(workspace, ".aiur-runtime/build-bin"))
+
+      run_turn = fn _session, _text, _issue, _opts ->
+        send(parent, {:turn_saw_missing, Aiur.AgentGitHubGuard.missing_workspace_support(workspace)})
+        {:ok, %{session_id: "repaired-session"}}
+      end
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "claude", workspace: workspace, worker_host: nil},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: run_turn
+               )
+
+      assert_receive {:turn_saw_missing, []}
+      assert_receive {:queue_item_consumed, ^identifier}
+    end
+
+    test "a queued turn refuses to start when the gh config dir is an unrepairable symlink", %{log_root: log_root} do
+      parent = self()
+      identifier = "QD-2697-refuse-#{System.unique_integer([:positive])}"
+      issue = %Issue{id: "gid-#{identifier}", identifier: identifier}
+      item = %{category: :operator_message, id: 27, body: %{text: "resume after pause"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, parent)
+      workspace = Path.join(log_root, "ws-refuse")
+      operator_config = Path.join(log_root, "operator-gh")
+      File.mkdir_p!(Path.join(workspace, ".aiur-runtime"))
+      File.mkdir_p!(operator_config)
+      File.ln_s!(operator_config, Path.join(workspace, ".aiur-runtime/gh"))
+
+      run_turn = fn _session, _text, _issue, _opts ->
+        send(parent, :turn_started)
+        {:ok, %{session_id: "must-not-run"}}
+      end
+
+      assert {:error, {:agent_support_repair_failed, ^workspace, missing, {:agent_gh_config_dir_unavailable, _, _}}} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "claude", workspace: workspace, worker_host: nil},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: run_turn
+               )
+
+      assert ".aiur-runtime/gh" in missing
+      refute_received :turn_started
+      # The turn never started: the operator message goes back to the queue.
+      assert_receive {:queue_item_restored, ^identifier}
+      refute_received {:queue_item_failed, ^identifier, _reason}
     end
 
     test "a provider active-turn (-32_003) rejection restores the queued message instead of failing it" do

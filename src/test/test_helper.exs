@@ -11,7 +11,6 @@ contaminating_env_vars = [
   "AIUR_TMUX_CONF",
   "AIUR_TMUX_SESSION",
   "AIUR_TMUX_SOCKET",
-  "XDG_RUNTIME_DIR",
   "AIUR_LOGS_ROOT"
 ]
 
@@ -25,19 +24,8 @@ end
 System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
 System.put_env("AIUR_DASHBOARD_PASSWORD", "test-dashboard-secret")
 
-original_home = System.get_env("HOME")
-
-# `System.pid()` keeps this VM's HOME private. `System.unique_integer/1` is
-# node-scoped, so without the pid two concurrent `mix test` runs on one host can
-# share a HOME and then read and delete each other's `~/.aiur` state.
-test_home =
-  Path.join(
-    System.tmp_dir!(),
-    "aiur-test-home-#{System.pid()}-#{System.unique_integer([:positive, :monotonic])}"
-  )
-
-File.mkdir_p!(test_home)
-System.put_env("HOME", test_home)
+Code.require_file("support/test_boot_guard.exs", __DIR__)
+Aiur.TestBootGuard.check!()
 
 # The suite-global :log_file isolation root is set in config/config.exs
 # (test block) so it is in force before the app boots. Fail loudly if it
@@ -67,13 +55,6 @@ real_proc_exclude = if File.dir?("/proc"), do: [], else: [:real_proc]
 ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude)
 
 ExUnit.after_suite(fn _result ->
-  case original_home do
-    nil -> System.delete_env("HOME")
-    value -> System.put_env("HOME", value)
-  end
-
-  File.rm_rf(test_home)
-
   # Best-effort: IdGenerator's terminate/2 flush at VM shutdown may
   # recreate the counter file after this — a small leftover under the
   # system tmp dir is harmless and tolerated.
@@ -92,4 +73,5 @@ Code.require_file("support/fake_usage_adapter.ex", __DIR__)
 Code.require_file("support/grouped_scopes_support.ex", __DIR__)
 Code.require_file("support/awaiting_commands_support.ex", __DIR__)
 Code.require_file("support/github_cache_source_support.ex", __DIR__)
+Code.require_file("support/snapshot_fence_support.ex", __DIR__)
 Code.require_file("support/webhook_mode_contract.exs", __DIR__)

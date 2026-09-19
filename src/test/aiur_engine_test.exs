@@ -35,13 +35,16 @@ defmodule AiurEngineTest do
   test "resolves a per-instance keyed identity" do
     # Runs inside an aiur project (this repo has .aiur/config), so the node name is
     # keyed by the project root — two instances for the same user can't collide (#431).
-    id = identity([])
+    home = Aiur.TestSupport.tmp_root!("aiur-identity-home")
+    File.mkdir_p!(home)
+    on_exit(fn -> File.rm_rf!(home) end)
+    id = identity([{"HOME", home}, {"XDG_CONFIG_HOME", nil}])
 
     assert id["AIUR_SESSION_PREFIX"] == "aiur"
     assert id["AIUR_RELEASE_NODE"] =~ ~r/\Aaiur-tester-[0-9a-f]{1,12}@127\.0\.0\.1\z/
     assert id["AIUR_INSTANCE_KEY"] =~ ~r/\A[0-9a-f]{1,12}\z/
-    assert id["AIUR_BG_STATE_DIR"] =~ ~r{/\.config/aiur$}
-    assert id["AIUR_COOKIE_FILE"] =~ ~r{/\.config/aiur/cookie$}
+    assert id["AIUR_BG_STATE_DIR"] == Path.join(home, ".config/aiur")
+    assert id["AIUR_COOKIE_FILE"] == Path.join(home, ".config/aiur/cookie")
   end
 
   test "the state dir is redirectable so tests need not touch ~/.config/aiur" do
@@ -357,6 +360,30 @@ defmodule AiurEngineTest do
     assert out =~ "aiur run [--bg] [--no-dashboard] [--executor] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--executor] [--debug]"
     refute out =~ "sweep"
+  end
+
+  # #2717. `--message-id` names one send, so the retry the CLI prints after an
+  # unknown outcome reaches the daemon with the same id.
+  test "message passes --message-id to the control RPC and validates it" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|run_control_rpc() { echo "RPC=$1"; }; cmd_message 44 --message-id cli-1a2b continue now; | <>
+          ~S|cmd_message 44 --message-id=x.y:z yes; cmd_message 44 plain text; | <>
+          ~S|if (cmd_message 44 --message-id 'bad id' x) 2>/dev/null; then echo "BAD=0"; else echo "BAD=$?"; fi; | <>
+          ~S|if (cmd_message 44 --message-id "" x) 2>/dev/null; then echo "EMPTY=0"; else echo "EMPTY=$?"; fi; | <>
+          ~S|if (cmd_message 44 --message-id= x) 2>/dev/null; then echo "EMPTY_EQ=0"; else echo "EMPTY_EQ=$?"; fi|,
+        []
+      )
+
+    encoded = Base.encode64("continue now")
+    assert out =~ ~s|RPC=Aiur.AgentControlCLI.message("44", Base.decode64!("#{encoded}"), "cli-1a2b")|
+    assert out =~ ~s|Base.decode64!("#{Base.encode64("yes")}"), "x.y:z")|
+    assert out =~ ~s|RPC=Aiur.AgentControlCLI.message("44", Base.decode64!("#{Base.encode64("plain text")}"))|
+    assert out =~ "BAD=64"
+    # An empty id is an error, never a silent fallback to a plain send.
+    assert out =~ "EMPTY=64"
+    assert out =~ "EMPTY_EQ=64"
+    refute out =~ ~s|Base.decode64!("#{Base.encode64("x")}"))|
   end
 
   test "an incomplete dev release returns the retryable control code" do
@@ -1061,6 +1088,25 @@ defmodule AiurEngineTest do
     assert out =~ "rationale: Base.decode64!(\"S25vd24gc3RhbGUgYnJhbmNo\")"
     assert out =~ "idempotency_key: Base.decode64!(\"ZXhlYzo0Mjp2Mw==\")"
     assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "executor-answer --supersede asks the store to replace an undelivered answer" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --custom-response 'New plan' --rationale 'Operator changed direction' --idempotency-key 'exec:42:s1' --supersede|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_answer(["
+    assert out =~ ", supersede: true])"
+
+    {plain, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --option yes --rationale why --idempotency-key key|,
+        []
+      )
+
+    refute plain =~ "supersede"
   end
 
   test "executor mutations describe their attempted decision and version to the wrapper" do
@@ -2371,6 +2417,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
 
     script = """
     sleep() { :; }
+    kill_beams_matching() { :; }
+    preflight_stale_manual_smoke() { :; }
     probe_control_liveness() {
       echo PROBE >> "$EVENTS"
       printf up
@@ -2390,6 +2438,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
         {"AIUR_BG_STATE_DIR", state},
+        {"XDG_RUNTIME_DIR", state},
+        {"HOME", state},
         {"AIUR_LOGS_ROOT", logs},
         {"AIUR_NODE_GRACE_TICKS", "2"},
         {"EVENTS", events},
@@ -2437,6 +2487,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
 
     script = """
     sleep() { :; }
+    kill_beams_matching() { :; }
+    preflight_stale_manual_smoke() { :; }
     probe_control_liveness() { printf up; }
     probe_dashboard_status() { :; }
     start_beam_death_watchdog() { printf '424242\n'; }
@@ -2450,6 +2502,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
       run_sourced_engine(script, [
         {"AIUR_RELEASE_DIR", rel},
         {"AIUR_BG_STATE_DIR", state},
+        {"XDG_RUNTIME_DIR", state},
+        {"HOME", state},
         {"AIUR_LOGS_ROOT", logs},
         {"PATH", path}
       ])

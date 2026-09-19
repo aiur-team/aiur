@@ -58,7 +58,7 @@ if config_env() == :test do
   # Durable Executor state resolves to `~/.aiur/repo/<owner>/<repo>/executor` in
   # a real run. A case that touches it without TestSupport's per-test root would
   # otherwise write to the developer's own machine-local state.
-  config :aiur, :executor_state_dir, Path.join(System.tmp_dir!(), "aiur-test-executor-state")
+  # Configured below with the other per-VM state directories.
 
   # The shared app's Ad Hoc overlay poller must not reach GitHub across
   # sequential test boundaries; tests that exercise it start their own named
@@ -94,13 +94,51 @@ if config_env() == :test do
       "aiur-test-logs-#{System.os_time(:millisecond)}-#{System.pid()}"
     )
 
+  # mix starts the application before test_helper. Capture HOME before changing
+  # it, then isolate environment-based paths (provider credentials
+  # and themes). System.user_home!/0 is cached by the VM, so writers using
+  # it also need the explicit application overrides below before any application child can touch the host.
+  config :aiur, :test_original_home, System.user_home!()
+  config :aiur, :test_state_root, test_log_root
+  test_home = Path.join(test_log_root, "home")
+  File.mkdir_p!(test_home)
+  System.put_env("HOME", test_home)
+
+  for {name, leaf} <- [
+        {"AIUR_BG_STATE_DIR", "runtime"},
+        {"XDG_CONFIG_HOME", "config"},
+        {"XDG_STATE_HOME", "state"},
+        {"XDG_DATA_HOME", "data"},
+        {"XDG_RUNTIME_DIR", "run"},
+        {"CODEX_HOME", "codex"},
+        {"GH_CONFIG_DIR", "gh"}
+      ] do
+    System.put_env(name, Path.join(test_log_root, leaf))
+  end
+
+  # These inherited launcher files belong to a live daemon, not this test VM.
+  for name <- ~w(AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE
+                 AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE) do
+    System.delete_env(name)
+  end
+
   config :aiur, :log_file, Path.join(test_log_root, "aiur.log")
+  config :aiur, :executor_state_dir, Path.join(test_log_root, "executor")
+  config :aiur, :host_guard_bin_dir, Path.join(test_log_root, "host/bin")
+  config :aiur, :repo_base_root, Path.join(test_log_root, "repo")
+  config :aiur, :build_gate_dir_override, Path.join(test_log_root, "build-gate")
 
   # Same isolation rationale as :log_file above: the always-on DecisionStore
   # child (OCC-1) must never resolve into a real Executor's AIUR_BG_STATE_DIR
   # during tests. Per-test overrides (Application.put_env in a test's own
   # setup) still win.
   config :aiur, :decision_state_dir, Path.join(test_log_root, "decisions")
+  config :aiur, :github_budget_dir, Path.join(test_log_root, "github-budget")
+
+  # Durable runtime state (event-ID counter, subscriptions, session handles,
+  # alert ledger; #2722) survives a restart by design, so it needs the same
+  # per-VM isolation. Aiur.TestSupport gives each case its own root.
+  config :aiur, :runtime_state_dir, Path.join(test_log_root, "runtime-state")
   config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 
   config :aiur, :server_host_override, "127.0.0.1"
@@ -125,7 +163,9 @@ if config_env() == :test do
   # checkout. Per-test overrides (Aiur.TestSupport) still win.
   File.mkdir_p!(test_log_root)
   test_workflow_file_path = Path.join(test_log_root, "test.yaml")
-  File.cp!(Path.expand("../test/fixtures/test.yaml", __DIR__), test_workflow_file_path)
+  fixture = File.read!(Path.expand("../test/fixtures/test.yaml", __DIR__))
+  workspace_root = Path.join(test_log_root, "workspaces")
+  File.write!(test_workflow_file_path, String.replace(fixture, "/tmp/aiur-test-workspaces", workspace_root))
 
   config :aiur, :workflow_file_path, test_workflow_file_path
 end

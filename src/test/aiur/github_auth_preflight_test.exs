@@ -1,7 +1,7 @@
 defmodule Aiur.GitHubAuthPreflightTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AlertFeed, Config.Paths, Issue}
+  alias Aiur.{AlertFeed, Issue}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.Client
   alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
@@ -146,7 +146,7 @@ defmodule Aiur.GitHubAuthPreflightTest do
 
     assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed.resolved"}}, 500
 
-    refute Enum.any?(AlertFeed.list(log_roots: [Paths.log_root_dir()], needs_attention: true), fn alert ->
+    refute Enum.any?(AlertFeed.list(needs_attention: true), fn alert ->
              alert["topic"] == "system.tracker.auth_preflight_failed"
            end)
 
@@ -156,7 +156,7 @@ defmodule Aiur.GitHubAuthPreflightTest do
     assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed"} = second_event}, 500
     assert second_event["reason"] =~ "latest probe failed at a different endpoint"
 
-    assert Enum.any?(AlertFeed.list(log_roots: [Paths.log_root_dir()], needs_attention: true), fn alert ->
+    assert Enum.any?(AlertFeed.list(needs_attention: true), fn alert ->
              alert["topic"] == "system.tracker.auth_preflight_failed"
            end)
   end

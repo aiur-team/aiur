@@ -63,7 +63,8 @@ defmodule Aiur.Application do
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
-    with :ok <- validate_dashboard_compatibility(no_dashboard?) do
+    with :ok <- Aiur.GlobalConfigStartup.prepare(),
+         :ok <- validate_dashboard_compatibility(no_dashboard?) do
       headless? = Application.get_env(:aiur, :headless, false)
       # Headless is authoritative: if both flags somehow end up set (e.g. a
       # hand-run `aiur --headless` that also injected `--interactive`), the lean
@@ -100,13 +101,18 @@ defmodule Aiur.Application do
       #
       # `:rest_for_one` makes the ordering real: PubSub restarts first, then
       # everything after it, so dependents never start into a missing registry.
-      Supervisor.start_link(
+      start_supervisor(
         children ++ [supervision_health_child(children)],
-        strategy: :rest_for_one,
         name: Aiur.Supervisor
       )
       |> tap(fn _ -> start_upgrade_check() end)
     end
+  end
+
+  @doc false
+  @spec start_supervisor([Supervisor.child_spec() | {module(), term()} | module()], keyword()) :: Supervisor.on_start()
+  def start_supervisor(children, opts \\ []) do
+    Supervisor.start_link(children, Keyword.put(opts, :strategy, :rest_for_one))
   end
 
   # The `aiur run` version notice is deliberately out-of-band: it runs in a
@@ -353,6 +359,9 @@ defmodule Aiur.Application do
       # the Publisher and before anything that polls or receives, so the first
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
+      # Owns the open-issue listing the dispatch gate reads as its close signal
+      # (#2714). A table owned by a poll writer would die with it.
+      Aiur.GitHub.OpenIssueSnapshot,
       Aiur.GitHub.ResourceStore,
       # The bounded time-series the `/github-cache` history charts draw. Starts
       # after the store it samples, so its first sample never races the store's

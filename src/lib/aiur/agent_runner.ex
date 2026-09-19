@@ -132,10 +132,20 @@ defmodule Aiur.AgentRunner do
       record_workspace_ownership(issue, opts, boundary, outcome, ownership)
     end
 
-    case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun) do
+    # The holder metadata lets the Orchestrator find this runner if it holds
+    # the lease without a running entry: its update target died in an
+    # Orchestrator crash, or a rolled-back state dropped its entry (#2705).
+    holder = %{
+      issue_id: issue.id,
+      update_recipient: codex_update_recipient,
+      update_recipient_name: registered_name(codex_update_recipient),
+      worker_host: worker_host
+    }
+
+    case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun, holder: holder) do
       {:ok, ownership} ->
         try do
-          with_workspace_host_lock(issue, opts, worker_host, fn ->
+          with_workspace_host_lock(issue, opts, ownership, worker_host, fn ->
             run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
           end)
         after
@@ -173,6 +183,15 @@ defmodule Aiur.AgentRunner do
     end
   end
 
+  defp registered_name(pid) when is_pid(pid) and node(pid) == node() do
+    case Process.info(pid, :registered_name) do
+      {:registered_name, name} when is_atom(name) -> name
+      _unnamed_or_dead -> nil
+    end
+  end
+
+  defp registered_name(_recipient), do: nil
+
   # `Ownership.claim/3` excludes a second session inside *this* daemon, but the
   # workspace path is derived purely from repo and ticket, so a second daemon on
   # the same host that resolves the same repo would walk straight into the same
@@ -180,13 +199,15 @@ defmodule Aiur.AgentRunner do
   # so the host lock is the exclusion primitive; refusing here is the difference
   # between a loud, named refusal and two agents silently overwriting each
   # other's files while both report green gates.
-  defp with_workspace_host_lock(issue, opts, worker_host, fun) do
+  defp with_workspace_host_lock(issue, opts, ownership, worker_host, fun) do
     case HostLock.acquire_for_issue(issue.identifier, worker_host) do
       {:ok, lock} ->
-        try do
-          fun.()
-        after
-          HostLock.release(lock)
+        case HostLock.handoff_to_ownership(lock, ownership) do
+          :ok ->
+            fun.()
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       # A remote worker's workspace is on another machine's filesystem, so a

@@ -8,7 +8,9 @@ defmodule Aiur.OrchestratorStatusTest do
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.SnapshotFenceSupport
   alias Aiur.TicketActivity.Projection
+  alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
     CiLifecycle,
@@ -1069,8 +1071,12 @@ defmodule Aiur.OrchestratorStatusTest do
 
       todo_workspace = Path.join([workspace_root, "owner", "repo", "586"])
       in_progress_workspace = Path.join([workspace_root, "owner", "repo", "587"])
+      leased_todo_identifier = "leased-todo-#{System.unique_integer([:positive])}"
+      leased_todo_workspace = Path.join([workspace_root, "owner", "repo", leased_todo_identifier])
       File.mkdir_p!(todo_workspace)
       File.mkdir_p!(in_progress_workspace)
+      File.mkdir_p!(leased_todo_workspace)
+      File.write!(Path.join(leased_todo_workspace, "dirty.txt"), "leased")
       File.write!(Path.join(todo_workspace, "dirty.txt"), "leftover")
       File.write!(Path.join(in_progress_workspace, "dirty.txt"), "keep")
 
@@ -1089,8 +1095,21 @@ defmodule Aiur.OrchestratorStatusTest do
 
       Application.put_env(:aiur, :startup_cleanup_issues, [
         %Issue{id: "issue-586", identifier: "586", title: "Todo", state: "todo"},
-        %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"}
+        %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"},
+        %Issue{id: "issue-leased", identifier: leased_todo_identifier, title: "Leased", state: "todo"}
       ])
+
+      # A lease still held on a todo ticket (a stopped runner mid-reap) owns
+      # its checkout, so startup cleanup must leave that workspace alone.
+      parent = self()
+
+      lease_owner =
+        spawn(fn ->
+          send(parent, {:leased, Ownership.claim(leased_todo_identifier)})
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive {:leased, {:ok, _lease}}, 5_000
 
       # `todo` is NOT a terminal state, so this startup cleanup must remove the
       # stale workspace WITHOUT clearing the resume handle — a re-dispatched todo
@@ -1107,6 +1126,8 @@ defmodule Aiur.OrchestratorStatusTest do
       refute File.exists?(todo_workspace)
       assert File.exists?(in_progress_workspace)
       assert File.read!(Path.join(in_progress_workspace, "dirty.txt")) == "keep"
+      assert File.read!(Path.join(leased_todo_workspace, "dirty.txt")) == "leased"
+      Process.exit(lease_owner, :kill)
       # Non-terminal cleanup leaves the resume handle intact.
       assert {:ok, %{thread_id: "thread-keep"}} = SessionHandle.load("586", "claude-repl")
     after
@@ -4148,7 +4169,10 @@ defmodule Aiur.OrchestratorStatusTest do
     original_state = :sys.get_state(orchestrator_pid)
 
     on_exit(fn ->
-      if Process.alive?(orchestrator_pid), do: :sys.replace_state(orchestrator_pid, fn _state -> original_state end)
+      if Process.alive?(orchestrator_pid) do
+        generation = SnapshotFenceSupport.fence_snapshot_read_model()
+        :sys.replace_state(orchestrator_pid, fn _state -> %{original_state | snapshot_generation: generation} end)
+      end
     end)
 
     next = Reconciler.refresh_running_issue_states(paused)
@@ -4159,7 +4183,10 @@ defmodule Aiur.OrchestratorStatusTest do
     assert is_reference(replacement.ref)
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
 
-    :sys.replace_state(orchestrator_pid, fn _state -> next end)
+    # The CLI reads the shared SnapshotStore read model first; fence out any
+    # projection an earlier case published so it reads the state injected here.
+    generation = SnapshotFenceSupport.fence_snapshot_read_model()
+    :sys.replace_state(orchestrator_pid, fn _state -> %{next | snapshot_generation: generation} end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~
              "#{active_issue.identifier} running #{active_issue.title}"
@@ -4379,7 +4406,9 @@ defmodule Aiur.OrchestratorStatusTest do
 
     # Both signals come from the orchestrator process. Mailbox ordering proves
     # the durable input is visible before any worker wake can start a turn.
-    assert_receive {:agent_queue_updated, "MT-DECISION", item_id, true}, 500
+    # The queue notice does not ask a paused worker to deliver now: the
+    # correlated resume is its only wake (#2730).
+    assert_receive {:agent_queue_updated, "MT-DECISION", item_id, false}, 500
     assert item_id == item.id
     assert_receive {:resume_agent, _request_id, _generation}, 500
 

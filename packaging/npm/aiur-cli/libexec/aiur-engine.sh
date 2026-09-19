@@ -456,7 +456,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
-       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
+       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
@@ -480,7 +480,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
-       aiur message <id> <text>  send Executor text to a running agent
+       aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
@@ -2585,7 +2585,8 @@ cmd_reset_budget() {
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
 cmd_message() {
-  local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\")"
+  local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\" or aiur message 44 --message-id ID \"ship it\")"
+  local message_id="" message_id_given=0
 
   local issue="${1:-}"
   if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
@@ -2593,6 +2594,26 @@ cmd_message() {
     exit 64
   fi
   shift
+
+  # `--message-id ID` names this send, so a retry after an unknown outcome
+  # returns the first copy instead of queueing a second one (#2717).
+  case "${1:-}" in
+    --message-id)
+      [ "$#" -gt 1 ] || { echo "aiur: message --message-id requires a value" >&2; exit 64; }
+      message_id="$2"
+      message_id_given=1
+      shift 2
+      ;;
+    --message-id=*)
+      message_id="${1#--message-id=}"
+      message_id_given=1
+      shift
+      ;;
+  esac
+  if [ "$message_id_given" = 1 ] && [[ ! "$message_id" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+    echo "aiur: message --message-id must be 1-128 letters, digits, '.', '_', ':' or '-' (it cannot be empty)" >&2
+    exit 64
+  fi
 
   local text="$*"
   if [ -z "$text" ]; then
@@ -2602,7 +2623,11 @@ cmd_message() {
 
   local encoded
   encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
-  run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"))"
+  if [ -n "$message_id" ]; then
+    run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"), \"$message_id\")"
+  else
+    run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"))"
+  fi
 }
 
 # `aiur agents` — concise one-line-per-agent state + current activity from a
@@ -2671,7 +2696,7 @@ encode_control_value() {
 # These are explicit trusted-Executor mutations, deliberately separate from
 # the read-only `commands` catalog. Revisions remain dashboard-owned.
 cmd_executor_answer() {
-  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" arg
+  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" supersede=0 arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
     echo "aiur: executor-answer expects exactly one decision ID" >&2
     exit 64
@@ -2693,6 +2718,7 @@ cmd_executor_answer() {
       --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
       --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
       --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      --supersede) supersede=1 ;;
       -*) echo "aiur: executor-answer received an unknown option: $arg" >&2; exit 64 ;;
       *) echo "aiur: executor-answer expects exactly one decision ID" >&2; exit 64 ;;
     esac
@@ -2717,6 +2743,9 @@ cmd_executor_answer() {
   opts="$opts, rationale: Base.decode64!(\"$(encode_control_value "$rationale")\")"
   opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
   opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  if [ "$supersede" -eq 1 ]; then
+    opts="$opts, supersede: true"
+  fi
   local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
   run_control_rpc "Aiur.AgentControlCLI.executor_answer([$opts])"
 }

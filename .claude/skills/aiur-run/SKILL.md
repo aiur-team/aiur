@@ -5,6 +5,16 @@ description: "Launch and operate an Aiur run end to end as its Executor: establi
 
 # Run Aiur as the Executor
 
+Before launch, resolve repository-local `.aiur/config`, then `~/.aiur/config`. If only global defaults exist, tell the user that Aiur will fall back to them; do not require `aiur init` or copy config into every repository. Global GitHub startup targets the current `origin` and ensures required workflow/marker and complexity labels before dispatch, without seeding model/effort/alias labels. Prefer config (`agent.priority`, backend settings, `agent.routing`) for model selection. Shared credentials belong in `~/.aiur/.env` outside Git, or configured App/keyring auth. Missing-label permission failures must be resolved before launch; existing pauses and human decisions remain binding. Omit `tracker.github.repo` in portable global defaults; a conflicting explicit repo fails safely. Use local `init` when repository-specific settings are needed.
+
+Home setup is performed once; each repository still needs readiness checks.
+Follow [per-repository setup](../aiur-intro/SKILL.md#prepare-each-repository-without-repeating-init):
+verify effective credential Write access, base-branch inputs, CODEOWNERS or
+explicit dispatch allowlist, and worker validation. Create missing CODEOWNERS
+with the approved human owner under the user's authority. Tell the user what
+was created and what remains blocked; distinguish startup from observed worker
+push/PR publication.
+
 Use this skill when the agent owns the whole Aiur run, not merely its launch.
 It replaces the former `aiur-loop` workflow. Read the canonical
 [Executor role](references/executor.md) before acting, then use `aiur-monitor`
@@ -15,6 +25,105 @@ Before interpreting a dictated operator message, read the shared
 
 `iarc` is an Executor alias for `aiur`; IAR and AYR are common spellings. Treat
 their run requests as this workflow.
+
+## Who you are talking to
+
+A run is started and then left. The operator walks away; the fleet works for
+hours. Everything below that tells you to report something is governed by this
+section first, because the same sentence is useful to a present reader and pure
+waste to an empty terminal.
+
+**The signal is how the turn began, and you always have it.**
+
+- **Attended** — a human message opened this turn.
+- **Unattended** — a wake event, task notification, monitor firing, scheduled
+  tick, or self-scheduled loop opened it.
+
+Nothing needs to detect this. There is no presence flag in the daemon and none
+should be added: the operator may be watching the dashboard or the Stream Deck
+rather than the terminal, so the only thing you can honestly know is whether
+someone just spoke to you.
+
+### Attended: unchanged
+
+Answer what was asked, in the operator's configured style, including any
+personal style skill they have loaded. This section takes nothing away from an
+attended turn.
+
+### Unattended: one skimmable line, or silence
+
+Write for someone scrolling back through six hours looking for what merged,
+what is stuck, and what needs them. Paragraphs fail that reader — this is not
+only a token argument, terse lines are genuinely better for the person coming
+back.
+
+```
+- merged #2637 init repo-local config — unblocks #2639 label creation
+- #2638 .env credential shadow — codex terra picked up, low effort
+- #2641 usage-probe — agent blocked, needs a decision: <url>
+- 90% — 10 agents on phase 3 tickets, 2 in review
+```
+
+- One line. No preamble, no recap, no closing.
+- Lead with the identifier — `#2637`, `merged`, `90%`. The first token is what
+  the eye scans for.
+- **Carry enough context to be understood cold.** The reader has been away for
+  hours and does not remember what `#2638` is, what "Y" was, or which agent you
+  meant. Every line pairs the number with a few words of subject: `#2638 .env
+  credential shadow`, never a bare `#2638`. A line the operator has to go look
+  up has failed — they will read it in a scrollback, with nothing else loaded.
+  This is the one place terseness must give ground: shorter is better only up
+  to the point where the line still stands alone.
+- Name the consequence, not the mechanism: "unblocks #2639 label creation", not
+  "the dependency edge was recomputed".
+- Spell out anything you would otherwise abbreviate for yourself — internal
+  shorthand, run-local letters, backend nicknames, alert topic names. If a term
+  only means something because of an earlier turn, it does not belong in an
+  unattended line.
+- Do not restate *history* from an earlier line — the scrollback holds that —
+  but do restate *identity* every time. Those are different: repeating "what
+  happened before" is noise, repeating "which thing this is" is the whole point.
+- **Silence is the default.** A tick that found nothing emits nothing. A check
+  that ran and passed is not news. This is the largest saving here and the
+  easiest rule to talk yourself out of, because a quiet tick feels like it
+  should be acknowledged. It should not.
+
+### Escalation is never terse
+
+Terseness governs reporting, never blocking. Anything that stops the run — a
+command request, a decision only the operator can make, a downed fleet, an
+exhausted credential — gets its line **and** a push notification. A blocked run
+discovered three hours late costs far more than the tokens saved by not saying
+so.
+
+### A periodic progress table, not a per-tick one
+
+A returning operator wants shape as well as events. On a real cadence — the
+hourly audit is the natural one — or when the shape materially changes, emit
+one compact table instead of prose about overall progress:
+
+```
+#2637  init repo-local config    ████████░░  80%  codex terra   PR #2650 ci
+#2638  .env credential shadow    ██████░░░░  60%  codex sol     rework
+#2639  init creates no labels    ███░░░░░░░  30%  codex terra   in progress
+#2640  idle poll backoff         ░░░░░░░░░░   0%  —             queued
+```
+
+- Fixed width, so columns line up when scrolled past quickly.
+- One row per *active* ticket. Queued work is a count, not rows.
+- Every percentage comes from an observable signal — PR state, CI state,
+  checklist completion. Never estimate one. A percentage you cannot resolve
+  renders as `—`; a confident wrong number is worse than a blank, which is the
+  same rule the meta-check applies to every other surface (#1491 rendered every
+  ticket at 0% because completion resolution failed silently, and it read as
+  real).
+- A table on every wake is exactly the noise this section exists to remove.
+
+### Returning is a transition
+
+When a human message arrives after an unattended stretch, lead with a compact
+digest of what happened while they were gone, then answer what they asked. Do
+not make them reconstruct it by scrolling.
 
 ## 1. Establish the run contract
 
@@ -426,6 +535,24 @@ defaults to `aiur-cli`. The expected version prevents a stale listener event
 from overwriting a later answer, while the idempotency key makes event replay
 safe.
 
+An answer is addressed to the ticket, not to the worker that asked. Until an
+agent receives it, Aiur delivers it to any worker that runs the ticket, also a
+new worker after a requeue or a daemon restart. If the operator changes
+direction before the answer is delivered, do not carry the new direction only
+in an issue comment. Withdraw or replace the answer:
+
+```bash
+"$AIUR_CMD" executor-moot <decision-id> --expected-version <n> \
+  --reason-class operator_changed_direction --reason <text>
+"$AIUR_CMD" executor-answer <decision-id> --expected-version <n> \
+  --custom-response <text> --rationale <text> --idempotency-key <key> --supersede
+```
+
+A mooted answer is never delivered, and only the newest answer is delivered
+after `--supersede`. While a worker is sending the answer, both commands are
+refused ("answer in flight"); after a failed send they work again. You may moot only an answer that an
+Executor recorded or could have recorded; otherwise escalate.
+
 When the choice is uncertain, irreversible, scope-changing, or depends on an
 Executor guess rather than a known fact, leave the Command unanswered and run
 `"$AIUR_CMD" executor-escalate`. That explicit escalation uses the existing
@@ -695,7 +822,7 @@ On every observation:
   the PR in an ownership vacuum or another identical loop;
 - treat `ci-wait` as an automatic gate unless evidence shows the poller failed;
 - use `"$AIUR_CMD" message <id> <text>`, `pause`, and `resume` as the least
-  invasive controls;
+  invasive controls; for `message`, exit 124 = outcome unknown: check the ticket log first, then retry only with the printed `--message-id` command, never a plain resend (a plain resend now queues a second copy).
 - preserve decisions and incidents in the durable handoff/workpad.
 
 A PR becomes review-ready only when its configured base is correct, that base's

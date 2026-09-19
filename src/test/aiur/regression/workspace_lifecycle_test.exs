@@ -1,6 +1,7 @@
 defmodule Aiur.Regression.WorkspaceLifecycleTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentGitHubGuard
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.PathSafety
 
@@ -285,6 +286,105 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
       hooks = File.read!(hooks_path)
 
       assert hooks =~ "exit 65"
+    end
+  end
+
+  describe "agent support after restart recreation (#2697)" do
+    # End to end: the Refresh reinstall and the dispatch check both restore these
+    # pieces, so either one alone keeps this green. RefreshTest's exit-65 test
+    # proves the Refresh reinstall on its own.
+    test "restart dispatch that recreates a dirty leftover workspace ends with the full .aiur-runtime" do
+      test_root = test_root("restart-support")
+
+      try do
+        {workspace, trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "REG-2697-1")
+        assert AgentGitHubGuard.missing_workspace_support(workspace) == []
+
+        issue = %Issue{
+          id: "issue-2697-1",
+          identifier: "REG-2697-1",
+          title: "Recreated at restart",
+          state: "todo",
+          labels: ["agent:todo"]
+        }
+
+        # The restart dispatch order in AgentRunner: reuse the existing checkout,
+        # then before_run refuses the dirty tree (exit 65) and the todo dispatch
+        # recreates the workspace from scratch.
+        assert {:ok, ^workspace} = Workspace.create_for_issue(issue)
+        assert :ok = Workspace.run_before_run_hook(workspace, issue)
+        assert trace_count(trace_file) == 2
+        assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
+
+        assert_full_agent_runtime!(workspace)
+        assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
+      after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "dispatch repairs a ready workspace that lost its GitHub command dir, gh config and quota dir" do
+      test_root = test_root("support-repair")
+
+      try do
+        {workspace, _trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "REG-2697-2")
+        git!(["-C", workspace, "checkout", "--", "README.md"])
+
+        for relative <- [".aiur-runtime/bin", ".aiur-runtime/gh", ".aiur-runtime/github-quota"] do
+          File.rm_rf!(Path.join(workspace, relative))
+        end
+
+        issue = %Issue{
+          id: "issue-2697-2",
+          identifier: "REG-2697-2",
+          title: "Support vanished",
+          state: "in-progress",
+          labels: ["agent:in-progress"]
+        }
+
+        assert :ok = Workspace.run_before_run_hook(workspace, issue)
+        assert_full_agent_runtime!(workspace)
+      after
+        File.rm_rf(test_root)
+      end
+    end
+
+    test "dispatch refuses with a named reason when the gh config dir cannot be repaired" do
+      test_root = test_root("support-refuse")
+
+      try do
+        {workspace, _trace_file} = bootstrap_dirty_refresh_workspace!(test_root, "REG-2697-3")
+        git!(["-C", workspace, "checkout", "--", "README.md"])
+
+        # An agent-planted symlink must never count as the gh config dir.
+        gh_config = AgentGitHubGuard.gh_config_dir(workspace)
+        operator_config = Path.join(test_root, "operator-gh")
+        File.mkdir_p!(operator_config)
+        File.rm_rf!(gh_config)
+        File.ln_s!(operator_config, gh_config)
+
+        issue = %Issue{
+          id: "issue-2697-3",
+          identifier: "REG-2697-3",
+          title: "Unsafe gh config",
+          state: "in-progress",
+          labels: ["agent:in-progress"]
+        }
+
+        Publisher.set_tracked_fn(fn _ -> true end)
+        :ok = Exchange.subscribe("ticket.REG-2697-3.workspace.agent_support_incomplete")
+
+        assert {:error, {:agent_support_repair_failed, ^workspace, missing, {:agent_gh_config_dir_unavailable, _, _}}} =
+                 Workspace.run_before_run_hook(workspace, issue)
+
+        assert ".aiur-runtime/gh" in missing
+        assert_receive {:event, %{topic: "ticket.REG-2697-3.workspace.agent_support_incomplete"} = event}, 500
+        assert event["message"] =~ ".aiur-runtime/gh"
+
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      after
+        File.rm_rf(test_root)
+      end
     end
   end
 
@@ -622,6 +722,27 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
 
   defp test_root(short_name) do
     Aiur.TestSupport.tmp_root!("aiur-reg-wslc-#{short_name}")
+  end
+
+  defp assert_full_agent_runtime!(workspace) do
+    runtime = Path.join(workspace, ".aiur-runtime")
+
+    for command <- ~w(gh git aiur-github-budget) do
+      path = Path.join([runtime, "bin", command])
+      assert %File.Stat{type: :regular, mode: mode} = File.lstat!(path), "missing #{path}"
+      assert Bitwise.band(mode, 0o111) != 0, "not executable: #{path}"
+    end
+
+    for command <- ~w(elixir mix mise) do
+      assert File.regular?(Path.join([runtime, "build-bin", command]))
+    end
+
+    for directory <- ~w(gh github-quota tmp) do
+      assert %File.Stat{type: :directory} = File.lstat!(Path.join(runtime, directory)), "missing #{directory}/"
+    end
+
+    assert AgentGitHubGuard.missing_workspace_support(workspace) == []
+    assert File.dir?(Path.join([workspace, ".claude", "skills", "aiur-agent"]))
   end
 
   defp trace_count(trace_file) do

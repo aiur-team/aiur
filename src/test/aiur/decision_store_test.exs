@@ -477,6 +477,35 @@ defmodule Aiur.DecisionStoreTest do
                DecisionStore.get(non_blocking_id, pid)
     end
 
+    test "open_blocking_decision_ids/2 names the Commands that hold a ticket (#2699)", %{dir: dir} do
+      pid = start_store!(dir)
+
+      assert {:ok, %{decision: blocking}} =
+               request(pid, %{"question" => "Hold ticket 52?", "blocking" => true}, ticket: %{@ticket | identifier: "52"})
+
+      assert {:ok, %{decision: _notice}} =
+               request(pid, %{"question" => "Notice on 52?", "blocking" => false}, ticket: %{@ticket | identifier: "52"})
+
+      assert {:ok, %{decision: _other}} =
+               request(pid, %{"question" => "Hold ticket 53?", "blocking" => true}, ticket: %{@ticket | identifier: "53"})
+
+      assert DecisionStore.open_blocking_decision_ids(["52"], pid) == {:ok, [blocking.decision_id]}
+      assert DecisionStore.open_blocking_decision_ids(["unknown"], pid) == {:ok, []}
+
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, blocking.decision_id, %{
+                 "idempotency_key" => "answer-52",
+                 "expected_version" => blocking.version,
+                 "custom_response" => "Proceed"
+               })
+
+      assert DecisionStore.open_blocking_decision_ids(["52"], pid) == {:ok, []}
+    end
+
+    test "open_blocking_decision_ids/2 reports an unreachable store" do
+      assert DecisionStore.open_blocking_decision_ids(["52"], :no_such_decision_store) == {:error, :store_unavailable}
+    end
+
     test "a deferred blocking Command still gates dispatch until answered", %{dir: dir} do
       pid = start_store!(dir)
 
@@ -871,7 +900,9 @@ defmodule Aiur.DecisionStoreTest do
                DecisionStore.moot(decision.decision_id, %{"reason_class" => "ticket_closed"}, opts, pid)
     end
 
-    test "moot is refused for a Command that already has an answer", %{dir: dir} do
+    # #2711: a decided answer that never reached an agent can be withdrawn. The
+    # delivered case stays refused; see `Aiur.DecisionWithdrawalTest`.
+    test "moot withdraws a decided answer that was never delivered", %{dir: dir} do
       pid = start_store!(dir)
 
       assert {:ok, %{decision: decision}} =
@@ -889,9 +920,13 @@ defmodule Aiur.DecisionStoreTest do
                })
 
       assert answered.decision_status == :decided
+      refute Decision.delivered?(answered)
 
-      assert {:error, {:conflict, :decided}} =
+      assert {:ok, %{status: :accepted, decision: mooted}} =
                DecisionStore.moot(decision.decision_id, %{"reason_class" => "ticket_closed"}, [actor: %{kind: :operator, id: "dashboard"}], pid)
+
+      assert mooted.decision_status == :moot
+      assert mooted.answer == answered.answer
     end
   end
 
@@ -2503,6 +2538,7 @@ defmodule Aiur.DecisionStoreTest do
     previous_log_file = Application.get_env(:aiur, :log_file)
     log_root = Path.join(dir, "executor-escalation-log")
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
       if previous_log_file,
@@ -2760,6 +2796,7 @@ defmodule Aiur.DecisionStoreTest do
       log_root = Path.join(dir, "dispatch-saturation-alert-log")
       original_log_file = Application.get_env(:aiur, :log_file)
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file,
@@ -3154,6 +3191,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "target-failure-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3205,6 +3243,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "target-exhausted-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3263,6 +3302,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "append-failure-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3386,8 +3426,11 @@ defmodule Aiur.DecisionStoreTest do
       assert_receive {:handoff_before_settlement, dispatcher_pid, item}, 1_000
 
       assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      # The gate adopts the queue acceptance and marks the handoff (#2711), so
+      # a withdrawal cannot race the send that follows.
       assert {:ok, before_delivery} = DecisionStore.get(decision.decision_id, pid)
-      assert before_delivery.dispatch_attempts == []
+      assert [%{status: :queued, handed_off_at: %DateTime{}, attempt_id: handed_off_attempt}] = before_delivery.dispatch_attempts
+      assert handed_off_attempt == item.correlation.attempt_id
 
       assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
       delivered = wait_for_decision(pid, decision.decision_id, &(&1.delivery_status == :delivered))
@@ -3493,6 +3536,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3544,6 +3588,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "absent-agent-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3593,6 +3638,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "absent-agent-clears-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3670,6 +3716,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "absent-agent-backlog-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3717,6 +3764,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "expired-backlog-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3773,6 +3821,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "expired-visible-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -3848,6 +3897,7 @@ defmodule Aiur.DecisionStoreTest do
       original_log_file = Application.get_env(:aiur, :log_file)
       log_root = Path.join(dir, "terminal-alert-log")
       Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+      Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
       on_exit(fn ->
         if original_log_file do
@@ -4034,6 +4084,324 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, pid)
       assert Enum.count(audit, &(audit_type(&1) == :acknowledged)) == 1
       refute Enum.any?(audit, &(audit_type(&1) == :resolved))
+    end
+  end
+
+  describe "answer after the asking run ended (#2713)" do
+    # A blocking Command ends its agent's run, so the answer arrives when no
+    # worker runs the ticket. The fake dispatcher models `OperatorMessages`:
+    # it refuses with `:no_running_agent` until a worker runs the ticket, and
+    # then reports what the worker received.
+    defp worker_dispatcher(parent, worker) do
+      fn decision, opts ->
+        if Agent.get(worker, & &1) do
+          item_id = System.unique_integer([:positive])
+          send(parent, {:worker_received, decision.decision_id, Decision.active_answer(decision).action_id, opts[:attempt_id]})
+          send(parent, {:worker_queue_item, decision.decision_id, item_id})
+          {:ok, %{status: :accepted, item: %{id: item_id}}}
+        else
+          send(parent, {:no_worker, decision.decision_id})
+          {:error, :no_running_agent}
+        end
+      end
+    end
+
+    defp start_worker_flag!, do: start_supervised!({Agent, fn -> false end})
+
+    defp start_worker!(worker), do: Agent.update(worker, fn _running -> true end)
+
+    defp two_option_request(source_id) do
+      %{
+        "question" => "Which rollout should this ticket use?",
+        "blocking" => true,
+        "source_id" => source_id,
+        "options" => [%{"id" => "ship", "label" => "Ship it"}, %{"id" => "hold", "label" => "Hold it"}]
+      }
+    end
+
+    defp assert_no_worker_attempts(decision_id, count) do
+      for _attempt <- 1..count, do: assert_receive({:no_worker, ^decision_id}, 1_000)
+    end
+
+    test "an answer recorded a minute later reaches the next worker exactly once", %{dir: dir} do
+      worker = start_worker_flag!()
+
+      pid =
+        start_store!(dir,
+          dispatcher: worker_dispatcher(self(), worker),
+          dispatch_delay_ms: 0,
+          retry_delays_ms: [0, 0, 0]
+        )
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("resume-after-answer"))
+      id = decision.decision_id
+      assert {:ok, blocked} = DecisionStore.blocked_ticket_ids(pid)
+      assert MapSet.member?(blocked, "979")
+
+      payload = %{"idempotency_key" => "resume-1", "expected_version" => 1, "option_id" => "ship"}
+      later = DateTime.add(DateTime.utc_now(), 60, :second)
+      assert {:ok, %{action: action}} = answer(pid, id, payload, now: later)
+
+      # Recording the answer clears the dispatch hold at once.
+      assert {:ok, released} = DecisionStore.blocked_ticket_ids(pid)
+      refute MapSet.member?(released, "979")
+
+      # No worker runs the ticket: the first try and the whole retry ladder fail.
+      assert_no_worker_attempts(id, 4)
+      failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      assert List.last(failed.dispatch_attempts).failure_reason_class == "target_agent_unavailable"
+      refute_receive {:no_worker, ^id}, 100
+
+      # The next worker for the ticket starts and receives the answer once.
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      assert_receive {:worker_received, ^id, action_id, attempt_id}, 1_000
+      assert action_id == action.action_id
+      queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
+
+      # A second spawn of the ticket does not send the queued answer again, nor
+      # one that reached the provider.
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
+
+      assert_receive {:worker_queue_item, ^id, item_id}
+      assert {:ok, :accepted} = DecisionStore.record_delivery(correlated_queue_item(queued, action, attempt_id, item_id), pid)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
+
+      # A worker of another ticket does not receive it.
+      assert :ok = DecisionStore.deliver_pending_answers("980", pid)
+      refute_receive {:worker_received, _id, _action_id, _attempt_id}, 100
+    end
+
+    test "a restart between the answer and the redispatch still delivers exactly once", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("resume-after-restart"))
+      id = decision.decision_id
+      payload = %{"idempotency_key" => "restart-1", "expected_version" => 1, "option_id" => "hold"}
+      assert {:ok, %{action: action}} = answer(pid, id, payload)
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+
+      GenServer.stop(pid)
+
+      # The boot reconciliation tries once more; still no worker runs the ticket.
+      pid2 =
+        start_store!(dir,
+          dispatcher: worker_dispatcher(self(), worker),
+          dispatch_delay_ms: 0,
+          reconcile_delay_ms: 0,
+          retry_delays_ms: []
+        )
+
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid2, id, &(length(&1.dispatch_attempts) == 2 and &1.delivery_status == :failed))
+      refute_receive {:no_worker, ^id}, 100
+
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid2)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid2)
+      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
+      assert action_id == action.action_id
+      _queued = wait_for_decision(pid2, id, &(&1.delivery_status == :queued))
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
+    end
+
+    test "only the newest answer is redelivered after a revision replaced the first", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("resume-after-revision"))
+      id = decision.decision_id
+      payload = %{"idempotency_key" => "revision-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: first}} = answer(pid, id, payload)
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+
+      assert {:ok, %{action: revision}} =
+               DecisionStore.revise(
+                 id,
+                 %{
+                   "idempotency_key" => "revision-2",
+                   "expected_version" => 1,
+                   "expected_action_id" => first.action_id,
+                   "expected_revision_sequence" => 0,
+                   "option_id" => "hold",
+                   "rationale" => "Changed direction before any agent saw the answer."
+                 },
+                 [actor: %{kind: :operator, id: "operator-1"}],
+                 pid
+               )
+
+      assert_no_worker_attempts(id, 1)
+
+      _failed =
+        wait_for_decision(pid, id, fn current ->
+          current.active_action_id == revision.action_id and current.delivery_status == :failed
+        end)
+
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
+      assert action_id == revision.action_id
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
+    end
+
+    test "several undelivered answers reach the new worker in the order they were given", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+
+      questions = ["Pick the database engine?", "Name the release branch?", "Choose the rollout region?"]
+
+      ids =
+        for {question, index} <- Enum.with_index(questions) do
+          payload = %{two_option_request("ordered-#{index}") | "question" => question}
+          assert {:ok, %{decision: decision}} = request(pid, payload)
+          decision.decision_id
+        end
+
+      # Answer against the store's own key order, so map order cannot pass.
+      answer_order = Enum.sort(ids, :desc)
+
+      for id <- answer_order do
+        assert {:ok, _answer} = answer(pid, id, %{"idempotency_key" => "order-#{id}", "expected_version" => 1, "option_id" => "ship"})
+        assert_no_worker_attempts(id, 1)
+        _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      end
+
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+
+      received =
+        for _id <- answer_order do
+          assert_receive {:worker_received, id, _action_id, _attempt_id}, 1_000
+          id
+        end
+
+      assert received == answer_order
+    end
+
+    test "an answer the provider confirmed is not sent again after its turn failed", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+      start_worker!(worker)
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("delivered-then-failed"))
+      id = decision.decision_id
+      payload = %{"idempotency_key" => "confirmed-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, id, payload)
+      assert_receive {:worker_received, ^id, _action_id, attempt_id}, 1_000
+      assert_receive {:worker_queue_item, ^id, item_id}
+      queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
+
+      # The provider confirms the answer, then the worker's turn fails.
+      item = correlated_queue_item(queued, action, attempt_id, item_id)
+      assert {:ok, :accepted} = DecisionStore.record_delivery(item, pid)
+      assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+
+      failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      assert [%{status: :failed, delivered_at: %DateTime{}}] = Decision.active_dispatch_attempts(failed)
+
+      # The next worker must not receive it a second time.
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
+    end
+
+    test "a mooted answer is never sent to the next worker", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("moot-before-spawn"))
+      id = decision.decision_id
+      assert {:ok, _answer} = answer(pid, id, %{"idempotency_key" => "moot-1", "expected_version" => 1, "option_id" => "ship"})
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+
+      assert {:ok, %{status: :accepted}} =
+               DecisionStore.moot(id, %{"reason_class" => "operator_changed_direction"}, [actor: %{kind: :executor, id: "executor"}], pid)
+
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
+    end
+
+    test "after a supersede only the newest answer reaches the next worker", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("supersede-before-spawn"))
+      id = decision.decision_id
+
+      assert {:ok, %{action: first}} =
+               answer(pid, id, %{"idempotency_key" => "supersede-1", "expected_version" => 1, "option_id" => "ship"})
+
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+
+      assert {:ok, %{action: newest}} =
+               DecisionStore.supersede(
+                 id,
+                 %{"idempotency_key" => "supersede-2", "expected_version" => 1, "option_id" => "hold", "rationale" => "Changed direction."},
+                 [actor: %{kind: :executor, id: "executor"}],
+                 pid
+               )
+
+      assert_no_worker_attempts(id, 1)
+      _failed = wait_for_decision(pid, id, &(&1.active_action_id == newest.action_id and &1.delivery_status == :failed))
+
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
+      assert action_id == newest.action_id
+      refute action_id == first.action_id
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
+    end
+
+    test "an answer whose send failed after handoff is sent again once at the next spawn", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0, retry_delays_ms: [])
+      start_worker!(worker)
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("failed-after-handoff"))
+      id = decision.decision_id
+      payload = %{"idempotency_key" => "handoff-1", "expected_version" => 1, "option_id" => "ship"}
+      assert {:ok, %{action: action}} = answer(pid, id, payload)
+      assert_receive {:worker_received, ^id, _action_id, attempt_id}, 1_000
+      assert_receive {:worker_queue_item, ^id, item_id}
+      queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
+
+      # The delivery gate hands the answer to the worker, and the send fails
+      # without a provider confirmation.
+      item = correlated_queue_item(queued, action, attempt_id, item_id)
+      assert {:ok, :accepted} = DecisionStore.validate_delivery(item, pid)
+      assert :ok = DecisionStore.record_transport_async(:failed, item, :send_failed, pid)
+
+      failed = wait_for_decision(pid, id, &(&1.delivery_status == :failed))
+      assert [%{status: :failed, handed_off_at: %DateTime{}, delivered_at: nil}] = Decision.active_dispatch_attempts(failed)
+      refute Decision.send_in_flight?(failed)
+
+      # The next worker receives it exactly once, even if spawned twice.
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      assert_receive {:worker_received, ^id, action_id, _attempt_id}, 1_000
+      assert action_id == action.action_id
+      _queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 300
+    end
+
+    test "an unanswered blocking Command sends nothing to a new worker", %{dir: dir} do
+      worker = start_worker_flag!()
+      pid = start_store!(dir, dispatcher: worker_dispatcher(self(), worker), dispatch_delay_ms: 0)
+
+      assert {:ok, %{decision: decision}} = request(pid, two_option_request("resume-unanswered"))
+      id = decision.decision_id
+      start_worker!(worker)
+      assert :ok = DecisionStore.deliver_pending_answers("979", pid)
+      refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
+      refute_receive {:no_worker, ^id}, 0
     end
   end
 

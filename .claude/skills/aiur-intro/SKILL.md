@@ -81,6 +81,18 @@ through that agent's supported skill-install mechanism.
 
 ## 4. First run
 
+**Create home defaults once, then reuse them across projects.** If
+`~/.aiur/config` already exists, do not require `aiur init` in every repository:
+run `aiur` (or `aiurdev`) from that project's root. Aiur announces home-config
+fallback when no local `.aiur/config` exists. Local config is optional and takes
+precedence when a project needs overrides.
+
+For first-time setup, choose the global location in the wizard below to create
+`~/.aiur/config` and its sibling hooks/prompt once. Omit `tracker.github.repo`
+from portable GitHub defaults so each run derives its repository from `origin`;
+a conflicting explicit repo is rejected. Keep shared credentials separately in
+`~/.aiur/.env`, outside Git, with access to each target repository.
+
 ```bash
 cd your-project
 aiur init          # interactive setup wizard
@@ -94,6 +106,34 @@ global in `~/.aiur/`). It asks for:
 3. Agent backend (Codex and/or Claude) and permission mode.
 4. Agent limits, turn/time limits, polling, optional prewarming.
 5. A `GITHUB_TOKEN` when using GitHub, so Aiur can read issues and manage lifecycle labels.
+
+### Prepare each repository without repeating init
+
+- Verify the resolved origin, configured base branch and required setup/validation
+  instructions. Global defaults do not move work from a feature branch into the
+  base branch; integrate accepted prerequisites before dispatching dependents.
+- Verify the **effective launch credential**, including exported environment,
+  dotenv and App precedence. Reading issues is insufficient: missing labels need
+  Issues write, and worker pushes/PRs need Contents and Pull requests write.
+- Establish dispatch trust. If `.github/CODEOWNERS` is missing, create it with the
+  approved human owner, for example `* @<human-login>`, and commit it to the base
+  branch under the user's authority. Do not guess an owner or make the worker bot
+  the sole approver. Existing CODEOWNERS and explicit `allowed_users` must agree
+  with the actor applying dispatch labels; an explicit allowlist can provide
+  dispatch policy when CODEOWNERS is unavailable. `human_mergers` is a separate
+  explicit policy and does not inherit CODEOWNERS.
+- Global startup ensures missing workflow, marker and complexity labels before
+  dispatch; it does not seed model/effort labels. Use config for model routing.
+- Check the workspace root, project-specific prompt needs and concurrent-agent
+  cap inherited from home defaults. Preserve existing work, pauses and locks;
+  avoid duplicating work already implemented or running elsewhere.
+
+Tell the user which config and repository will be used, that home setup is
+reusable, which repo files/labels were created, and any remaining access, trust,
+base-branch or validation blocker. Say whether startup and actual worker
+push/PR publication were observed separately. If an approved owner or repository
+grant is missing, name that requirement clearly while continuing independent
+setup work; do not describe an idle or rejected ticket as an active worker.
 
 Config discovery and legacy-refusal order:
 

@@ -78,6 +78,7 @@ defmodule Aiur.DecisionSanitizer do
       :status,
       :attempted_at,
       :queued_at,
+      :handed_off_at,
       :delivered_at,
       :restored_at,
       :consumed_at,

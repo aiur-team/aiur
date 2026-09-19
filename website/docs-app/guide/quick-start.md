@@ -21,7 +21,23 @@ npm install -g aiur-cli
 
 ## Initialize
 
-Run `aiur init` in the repository Aiur should operate.
+Run `aiur init` once for your first setup. Choose **global** to store reusable defaults in `~/.aiur/config`; any project without local config can reuse them.
+
+With global defaults already present, run `aiur` in another GitHub repository without running `init` there. Aiur announces the fallback, infers the target from `origin`, and ensures workflow/marker and complexity labels before dispatch.
+
+It does not create model, effort, or alias labels; models and complexity routing come from config. Existing model overrides remain supported.
+
+Keep reusable credentials in `~/.aiur/.env` (outside Git), or use configured GitHub App credentials or `gh auth login`. Missing labels require Issues read/write permission; startup stops with an actionable error if setup fails. When required labels already exist, no label writes are made.
+
+Omit `tracker.github.repo` from portable global defaults; a different explicit repo is rejected rather than modifying the wrong repository. Global branch and agent settings still apply, so use local `aiur init` when a repository needs different settings.
+
+A repository-local `.aiur/config` takes precedence; use `init` for repository-specific configuration.
+
+Each repository needs an authorized dispatch operator and the configured base branch with accepted prerequisites. Establish `.github/CODEOWNERS` with the approved human owner, or use explicit `tracker.github.allowed_users`; missing fallback trust denies dispatch.
+
+Worker pushes and PR publication need Write access in addition to issue reads. See [GitHub permissions](/apis/github) for credential setup; the Executor reports access or setup blockers before describing workers as active.
+
+The wizard offers these setup steps:
 
 | Setup step | Result |
 | --- | --- |

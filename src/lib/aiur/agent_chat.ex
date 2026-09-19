@@ -19,25 +19,46 @@ defmodule Aiur.AgentChat do
   def send(issue_identifier, text, opts) when is_binary(issue_identifier) and is_binary(text),
     do: do_send(issue_identifier, issue_identifier, text, opts)
 
+  # `opts[:message_id]` names one user action (#2717). A caller that may retry
+  # after a timeout creates it once and passes the same id on its retry, which
+  # then returns the first item instead of queueing a copy. Without an id,
+  # every send is a new message.
   defp do_send(target, issue_identifier, text, opts) do
     delivery_policy = Keyword.get(opts, :delivery_policy, :interrupt)
     fallback = Keyword.get(opts, :fallback, :queue_next)
     turn_id = Keyword.get(opts, :turn_id)
+    message_id = Keyword.get(opts, :message_id)
 
     Logger.info("AgentChat.send issue=#{issue_identifier} bytes=#{byte_size(text)} body=#{inspect(preview(text))}")
 
     result =
       Orchestrator.send_operator_message(
         target,
-        %{kind: :text, body: text, delivery_policy: delivery_policy, fallback: fallback, turn_id: turn_id}
+        %{
+          kind: :text,
+          body: text,
+          delivery_policy: delivery_policy,
+          fallback: fallback,
+          turn_id: turn_id,
+          message_id: message_id
+        }
       )
 
-    if match?({:error, _reason}, result) do
-      Logger.warning("AgentChat.send issue=#{issue_identifier} failed: #{inspect(result)}")
-    end
-
+    log_send_result(issue_identifier, result)
     result
   end
+
+  # A caller-side timeout is not a failure: the Orchestrator may still queue the
+  # message (#2717). It is logged as an unknown outcome, never as failed.
+  defp log_send_result(issue_identifier, {:error, {:outcome_unknown, info}}) do
+    Logger.warning("AgentChat.send issue=#{issue_identifier} outcome unknown after timeout: #{inspect(info)}")
+  end
+
+  defp log_send_result(issue_identifier, {:error, _reason} = result) do
+    Logger.warning("AgentChat.send issue=#{issue_identifier} failed: #{inspect(result)}")
+  end
+
+  defp log_send_result(_issue_identifier, _result), do: :ok
 
   defp preview(text) when is_binary(text) do
     if byte_size(text) > 500, do: binary_part(text, 0, 500) <> "…", else: text
@@ -92,7 +113,8 @@ defmodule Aiur.AgentChat do
   end
 
   @spec resume_with_receipt(String.t()) ::
-          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+          {:ok, :resumed | :started | :reactivated | :already_running | :sleeping | {:resumed, pos_integer()}}
+          | {:error, term()}
   def resume_with_receipt(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.resume_agent_with_receipt(issue_identifier)
   end
