@@ -82,6 +82,22 @@ alerts:
     message: Tracker authentication recovered
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "system.tracker.state_labels_missing":
+    message: Repository is missing the workflow state labels
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+  "system.tracker.state_labels_missing.resolved":
+    message: Workflow state labels are present
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "system.tracker.state_label_preflight_failed":
+    message: Workflow state labels could not be verified
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+  "system.tracker.state_label_preflight_failed.resolved":
+    message: Workflow state-label preflight recovered
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:
