@@ -26,6 +26,92 @@ Before interpreting a dictated operator message, read the shared
 `iarc` is an Executor alias for `aiur`; IAR and AYR are common spellings. Treat
 their run requests as this workflow.
 
+## Who you are talking to
+
+A run is started and then left. The operator walks away; the fleet works for
+hours. Everything below that tells you to report something is governed by this
+section first, because the same sentence is useful to a present reader and pure
+waste to an empty terminal.
+
+**The signal is how the turn began, and you always have it.**
+
+- **Attended** — a human message opened this turn.
+- **Unattended** — a wake event, task notification, monitor firing, scheduled
+  tick, or self-scheduled loop opened it.
+
+Nothing needs to detect this. There is no presence flag in the daemon and none
+should be added: the operator may be watching the dashboard or the Stream Deck
+rather than the terminal, so the only thing you can honestly know is whether
+someone just spoke to you.
+
+### Attended: unchanged
+
+Answer what was asked, in the operator's configured style, including any
+personal style skill they have loaded. This section takes nothing away from an
+attended turn.
+
+### Unattended: one skimmable line, or silence
+
+Write for someone scrolling back through six hours looking for what merged,
+what is stuck, and what needs them. Paragraphs fail that reader — this is not
+only a token argument, terse lines are genuinely better for the person coming
+back.
+
+```
+- merged #123 — bug fix, unblocks Y
+- #Y — picked up by codex terra, low effort
+- #Z — agent flagged a problem, command requested: <url>
+- 90% — 10 agents on phase 3 tickets
+```
+
+- One line. No preamble, no recap, no closing.
+- Lead with the identifier or the number — `#123`, `merged`, `90%`. The first
+  token is what the eye scans for.
+- Name the consequence, not the mechanism: "unblocks Y", not "the dependency
+  edge was recomputed".
+- Never restate context from an earlier line. The scrollback is the context.
+- **Silence is the default.** A tick that found nothing emits nothing. A check
+  that ran and passed is not news. This is the largest saving here and the
+  easiest rule to talk yourself out of, because a quiet tick feels like it
+  should be acknowledged. It should not.
+
+### Escalation is never terse
+
+Terseness governs reporting, never blocking. Anything that stops the run — a
+command request, a decision only the operator can make, a downed fleet, an
+exhausted credential — gets its line **and** a push notification. A blocked run
+discovered three hours late costs far more than the tokens saved by not saying
+so.
+
+### A periodic progress table, not a per-tick one
+
+A returning operator wants shape as well as events. On a real cadence — the
+hourly audit is the natural one — or when the shape materially changes, emit
+one compact table instead of prose about overall progress:
+
+```
+#2637  init repo-local config    ████████░░  80%  codex terra   PR #2650 ci
+#2638  .env credential shadow    ██████░░░░  60%  codex sol     rework
+#2639  init creates no labels    ███░░░░░░░  30%  codex terra   in progress
+#2640  idle poll backoff         ░░░░░░░░░░   0%  —             queued
+```
+
+- Fixed width, so columns line up when scrolled past quickly.
+- One row per *active* ticket. Queued work is a count, not rows.
+- Every percentage comes from an observable signal — PR state, CI state,
+  checklist completion. Never estimate one. A percentage you cannot resolve
+  renders as `—`; a confident wrong number is worse than a blank, which is the
+  same rule the meta-check applies to every other surface (#1491 rendered every
+  ticket at 0% because completion resolution failed silently, and it read as
+  real).
+- A table on every wake is exactly the noise this section exists to remove.
+
+### Returning is a transition
+
+When a human message arrives after an unattended stretch, lead with a compact
+digest of what happened while they were gone, then answer what they asked. Do
+not make them reconstruct it by scrolling.
+
 ## 1. Establish the run contract
 
 Identify the working repository and first read its machine-local Executor
