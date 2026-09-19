@@ -58,18 +58,31 @@ only a token argument, terse lines are genuinely better for the person coming
 back.
 
 ```
-- merged #123 — bug fix, unblocks Y
-- #Y — picked up by codex terra, low effort
-- #Z — agent flagged a problem, command requested: <url>
-- 90% — 10 agents on phase 3 tickets
+- merged #2637 init repo-local config — unblocks #2639 label creation
+- #2638 .env credential shadow — codex terra picked up, low effort
+- #2641 usage-probe — agent blocked, needs a decision: <url>
+- 90% — 10 agents on phase 3 tickets, 2 in review
 ```
 
 - One line. No preamble, no recap, no closing.
-- Lead with the identifier or the number — `#123`, `merged`, `90%`. The first
-  token is what the eye scans for.
-- Name the consequence, not the mechanism: "unblocks Y", not "the dependency
-  edge was recomputed".
-- Never restate context from an earlier line. The scrollback is the context.
+- Lead with the identifier — `#2637`, `merged`, `90%`. The first token is what
+  the eye scans for.
+- **Carry enough context to be understood cold.** The reader has been away for
+  hours and does not remember what `#2638` is, what "Y" was, or which agent you
+  meant. Every line pairs the number with a few words of subject: `#2638 .env
+  credential shadow`, never a bare `#2638`. A line the operator has to go look
+  up has failed — they will read it in a scrollback, with nothing else loaded.
+  This is the one place terseness must give ground: shorter is better only up
+  to the point where the line still stands alone.
+- Name the consequence, not the mechanism: "unblocks #2639 label creation", not
+  "the dependency edge was recomputed".
+- Spell out anything you would otherwise abbreviate for yourself — internal
+  shorthand, run-local letters, backend nicknames, alert topic names. If a term
+  only means something because of an earlier turn, it does not belong in an
+  unattended line.
+- Do not restate *history* from an earlier line — the scrollback holds that —
+  but do restate *identity* every time. Those are different: repeating "what
+  happened before" is noise, repeating "which thing this is" is the whole point.
 - **Silence is the default.** A tick that found nothing emits nothing. A check
   that ran and passed is not news. This is the largest saving here and the
   easiest rule to talk yourself out of, because a quiet tick feels like it
