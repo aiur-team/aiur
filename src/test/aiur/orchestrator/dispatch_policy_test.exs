@@ -822,6 +822,79 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states)
     end
 
+    test "the hold description names only the blockers actually holding dispatch" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+
+      blocked =
+        issue("blocked",
+          state: "todo",
+          blocked_by: [
+            blocker("36", "Closed"),
+            blocker("37", "Closed"),
+            blocker("41", "rework"),
+            blocker("42", "Closed")
+          ]
+        )
+
+      description = DispatchPolicy.describe_dependency_hold(blocked, terminal_states)
+
+      assert description == "blocked by open dependency #41 (rework); 3 terminal dependencies ignored"
+      refute description =~ "36"
+      refute description =~ "42"
+    end
+
+    test "every open blocker is named when more than one holds dispatch" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+
+      blocked =
+        issue("blocked", state: "todo", blocked_by: [blocker("7", "todo"), blocker("8", "rework")])
+
+      assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
+               "blocked by open dependencies #7 (todo), #8 (rework)"
+    end
+
+    test "an all-terminal blocked_by list is not a hold at all" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+
+      blocked =
+        issue("blocked", state: "todo", blocked_by: [blocker("7", "Closed"), blocker("8", "Done")])
+
+      refute DispatchPolicy.todo_issue_blocked_by_non_terminal?(blocked, terminal_states)
+      assert DispatchPolicy.non_terminal_blockers(blocked, terminal_states) == []
+    end
+
+    test "a blocker with no readable state is named as an unknown-state hold" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+
+      blocked =
+        issue("blocked", state: "todo", blocked_by: [blocker("9", nil), blocker("10", "Closed")])
+
+      assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
+               "blocked by open dependency #9 (unknown state); 1 terminal dependency ignored"
+    end
+
+    test "a non-numeric blocker identifier is printed without a number sigil" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+      blocked = issue("blocked", state: "todo", blocked_by: [blocker("KHALA-41", "rework")])
+
+      assert DispatchPolicy.describe_dependency_hold(blocked, terminal_states) ==
+               "blocked by open dependency KHALA-41 (rework)"
+    end
+
+    test "an unnameable blocked_by shape still reads as a hold" do
+      terminal_states = MapSet.new(["done", "cancelled"])
+
+      assert DispatchPolicy.describe_dependency_hold(
+               issue("blocked", state: "todo", blocked_by: [%{state: nil}]),
+               terminal_states
+             ) =~ "blocked by open dependency %{state: nil}"
+
+      assert DispatchPolicy.describe_dependency_hold(
+               issue("blocked", state: "todo", blocked_by: :not_a_list),
+               terminal_states
+             ) == "blocked by a non-terminal dependency"
+    end
+
     test "normalizes issue state and slugs mixed case and whitespace" do
       assert DispatchPolicy.normalize_issue_state("  In Progress ") == "in progress"
       assert DispatchPolicy.normalize_issue_state(nil) == ""
@@ -1019,6 +1092,10 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       refute DispatchPolicy.blocked_on_decision?(ticket, MapSet.new(["other"]))
       refute DispatchPolicy.blocked_on_decision?(ticket, nil)
     end
+  end
+
+  defp blocker(identifier, state) do
+    %{id: identifier, identifier: identifier, state: state, url: nil}
   end
 
   defp issue(id, attrs) do

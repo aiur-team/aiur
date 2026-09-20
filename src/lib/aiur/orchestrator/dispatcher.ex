@@ -1069,10 +1069,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
     case held_by_dependency_before_refresh(state, issue, opts) do
-      {:held, %Issue{} = hydrated} ->
+      {:held, %Issue{} = hydrated, terminal_states} ->
         Logger.info(
-          "Skipping dispatch before refresh; issue is blocked by a non-terminal dependency: " <>
-            "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+          "Skipping dispatch before refresh; #{State.issue_context(hydrated)} " <>
+            DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
         )
 
         emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
@@ -1099,8 +1099,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     with false <- DispatchPolicy.blocked_on_decision?(issue, state.blocked_ticket_ids),
          {:ok, %Issue{} = hydrated} <- hydrator.(issue),
-         true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
-      {:held, hydrated}
+         terminal_states = DispatchPolicy.terminal_state_set(),
+         true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
+      {:held, hydrated, terminal_states}
     else
       _not_held -> :continue
     end
@@ -1236,10 +1237,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
-    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
+    terminal_states = DispatchPolicy.terminal_state_set()
+
+    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
       Logger.info(
-        "Skipping dispatch; issue is blocked by a non-terminal dependency: " <>
-          "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+        "Skipping dispatch; #{State.issue_context(hydrated)} " <>
+          DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
       )
 
       # Record the decline instead of only logging it. A ticket held here sits in
