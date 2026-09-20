@@ -93,7 +93,7 @@ def authorize(%Issue{state_labels: [_, _ | _] = state_labels} = issue, _owner, _
 end
 ```
 
-— `src/lib/aiur/github/dispatch_authorization.ex:31-33`
+— `src/lib/aiur/github/dispatch_authorization.ex:59-61`
 
 The consequence: a stale or hand-edited label set carrying **two state labels
 at once** denies dispatch. A poll-time repair heals the pair to its winner
@@ -167,23 +167,32 @@ invisible.
 
 `DispatchAuthorization.authorize/5` derives the trigger label from the issue's
 current state and denies `:missing_trigger_label` when there is none
-(`src/lib/aiur/github/dispatch_authorization.ex:74-82`).
+(`src/lib/aiur/github/dispatch_authorization.ex:107-110`).
 
 **Label provenance** surprises people, so it is worth stating plainly:
 
 - Dispatch is authorized by *who applied the trigger label*, verified against
   the GitHub issue timeline. There is deliberately **no trusted-creator
-  short-circuit** — the comment at `dispatch_authorization.ex:35-50` explains
+  short-circuit** — the comment at `dispatch_authorization.ex:63-78` explains
   why: agents file issues with the same credential, so a creator short-circuit
   made agent-filed work self-authorizing.
 - Aiur moves the state label itself on every transition, so the latest applier
   is routinely the bot. An Aiur-applied label **carries forward** the original
   triage decision — authorized only if some allowed user ever applied an
-  `agent:*` label to that issue (`dispatch_authorization.ex:88-126`).
+  `agent:*` label to that issue (`dispatch_authorization.ex:116-156`).
 - A relabel by anyone else **revokes** authorization, and `Orchestrator.Reconciler`
   terminates the running agent on the next poll.
 - Verification failures emit the needs-attention alert
-  `github.dispatch_authorization.ambiguous` (`dispatch_authorization.ex:527-536`).
+  `github.dispatch_authorization.ambiguous` (`dispatch_authorization.ex:743-752`).
+- A verdict Aiur *could not reach* — a rate limit, a transport outage, a
+  timeline page too large to read — is a **deferral**, not a denial: the ticket
+  is not dispatched this cycle and no running agent is revoked. Deferrals are
+  transient by design, so a single one is silent. When the same issue defers
+  five cycles in a row it raises the needs-attention alert
+  `github.dispatch_authorization.deferred` naming the issue and the reason, once
+  per streak; `github.dispatch_authorization.deferred.resolved` reports the
+  recovery when authorization decides again
+  (`dispatch_authorization.ex:716-741`).
 
 ## Step 2 — Aiur creates an agent, given the `aiur-agent` skill and a four-part prompt
 
