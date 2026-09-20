@@ -335,7 +335,37 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end)
 
       refute_receive {:agent_runner_run, _, _, _}, 100
-      assert log =~ "blocked by a non-terminal dependency"
+      assert log =~ "blocked by open dependency #5 (in-progress)"
+    end
+
+    test "the hold log names only the open blocker when the list leads with closed ones" do
+      issue = %Issue{
+        id: "blocked-ticket",
+        identifier: "repo#blocked-ticket",
+        title: "blocked ticket",
+        state: "todo"
+      }
+
+      hydrated = %{
+        issue
+        | blocked_by: [
+            %{id: "28", identifier: "28", state: "Closed"},
+            %{id: "41", identifier: "41", state: "rework"},
+            %{id: "42", identifier: "42", state: "Closed"}
+          ]
+      }
+
+      log =
+        capture_log(fn ->
+          Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, issue, nil, nil,
+            issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+            blocked_by_hydrator: fn _issue -> {:ok, hydrated} end
+          )
+        end)
+
+      assert log =~ "blocked by open dependency #41 (rework); 2 terminal dependencies ignored"
+      refute log =~ "#28"
+      refute log =~ "#42"
     end
 
     test "records a non-attention dependency decline instead of skipping silently" do
