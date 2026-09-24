@@ -84,3 +84,5 @@ The registry reads `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_K
 | Follow large features | [Build Orders](/concepts/build-orders) |
 | Follow ticket state | [How a ticket flows](/concepts/ticket-lifecycle) |
 | Choose workflows | [Skills](/skills) |
+
+<!-- ci path-filter proof -->
