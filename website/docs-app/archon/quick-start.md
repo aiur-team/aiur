@@ -1,6 +1,11 @@
 # Quick start
 
-Archon turns a document into one self-contained HTML file: inlined CSS and JS, theme-aware, no bundler and no external requests. It opens from `file://`, survives being emailed, and can be published anywhere that serves static files. Deployed, the same page gains sign-in, comments anchored to text, suggestions and edits, per-document roles, history and presence.
+Archon turns a document into one self-contained HTML file.
+
+| Where it runs | What you get |
+| --- | --- |
+| Anywhere | Inlined CSS and JS, theme-aware, with no bundler and no external requests. It opens from `file://`, survives being emailed, and publishes to any static host. |
+| Deployed | The same page gains sign-in, comments anchored to text, suggestions and edits, per-document roles, history and presence. |
 
 ## Install
 
@@ -31,7 +36,12 @@ Give your agent one line:
 Turn my artifact into an Archon doc: https://archon.aiur.team
 ```
 
-"My artifact" is the material you hand over. The agent reads [the instructions for agents](https://archon.aiur.team/AGENTS.md) and [the `archon-doc` skill](https://archon.aiur.team/skills/archon-doc/SKILL.md), installs the package and builds. You get back one built HTML file. A hosted link is a separate step, and only happens if you ask for one.
+"My artifact" is the material you hand over. Then:
+
+- The agent reads [the instructions for agents](https://archon.aiur.team/AGENTS.md) and [the `archon-doc` skill](https://archon.aiur.team/skills/archon-doc/SKILL.md).
+- It installs the package and builds.
+- You get back one built HTML file.
+- A hosted link is a separate step, and only happens if you ask for one.
 
 To copy the skill into a Claude Code project so it loads automatically:
 
@@ -66,13 +76,22 @@ npx --no archon my-doc
 | `npx --no archon my-doc` | `my-doc/dist/my-doc.html`, the normal profile. |
 | `npx --no archon my-doc --hosted` | `my-doc/dist/my-doc.hosted.html`, the profile you publish. It keeps the inlined theme, section navigation, anchors and changelog, and drops the comment, edit, presence and share clients. |
 
-The file is named after the directory, not the `slug`, and the command prints the path it wrote. The build fails on a missing `title`, a section missing `id`, `label` or `summary`, two sections sharing an `id`, or an unfilled placeholder. It then reports tag balance and size.
+The file is named after the directory, not the `slug`. The command prints the path it wrote, then reports tag balance and size.
+
+The build fails on:
+
+- a missing `title` in `doc.json`;
+- a section missing `id`, `label` or `summary`;
+- two sections sharing an `id`;
+- an unfilled layout placeholder.
 
 Open the file in a browser. Each section shows its summary while closed and opens to its body, with a theme toggle and section navigation around it. [How Archon works](https://archon.aiur.team/how-archon-works/) is a finished example.
 
 ## Publish
 
-Publishing is optional and needs a human approval in a browser. Run it only with a service origin the person gives you.
+Publishing is optional, and runs only with a service origin the person gives you.
+
+A human approves each publication in their own browser:
 
 | Step | What happens |
 | --- | --- |
