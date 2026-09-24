@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
-  alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
+  alias Aiur.AgentRunner.{MessageHandler, ModelLabelRefresh, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
@@ -162,6 +162,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     Logger.info("Resolved backend for #{Aiur.AgentRunner.issue_context(issue)} backend=#{session_backend} model=#{inspect(model)} effort=#{inspect(effort)} remote_control=#{rc?}")
 
     maybe_alert_unsupported_model(issue, workspace, worker_host, session_backend, model)
+
+    ModelLabelRefresh.maybe_alert(
+      issue,
+      workspace,
+      worker_host,
+      session_backend,
+      model,
+      Keyword.get(opts, :model_label_deferred),
+      Keyword.get(opts, :model_label, [])
+    )
 
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
@@ -987,8 +997,9 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # A model aiur doesn't recognize is far more likely to be newer than this
   # build than to be wrong, so it is never blocked and never quietly swapped
   # for the backend default — either would hide the real problem. Instead the
-  # Executor gets one attention naming both remediations: let `aiur init`
-  # discover the new tag, or repoint a retired pin at a generic family tag.
+  # Executor gets one attention naming both remediations: wait for the next
+  # model-list read to learn the new model, or repoint a retired pin at a
+  # generic family tag.
   #
   # "Recognized" spans the curated registry list *and* the provider catalogue
   # cache (`Aiur.ModelDiscovery`), so a model the provider currently serves
@@ -1024,10 +1035,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     "Model #{inspect(model)} is not one aiur knows for the #{backend} backend " <>
       "(known: #{Enum.join(CodingAgent.seedable_models(backend), ", ")}). It is being passed to the backend " <>
-      "unchanged — aiur is not substituting a different model. If it is a newly released model, run `aiur init` " <>
-      "and accept the offer to create its model tags. If it is a retired version, repoint the issue label or the " <>
-      "`agent.routing` entry at a generic tag such as #{inspect(generic)}, which always resolves to the newest " <>
-      "model in that family."
+      "unchanged — aiur is not substituting a different model. If it is a newly released model, aiur recognises " <>
+      "it once it next reads the backend's model list from its CLI; no upgrade or new label is needed. If it is a " <>
+      "retired version, repoint the issue label or the `agent.routing` entry at a generic tag such as " <>
+      "#{inspect(generic)}, which always resolves to the newest model in that family."
   end
 
   defp maybe_put_attempt_id(session, attempt_id) when is_binary(attempt_id), do: Map.put(session, :attempt_id, attempt_id)
