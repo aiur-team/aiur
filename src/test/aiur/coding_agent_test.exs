@@ -210,6 +210,66 @@ defmodule Aiur.CodingAgentTest do
     end
   end
 
+  describe "bare model labels resolve through the installed CLIs' catalogues" do
+    @catalogues %{
+      "claude" => {["opus", "sonnet", "haiku", "opus-5-5"], :discovered},
+      "codex" => {["gpt-5.6-sol", "gpt-5.7-astra"], :discovered}
+    }
+
+    defp catalogue(backend), do: Map.get(@catalogues, backend, {[], :discovered})
+
+    test "a claude family with no backend prefix selects claude and passes the alias through" do
+      issue = issue(["model:opus"])
+
+      assert CodingAgent.backend_for(issue, catalogue: &catalogue/1) == "claude"
+      assert CodingAgent.model_for(issue, catalogue: &catalogue/1) == "opus"
+      assert CodingAgent.model_label_status(issue, catalogue: &catalogue/1) == nil
+    end
+
+    test "a family only the codex CLI reported selects codex and resolves to its newest id" do
+      issue = issue(["model:astra"])
+
+      assert CodingAgent.backend_for(issue, catalogue: &catalogue/1) == "codex"
+      assert CodingAgent.model_for(issue, catalogue: &catalogue/1) == "astra"
+      assert CodingAgent.resolve_model("codex", "astra", cached_models: fn "codex" -> ["gpt-5.7-astra"] end) == "gpt-5.7-astra"
+    end
+
+    test "an unresolvable bare label is ignored for routing and reported with its cause" do
+      issue = issue(["model:opsu", "agent:todo"])
+
+      assert CodingAgent.override_backend(issue, catalogue: &catalogue/1) == nil
+      assert CodingAgent.backend_for(issue, catalogue: &catalogue/1) == CodingAgent.backend_for(issue(["agent:todo"]))
+      assert CodingAgent.model_label_status(issue, catalogue: &catalogue/1) == {"model:opsu", :unknown_name, []}
+    end
+
+    test "a prefixed label with an unlisted variant still pins its backend" do
+      issue = issue(["model:claude-opus-9-9"])
+
+      assert CodingAgent.backend_for(issue, catalogue: &catalogue/1) == "claude"
+      assert CodingAgent.model_for(issue, catalogue: &catalogue/1) == "opus-9-9"
+      assert CodingAgent.model_label_status(issue, catalogue: &catalogue/1) == nil
+    end
+  end
+
+  describe "resolve_model/3 for a CLI-catalogued derived backend" do
+    test "a routed family follows a version the CLI reports but the registry does not" do
+      assert CodingAgent.resolve_model("codex", "sol", cached_models: fn _ -> ["gpt-5.7-sol"] end) == "gpt-5.7-sol"
+    end
+
+    test "with an empty cache a family still resolves to a concrete id, never the bare alias" do
+      # The merged list must hold concrete ids only: a derived alias in it would
+      # make `Models.latest/2` treat `sol` as a pin and hand codex a bare `sol`.
+      assert CodingAgent.resolve_model("codex", "sol", cached_models: fn _ -> [] end) == "gpt-5.6-sol"
+    end
+
+    test "an HTTP-catalogued derived backend ignores discovered ids" do
+      newer = fn _ -> ["anthropic/claude-sonnet-9"] end
+
+      assert CodingAgent.resolve_model("openrouter", "claude", cached_models: newer) ==
+               CodingAgent.resolve_model("openrouter", "claude", cached_models: fn _ -> [] end)
+    end
+  end
+
   describe "backend_for/1 precedence (override beats routing/default)" do
     test "a model: override wins over a complexity: label that would route elsewhere" do
       assert CodingAgent.backend_for(issue(["model:claude", "complexity:5"])) == "claude"
@@ -352,14 +412,23 @@ defmodule Aiur.CodingAgentTest do
       refute CodingAgent.known_model?("codex", nil)
     end
 
-    test "override_labels/1 seeds the alias tags ahead of the pinned ones" do
+    test "override_labels/1 seeds the backend then its bare family tags, never a version" do
       labels = CodingAgent.override_labels(["codex"])
 
-      assert "model:codex-sol" in labels
-      assert "model:codex-gpt-5.6-sol" in labels
+      assert hd(labels) == "model:codex"
+      assert "model:sol" in labels
+      refute Enum.any?(labels, &(&1 =~ ~r/\d/))
+    end
 
-      assert Enum.find_index(labels, &(&1 == "model:codex-sol")) <
-               Enum.find_index(labels, &(&1 == "model:codex-gpt-5.6-sol"))
+    test "override_labels/2 seeds the families a CLI reported, even ones the registry lacks" do
+      labels =
+        CodingAgent.override_labels(["claude", "codex"], fn
+          "claude" -> ["opus", "sonnet", "default", "sonnet[1m]", "opus-5-5"]
+          "codex" -> ["gpt-5.7-astra", "gpt-5.6-sol", "gpt-5.5-codex", "gpt-5.5-high"]
+        end)
+
+      assert Enum.sort(labels) ==
+               Enum.sort(["model:claude", "model:codex", "model:opus", "model:sonnet", "model:astra", "model:sol"])
     end
   end
 
@@ -495,23 +564,16 @@ defmodule Aiur.CodingAgentTest do
       refute CodingAgent.remote_control?("opencode")
     end
 
-    test "override_labels seeds all three tag layers per backend" do
+    test "override_labels seeds backend and family tags for every backend" do
       labels = CodingAgent.override_labels()
-      assert "model:claude" in labels
-      assert "model:claude-opus" in labels
-      assert "model:claude-opus-4-8" in labels
-      assert "model:codex" in labels
-      assert "model:codex-gpt-5.6-sol" in labels
-      assert "model:codex-gpt-5.6-terra" in labels
-      assert "model:codex-gpt-5.6-luna" in labels
+
+      for label <- ~w(model:claude model:codex model:opus model:sonnet model:haiku model:sol model:terra model:luna) do
+        assert label in labels
+      end
     end
 
-    test "override_labels seeds bare haiku and cheaper codex variants" do
-      labels = CodingAgent.override_labels()
-      assert "model:claude-haiku" in labels
-      assert "model:codex-gpt-5.4" in labels
-      assert "model:codex-gpt-5.5-mini" in labels
-      assert "model:codex-gpt-5.4-mini" in labels
+    test "override_labels seeds no version-specific tag" do
+      refute Enum.any?(CodingAgent.override_labels(), &(&1 =~ ~r/\d/))
     end
   end
 

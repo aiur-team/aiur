@@ -13,6 +13,7 @@ defmodule Aiur.CodingAgent do
   session starts.
   """
 
+  alias Aiur.CodingAgent.ModelLabel
   alias Aiur.CodingAgent.Models
   alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config
@@ -20,6 +21,7 @@ defmodule Aiur.CodingAgent do
   alias Aiur.Issue
   alias Aiur.ModelAvailability
   alias Aiur.ModelCatalog
+  alias Aiur.ModelDiscovery
   alias Aiur.ProviderMeterProbe
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Usage.PriceTable.Data
@@ -39,10 +41,10 @@ defmodule Aiur.CodingAgent do
   # `model:<backend>-<variant>` additionally pins a model string passed to
   # that backend (e.g. `model:claude-opus-4-8`). The whole spec charset is
   # restricted to word/dot/dash so it is safe to splice into a backend's
-  # spawned command without shell-injection risk. The backend/variant
-  # boundary is resolved against the known-backend list (see
-  # `resolve_backend_spec/2`), so a hyphenated backend like `claude-repl`
-  # is recognized rather than mis-split into `claude` + variant `repl`.
+  # spawned command without shell-injection risk. The spec itself is resolved
+  # by `Aiur.CodingAgent.ModelLabel`: longest backend prefix first (so
+  # `claude-repl` is not mis-split into `claude` + `repl`), and a bare
+  # `model:<name>` resolves through the installed CLIs' model catalogues.
   @model_override_label ~r/^model:([A-Za-z0-9.\-]+)$/
 
   # Remote-control flag aliases. `model:remote` is a pure flag: it forces
@@ -612,23 +614,34 @@ defmodule Aiur.CodingAgent do
   def override_effort_labels, do: Enum.map(@effort_override_values, &"model:#{&1}")
 
   @doc """
-  `override_labels/0` restricted to the given backends. Each backend
-  contributes only its own `model:<backend>[-<variant>]` labels, so a
-  hyphenated backend (`claude-repl`) is never seeded by selecting a
-  shorter-named one (`claude`).
+  `override_labels/0` restricted to the given backends: a `model:<backend>`
+  per backend, then a bare `model:<family>` per model family those backends
+  offer (`model:opus`, `model:sol`). No version-specific label is seeded — a
+  pinned tag expires with its version, while a family tag keeps resolving to
+  the newest release and a bare name the installed CLI reports resolves
+  without any label being created in advance.
 
-  Derived family aliases are seeded ahead of the pinned versions, because
-  the alias is the tag an Executor should reach for by default — a pinned
-  tag expires with its version.
+  `ids_for` supplies each backend's model ids; `aiur init` passes what the
+  installed CLI reported, falling back to the registry list.
   """
-  @spec override_labels([backend()]) :: [String.t()]
-  def override_labels(selected) do
-    backends()
-    |> Map.take(selected)
-    |> Enum.flat_map(fn {backend, entry} ->
-      variant_labels = Enum.map(seedable_models(backend, entry), &"model:#{backend}-#{&1}")
-      ["model:#{backend}" | variant_labels]
-    end)
+  @spec override_labels([backend()], (backend() -> [String.t()])) :: [String.t()]
+  def override_labels(selected, ids_for \\ &models/1) do
+    chosen = backends() |> Map.take(selected) |> Map.keys()
+    families = chosen |> Enum.flat_map(&family_names(ids_for.(&1))) |> Enum.uniq()
+
+    Enum.map(chosen, &"model:#{&1}") ++ Enum.map(families, &"model:#{&1}")
+  end
+
+  # A family is seeded only when its label would mean that family: never when it
+  # would read as a backend, the remote flag, or an effort, and never outside
+  # the label charset (`sonnet[1m]`).
+  defp family_names(ids) do
+    reserved = known_backends() ++ Map.keys(@backend_aliases) ++ @effort_override_values
+
+    ids
+    |> Enum.map(&Models.family/1)
+    |> Enum.reject(&(is_nil(&1) or &1 in reserved or not Regex.match?(@model_override_label, "model:" <> &1)))
+    |> Enum.uniq()
   end
 
   @doc "The concrete models a backend's registry entry lists. Stale by design; see `known_model?/2`."
@@ -673,14 +686,15 @@ defmodule Aiur.CodingAgent do
   more likely new than wrong (see
   `Aiur.AgentRunner.SessionLifecycle`, which surfaces it to the Executor).
   """
-  @spec resolve_model(backend(), String.t() | nil) :: String.t() | nil
-  def resolve_model(backend, nil), do: backend_default_model(backend)
+  @spec resolve_model(backend(), String.t() | nil, keyword()) :: String.t() | nil
+  def resolve_model(backend, model, opts \\ [])
+  def resolve_model(backend, nil, _opts), do: backend_default_model(backend)
 
-  def resolve_model(backend, model) when is_binary(model) do
+  def resolve_model(backend, model, opts) when is_binary(model) do
     entry = Map.get(backends(), backend, %{})
 
     case Map.get(entry, :model_aliases, :native) do
-      :derived -> Models.latest(Map.get(entry, :models, []), model) || model
+      :derived -> Models.latest(resolvable_ids(backend, entry, opts), model) || model
       _native -> model
     end
   end
@@ -691,6 +705,23 @@ defmodule Aiur.CodingAgent do
   # with a real model instead of `nil` (which would otherwise surface as an
   # `unsupported_model` attention). OpenAI-compatible backends declare their
   # default under `openai_compat.default_model`.
+  # A family resolves against concrete ids only — the registry list plus, for a
+  # backend whose own CLI reports its models, the ids it reported. Derived
+  # aliases are never in this list: `Models.latest/2` treats a family that is
+  # itself listed as a pin and would hand the bare alias to the CLI. HTTP
+  # catalogues (OpenRouter) stay registry-only so a routed family never moves
+  # to a differently priced upstream on its own.
+  defp resolvable_ids(backend, entry, opts) do
+    curated = Map.get(entry, :models, [])
+
+    if is_function(Map.get(entry, :model_catalog), 1) do
+      cached = Keyword.get(opts, :cached_models, &ModelDiscovery.cached_models/1).(backend)
+      curated ++ (cached -- curated)
+    else
+      curated
+    end
+  end
+
   defp backend_default_model(backend) do
     get_in(backends(), [backend, :openai_compat, :default_model])
   end
@@ -709,9 +740,9 @@ defmodule Aiur.CodingAgent do
   wins, then the `complexity:` label mapped through `agent.routing`,
   then the global `agent.kind` fallback.
   """
-  @spec backend_for(Issue.t()) :: backend()
-  def backend_for(%Issue{} = issue) do
-    issue.selected_backend || override_backend(issue) || routing_backend(issue) || Config.agent_kind()
+  @spec backend_for(Issue.t(), keyword()) :: backend()
+  def backend_for(%Issue{} = issue, opts \\ []) do
+    issue.selected_backend || override_backend(issue, opts) || routing_backend(issue) || Config.agent_kind()
   end
 
   @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [backend()]}
@@ -873,15 +904,16 @@ defmodule Aiur.CodingAgent do
   only a backend, so it pins no model of its own and defers to the routing
   model when routing names that same backend.
   """
-  @spec model_for(Issue.t()) :: String.t() | nil
+  @spec model_for(Issue.t(), keyword()) :: String.t() | nil
   # `backend_for/1` already resolves `selected_backend` ahead of everything
   # else, so the model half of the same selected route has to win here too —
   # otherwise dispatch picks `openrouter:anthropic/claude-sonnet-5` and the
   # session starts on whatever the routing table happens to say instead.
-  def model_for(%Issue{selected_model: model}) when is_binary(model) and model != "", do: model
+  def model_for(issue, opts \\ [])
+  def model_for(%Issue{selected_model: model}, _opts) when is_binary(model) and model != "", do: model
 
-  def model_for(%Issue{} = issue) do
-    case override_backend(issue) do
+  def model_for(%Issue{} = issue, opts) do
+    case override_backend(issue, opts) do
       # With no override, the complexity-routing value names the model for the
       # routed backend. A *bare* override names only a backend, so the routing
       # value is the more specific answer and is still deferred to when it
@@ -891,10 +923,10 @@ defmodule Aiur.CodingAgent do
       # backend the routing table never names (an OpenAI-compatible one)
       # therefore yields nil, and `resolve_model/2` supplies the backend default.
       nil ->
-        override_model(issue) || routing_model(issue)
+        override_model(issue, opts) || routing_model(issue)
 
       backend ->
-        override_model_for(issue, backend)
+        override_model_for(issue, backend, opts)
     end
   end
 
@@ -905,8 +937,8 @@ defmodule Aiur.CodingAgent do
   # today — `select_for_dispatch/2` and the rate-limit fallback only assign a
   # backend when there is no override — so this holds the invariant rather than
   # serving live traffic.
-  @spec override_model_for(Issue.t(), backend()) :: String.t() | nil
-  defp override_model_for(%Issue{selected_backend: selected}, backend)
+  @spec override_model_for(Issue.t(), backend(), keyword()) :: String.t() | nil
+  defp override_model_for(%Issue{selected_backend: selected}, backend, _opts)
        when is_binary(selected) and selected != backend,
        do: nil
 
@@ -919,8 +951,8 @@ defmodule Aiur.CodingAgent do
   # variant is passed through verbatim: `opus` stays the floating family alias
   # the operator picked and is only widened to a concrete version by
   # `resolve_model/2`, which knows which backends derive their aliases.
-  defp override_model_for(%Issue{} = issue, backend) do
-    case {override_model(issue), routing_backend(issue)} do
+  defp override_model_for(%Issue{} = issue, backend, opts) do
+    case {override_model(issue, opts), routing_backend(issue)} do
       {nil, ^backend} -> routing_model(issue)
       {nil, _other} -> nil
       {variant, _any} -> variant
@@ -974,71 +1006,81 @@ defmodule Aiur.CodingAgent do
     end
   end
 
-  defp override_model(%Issue{} = issue) do
-    case override(issue) do
+  defp override_model(%Issue{} = issue, opts) do
+    case override(issue, opts) do
       {_backend, variant} -> variant
       nil -> nil
     end
   end
 
   @doc false
-  @spec override_backend(Issue.t()) :: backend() | nil
-  def override_backend(%Issue{} = issue) do
-    case override(issue) do
+  @spec override_backend(Issue.t(), keyword()) :: backend() | nil
+  def override_backend(%Issue{} = issue, opts \\ []) do
+    case override(issue, opts) do
       {backend, _variant} -> backend
       nil -> nil
     end
   end
 
-  # First well-formed `model:<backend>[-<variant>]` label naming a known
-  # backend, as `{backend, variant | nil}`. Unknown backends are skipped.
-  @spec override(Issue.t()) :: {backend(), String.t() | nil} | nil
-  defp override(%Issue{} = issue) do
+  @doc """
+  The first `model:` label on an issue that names a model aiur cannot place,
+  with why — `{label, cause, backends}` — or `nil` when every model label
+  resolves. Causes are `:unknown_name` (no catalogue offers it),
+  `:ambiguous` (several do; `backends` names them) and `:catalog_unavailable`
+  (no catalogue offers it, but `backends` were never discovered, so it may be
+  newer than this build). An unresolved label is ignored for routing; this is
+  how the agent runner learns to refresh and to warn.
+  """
+  @spec model_label_status(Issue.t(), keyword()) :: {String.t(), ModelLabel.cause(), [backend()]} | nil
+  def model_label_status(%Issue{} = issue, opts \\ []) do
     known = dispatchable_backends(Config.agent_backend_configs())
 
     issue
     |> Issue.label_names()
-    |> Enum.find_value(&match_override(&1, known))
+    |> Enum.find_value(fn label ->
+      with [_, spec] <- Regex.run(@model_override_label, to_string(label)),
+           {:unresolved, cause, backends} <- ModelLabel.resolve(spec, known, label_opts(opts)) do
+        {to_string(label), cause, backends}
+      else
+        _resolved -> nil
+      end
+    end)
   end
 
-  @spec match_override(term(), [backend()]) :: {backend(), String.t() | nil} | nil
-  defp match_override(label, known) do
-    case Regex.run(@model_override_label, to_string(label)) do
-      [_, spec] -> resolve_backend_spec(spec, known)
-      _ -> nil
+  # First well-formed `model:<backend>[-<variant>]` label naming a known
+  # backend, as `{backend, variant | nil}`. Unknown backends are skipped.
+  @spec override(Issue.t(), keyword()) :: {backend(), String.t() | nil} | nil
+  defp override(%Issue{} = issue, opts) do
+    known = dispatchable_backends(Config.agent_backend_configs())
+
+    issue
+    |> Issue.label_names()
+    |> Enum.find_value(&match_override(&1, known, opts))
+  end
+
+  @spec match_override(term(), [backend()], keyword()) :: {backend(), String.t() | nil} | nil
+  defp match_override(label, known, opts) do
+    with [_, spec] <- Regex.run(@model_override_label, to_string(label)),
+         selected when is_tuple(selected) <- ModelLabel.resolve(spec, known, label_opts(opts)) do
+      case selected do
+        {:backend, backend} -> {backend, nil}
+        {:model, backend, variant} -> {backend, variant}
+        {:unresolved, _cause, _backends} -> nil
+      end
+    else
+      _not_a_selector -> nil
     end
   end
 
-  # Resolve `model:<spec>` to `{backend, variant | nil}`. A `model:<alias>`
-  # spec (bare `remote` or `remote-<variant>`) is a remote FLAG,
-  # not a backend selector, so it never resolves to a backend here — the
-  # backend/model come from a companion `model:<backend>` tag while
-  # `remote_control_forced?/1` reads the flag and dispatch swaps the transport.
-  # Otherwise prefer the longest known backend the spec names exactly or
-  # prefixes with `-`, so `claude-repl` wins over `claude`.
-  @spec resolve_backend_spec(String.t(), [backend()]) :: {backend(), String.t() | nil} | nil
-  defp resolve_backend_spec(spec, known) do
-    if alias_spec?(spec), do: nil, else: resolve_known_backend_spec(spec, known)
-  end
-
-  @spec alias_spec?(String.t()) :: boolean()
-  defp alias_spec?(spec) do
-    Enum.any?(Map.keys(@backend_aliases), fn name ->
-      spec == name or String.starts_with?(spec, name <> "-")
-    end)
-  end
-
-  @spec resolve_known_backend_spec(String.t(), [backend()]) :: {backend(), String.t() | nil} | nil
-  defp resolve_known_backend_spec(spec, known) do
-    known
-    |> Enum.sort_by(&(-String.length(&1)))
-    |> Enum.find_value(fn backend ->
-      cond do
-        spec == backend -> {backend, nil}
-        String.starts_with?(spec, backend <> "-") -> {backend, String.replace_prefix(spec, backend <> "-", "")}
-        true -> nil
-      end
-    end)
+  # Cache-only: resolving a label must never probe a CLI, because this runs on
+  # every orchestrator poll. The agent runner refreshes before it resolves.
+  defp label_opts(opts) do
+    [
+      flags: Map.keys(@backend_aliases) ++ @effort_override_values,
+      registered: known_backends(),
+      source_for: &ModelDiscovery.source_key/1,
+      catalogue: Keyword.get(opts, :catalogue, &ModelDiscovery.catalogue/1)
+    ]
   end
 
   @doc false

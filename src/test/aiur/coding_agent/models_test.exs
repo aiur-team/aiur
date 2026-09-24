@@ -64,6 +64,21 @@ defmodule Aiur.CodingAgent.ModelsTest do
     end
   end
 
+  describe "family/1 for Anthropic ids" do
+    test "the family precedes the version, with or without the vendor prefix" do
+      assert Models.family("claude-opus-5-5") == "opus"
+      assert Models.family("opus-5-5") == "opus"
+      assert Models.family("sonnet-4-6") == "sonnet"
+      assert Models.family("haiku") == "haiku"
+    end
+
+    test "Codex and aggregator families are unchanged" do
+      assert Models.family("gpt-5.7-astra") == "astra"
+      assert Models.family("gpt-5.5") == "gpt"
+      assert Models.family("anthropic/claude-sonnet-5") == "claude"
+    end
+  end
+
   describe "aliases/1" do
     test "one alias per family, in the order the list introduces them" do
       # List order is the registry's most-capable-first intent, and it is the
