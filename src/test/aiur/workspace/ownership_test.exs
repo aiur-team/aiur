@@ -110,7 +110,7 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     release = Task.async(fn -> Ownership.release_and_wait(active_lease) end)
 
-    assert_receive {:telemetry_reap, reaper, ^process_group_id}
+    assert_receive {:telemetry_reap, reaper, ^process_group_id}, 2_000
 
     assert [{:start, :claimed, %{phase: :provisioning}}, {:point, :active, %{phase: :active}}, {:point, :reaping, %{phase: :reaping}}] =
              telemetry_events(telemetry)
