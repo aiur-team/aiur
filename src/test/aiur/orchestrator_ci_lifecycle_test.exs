@@ -975,6 +975,55 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running[identifier].control.status == :paused
     end
 
+    test "a ci-wait pause that lost its label is resumed instead of stranded" do
+      identifier = unique_identifier("ci-rewake-departed")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      reworked = %{issue | state: "rework", state_labels: ["rework"]}
+      issue_fetcher = fn [^identifier] -> {:ok, [reworked]} end
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, _position, {:resume_agent, request_id, 101}}
+      assert is_integer(request_id)
+      assert next.running[identifier].issue.state == "rework"
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "a ci-wait pause whose ticket moved to human review is left to the CI poll" do
+      identifier = unique_identifier("ci-rewake-departed-review")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      in_review = %{issue | state: "human-review", state_labels: ["human-review"]}
+      issue_fetcher = fn [^identifier] -> {:ok, [in_review]} end
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:resume_agent, _request_id, _generation}}
+      assert next.running[identifier].control.status == :paused
+      assert next.running[identifier].issue.state == "human-review"
+    end
+
     test "fallback timeout does not wake a freshly operator-paused ticket" do
       identifier = unique_identifier("ci-rewake-paused")
       recorder = start_recorder()
