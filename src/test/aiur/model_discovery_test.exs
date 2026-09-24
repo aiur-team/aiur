@@ -108,6 +108,54 @@ defmodule Aiur.ModelDiscoveryTest do
       assert {:ok, :disabled} = ModelDiscovery.refresh_now("codex", path: cache, enabled: false, discover: &never_discover/1)
     end
 
+    test "a CLI probe that crashes is a failed attempt, not a crash in the caller", %{cache: cache} do
+      crashing = fn _ -> raise "port died" end
+
+      assert {:error, {:discover_crashed, "port died"}} = ModelDiscovery.refresh_now("codex", path: cache, discover: crashing)
+      assert get_in(ModelDiscovery.load(cache), ["backends", "codex", "last_attempt_at"])
+      assert {:ok, :cooldown} = ModelDiscovery.refresh_now("codex", path: cache, discover: crashing)
+    end
+
+    test "a probe that outlives the budget times out and still cools the backend down", %{cache: cache} do
+      slow = fn _ -> Process.sleep(:infinity) end
+
+      assert {:error, :refresh_timeout} = ModelDiscovery.refresh_now("codex", path: cache, discover: slow, timeout_ms: 20)
+      assert {:ok, :cooldown} = ModelDiscovery.refresh_now("codex", path: cache, discover: slow, timeout_ms: 20)
+    end
+
+    test "refresh_now honours the application kill switch unless a source is injected", %{cache: cache} do
+      # `:model_discovery_refresh?` is false under `:test`.
+      assert {:ok, :disabled} = ModelDiscovery.refresh_now("codex", path: cache)
+    end
+
+    test "runners refreshing the same catalogue at once probe it once", %{cache: cache} do
+      counter = :counters.new(1, [])
+
+      discover = fn _ ->
+        :counters.add(counter, 1, 1)
+        Process.sleep(50)
+        {:ok, ["gpt-5.7-astra"]}
+      end
+
+      ["codex", "codex", "codex"]
+      |> Enum.map(fn backend -> Task.async(fn -> ModelDiscovery.refresh_now(backend, path: cache, discover: discover) end) end)
+      |> Task.await_many()
+
+      assert :counters.get(counter, 1) == 1
+    end
+
+    test "the background refresh respects the cooldown too", %{cache: cache} do
+      t0 = ~U[2026-09-01 00:00:00Z]
+      ModelDiscovery.refresh("codex", path: cache, discover: fn _ -> {:error, :cli_unavailable} end, now: t0)
+
+      refute ModelDiscovery.background_refresh_due?("codex", path: cache, now: DateTime.add(t0, 60))
+      assert ModelDiscovery.background_refresh_due?("codex", path: cache, now: DateTime.add(t0, 600))
+    end
+
+    test "an HTTP catalogue never fetched does not read as curated-only", %{cache: cache} do
+      assert {_ids, :discovered} = ModelDiscovery.catalogue("openrouter", path: cache)
+    end
+
     test "catalogue reads never start a refresh", %{cache: cache} do
       assert {_ids, :curated_only} = ModelDiscovery.catalogue("codex", path: cache, discover: &never_discover/1)
     end

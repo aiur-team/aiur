@@ -157,8 +157,10 @@ defmodule Aiur.ModelDiscovery do
     {curated ++ (discovered -- curated), provenance(backend, entry, opts)}
   end
 
+  # Only a CLI catalogue can make an unmatched bare name "possibly too new":
+  # bare names never resolve through an HTTP catalogue's families.
   defp provenance(backend, entry, opts) do
-    if discoverable?(backend) and enabled?(backend, opts) and is_nil(Map.get(entry, "fetched_at")),
+    if cli_catalogue?(backend) and enabled?(backend, opts) and is_nil(Map.get(entry, "fetched_at")),
       do: :curated_only,
       else: :discovered
   end
@@ -258,11 +260,22 @@ defmodule Aiur.ModelDiscovery do
   defp refresh_cli(backend, opts) do
     discover = Keyword.get(opts, :discover, &ModelCatalog.discover/1)
 
-    with {:ok, ids} <- discover.(source_key(backend)) do
+    with {:ok, ids} <- safe_discover(discover, source_key(backend)) do
       {kept, refused} = ingest(Enum.map(ids, &%{id: &1}))
       Logger.info("model discovery (#{source_key(backend)}): #{length(kept)} models, #{length(refused)} refused")
       write_entry(backend, kept, refused, opts)
     end
+  end
+
+  # A CLI that dies at startup can make the port calls raise or exit. That is a
+  # failed attempt like any other — recorded, cooled down — never a crash in
+  # the agent runner that asked.
+  defp safe_discover(discover, key) do
+    discover.(key)
+  rescue
+    error -> {:error, {:discover_crashed, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:discover_crashed, {kind, reason}}}
   end
 
   @doc """
@@ -273,12 +286,18 @@ defmodule Aiur.ModelDiscovery do
   """
   @spec refresh_now(CodingAgent.backend(), keyword()) :: {:ok, term()} | {:error, term()}
   def refresh_now(backend, opts \\ []) do
-    cond do
-      not (discoverable?(backend) and enabled?(backend, opts) and refresh_allowed?(opts)) -> {:ok, :disabled}
-      cooling_down?(backend, opts) -> {:ok, :cooldown}
-      true -> bounded_refresh(backend, opts)
-    end
+    if discoverable?(backend) and enabled?(backend, opts) and refresh_allowed?(opts),
+      do: :global.trans(lock_id(backend), fn -> refresh_unless_cooling(backend, opts) end, [node()]),
+      else: {:ok, :disabled}
   end
+
+  # Runners that start together wait on one lock per catalogue, then find the
+  # attempt the first one stamped and skip — one probe, not one per runner.
+  defp refresh_unless_cooling(backend, opts) do
+    if cooling_down?(backend, opts), do: {:ok, :cooldown}, else: bounded_refresh(backend, opts)
+  end
+
+  defp lock_id(backend), do: {{__MODULE__, source_key(backend)}, self()}
 
   defp bounded_refresh(backend, opts) do
     task = Task.async(fn -> refresh(backend, opts) end)
@@ -523,7 +542,7 @@ defmodule Aiur.ModelDiscovery do
   end
 
   defp entry(backend, opts) do
-    state = Keyword.get_lazy(opts, :state, fn -> load(cache_path(opts)) end)
+    state = Keyword.get_lazy(opts, :state, fn -> read_state(opts) end)
 
     case get_in(state, ["backends", source_key(backend)]) do
       %{} = entry -> entry
@@ -532,6 +551,37 @@ defmodule Aiur.ModelDiscovery do
   end
 
   defp cache_path(opts), do: Keyword.get(opts, :path, path())
+
+  # Label resolution reads the cache on the orchestrator's hot paths, so the
+  # decoded document is memoized against the file's mtime and size: it is
+  # re-read only when a refresh rewrote it (about daily). An explicit `:path`
+  # (tests, tools) always reads fresh.
+  defp read_state(opts) do
+    case Keyword.fetch(opts, :path) do
+      {:ok, path} -> load(path)
+      :error -> memoized_load(path())
+    end
+  end
+
+  defp memoized_load(path) when is_binary(path) do
+    stamp =
+      case File.stat(path) do
+        {:ok, %File.Stat{mtime: mtime, size: size}} -> {mtime, size}
+        {:error, _reason} -> :absent
+      end
+
+    case :persistent_term.get({__MODULE__, :memo}, nil) do
+      {^path, ^stamp, state} ->
+        state
+
+      _stale ->
+        state = load(path)
+        :persistent_term.put({__MODULE__, :memo}, {path, stamp, state})
+        state
+    end
+  end
+
+  defp memoized_load(_path), do: empty_state()
 
   defp write_entry(backend, models, refused, opts) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
@@ -637,13 +687,18 @@ defmodule Aiur.ModelDiscovery do
   defp preview(ids), do: ids |> Enum.take(5) |> Enum.join(", ")
 
   defp maybe_refresh_async(backend, opts) do
-    if refresh_requested?(opts) and discoverable?(backend) and enabled?(backend, opts) and
-         refresh_due?(backend, opts) do
-      start_refresh(backend, opts)
-    end
-
+    if refresh_requested?(opts) and background_refresh_due?(backend, opts), do: start_refresh(backend, opts)
     :ok
   end
+
+  @doc """
+  Whether reading `models_for/2` would start a background refresh, ignoring the
+  application kill switch: the backend is discoverable, not opted out, stale,
+  and not tried within the cooldown.
+  """
+  @spec background_refresh_due?(CodingAgent.backend(), keyword()) :: boolean()
+  def background_refresh_due?(backend, opts \\ []),
+    do: discoverable?(backend) and enabled?(backend, opts) and refresh_due?(backend, opts)
 
   # `:model_discovery_refresh?` is the application-level kill switch, set false
   # under `:test` so no test can reach a provider over the network through the
@@ -686,7 +741,7 @@ defmodule Aiur.ModelDiscovery do
   # `:global` documents — the backend belongs inside the resource half, not as
   # a third element, or the call can never succeed.
   defp guarded_refresh(backend, opts) do
-    case :global.trans({{__MODULE__, backend}, self()}, fn -> log_refresh(backend, opts) end, [node()], 0) do
+    case :global.trans(lock_id(backend), fn -> log_refresh(backend, opts) end, [node()], 0) do
       :aborted -> :ok
       result -> result
     end

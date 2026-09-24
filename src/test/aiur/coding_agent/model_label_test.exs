@@ -61,6 +61,25 @@ defmodule Aiur.CodingAgent.ModelLabelTest do
       assert resolve("gpt-5.7-astra", ["codex"], %{"codex" => @codex}) == {:model, "codex", "gpt-5.7-astra"}
     end
 
+    test "a shared catalogue resolves to its source backend whatever order the backends are listed in" do
+      assert resolve("opus", ["claude-repl", "claude"], %{"claude" => @claude, "claude-repl" => @claude}) ==
+               {:model, "claude", "opus"}
+    end
+
+    test "a family only counts on a backend that can expand it; an exact id counts anywhere" do
+      catalogues = %{"codex" => @codex, "openrouter" => {["google/gemini-3-pro", "gemini-exact"], :discovered}}
+
+      opts = [
+        flags: @flags,
+        catalogue: &Map.fetch!(catalogues, &1),
+        expands_family?: &(&1 == "codex")
+      ]
+
+      # OpenRouter could not turn `gemini` into a slug, so it is not a match.
+      assert ModelLabel.resolve("gemini", ["codex", "openrouter"], opts) == {:unresolved, :unknown_name, []}
+      assert ModelLabel.resolve("gemini-exact", ["codex", "openrouter"], opts) == {:model, "openrouter", "gemini-exact"}
+    end
+
     test "a shared catalogue resolves to the member that is dispatchable when its source is not" do
       assert resolve("opus", ["claude-repl"], %{"claude-repl" => @claude}) == {:model, "claude-repl", "opus"}
     end

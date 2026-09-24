@@ -36,8 +36,10 @@ defmodule Aiur.CodingAgent.ModelLabel do
 
   Options: `:flags` (specs that are flags, not selectors — `remote` and the
   effort values), `:registered` (every registered backend, enabled or not),
-  `:source_for` (backend -> the backend whose catalogue it reads), and
-  `:catalogue` (the reader).
+  `:source_for` (backend -> the backend whose catalogue it reads),
+  `:catalogue` (the reader), and `:expands_family?` (whether a backend can
+  turn a family name into one of its models — only then does a family match
+  count; an exact id matches on any backend).
   """
   @spec resolve(String.t(), [backend()], keyword()) :: result()
   def resolve(spec, dispatchable, opts) when is_binary(spec) do
@@ -78,6 +80,7 @@ defmodule Aiur.CodingAgent.ModelLabel do
   defp bare(spec, dispatchable, opts) do
     source_for = Keyword.get(opts, :source_for, & &1)
     reader = Keyword.fetch!(opts, :catalogue)
+    expands? = Keyword.get(opts, :expands_family?, fn _backend -> true end)
 
     sources =
       dispatchable
@@ -88,14 +91,17 @@ defmodule Aiur.CodingAgent.ModelLabel do
         {chosen, reader.(chosen)}
       end)
 
-    case Enum.filter(sources, fn {_source, {ids, _provenance}} -> offers?(ids, spec) end) do
+    case Enum.filter(sources, fn {source, {ids, _provenance}} -> offers?(ids, spec, expands?.(source)) end) do
       [{source, _catalogue}] -> {:model, source, spec}
       [_, _ | _] = matched -> {:unresolved, :ambiguous, Enum.map(matched, &elem(&1, 0))}
       [] -> unmatched(sources)
     end
   end
 
-  defp offers?(ids, spec), do: spec in ids or Enum.any?(ids, &(Models.family(&1) == spec))
+  # A family match only counts on a backend that can expand the family into a
+  # model; elsewhere (an HTTP aggregator) the bare family would reach the
+  # provider verbatim and fail.
+  defp offers?(ids, spec, expands?), do: spec in ids or (expands? and Enum.any?(ids, &(Models.family(&1) == spec)))
 
   # Nothing matched. If some catalogue was never discovered, the name may be
   # too new for the curated list alone — say so rather than calling it a typo.

@@ -41,6 +41,16 @@ defmodule Aiur.AgentRunner.ModelLabelRefreshTest do
       assert CodingAgent.model_for(issue, catalogue: reader) == "astra"
     end
 
+    test "an unknown name probes each CLI once — claude and claude-repl share one probe" do
+      {store, reader} = catalogue(%{"claude" => @claude, "codex" => {["gpt-5.6-sol"], :discovered}})
+      issue = %Issue{identifier: "TYPO", labels: ["model:opsu"]}
+
+      ModelLabelRefresh.prepare(issue, catalogue: reader, refresh: refreshing(store, "none", nil))
+
+      refreshed = for {:refreshed, backend} <- Process.info(self(), :messages) |> elem(1), do: backend
+      assert Enum.sort(refreshed) == ["claude", "codex"]
+    end
+
     test "a resolvable label does not probe any CLI" do
       {_store, reader} = catalogue(%{"claude" => @claude})
       issue = %Issue{identifier: "KNOWN", labels: ["model:opus"]}

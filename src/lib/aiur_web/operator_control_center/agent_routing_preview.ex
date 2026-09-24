@@ -13,7 +13,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
   unavailable preview rather than a confident wrong answer.
   """
 
-  alias Aiur.{CodingAgent, Config, Issue}
+  alias Aiur.{CodingAgent, Config, Issue, ModelDiscovery}
+  alias Aiur.CodingAgent.Models
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.StatePolicy
@@ -80,10 +81,20 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
 
     %{
       backends: backends,
-      models: safe(fn -> CodingAgent.seedable_models(backend) end, []),
+      models: safe(fn -> offerable_models(backend) end, []),
       efforts: offerable_efforts(backend),
       complexities: Enum.to_list(@complexities)
     }
+  end
+
+  # The models a backend's own CLI reported count as much as the registry list:
+  # a ticket labelled `model:astra` must keep that choice when the modal opens,
+  # not be clamped to "Backend default". Families of those ids are offered too,
+  # since a bare family label is what the operator usually picked.
+  defp offerable_models(backend) do
+    {ids, _provenance} = ModelDiscovery.catalogue(backend)
+    families = if ModelDiscovery.cli_catalogue?(backend), do: Enum.flat_map(ids, &List.wrap(Models.family(&1))), else: []
+    Enum.uniq(ids ++ families)
   end
 
   # A backend's effort vocabulary is wider than the override-label vocabulary —

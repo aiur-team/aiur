@@ -633,14 +633,14 @@ defmodule Aiur.CodingAgent do
   end
 
   # A family is seeded only when its label would mean that family: never when it
-  # would read as a backend, the remote flag, or an effort, and never outside
-  # the label charset (`sonnet[1m]`).
+  # would read as a backend, the remote flag, or an effort. Ids with no family
+  # (`default`, `sonnet[1m]`) contribute nothing.
   defp family_names(ids) do
     reserved = known_backends() ++ Map.keys(@backend_aliases) ++ @effort_override_values
 
     ids
     |> Enum.map(&Models.family/1)
-    |> Enum.reject(&(is_nil(&1) or &1 in reserved or not Regex.match?(@model_override_label, "model:" <> &1)))
+    |> Enum.reject(&(is_nil(&1) or &1 in reserved))
     |> Enum.uniq()
   end
 
@@ -1079,7 +1079,8 @@ defmodule Aiur.CodingAgent do
       flags: Map.keys(@backend_aliases) ++ @effort_override_values,
       registered: known_backends(),
       source_for: &ModelDiscovery.source_key/1,
-      catalogue: Keyword.get(opts, :catalogue, &ModelDiscovery.catalogue/1)
+      catalogue: Keyword.get(opts, :catalogue, &ModelDiscovery.catalogue/1),
+      expands_family?: Keyword.get(opts, :expands_family?, &ModelDiscovery.cli_catalogue?/1)
     ]
   end
 
