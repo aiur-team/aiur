@@ -701,41 +701,41 @@ Every ticket names at least one of these. Examples:
 6. Consumer migrations: khala splash → archon → aiur.team → docs → dashboard. The shell work runs in parallel where dependencies allow.
 7. Remove duplicates.
 
-Each ticket is one agent PR. Issue links are in the umbrella issue.
+Each ticket is one agent PR. Umbrella issue: [aiur#2792](https://github.com/aiur-team/aiur/issues/2792). Every issue carries `agent:todo`, a `complexity:N` label and native GitHub blocked-by links.
 
-| ID | Repo | Slug | Cx | Blocked by |
-|---|---|---|---|---|
-| AS-01 | aiur | `aiur-style-visual-baselines-aiur-team` | 3 | — |
-| AS-02 | aiur | `aiur-style-visual-baselines-dashboard` | 3 | — |
-| AS-03 | archon | `aiur-style-visual-baselines-archon-site` | 3 | — |
-| AS-04 | khala | `aiur-style-visual-baselines-khala-web` | 3 | khala#163 (channel copy) |
-| AS-05 | aiur | `aiur-team-command-box-follows-tab` | 2 | AS-01 |
-| AS-10 | aiur | `aiur-style-package-scaffold` | 3 | — |
-| AS-11 | aiur | `aiur-style-tokens` | 3 | AS-10 |
-| AS-12 | aiur | `aiur-style-fonts-and-assets` | 2 | AS-10 |
-| AS-13 | aiur | `aiur-style-theme-runtime` | 3 | AS-11 |
-| AS-14 | aiur | `aiur-style-npm-publish-workflow` | 2 | AS-10 |
-| AS-20 | aiur | `aiur-style-button-and-focus` | 2 | AS-11 |
-| AS-21 | aiur | `aiur-style-banner` | 2 | AS-13, AS-20 |
-| AS-22 | aiur | `aiur-style-topbar-and-theme-toggle` | 3 | AS-12, AS-13, AS-20 |
-| AS-23 | aiur | `aiur-style-footer` | 1 | AS-11 |
-| AS-24 | aiur | `aiur-style-command-box-and-tabs` | 3 | AS-20, AS-05 |
-| AS-25 | aiur | `aiur-style-content-sections` | 2 | AS-11 |
-| AS-26 | aiur | `aiur-style-shell-and-page-frame` | 4 | AS-13, AS-20 |
-| AS-27 | aiur | `aiur-style-react-wrappers` | 3 | AS-26, AS-22 |
-| AS-28 | aiur | `aiur-style-vitepress-adapter` | 2 | AS-13, AS-20 |
-| AS-30 | aiur | `aiur-style-flow-field` | 4 | AS-13, AS-05 |
-| AS-35 | aiur | `aiur-style-release-0-1-0` | 1 | AS-14, AS-21, AS-22, AS-23, AS-24, AS-25, AS-26, AS-27, AS-28, AS-30 |
-| AS-44 | khala | `khala-splash-adopts-aiur-style` | 3 | AS-04, AS-35 |
-| AS-46 | archon | `archon-site-adopts-aiur-style` | 4 | AS-03, AS-35 |
-| AS-40 | aiur | `aiur-team-adopts-aiur-style` | 4 | AS-01, AS-21, AS-22, AS-23, AS-24, AS-25, AS-30 |
-| AS-41 | aiur | `aiur-docs-adopt-aiur-style` | 3 | AS-40, AS-28 |
-| AS-42 | aiur | `dashboard-adopts-aiur-style-foundation` | 3 | AS-02, AS-11, AS-12, AS-13 |
-| AS-43 | aiur | `dashboard-adopts-aiur-style-shell` | 4 | AS-42, AS-26 |
-| AS-45 | khala | `khala-app-shell-adopts-aiur-style` | 4 | AS-44, AS-35 |
-| AS-50 | aiur | `aiur-style-dedupe-aiur` | 2 | AS-40, AS-41, AS-43 |
-| AS-51 | khala | `aiur-style-dedupe-khala` | 2 | AS-44, AS-45 |
-| AS-52 | archon | `aiur-style-dedupe-archon` | 2 | AS-46 |
+| ID | Issue | Repo | Slug | Cx | Blocked by |
+|---|---|---|---|---|---|
+| AS-01 | [aiur#2768](https://github.com/aiur-team/aiur/issues/2768) | aiur | `aiur-style-visual-baselines-aiur-team` | 3 | — |
+| AS-02 | [aiur#2769](https://github.com/aiur-team/aiur/issues/2769) | aiur | `aiur-style-visual-baselines-dashboard` | 3 | — |
+| AS-03 | [archon#260](https://github.com/aiur-team/archon/issues/260) | archon | `aiur-style-visual-baselines-archon-site` | 3 | — |
+| AS-04 | [khala#174](https://github.com/aiur-team/khala/issues/174) | khala | `aiur-style-visual-baselines-khala-web` | 3 | khala#163 (channel copy) |
+| AS-05 | [aiur#2770](https://github.com/aiur-team/aiur/issues/2770) | aiur | `aiur-team-command-box-follows-tab` | 2 | AS-01 |
+| AS-10 | [aiur#2771](https://github.com/aiur-team/aiur/issues/2771) | aiur | `aiur-style-package-scaffold` | 3 | — |
+| AS-11 | [aiur#2772](https://github.com/aiur-team/aiur/issues/2772) | aiur | `aiur-style-tokens` | 3 | AS-10 |
+| AS-12 | [aiur#2773](https://github.com/aiur-team/aiur/issues/2773) | aiur | `aiur-style-fonts-and-assets` | 2 | AS-10 |
+| AS-13 | [aiur#2774](https://github.com/aiur-team/aiur/issues/2774) | aiur | `aiur-style-theme-runtime` | 3 | AS-11 |
+| AS-14 | [aiur#2775](https://github.com/aiur-team/aiur/issues/2775) | aiur | `aiur-style-npm-publish-workflow` | 2 | AS-10 |
+| AS-20 | [aiur#2776](https://github.com/aiur-team/aiur/issues/2776) | aiur | `aiur-style-button-and-focus` | 2 | AS-11 |
+| AS-21 | [aiur#2777](https://github.com/aiur-team/aiur/issues/2777) | aiur | `aiur-style-banner` | 2 | AS-13, AS-20 |
+| AS-22 | [aiur#2778](https://github.com/aiur-team/aiur/issues/2778) | aiur | `aiur-style-topbar-and-theme-toggle` | 3 | AS-12, AS-13, AS-20 |
+| AS-23 | [aiur#2779](https://github.com/aiur-team/aiur/issues/2779) | aiur | `aiur-style-footer` | 1 | AS-11 |
+| AS-24 | [aiur#2780](https://github.com/aiur-team/aiur/issues/2780) | aiur | `aiur-style-command-box-and-tabs` | 3 | AS-20, AS-05 |
+| AS-25 | [aiur#2781](https://github.com/aiur-team/aiur/issues/2781) | aiur | `aiur-style-content-sections` | 2 | AS-11 |
+| AS-26 | [aiur#2782](https://github.com/aiur-team/aiur/issues/2782) | aiur | `aiur-style-shell-and-page-frame` | 4 | AS-13, AS-20 |
+| AS-27 | [aiur#2783](https://github.com/aiur-team/aiur/issues/2783) | aiur | `aiur-style-react-wrappers` | 3 | AS-26, AS-22 |
+| AS-28 | [aiur#2784](https://github.com/aiur-team/aiur/issues/2784) | aiur | `aiur-style-vitepress-adapter` | 2 | AS-13, AS-20 |
+| AS-30 | [aiur#2785](https://github.com/aiur-team/aiur/issues/2785) | aiur | `aiur-style-flow-field` | 4 | AS-13, AS-05 |
+| AS-35 | [aiur#2786](https://github.com/aiur-team/aiur/issues/2786) | aiur | `aiur-style-release-0-1-0` | 1 | AS-14, AS-21, AS-22, AS-23, AS-24, AS-25, AS-26, AS-27, AS-28, AS-30 |
+| AS-44 | [khala#175](https://github.com/aiur-team/khala/issues/175) | khala | `khala-splash-adopts-aiur-style` | 3 | AS-04, AS-35, khala#163 |
+| AS-46 | [archon#261](https://github.com/aiur-team/archon/issues/261) | archon | `archon-site-adopts-aiur-style` | 4 | AS-03, AS-35 |
+| AS-40 | [aiur#2787](https://github.com/aiur-team/aiur/issues/2787) | aiur | `aiur-team-adopts-aiur-style` | 4 | AS-01, AS-21, AS-22, AS-23, AS-24, AS-25, AS-30 |
+| AS-41 | [aiur#2788](https://github.com/aiur-team/aiur/issues/2788) | aiur | `aiur-docs-adopt-aiur-style` | 3 | AS-40, AS-28 |
+| AS-42 | [aiur#2789](https://github.com/aiur-team/aiur/issues/2789) | aiur | `dashboard-adopts-aiur-style-foundation` | 3 | AS-02, AS-11, AS-12, AS-13 |
+| AS-43 | [aiur#2790](https://github.com/aiur-team/aiur/issues/2790) | aiur | `dashboard-adopts-aiur-style-shell` | 4 | AS-42, AS-26 |
+| AS-45 | [khala#176](https://github.com/aiur-team/khala/issues/176) | khala | `khala-app-shell-adopts-aiur-style` | 4 | AS-44, AS-35 |
+| AS-50 | [aiur#2791](https://github.com/aiur-team/aiur/issues/2791) | aiur | `aiur-style-dedupe-aiur` | 2 | AS-40, AS-41, AS-43 |
+| AS-51 | [khala#177](https://github.com/aiur-team/khala/issues/177) | khala | `aiur-style-dedupe-khala` | 2 | AS-44, AS-45 |
+| AS-52 | [archon#262](https://github.com/aiur-team/archon/issues/262) | archon | `aiur-style-dedupe-archon` | 2 | AS-46 |
 
 **Why AS-05 lands before the package:** it is the operator's visible bug and a 20-line fix in `website/src/flowField.ts` + `main.ts`. AS-24 and AS-30 then carry the same test into the package, and AS-40 re-runs it against the package-backed page.
 
