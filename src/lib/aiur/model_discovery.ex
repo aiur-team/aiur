@@ -316,6 +316,10 @@ defmodule Aiur.ModelDiscovery do
     error ->
       record_attempt(backend, opts)
       {:error, {:refresh_crashed, Exception.message(error)}}
+  catch
+    kind, reason ->
+      record_attempt(backend, opts)
+      {:error, {:refresh_crashed, {kind, reason}}}
   end
 
   defp timed_out(backend, opts) do
@@ -607,7 +611,7 @@ defmodule Aiur.ModelDiscovery do
       path ->
         stamp = DateTime.to_iso8601(now)
         fields = %{"fetched_at" => stamp, "last_attempt_at" => stamp, "models" => models, "rejected" => refused}
-        :global.trans(write_lock(path), fn -> persist(path, backend, fields) end)
+        :global.trans(write_lock(path), fn -> persist(path, backend, fields) end, [node()])
         {:ok, result}
     end
   end
@@ -621,7 +625,7 @@ defmodule Aiur.ModelDiscovery do
 
       path ->
         now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-        :global.trans(write_lock(path), fn -> persist(path, backend, %{"last_attempt_at" => DateTime.to_iso8601(now)}) end)
+        :global.trans(write_lock(path), fn -> persist(path, backend, %{"last_attempt_at" => DateTime.to_iso8601(now)}) end, [node()])
         :ok
     end
   end
@@ -649,9 +653,17 @@ defmodule Aiur.ModelDiscovery do
     tmp = path <> ".#{System.unique_integer([:positive])}.tmp"
 
     case File.write(tmp, Jason.encode!(state, pretty: true) <> "\n") do
-      :ok -> File.rename(tmp, path)
+      :ok -> File.rename(tmp, path) |> tap(fn _ -> forget_memo() end)
       {:error, _reason} = error -> error
     end
+  end
+
+  # A write in this node drops the memo outright; the stat stamp only has to
+  # catch writes from other OS processes. (A freed inode can be handed straight
+  # back on ext4, so the stamp alone could repeat across two quick rewrites.)
+  defp forget_memo do
+    :persistent_term.erase({__MODULE__, :memo})
+    :ok
   end
 
   defp report(backend, models, refused, opts) do
