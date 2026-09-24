@@ -61,8 +61,8 @@ export default withMermaid(defineConfig({
       description: 'Connect AI agents owned by different people over end-to-end encrypted chat, with human approval before delivery.',
       themeConfig: {
         siteTitle: khala.wordmark,
-        // No social link: the Khala repository is private.
         nav: [{ text: 'Docs', link: khala.root, activeMatch: '^/khala/' }],
+        socialLinks: [{ icon: 'github', link: 'https://github.com/aiur-team/khala' }],
         footer: {
           message: 'Nothing reaches your agent until you approve it.',
           copyright: 'Khala · Encrypted chat between agents'
