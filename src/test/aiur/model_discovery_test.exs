@@ -30,16 +30,86 @@ defmodule Aiur.ModelDiscoveryTest do
       assert ModelDiscovery.discoverable?("kimi")
     end
 
-    test "a backend with no catalogue endpoint is simply not discoverable" do
-      # codex and claude answer `model/list` over their own CLI transport
-      # (`Aiur.ModelCatalog`); they declare no HTTP catalogue and must not be
-      # given one implicitly.
-      refute ModelDiscovery.discoverable?("codex")
-      refute ModelDiscovery.discoverable?("claude")
+    test "a backend with neither an HTTP catalogue nor a CLI catalogue is not discoverable" do
       refute ModelDiscovery.discoverable?("nope")
 
-      assert ModelDiscovery.refresh("codex", fetch: &never_fetch/1) ==
-               {:error, {:model_discovery_unsupported, "codex"}}
+      assert ModelDiscovery.refresh("nope", fetch: &never_fetch/1) ==
+               {:error, {:model_discovery_unsupported, "nope"}}
+    end
+  end
+
+  describe "CLI catalogues (codex, claude answer `model/list`)" do
+    test "codex and claude are discoverable through their CLI, and claude-repl shares claude's entry" do
+      assert ModelDiscovery.discoverable?("codex")
+      assert ModelDiscovery.discoverable?("claude")
+      assert ModelDiscovery.source_key("claude-repl") == "claude"
+      assert ModelDiscovery.source_key("codex") == "codex"
+    end
+
+    test "a refresh stores the ids the CLI lists, so a model newer than this build is known", %{cache: cache} do
+      assert {:ok, _result} = ModelDiscovery.refresh("codex", path: cache, discover: cli(["gpt-5.7-astra", "gpt-5.6-sol"]))
+
+      assert {ids, :discovered} = ModelDiscovery.catalogue("codex", path: cache)
+      assert "gpt-5.7-astra" in ids
+      refute "gpt-5.7-astra" in CodingAgent.seedable_models("codex")
+    end
+
+    test "claude-repl reads the catalogue a claude refresh wrote", %{cache: cache} do
+      assert {:ok, _result} = ModelDiscovery.refresh("claude", path: cache, discover: cli(["opus", "opus-5-5"]))
+
+      assert {ids, :discovered} = ModelDiscovery.catalogue("claude-repl", path: cache)
+      assert "opus-5-5" in ids
+    end
+
+    test "a backend never discovered reads as curated-only; one opted out reads as discovered", %{cache: cache} do
+      assert {curated, :curated_only} = ModelDiscovery.catalogue("codex", path: cache)
+      assert curated == CodingAgent.seedable_models("codex")
+      assert {_ids, :discovered} = ModelDiscovery.catalogue("codex", path: cache, enabled: false)
+    end
+
+    test "a failed refresh keeps the last good ids and records the attempt", %{cache: cache} do
+      assert {:ok, _result} =
+               ModelDiscovery.refresh("codex", path: cache, discover: cli(["gpt-5.7-astra"]), now: ~U[2026-09-01 00:00:00Z])
+
+      assert {:error, :model_list_timeout} =
+               ModelDiscovery.refresh("codex", path: cache, discover: fn _ -> {:error, :model_list_timeout} end, now: ~U[2026-09-02 00:00:00Z])
+
+      assert {ids, :discovered} = ModelDiscovery.catalogue("codex", path: cache)
+      assert "gpt-5.7-astra" in ids
+      assert get_in(ModelDiscovery.load(cache), ["backends", "codex", "last_attempt_at"]) == "2026-09-02T00:00:00Z"
+      assert get_in(ModelDiscovery.load(cache), ["backends", "codex", "fetched_at"]) == "2026-09-01T00:00:00Z"
+    end
+
+    test "refresh_now probes at most once per cooldown window, after a failure and after a success", %{cache: cache} do
+      counter = :counters.new(1, [])
+      failing = fn _ -> :counters.add(counter, 1, 1) && {:error, :cli_unavailable} end
+      t0 = ~U[2026-09-01 00:00:00Z]
+
+      assert {:error, :cli_unavailable} = ModelDiscovery.refresh_now("codex", path: cache, discover: failing, now: t0)
+      assert {:ok, :cooldown} = ModelDiscovery.refresh_now("codex", path: cache, discover: failing, now: DateTime.add(t0, 599))
+      assert :counters.get(counter, 1) == 1
+
+      ok = fn _ -> :counters.add(counter, 1, 1) && {:ok, ["gpt-5.7-astra"]} end
+      assert {:ok, _result} = ModelDiscovery.refresh_now("codex", path: cache, discover: ok, now: DateTime.add(t0, 600))
+      assert {:ok, :cooldown} = ModelDiscovery.refresh_now("codex", path: cache, discover: ok, now: DateTime.add(t0, 700))
+      assert :counters.get(counter, 1) == 2
+    end
+
+    test "a stale entry tried within the cooldown is not due for a background refresh", %{cache: cache} do
+      t0 = ~U[2026-09-01 00:00:00Z]
+      ModelDiscovery.refresh("codex", path: cache, discover: fn _ -> {:error, :cli_unavailable} end, now: t0)
+
+      assert ModelDiscovery.stale?("codex", path: cache, now: DateTime.add(t0, 60))
+      refute ModelDiscovery.refresh_due?("codex", path: cache, now: DateTime.add(t0, 60))
+      assert ModelDiscovery.refresh_due?("codex", path: cache, now: DateTime.add(t0, 600))
+    end
+
+    test "refresh_now is a no-op when the operator switched discovery off", %{cache: cache} do
+      assert {:ok, :disabled} = ModelDiscovery.refresh_now("codex", path: cache, enabled: false, discover: &never_discover/1)
+    end
+
+    test "catalogue reads never start a refresh", %{cache: cache} do
+      assert {_ids, :curated_only} = ModelDiscovery.catalogue("codex", path: cache, discover: &never_discover/1)
     end
   end
 
@@ -369,6 +439,10 @@ defmodule Aiur.ModelDiscoveryTest do
   end
 
   defp unstable_pointer, do: %{"id" => "~moonshotai/kimi-latest", "name" => "Kimi (latest)"}
+
+  defp cli(ids), do: fn _backend -> {:ok, ids} end
+
+  defp never_discover(_backend), do: flunk("a CLI probe ran where none was allowed")
 
   defp free_price_table do
     entry = %{
