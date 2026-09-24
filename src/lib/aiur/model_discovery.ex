@@ -300,12 +300,22 @@ defmodule Aiur.ModelDiscovery do
   defp lock_id(backend), do: {{__MODULE__, source_key(backend)}, self()}
 
   defp bounded_refresh(backend, opts) do
-    task = Task.async(fn -> refresh(backend, opts) end)
+    task = Task.async(fn -> contained_refresh(backend, opts) end)
 
     case Task.yield(task, Keyword.get(opts, :timeout_ms, @refresh_now_timeout_ms)) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
       nil -> timed_out(backend, opts)
     end
+  end
+
+  # The refresh runs in a linked task; anything it raises is a failed attempt,
+  # never a crash in the process that asked.
+  defp contained_refresh(backend, opts) do
+    refresh(backend, opts)
+  rescue
+    error ->
+      record_attempt(backend, opts)
+      {:error, {:refresh_crashed, Exception.message(error)}}
   end
 
   defp timed_out(backend, opts) do
@@ -559,14 +569,17 @@ defmodule Aiur.ModelDiscovery do
   defp read_state(opts) do
     case Keyword.fetch(opts, :path) do
       {:ok, path} -> load(path)
-      :error -> memoized_load(path())
+      :error -> memoized_load(Keyword.get_lazy(opts, :memo_path, &path/0))
     end
   end
 
+  # Every write lands through a tmp file and a rename, so the inode changes on
+  # each rewrite even when mtime (one-second resolution) and size do not —
+  # a rewrite that only moves a fixed-width timestamp keeps the same size.
   defp memoized_load(path) when is_binary(path) do
     stamp =
       case File.stat(path) do
-        {:ok, %File.Stat{mtime: mtime, size: size}} -> {mtime, size}
+        {:ok, %File.Stat{inode: inode, mtime: mtime, size: size}} -> {inode, mtime, size}
         {:error, _reason} -> :absent
       end
 
@@ -594,7 +607,7 @@ defmodule Aiur.ModelDiscovery do
       path ->
         stamp = DateTime.to_iso8601(now)
         fields = %{"fetched_at" => stamp, "last_attempt_at" => stamp, "models" => models, "rejected" => refused}
-        :global.trans({__MODULE__, path}, fn -> persist(path, backend, fields) end)
+        :global.trans(write_lock(path), fn -> persist(path, backend, fields) end)
         {:ok, result}
     end
   end
@@ -608,10 +621,16 @@ defmodule Aiur.ModelDiscovery do
 
       path ->
         now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-        :global.trans({__MODULE__, path}, fn -> persist(path, backend, %{"last_attempt_at" => DateTime.to_iso8601(now)}) end)
+        :global.trans(write_lock(path), fn -> persist(path, backend, %{"last_attempt_at" => DateTime.to_iso8601(now)}) end)
         :ok
     end
   end
+
+  # `persist/3` is a read-modify-write of the whole file, so writers must
+  # exclude each other. `:global` admits every holder that shares a requester
+  # id, so the requester is the calling process — never the path, which would
+  # let two refreshes of different backends in together and drop one result.
+  defp write_lock(path), do: {{__MODULE__, :write, path}, self()}
 
   defp persist(path, backend, fields) do
     state = load(path)

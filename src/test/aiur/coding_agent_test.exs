@@ -242,6 +242,15 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.model_label_status(issue, catalogue: &catalogue/1) == {"model:opsu", :unknown_name, []}
     end
 
+    test "a family on a backend with no CLI catalogue is not a match, so it cannot reach that provider verbatim" do
+      # `fake` is dispatchable in the test build but has no CLI `model/list`.
+      catalogues = Map.put(@catalogues, "fake", {["gpt-9.9-zeta"], :discovered})
+      read = fn backend -> Map.get(catalogues, backend, {[], :discovered}) end
+
+      assert CodingAgent.override_backend(issue(["model:zeta"]), catalogue: read) == nil
+      assert CodingAgent.override_backend(issue(["model:gpt-9.9-zeta"]), catalogue: read) == "fake"
+    end
+
     test "a prefixed label with an unlisted variant still pins its backend" do
       issue = issue(["model:claude-opus-9-9"])
 

@@ -74,14 +74,19 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
   `agent.priority`) could never be dispatched, so offering it would promise
   something the daemon cannot honour.
   """
-  @spec options(String.t() | nil) :: %{backends: [String.t()], models: [String.t()], efforts: [String.t()], complexities: [pos_integer()]}
-  def options(backend) do
+  @spec options(String.t() | nil, keyword()) :: %{
+          backends: [String.t()],
+          models: [String.t()],
+          efforts: [String.t()],
+          complexities: [pos_integer()]
+        }
+  def options(backend, catalogue_opts \\ []) do
     backends = dispatchable_backends()
     backend = if backend in backends, do: backend, else: List.first(backends)
 
     %{
       backends: backends,
-      models: safe(fn -> offerable_models(backend) end, []),
+      models: safe(fn -> offerable_models(backend, catalogue_opts) end, []),
       efforts: offerable_efforts(backend),
       complexities: Enum.to_list(@complexities)
     }
@@ -90,11 +95,16 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
   # The models a backend's own CLI reported count as much as the registry list:
   # a ticket labelled `model:astra` must keep that choice when the modal opens,
   # not be clamped to "Backend default". Families of those ids are offered too,
-  # since a bare family label is what the operator usually picked.
-  defp offerable_models(backend) do
-    {ids, _provenance} = ModelDiscovery.catalogue(backend)
-    families = if ModelDiscovery.cli_catalogue?(backend), do: Enum.flat_map(ids, &List.wrap(Models.family(&1))), else: []
-    Enum.uniq(ids ++ families)
+  # since a bare family label is what the operator usually picked. An HTTP
+  # aggregator's catalogue (hundreds of OpenRouter slugs) stays out: only the
+  # curated list is offered there.
+  defp offerable_models(backend, catalogue_opts) do
+    if ModelDiscovery.cli_catalogue?(backend) do
+      {ids, _provenance} = ModelDiscovery.catalogue(backend, catalogue_opts)
+      Enum.uniq(ids ++ Enum.flat_map(ids, &List.wrap(Models.family(&1))))
+    else
+      CodingAgent.seedable_models(backend)
+    end
   end
 
   # A backend's effort vocabulary is wider than the override-label vocabulary —

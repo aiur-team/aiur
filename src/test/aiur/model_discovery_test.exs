@@ -152,6 +152,40 @@ defmodule Aiur.ModelDiscoveryTest do
       assert ModelDiscovery.background_refresh_due?("codex", path: cache, now: DateTime.add(t0, 600))
     end
 
+    test "a CLI probe that exits is a failed attempt too", %{cache: cache} do
+      assert {:error, {:discover_crashed, {:exit, :port_closed}}} =
+               ModelDiscovery.refresh_now("codex", path: cache, discover: fn _ -> exit(:port_closed) end)
+
+      assert {:ok, :cooldown} = ModelDiscovery.refresh_now("codex", path: cache, discover: fn _ -> exit(:port_closed) end)
+    end
+
+    test "refreshes of different catalogues written at once all land", %{cache: cache} do
+      for _round <- 1..15 do
+        File.rm(cache)
+        slowish = fn source -> Process.sleep(5) && {:ok, ["#{source}-model"]} end
+
+        [Task.async(fn -> ModelDiscovery.refresh("codex", path: cache, discover: slowish) end), Task.async(fn -> ModelDiscovery.refresh("claude", path: cache, discover: slowish) end)]
+        |> Task.await_many()
+
+        backends = ModelDiscovery.load(cache)["backends"]
+        assert Map.keys(backends) |> Enum.sort() == ["claude", "codex"]
+      end
+    end
+
+    test "the memoized read sees every rewrite, even one of the same size in the same second", %{cache: cache} do
+      # Same-length ids: the file size and (usually) the mtime do not change
+      # between the two writes, so only the rewrite's new inode reveals it.
+      t = ~U[2026-09-01 00:00:00Z]
+      ModelDiscovery.refresh("codex", path: cache, discover: cli(["gpt-5.7-aaaaa"]), now: t)
+      assert {ids, _} = ModelDiscovery.catalogue("codex", memo_path: cache)
+      assert "gpt-5.7-aaaaa" in ids
+
+      ModelDiscovery.refresh("codex", path: cache, discover: cli(["gpt-5.7-bbbbb"]), now: t)
+      assert {ids, _} = ModelDiscovery.catalogue("codex", memo_path: cache)
+      assert "gpt-5.7-bbbbb" in ids
+      refute "gpt-5.7-aaaaa" in ids
+    end
+
     test "an HTTP catalogue never fetched does not read as curated-only", %{cache: cache} do
       assert {_ids, :discovered} = ModelDiscovery.catalogue("openrouter", path: cache)
     end
