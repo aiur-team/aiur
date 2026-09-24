@@ -89,8 +89,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert log =~ "gpt-9.9-nova"
       # The operator has to be able to act on this without reading the source:
-      # either let init add the new tag, or move off a retired pin.
-      assert log =~ "aiur init"
+      # a new model is learned from the CLI's list, a retired pin must move.
+      assert log =~ "model list"
       assert log =~ "agent.routing"
       assert log =~ "passed to the backend"
     end

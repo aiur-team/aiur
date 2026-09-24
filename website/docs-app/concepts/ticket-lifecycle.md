@@ -113,6 +113,34 @@ alerted.
 Markers sit *beside* the single state label, which is why they are kept out of
 `@state_suffixes` in the first place.
 
+### Model labels
+
+A `model:` label overrides complexity routing for one ticket, and aiur reads it in this order:
+
+| Label | Means |
+| --- | --- |
+| `model:codex`, `model:claude` | That backend, with the model complexity routing names for it, else its default. |
+| `model:remote` | Force Claude remote control; selects no model. |
+| `model:low` … `model:max` | Reasoning effort; selects no model. |
+| `model:claude-opus-4-8`, `model:codex-astra` | That backend, always. A family name resolves to its newest release; anything else is passed to the CLI as an exact pin. |
+| `model:opus`, `model:astra` | Any model or family an installed CLI offers. aiur finds the backend itself. |
+
+The names come from the installed CLIs, not from aiur, so a model released after your aiur
+build works as soon as your CLI lists it. aiur reads each CLI's model list about daily, and
+again when a ticket names something it has not seen (at most once every 10 minutes).
+
+For Claude the family alias goes straight to `claude --model`. For Codex a family becomes
+the newest matching id the Codex CLI reports.
+
+A bare name that cannot be placed does not block the ticket. It runs on its complexity
+route and gets a `model_label_unresolved` attention saying which label, why — not offered
+by any CLI, offered by more than one backend (use the prefixed form), or the model list
+could not be read — and which model ran instead.
+
+`aiur init` creates `model:<backend>`, the effort labels, `model:remote`, and a
+`model:<family>` for each family your CLIs report. It creates no version-specific labels
+and never deletes ones a repository already has; those keep working as exact pins.
+
 ## The state diagram
 
 ```mermaid

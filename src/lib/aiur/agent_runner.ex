@@ -7,7 +7,7 @@ defmodule Aiur.AgentRunner do
 
   alias Aiur.{AgentEventLog, Alerts, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
-  alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
+  alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.Codex.SessionRecovery
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
@@ -20,6 +20,12 @@ defmodule Aiur.AgentRunner do
 
   @spec run(Issue.t(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
+    # A bare `model:<name>` the catalogue cache could not place gets one bounded
+    # refresh before anything reads the backend, so a model released since the
+    # last refresh still decides this run.
+    {issue, deferred} = ModelLabelRefresh.prepare(issue, Keyword.get(opts, :model_label, []))
+    opts = Keyword.put(opts, :model_label_deferred, deferred)
+
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host =
       if CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) do

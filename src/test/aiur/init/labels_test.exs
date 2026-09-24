@@ -1,6 +1,11 @@
 defmodule Aiur.Init.LabelsTest do
   use ExUnit.Case, async: true
 
+  defmodule CodingAgentFamily do
+    @moduledoc false
+    def of(backend), do: Aiur.CodingAgent.family_for(backend) || backend
+  end
+
   alias Aiur.GitHub.Labels
   alias Aiur.Init.Labels, as: InitLabels
 
@@ -203,81 +208,79 @@ defmodule Aiur.Init.LabelsTest do
     assert Enum.all?(Labels.effort_labels(), &(&1 in created))
   end
 
-  describe "discovered model tags" do
-    # These encode the ticket's core promise: a model released after this aiur
-    # was built becomes an offer with no code change, and the offer is always
-    # the operator's call.
+  describe "model tags come from the installed CLIs" do
+    # The ticket's core promise: a family released after this aiur was built is
+    # offered with no code change, no version tag is ever offered, and tags
+    # already in the repo are never touched.
     defp discovery_deps(parent, discovered, existing) do
       %{
         list_labels: fn _tracker -> {:ok, existing} end,
         discover_models: fn backend ->
           send(parent, {:discovered, backend})
-          {:ok, discovered}
+          {:ok, Map.fetch!(discovered, CodingAgentFamily.of(backend))}
         end,
         create_labels: fn _tracker, labels ->
           send(parent, {:create_called, labels})
           :ok
-        end
+        end,
+        delete_labels: fn _tracker, labels -> send(parent, {:delete_called, labels}) end
       }
     end
 
-    defp decline_known_stages do
+    defp accept_model_stage_only do
       %{
         confirm: %{
           "Create the complexity labels?" => false,
-          "Create the model labels?" => false,
+          "Create the model labels?" => true,
           "Create the effort labels?" => false,
           "Create the model:remote label?" => false
         }
       }
     end
 
-    test "a model upstream that the registry lacks is offered, and created on confirmation" do
+    @discovered %{
+      "claude" => ["opus", "sonnet", "default", "opus-5-5"],
+      "codex" => ["gpt-5.7-astra", "gpt-5.6-sol"]
+    }
+
+    test "offers the backends and the families the CLIs report — including new ones — and no versions" do
       parent = self()
-      deps = discovery_deps(parent, ["gpt-5.6-sol", "gpt-9.9-nova"], all_lifecycle_labels())
+      deps = discovery_deps(parent, @discovered, all_lifecycle_labels())
 
-      answers = put_in(decline_known_stages(), [:confirm, "Create the newly discovered model labels?"], true)
+      assert :ok =
+               InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "codex"])
 
-      assert :ok = InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["codex"])
-
-      assert_received {:discovered, "codex"}
       assert_received {:create_called, created}
-      assert created == ["model:codex-gpt-9.9-nova"]
+
+      # `model:claude` is already a required rate-limit-fallback label, so it is
+      # offered but not re-created.
+      offered = ~w(model:claude model:codex model:opus model:sonnet model:astra model:sol)
+      assert Enum.sort(created) == Enum.sort(offered -- all_lifecycle_labels())
     end
 
-    test "declining the offer creates nothing" do
+    test "the effort and remote stages are still offered alongside the family tags" do
       parent = self()
-      deps = discovery_deps(parent, ["gpt-9.9-nova"], all_lifecycle_labels())
+      deps = discovery_deps(parent, @discovered, all_lifecycle_labels())
 
-      answers = put_in(decline_known_stages(), [:confirm, "Create the newly discovered model labels?"], false)
+      InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "codex"])
 
-      assert :ok = InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["codex"])
-
-      assert_received {:confirm, "Create the newly discovered model labels?"}
-      refute_received {:create_called, _labels}
+      assert_received {:confirm, "Create the effort labels?"}
+      assert_received {:confirm, "Create the model:remote label?"}
     end
 
-    test "nothing is offered when the registry is already current" do
+    test "an existing version tag is left in place and nothing is deleted" do
       parent = self()
-      deps = discovery_deps(parent, ["gpt-5.6-sol", "sol"], all_lifecycle_labels())
+      existing = all_lifecycle_labels() ++ ["model:claude-opus-4-8"]
+      deps = discovery_deps(parent, @discovered, existing)
 
-      assert :ok = InitLabels.setup_labels(io(parent, decline_known_stages()), deps, %{kind: "github", repo: "o/r"}, ["codex"])
+      InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "codex"])
 
-      refute_received {:confirm, "Create the newly discovered model labels?"}
-      refute_received {:create_called, _labels}
+      assert_received {:create_called, created}
+      refute "model:claude-opus-4-8" in created
+      refute_received {:delete_called, _labels}
     end
 
-    test "nothing is offered when the tag already exists in the repo" do
-      parent = self()
-      existing = all_lifecycle_labels() ++ ["model:codex-gpt-9.9-nova"]
-      deps = discovery_deps(parent, ["gpt-9.9-nova"], existing)
-
-      assert :ok = InitLabels.setup_labels(io(parent, decline_known_stages()), deps, %{kind: "github", repo: "o/r"}, ["codex"])
-
-      refute_received {:confirm, "Create the newly discovered model labels?"}
-    end
-
-    test "init still completes when discovery cannot answer" do
+    test "when a CLI cannot answer, its registry families stand in and init completes" do
       parent = self()
 
       deps = %{
@@ -289,28 +292,22 @@ defmodule Aiur.Init.LabelsTest do
         end
       }
 
-      assert :ok = InitLabels.setup_labels(io(parent, decline_known_stages()), deps, %{kind: "github", repo: "o/r"}, ["codex"])
+      assert :ok =
+               InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["codex"])
 
-      refute_received {:confirm, "Create the newly discovered model labels?"}
-      refute_received {:create_called, _labels}
+      assert_received {:create_called, created}
+      assert "model:sol" in created
+      refute Enum.any?(created, &(&1 =~ ~r/\d/))
     end
 
     test "backends sharing a CLI are probed once" do
       parent = self()
-      deps = discovery_deps(parent, ["opus-9-9"], all_lifecycle_labels())
+      deps = discovery_deps(parent, @discovered, all_lifecycle_labels())
 
-      answers = put_in(decline_known_stages(), [:confirm, "Create the newly discovered model labels?"], true)
-
-      assert :ok =
-               InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude", "claude-repl"])
+      InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "claude-repl"])
 
       assert_received {:discovered, "claude"}
       refute_received {:discovered, "claude-repl"}
-
-      # One probe, but the tag is still seeded for each backend that accepts it.
-      assert_received {:create_called, created}
-      assert "model:claude-opus-9-9" in created
-      assert "model:claude-repl-opus-9-9" in created
     end
   end
 
