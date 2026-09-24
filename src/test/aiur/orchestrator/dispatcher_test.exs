@@ -177,6 +177,20 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     refute_receive {:alert, %{name: "dispatch.candidate_declined"}}, 100
   end
 
+  # A candidate whose dispatch authorization could not be read (`:deferred` —
+  # a local GitHub budget hold, a rate limit, a timeline transport fault) used
+  # to be skipped in complete silence: no alert, no decline record, and the
+  # catch-all `maybe_emit_dispatch_decline/3` clause cleared any earlier one.
+  # With free slots, the operator saw the ticket vanish rather than wait.
+  test "records a decline when authorization is deferred and slots are free" do
+    candidate = %{issue("auth-deferred") | dispatch_authorized?: false, dispatch_authorization: :deferred}
+
+    state = Dispatcher.choose_issues(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, [candidate])
+
+    assert state.dispatch_declines[candidate.id] == :unauthorized
+    refute Map.has_key?(state.running, candidate.id)
+  end
+
   test "clearing an attention decline emits its matching resolution" do
     candidate = issue("orphaned-claim")
     :ok = AgentPubSub.subscribe_agent(candidate.identifier)

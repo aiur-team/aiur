@@ -75,6 +75,36 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   @spec reconcile_observed_state(State.t(), Issue.t(), MapSet.t()) :: :admit | {:fenced, State.t()}
   def reconcile_observed_state(%State{} = state, %Issue{} = issue, terminal_states) do
     case running_fence(state, issue) do
+      # A fence protects a lifecycle write that a live agent still has in
+      # flight, and it closes when that agent's provider acknowledges the
+      # queued item. A DEACTIVATED entry has no provider left to acknowledge
+      # anything: the agent finished, handed the ticket to human review, and
+      # the entry is kept only so a later rework can reuse it. Fencing that
+      # entry latched it permanently — `reconcile_observed_state` returned
+      # `{:fenced, _}` on every poll, so `maybe_reactivate_or_refresh/2` never
+      # ran, the deactivated entry stayed in `state.running`, and from then on
+      # `dispatch_state_decision/4` skipped the ticket as `:already_running`
+      # (silently) while the entry went on holding a fleet slot. That is how a
+      # ticket relabelled `agent:rework` after a review sat for an hour with
+      # free capacity, absent from the board, with its agent long gone.
+      #
+      # Admit instead, and the ordinary path reactivates the deactivated entry
+      # and redispatches. Live, paused and completed entries are unchanged:
+      # they still have a provider (or their own replacement path).
+      {issue_id, _fence} when is_binary(issue_id) ->
+        if State.deactivated_running_entry?(Map.get(state.running, issue_id)) do
+          :admit
+        else
+          reconcile_fenced_observation(state, issue, terminal_states)
+        end
+
+      _none ->
+        :admit
+    end
+  end
+
+  defp reconcile_fenced_observation(%State{} = state, %Issue{} = issue, terminal_states) do
+    case running_fence(state, issue) do
       {issue_id, %{authoritative_state: nil}} ->
         adopt_first_observation(state, issue_id, issue, terminal_states)
 
