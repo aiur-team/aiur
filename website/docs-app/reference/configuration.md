@@ -491,7 +491,7 @@ costed at zero. A refresh logs how many discovered models are unpriced.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend's catalogue endpoint. The curated list keeps working. |
+| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend for its model list — the catalogue endpoint for an OpenAI-compatible backend, or the CLI's `model/list` for `codex` and `claude`. The curated list keeps working, but a bare `model:<name>` label can then only name models in it. |
 
 ```yaml
 agent:
