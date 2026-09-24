@@ -56,6 +56,13 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         Launcher.start_session(ws,
           tmux: tmux,
           process_group_fun: fn pid -> pid end,
+          # The pane pid below is fabricated, so every teardown seam that would
+          # signal or probe the host process table is stubbed: on a busy machine
+          # that pid and process group can belong to somebody else's process.
+          group_alive_fun: fn _pid -> false end,
+          group_cleanup_fun: fn _pgid, _identity, _pane_proven? -> :ok end,
+          tree_kill_fun: fn _os_pid -> :ok end,
+          pid_alive_fun: fn _os_pid -> false end,
           window_name: "aiur-repl-test",
           ready_timeout_ms: 0,
           projects_dir: "/nonexistent"
@@ -81,6 +88,12 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         Launcher.start_session(ws,
           tmux: tmux,
           process_group_fun: fn pid -> pid end,
+          # The pane stays alive (tmux refuses the kill below), so cleanup
+          # still fails — without the teardown reaching the host.
+          group_alive_fun: fn _pid -> false end,
+          group_cleanup_fun: fn _pgid, _identity, _pane_proven? -> :ok end,
+          tree_kill_fun: fn _os_pid -> :ok end,
+          pid_alive_fun: fn _os_pid -> false end,
           window_name: "aiur-repl-test",
           ready_timeout_ms: 0,
           projects_dir: "/nonexistent",
@@ -176,6 +189,13 @@ defmodule Aiur.Claude.Repl.LauncherTest do
         Launcher.start_session(ws,
           tmux: tmux,
           process_group_fun: fn pid -> pid end,
+          # The pane pid below is fabricated, so every teardown seam that would
+          # signal or probe the host process table is stubbed: on a busy machine
+          # that pid and process group can belong to somebody else's process.
+          group_alive_fun: fn _pid -> false end,
+          group_cleanup_fun: fn _pgid, _identity, _pane_proven? -> :ok end,
+          tree_kill_fun: fn _os_pid -> :ok end,
+          pid_alive_fun: fn _os_pid -> false end,
           remote_control: true,
           identifier: "930",
           hook_settings_fun: fn true, "930" -> "/tmp/aiur-hooks-930.json" end,

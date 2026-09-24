@@ -164,7 +164,11 @@ defmodule Aiur.Claude.Repl.Launcher do
       workspace: ctx.workspace
     }
 
-    case Reaper.stop_session(session) do
+    # The host probes and signals are injectable so a test can state "this
+    # process group is gone" instead of asking — and signalling — the host
+    # about a fabricated pid. No production caller passes them, so the real
+    # probes stay the defaults.
+    case Reaper.stop_session(session, Keyword.take(ctx.opts, Reaper.host_seam_opts())) do
       {:ok, :cleanup_proven} ->
         notify_provider_cleanup(ctx, :succeeded)
         error

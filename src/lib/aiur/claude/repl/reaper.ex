@@ -20,6 +20,14 @@ defmodule Aiur.Claude.Repl.Reaper do
   # lets the shutdown sweep kill only this instance's own panes.
   @repl_window_prefix "aiur-repl-"
 
+  # Teardown steps that touch the host process table, and so are injectable
+  # from `stop_session/2` opts. Tests pass stubs; production passes none.
+  @host_seam_opts [:group_alive_fun, :group_cleanup_fun, :tree_kill_fun, :pid_alive_fun]
+
+  @doc false
+  @spec host_seam_opts() :: [atom()]
+  def host_seam_opts, do: @host_seam_opts
+
   @doc """
   Stop the REPL session, prove its pane and whole process group are gone, then
   unregister its reaper keys and emit teardown telemetry.
@@ -35,8 +43,14 @@ defmodule Aiur.Claude.Repl.Reaper do
     process_group_identity = Map.get(session, :process_group_identity, :unknown)
     pane_pid = Tmux.pane_pid(tmux, pane_id)
     pane_proven? = pane_pid == {:ok, os_pid}
+    # Every host-touching step below is injectable so a test can drive the
+    # teardown decision table without signalling or probing real processes.
+    # No production caller passes any of these; the real host helpers stay
+    # the defaults.
     group_alive_fun = Keyword.get(opts, :group_alive_fun, &RemoteControl.process_group_alive?/1)
     group_cleanup_fun = Keyword.get(opts, :group_cleanup_fun, &cleanup_process_group/3)
+    tree_kill_fun = Keyword.get(opts, :tree_kill_fun, &RemoteControl.graceful_kill_tree/1)
+    pid_alive_fun = Keyword.get(opts, :pid_alive_fun, &os_pid_alive?/1)
 
     group_result =
       cleanup_process_group(
@@ -48,10 +62,10 @@ defmodule Aiur.Claude.Repl.Reaper do
       )
 
     kill_result = Tmux.kill_pane(tmux, pane_id)
-    RemoteControl.graceful_kill_tree(os_pid)
+    tree_kill_fun.(os_pid)
 
     pane_gone? = not match?({:ok, _}, Tmux.pane_pid(tmux, pane_id))
-    pid_gone? = os_pid_gone?(os_pid)
+    pid_gone? = os_pid_gone?(os_pid, pid_alive_fun)
     group_gone? = not safely_group_alive?(group_alive_fun, process_group_id)
 
     result = cleanup_result(group_result, kill_result, pane_gone?, pid_gone?, group_gone?)
@@ -167,10 +181,12 @@ defmodule Aiur.Claude.Repl.Reaper do
     _ -> true
   end
 
-  defp os_pid_gone?(nil), do: true
+  defp os_pid_alive?(pid) when is_integer(pid), do: os_pid_alive?(Integer.to_string(pid))
 
-  defp os_pid_gone?(pid) when is_integer(pid) do
-    not match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
+  defp os_pid_gone?(nil, _pid_alive_fun), do: true
+
+  defp os_pid_gone?(pid, pid_alive_fun) when is_integer(pid) do
+    not pid_alive_fun.(pid)
   rescue
     _ -> false
   end
