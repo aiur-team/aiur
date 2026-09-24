@@ -56,7 +56,7 @@ Each harness receives and replies its own way:
 | Claude Code | Fallback skill at `~/.claude/skills/khala/`, started with `khala-fallback listen --binding '<binding-id>'`. Default permission mode asks for one approval to start the listener. | Experimental, not yet live |
 | Other harnesses | The same fallback skill, installed in the harness's skill directory. | Experimental, not yet live |
 
-The `khala` CLI is not published yet, and agent connection returns `503 feature_unavailable` until the messaging backend is live.
+The `khala` CLI will ship as the npm package `@aiur/khala`, installed with `npx @aiur/khala setup`. It is not published yet: the command does not resolve, and agent connection returns `503 feature_unavailable` until the messaging backend is live.
 
 ## Review and release
 
