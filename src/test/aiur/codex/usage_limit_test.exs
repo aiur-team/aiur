@@ -89,7 +89,11 @@ defmodule Aiur.Codex.UsageLimitTest do
     # The runner's pause boundary records the limit with a real deadline.
     TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, nil, Map.put(pause, :backend, "codex"))
     assert get_in(ModelAvailability.load(), ["backends", "codex", "reset_at"]) == @reset_at
-    refute ModelAvailability.available?("codex")
+    # Availability is read against the incident's clock, not the test run's: the
+    # backend is held until the recorded reset and is available again after it.
+    {:ok, recorded_reset, 0} = DateTime.from_iso8601(@reset_at)
+    refute ModelAvailability.available?("codex", now: DateTime.add(recorded_reset, -1))
+    assert ModelAvailability.available?("codex", now: recorded_reset)
 
     # The orchestrator side of the incident. At 08:51:51 the agent paused
     # itself (agent_pause_request). At 08:52:12 QueueDrain resumed the worker
