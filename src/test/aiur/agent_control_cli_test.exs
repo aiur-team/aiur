@@ -532,6 +532,27 @@ defmodule Aiur.AgentControlCLITest do
       assert stderr =~ "the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll"
     end
 
+    # An explicit `aiur --todo` on a ticket that is already mid-flight (the
+    # `agent:rework` re-queue the operator reaches for after a reviewer asks
+    # for changes) keeps its label instead of adding the queue label. Before
+    # this fix the refresh hint was gated on `queued > 0 or cleared > 0`, so a
+    # request made up entirely of mid-flight tickets sent the daemon nothing at
+    # all: no label write, no poll wake, no dispatch. The operator's explicit
+    # queue was a silent no-op.
+    test "requests a poll refresh for mid-flight tickets it kept" do
+      issues = %{
+        "138" => %Issue{id: "138", identifier: "138", state: "rework", labels: ["sym:rework"]},
+        "139" => %Issue{id: "139", identifier: "139", state: "rework", labels: ["sym:rework"]}
+      }
+
+      {stdout, stderr, 0} = capture_todo(~w(138 139), deps: todo_deps(issues))
+
+      assert_receive {:todo_request_refresh, ["138", "139"]}
+      assert stdout =~ "• #138 kept sym:rework"
+      assert stdout =~ "kept 2 in flight"
+      assert stderr == ""
+    end
+
     test "mutates the tracker and emits the control exit marker" do
       issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
 

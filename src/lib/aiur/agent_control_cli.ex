@@ -857,7 +857,7 @@ defmodule Aiur.AgentControlCLI do
                 todo_result(failures: 1)
             end
 
-          IO.puts("queued #{result.queued} ticket(s); cleared #{result.cleared} other(s)")
+          IO.puts("queued #{result.queued} ticket(s); cleared #{result.cleared} other(s)#{todo_kept_suffix(result)}")
           if result.failures == 0, do: 0, else: 1
 
         {:error, :application_not_started} ->
@@ -906,7 +906,7 @@ defmodule Aiur.AgentControlCLI do
 
       midflight_labels != [] ->
         IO.puts("• ##{issue_id} kept #{Enum.join(midflight_labels, ", ")}")
-        select_todo_issue(result, issue_id)
+        result |> select_todo_issue(issue_id) |> Map.update!(:kept, &(&1 + 1))
 
       MapSet.member?(labels, queue_label) ->
         IO.puts("✓ ##{issue_id} already #{config.queue_label}")
@@ -1054,7 +1054,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp todo_result(overrides \\ []) do
-    Map.merge(%{queued: 0, cleared: 0, failures: 0, selected: MapSet.new()}, Map.new(overrides))
+    Map.merge(%{queued: 0, kept: 0, cleared: 0, failures: 0, selected: MapSet.new()}, Map.new(overrides))
   end
 
   # The refresh is what lets a queued ticket dispatch before the idle backoff
@@ -1063,8 +1063,26 @@ defmodule Aiur.AgentControlCLI do
   # has no way to tell whether the daemon heard them (#2640). The hint carries
   # the queued identifiers so the daemon keeps polling at the base interval
   # until it has actually seen them.
-  defp maybe_request_todo_refresh(%{queued: queued, cleared: cleared} = result, deps)
-       when queued > 0 or cleared > 0 do
+  # A ticket the operator asked for that is already mid-flight (`agent:rework`
+  # after a reviewer asked for changes is the common one) keeps its own label,
+  # so it adds nothing to `queued`. Gating the refresh on `queued > 0 or
+  # cleared > 0` therefore made `aiur --todo 138 139 …` a total no-op when every
+  # requested ticket was mid-flight: no label write, no poll wake, and the
+  # daemon sat out its idle backoff while the operator watched free slots. The
+  # selected set — which already carries the kept identifiers — is what the
+  # refresh is for, so it is what decides whether to send one.
+  defp maybe_request_todo_refresh(result, deps) do
+    if MapSet.size(result.selected) > 0 or result.cleared > 0 do
+      request_todo_refresh(result, deps)
+    else
+      result
+    end
+  end
+
+  defp todo_kept_suffix(%{kept: kept}) when kept > 0, do: "; kept #{kept} in flight"
+  defp todo_kept_suffix(_result), do: ""
+
+  defp request_todo_refresh(result, deps) do
     case deps.request_refresh.(Enum.sort(result.selected)) do
       :unavailable ->
         IO.puts(:stderr, "aiur: the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll")
@@ -1075,8 +1093,6 @@ defmodule Aiur.AgentControlCLI do
 
     result
   end
-
-  defp maybe_request_todo_refresh(result, _deps), do: result
 
   defp todo_runtime_deps do
     %{
