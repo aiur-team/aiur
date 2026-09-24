@@ -90,6 +90,14 @@ jobs:
     outputs:
       docs_only: ${{ steps.classify.outputs.docs_only }}
     steps:
+      # `changes` is a blocking job, so it follows the same convention as every
+      # other blocking job: check out, then disclose the rerun attempt before
+      # doing any work (#2461's reporter).
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Disclose rerun attempt
+        if: ${{ github.run_attempt > 1 }}
+        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Classify the changed paths
         id: classify
         env:
