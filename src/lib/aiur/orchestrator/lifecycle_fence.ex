@@ -143,9 +143,34 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     end
   end
 
+  # Same rule as `reconcile_observed_state/3` above, applied to the CI
+  # lifecycle's handoffs: a fence on a DEACTIVATED entry has no provider left
+  # to acknowledge its pending item, so it can never close.
+  #
+  # `ci-wait` is the state where that latch is fatal. It is in
+  # `DispatchPolicy.@no_agent_work_states`, so neither the dispatch poll nor
+  # `aiur resume` can ever select the ticket (both answer
+  # `:no_agent_work_state`). Its only two exits are `transition_ci_pass/3` on a
+  # green CI poll and `transition_ci_wait_fallback/2` on the `ci_wait_rewake`
+  # timer — and both are gated on this predicate and merely log when they
+  # refuse. So a trusted comment landing in the seconds after an agent parked
+  # its ticket in `ci-wait` and exited stranded that ticket permanently: CI went
+  # green, nothing moved, no alert fired, and the ticket was absent from the
+  # status board. Only the terminal-observation path has a grace window
+  # (`terminal_fence_expired?/1`); a non-terminal park has none (#2800).
+  #
+  # Admitting the handoff is also what the fence wanted: the item stays queued
+  # and the dispatcher carries the fence forward, so the redispatched agent is
+  # handed it before it does any work.
   @spec handoff_blocked?(State.t(), Issue.t()) :: boolean()
   def handoff_blocked?(%State{} = state, %Issue{} = issue) do
-    match?({_issue_id, _fence}, running_fence(state, issue))
+    case running_fence(state, issue) do
+      {issue_id, _fence} ->
+        not State.deactivated_running_entry?(Map.get(state.running, issue_id))
+
+      _none ->
+        false
+    end
   end
 
   @spec fence_for_entry(map()) :: map() | nil

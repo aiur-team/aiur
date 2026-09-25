@@ -1087,6 +1087,72 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert is_reference(timer_ref)
     end
 
+    # #2800: a trusted comment that lands after the agent has already exited
+    # opens a lifecycle fence on an entry with no process to deliver it to.
+    # `acknowledge_provider_delivery/2` can then never fire, so the fence used
+    # to block both exits from `ci-wait` forever — and `ci-wait` is a
+    # no-agent-work state, so dispatch and `aiurdev resume` both refuse it.
+    test "the fallback rewake recovers a ci-wait entry fenced after its agent exited" do
+      identifier = unique_identifier("ci-wait-fenced-exited")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        running_state(issue, recorder, :deactivated,
+          pid: nil,
+          ref: nil,
+          lifecycle_fence: %{
+            generation: 1,
+            authoritative_state: "rework",
+            pending_item_ids: MapSet.new([75]),
+            opened_at: DateTime.utc_now()
+          }
+        )
+
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "a live fenced agent still holds the ci-wait handoff back" do
+      identifier = unique_identifier("ci-wait-fenced-live")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        running_state(issue, recorder, :paused,
+          paused_reason: :ci_wait,
+          lifecycle_fence: %{
+            generation: 1,
+            authoritative_state: "rework",
+            pending_item_ids: MapSet.new([75]),
+            opened_at: DateTime.utc_now()
+          }
+        )
+
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      # The live agent can still be handed the item, so the fence re-arms
+      # rather than stranding the ticket.
+      assert Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
     test "a deactivated ci-wait entry is recovered by the fallback rewake" do
       identifier = unique_identifier("deactivated-rewake")
       recorder = start_recorder()
