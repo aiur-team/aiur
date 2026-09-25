@@ -36,6 +36,11 @@ shared [dictated-input note](dictated-input.md).
   `agent:ci-wait` and end the turn; after the delivered pass result, mark the PR
   ready and flip to `agent:human-review`. Do **not** self-merge — always await
   human review.
+- **Every state move is `aiur_set_ticket_state({ "state": "<state>" })`, never
+  `gh issue edit --add-label` / `--remove-label`.** The daemon relabels your
+  ticket too, so a label you name for removal may already be gone — the removal
+  no-ops and the leftover second state label makes the ticket undispatchable
+  (#2805). The tool makes your target the sole `agent:*` state label.
 - Right-size the CE loop to the work: large asks usually run
   `ce-brainstorm → ce-plan → ce-work → ce-code-review`; smaller asks may skip
   brainstorm, plan, or review, but err on the side of using them when in doubt.
