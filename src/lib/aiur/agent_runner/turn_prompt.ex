@@ -16,12 +16,12 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     end
   end
 
-  def build_turn_prompt(_issue, _opts, turn_number, max_turns) do
+  def build_turn_prompt(_issue, opts, turn_number, max_turns) do
     """
     Continuation guidance:
 
     - The previous turn completed normally, but the issue is still in an active state.
-    - This is continuation turn ##{turn_number}#{turn_of(max_turns)} for the current agent run.
+    - This is continuation turn ##{turn_number}#{turn_of(max_turns)} for the current agent run.#{noop_run_bullet(opts)}
     - Resume from the current workspace and workpad state instead of restarting from scratch.
     - The original task instructions and prior turn context are already present in this thread, so do not restate them before acting.
     #{planning_to_work_transition_bullet("If you just completed")}
@@ -32,6 +32,32 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     #{PromptBuilder.rename_test_audit_restatement()}
     """
   end
+
+  # #2806: on a no-op run the old prompt pushed the agent HARDER to find work
+  # that did not exist, and two consecutive prompts were byte-identical but for
+  # `#N`. Name the run of unproductive turns and the bound that will end it, so
+  # the agent's correct answer ("nothing left to do") is an accepted outcome
+  # rather than something the next identical prompt argues with.
+  #
+  # This bullet is Aiur talking about its own bound, not new input, so
+  # `Aiur.AgentRunner.TurnProgress.prompt_digest/1` strips it (it matches on the
+  # "- Aiur observed that the last N turn" opening). Keep that opening intact if
+  # this wording changes, or the no-op counter can never reach its cap.
+  defp noop_run_bullet(opts) when is_list(opts) do
+    case Keyword.get(opts, :turn_progress) do
+      %{consecutive_noops: noops} when is_integer(noops) and noops > 0 ->
+        "\n    - Aiur observed that the last #{noops} turn(s) changed nothing it can see: no commit, no push, " <>
+          "no working-tree change, and no ticket label change. If there is genuinely no remaining agent work, " <>
+          "say so plainly and end the turn — do NOT invent work, re-read files you already read, or push a " <>
+          "no-op commit to prove liveness. Aiur stops this loop by itself after a few more such turns and " <>
+          "raises an alert naming the ticket."
+
+      _no_noop_run ->
+        ""
+    end
+  end
+
+  defp noop_run_bullet(_opts), do: ""
 
   @doc """
   Which first-turn prompt a dispatch gets.

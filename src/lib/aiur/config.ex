@@ -889,6 +889,20 @@ defmodule Aiur.Config do
     settings!().agent.max_turns
   end
 
+  @doc """
+  How many consecutive no-op continuation turns a run may take before
+  `Aiur.AgentRunner.TurnLoop` stops it and raises a needs-attention alert
+  (#2806). `nil` / 0 disables the bound. Reads as uncapped when the settings
+  cannot be loaded at all, so a config fault cannot invent a cap.
+  """
+  @spec agent_max_consecutive_noop_turns() :: pos_integer() | nil
+  def agent_max_consecutive_noop_turns do
+    case settings() do
+      {:ok, settings} -> Map.get(settings.agent, :max_consecutive_noop_turns)
+      _unavailable -> nil
+    end
+  end
+
   @spec agent_turn_timeout_ms() :: pos_integer()
   def agent_turn_timeout_ms do
     settings!().agent.turn_timeout_ms
