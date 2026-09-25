@@ -170,7 +170,25 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
+    #
+    # #2806 asked whether this should default to a finite value, and the answer
+    # is no. This cap counts *effort*, not outcome: it cannot tell eleven wasted
+    # turns from eleven turns of real work, so any default low enough to stop a
+    # spin is also low enough to cut a legitimate long run short. Reaching it
+    # does not abort the ticket — the loop hands control back and the
+    # orchestrator recycles the ticket with `prior_work: true` — but that costs
+    # a fresh provider session and the context rebuild #378 exists to avoid.
+    # `max_consecutive_noop_turns` below is the outcome-based bound instead:
+    # productive turns are unbounded, unproductive ones are not. Operators who
+    # do want an effort cap set this key, or `max_turns_by_complexity`.
     field(:max_turns, :integer)
+    # #2806: how many CONSECUTIVE continuation turns that changed nothing
+    # observable (no commit, no push, no working-tree change, no label change,
+    # and no new input in the prompt) a run may take before the loop stops and
+    # raises a needs-attention alert. A productive turn resets the count, so
+    # this never caps a long run of real work — unlike `max_turns`, which does.
+    # 0 / `nil` disables the bound.
+    field(:max_consecutive_noop_turns, :integer, default: 3)
     field(:max_retry_attempts, :integer, default: 3)
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})

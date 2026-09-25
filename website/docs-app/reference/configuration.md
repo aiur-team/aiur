@@ -221,6 +221,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.rate_limit_fallback` | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
+| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. A productive turn resets the count; 0 disables the bound. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |

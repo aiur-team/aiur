@@ -1024,6 +1024,14 @@ defmodule Aiur.Orchestrator.CommentWake do
         |> maybe_record_comment_rework_resume(admitted_issue)
       end)
     else
+      # #2806: this refusal used to fall through to a bare reschedule with no
+      # log at all — a paused, parked, already-running or unauthorized ticket
+      # simply never woke and nothing said why. #2797 owns the general
+      # silent-decline pattern; this is the one on the rework-comment path.
+      Logger.info(
+        "Trusted comment dispatch declined: issue_identifier=#{issue.identifier} state=#{inspect(issue.state)} paused=#{issue.paused} parked=#{issue.parked} running=#{Map.has_key?(state.running, issue.id)} reason=dispatch_policy_refused"
+      )
+
       Orchestrator.schedule_poll_cycle_start()
       state
     end
