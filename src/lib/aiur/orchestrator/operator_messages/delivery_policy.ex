@@ -109,7 +109,26 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
   # the entry's pause request is still the current pending control; a
   # `pending_pause_reason` left by an expired or rejected request does not
   # count (#2730).
-  defp deliver_now?(_state, %{control: %{status: :paused}}, _item), do: false
+  # ...except an `:agent_pause_request`, which is a *cooperative* self-pause:
+  # the agent stopped because the input it named has not arrived yet ("pause
+  # until human review produces feedback"). Its correlated wake is that input,
+  # not an operator resume — no operator resume is coming, because from the
+  # operator's side the ticket is simply in rework. Refusing to deliver here
+  # made the pause outlive the very condition it named: the review landed, the
+  # digest was queued with `deliver_now?: false`, `claim_after_queue_update/3`
+  # ignored it, and only a human `aiur resume` could lift the pause. Deliver
+  # it, so the claim flips the entry to `:working` and
+  # `PauseResume.clear_agent_pause_on_work/2` drops the pause reason. A pending
+  # pause request still wins — the pause has not settled yet, so the #2730
+  # ordering hazard above is unchanged.
+  defp deliver_now?(state, %{control: %{status: :paused}} = running_entry, item) do
+    if input_waiting_self_pause?(running_entry) and
+         is_nil(PauseResume.current_pending_pause_reason(state, running_entry)) do
+      wake_now?(running_entry, item)
+    else
+      false
+    end
+  end
 
   defp deliver_now?(state, running_entry, item) do
     if PauseResume.current_pending_pause_reason(state, running_entry),
@@ -123,10 +142,25 @@ defmodule Aiur.Orchestrator.OperatorMessages.DeliveryPolicy do
       item.delivery[:immediate] == true
   end
 
+  # A self-paused agent waiting on review feedback is included here so the
+  # digest carries `interrupt_requested: true` and can satisfy `wake_now?/2` —
+  # `queue_wake_required?/1` only recognizes sleeping and active entries, so
+  # without this the paused entry would be woken by nothing.
   defp trusted_comment_wake_required?(running_entry, event_or_events),
     do:
-      State.active_running_entry?(running_entry) and
+      (State.active_running_entry?(running_entry) or input_waiting_self_pause?(running_entry)) and
         trusted_comment_event_digest?(event_or_events)
+
+  # Only `:agent_pause_request` — the agent's own "I am waiting for input"
+  # pause. An operator pause, a global pause, a budget hold, a blocker pause
+  # and pause containment all keep the "correlated resume is the sole wake"
+  # rule: their clearing condition is not a review comment. `:input_required`
+  # is excluded too — it names an outstanding operator *decision*, which a
+  # review comment does not answer.
+  defp input_waiting_self_pause?(running_entry) when is_map(running_entry),
+    do: Map.get(running_entry, :paused_reason) == :agent_pause_request
+
+  defp input_waiting_self_pause?(_running_entry), do: false
 
   @doc false
   @spec trusted_comment_event_digest?(term()) :: boolean()
