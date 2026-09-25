@@ -151,6 +151,40 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
                changes_requested_review?: true
              ) == {:skip, :no_open_pr}
     end
+
+    # A trusted "changes requested" posted as a PR CONVERSATION comment opens no
+    # review thread and carries no `comment.state`, so both signals above report
+    # nothing and the ticket was silently stranded in `agent:human-review` with
+    # no worker ever dispatched. Six Khala tickets idled a fleet at 0/12 this
+    # way. The comment is the outstanding finding, exactly as a body-only review
+    # submission is.
+    test "allows rework for a trusted changes-requested conversation comment with zero review threads" do
+      pr = %{"number" => 42, "head" => %{"sha" => "abc123"}}
+
+      assert ReworkGate.verify_unresolved_review_threads("khala-164",
+               open_pr_fetcher: fn _ -> {:ok, pr} end,
+               unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+               changes_requested_review?: false,
+               changes_requested_comment?: true
+             ) == {:ok, pr}
+    end
+
+    test "a changes-requested conversation comment still cannot manufacture rework without an open PR" do
+      assert ReworkGate.verify_unresolved_review_threads("khala-164",
+               open_pr_fetcher: fn _ -> {:ok, nil} end,
+               changes_requested_comment?: true
+             ) == {:skip, :no_open_pr}
+    end
+
+    test "an unresolved-thread read failure still surfaces for retry, not a relabel" do
+      pr = %{"number" => 42, "head" => %{"sha" => "abc123"}}
+
+      assert ReworkGate.verify_unresolved_review_threads("khala-164",
+               open_pr_fetcher: fn _ -> {:ok, pr} end,
+               unresolved_threads_fetcher: fn _pr -> {:error, :graphql_exhausted} end,
+               changes_requested_comment?: true
+             ) == {:error, :graphql_exhausted}
+    end
   end
 
   describe "head_sha/1" do

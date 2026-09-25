@@ -157,8 +157,26 @@ defmodule Aiur.Orchestrator.ReworkGate do
   #
   # The option defaults to `false`, so every caller that is *not* holding a live
   # changes-requested review keeps the pre-#2473 behaviour exactly.
+  #
+  # `changes_requested_comment?` is the same argument one step further out. A
+  # reviewer who writes "changes requested" as a PR *conversation* comment —
+  # which is what `gh issue comment` / `gh pr comment` produce, and what an
+  # Executor posts when it does not use `gh pr review --request-changes` —
+  # opens no review thread AND carries no `comment.state`, so BOTH halves above
+  # report nothing and the ticket is silently stranded in `agent:human-review`.
+  # The comment is the outstanding finding, exactly as a body-only review
+  # submission is.
+  #
+  # This does not reopen #2422's loop, for the same reason #2473 does not: the
+  # signal is delivered ONCE, not re-derived every cycle. `Aiur.Events.Publisher`
+  # keys an issue comment on its immutable `id` in `ResourceStore` (72h), the
+  # comments poller applies its own seen-at cutoff, and
+  # `verify_rework_attempt/4`'s head-SHA bound caps attempts on an unmoved head.
+  # What #2422 forbade was routing on `reviewDecision`, a *sticky aggregate*; a
+  # single comment is not that.
   defp no_thread_verdict(opts) do
-    if Keyword.get(opts, :changes_requested_review?, false) do
+    if Keyword.get(opts, :changes_requested_review?, false) or
+         Keyword.get(opts, :changes_requested_comment?, false) do
       {:ok, :rework}
     else
       {:skip, :no_unresolved_review_threads}

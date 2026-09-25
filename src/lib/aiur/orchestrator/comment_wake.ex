@@ -1237,6 +1237,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     |> rework_open_pr_opts()
     |> maybe_put_threads_fetcher(event)
     |> Keyword.put(:changes_requested_review?, changes_requested_review?(event))
+    |> Keyword.put(:changes_requested_comment?, changes_requested_comment?(event))
   end
 
   # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
@@ -1270,6 +1271,33 @@ defmodule Aiur.Orchestrator.CommentWake do
     case comment_review_state(event) do
       state when is_binary(state) -> String.upcase(state) == "CHANGES_REQUESTED"
       _other -> false
+    end
+  end
+
+  # A reviewer who declares "changes requested" in a PR *conversation* comment
+  # (what `gh pr comment` posts, and what an Executor posts when it does not use
+  # `gh pr review --request-changes`) opens no review thread and carries no
+  # `comment.state`, so neither #2422's thread read nor #2473's review-state
+  # check can see the request. Without this the ticket stays in
+  # `agent:human-review` and no worker is ever dispatched — the comment is
+  # consumed and refused with only a `Logger.info`. `ReworkGate`'s
+  # `no_thread_verdict/1` carries the argument for why routing on it is safe.
+  #
+  # Deliberately narrow: the declaration must be the *opening* clause of the
+  # comment, so quoting or discussing "changes requested" later in a body never
+  # triggers a relabel.
+  @changes_requested_comment_pattern ~r/\A[^\n]{0,80}?\bchanges\s+requested\b/i
+
+  defp changes_requested_comment?(event) do
+    case comment_body(event) do
+      body when is_binary(body) ->
+        trimmed = String.trim(body)
+
+        String.match?(trimmed, @changes_requested_comment_pattern) and
+          not review_pass_comment?(trimmed)
+
+      _other ->
+        false
     end
   end
 
