@@ -99,22 +99,27 @@ The consequence: a stale or hand-edited label set carrying **two state labels
 at once** denies dispatch. A poll-time repair heals the pair to its winner
 (`agent:todo` wins).
 
-Agents keep that invariant with the `aiur_set_ticket_state` tool rather than raw
-label edits. An agent cannot safely name the label to remove: the orchestrator
-writes state transitions too, so the label the agent last saw may already be
-gone by the time its command runs — the removal then no-ops and leaves the pair
-behind. The tool takes only the target state and makes it the sole `agent:*`
-state label, from the issue Aiur re-reads at write time
+Agents keep that invariant with the `aiur_set_ticket_state` tool rather than
+raw label edits.
+
+An agent cannot safely name the label to remove. The orchestrator writes state
+transitions too, so the label the agent last saw may already be gone by the
+time its command runs — the removal then no-ops and leaves the pair behind.
+
+The tool takes only the target state and makes it the sole `agent:*` state
+label, from the issue Aiur re-reads at write time
 (`GitHub.IssueState.swap_labels/4`).
 
 When a pair does form, the heal prefers the label that arrived *since* the
-orchestrator's own claim over the claim itself, whenever the orchestrator can
-identify its claim from its running entry or the previous poll. A statically
-ordered winner is provenance-blind, and on the CI-pass handoff (orchestrator
-writes `in-progress`, agent then adds `human-review`) it kept the stale claim and
-deleted the agent's deliberate handoff. With no such evidence the deterministic
-precedence order still decides, and a provenance win can never promote the
-terminal `done`.
+orchestrator's own claim over the claim itself — whenever the orchestrator can
+identify its claim, from its running entry or the previous poll.
+
+A statically ordered winner is provenance-blind. On the CI-pass handoff, where
+the orchestrator writes `in-progress` and the agent then adds `human-review`, it
+kept the stale claim and deleted the agent's deliberate handoff.
+
+With no such evidence the deterministic precedence order still decides, and a
+provenance win can never promote the terminal `done`.
 
 A **zero**-label ticket is repaired only when there is evidence it was in the
 agent workflow — its last known state is restored, or `agent:todo` when only a
