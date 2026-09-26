@@ -136,7 +136,7 @@ defmodule Aiur.TestSupportIsolationTest do
     }
 
     request_fun = fn %{url: url} ->
-      if String.ends_with?(url, "/timeline?per_page=100") do
+      if String.contains?(url, "/timeline?per_page=") do
         {:ok,
          %{
            status: 200,
