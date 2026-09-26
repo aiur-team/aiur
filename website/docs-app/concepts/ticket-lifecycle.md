@@ -233,7 +233,15 @@ current state and denies `:missing_trigger_label` when there is none
 - A relabel by anyone else **revokes** authorization, and `Orchestrator.Reconciler`
   terminates the running agent on the next poll.
 - Verification failures emit the needs-attention alert
-  `github.dispatch_authorization.ambiguous` (`dispatch_authorization.ex:527-536`).
+  `github.dispatch_authorization.ambiguous`.
+- A timeline Aiur cannot *read* is a different thing from a timeline that denies.
+  The provenance fetch is requested in `per_page=50` pages and refetched in
+  smaller ones when a page exceeds the response cap, so an unusually noisy
+  timeline no longer strands a ticket. If even the smallest page is too large the
+  ticket is **deferred** (never revoked), the log line carries
+  `cause=transport_limit`, and the alert is
+  `github.dispatch_authorization.timeline_unreadable` — an Aiur limit to raise,
+  not a ticket to re-triage.
 
 ## Step 2 — Aiur creates an agent, given the `aiur-agent` skill and a four-part prompt
 

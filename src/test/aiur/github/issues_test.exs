@@ -274,7 +274,7 @@ defmodule Aiur.GitHub.IssuesTest do
       {:ok, list_step} = Agent.start_link(fn -> 0 end)
 
       request_fun = fn request ->
-        if String.ends_with?(request.url, "/timeline?per_page=100") do
+        if String.contains?(request.url, "/timeline?per_page=") do
           {:ok, %{status: 200, headers: [], body: []}}
         else
           assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
@@ -357,7 +357,7 @@ defmodule Aiur.GitHub.IssuesTest do
       # Dispatch authorization needs a labeled timeline event for the
       # dispatchable candidate; the degenerate tickets must not be authorized.
       request_fun = fn request ->
-        if String.ends_with?(request.url, "/timeline?per_page=100") do
+        if String.contains?(request.url, "/timeline?per_page=") do
           labeled_event = %{
             "id" => 1,
             "event" => "labeled",
@@ -437,7 +437,7 @@ defmodule Aiur.GitHub.IssuesTest do
       parent = self()
 
       request_fun = fn %{method: :get, url: url} ->
-        if String.ends_with?(url, "/timeline?per_page=100") do
+        if String.contains?(url, "/timeline?per_page=") do
           send(parent, :timeline_requested)
           {:ok, %{status: 200, headers: [], body: []}}
         else
@@ -1089,7 +1089,7 @@ defmodule Aiur.GitHub.IssuesTest do
                 {:ok, %{status: 304, headers: [], body: ""}}
             end
 
-          String.ends_with?(url, "/issues/42/timeline?per_page=100") ->
+          String.contains?(url, "/issues/42/timeline?per_page=") ->
             {:ok, %{status: 200, headers: [], body: []}}
         end
       end
@@ -1154,7 +1154,7 @@ defmodule Aiur.GitHub.IssuesTest do
                 {:ok, %{status: 304, headers: [], body: ""}}
             end
 
-          String.ends_with?(url, "/issues/142/timeline?per_page=100") ->
+          String.contains?(url, "/issues/142/timeline?per_page=") ->
             {:ok, %{status: 200, headers: [], body: [labeled_event]}}
         end
       end

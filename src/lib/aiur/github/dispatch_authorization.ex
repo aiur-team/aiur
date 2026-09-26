@@ -16,14 +16,33 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   @timeline_table :aiur_github_dispatch_authorization_timelines
   @max_cache_entries 1_000
 
-  # A timeline page requests up to `per_page=100` events (see fetch_decision),
-  # each of which embeds the full actor, label, and often issue objects
-  # (measured ~2.5–3.5 KiB per event on real timelines). 512 KiB holds a full
-  # 100-event page with headroom; the previous 64 KiB cap truncated real
-  # timelines at ~20 events, which failed the `is_list/1` guard and was
-  # misreported as an HTTP error with status 200 (#1454).
+  # Timeline page size in BYTES is driven by content Aiur does not control: each
+  # event embeds the full actor, label, and often issue objects — ~2.5–3.5 KiB
+  # per event on quiet timelines, but 5.75 KiB per event on aiur-team/khala#257,
+  # whose Codex-401 retry churn and label swaps pushed its `per_page=100` page 1
+  # to 575,125 bytes. Past the response cap the transport clears the body, the
+  # `is_list/1` guard fails, and the fetch reports `:timeline_truncated`. That is
+  # correctly not provenance evidence, so dispatch fails closed — but the limit is
+  # re-hit on *every* fetch, so the ticket became permanently undispatchable: no
+  # relabel by a trusted user and no daemon restart could clear it.
+  #
+  # #1454 answered the same failure by raising the cap (64 KiB -> 512 KiB), which
+  # only moved the ceiling. So the cap stays where it is and the REQUEST is made
+  # resilient to it instead:
+  #
+  #   * `@timeline_page_sizes` is a ladder of `per_page` values, tried in order.
+  #     The default (50) is sized so that even khala#257's page 1 is 262,218
+  #     bytes — half the cap — rather than sized to the cap's edge.
+  #   * On `:timeline_truncated` the whole timeline is refetched at the next,
+  #     smaller page size before the failure is believed. That recovers tickets
+  #     which are *already* oversized without touching the healthy path.
+  #   * `@max_timeline_events` holds total provenance reach constant regardless of
+  #     page size, so a smaller page buys resilience and never costs coverage:
+  #     the page budget is derived, not fixed (4x100 before; 8x50 or 20x20 now —
+  #     400 events either way).
   @max_timeline_response_bytes 524_288
-  @max_timeline_pages 4
+  @timeline_page_sizes [50, 20]
+  @max_timeline_events 400
 
   @spec authorize(Issue.t(), String.t(), String.t(), String.t(), keyword()) :: Issue.t()
   def authorize(issue, owner, repo, prefix, opts \\ [])
@@ -136,15 +155,33 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # from a fresh timeline and the ticket returns to dispatchable with no
   # operator action (#2409).
   defp apply_label_decision({:deferred, reason}, issue, _allowed_users, _opts) do
+    cause = deferral_cause(reason)
+
     Logger.warning(
       "GitHub dispatch authorization deferred issue_id=#{inspect(issue.id)} " <>
-        "issue_identifier=#{inspect(issue.identifier)} reason=#{inspect(reason)} " <>
+        "issue_identifier=#{inspect(issue.identifier)} cause=#{cause} reason=#{inspect(reason)} " <>
         "state=#{inspect(issue.state)}; ticket is not dispatched this cycle and no " <>
         "running agent is revoked (transient, not a provenance denial)"
     )
 
+    maybe_alert_deferral(issue, cause, reason)
+
     %{issue | dispatch_authorized?: false, dispatch_authorization: :deferred}
   end
+
+  # A denial that comes from OUR OWN read limits reads identically to a denial
+  # that comes from provenance unless it is labelled: both just stop dispatching.
+  # khala#257 cost an hour of investigation for exactly that reason. `cause=` is
+  # the grep handle, and `transport_limit` is the one cause an operator can do
+  # nothing about from GitHub's side, so it also gets a durable alert (#2797).
+  defp deferral_cause({:timeline_truncated, _per_page}), do: "transport_limit"
+  defp deferral_cause(:timeline_page_limit_exceeded), do: "transport_limit"
+  defp deferral_cause(_reason), do: "transient"
+
+  defp maybe_alert_deferral(issue, "transport_limit", reason),
+    do: maybe_alert_once(issue, {:transport_limit, reason}, &alert_transport_limit/2)
+
+  defp maybe_alert_deferral(_issue, _cause, _reason), do: :ok
 
   # Aiur's own identity, never a human decision. Both logins count, and it has
   # to be both: the state label above is written with the *daemon's* credential,
@@ -177,14 +214,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     token = Keyword.get(opts, :token, Config.token())
 
     if is_binary(token) and token != "" do
-      url =
-        "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue.id}/timeline?per_page=100"
-
-      held = held_timeline(issue.id)
-
-      case fetch_timeline(request_fun, token, url, held) do
-        {:ok, events, new_etag, single_page?} ->
-          store_timeline(issue.id, new_etag, events, single_page?)
+      case fetch_timeline_ladder(request_fun, token, owner, repo, issue, @timeline_page_sizes) do
+        {:ok, events, new_etag, single_page?, per_page} ->
+          store_timeline(issue.id, new_etag, events, single_page?, per_page)
           timeline_decision(issue, label, prefix, events)
 
         {:reused, events} ->
@@ -206,6 +238,46 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     end
   end
 
+  # Walk the `per_page` ladder: a truncated page is a statement about this page
+  # SIZE, not about the timeline, so refetch the same timeline in smaller pages
+  # before giving up. Only truncation retries — every other failure (rate limit,
+  # transport outage, unexpected 304, page budget) is returned as-is, because a
+  # smaller page cannot fix any of them. When the last rung still truncates, the
+  # evidence is genuinely unobtainable and the caller defers, fail-closed, with
+  # the page size named so the denial is legible as a transport limit rather than
+  # as a provenance verdict.
+  defp fetch_timeline_ladder(request_fun, token, owner, repo, issue, [per_page | smaller]) do
+    url = timeline_url(owner, repo, issue.id, per_page)
+    held = held_timeline(issue.id, per_page)
+
+    case fetch_timeline(request_fun, token, url, held, page_budget(per_page)) do
+      {:ok, events, etag, single_page?} ->
+        {:ok, events, etag, single_page?, per_page}
+
+      {:error, :timeline_truncated} when smaller != [] ->
+        Logger.warning(
+          "GitHub dispatch authorization timeline page truncated issue_id=#{inspect(issue.id)} " <>
+            "issue_identifier=#{inspect(issue.identifier)} per_page=#{per_page} " <>
+            "max_response_bytes=#{@max_timeline_response_bytes}; refetching at per_page=#{hd(smaller)}"
+        )
+
+        fetch_timeline_ladder(request_fun, token, owner, repo, issue, smaller)
+
+      {:error, :timeline_truncated} ->
+        {:error, {:timeline_truncated, per_page}}
+
+      other ->
+        other
+    end
+  end
+
+  defp timeline_url(owner, repo, issue_id, per_page),
+    do: "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_id}/timeline?per_page=#{per_page}"
+
+  # Total event reach is the invariant, not the page count: a smaller page just
+  # means more of them.
+  defp page_budget(per_page), do: max(div(@max_timeline_events, per_page), 1)
+
   # The only validator we hold belongs to page 1 of the timeline. A `304`
   # against it proves page 1 unchanged — and issue timelines are ordered
   # oldest-first, so page 1 is effectively immutable and a `304` there says
@@ -215,15 +287,15 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # transition is exactly the staleness this must never serve). A multi-page
   # held timeline is refetched every cycle: its validator belongs to a page that
   # cannot move, so it can never buy an answer.
-  defp fetch_timeline(request_fun, token, url, held) do
+  defp fetch_timeline(request_fun, token, url, held, pages) do
     etag = if reusable?(held), do: held.etag, else: nil
 
     case request_fun.(timeline_request(url, token, etag)) do
       {:ok, %{status: 304} = response} ->
-        timeline_not_modified(request_fun, token, url, held, etag, response)
+        timeline_not_modified(request_fun, token, url, held, etag, response, pages)
 
       {:ok, %{status: 200, body: page} = response} when is_list(page) ->
-        continue_timeline_pages(request_fun, token, page, response, @max_timeline_pages, [])
+        continue_timeline_pages(request_fun, token, page, response, pages, [])
 
       other ->
         timeline_fetch_error(other)
@@ -232,16 +304,16 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   # A `304` with no validator sent is a proxy answering a request that carried
   # none — not a page.
-  defp timeline_not_modified(_request_fun, _token, _url, _held, nil, _response),
+  defp timeline_not_modified(_request_fun, _token, _url, _held, nil, _response, _pages),
     do: {:error, :timeline_unexpected_304}
 
-  defp timeline_not_modified(request_fun, token, url, held, _etag, response) do
+  defp timeline_not_modified(request_fun, token, url, held, _etag, response, pages) do
     if next_page?(response) do
       # Page 1 is unchanged but the timeline grew a page the held single page
       # cannot see (or the held timeline spanned pages whose newer content page 1
       # cannot vouch for). Refetch the whole timeline rather than answer from a
       # snapshot page 1 cannot confirm.
-      fetch_timeline(request_fun, token, url, nil)
+      fetch_timeline(request_fun, token, url, nil, pages)
     else
       {:reused, held.events}
     end
@@ -316,18 +388,27 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # The timeline cache is keyed by issue id and holds the validator for page 1,
   # the held events, and whether those events came from a single page — the only
   # case a page-1 `304` is allowed to answer.
-  defp held_timeline(issue_id) when is_binary(issue_id) do
+  #
+  # It also holds the `per_page` its validator was minted against: a page-1 ETag
+  # for one page size says nothing about page 1 at another, so a ladder retry must
+  # neither present it nor be answered from a snapshot taken at a different page
+  # size.
+  defp held_timeline(issue_id, per_page) when is_binary(issue_id) do
     case :ets.lookup(timeline_table(), issue_id) do
-      [{^issue_id, held}] -> held
-      [] -> nil
+      [{^issue_id, %{per_page: ^per_page} = held}] -> held
+      _other -> nil
     end
   end
 
-  defp held_timeline(_issue_id), do: nil
+  defp held_timeline(_issue_id, _per_page), do: nil
 
-  defp store_timeline(issue_id, etag, events, single_page?) when is_binary(issue_id) do
+  defp store_timeline(issue_id, etag, events, single_page?, per_page) when is_binary(issue_id) do
     table = timeline_table()
-    :ets.insert(table, {issue_id, %{etag: etag, events: events, single_page?: single_page?}})
+
+    :ets.insert(
+      table,
+      {issue_id, %{etag: etag, events: events, single_page?: single_page?, per_page: per_page}}
+    )
 
     if :ets.info(table, :size) > @max_cache_entries do
       :ets.delete_all_objects(table)
@@ -336,7 +417,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     :ok
   end
 
-  defp store_timeline(_issue_id, _etag, _events, _single_page?), do: :ok
+  defp store_timeline(_issue_id, _etag, _events, _single_page?, _per_page), do: :ok
 
   defp reusable?(%{single_page?: true, etag: etag, events: events})
        when is_binary(etag) and etag != "" and is_list(events),
@@ -526,7 +607,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     %{issue | dispatch_authorized?: false, dispatch_authorization: :denied}
   end
 
-  defp maybe_alert_ambiguity(%Issue{id: id, updated_at: updated_at} = issue, reason)
+  defp maybe_alert_ambiguity(issue, reason), do: maybe_alert_once(issue, reason, &alert_ambiguity/2)
+
+  defp maybe_alert_once(%Issue{id: id, updated_at: updated_at} = issue, reason, emit)
        when is_binary(id) do
     alert_key = {id, updated_at, reason}
     cache = cache()
@@ -538,11 +621,11 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         |> Map.put(alert_key, true)
 
       :persistent_term.put(@cache_key, %{cache | alerted: alerted})
-      alert_ambiguity(issue, reason)
+      emit.(issue, reason)
     end
   end
 
-  defp maybe_alert_ambiguity(issue, reason), do: alert_ambiguity(issue, reason)
+  defp maybe_alert_once(issue, reason, emit), do: emit.(issue, reason)
 
   defp cache do
     :persistent_term.get(@cache_key, %{fingerprints: %{}, decisions: %{}, alerted: %{}})
@@ -557,6 +640,25 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       "Dispatch denied for issue #{issue.identifier || issue.id}: label provenance could not be verified (#{inspect(reason)}).",
       issue: issue.identifier || issue.id,
       reason: "GitHub dispatch authorization requires verified trigger-label provenance: #{inspect(reason)}",
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  # Deliberately a different alert name from the ambiguity alert: this ticket was
+  # NOT refused on provenance. Its timeline could not be read inside Aiur's own
+  # response cap even at the smallest page size, which is an Aiur limit to raise,
+  # not a ticket to re-triage.
+  defp alert_transport_limit(issue, {:transport_limit, reason}) do
+    Alerts.emit_custom(
+      "github.dispatch_authorization.timeline_unreadable",
+      "Dispatch deferred for issue #{issue.identifier || issue.id}: its GitHub timeline could not be " <>
+        "read within Aiur's #{@max_timeline_response_bytes}-byte response cap (#{inspect(reason)}). " <>
+        "This is a transport limit, not a provenance denial.",
+      issue: issue.identifier || issue.id,
+      reason:
+        "Timeline provenance was unreadable at every page size in #{inspect(@timeline_page_sizes)}: " <>
+          "#{inspect(reason)}. Label provenance was never evaluated.",
       needs_attention: true,
       severity: "warning"
     )
