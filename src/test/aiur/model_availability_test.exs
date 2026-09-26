@@ -218,6 +218,7 @@ defmodule Aiur.ModelAvailabilityTest do
     assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 10, limit: 10}}, path: path)
     refute ModelAvailability.available?("codex", path: path)
   end
+
   describe "a fleet-wide limit and the repeat backoff" do
     # The 2026-09-26 khala incident, replayed from telemetry. Nineteen agents
     # met one Claude account limit between 02:01:13Z and 02:42:17Z, and every
