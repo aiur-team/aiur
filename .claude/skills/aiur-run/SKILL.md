@@ -5,6 +5,19 @@ description: "Launch and operate an Aiur run end to end as its Executor: establi
 
 # Run Aiur as the Executor
 
+> **After a context compaction, re-read this file.** The copy re-injected after
+> a compaction is **truncated** — it is cut mid-document with a
+> `[... skill content truncated for compaction ...]` marker, and everything
+> below the cut is simply gone from your context. You will not notice, because
+> the part you can see still reads as complete. Read the whole of this SKILL.md
+> and `references/executor.md` again before your next action.
+>
+> This is not hypothetical. On the khala E09 run the cut landed in section 4,
+> immediately above **Hourly monitoring retrospective — required**. That
+> Executor wrote no hourly retro and filed no findings for **nine days**
+> (2026-09-17 to 2026-09-26), and recurring Aiur faults went unescalated the
+> whole time. Nothing was broken; a requirement had silently left the room.
+
 Before launch, resolve repository-local `.aiur/config`, then `~/.aiur/config`. If only global defaults exist, tell the user that Aiur will fall back to them; do not require `aiur init` or copy config into every repository. Global GitHub startup targets the current `origin` and ensures required workflow/marker and complexity labels before dispatch, without seeding model/effort/alias labels. Prefer config (`agent.priority`, backend settings, `agent.routing`) for model selection. Shared credentials belong in `~/.aiur/.env` outside Git, or configured App/keyring auth. Missing-label permission failures must be resolved before launch; existing pauses and human decisions remain binding. Omit `tracker.github.repo` in portable global defaults; a conflicting explicit repo fails safely. Use local `init` when repository-specific settings are needed.
 
 Home setup is performed once; each repository still needs readiness checks.
@@ -636,6 +649,18 @@ repeated reason signatures, and one small cadence/trigger adjustment or
 `unchanged` with rationale. Do not require clairvoyance and do not optimize one
 isolated miss; tune only from repeated evidence.
 
+**Any recurring prompt you write for yourself must carry this step.** An
+Executor that schedules its own self-poll — a cron, a wake loop, a scheduled
+re-prompt — writes the prompt once and then re-reads it every cycle. If the
+retro is missing from that text, the omission is not forgotten once; it is
+re-anchored on every tick, and the gap lasts as long as the loop does. Either
+name the hourly retro explicitly in the self-poll prompt, or give it its own
+schedule so it cannot be dropped by a prompt that forgot it.
+
+`"$RETRO" due` exits **non-zero when the retro is overdue**, so a self-poll can
+gate on it directly (`"$RETRO" due || run_the_retro`) instead of relying on the
+prompt text to remember.
+
 Use the bundled helper when a native monitor does not already provide the same
 durable summary:
 
@@ -645,7 +670,7 @@ export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 "$RETRO" arm
 "$RETRO" observe action "reviewed-green-pr"
 "$RETRO" observe no-action "ci-still-pending"
-"$RETRO" due
+"$RETRO" due || echo "retro overdue"   # non-zero exit means overdue
 "$RETRO" summarize
 "$RETRO" record "<assessment>" "<adjustment-or-unchanged>"
 ```
