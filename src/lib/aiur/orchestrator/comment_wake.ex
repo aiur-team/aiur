@@ -44,7 +44,7 @@ defmodule Aiur.Orchestrator.CommentWake do
       # session — a follow-up comment on a PR-anchored agent's PR resolves here
       # (identifier == to_string(pr#)) and never re-dispatches.
       running_entry when is_map(running_entry) ->
-        reactivate_if_deactivated(state, running_entry, issue_number, source, event)
+        reactivate_if_deactivated(state, running_entry, issue_number, source, event, attempt)
 
       _ ->
         PrAnchored.maybe_route_pr_anchored_or_legacy(state, issue_number, source, event, attempt)
@@ -765,7 +765,7 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp reactivate_if_deactivated(state, running_entry, issue_number, source, event) do
+  defp reactivate_if_deactivated(state, running_entry, issue_number, source, event, attempt) do
     if State.deactivated_running_entry?(running_entry) do
       transition_and_revalidate_comment_reactivation(
         state,
@@ -775,11 +775,18 @@ defmodule Aiur.Orchestrator.CommentWake do
         event
       )
     else
-      protect_active_comment_delivery(state, running_entry, issue_number, source, event)
+      protect_active_comment_delivery(state, running_entry, issue_number, source, event, attempt)
     end
   end
 
-  defp protect_active_comment_delivery(state, running_entry, issue_number, source, event) do
+  # The third running-entry shape, and the one the other two branches do not
+  # cover: an entry that is present but not `:deactivated`. A worker that has
+  # just finished its turn leaves `control.status: :completed` here, and a ticket
+  # that has bounced `human-review` → `ci-wait` → `human-review` keeps its entry
+  # across the round trip — so a reviewer's `--request-changes` landing in either
+  # window routes through this function rather than the idle writer or the
+  # `:deactivated` reactivation path (#2814).
+  defp protect_active_comment_delivery(state, running_entry, issue_number, source, event, attempt) do
     cond do
       not trusted_comment_event?(event) ->
         state
@@ -812,12 +819,83 @@ defmodule Aiur.Orchestrator.CommentWake do
                 "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
             )
 
-            protected_state
+            # A review submission is delivered ONCE. `Aiur.Events.Publisher`
+            # marks `{:pr_review, owner, repo, review_id}` handled for 72h at
+            # `resource_version = submitted_at`, and the poller's
+            # `pr_review_seen_at` watermark advances past that `submitted_at` in
+            # the very cycle that read `/reviews` — so nothing re-derives this
+            # review later. Returning `protected_state` here did not defer the
+            # transition, it abandoned it: one transient refusal (a held, 5xx or
+            # 429 open-PR search, review-thread read, or label write) left the
+            # ticket on `agent:human-review` for good and an operator had to
+            # relabel it by hand.
+            #
+            # The idle writer has always retried exactly this failure class
+            # (`maybe_transition_idle_issue_to_rework/5`), and `Aiur.Orchestrator`'s
+            # `{:retry_comment_rework, ...}` handler routes the retry back through
+            # `maybe_reactivate_on_comment/5`, so the running-entry writer
+            # re-enters this branch with the entry still in place. The attempt
+            # bound and `retryable_comment_rework_failure?/1` are shared, so an
+            # auth or non-retryable 4xx refusal still fails once and stays failed.
+            schedule_comment_rework_retry(protected_state, issue_number, source, event, attempt, reason)
 
-          {{:skip, _reason}, _state} ->
-            protected_state
+          {{:skip, reason}, _state} ->
+            refuse_active_comment_rework(protected_state, issue_number, source, event, reason)
         end
     end
+  end
+
+  # A gate refusal on the running-entry path used to be the quietest outcome in
+  # the whole comment-wake chain: no label write, no retry, no log line, no
+  # alert. What the operator saw was a ticket that simply stayed in
+  # `agent:human-review` after a formal `--request-changes` review, with nothing
+  # anywhere naming a decision.
+  #
+  # Refusals that are *correct* readings of a comment that is not a change
+  # request stay as quiet as they were: an untrusted author, a bot review-pass
+  # comment, an approved pull request, a review that predates the head, a plain
+  # conversation comment on a ticket whose threads are clear. What must never be
+  # quiet is a live `CHANGES_REQUESTED` review that produced no rework write — by
+  # construction a reviewer asked for a change and the ticket did not move, the
+  # review will never be delivered again, and an operator is the only thing that
+  # can release it.
+  defp refuse_active_comment_rework(%State{} = state, issue_number, source, event, reason) do
+    context = "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
+
+    if changes_requested_review?(event) do
+      Logger.warning("#{source} refused rework for a changes-requested review: #{context}")
+
+      emit_refused_review_rework_alert(issue_number, event, reason)
+    else
+      Logger.info("#{source} rework write skipped for active issue: #{context}")
+    end
+
+    state
+  end
+
+  defp emit_refused_review_rework_alert(issue_number, event, reason) do
+    emit_alert_fun =
+      case Map.get(event, :emit_alert_fun) do
+        fun when is_function(fun, 2) -> fun
+        _ -> &Alerts.emit_system/2
+      end
+
+    identifier = to_string(issue_number)
+
+    emit_alert_fun.(
+      "ticket.#{identifier}.agent.attention.review_rework_refused",
+      issue: identifier,
+      message:
+        "Ticket #{identifier} received a CHANGES_REQUESTED review but was not moved to rework " <>
+          "(#{inspect(reason)}); it is still sitting in its review state.",
+      reason:
+        "The rework gate refused the transition for a live changes-requested review, and a review " <>
+          "submission is delivered only once, so nothing re-derives it. Move the ticket to `rework` " <>
+          "or re-review the pull request to release it.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
   end
 
   defp schedule_comment_rework_retry(
