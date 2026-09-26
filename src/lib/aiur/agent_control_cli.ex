@@ -2584,7 +2584,7 @@ defmodule Aiur.AgentControlCLI do
   # post-reconciliation stale claim is the same contradiction and gets the same
   # treatment.
   defp visible_status_row?(%{state: :idle, reason: reason} = status, tracker_states)
-       when reason in [:orphaned_claim, :stale_claim] do
+       when reason in [:orphaned_claim, :stale_claim, :workspace_ownership_waiting] do
     not in_tracker_state_set?(Map.get(status, :tracker_state), tracker_states.terminal)
   end
 

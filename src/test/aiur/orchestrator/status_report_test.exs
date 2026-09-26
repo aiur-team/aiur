@@ -118,6 +118,43 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert snapshot_orphan.waiting_reason == :orphaned_claim
   end
 
+  test "a ticket parked in workspace-ownership recovery is not reported as an orphaned claim" do
+    recovering = %Issue{
+      id: "recovering",
+      identifier: "repo#208",
+      state: "in-progress",
+      title: "Provider-limit recovery"
+    }
+
+    envelope = %{issue_id: recovering.id, identifier: recovering.identifier, owner: :none}
+
+    waiting =
+      put_in(
+        %State{last_polled_issues: %{recovering.id => recovering}, running: %{}}.dispatch_recovery.workspace_ownership.waits,
+        %{recovering.identifier => envelope}
+      )
+
+    [waiting_status] = StatusReport.agent_statuses(waiting, fn _ -> {:unavailable, nil} end)
+
+    assert waiting_status.state == :idle
+    assert waiting_status.waiting_reason == :workspace_ownership_waiting
+    assert waiting_status.reason == :workspace_ownership_waiting
+
+    ready =
+      put_in(
+        %State{last_polled_issues: %{recovering.id => recovering}, running: %{}}.dispatch_recovery.workspace_ownership.ready,
+        %{recovering.id => envelope}
+      )
+
+    [ready_status] = StatusReport.agent_statuses(ready, fn _ -> {:unavailable, nil} end)
+
+    assert ready_status.waiting_reason == :workspace_ownership_waiting
+    assert ready_status.reason == :workspace_ownership_waiting
+
+    [snapshot_row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(ready)).idle
+    assert snapshot_row.waiting_reason == :workspace_ownership_waiting
+  end
+
   test "after the startup pass an idle in-progress claim reads as stale, never awaiting-dispatch" do
     orphan = %Issue{id: "stale-orphan", identifier: "repo#stale", state: "in-progress", title: "Stale claim"}
 

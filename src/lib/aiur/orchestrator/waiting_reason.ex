@@ -29,6 +29,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :claim_released
           | :orphaned_claim
           | :stale_claim
+          | :workspace_ownership_waiting
           | :active
 
   @doc """
@@ -100,6 +101,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render(:unresponsive), do: "unresponsive"
   def render(:claim_released), do: "claim_released"
   def render(:orphaned_claim), do: "orphaned_claim"
+  def render(:workspace_ownership_waiting), do: "workspace_ownership_waiting"
   def render(:stale_claim), do: "stale_claim"
   def render(:active), do: "active"
   def render(other), do: to_string(other)
@@ -126,6 +128,11 @@ defmodule Aiur.Orchestrator.WaitingReason do
     * `:dispatch_hold_reason` — the fleet-wide reason selection did not run;
       `:tracker_preflight` renders an otherwise-ready row as
       `:tracker_unavailable`
+    * `:workspace_recovery?` — true when the ticket is parked in
+      `dispatch_recovery.workspace_ownership` (`waits` or `ready`) because its
+      previous session still owned the workspace when the redispatch ran. The
+      row has no live agent by design and the next dispatch poll reclaims it,
+      so it must never read as an `:orphaned_claim` strand (#2810).
     * `:startup_reconciliation_complete?` — whether the one-shot startup claim
       pass finished. Before it runs, an idle in-progress row is an
       `:orphaned_claim` awaiting the pass (criterion 4); after it, the same row
@@ -161,6 +168,14 @@ defmodule Aiur.Orchestrator.WaitingReason do
 
       Keyword.get(opts, :auto_resume_retry_in_ms) != nil ->
         :paused_transient
+
+      # A workspace-ownership reclaim is a known, self-clearing wait: it has a
+      # named owner and a queued redispatch envelope. It outranks every
+      # tracker-state classification below, all of which would call the same
+      # row an orphaned or stale claim and send an operator hunting for an
+      # agent that was never lost (#2810).
+      Keyword.get(opts, :workspace_recovery?, false) ->
+        :workspace_ownership_waiting
 
       Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight ->
         dispatch_hold_or_tracker_state(tracker_state, opts)
