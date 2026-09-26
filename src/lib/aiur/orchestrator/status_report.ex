@@ -1184,28 +1184,18 @@ defmodule Aiur.Orchestrator.StatusReport do
       claim_released?: not is_nil(release),
       claim_release_cause: release && release.cause,
       reason:
-        cond do
-          waiting_reason == :orphaned_claim ->
-            :orphaned_claim
-
-          waiting_reason == :stale_claim ->
-            :stale_claim
-
-          waiting_reason == :workspace_ownership_waiting ->
-            :workspace_ownership_waiting
-
-          true ->
-            idle_status_reason(
-              work_state,
-              pause_reason,
-              prewarm_blocked?,
-              budget,
-              max_dispatches,
-              latch_status,
-              release && release.cause,
-              idle_evidence.auto_resume_retry_in_ms
-            )
-        end,
+        idle_reason(waiting_reason, fn ->
+          idle_status_reason(
+            work_state,
+            pause_reason,
+            prewarm_blocked?,
+            budget,
+            max_dispatches,
+            latch_status,
+            release && release.cause,
+            idle_evidence.auto_resume_retry_in_ms
+          )
+        end),
       waiting_reason: waiting_reason,
       dispatch_latch: idle_evidence.dispatch_latch,
       auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
@@ -1218,6 +1208,17 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count_health: open_decision_count_health
     }
   end
+
+  # A claim-shaped waiting reason IS the reason to show: the row has no live
+  # agent and naming why beats re-deriving it from work state. Everything else
+  # falls through to the ordinary reason ladder, which the caller passes as a
+  # thunk so it is only computed when it is needed.
+  @claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting]
+
+  defp idle_reason(waiting_reason, _fallback) when waiting_reason in @claim_shaped_waiting_reasons,
+    do: waiting_reason
+
+  defp idle_reason(_waiting_reason, fallback), do: fallback.()
 
   defp idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms) do
     auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), now_ms)
