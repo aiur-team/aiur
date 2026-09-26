@@ -73,7 +73,7 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | `in-progress` | orchestrator on CI pass / ci-wait fallback re-wake; **also the agent itself** at turn start | `ci_lifecycle.ex:1068-1076`, `:1366-1375`; `shared-agent-instructions.md:44,49,120` |
 | `rework` | orchestrator: CI failure, comment-driven wake, human-review rejection; a merged PR whose remaining open PR carries unresolved review findings | `ci_lifecycle.ex:1100-1109`; `comment_wake.ex:950`; `human_review.ex:144-147`; `merged_ticket_reconciler.ex:130-202` |
 | `todo` | orchestrator: human-review revert with no open PR; error-latch reset | `human_review.ex:149-152`; `pause_resume.ex:166-169` |
-| `human-review`, `merging` | **the agent itself**, via `gh issue edit`; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
+| `human-review`, `merging` | **the agent itself**, via the `aiur_set_ticket_state` tool; the orchestrator on merge when a remaining open PR merely awaits review | `shared-agent-instructions.md:44,49,120`; `merged_ticket_reconciler.ex:130-202` |
 | `done` | orchestrator on merge — only when the merged PR's body carries a closing keyword for the ticket *and* no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
 
@@ -98,6 +98,28 @@ end
 The consequence: a stale or hand-edited label set carrying **two state labels
 at once** denies dispatch. A poll-time repair heals the pair to its winner
 (`agent:todo` wins).
+
+Agents keep that invariant with the `aiur_set_ticket_state` tool rather than
+raw label edits.
+
+An agent cannot safely name the label to remove. The orchestrator writes state
+transitions too, so the label the agent last saw may already be gone by the
+time its command runs — the removal then no-ops and leaves the pair behind.
+
+The tool takes only the target state and makes it the sole `agent:*` state
+label, from the issue Aiur re-reads at write time
+(`GitHub.IssueState.swap_labels/4`).
+
+When a pair does form, the heal prefers the label that arrived *since* the
+orchestrator's own claim over the claim itself — whenever the orchestrator can
+identify its claim, from its running entry or the previous poll.
+
+A statically ordered winner is provenance-blind. On the CI-pass handoff, where
+the orchestrator writes `in-progress` and the agent then adds `human-review`, it
+kept the stale claim and deleted the agent's deliberate handoff.
+
+With no such evidence the deterministic precedence order still decides, and a
+provenance win can never promote the terminal `done`.
 
 A **zero**-label ticket is repaired only when there is evidence it was in the
 agent workflow — its last known state is restored, or `agent:todo` when only a

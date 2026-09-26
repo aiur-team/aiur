@@ -93,7 +93,8 @@ defmodule Aiur.Codex.DynamicToolTest do
                  "aiur_subscribe",
                  "aiur_unsubscribe",
                  "aiur_declare_blocker",
-                 "aiur_unblock"
+                 "aiur_unblock",
+                 "aiur_set_ticket_state"
                ]
              }
            }

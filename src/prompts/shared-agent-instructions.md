@@ -49,6 +49,17 @@ delivering: leaving a finished PR as a draft means you have not delivered.
 If a turn ends in `agent:ci-wait` with the PR still a draft, marking it ready
 is the first step of the resume turn after the delivered CI pass.
 
+### Moving the ticket's state (`aiur_set_ticket_state`)
+
+Change your ticket's `agent:*` state **only** with
+`aiur_set_ticket_state({ "state": "human-review" })` — never
+`gh issue edit --add-label` / `--remove-label`. The daemon transitions the label
+too (the CI-pass handoff swaps `agent:ci-wait` for `agent:in-progress` before it
+wakes you), so a label you name for removal may already be gone: the removal
+no-ops and the ticket is left carrying two state labels, which dispatch refuses
+(#2805). The tool makes your target the sole state label from the issue Aiur
+re-reads at write time.
+
 ### Cross-ticket events (`emit_event`, `aiur_subscribe`, `aiur_declare_blocker`)
 
 Aiur agents on different tickets coordinate through a topic-exchange event bus —

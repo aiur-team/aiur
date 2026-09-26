@@ -4,6 +4,7 @@ defmodule Aiur.Codex.DynamicTool.Errors do
   """
 
   alias Aiur.Codex.DynamicTool.Response
+  alias Aiur.Codex.DynamicTool.TicketState
 
   @spec payload(term()) :: map()
   def payload(:missing_query) do
@@ -258,6 +259,30 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     do: %{
       "error" => %{
         "message" => "`aiur_declare_blocker` is unavailable in the current runtime context."
+      }
+    }
+
+  def payload(:ticket_state_setter_unavailable),
+    do: %{
+      "error" => %{
+        "message" => "`aiur_set_ticket_state` is unavailable in the current runtime context."
+      }
+    }
+
+  def payload(:missing_ticket_state),
+    do: %{"error" => %{"message" => "`state` is required."}}
+
+  def payload(:invalid_ticket_state),
+    do: %{"error" => %{"message" => "`state` must be a string."}}
+
+  def payload({:unsettable_ticket_state, state}),
+    do: %{
+      "error" => %{
+        "message" =>
+          "`state` must be one of: " <>
+            Enum.join(TicketState.agent_settable_states(), ", ") <>
+            ". `todo` is owned by dispatch, and `merging`/`cancelled` are Executor dispositions an agent must not claim.",
+        "state" => state
       }
     }
 

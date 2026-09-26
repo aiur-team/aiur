@@ -306,22 +306,37 @@ blocking finding is the only enforcement they have.
 13. Recheck current-base ancestry after fixes. If the base moved, integrate it,
     rerun the scoped gate, and push before continuing.
 14. If you still believe the work is complete and correct and only CI remains,
-    keep the PR as a draft, add the `agent:ci-wait` label, and end the turn. Do
+    keep the PR as a draft, move the ticket with
+    `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
     not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
     returns the dispatch slot while this runner is paused.
 15. On a delivered terminal CI event:
     - **Passed:** fetch the configured base once. If its current remote head is
       still an ancestor of the tested PR head, trust the delivered result without re-polling,
       mark the PR ready for review, emit the required 100% progress sample, and
-      add `agent:human-review`. If the base moved, integrate it yourself,
-      validate, push, and return to `agent:ci-wait` for fresh exact-head CI.
+      move the ticket with `aiur_set_ticket_state({ "state": "human-review" })`.
+      Use that tool, never `gh issue edit --remove-label agent:ci-wait
+      --add-label agent:human-review`: the daemon's CI-pass handoff already
+      swapped `agent:ci-wait` for `agent:in-progress` before it woke you, so the
+      removal is a no-op and the ticket ends up carrying both state labels —
+      undispatchable, and healed by a guess (#2805). If the base moved,
+      integrate it yourself, validate, push, and return to `agent:ci-wait` for
+      fresh exact-head CI.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
-      the ticket in `agent:rework`, and begin the repair loop.
+      the ticket in `agent:rework` (`aiur_set_ticket_state`), and begin the
+      repair loop.
 16. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
     follow the pass or failure path; if it is still pending, return to
-    `agent:ci-wait` and end the turn without polling again.
+    `agent:ci-wait` (`aiur_set_ticket_state`) and end the turn without polling
+    again.
 
 Do **not** self-merge. Always await user review after marking the PR ready.
+
+**Every state move goes through `aiur_set_ticket_state({ "state": "<state>" })`,
+never a raw `gh issue edit --add-label` / `--remove-label`.** The tool makes the
+target the ticket's sole `agent:*` state label from the issue Aiur re-reads at
+write time; a label you name yourself may already be gone, and the leftover pair
+is undispatchable. `turn-workflow.md` has the full rule.
 
 **When you flip the label to `agent:ci-wait` or `agent:human-review`, your turn
 loop ends naturally.** Do not keep polling `gh pr checks`, `gh pr view`, or
