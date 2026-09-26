@@ -218,4 +218,54 @@ defmodule Aiur.ModelAvailabilityTest do
     assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 10, limit: 10}}, path: path)
     refute ModelAvailability.available?("codex", path: path)
   end
+
+  describe "a fleet-wide limit and the repeat backoff" do
+    # The 2026-09-26 khala incident, replayed from telemetry. Nineteen agents
+    # met one Claude account limit between 02:01:13Z and 02:42:17Z, and every
+    # refusal printed the same reset, 03:40:00Z. Each refusal was counted as a
+    # repeat of the last, so the streak reached 19, the hold hit its one-hour
+    # cap, and `backoff_until` was re-armed from the final straggler to
+    # 03:42:17Z -- past the reset the provider had already given us.
+    @reset ~U[2026-09-26 03:40:00Z]
+    @first_refusal ~U[2026-09-26 02:01:13Z]
+    @last_refusal ~U[2026-09-26 02:42:17Z]
+
+    defp refuse_fleet(path) do
+      first = DateTime.to_unix(@first_refusal)
+      last = DateTime.to_unix(@last_refusal)
+      step = div(last - first, 18)
+
+      for index <- 0..18 do
+        at = DateTime.from_unix!(min(first + index * step, last))
+        assert :ok = ModelAvailability.mark_limited("claude", DateTime.to_iso8601(@reset), path: path, now: at)
+      end
+    end
+
+    test "concurrent refusals of one limit do not hold the backend past its reset", %{path: path} do
+      refuse_fleet(path)
+
+      entry = get_in(ModelAvailability.load(path), ["backends", "claude"])
+      assert entry["reset_at"] == DateTime.to_iso8601(@reset)
+      assert entry["limit_streak"] == 1
+      refute Map.has_key?(entry, "backoff_until")
+
+      refute ModelAvailability.available?("claude", path: path, now: DateTime.add(@reset, -1))
+      assert ModelAvailability.available?("claude", path: path, now: @reset)
+      assert ModelAvailability.recovery_confirmed?("claude", path: path, now: @reset)
+    end
+
+    test "a refusal at or after the printed reset still backs off (#2737)", %{path: path} do
+      refuse_fleet(path)
+
+      # The provider lied: it refuses again once its own reset has arrived.
+      assert :ok = ModelAvailability.mark_limited("claude", DateTime.to_iso8601(@reset), path: path, now: @reset)
+
+      entry = get_in(ModelAvailability.load(path), ["backends", "claude"])
+      assert entry["limit_streak"] == 2
+      assert entry["backoff_until"] == DateTime.to_iso8601(DateTime.add(@reset, 600))
+
+      refute ModelAvailability.available?("claude", path: path, now: DateTime.add(@reset, 599))
+      assert ModelAvailability.available?("claude", path: path, now: DateTime.add(@reset, 600))
+    end
+  end
 end
