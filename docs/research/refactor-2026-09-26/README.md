@@ -20,6 +20,26 @@ requests or time out.
    logs. (`agents/`)
 6. **Feature boundaries** — a codebase survey and proposed package/repo
    boundaries. (`codebase/`)
+7. **Code review** — a full review of the codebase for duplication,
+   anti-patterns, large files, and unnecessary complexity, kept as a detailed
+   findings list. (`review/`)
+
+## Code review method
+
+The review reads a frozen snapshot of `main` at `3339b88` so line numbers stay
+stable: 1,032 library files (262k lines), 866 test files (308k lines), plus the
+website, launcher, scripts, skills and prompts — about 650k lines in 28 chunks.
+
+1. **Review** — one reviewer per chunk, plus four cross-cutting duplication
+   sweeps over all of `src/lib`: by function name, by normalized function
+   body, by domain concept, and by duplicated constants and regexes.
+2. **Verify** — every P0/P1 finding goes to two independent skeptics: one
+   checks the cited lines say what is claimed, one checks it is a real problem
+   at that severity. P2/P3 findings are marked unverified, not dropped.
+3. **Completeness** — a critic finds unread files and unapplied lenses; its
+   follow-ups are reviewed and verified the same way.
+4. **Synthesize** — one deduplicated list grouped by category and by feature
+   boundary, then a critic checks the report against the raw findings.
 
 The brainstorm and plan built on this research live in `docs/brainstorms/`
 and `docs/plans/`.
