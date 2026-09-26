@@ -1,0 +1,7 @@
+repo,issues,issues_open,agent_labeled,prs,prs_merged,agent_workspaces,ws_on_disk_now,agent_sessions_top,agent_subagent_sessions,codex_top,claude_top,exec_sessions,exec_claude,exec_codex,exec_opencode,handoffs,meta,retro_docs,findings,runs_retained,runs_historical,wakes
+aiur,1272,111,921,1547,1208,472,346,1114,3549,949,165,37,19,10,8,18,93,8,43,5,20,4749
+archon (incl. architecture-docs era),152,63,93,110,109,80,20,368,333,36,332,11,5,5,1,7,22,3,8,0,1,2691
+khala,217,29,214,222,218,197,28,852,1043,128,722,2,1,1,0,61,0,3,13,20,0,2203
+kevinweaver-dev,63,8,51,119,76,46,39,52,74,52,0,10,4,3,3,0,0,0,9,0,0,0
+private-multisig (private),49,7,37,63,61,25,10,79,171,20,59,1,1,0,0,0,0,0,0,5,0,117
+croptracker (private),8,8,3,1,0,3,3,3,17,3,0,1,1,0,0,0,0,0,0,0,0,0

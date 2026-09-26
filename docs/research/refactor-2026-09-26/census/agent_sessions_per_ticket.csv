@@ -1,0 +1,7 @@
+repo,tickets_with_transcripts,top_level_sessions,subagent_sessions,top_per_ticket_median,top_per_ticket_p90,top_per_ticket_max,all_per_ticket_median,all_per_ticket_p90
+aiur-team/aiur,395,1114,3549,2.0,5.0,11,8.0,27.0
+aiur-team/archon,77,368,333,4.0,10.0,31,7.0,18.0
+aiur-team/khala,196,835,1023,4.0,8.0,15,7.0,19.0
+croptracker (private),3,3,17,1.0,1.0,1,1.0,14.6
+its-everdred/kevinweaver-dev,35,52,74,1.0,2.0,3,2.0,6.2
+private-multisig (private),25,79,171,1.0,7.2,13,9.0,17.8
