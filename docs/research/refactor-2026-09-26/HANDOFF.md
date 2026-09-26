@@ -30,7 +30,7 @@ Later directives (verbatim):
 | Research worktree | `/home/everdred/github/everdred/aiur-research` (docs under `docs/research/refactor-2026-09-26/`) | 19:20Z | `git -C … status` |
 | Working research dir (source of truth) | `~/.aiur/research/refactor-2026-09-26/` | 19:20Z | `find … -maxdepth 1` |
 | Background workflows | none running; the last one was stopped on purpose | 19:12Z | n/a (Claude-only tool) |
-| Orphan shells started by workflow agents | UNVERIFIED; some may still run (read-only greps and python) | never checked after the stop | `ps -eo pid,etimes,args \| grep refactor-2026-09-26 \| grep -v grep`, then kill **by PID only** |
+| Orphan shells started by workflow agents | none | 19:25Z | `ps -eo pid,etimes,args \| grep refactor-2026-09-26 \| grep -v grep`; kill **by PID only** |
 | aiur daemon for aiur-team/aiur | the gaps report says it was not restarted after the 2026-09-22 host crash | UNVERIFIED since about 09:00Z 09-26 | `scripts/aiurdev status`, run from the aiur checkout |
 | One daemon for a (private) repo | same claim as above | UNVERIFIED since about 09:00Z 09-26 | `aiur status` from that repo |
 | Main aiur checkout | has uncommitted operator edits (`.aiur/config`, skills, `.gitignore`) | session start | do not touch; not ours |
@@ -149,10 +149,9 @@ None this session. This was research, not a fleet run.
 
 ## 11. What I would do next, in order
 
-1. Check for orphan research shells and kill them by PID (§2).
-2. Before anything else, do a human-level privacy pass over the pushed `review/raw`, `features/raw` and `synthesis/verdicts`. Look for private-repo content that does not name the repo.
-3. Finish the claim verification (§4.1). The problem map depends on it.
-4. Challenge the remaining 58 feature recommendations and synthesize the feature inventory. That is cheaper than the review and gives the line-count targets.
-5. Finish the code review (9 units, the P0/P1 skeptic checks, the synthesis).
-6. Write the cross-link documents, then the CE loop.
-7. Separately, when the operator asks: clean the AI footers from the #2756–#2820 PR bodies (§8.9). Re-verify the daemon states (§2).
+1. Before anything else, do a human-level privacy pass over the pushed `review/raw`, `features/raw` and `synthesis/verdicts`. Look for private-repo content that does not name the repo.
+2. Finish the claim verification (§4.1). The problem map depends on it.
+3. Challenge the remaining 58 feature recommendations and synthesize the feature inventory. That is cheaper than the review and gives the line-count targets.
+4. Finish the code review (9 units, the P0/P1 skeptic checks, the synthesis).
+5. Write the cross-link documents, then the CE loop.
+6. Separately, when the operator asks: clean the AI footers from the #2756–#2820 PR bodies (§8.9). Re-verify the daemon states (§2).
