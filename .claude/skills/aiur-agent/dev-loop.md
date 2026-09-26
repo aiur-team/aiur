@@ -285,6 +285,21 @@ blocking finding is the only enforcement they have.
    configured base and refuses a PR when its tree deletes more than 50 base
    files that none of the feature commits touched. Never bypass a refusal:
    repair the wrong or stale base, or alert the Executor.
+
+   Run it as its own command. Do not chain it through a pipe, `;`, `|| true`,
+   or anything else that discards its exit status — `guard | tail && git push`
+   tests `tail`, not the guard, and pushes anyway. A 2026-09-25 audit found 70
+   of 289 agent pushes where the guard never ran for exactly this class of
+   reason.
+
+   A repository may also enforce this server-side as a required check that
+   fails when a pull request removes files. **A red deletion check is not a CI
+   failure to fix.** Do not restore files you deleted on purpose to make it
+   green, and **never add an allow-deletions label, or any label that
+   authorizes the deletion, to your own pull request** — that label exists so a
+   human can approve a deletion after reviewing it, and an agent applying it to
+   its own work defeats the only control standing behind the guard above. Stop,
+   and tell the Executor what you deleted and why.
 8. **Open the PR as a draft** with that branch as `--head` and the authoritative
    integration branch as `--base`: `gh pr create --draft --head "$branch"
    --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet). If a PR already
