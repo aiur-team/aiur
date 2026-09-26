@@ -121,6 +121,44 @@ defmodule Aiur.CodingAgentTest do
                )
     end
 
+    # The 2026-09-26 khala incident. Every ticket carried a `complexity:` label
+    # and `agent.routing` named claude at every level, so a routed backend
+    # short-circuited with no availability check and the fleet kept dispatching
+    # into its own exhausted Claude account.
+    @limited %{"backends" => %{"claude" => %{"limited" => true, "reset_at" => "2999-01-01T00:00:00Z"}}}
+
+    test "a usage-limited routed backend parks the claim instead of dispatching into the limit" do
+      assert {:all_limited, ["claude"]} =
+               CodingAgent.select_for_dispatch(issue(["complexity:3"]),
+                 routing_backend: "claude",
+                 state: @limited,
+                 now: ~U[2026-09-26 02:30:00Z]
+               )
+    end
+
+    test "an available routed backend dispatches unchanged" do
+      unchanged = issue(["complexity:3"])
+
+      assert {:ok, ^unchanged} =
+               CodingAgent.select_for_dispatch(unchanged,
+                 routing_backend: "codex",
+                 state: @limited,
+                 now: ~U[2026-09-26 02:30:00Z]
+               )
+    end
+
+    test "an operator's model: override still dispatches onto a limited backend" do
+      # A pin is intent. Only a routed default is second-guessed.
+      pinned = issue(["model:claude", "complexity:3"])
+
+      assert {:ok, ^pinned} =
+               CodingAgent.select_for_dispatch(pinned,
+                 routing_backend: "claude",
+                 state: @limited,
+                 now: ~U[2026-09-26 02:30:00Z]
+               )
+    end
+
     test "selects codex after claude is marked limited" do
       state = %{
         "backends" => %{"claude" => %{"limited" => true, "reset_at" => "2999-01-01T00:00:00Z"}}

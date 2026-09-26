@@ -747,16 +747,34 @@ defmodule Aiur.CodingAgent do
 
   @spec select_for_dispatch(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:all_limited, [backend()]}
   def select_for_dispatch(%Issue{} = issue, opts \\ []) do
-    if (is_binary(issue.selected_backend) or override_backend(issue)) || routing_backend(issue) do
-      {:ok, issue}
-    else
-      candidates = eligible_routes(opts)
+    cond do
+      # A pin is intent: an operator's `model:` label, or the backend a
+      # rate-limit fallback has already moved this claim onto. It dispatches
+      # whatever the ledger says.
+      is_binary(issue.selected_backend) or override_backend(issue) ->
+        {:ok, issue}
 
-      cond do
-        candidates == [] -> {:ok, issue}
-        route = ModelAvailability.first_available(candidates, opts) -> {:ok, select_route(issue, route)}
-        true -> {:all_limited, candidates}
-      end
+      # A backend the `complexity:` routing chose is not a pin, it is a
+      # default, and a default onto an exhausted account is a dispatch that can
+      # only refuse. Park the claim the way an exhausted priority chain does:
+      # `model_fallback_waiting` releases it as soon as the backend recovers.
+      #
+      # Before this, a routed backend short-circuited with no availability
+      # check at all, so a fleet whose routing names one backend kept
+      # dispatching into its own account limit.
+      backend = Keyword.get_lazy(opts, :routing_backend, fn -> routing_backend(issue) end) ->
+        if ModelAvailability.available?(backend, opts),
+          do: {:ok, issue},
+          else: {:all_limited, [backend]}
+
+      true ->
+        candidates = eligible_routes(opts)
+
+        cond do
+          candidates == [] -> {:ok, issue}
+          route = ModelAvailability.first_available(candidates, opts) -> {:ok, select_route(issue, route)}
+          true -> {:all_limited, candidates}
+        end
     end
   end
 
