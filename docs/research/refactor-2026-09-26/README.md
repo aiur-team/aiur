@@ -23,6 +23,16 @@ requests or time out.
 7. **Code review** — a full review of the codebase for duplication,
    anti-patterns, large files, and unnecessary complexity, kept as a detailed
    findings list. (`review/`)
+8. **Feature inventory** — every CLI command, config key, interface,
+   integration and subsystem, with evidence of real use from configs,
+   Executor transcripts and run logs, lines of code and tests per feature,
+   and a keep / simplify / merge / cut / externalize recommendation. Every
+   cut is challenged by a skeptic. Includes the line-count reduction case.
+   (`features/`)
+
+The goal: research issues, the feature list and improvements before a full
+rewrite that fixes the recurring bugs, reduces line count, and decomposes Aiur
+into smaller packages and repositories.
 
 ## Code review method
 
