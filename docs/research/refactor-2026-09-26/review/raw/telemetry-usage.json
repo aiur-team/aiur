@@ -1,0 +1,1239 @@
+{
+  "unit_id": "telemetry-usage",
+  "files_reviewed": 87,
+  "lines_reviewed_estimate": 15500,
+  "coverage_notes": "Read in full: run_telemetry/{dataset,sampler,writer,lifecycle,summaries,retention,procfs,github_enricher,timeline,supervisor}.ex and the non-asset parts of dashboard.ex (CSS/JS heredocs skimmed, one bug confirmed); usage/grouped_scopes.ex + price_adapter.ex + scope.ex; every usage/headless module; usage/price_table.ex, provider_dimensions.ex, window.ex, most of data.ex; usage/pricing.ex, components.ex, dimensions.ex; usage_ledger/{counter_policy,store,recovery,checkpoint,paths,retired_floor,record}.ex; usage_aggregate/{store,checkpoint,projection,key,query,paths,recovery}.ex; usage_compaction/{coordinator,policy,paths,floor}.ex; usage_envelope/relationship_registry.ex; all provider_meters and provider_account_generation modules; all decision_metrics modules. Skimmed (definitions and key sections only): usage/pricing/result.ex, usage/price_table/validator.ex (lines 60-218), usage_envelope/codec.ex, usage_envelope/exact_money.ex, usage_compaction/block.ex (80-195) and manifest.ex (80-330). Context read outside the unit to verify claims: run_telemetry.ex, usage_ledger.ex, aiur.ex supervision list, coding_agent.ex pricing/usage entries, agent_runner/message_handler.ex, claude/account_meters.ex, codex/account_generation.ex ingest paths, analytics/lib/analytics/reduce.py (Python reducer), and the unit's tests (grep-level scan for test anti-patterns plus adapters_test, grouped_scopes_test, decision_metrics_test, run_telemetry_test, sampler_test, store_test excerpts). Not verified live: finding 01's threshold is an arithmetic estimate from key sizes (I could not find the live usage-ledger state directory; the only .aiur-state ledger found was empty), and finding 02's doubling is traced through code and the adapter test fixture, not measured on a dashboard. No builds, tests or daemon commands were run.",
+  "findings": [
+    {
+      "id": "telemetry-usage-01",
+      "category": "performance",
+      "severity": "P0",
+      "title": "Usage ledger idempotency set grows forever and latches the ledger into permanent capacity_exhausted",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "lines": "8-41"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "lines": "43-63"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "lines": "192-246"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "lines": "172-185"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/recovery.ex",
+          "lines": "7-12"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/emitter.ex",
+          "lines": "64-88"
+        }
+      ],
+      "description": "CounterPolicy keeps one idempotency key for every envelope ever accepted (MapSet.put on every apply, nothing ever deletes). Every append serializes the full policy, including the sorted idempotency list, into the checkpoint, and Store.capacity/4 refuses the append once the encoded checkpoint exceeds max_checkpoint_bytes (1 MiB) or the set exceeds 50,000 entries. Retirement/compaction drops raw records but never touches policy.idempotency or the checkpoint, so once the cap is crossed every later append returns {:error, :capacity_exhausted} for the life of the ledger, across restarts (recovery reloads the same policy). The Emitter discards the append result, so usage accounting silently stops. Threshold estimate derived from the code, not measured: an idempotency key is base64(term_to_binary({provider, backend, transport, generation, counter_epoch(~106 B), source(~35 B), idempotency_key(~100 B)})) = roughly 395-480 bytes of JSON, so the 1 MiB checkpoint cap is reached after roughly 2,200-2,700 lifetime envelopes (plus the absolute/streams maps), far below the 50,000-entry cap. I could not locate the live ledger state directory to census it (the only .aiur-state ledger found was an empty 2026-08-15 one), so the live count is unverified.",
+      "evidence": "counter_policy.ex:30 `idempotency: MapSet.put(state.idempotency, idempotency_key(envelope))` (no delete anywhere); :46 `\"idempotency\" => state.idempotency |> MapSet.to_list() |> Enum.sort()`; store.ex:238-242 `byte_size(encoded_checkpoint) > state.limits.max_checkpoint_bytes or MapSet.size(policy.idempotency) > state.limits.max_idempotency_entries -> {:error, :capacity_exhausted}`; store.ex:175-179 retirement only rewrites `records`; recovery.ex:10-11 `max_checkpoint_bytes: 1_048_576, max_idempotency_entries: 50_000`; emitter.ex:81-83 `Aiur.UsageLedger.append(envelope); :ok`; aiur.ex:406 starts `Aiur.UsageLedger` with default limits. `grep -rn idempotency src/lib` shows no pruning path.",
+      "recommendation": "Bound the dedup window by epoch: keep idempotency keys only for counter epochs/sessions that can still produce duplicates (e.g. per counter_epoch, dropped when the epoch is retired or older than the retired floor), or store dedup keys beside raw records so compaction retires them with the range. Add an alert (not Logger) when health becomes {:degraded, :capacity_exhausted}, and make Emitter surface non-:ok append results. Add a test that appends past the checkpoint cap and asserts the ledger keeps accepting after compaction.",
+      "effort": "M",
+      "refactor_hint": "Belongs to a future `aiur_usage` storage package; the dedup/retention contract between UsageLedger and UsageCompaction must be designed together before the carve, since compaction currently cannot shrink the ledger's durable state."
+    },
+    {
+      "id": "telemetry-usage-02",
+      "category": "other",
+      "severity": "P0",
+      "title": "Codex tokens are counted twice: thread (absolute) and turn (delta) envelopes from one payload are both summed",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/headless/normalizer.ex",
+          "lines": "18-24"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/codex/thread_usage.ex",
+          "lines": "51-61"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/codex/turn_usage.ex",
+          "lines": "52-61"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/codex/tokens.ex",
+          "lines": "15-35"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "lines": "55-79"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "lines": "98-102"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "lines": "228-238"
+        }
+      ],
+      "description": "The codex provider registers both ThreadUsage and TurnUsage (coding_agent.ex:143), and the Normalizer runs every adapter for the provider on every payload. A Codex token-count payload carries both total_token_usage and last_token_usage, so it yields one absolute thread envelope and one delta turn envelope for the same tokens. The ledger turns the absolute stream into deltas, and the aggregate folds both streams into cells that differ only by relationship_revision. Both the dashboard query (GroupedScopes.totals) and UsageAggregate.Query sum tokens over all selected cells regardless of relationship_revision or counter scope, so codex token totals (and any priced estimate) are roughly doubled. Moduledocs assert the opposite (\"the two overlapping streams are never summed as if independent\"), but no layer implements that exclusion.",
+      "evidence": "adapters_test.exs:49-67: one fixture payload -> `assert length(envelopes) == 2`, absolute `provider_reported_total == 1500`, delta `== 280`. coding_agent.ex:143 `usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]}`. grouped_scopes.ex:235-236 `acc = update_in(acc.tokens, &Map.update(&1, dimension, count, fn v -> v + count end))` over every selected cell; query.ex:98-101 same. key.ex:77 dims include `relationship_revision` so the streams land in separate cells that are then summed. `grep -rni overlap` finds only doc comments, no exclusion code.",
+      "recommendation": "Pick one authoritative stream per provider for additive totals (e.g. mark relationship definitions with `additive_rollup: true|false`, or have the aggregate fold only the turn/delta stream and keep the thread stream as a reconciliation check). Enforce it in one place (Key.cells or a projection filter) rather than in each query layer, and add an aggregate-level test that feeds the real token-count fixture through Normalizer -> CounterPolicy -> Projection -> GroupedScopes and asserts total input == the payload's single-turn value.",
+      "effort": "M",
+      "refactor_hint": "The overlap rule is a usage-domain invariant; it should live in the usage package's projection, not in presenters. Resolve before splitting headless adapters from the aggregate, or each side will assume the other dedupes."
+    },
+    {
+      "id": "telemetry-usage-03",
+      "category": "other",
+      "severity": "P1",
+      "title": "API-equivalent pricing is inert for Codex and headless Claude: price-table revisions never match adapter revisions and retained tiers are ignored",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "lines": "19-21"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "lines": "40-42"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "lines": "266-267"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table.ex",
+          "lines": "65-84"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes/price_adapter.ex",
+          "lines": "12-23"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes/price_adapter.ex",
+          "lines": "94-152"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "lines": "74-75"
+        }
+      ],
+      "description": "PriceTable.lookup filters on exact relationship_revision. OpenAI entries are tagged \"codex-app-server-2026-07\" (which is the Codex adapters' source_version, not their revision) and Anthropic entries \"claude-remote-control-2026-07\", while the headless adapters emit \"codex-thread-usage-2026-07\", \"codex-turn-usage-2026-07\" and \"claude-request-usage-2026-07\". Before that, PriceAdapter.partition_dimensions builds the partition only from provider policy defaults and ignores the context_tier/cache_write_duration the aggregate now retains in every cell, so codex (context_tier required, default nil) always returns {:unknown, :unretained_context_tier}. Net effect: every Codex and headless-Claude cell prices as unknown API-equivalent coverage; only Remote Control Claude and the OpenAI-compatible providers can price. The PriceAdapter/GroupedScopes docs still say DASH-024 does not retain the partitions, which Key.dims contradicts.",
+      "evidence": "data.ex:21 `@openai_relationship \"codex-app-server-2026-07\"`, :42 `@anthropic_relationship \"claude-remote-control-2026-07\"`; thread_usage.ex:18-19 `@source_version \"codex-app-server-2026-07\"` / `@relationship_revision \"codex-thread-usage-2026-07\"`; claude/request_usage.ex:20 `\"claude-request-usage-2026-07\"`; price_table.ex:70 `{:relationship_revision, ..., :unknown_price_relationship_revision}`; price_adapter.ex:97-100 partition from `default_partition(policies)` only; key.ex:74-75 `context_tier: envelope.context_tier, cache_write_duration: envelope.cache_write_duration`. grouped_scopes_test.exs:141/171/198 only exercise `\"claude-remote-control-2026-07\"`, so no test reaches the failing path.",
+      "recommendation": "Key price entries by the adapter's relationship_revision (or map revision families to a price series explicitly), make PriceAdapter use dims.context_tier/cache_write_duration when present and fall back to policy defaults only when nil, and add a test that prices a real codex ThreadUsage and headless Claude envelope through the aggregate with PriceTable.default().",
+      "effort": "S",
+      "refactor_hint": "Pricing data and the adapter registry are two halves of one contract; in the carve keep PriceTable.Data, relationship definitions and adapters in the same package with a cross-check test that every registered relationship revision has a price series."
+    },
+    {
+      "id": "telemetry-usage-04",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Usage aggregate stops refreshing forever if the ledger store restarts (subscription lost, no poll, freshness frozen)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "lines": "67-82"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "lines": "156-178"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "lines": "243-255"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "lines": "72-83"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "lines": "124-132"
+        }
+      ],
+      "description": "The aggregate subscribes to the ledger exactly once, in bootstrap, and only a {:usage_ledger_delta, _} message triggers catch_up. The ledger keeps subscribers in its in-memory GenServer state, and Aiur.UsageLedger supervises its Store one_for_one, so a Store restart (the top-level rest_for_one tree does not see it) starts with `subscribers: %{}`. From then on the aggregate never re-scans, and because freshness is only recomputed inside catch_up, it keeps reporting the last computed status (often :fresh) while the ledger advances. There is no periodic reconciliation tick. The subscribe result is also discarded at boot (`_ = safe(...)`), so a failed first subscribe has the same effect.",
+      "evidence": "store.ex:79 `_ = safe(fn -> state.ledger_subscribe_fun.(self()) end)` only in bootstrap; :68 `def handle_info({:usage_ledger_delta, _acknowledgement}, state), do: {:noreply, catch_up(state, :notification)}` is the only refresh trigger; :254 `freshness_status(%{source_position: position}, position, _health), do: :fresh` computed only in catch_up; usage_ledger/store.ex:82 `subscribers: %{}`; usage_ledger.ex:61 `Supervisor.init([child], strategy: :one_for_one)`.",
+      "recommendation": "Monitor the ledger process (or subscribe via a Registry/PubSub topic that survives restarts) and re-subscribe + catch_up on :DOWN; add a low-frequency reconciliation tick comparing projection.source_position with UsageLedger.generation(); compute freshness at read time from the live ledger position instead of caching it.",
+      "effort": "S",
+      "refactor_hint": "When ledger and aggregate become separate packages, the notification contract must be restart-safe (PubSub topic or monitored subscription) rather than a pid map inside the producer."
+    },
+    {
+      "id": "telemetry-usage-05",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "UsageCompaction.Coordinator halts permanently on any transient failure and can latch the aggregate unavailable",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "lines": "153-166"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "lines": "217-252"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "lines": "256-270"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "lines": "340-345"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/floor.ex",
+          "lines": "53-60"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "lines": "127-145"
+        }
+      ],
+      "description": "halt/2 sets health {:degraded, reason}; run_cycle then skips every cycle and schedule/1 stops re-arming the tick unless health == :ok, so a single retire timeout, manifest write error or ledger unavailability disables compaction until the daemon restarts. The only signal is a Logger.warning, which is written nowhere without --debug. If the halt happens after the manifest reached :source_retired, Floor.load returns {:error, :destructive_phase_in_flight}, and any aggregate rebuild in the meantime latches base_health_override {:unavailable, :compaction_floor_unavailable}, which is also only cleared at boot. Reconciliation (roll_forward) exists but runs only in init.",
+      "evidence": "coordinator.ex:153 `defp run_cycle(%{health: health} = state) when health != :ok, do: %{state | last_cycle: {:skipped, health}}`; :341 `if state.paths != nil and match?(:ok, state.health), do: Process.send_after(self(), :tick, interval)`; :267-269 `Logger.warning(\"aiur_usage_compaction phase=halt ...\"); %{state | health: {:degraded, reason}}`; floor.ex:60 `defp from_manifest(_dir, %Manifest{pending: %{phase: :source_retired}}), do: {:error, :destructive_phase_in_flight}`; aggregate store.ex:142 `base_health_override: {:unavailable, :compaction_floor_unavailable}` set only in rebuild_from_floor (boot).",
+      "recommendation": "Keep ticking while degraded and retry reconcile_pending (roll_forward is already idempotent) with backoff; emit a durable alert/attention on halt; let the aggregate re-attempt Floor.load when the coordinator finalizes (publish a compaction-finalized event) instead of latching until restart.",
+      "effort": "S",
+      "refactor_hint": "The destructive-seam state machine (manifest/coordinator/floor) should own its own recovery loop inside the usage storage package; the aggregate should consume a 'floor changed' event rather than read the floor only at boot."
+    },
+    {
+      "id": "telemetry-usage-06",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Headless usage coverage facts and ledger append errors are discarded; source drift silently stops accounting",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/headless/emitter.ex",
+          "lines": "20-55"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/emitter.ex",
+          "lines": "64-88"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/normalizer.ex",
+          "lines": "28-40"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "lines": "70-102"
+        }
+      ],
+      "description": "Adapters carefully return bounded coverage ({:coverage, %{class: :unsupported_source_revision | :ambiguous_measurement_semantics ...}}) instead of envelopes, and the Normalizer returns them in outcome.coverages, but the only production caller (agent_runner/message_handler.ex:90-93) ignores the outcome, and the Emitter publishes only envelopes. When a Codex/Claude app-server upgrades its protocol version (drifted?/1) or a payload lacks a required partition, zero envelopes are produced and nothing records, counts or alerts it. Separately, default_publish spawns a Task that calls UsageLedger.append and discards {:error, :capacity_exhausted | :persistence_failed | :ledger_unavailable}; safe_publish also swallows everything. Emitter failures log at warning only.",
+      "evidence": "message_handler.ex:90-92 `Emitter.observe(issue, backend, message, ...); :ok`; emitter.ex:26-28 `publish_all(outcome.envelopes, opts); outcome` (coverages never published); :48-55 `rescue _error -> :ok catch _kind, _reason -> :ok`; :81-88 `Aiur.UsageLedger.append(envelope); :ok rescue _error -> :ok`; normalizer.ex:29-30 drift -> `[{:coverage, Adapter.coverage(adapter, :unsupported_source_revision, :source_version)}]`.",
+      "recommendation": "Publish coverage facts to a bounded counter (per provider/source/class) that the dashboard and alert feed read, and raise an attention when coverage-only outcomes persist for a provider; count and surface non-:ok ledger acknowledgements the same way.",
+      "effort": "S",
+      "refactor_hint": "Give the usage package an explicit 'coverage sink' port alongside the ledger port so the headless adapters are testable in isolation and their refusals are observable after the carve."
+    },
+    {
+      "id": "telemetry-usage-07",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Run-telemetry reduction exists three times (Dataset.build, Dataset.merge, Python analytics/reduce.py) and the dedupe/ordering rules have already diverged",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "146-165"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "601-659"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "934-945"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "1004-1038"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "39-43"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "613-619"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "13-19"
+        },
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "298-323"
+        },
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "560-567"
+        },
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "643-672"
+        }
+      ],
+      "description": "Summaries calls the Python reducer 'canonical' and the dashboard merges its run-summary.json output via Dataset.merge, while the live boot is reduced by Dataset.build. The three paths disagree: (1) Dataset.build dedupes lifecycle records by event_key including carried segment-roll points (dispatch/pr_opened/pr_merged, #2603) and silences their warnings; Python's _lifecycle_event_key only keys records with source_id/operation_id, so carried internal dispatch points are never deduped and GitHub-anchored ones warn; (2) Dataset.merge dedupes only by record_id and never re-applies the event-key dedupe, so carried replicas coming from summaries survive into re-derived intervals; (3) Elixir orders lifecycle pairing by source_line within one stream (causal_pair_order) while Python sorts by (timestamp_ms, boot_id, sequence). The carried-point constant and lifecycle pair key are also copied between Writer and Dataset.",
+      "evidence": "dataset.ex:151 merge `|> Enum.uniq_by(& &1.record_id)` then `reduce(records)` (no dedupe_records); dataset.ex:641 `if Map.get(attributes, \"source_id\") || Map.get(attributes, \"operation_id\") || carried_point_event?(record)`; reduce.py:317-323 `if attributes.get(\"source_id\") or attributes.get(\"operation_id\"): return attributes.get(\"event_key\")` (no carried case) and :307-308 always appends `duplicate_lifecycle_boundary`; reduce.py:567 `events.sort(key=lambda event: (event[\"timestamp_ms\"], event[\"boot_id\"], event[\"sequence\"]))` vs dataset.ex:1014-1015 `Enum.sort_by(events, &{&1.source_line, &1.record_id})`; writer.ex:43 and dataset.ex:651 both define `@carried_point_events ~w(dispatch pr_opened pr_merged)`; writer.ex:613-619 and dataset.ex:1037-1038 both define `lifecycle_pair_key`.",
+      "recommendation": "Choose one reducer. Either make the Python package consume Elixir-produced summaries (Summaries writes the Dataset map directly on segment roll) or make Elixir call the Python reducer for every path; in either case move dedupe into a single function used by build and merge. Extract `RunTelemetry.Schema` (record kinds, carried point events, pair key, event-key rule) shared by Writer and Dataset, and add a golden-file test that runs both reducers over the same NDJSON and compares intervals.",
+      "effort": "M",
+      "refactor_hint": "Run telemetry is a natural standalone package/repo (writer + schema + reducer + renderers); the Python/Elixir split must be resolved first or the carve will fork the schema a third time."
+    },
+    {
+      "id": "telemetry-usage-08",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Dependency cycle between the CodingAgent registry and the usage/telemetry/meter modules, much of it at compile time",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "lines": "17-19"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "lines": "16"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "lines": "6"
+        },
+        {
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "lines": "5-13"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/catalog.ex",
+          "lines": "13-32"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes/price_adapter.ex",
+          "lines": "94-110"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "lines": "319-324"
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/validation.ex",
+          "lines": "39-43"
+        }
+      ],
+      "description": "Usage, pricing, meter and account-generation modules read provider families, backends, pricing policies and adapter lists from Aiur.CodingAgent, several via module attributes evaluated at compile time. In the other direction, Aiur.CodingAgent's registry embeds references to Aiur.Usage.PriceTable.Window, the headless usage adapters, RunTelemetry.Lifecycle decoders and ProviderMeterProbe. Any CodingAgent change recompiles the usage/meter modules, and neither side can be extracted into a package without the other.",
+      "evidence": "key.ex:17 `@providers CodingAgent.provider_families()`, :18 `@backends Enum.uniq(CodingAgent.usage_backends() ++ [:remote_control, :unknown])`; relationship_registry.ex:16 `@providers CodingAgent.provider_families()`; validator.ex:6 `@providers Aiur.CodingAgent.provider_families()`; input.ex:6 `@backends Enum.uniq(Enum.flat_map(@providers, &(get_in(Aiur.CodingAgent.provider_account_generation(&1) ...`; coding_agent.ex:28 `alias Aiur.Usage.PriceTable.Window`, :143 `usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, ...]}`, :145 `run_telemetry: &Lifecycle.decode_codex_operation/1`; lifecycle.ex:320 `get_in(CodingAgent.backends(), [backend, :run_telemetry])`.",
+      "recommendation": "Invert the dependency: define a small `ProviderSpec` behaviour/struct in a leaf package (families, backends, pricing policy, account-generation policy) that CodingAgent implements and the usage/meter/telemetry packages receive at runtime (config or registration at boot). Move adapter lists and telemetry decoders out of CodingAgent into the usage and telemetry packages, which register themselves per provider. Replace compile-time @providers attributes with runtime lookups or a generated catalog.",
+      "effort": "L",
+      "refactor_hint": "This is the main blocker for carving usage accounting, provider meters and run telemetry away from the agent-backend registry; do it first."
+    },
+    {
+      "id": "telemetry-usage-09",
+      "category": "anti-pattern",
+      "severity": "P1",
+      "title": "Process-global mutable state across would-be packages: persistent_term churn and process-dictionary bindings",
+      "locations": [
+        {
+          "path": "src/lib/aiur/provider_account_generation/continuity.ex",
+          "lines": "21-69"
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/context.ex",
+          "lines": "12-18"
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/context.ex",
+          "lines": "93-122"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "17-20"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "125"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "264-271"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "lines": "264-317"
+        }
+      ],
+      "description": "Continuity stores every active account-generation binding for every service in one :persistent_term key and rewrites it (inside a cluster-wide :global.trans lock) on every retain/forget, i.e. on every agent session bind/recover/clear. Replacing a persistent term triggers a global scan of all processes, so this is a known BEAM anti-pattern for data that changes per session. Bindings themselves live in the caller's process dictionary (Context), which the meter events module documents as the reason daemon-internal consumers cannot address them. RunTelemetry.Writer publishes its admission atomics in its own process dictionary and callers read the whole dictionary with Process.info/2 on every cast; Lifecycle stores in-flight build/test operation classes in the caller's dictionary keyed by tracker pid and never clears keys whose completion never arrives.",
+      "evidence": "continuity.ex:53-66 `:global.trans({__MODULE__, service_id}, fn -> stores = :persistent_term.get(@key, %{}) ... :persistent_term.put(@key, Map.put(stores, service_id, entries))`; context.ex:15-16 `Process.put(context_key(context), binding); Process.put(server_key(context), server)`; provider_meters/events.ex:6-8 \"bindings live in the session process's dictionary and die with it\"; writer.ex:125 `Process.put(@admission_key, :atomics.new(3, signed: false))`, :265 `Process.info(pid, :dictionary)`; lifecycle.ex:269 `Process.put(operation_key(tracker, attempt_id, operation_id), command_class)`.",
+      "recommendation": "Move Continuity into the Owner GenServer's state plus an ETS table owned by a long-lived heir process (survives Owner restarts without persistent_term churn); pass bindings explicitly in the session struct instead of the process dictionary; register the Writer admission counter in a named ETS/`:persistent_term` written once per boot; keep Lifecycle operation state in the session state or an explicit bounded map.",
+      "effort": "M",
+      "refactor_hint": "Hidden global state is what breaks when these modules move to separate OTP applications; make each owner explicit before the carve."
+    },
+    {
+      "id": "telemetry-usage-10",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "Run telemetry reaches directly into the orchestrator, build gate, process reaper and GitHub client",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "12-16"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "49-65"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "216-251"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "lines": "10-13"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "lines": "480-486"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "lines": "11-14"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "lines": "291-310"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "29-51"
+        }
+      ],
+      "description": "A diagnostics package should depend on nothing it observes, but the sampler defaults to Orchestrator.dashboard_snapshot/2, BuildGate.status/0, ProcessReaper.entries/0 and SystemFileDescriptors.sample/0; Lifecycle.external_anchor (called from the Writer's handle_info) calls Orchestrator.CommentWake trust rules; GitHubEnricher uses GitHub.Transport, CodeOwners, GitHub.Config, CommentWake and TicketBranch and re-implements the CodeOwners allowlist as a fallback; Summaries resolves the repo via GitHub.Config and RepoBase. The injection points exist (opts funs) but the defaults hard-wire the dependencies.",
+      "evidence": "sampler.ex:54 `safe_entries(Keyword.get(opts, :entries_fun, &Aiur.ProcessReaper.entries/0))`, :224 `&BuildGate.status/0`, :250 `fn -> Orchestrator.dashboard_snapshot(Orchestrator, 100) end`; lifecycle.ex:482-483 `CommentWake.trusted_comment_event?(event) and not CommentWake.benign_review_pass_comment?(event)`; github_enricher.ex:299-304 comment \"Mirrors `Aiur.GitHub.CodeOwners`'s allowlist\" followed by a hand-copied list `[owner, Config.daemon_account(), Config.bot_account() | Config.trusted_accounts()]`.",
+      "recommendation": "Define a `RunTelemetry.Probes` behaviour (fleet_capacity/0, build_pressure/0, agent_process_roots/0, fd_headroom/0, comment_trusted?/1) supplied by the host application at supervisor start; move GitHubEnricher out of the telemetry package into the GitHub-facing layer (it is only used by the dashboard mix task); call CodeOwners' pure allowlist function instead of duplicating it.",
+      "effort": "M",
+      "refactor_hint": "Makes run_telemetry extractable as a standalone package/repo with the host wiring probes in; otherwise it drags the orchestrator and GitHub client along."
+    },
+    {
+      "id": "telemetry-usage-11",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "RunTelemetry.Writer silently drops records whenever its admission counter is not discoverable (including the whole init window)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "96-125"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "219-230"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "264-271"
+        }
+      ],
+      "description": "enqueue_cast/2 is a `with` without an else: if server_pid/1 returns nil or admission_counter/1 returns :unavailable, the record is dropped with no cast, no overflow count and no log. GenServer registers the Writer's name before init/1 runs, and init runs Retention.prune (a full-file scan, see telemetry-usage-13) before it calls Process.put(@admission_key, ...). Every record emitted while a Writer is (re)starting, e.g. lifecycle events from running agents after a Writer crash, is therefore lost without trace, unlike queue overflow which is counted and surfaced as a warning record.",
+      "evidence": "writer.ex:220-229 `with pid when is_pid(pid) <- server_pid(server), {:ok, counter} <- admission_counter(pid) do ... end; :ok`; :269 `_other -> :unavailable`; init order: :105 `Retention.prune(path, ...)` precedes :125 `Process.put(@admission_key, :atomics.new(3, signed: false))`.",
+      "recommendation": "Create the atomics before any slow work (first line of init, or in the supervisor and pass it in), move boot-time pruning to handle_continue, and count 'writer unavailable' drops in the same atomics so the drained writer emits one warning record for them.",
+      "effort": "S",
+      "refactor_hint": "Part of the admission redesign in telemetry-usage-09; a named ETS counter owned by the telemetry supervisor removes both the dictionary read and this window."
+    },
+    {
+      "id": "telemetry-usage-12",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Writer.terminate/2 shutdown materialization never runs on shutdown and blocks restarts for up to 30 s on crashes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "96-135"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "159-171"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "128-156"
+        }
+      ],
+      "description": "The Writer never calls Process.flag(:trap_exit, true), so a supervisor shutdown kills it without invoking terminate/2; the documented 'best-effort shutdown materialization' of run summaries does not happen on daemon stop. terminate/2 does run when a callback raises, and then it runs Summaries.materialize/0 synchronously with a 30 s timeout before the supervisor can restart the writer (Task.shutdown(:brutal_kill) kills only the Erlang task; the external `analytics/reduce` OS process started by System.cmd is not signalled and may keep running).",
+      "evidence": "`grep -rn trap_exit src/lib/aiur/run_telemetry*` returns nothing; writer.ex:159-161 comment \"Best-effort shutdown materialization: write the final per-boot run summary\"; summaries.ex:137-139 `Task.async(fn -> run_reduce(opts) end) ... Task.yield(task, Keyword.get(opts, :timeout_ms, @materialize_timeout_ms)) || Task.shutdown(task, :brutal_kill)` with `@materialize_timeout_ms 30_000`.",
+      "recommendation": "Decide the intent: if shutdown materialization matters, trap exits and give the child an explicit shutdown timeout, or move materialization to an Application prep_stop hook; otherwise delete terminate/2 and rely on segment-roll materialization. Never run the reducer on the crash path.",
+      "effort": "S",
+      "refactor_hint": "Lifecycle hooks of the telemetry package should be explicit in its supervisor spec after the carve."
+    },
+    {
+      "id": "telemetry-usage-13",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Telemetry retention and tail reading JSON-decode every line, on the Writer's own process",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/retention.ex",
+          "lines": "54-119"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "288-341"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "386-400"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "423-478"
+        }
+      ],
+      "description": "Retention.read_boot_groups streams the entire telemetry file and calls Jason.decode/1 on every line just to find restart markers. It runs inside the Writer GenServer at boot and every prune_interval_bytes (max_bytes/8, min 1 MiB) of appends, so the single writer stalls for a full-file decode repeatedly while callers' casts queue (and overflow is dropped). The current-session tail reader in Dataset decodes each tail line up to three times (boot_id_from_line, segment_boundary_line?, then parse_line).",
+      "evidence": "retention.ex:59-64 `File.stream!(:line, []) |> Enum.reduce(... case restart_metadata(line) do`, :105-112 `Jason.decode(line)` per line; writer.ex:291-296 maybe_prune in the writer process; :396 `max(div(bytes, 8), 1024 * 1024)`; dataset.ex:428 `boot_id_from_line(line)`, :447 `segment_boundary_line?(line)` (Jason.decode), :473 `parse_line` (Jason.decode again).",
+      "recommendation": "Pre-filter with a cheap binary match (`:binary.match(line, \"\\\"kind\\\":\\\"restart\\\"\")`) before decoding, or maintain a sidecar index of group offsets written at each restart/segment marker; run pruning in a supervised Task that hands back the new offset rather than on the Writer; decode each tail line once and reuse the map.",
+      "effort": "S",
+      "refactor_hint": "Self-contained inside the run_telemetry package."
+    },
+    {
+      "id": "telemetry-usage-14",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Segment-roll summary materialization spawns unbounded, untimed external reducer processes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "108-126"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "159-194"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "303-328"
+        }
+      ],
+      "description": "Every segment roll calls Summaries.materialize_async/0, which Task.start's an unsupervised System.cmd of `analytics/reduce --all --all-builds` with no timeout and no guard against a previous run still in progress. Rolls can happen every max_bytes/8 bytes on a busy boot, so concurrent reducers can overlap, each re-reading the whole telemetry stream and rewriting the same summary files. The reducer directory is also looked up relative to the daemon's cwd (`Path.expand(\"analytics\")`), and failures are only Logger.warning.",
+      "evidence": "summaries.ex:111 `{:ok, {script, args}} -> Task.start(fn -> run_reduce_background(script, args) end)`; :119 `System.cmd(script, args, stderr_to_stdout: true)` (no timeout); :185 `[Path.join(RepoBase.base_path(repo_url()), \"analytics\"), Path.expand(\"analytics\")] |> Enum.reject(&is_nil/1)` (the reject is a no-op); writer.ex:324 `Summaries.materialize_async()`.",
+      "recommendation": "Run materialization in a single supervised worker that coalesces requests (at most one running, one pending), enforces a timeout that kills the OS process (Port with :exit_status / MuonTrap-style), and resolves the reducer path from configuration rather than cwd.",
+      "effort": "S",
+      "refactor_hint": "If the Python reducer stays (see telemetry-usage-07), wrap it behind one port-owning process in the telemetry package."
+    },
+    {
+      "id": "telemetry-usage-15",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "RunTelemetry.Dataset is a 1,264-line god module mixing file IO, validation, dedupe, statistics, lifecycle pairing and review diagnostics",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "1-1264"
+        }
+      ],
+      "description": "One module holds: input discovery and full/tail file readers (261-470), line parsing and schema validation (472-599), record dedupe and warnings (601-701), per-actor resource statistics and gaps (703-861), lifecycle event extraction and interval pairing (863-1096), review pause/resume findings (1098-1191), and provenance/merge/filter (80-259, 1193-1247). The same helpers are recomputed from several entry points (build/filter/merge/reduce) and near-duplicate shapes exist inside it (point_interval/1061-1070 vs open_interval/1072-1081; provenance time_range at 250-254 and 1223-1227; the parse-reduce loop at 300-305 and 339-344; lifecycle_sort_key/934-936 is a pure alias of chronological_sort_key).",
+      "evidence": "wc -l: 1264. Largest functions: build/2 62 lines (40-101 incl. docs), read_current_file/2 57 lines (315-371) with try/case nesting 4 deep, review_finding/5 43 lines. `defp lifecycle_sort_key(event) do chronological_sort_key(event) end` (934-936).",
+      "recommendation": "Split into RunTelemetry.Reader (discover/read_full/read_tail), RunTelemetry.Record (validate/normalize, shared with Summaries decoding), RunTelemetry.Reduce.Actors, RunTelemetry.Reduce.Lifecycle (pairing + dedupe, shared with Writer's pair key), RunTelemetry.Reduce.ReviewFindings, and a thin Dataset facade (build/filter/merge). Collapse point/open interval builders and the duplicated parse loops.",
+      "effort": "M",
+      "refactor_hint": "These become the reducer half of a run_telemetry package; the Record/Schema module should be the only place the NDJSON contract is defined."
+    },
+    {
+      "id": "telemetry-usage-16",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "Sampler (841 lines) and Writer (628 lines) GenServers each bundle four responsibilities",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "87-164"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "216-459"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "461-750"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "784-838"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "219-286"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "288-400"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "479-627"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "105-108"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "315-318"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "333-340"
+        }
+      ],
+      "description": "Sampler mixes tick scheduling/scan supervision, fleet and build-gate pressure probing with its own bounded Task.async_stream, process-tree attribution (daemon/ticket/operator), and per-process rate math, plus three separate rescue/catch wrappers (safe_sample, safe_call, record). Writer mixes admission control over atomics, retention/segment-roll policy, open-lifecycle and carried-point bookkeeping, and envelope encoding with three private timestamp validators. The three Retention.prune call sites each duplicate the same Logger.warning(\"run_telemetry retention_failed ...\") handling, and every failure path in both modules reports only via Logger.",
+      "evidence": "sampler.ex wc -l 841; writer.ex wc -l 628; writer.ex:107, :317, :338 identical `Logger.warning(\"run_telemetry retention_failed path=#{...} reason=#{inspect(reason)}\")`; sampler.ex:784-838 three catch-all wrappers.",
+      "recommendation": "Extract RunTelemetry.Pressure (fleet/build observation, pure over injected probe results), RunTelemetry.Attribution (process tree -> actor specs, pure over a procfs table) and RunTelemetry.Rates from the Sampler; extract RunTelemetry.Admission, RunTelemetry.SegmentRoller (roll + prune + carried points) and RunTelemetry.Envelope from the Writer, with one prune helper.",
+      "effort": "M",
+      "refactor_hint": "Pure extracted modules become unit-testable without GenServers and move cleanly into the telemetry package."
+    },
+    {
+      "id": "telemetry-usage-17",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Dashboard module is 470 lines of HTML/CSS/JavaScript held in Elixir heredocs, with no JS tests (one visible bug)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/dashboard.ex",
+          "lines": "137-618"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dashboard.ex",
+          "lines": "224"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dashboard.ex",
+          "lines": "507"
+        }
+      ],
+      "description": "document_start/body/styles/javascript are 10 + 124 + 100 + 243 lines of literal markup and a 240-line minified-style JS app embedded in ~S sigils; none of it is linted, type-checked or tested. Example defect: the fleet-pressure table has 12 header columns but its empty-state row uses colSpan 10. The same metric catalogue is also hard-coded in the JS (see telemetry-usage-18).",
+      "evidence": "dashboard.ex:224 header `<th>Sample time</th>...<th>Oldest wait</th>` = 12 columns; :507 `tableEmpty($(\"pressure-table-body\"),10,emptyMessage)`; function sizes: javascript/0 243 lines, body/0 124 lines, styles/0 100 lines.",
+      "recommendation": "Move the template, CSS and JS to priv/ assets (EEx template + static files inlined at build time), lint/test the JS with the website toolchain, and render the metric catalogue from the Elixir schema into the JSON payload instead of duplicating it in JS.",
+      "effort": "S",
+      "refactor_hint": "Belongs with the telemetry reporting tool, possibly in the same repo as the Python analytics renderers rather than in the daemon."
+    },
+    {
+      "id": "telemetry-usage-18",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Resource metric and evidence field catalogues are copied in five places",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "16-28"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "738-776"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "275-287"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "352-373"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "21-30"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dashboard.ex",
+          "lines": "383-390"
+        },
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "29-52"
+        }
+      ],
+      "description": "The @resource_metrics and @resource_evidence lists are byte-identical in Dataset and Summaries, re-declared as RESOURCE_METRICS in the Python reducer, partially re-declared as @fleet_fields/@fleet_admission_fields/@build_fields in the Sampler, and again as the JS `metrics` array. Summaries.decode_sample/1 re-implements Dataset.resource_sample/1 field by field, and decode_record/1 re-implements normalize_record/3. Adding a metric requires touching all five, and nothing checks they agree.",
+      "evidence": "dataset.ex:16-23 and summaries.ex:275-282 both `~w(cpu_percent rss_bytes fd_count read_bytes write_bytes read_bytes_per_second ... build_queue_oldest_wait_seconds)`; dataset.ex:24-28 and summaries.ex:283-287 identical `@resource_evidence ... )a`; reduce.py:29 `RESOURCE_METRICS = (\"cpu_percent\", ...`; sampler.ex:22-30 field lists; dashboard.ex:383 `const metrics = [[\"cpu_percent\", \"CPU\", \"%\"], ...`.",
+      "recommendation": "Create RunTelemetry.Schema with the metric/evidence catalogue (name, unit, label, source status field) and have Dataset, Summaries, Sampler and the dashboard payload read it; generate or validate the Python constant from a JSON schema file (analytics/schema already exists).",
+      "effort": "S",
+      "refactor_hint": "Schema module is the shared contract for the telemetry package and its Python consumer."
+    },
+    {
+      "id": "telemetry-usage-19",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "ISO-8601 timestamp parsing re-implemented at ten sites in this unit (three inside Writer alone)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "438-477"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "580-601"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "549-558"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/retention.ex",
+          "lines": "104-119"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "363-377"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "319-333"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/event/fields.ex",
+          "lines": "104-109"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "lines": "180-190"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/codec.ex",
+          "lines": "78-84"
+        }
+      ],
+      "description": "Each site wraps DateTime.from_iso8601/1 with a different failure policy: Writer falls back to the lifecycle fallback in one helper, to DateTime.utc_now() in another (ignoring its injectable clock), and returns :error in a third; Dataset returns :error; Summaries raises ArgumentError; Sampler returns nil; DecisionMetrics returns nil or {:error, :invalid_timestamp}. The repo has 94 DateTime.from_iso8601 call sites in total.",
+      "evidence": "writer.ex:446-451 normalize_lifecycle_timestamp, :463-477 validate_clock_timestamp (`_other -> DateTime.utc_now()`), :592-601 validate_lifecycle_timestamp; summaries.ex:327 `_other -> raise ArgumentError, \"invalid summary record timestamp\"`; `grep -rn DateTime.from_iso8601 src/lib | wc -l` = 94.",
+      "recommendation": "Add one `Aiur.Time.parse_iso8601/1 :: {:ok, DateTime.t()} | :error` (accepting DateTime passthrough) in a shared leaf package and make each caller choose its fallback explicitly; within Writer keep a single helper and use the injected clock for fallbacks.",
+      "effort": "S",
+      "refactor_hint": "Leaf utility for a shared `aiur_core` package."
+    },
+    {
+      "id": "telemetry-usage-20",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Two query layers over the same aggregate cells; the older one (UsageAggregate.Query) has no production caller",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "lines": "1-188"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "lines": "28-29"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "lines": "60"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "lines": "59-71"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "lines": "363-392"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "lines": "422-433"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "lines": "602-611"
+        }
+      ],
+      "description": "UsageAggregate.query/1 -> Store.query/2 -> Query.summary/2 is reachable only from tests; every production consumer (analytics_live, usage_runtime, scope_resolver, usage_summary_presenter, mix aiur.cost_report) goes through cells_snapshot + Usage.GroupedScopes.project. The two layers duplicate the grouping dimension map (identical 11 entries), unknown-attribution counting (verbatim, plus a third copy of the zero map in empty_coverage), totals accumulation and the reconciliation check, and must be kept in sync when a dimension is added.",
+      "evidence": "`grep -rn \"UsageAggregate.query(\" src/lib` returns nothing; query.ex:15-27 `@group_dimensions %{by_provider: :provider, ... by_pricing_date: :pricing_date}` == grouped_scopes.ex:59-71 `@dims_dimensions`; query.ex:173-184 and grouped_scopes.ex:422-433 identical `unknown_attribution` reducers starting `%{run_id: 0, ticket: 0, account_generation: 0, upstream_provider: 0, resolved_model: 0, pricing_date: 0}`; grouped_scopes.ex:606 repeats that zero map.",
+      "recommendation": "Delete UsageAggregate.Query, Store.query/2 and UsageAggregate.query/1 (or re-implement them as a thin call into GroupedScopes); keep one dimension catalogue in Key and reference it from GroupedScopes.",
+      "effort": "S",
+      "refactor_hint": "Leaves one query API for the usage package: cells_snapshot + GroupedScopes."
+    },
+    {
+      "id": "telemetry-usage-21",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Per-envelope pricing engine (Usage.Pricing + Components + Dimensions + Result, 559 lines) is unused in production and has diverged from the aggregate price adapter",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/pricing.ex",
+          "lines": "1-193"
+        },
+        {
+          "path": "src/lib/aiur/usage/pricing/components.ex",
+          "lines": "1-161"
+        },
+        {
+          "path": "src/lib/aiur/usage/pricing/dimensions.ex",
+          "lines": "1-78"
+        },
+        {
+          "path": "src/lib/aiur/usage/pricing/result.ex",
+          "lines": "1-127"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes/price_adapter.ex",
+          "lines": "62-152"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/compatibility.ex",
+          "lines": "1-22"
+        }
+      ],
+      "description": "Aiur.Usage.Pricing.resolve/4 has no caller outside tests; the live dashboards price through GroupedScopes.PriceAdapter, which re-implements the same pieces (partition defaults vs Dimensions.from_options/for_component, subset remainder vs Components.component/3 and RelationshipRegistry.subset_edges, amount = price*tokens/unit in both). They already differ: Pricing resolves the peak/off-peak window from occurred_at via PriceTable.Window, PriceAdapter omits the window so PriceTable defaults to :peak; Pricing validates dimensions via Dimensions.validate, PriceAdapter via required_partition. Aiur.Usage.Headless.Compatibility has no callers at all (no tests either).",
+      "evidence": "`grep -rn \"Pricing.resolve\" src/lib` returns nothing (callers only in test/aiur/usage/pricing_test.exs, pricing_property_test.exs, model_discovery_test.exs, coding_agent_test.exs); pricing.ex:141 `pricing_window: Window.resolve(envelope.provider, envelope.occurred_at)` vs price_adapter.ex:140-151 lookup_query without pricing_window; price_table.ex:58-62 default `:peak`; pricing.ex:166-169 and price_adapter.ex:67 both `price |> Decimal.mult(Decimal.new(tokens)) |> Decimal.div(Decimal.new(token_unit))`; price_adapter.ex:22 \"See `Aiur.Usage.Pricing.Dimensions` for the authoritative provider rules this mirrors\"; `grep -rn Compatibility.project src` returns nothing.",
+      "recommendation": "Keep one pricing core: a pure `Usage.Pricing.price_component(query) :: {:ok, amount, revision} | {:unknown, reason}` used by both the per-envelope and aggregate paths, with the partition/remainder logic defined once (RelationshipRegistry already exposes subset_children). Delete Headless.Compatibility and either wire Pricing.resolve into a real consumer or delete it.",
+      "effort": "M",
+      "refactor_hint": "Reduces the usage package's pricing surface by ~500 lines before the carve."
+    },
+    {
+      "id": "telemetry-usage-22",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Durable-file plumbing (checksums, bounds, quarantine, degraded markers, cell codecs) is copied across ledger, aggregate and compaction",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_ledger/checkpoint.ex",
+          "lines": "118-154"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/retired_floor.ex",
+          "lines": "17-81"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/paths.ex",
+          "lines": "29-119"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/recovery.ex",
+          "lines": "368-401"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "lines": "105-176"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/paths.ex",
+          "lines": "34-115"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "lines": "195-310"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "lines": "311-326"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "lines": "272-282"
+        }
+      ],
+      "description": "Each store hand-rolls the same persistence primitives: a sha256-over-term_to_binary([:deterministic]) checksum (ledger Checkpoint, RetiredFloor, aggregate Checkpoint, compaction Block, Manifest), the u64 bound 18_446_744_073_709_551_615 (6 copies), content-addressed quarantine (ledger Paths.quarantine, aggregate Paths.quarantine, Coordinator.quarantine, plus Aiur.Fs.quarantine elsewhere) with two copies of file_digest, degraded-marker JSON read/write (ledger Recovery vs aggregate Paths), and lstat regular/symlink guards. Block's cell/coverage codec (encode_cells, decode_cells, encode_coverage, decode_coverage, decode_reasons, safe_reason) is a near-verbatim copy of UsageAggregate.Checkpoint's, differing only in the error atom.",
+      "evidence": "block.ex:205-281 vs aggregate/checkpoint.ex:105-156 (same bodies, `:invalid_block` vs `:invalid_checkpoint`); `grep -rn 18_446_744_073_709_551_615` -> key.ex:25, aggregate/checkpoint.ex:167, block.ex:26, manifest.ex:34, record.ex:11, retired_floor.ex:19; ledger paths.ex:85-95 and aggregate paths.ex:107-115 identical `file_digest/1`; ledger recovery.ex:384-401 and aggregate paths.ex:51-77 both write/read `%{\"version\" => 1, \"reason\" => ...}` markers.",
+      "recommendation": "Extract `Aiur.DurableRecord` (checksummed envelope encode/verify, bounded integers, lstat guards, atomic write) and `Aiur.Quarantine` (content-addressed evidence copy) and have the three stores use them; move the cell/coverage codec into UsageAggregate.Key (or a Codec module) used by both Checkpoint and Block.",
+      "effort": "M",
+      "refactor_hint": "A shared storage-primitives module lets the usage storage stack be carved as one package without three divergent copies of crash-safety code."
+    },
+    {
+      "id": "telemetry-usage-23",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Every usage append rewrites and fsyncs the whole ledger checkpoint, and every ledger notification rewrites the whole aggregate checkpoint",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "lines": "192-246"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "lines": "255-262"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "lines": "20-30"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "lines": "68-77"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "lines": "243-265"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "lines": "202-231"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "lines": "33-43"
+        }
+      ],
+      "description": "Store.persist/4 builds a checkpoint containing the full CounterPolicy dump (sorting the ever-growing idempotency list) and overwrites + fsyncs it on every append; capacity/4 JSON-encodes the record once more than the append path; Record.new re-runs admit/1 (full Codec.encode + regex scan of every string) already run by CounterPolicy.apply, and round-trips the delta through encode/decode; CounterPolicy.delta recomputes each entry key (term_to_binary + base64) a second time. Duplicate appends scan the whole in-memory record queue re-hashing each record. The aggregate then writes a checksummed JSON checkpoint of every cell (cap 32 MiB) with fsync on every notification. Per-append cost therefore grows with lifetime volume on a synchronous GenServer.call path.",
+      "evidence": "store.ex:195 `checkpoint = Checkpoint.record(position, generation, policy)`; :235 `encoded_record = Jason.encode!(Record.encode(record))` then :200 `state.append_fun.(..., Record.encode(record))`; counter_policy.ex:21 `Record.admit(envelope)` and record.ex:22 `admit(envelope)` again; counter_policy.ex:248 `entry(envelope, :token, field, ...).key` recomputed; store.ex:258 `Enum.find(:queue.to_list(state.records), &(CounterPolicy.idempotency_key(&1.envelope) == idempotency_key))`; aggregate store.ex:211 write_checkpoint on each refresh; aggregate checkpoint.ex:16 `@default_max_bytes 33_554_432`.",
+      "recommendation": "Checkpoint on a cadence (every N appends or T ms) since the fsynced segment is already authoritative for recovery; keep encoded idempotency keys in insertion order so dump is O(1) amortized; admit once; index records by idempotency key; debounce aggregate checkpoints.",
+      "effort": "M",
+      "refactor_hint": "Measure before/after with a synthetic append benchmark; keep the durability contract documented in the storage package."
+    },
+    {
+      "id": "telemetry-usage-24",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Claude headless adapter drops imprecise provider cost without the coverage reason its docs promise",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "lines": "1-12"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "lines": "155-188"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "lines": "251-270"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "lines": "17"
+        }
+      ],
+      "description": "The moduledoc says the decoded float cost is 'only ever a lossy fallback recorded as bounded coverage', and ExactMoney supports `coverage: :unknown, unknown_reason: :imprecise`, but cost/2 maps both :imprecise and :absent to `{nil, []}`. The second tuple element (cost_reasons) is therefore always [], so an imprecise-only cost vanishes from the envelope with no coverage reason and the aggregate reports full coverage for that turn.",
+      "evidence": "request_usage.ex:9-11 \"the already-decoded float is only ever a lossy fallback recorded as bounded coverage\"; :158-164 `{:ok, amount} -> {money(amount), []}` / `:imprecise -> {nil, []}` / `:absent -> {nil, []}`; exact_money.ex:17 `@reasons [:missing, :untrusted, :imprecise, :unsupported, :unavailable]`.",
+      "recommendation": "On :imprecise emit a cost with `coverage: :unknown, unknown_reason: :imprecise` (or add an `:imprecise_cost` coverage reason), and add a test that feeds a float-only cost with raw nil and asserts the envelope's coverage is not :full.",
+      "effort": "S",
+      "refactor_hint": "Adapter-level fix inside the usage package."
+    },
+    {
+      "id": "telemetry-usage-25",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Provider meter input validation collapses every specific cause, and callers relabel all ingest errors as :malformed",
+      "locations": [
+        {
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "lines": "74-132"
+        },
+        {
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "lines": "153-205"
+        },
+        {
+          "path": "src/lib/aiur/provider_meters/store.ex",
+          "lines": "90-125"
+        }
+      ],
+      "description": "Input.normalize/1 computes precise reasons (:invalid_numeric_fact, :invalid_coverage_facts, :invalid_window, :unexpected_key, ...) and then discards them with `_ -> {:error, :invalid_provider_meter_update}`; windows/1 likewise collapses per-window reasons. The Store returns either that atom or :unknown_account_generation, and both callers outside this unit (claude/account_meters.ex:37-44, codex/account_generation.ex:265-277) map any error to a :malformed failure, so a generation-binding problem is recorded as provider malformation - the 'collapsed cause names a specific cause' pattern AGENTS.md forbids.",
+      "evidence": "input.ex:103-105 `else _ -> {:error, :invalid_provider_meter_update}`; :160 `_ -> {:halt, {:error, :invalid_window}}`; store.ex:123 `_ -> {:error, :unknown_account_generation}`; claude/account_meters.ex:42-43 `_error -> fail(session, :malformed, observed_at)`; codex/account_generation.ex:270-276 `{:error, _reason} -> record_rate_limit_failure(session, :malformed, opts)`.",
+      "recommendation": "Return `{:error, {:invalid_provider_meter_update, reason}}` preserving the first failing check, keep :unknown_account_generation distinct at the callers (it is not provider malformation), and add the reason to the failure snapshot's health so the dashboard can show it.",
+      "effort": "S",
+      "refactor_hint": "Provider meters is a candidate standalone package; its input contract should carry structured reasons across the boundary."
+    },
+    {
+      "id": "telemetry-usage-26",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Provider account-generation transitions refused for validation or authority reasons return 'unavailable' with no log, metric or reason",
+      "locations": [
+        {
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "lines": "42-83"
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "lines": "88-98"
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/owner.ex",
+          "lines": "48-52"
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/snapshot.ex",
+          "lines": "21-22"
+        }
+      ],
+      "description": "bind/replace/invalidate/retire/confirm all return Snapshot.unavailable(provider, backend) (reason :owner_unavailable) when valid_observation?/authorized? fail, whether the cause is an untrusted source, an unsupported auth mode, a stale authority or an invalid invalidation reason. The Owner replies {:ok, snapshot}, so callers see a successful call with an unavailable generation and every downstream usage envelope gets unknown account-generation coverage, with nothing recording why. The module tree is also split very finely (State -> Registry/Lifecycle/Tombstones/Validation/Monitor/Snapshot, several one-line defdelegates) which makes these refusal paths hard to follow.",
+      "evidence": "state.ex:44 `if valid_transition?(...), do: Lifecycle.bind(...), else: {Snapshot.unavailable(provider, backend), [], state}`; same shape at :49-53, :58-62, :67-72, :77-82; snapshot.ex:22 `unknown(provider, backend, :unavailable, :owner_unavailable, nil)`; owner.ex:49-51 replies `{:ok, snapshot}` regardless.",
+      "recommendation": "Return {:error, reason} (untrusted_source | unsupported_auth_mode | unauthorized | invalid_reason) from State and have Owner reply with it; count refusals per reason in the snapshot or a telemetry counter.",
+      "effort": "S",
+      "refactor_hint": "Clarifies the account-generation API before it becomes a package boundary used by usage, meters and agents."
+    },
+    {
+      "id": "telemetry-usage-27",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "Decision metrics keeps two copies of the same bounded projection in two processes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/decision_metrics/collector.ex",
+          "lines": "6-53"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/writer.ex",
+          "lines": "44-75"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/writer.ex",
+          "lines": "77-97"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/writer.ex",
+          "lines": "152-171"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/window.ex",
+          "lines": "40-52"
+        }
+      ],
+      "description": "The DecisionMetrics collector holds samples + a seen Window and bounds them with Collector.bound/1; the Writer independently holds samples + records + its own seen Window, re-decodes every record the collector just built (Log.decode_record) and bounds them with a second function, bound_projections/1. Both call Window.recent/2, which fully sorts all samples every time the map exceeds the limit, i.e. on every event at steady state (twice per event across the two processes).",
+      "evidence": "collector.ex:16 `Writer.persist(Log.record(updated, fact, observed_at), state.writer)` and :18-22 own samples/seen update; writer.ex:79-84 `Log.decode_record(record)` then `put_snapshot`; writer.ex:160-171 bound_projections vs collector.ex:41-53 bound; window.ex:46-49 `Enum.sort_by(... :desc) |> Enum.take(limit)`.",
+      "recommendation": "Make the Writer a dumb batch appender that receives already-bounded snapshots (records keyed by decision_id) and compacts from them; keep the projection only in the collector; replace Window.recent's full sort with an ordered structure (gb_trees keyed by last_observed_at) or evict incrementally.",
+      "effort": "S",
+      "refactor_hint": "Decision metrics is small and self-contained; simplify before moving it with the decision subsystem."
+    },
+    {
+      "id": "telemetry-usage-28",
+      "category": "performance",
+      "severity": "P2",
+      "title": "GitHub enrichment lists every PR in the repo and fails wholesale past 2,000; per-ticket N+1 endpoint fan-out",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "lines": "16"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "lines": "24-67"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "lines": "90-152"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "lines": "207-235"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dashboard.ex",
+          "lines": "62-77"
+        }
+      ],
+      "description": "enrich/3 fetches `/pulls?state=all&per_page=100` for the whole repository and only then filters to the requested tickets; with @max_pages 20 any repository with more than 2,000 PRs returns {:error, :pagination_limit} and the report gets zero GitHub anchors (a 'fix by raising a limit' cap). Comment fetches then fan out to 1 request per ticket plus 3 per matched PR, each paginated, sequentially. Results accumulate with `items ++ body` / `events ++ normalized` (quadratic). Dashboard.enrich_dataset also re-parses all telemetry inputs a second time (Dataset.build twice) to merge the anchors.",
+      "evidence": "github_enricher.ex:16 `@max_pages 20`; :91 `\"#{Transport.base_url()}/repos/#{owner}/#{name}/pulls?state=all&per_page=100\"`; :107-108 `when pages_left <= 0, do: {:error, :pagination_limit}`; :53-54 pulls error -> `%{events: [], warnings: [...]}`; :135 `items ++ body`; :229 `events ++ normalized`; dashboard.ex:33 and :69 two `Dataset.build(inputs, ...)` calls.",
+      "recommendation": "Query PRs by head branch per ticket (search API or `head=owner:branch`) or use the daemon's cached issue/PR graph instead of listing all PRs; run endpoint fetches with bounded concurrency; accumulate with prepend+reverse; pass the already-built dataset into enrichment and append records instead of rebuilding.",
+      "effort": "S",
+      "refactor_hint": "Move this client out of run_telemetry into the GitHub layer (see telemetry-usage-10) where the budgeted/cached read path lives."
+    },
+    {
+      "id": "telemetry-usage-29",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "Tests cannot reach the unit's worst defects: no aggregate-level codex test, price fixtures only for the one revision that prices, a tautological assertion, and an async bare assert_receive",
+      "locations": [
+        {
+          "path": "src/test/aiur/usage/headless/adapters_test.exs",
+          "lines": "49-67"
+        },
+        {
+          "path": "src/test/aiur/usage/grouped_scopes/grouped_scopes_test.exs",
+          "lines": "139-198"
+        },
+        {
+          "path": "src/test/aiur/decision_metrics_test.exs",
+          "lines": "89-91"
+        },
+        {
+          "path": "src/test/aiur/run_telemetry_test.exs",
+          "lines": "207-226"
+        }
+      ],
+      "description": "The overlapping-stream test stops at the Normalizer (asserts two envelopes exist) and no test folds them through ledger -> aggregate -> GroupedScopes, so the double count (telemetry-usage-02) is invisible. GroupedScopes pricing tests build cells only with relationship_revision \"claude-remote-control-2026-07\", the one revision the price table covers, so the inert codex/headless pricing (telemetry-usage-03) cannot fail a test. decision_metrics_test sends :decision_metrics_changed to itself and then asserts it received it, which cannot fail. run_telemetry_test waits on a message sent from the Sampler's spawned scan after a supervised start with the default 100 ms assert_receive timeout.",
+      "evidence": "adapters_test.exs:53 `assert length(envelopes) == 2` (no downstream assertion); grouped_scopes_test.exs:141 `relationship_revision: \"claude-remote-control-2026-07\"`; decision_metrics_test.exs:89-91 `send(self(), :decision_metrics_changed) ... assert_receive :decision_metrics_changed`; run_telemetry_test.exs:226 `assert_receive :resource_sample_recorded` (message sent by the recorder inside the Sampler's scan process).",
+      "recommendation": "Add an end-to-end usage test from the real codex token-count fixture to GroupedScopes totals; parameterize price tests over every registered adapter relationship revision; delete the self-send assertion (or assert the real broadcast); give cross-process assert_receive an explicit timeout.",
+      "effort": "S",
+      "refactor_hint": "Write these tests before the carve so they travel with the usage package as contract tests."
+    },
+    {
+      "id": "telemetry-usage-30",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Dataset current-session reader ignores the requested boot id and reports tail-relative line numbers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "315-399"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "423-431"
+        }
+      ],
+      "description": "requested_boot_id is threaded through read_tail_chunks/consume_tail_lines, but the only use is `chosen_boot_id = if boot_id == requested_boot_id, do: requested_boot_id, else: boot_id`, which always equals boot_id; callers (latest_run.ex:34, presenter.ex:118) pass the current boot and always get whatever boot wrote the last line. Line numbers assigned via Enum.with_index(1) over the tail lines are relative to the tail, so warning locations are wrong, and a :file.read error mid-scan silently returns the partial state with no warning.",
+      "evidence": "dataset.ex:429 `chosen_boot_id = if boot_id == requested_boot_id, do: requested_boot_id, else: boot_id`; :338 `|> Enum.with_index(1)` over `state.lines`; :396-397 `{:error, _reason} -> state`.",
+      "recommendation": "Either honor the requested boot (stop at the requested boot's first segment, skip newer boots) or drop the parameter; carry byte offsets to report real positions; add a read_error warning.",
+      "effort": "S",
+      "refactor_hint": "Part of the Reader extraction in telemetry-usage-15."
+    },
+    {
+      "id": "telemetry-usage-31",
+      "category": "config",
+      "severity": "P3",
+      "title": "Compaction's byte-based retention bound is inert in production",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "lines": "90-104"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/policy.ex",
+          "lines": "79-94"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/policy.ex",
+          "lines": "107-108"
+        }
+      ],
+      "description": "Policy.retire_watermark uses raw_bytes to decide whether to retire down to the minimum window, but the Coordinator's raw_bytes_fun defaults to `fn -> 0 end` and aiur.ex starts `Aiur.UsageCompaction.Coordinator` with no options, so over_bytes? is never true and max_retained_bytes (8 MiB default) never binds; only the position cap works.",
+      "evidence": "coordinator.ex:100 `raw_bytes_fun: Keyword.get(opts, :raw_bytes_fun, fn -> 0 end)`; policy.ex:85 `over_bytes?(policy, raw_bytes) -> retirable_ceiling`; aiur.ex:412 bare `Aiur.UsageCompaction.Coordinator`.",
+      "recommendation": "Default raw_bytes_fun to the ledger segment size (the ledger already stats it in capacity/4) or remove max_retained_bytes from the policy.",
+      "effort": "S",
+      "refactor_hint": "Wire through the ledger's public API when the storage package is carved."
+    },
+    {
+      "id": "telemetry-usage-32",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Three OpenAI-compatible adapter modules are identical boilerplate",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/headless/deep_seek/request_usage.ex",
+          "lines": "1-22"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/kimi/request_usage.ex",
+          "lines": "1-22"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/open_router/request_usage.ex",
+          "lines": "1-22"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/open_ai_compat/request_usage.ex",
+          "lines": "7-23"
+        }
+      ],
+      "description": "DeepSeek, Kimi and OpenRouter adapters differ only in provider atom, source string, revision string and one relationship value; the source_version string \"openai-compatible-2026-08\" is repeated in all three plus OpenAICompat.relationship_definition, and OpenAICompat.dimensions/2 special-cases :deepseek by provider atom.",
+      "evidence": "Each file: `def source_version, do: \"openai-compatible-2026-08\"` and `def extract(payload, _raw, context, ingested_at), do: RequestUsage.extract(__MODULE__, payload, context, ingested_at)`; open_ai_compat/request_usage.ex:12 `source_version: \"openai-compatible-2026-08\"`, :64 `defp dimensions(:deepseek, usage)`.",
+      "recommendation": "Provide `use Aiur.Usage.Headless.OpenAICompat, provider: :kimi, cache_relationship: {:subset_of, :input}` (or one parameterized adapter struct registered per provider) and move the DeepSeek dimension mapping into an option.",
+      "effort": "S",
+      "refactor_hint": "Adapters become data registered per provider (see telemetry-usage-08)."
+    },
+    {
+      "id": "telemetry-usage-33",
+      "category": "performance",
+      "severity": "P3",
+      "title": "Relationship catalog and price table are rebuilt and fully re-validated on every query",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/headless/catalog.ex",
+          "lines": "28-32"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "lines": "91-120"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table.ex",
+          "lines": "32-40"
+        }
+      ],
+      "description": "GroupedScopes.project/3 calls PriceTable.default/0 (normalizes and validates every price entry with regexes and interval checks) and Catalog.relationship_catalog/0 plus RelationshipRegistry.register/2 (normalizes every definition) on each call unless the caller passes them; analytics_live.ex:542 calls project with only :currency. Both results are constant for a release. `{:ok, catalog} = ...` also turns any registry error into a crash of the caller.",
+      "evidence": "price_table.ex:33 `def default, do: new(Data.catalog_revision(), Data.entries())`; grouped_scopes.ex:104 `:error -> PriceTable.default()`, :112-120 `{:ok, catalog} = RelationshipRegistry.register(Catalog.relationship_catalog(), Relationship.definition())`; catalog.ex:30 `{:ok, catalog} = RelationshipRegistry.new(...)`.",
+      "recommendation": "Build both once (module attribute at compile time, or :persistent_term at boot since they are immutable) and validate them in a test.",
+      "effort": "S",
+      "refactor_hint": "Natural once adapters/prices are registered data in the usage package."
+    },
+    {
+      "id": "telemetry-usage-34",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Small helpers copied across the unit: value_of/2 (8 copies), the five token-dimension list (4), partition enums (2), exception-class naming (3)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/price_table.ex",
+          "lines": "122"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "lines": "7-10"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "lines": "217"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "lines": "17"
+        },
+        {
+          "path": "src/lib/aiur/usage/pricing/components.ex",
+          "lines": "4"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "lines": "13-15"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "lines": "454"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "lines": "21-22"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "lines": "395"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "lines": "168"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/codec.ex",
+          "lines": "104"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "lines": "258"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "1262-1263"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "lines": "99-113"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/emitter.ex",
+          "lines": "110"
+        }
+      ],
+      "description": "`defp value_of(map, key), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))` exists in 8 usage modules (price_table, validator, relationship_registry, counter_policy, record, codec, exact_money, usage_envelope.ex); the dimension list [:input, :cached_input, :cache_creation_input, :output, :reasoning_output] is hard-coded in validator, data, components and relationship_registry instead of UsageEnvelope.token_dimensions/0; context-tier and cache-write-duration enums are duplicated in Key and Validator; the Module.split |> List.last exception-class helper is in Dataset, Lifecycle and Emitter (Emitter without underscore, so the same exception is labelled differently). Sampler/Writer/Lifecycle also each define their own atom-or-string map accessor (metadata_value, attribute_value, value).",
+      "evidence": "`grep -rn \"defp value_of(\" src/lib` -> 8 hits all under usage*; `grep -rn \"\\[:input, :cached_input, :cache_creation_input, :output, :reasoning_output\\]\"` -> validator.ex:8, components.ex:4, relationship_registry.ex:13, data.ex:17; dataset.ex:1262-1263 exception_class vs lifecycle.ex:103-108 reason_class vs emitter.ex:110 inspect_class.",
+      "recommendation": "Add Aiur.Usage.Dimensions (token dimensions, partition enums) and a shared MapAccess.get/2 helper; use Lifecycle.reason_class (or a shared ErrorClass) everywhere.",
+      "effort": "S",
+      "refactor_hint": "Leaf utilities for the usage package and a shared core package."
+    },
+    {
+      "id": "telemetry-usage-35",
+      "category": "error-handling",
+      "severity": "P3",
+      "title": "ProviderMeters.Store crashes on a PubSub error and never evicts projections for rotated generations",
+      "locations": [
+        {
+          "path": "src/lib/aiur/provider_meters/store.ex",
+          "lines": "142-148"
+        },
+        {
+          "path": "src/lib/aiur/provider_meters/store.ex",
+          "lines": "35-44"
+        }
+      ],
+      "description": "maybe_store/4 hard-matches `:ok = Events.broadcast(snapshot)`; Phoenix.PubSub.broadcast can return {:error, term}, which would crash the Store and drop every in-memory meter projection (there is no persistence). projections is keyed by {provider, backend, generation} and nothing removes entries for generations that were rotated or retired, so the map grows with every account generation for the daemon's lifetime.",
+      "evidence": "store.ex:146 `:ok = Events.broadcast(snapshot)`; events.ex:60 `Phoenix.PubSub.broadcast(@pubsub, topic, message)`; store.ex:145 `Map.put(state.projections, key, snapshot)` with no delete anywhere in the module.",
+      "recommendation": "Treat broadcast failure as non-fatal (log/count it); subscribe to account-generation change events and drop projections for invalidated generations (keep last-known for display with a bounded LRU).",
+      "effort": "S",
+      "refactor_hint": "Provider meters package hygiene."
+    }
+  ]
+}

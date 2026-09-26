@@ -1,0 +1,1479 @@
+{
+  "unit_id": "agent-backends-cc",
+  "files_reviewed": 75,
+  "lines_reviewed_estimate": 13949,
+  "coverage_notes": "Read in full: all 75 files in the unit (13,949 lines), including the biggest modules claude/remote_control.ex (726), claude/telemetry.ex (666), claude/coding_agent.ex (534), codex/event_humanizer.ex (510), codex/rate_limit_adapter.ex (472), claude/telemetry/event.ex (453), claude/transcript.ex (436), codex/dynamic_tool/errors.ex (430), and every repl/, dynamic_tool/, telemetry/ and coding_agent/ file. To check cross-unit claims I also read parts of files outside the unit: app_server/adapter.ex (start_port, pause_latched?), app_server/turn_loop.ex (dispatch), agent_runner/session_lifecycle.ex (provider metadata and process-group parsing), orchestrator/agent_teardown.ex (kill_repl_session), orchestrator/auto_resume.ex (reset handling), orchestrator/state.ex (resolved model), provider_account_generation/context.ex, fs.ex (atomic_write), issue_log.ex (UTF-8 fix), aiur_web/streamdeck_channel.ex, aiur_web/streamdeck_projection.ex, opencode/session_writer.ex, model_availability.ex, event_humanizer_helpers.ex, config/schema/agent.ex and github/labels.ex. Caller and dead-code claims come from grep over src/lib, with src/test checked for test-only usage. Not reviewed: test files for these modules (they are not in the unit's file list; I only grep-checked which tests call the dead functions) and src/lib/aiur/coding_agent.ex (the registry, outside this unit). Nothing was built or run. The per-message `ps` cost (finding 01) and the ~/.claude.json lost update (08) come from reading the code, not from a measurement. Biggest functions noted: Codex.CodingAgent.start_session/2 (91 lines, codex/coding_agent.ex:57-147) and Approvals.maybe_handle_approval_request 10/9/8-arity family (codex/approvals.ex:12-198).",
+  "findings": [
+    {
+      "id": "agent-backends-cc-01",
+      "category": "performance",
+      "severity": "P1",
+      "title": "Codex spawns a `ps` process for every streamed JSON-RPC notification",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/turn_events.ex",
+          "lines": "8-11"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "123-137"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "212-225"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "283-294"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "448-466"
+        },
+        {
+          "path": "src/lib/aiur/codex/turn_loop.ex",
+          "lines": "140-156"
+        },
+        {
+          "path": "src/lib/aiur/codex/notifications.ex",
+          "lines": "13-18"
+        },
+        {
+          "path": "src/lib/aiur/codex/notifications.ex",
+          "lines": "40-45"
+        },
+        {
+          "path": "src/lib/aiur/codex/session_lifecycle.ex",
+          "lines": "24"
+        }
+      ],
+      "description": "Codex.TurnEvents.metadata_from_message/2 rebuilds port metadata from scratch on every call. AppServerPort.port_metadata/1 calls maybe_put_local_process_group, which calls RemoteControl.process_group_for_pid/1. That function runs System.find_executable(\"ps\") and System.cmd(ps, [\"-o\",\"pgid=\",\"-p\",pid]). When the pgid does not equal the pid, or when ps fails, it retries up to 20 times with Process.sleep(10). TurnLoop.handle_turn_method/5 calls metadata_from_message for every notification that is not turn/completed, and this includes every item/agentMessage/delta and outputDelta. Codex therefore forks and execs `ps` once per streamed delta in the runner's receive loop. After the app-server exits while buffered lines remain, ps fails and each message can stall for about 200 ms (20 x 10 ms plus 20 forks). A remote (ssh) session also runs local `ps` against the ssh pid on every message, because metadata_from_message calls port_metadata(port) without the worker_host.",
+      "evidence": "turn_events.ex:9-10 `def metadata_from_message(port, payload) do port |> AppServerPort.port_metadata() |> maybe_set_usage(payload)`; app_server_port.ex:215 `case process_group_for_pid(pid) do`; remote_control.ex:289 `case await_process_group_leader(ps, pid, 20) do` and 450 `System.cmd(ps, [\"-o\", \"pgid=\", \"-p\", pid], ...)` / 463 `Process.sleep(10)`; turn_loop.ex:156 `metadata = TurnEvents.metadata_from_message(port, payload)` (the handle_turn_method path for every non-turn/completed method). Claude.CodingAgent.port_metadata (claude/coding_agent.ex:195-209) calls only :erlang.port_info, so Claude does not have this cost.",
+      "recommendation": "Resolve the process-group metadata once at spawn. AppServerPort.start_port already computes it through notify_process_group_started. Store it in session.metadata, and make metadata_from_message read session.metadata (pass the session, not the port) and attach only per-message usage. Remove the retry/sleep loop from any hot-path caller.",
+      "effort": "M",
+      "refactor_hint": "Belongs to the app-server transport boundary (Aiur.AppServer / Codex adapter). Fix it before the carve so the new package API takes a session and not a raw port."
+    },
+    {
+      "id": "agent-backends-cc-02",
+      "category": "security",
+      "severity": "P1",
+      "title": "Claude permission_mode fails open to bypassPermissions on any unrecognised value",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/config.ex",
+          "lines": "8-10"
+        },
+        {
+          "path": "src/lib/aiur/claude/config.ex",
+          "lines": "33-38"
+        },
+        {
+          "path": "src/lib/aiur/claude/config.ex",
+          "lines": "41-47"
+        },
+        {
+          "path": "src/lib/aiur/config/schema/agent.ex",
+          "lines": "76-83"
+        },
+        {
+          "path": "src/lib/aiur/codex/config.ex",
+          "lines": "17"
+        },
+        {
+          "path": "src/lib/aiur/codex/config.ex",
+          "lines": "29-33"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "232"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/command.ex",
+          "lines": "32"
+        }
+      ],
+      "description": "Claude.Config.permission_mode/0 maps every value outside ~w(default acceptEdits bypassPermissions) to the most permissive mode. The Ecto schema casts permission_mode as a free string and never validates it, and validate!/0 checks only the command. An operator who writes a stricter mode with a typo (\"acceptedits\"), or a real Claude CLI mode that the allowlist omits (\"plan\"), silently gets bypassPermissions on both the app-server path (thread/start permissionMode) and the REPL path (--permission-mode). Nothing is logged or rejected. The Codex equivalent is fail-closed: an invalid approval_policy falls back to \"untrusted\", and validate_approval_policy/1 returns an explicit error.",
+      "evidence": "claude/config.ex:9 `@default_permission_mode \"bypassPermissions\"`, 33-37 `case section_value(\"permission_mode\") do value when value in @valid_permission_modes -> value; _ -> @default_permission_mode`; schema/agent.ex:76 `field(:permission_mode, :string, default: \"bypassPermissions\")`, 82 `cast(attrs, [:command, :model, :permission_mode], ...)` with only `validate_length(:command, min: 1)`; codex/config.ex:17 `@default_approval_policy \"untrusted\"` and 32 `{:error, _} -> @default_approval_policy`.",
+      "recommendation": "Add validate_inclusion(:permission_mode, ...) to the schema so a bad value fails config load. Make permission_mode/0 raise, or fall back to the *strictest* mode (\"default\"), never to bypassPermissions. Keep the explicit bypassPermissions default only for an unset key. Share one 'enum config value' helper with Codex.Config.",
+      "effort": "S",
+      "refactor_hint": "Claude backend config. It is safe to fix now. During the carve, give the Claude and Codex backend packages one AgentConfig validation contract."
+    },
+    {
+      "id": "agent-backends-cc-03",
+      "category": "other",
+      "severity": "P1",
+      "title": "DisplayTailer truncates transcript bodies mid-codepoint, which produces invalid UTF-8 for the Stream Deck channel and the opencode DB",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "lines": "302-327"
+        },
+        {
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "lines": "290-300"
+        },
+        {
+          "path": "src/lib/aiur/issue_log.ex",
+          "lines": "993-1009"
+        },
+        {
+          "path": "src/lib/aiur/agent_chat.ex",
+          "lines": "64"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "lines": "152-163"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "lines": "289-292"
+        },
+        {
+          "path": "src/lib/aiur/opencode/db.ex",
+          "lines": "256"
+        }
+      ],
+      "description": "cap_text/2 cuts transcript event bodies and payload.output at a fixed byte offset with binary_part/3 and caps them at 8000 bytes. When byte 8000 falls inside a multi-byte character, the result is invalid UTF-8. Emoji, box-drawing characters, CJK and '…' are routine in tool output and thinking blocks. The capped event goes through on_message to the runner's transcript broadcast. StreamdeckProjection.transcript/2 then passes `body` through unchanged into a Phoenix channel push, which JSON-encodes it. Opencode.Db encodes part data with Jason.encode, which rejects invalid UTF-8, so the row that DisplayTailer exists to paint fails with write_failed. IssueLog.summarize already fixed this exact defect after an invalid byte killed the Stream Deck socket, and its comment describes the failure. agent_chat.ex:64 has the same pattern.",
+      "evidence": "display_tailer.ex:322-324 `defp cap_text(text, max_body) when byte_size(text) > max_body do dropped = byte_size(text) - max_body; binary_part(text, 0, max_body) <> ...`; issue_log.ex:996-1004 `# Sliced by graphemes, not by bytes. # `binary_part/3` cut mid-codepoint ... an invalid byte raises, kills the socket`; streamdeck_projection.ex:156 `body: Map.get(event, :body)` (no sanitising).",
+      "recommendation": "Add one UTF-8-safe truncation helper, for example Aiur.Text.truncate_bytes/2, that backs off to a codepoint boundary (or String.slice by graphemes). Use it in DisplayTailer.cap_text, AgentChat and IssueLog. Add a test with a multi-byte character straddling the cap that fails with binary_part.",
+      "effort": "S",
+      "refactor_hint": "A shared text utility belongs in the core/util package that every backend and surface depends on."
+    },
+    {
+      "id": "agent-backends-cc-04",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "The two JSON-RPC app-server backends (Claude and Codex) duplicate session plumbing that has already diverged on safety properties",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "143-159"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "12-38"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "443-462"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "144-172"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "195-209"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "207-225"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "333-364"
+        },
+        {
+          "path": "src/lib/aiur/codex/approvals.ex",
+          "lines": "217-239"
+        },
+        {
+          "path": "src/lib/aiur/codex/approvals.ex",
+          "lines": "283-331"
+        },
+        {
+          "path": "src/lib/aiur/codex/coding_agent.ex",
+          "lines": "79"
+        },
+        {
+          "path": "src/lib/aiur/codex/turn_loop.ex",
+          "lines": "217-219"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "22-23"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "114-139"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "211-282"
+        },
+        {
+          "path": "src/lib/aiur/codex/frames.ex",
+          "lines": "8-11"
+        },
+        {
+          "path": "src/lib/aiur/codex/operator_delivery.ex",
+          "lines": "8-24"
+        },
+        {
+          "path": "src/lib/aiur/codex/handshake.ex",
+          "lines": "110-131"
+        }
+      ],
+      "description": "Claude.CodingAgent calls itself a 'simplified variant of Codex.CodingAgent'. It re-implements, inline, pieces that Codex keeps in AppServerPort, Handshake, Frames, OperatorDelivery and Approvals: workspace validation, port stop, port metadata, initialize/thread/start/turn/start frames, operator delivery and tool-call servicing. The copies no longer match. (a) Workspace check: Codex canonicalises both paths and rejects a symlink escape. Claude only string-prefix-checks the expanded path. (b) stop_port: Codex reaps the descendant tree before Port.close, citing the ~/.codex/state_5.sqlite lock incident. Claude only unregisters and closes, relying on orchestrator teardown. (c) Process group: Codex records agent_process_group_id only after `ps` proves os_pid == pgid, and its comment says callers must never fall back. Claude records os_pid as the group unconditionally, as an integer, where Codex stores a string. (d) Claude registers no PauseContainment, so Adapter.pause_latched? is always false for it. (e) Codex tool calls pass through ToolCallIdentity/ToolCallLedger (idempotency) and deny_for_pause. Claude executes every item/tool/call directly with neither. The request ids 2/3 and the frame shapes are also copied. Aiur.AppServer.OperatorDelivery (used by Claude) and Aiur.Codex.OperatorDelivery (used by Codex) are two different modules with the same short name.",
+      "evidence": "claude/coding_agent.ex:147-157 `root_prefix = workspace_root <> \"/\" ... not String.starts_with?(workspace_path <> \"/\", root_prefix)` vs app_server_port.ex:16-29 `PathSafety.canonicalize ... {:error, {:invalid_workspace_cwd, :symlink_escape, ...}}`; claude/coding_agent.ex:206-207 `defp maybe_put_agent_process_group(metadata, group) when is_integer(group) and group > 0, do: Map.put(metadata, :agent_process_group_id, group)` vs app_server_port.ex:207-216 comment `the port PID is safe to record only when ps confirms it is still that leader ... callers must never fall back`; claude/coding_agent.ex:344-347 `state.tool_executor |> ToolExecutor.execute(...) |> Messages.normalize_tool_result(...)` vs approvals.ex:315-326 `ToolCallIdentity.resolve(...) -> ToolCallLedger.execute(identity, fingerprint, execute, ...)`; claude/coding_agent.ex:22-23 `@thread_start_id 2 / @turn_start_id 3` duplicates codex/frames.ex:8-9.",
+      "recommendation": "Extract one Aiur.AppServer.Session module (workspace validation, spawn, verified process-group metadata, containment registration, stop with tree reap, frame builders, tool-call servicing through the ledger, pause denial). Both backends then plug in only their differences: Codex approvals, sandbox policy and account reads; Claude permissionMode. Decide explicitly, and document, whether Claude needs the tool-call ledger and pause containment, instead of losing them by copy.",
+      "effort": "L",
+      "refactor_hint": "This is the central carve seam: an 'app-server protocol' package shared by the Claude and Codex backend packages. Do this before splitting the backends into repos, or the divergence becomes permanent."
+    },
+    {
+      "id": "agent-backends-cc-05",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Aiur.Claude.RemoteControl is a 726-line generic OS-process toolkit that the whole system depends on, under a Claude-RC name",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "1-726"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "141"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "158"
+        },
+        {
+          "path": "src/lib/aiur/app_server/adapter.ex",
+          "lines": "253"
+        },
+        {
+          "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+          "lines": "105-111"
+        },
+        {
+          "path": "src/lib/aiur/pause_containment.ex",
+          "lines": "143-144"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "lines": "198-227"
+        },
+        {
+          "path": "src/lib/aiur/shutdown.ex",
+          "lines": "171"
+        },
+        {
+          "path": "src/lib/aiur/process_reaper.ex",
+          "lines": "289"
+        },
+        {
+          "path": "src/lib/aiur/git.ex",
+          "lines": "71"
+        },
+        {
+          "path": "src/lib/aiur/agent_resource_guard.ex",
+          "lines": "105"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "623"
+        }
+      ],
+      "description": "The moduledoc says 'stateless helpers shared by the Claude Remote Control path'. Only parse_session_url/1, ensure_workspace_trusted/2 and reap_orphaned_servers are RC-specific. The rest is generic process management: graceful_kill, graceful_kill_tree, process_tree, process_group_alive?, process_group_for_pid, graceful_kill_process_group, reap_process_group/tree/process through the pidfd helper, reap_workspace_agents, and Claude transcript-path resolution. Outside the Claude namespace it is called from Codex.AppServerPort, AppServer.Adapter, Workspace.Ownership.Guardian, PauseContainment, Orchestrator.AgentTeardown, Shutdown, ProcessReaper, Git, AgentResourceGuard and AgentRunner.SessionLifecycle. A Codex-only or core package therefore cannot be carved without dragging Aiur.Claude.* along. The module mixes five responsibilities: URL parse, ~/.claude.json trust edit, transcript discovery, signal/reap primitives, and a /proc cwd sweep.",
+      "evidence": "grep: RemoteControl.* is referenced from 14 modules outside claude/remote_control.ex (guardian.ex:105-111 alone takes seven default funs from it: `reap_fun: ... &RemoteControl.reap_process_group/2, ... &RemoteControl.process_identity/1`); codex/app_server_port.ex:141 `defdelegate process_group_for_pid(pid), to: RemoteControl`.",
+      "recommendation": "Split into (1) Aiur.OsProcess (kill/kill_tree/process_group/pidfd reap/identity/alive) in the core package, (2) Aiur.OsProcess.WorkspaceSweep (reap_workspace_agents, used by Shutdown), (3) Aiur.Claude.Transcripts (workspace_slug, resolve_transcript_path, newest_transcript, session_transcript_path), and (4) a small Aiur.Claude.RemoteControl that keeps only parse_session_url and ensure_workspace_trusted. Keep defdelegates during migration.",
+      "effort": "M",
+      "refactor_hint": "A prerequisite for any carve that separates Codex/core from Claude. The process primitives belong to the lowest-level package."
+    },
+    {
+      "id": "agent-backends-cc-06",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "The backend-agnostic agent tool surface (DynamicTool) lives in the Aiur.Codex namespace and hard-wires the Linear and GitHub clients",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool.ex",
+          "lines": "1-45"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/linear_graphql.ex",
+          "lines": "51"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/review_threads.ex",
+          "lines": "83-84"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/review_threads.ex",
+          "lines": "96-97"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "19"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "234"
+        },
+        {
+          "path": "src/lib/aiur/codex/frames.ex",
+          "lines": "52"
+        }
+      ],
+      "description": "Aiur.Codex.DynamicTool and its 11 submodules (about 1,400 lines) define the tools every agent sees: emit_alert, emit_event, aiur_subscribe, aiur_declare_blocker, aiur_set_ticket_state, the review-thread tools and linear_graphql. Callers outside Codex include Claude.CodingAgent (tool specs in thread/start), AgentRunner.ToolExecutor, OpenAICompat.ToolSpec, GitHub.IssueDependencies and AppServer.Adapter. The handlers default-inject Aiur.Linear.Client.graphql/3 and Aiur.GitHub.Client.reply_to_review_thread/3 and resolve_review_thread/2, so the 'Codex' namespace depends on both tracker clients. The progress quota key is even named {Aiur.Codex.DynamicTool, :progress_emit_count}.",
+      "evidence": "grep 'Codex.DynamicTool' outside dynamic_tool/: agent_runner/tool_executor.ex, claude/coding_agent.ex, open_ai_compat/tool_spec.ex, github/issue_dependencies.ex, app_server/adapter.ex, codex/frames.ex; linear_graphql.ex:51 `Keyword.get(opts, :linear_client, &LinearClient.graphql/3)`; review_threads.ex:84 `&GitHubClient.reply_to_review_thread/3`.",
+      "recommendation": "Move to Aiur.AgentTools (spec registry, dispatch, per-tool handlers, error catalog). Inject tracker operations through ToolExecutor opts or a Tracker behaviour instead of defaulting to concrete clients. Leave a deprecated alias module in Aiur.Codex during the move.",
+      "effort": "M",
+      "refactor_hint": "Its own package ('agent tools / agent-facing API') that the backends, OpenAI-compat and the runner depend on. It must not live inside a backend repo."
+    },
+    {
+      "id": "agent-backends-cc-07",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "The Claude REPL paths classify usage-limit exhaustion by substring-matching every key and value of whole records, the over-broad match #2727 removed only from the app-server path",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/notification_policy.ex",
+          "lines": "36-53"
+        },
+        {
+          "path": "src/lib/aiur/claude/notification_policy.ex",
+          "lines": "184-195"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/hook_turn.ex",
+          "lines": "115-122"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/transcript_turn.ex",
+          "lines": "211-217"
+        },
+        {
+          "path": "src/lib/aiur/claude/transcript_tailer.ex",
+          "lines": "218-235"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "422-435"
+        },
+        {
+          "path": "src/lib/aiur/codex/notification_policy.ex",
+          "lines": "86-96"
+        }
+      ],
+      "description": "usage_limit_exhausted?/1 for a map flattens the payload, keys included (`[key | flatten_values(item)]`), joins every binary, lowercases it and checks for any of 'rate limit', 'rate_limit', 'session limit', 'quota', 'too many requests', 'credit balance'... HookTurn applies it to the entire StopFailure hook payload (`event.raw`). TranscriptTurn applies it to the entire on-disk transcript record that TranscriptTailer.terminal_error_record/1 returns, which includes message content, cwd and gitBranch. Claude.CodingAgent applies it to turn/failed params. A non-limit API failure (500/overloaded) on a branch or workspace named '...quota...' or '...rate_limit...', or with assistant text that mentions rate limits, becomes {:paused, usage_limit_exhausted}. That pause spends no retry, parks the agent and sets reset_at from a regex. The Codex path is gated on willRetry:false plus codexErrorInfo, and #2727 removed free-text matching of provider_error for the Claude app server. The same heuristic survives on both REPL paths.",
+      "evidence": "notification_policy.ex:52 `payload_text(payload) |> String.downcase() |> String.contains?(@limit_markers)`; 191-192 `defp flatten_values(value) when is_map(value), do: Enum.flat_map(value, fn {key, item} -> [key | flatten_values(item)] end)`; hook_turn.ex:118 `if NotificationPolicy.usage_limit_exhausted?(event.raw) do`; transcript_turn.ex:213 `if NotificationPolicy.usage_limit_exhausted?(reason) do` where reason is the full record from transcript_tailer.ex:225-227 `defp terminal_error_record(%{\"type\" => \"assistant\", \"error\" => error} = record) ... do: record`.",
+      "recommendation": "Classify only structured provenance fields: `error` == 'rate_limit' / api_error_status == 429 / isApiErrorMessage plus the error text of the synthetic error message. Never flatten keys or unrelated fields. Share one classifier with the app-server provider_refusal/2 path. Add tests where cwd/gitBranch/assistant text contain 'quota' and the error is a 500. They must stay :unclassified.",
+      "effort": "M",
+      "refactor_hint": "Claude backend package. Put the provider-failure classification behind one 'provider refusal' contract that all three Claude transports use."
+    },
+    {
+      "id": "agent-backends-cc-08",
+      "category": "other",
+      "severity": "P1",
+      "title": "ensure_workspace_trusted rewrites the whole ~/.claude.json without a backup, mode preservation or protection against concurrent writers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "20-27"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "62-89"
+        },
+        {
+          "path": "src/lib/aiur/fs.ex",
+          "lines": "19-52"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "47"
+        }
+      ],
+      "description": "The moduledoc (lines 25 and 66) promises an 'atomic, backup-guarded edit'. The code decodes ~/.claude.json, sets one key and calls Fs.atomic_write(path, Jason.encode!(updated)) without :mode or :fsync. atomic_write takes no backup, and File.write on the temp file leaves it at umask-default permissions, so the rename replaces the user's file with a file whose mode is not the original's. ~/.claude.json holds account metadata. Serialisation covers only aiur's own calls (the Orchestrator handle_call). Every live `claude` process owned by other agents also rewrites ~/.claude.json, so any write they make between aiur's read and rename is lost (lost update on the operator's global Claude config).",
+      "evidence": "remote_control.ex:25 `with an atomic, backup-guarded edit`; 86 `Fs.atomic_write(path, Jason.encode!(updated))`; fs.ex:48-51 `defp write(tmp, contents, mode) do with :ok <- File.write(tmp, contents) do maybe_chmod(tmp, mode)` with `defp maybe_chmod(_path, nil), do: :ok`.",
+      "recommendation": "Preserve the original mode (File.stat, then pass :mode), write a timestamped backup before replacing, and re-read and compare (mtime/size or content hash) just before rename, retrying on change. Better still, write the trust flag through `claude config` or a per-project settings file instead of rewriting the global file. Fix the moduledoc either way.",
+      "effort": "S",
+      "refactor_hint": "Claude backend package (RC). This is user-data-touching code and should get its own small module with tests for mode preservation and concurrent modification."
+    },
+    {
+      "id": "agent-backends-cc-09",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Claude telemetry publishes events and usage envelopes on two PubSub topics that have no production subscriber",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "lines": "15-16"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "lines": "33-43"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "lines": "602-631"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "lines": "1-198"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter/validation.ex",
+          "lines": "1-142"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "lines": "45-47"
+        }
+      ],
+      "description": "Every accepted OTLP event is broadcast on \"claude_telemetry:events\". For claude-repl it is also normalised through UsageAdapter/Validation into a UsageEnvelope and broadcast with coverage facts on \"claude_telemetry:usage\". Neither subscribe/0 nor subscribe_usage/0, nor either topic string, is referenced anywhere in src/lib outside the module. Only src/test/aiur/claude/telemetry_test.exs subscribes. health/1 has no production caller either. The only production effect of the ingest path is the {:session_resolved_model, ...} message to the orchestrator. About 380 lines (UsageAdapter + Validation + publish/broadcast code) are computed per event and discarded. This is the 'instrumentation that measures zero' shape AGENTS.md warns about: readers will assume Claude usage is accounted.",
+      "evidence": "grep -rn 'claude_telemetry\\|subscribe_usage\\|Telemetry\\.subscribe' src/lib (excluding claude/telemetry*) -> no matches; only usage/grouped_scopes.ex aliases UsageAdapter.Relationship. telemetry.ex:610 `case UsageAdapter.normalize(event, DateTime.utc_now()) do` inside `defp publish(%{correlation: %{backend: \"claude-repl\"}} = event)`.",
+      "recommendation": "Either wire a consumer (the usage ledger / grouped scopes that already import Relationship) with a test proving an envelope lands, or delete the broadcast plus UsageAdapter/Validation and keep only resolved-model reporting. Expose health/1 on a status surface or remove it.",
+      "effort": "M",
+      "refactor_hint": "The Claude telemetry receiver can become its own small package (OTLP intake). Do not carry dead output ports across the carve."
+    },
+    {
+      "id": "agent-backends-cc-10",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "The telemetry contract pins an exact Claude Code version, so every auto-update silently rejects all events (latched)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/telemetry/contract.ex",
+          "lines": "4-7"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "lines": "306-334"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "lines": "440-447"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "lines": "578-600"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "lines": "272-303"
+        }
+      ],
+      "description": "Event.authenticated_resource/2 requires service.version == Contract.emitter_version() (\"2.1.210\") exactly. Claude Code auto-updates often, and after an update every OTLP batch is rejected as {:coverage, :unsupported_version, ...}. The only trace is a counter in state.rejections (reachable only through health/1, which nothing in production calls) plus an unconsumed coverage broadcast. The orchestrator's resolved-model reporting (report_resolved_model -> {:session_resolved_model,...}) stops without any signal, and nothing un-latches it except shipping a new aiur with a bumped pin. This is the 'fix by raising a limit' shape.",
+      "evidence": "contract.ex:5-6 `@source_version \"claude-code-2.1.210\"` / `@emitter_version \"2.1.210\"`; event.ex:309-310 `{:ok, emitter_version} <- one_string_attribute(attributes, \"service.version\", :source_version) ... supported_resource_value(emitter_version, source_contract.emitter_version, ...)` which does `true <- value == expected`.",
+      "recommendation": "Accept a version range (a major.minor compatible set) validated by attribute shape, not by exact version string. Emit one alert or attention (not a counter) the first time a new emitter version is rejected. Surface rejection counts on the status board.",
+      "effort": "S",
+      "refactor_hint": "Claude telemetry package: make the contract a declared compatibility range with a loud mismatch path."
+    },
+    {
+      "id": "agent-backends-cc-11",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Claude and Codex AccountGeneration duplicate the binding life-cycle wrappers and have diverged in error handling and auth_mode type",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/account_generation.ex",
+          "lines": "53-120"
+        },
+        {
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "lines": "111-173"
+        },
+        {
+          "path": "src/lib/aiur/claude/account_generation/context.ex",
+          "lines": "14-27"
+        },
+        {
+          "path": "src/lib/aiur/codex/account_generation/context.ex",
+          "lines": "19-30"
+        },
+        {
+          "path": "src/lib/aiur/claude/account_meters.ex",
+          "lines": "37-80"
+        },
+        {
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "lines": "93-101"
+        },
+        {
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "lines": "265-297"
+        }
+      ],
+      "description": "Both modules wrap ProviderAccountGeneration.bind/confirm/replace/invalidate/retire/recover_binding with the same arguments except the provider atom and the source (:claude_app_server vs :codex_app_server). Both copy meter_ingester/meter_failure_recorder. The copies have drifted. (1) Claude stores auth_mode in the context as an atom (:subscription | :api_key). Codex stores it as the raw string (\"chatgpt\", \"apikey\") and converts at every use through RateLimitAdapter.auth_mode/1. (2) Claude.observe checks the bind result and returns {:error, :unknown_account_generation}. Codex with_recovered_binding/2 discards the transition result and always returns :ok, so a rejected bind/confirm/invalidate is silent. (3) Claude.AccountMeters logs when the failure recorder rejects. Codex.record_rate_limit_failure/3 ignores the recorder's return value entirely.",
+      "evidence": "codex/account_generation.ex:146-153 `defp with_recovered_binding(session, transition) ... transition.(server, binding, authority) end; :ok`; codex/account_generation.ex:95-100 `failure = RateLimitAdapter.failure(...); meter_failure_recorder(session).(failure) end; :ok`; claude/account_meters.ex:55-58 `{:error, :failure_recorder_rejected} -> Logger.error(...)`; claude/context.ex:17 `auth_mode when auth_mode in [:subscription, :api_key]` vs codex/context.ex:19 `def put_auth_mode(session, auth_mode) when is_binary(auth_mode)`.",
+      "recommendation": "Extract Aiur.ProviderAccountGeneration.SessionBinding parameterised by {provider, backend, source}, with one transition helper that returns and logs the result, one meter ingest/failure path, and a normalised auth_mode atom. Each backend then keeps only its notification-to-transition mapping.",
+      "effort": "M",
+      "refactor_hint": "Belongs next to ProviderAccountGeneration in the shared provider-meters package. The backends should call it and not copy it."
+    },
+    {
+      "id": "agent-backends-cc-12",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Unknown provider-meter failure causes are collapsed into specific causes (:transport, :malformed)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "lines": "467-471"
+        },
+        {
+          "path": "src/lib/aiur/claude/rate_limit_adapter.ex",
+          "lines": "179-182"
+        },
+        {
+          "path": "src/lib/aiur/claude/account_meters.ex",
+          "lines": "22-28"
+        },
+        {
+          "path": "src/lib/aiur/claude/account_meters.ex",
+          "lines": "37-45"
+        },
+        {
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "lines": "265-278"
+        }
+      ],
+      "description": "AGENTS.md rule 2: 'collapse an unknown cause to a cause-neutral atom ... never to a specific cause'. Both rate adapters end failure_reason/1 with `_reason -> :transport`, so a port crash, an unknown_account_generation or any unexpected tuple is recorded as a transport failure. AccountMeters maps `_other` (for example an AccountGeneration.observe mismatch returning a different binding) and every ingester rejection to :malformed. Codex.ingest_rate_limit_update/3 does the same for both {:error, reason} and `_other`, and drops the reason. These atoms go into ProviderMeters failure records and the dashboards.",
+      "evidence": "codex/rate_limit_adapter.ex:471 `defp failure_reason(_reason), do: :transport`; claude/rate_limit_adapter.ex:182 same; claude/account_meters.ex:25-26 `_other -> fail(session, :malformed, observed_at)` and 42-43 `_error -> fail(session, :malformed, observed_at)`; codex/account_generation.ex:270-276 `{:error, _reason} -> record_rate_limit_failure(session, :malformed, opts)`.",
+      "recommendation": "Use :unknown for the fallthrough, and add a distinct :meter_rejected (carrying the ingester's reason in a separate `reasons` field) instead of :malformed. Share one failure_reason/1 between the adapters.",
+      "effort": "S",
+      "refactor_hint": "Provider-meters package: one failure envelope builder used by every provider adapter."
+    },
+    {
+      "id": "agent-backends-cc-13",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "The Codex `rateLimits` payload is parsed by five independent parsers with different validation and epoch units",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "lines": "258-282"
+        },
+        {
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "lines": "433-442"
+        },
+        {
+          "path": "src/lib/aiur/codex/rate_limits.ex",
+          "lines": "20"
+        },
+        {
+          "path": "src/lib/aiur/codex/rate_limits.ex",
+          "lines": "82-98"
+        },
+        {
+          "path": "src/lib/aiur/codex/exhausted_reset.ex",
+          "lines": "78-90"
+        },
+        {
+          "path": "src/lib/aiur/codex/event_normalizer.ex",
+          "lines": "85-118"
+        },
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "368-374"
+        },
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "405"
+        }
+      ],
+      "description": "Parsers: (1) RateLimitAdapter.rate_window requires usedPercent to be an integer in 0..100 and resetsAt to be epoch *seconds* (DateTime.from_unix/1). (2) RateLimits.redact accepts any number for usedPercent and any integer up to @max_epoch_millis (4.1e12, a *millisecond* bound) for reset fields. (3) ExhaustedReset.limit_resets accepts any number >= 100 and reads resetsAt as seconds. (4) EventNormalizer.rate_limits_map? detects the shape heuristically, and falls back to RateLimits.safe?. (5) ModelAvailability.normalize_window/parse_time reads the redacted feed, and parse_time treats integers as seconds, so a millisecond value that RateLimits accepted becomes nil. Each fix to the Codex payload shape has to be made five times. The unit disagreement (millis bound vs seconds consumers) has already crept in.",
+      "evidence": "rate_limits.ex:20 `@max_epoch_millis 4_102_444_800_000`, 89 `defp safe_reset_value(value) when is_integer(value) and value >= 0 and value <= @max_epoch_millis`; rate_limit_adapter.ex:258-259 `%{\"usedPercent\" => used_percent} ... when is_integer(used_percent) and used_percent in 0..100`; exhausted_reset.ex:79 `%{\"usedPercent\" => used} = window ... is_number(used)`; model_availability.ex:405 `defp parse_time(value) when is_integer(value), do: DateTime.from_unix(value)`.",
+      "recommendation": "Parse the payload once into a typed struct (Codex.RateLimitSnapshot: windows with used_percent, reset DateTime and duration) at the notification boundary. Derive the meter update, the redacted legacy map, the exhausted resets and model availability from that struct.",
+      "effort": "M",
+      "refactor_hint": "Codex backend package: one wire-format parser module. Consumers outside the backend take the typed struct."
+    },
+    {
+      "id": "agent-backends-cc-14",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Usage-limit pause construction and reset-time parsing are implemented twice (Claude and Codex) with different policies",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/notification_policy.ex",
+          "lines": "69-93"
+        },
+        {
+          "path": "src/lib/aiur/claude/notification_policy.ex",
+          "lines": "157-169"
+        },
+        {
+          "path": "src/lib/aiur/claude/reset_time.ex",
+          "lines": "1-48"
+        },
+        {
+          "path": "src/lib/aiur/codex/notification_policy.ex",
+          "lines": "103-113"
+        },
+        {
+          "path": "src/lib/aiur/codex/notification_policy.ex",
+          "lines": "176-204"
+        },
+        {
+          "path": "src/lib/aiur/codex/reset_time.ex",
+          "lines": "1-185"
+        }
+      ],
+      "description": "Both backends build %{kind: :usage_limit_exhausted, reason, reset_hint, reset_at} pauses with their own ResetTime parser. They differ in behaviour. Codex rounds up to the end of the minute, accepts dates and yearless dates, and moves a past or just-passed reset to now + reset_min_delay_seconds (#2737). Claude's parser accepts only 'H:MMam (Zone)' with a mandatory parenthesised IANA zone, returns nil for a past ISO time, and has no min-delay floor. A Claude banner such as 'resets 11:40pm' without a zone, or a reset that just passed, yields reset_at: nil. The recovery scheduler (auto_resume.ex recovery_due_at_ms) then treats that as due now. The #2737 fix reached only one backend.",
+      "evidence": "claude/reset_time.ex:4 `@clock ~r/\\A(?<hour>\\d{1,2}):(?<minute>\\d{2})(?<period>am|pm)\\s+\\((?<zone>[^()]+)\\)\\z/i`, 11 `if DateTime.compare(time, now) == :lt, do: nil`; codex/notification_policy.ex:193-203 `defp not_before_min_delay(reset, now, opts) ... now |> DateTime.add(delay, :second)`.",
+      "recommendation": "Extract Aiur.ProviderPause (pause payload builder + reset resolution policy: numeric reset > parsed text > now+min_delay). Give it provider-specific text grammars as small parser modules. Apply the min-delay floor to all providers.",
+      "effort": "M",
+      "refactor_hint": "Shared provider-pause policy in the core package. The backends contribute only a text grammar."
+    },
+    {
+      "id": "agent-backends-cc-15",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Codex usage-limit detection and reset-hint extraction regex over `inspect(payload)`",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/notification_policy.ex",
+          "lines": "227-244"
+        }
+      ],
+      "description": "usage_limit_exceeded?/1 and usage_limit_reset_hint/1 call inspect/1 on the whole payload and substring or regex match the result. inspect escapes quotes and newlines, changes key rendering, and truncates by default (binaries after printable_limit 4096, collections after 50 items). A 'usage limit' marker or a 'try again at' phrase deep in a large error payload can therefore be missed, and the match depends on Inspect formatting rather than on data.",
+      "evidence": "notification_policy.ex:229-232 `payload |> inspect() |> String.downcase() |> String.contains?([\"usagelimitexceeded\", \"usage limit\"])`; 240 `Regex.run(~r/try again at ([^.\"\\n]+)/i, inspect(payload))`.",
+      "recommendation": "Match structured fields (codexErrorInfo, error.message, params.message) or, at most, a bounded join of binary leaf values, like Claude's payload_text but without keys. Never match against inspect output.",
+      "effort": "S",
+      "refactor_hint": "Codex backend package: part of the single wire-format parser (see the rate-limit finding)."
+    },
+    {
+      "id": "agent-backends-cc-16",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "EventHumanizer doubles 35 lookups and 32 path-list entries with atom-key variants that map_path already covers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "lines": "11-509"
+        },
+        {
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "lines": "322-359"
+        },
+        {
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "lines": "471-509"
+        },
+        {
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "lines": "19-84"
+        },
+        {
+          "path": "src/lib/aiur/event_humanizer_helpers.ex",
+          "lines": "5-13"
+        },
+        {
+          "path": "src/lib/aiur/event_humanizer_helpers.ex",
+          "lines": "91-113"
+        }
+      ],
+      "description": "EventHumanizerHelpers.map_path/2 resolves every segment through fetch_map_key/2, which tries the given key and then alternate_key/1 (string <-> existing atom). Every `map_path(payload, [\"params\", ...]) || map_path(payload, [:params, ...])` pair is therefore redundant. delta_paths (34 entries), reasoning_focus_paths (24) and token_usage_paths (6) are exactly doubled. Codex's humanizer has 60 lines containing `[:params` and Claude's has 7. (Codex.EventNormalizer's doubled paths are *not* redundant, because MapAccess.dig does no fallback. The two map-access helpers have different semantics, which invites this confusion.)",
+      "evidence": "event_humanizer_helpers.ex:91-104 `defp fetch_map_key(map, key) ... :error -> alternate = alternate_key(key) ... Map.fetch(map, alternate)`; codex/event_humanizer.ex:12 `map_path(payload, [\"params\", \"thread\", \"id\"]) || map_path(payload, [:params, :thread, :id])`; `grep -c '\\[:params' codex/event_humanizer.ex` = 60.",
+      "recommendation": "Delete the atom-key variants (about 100 lines). Pick one map-access helper (map_path with fallback, or MapAccess.dig without) and use it everywhere so the doubling habit dies.",
+      "effort": "S",
+      "refactor_hint": "Presentation/humanizer layer. When it moves, bring one map-access helper with defined semantics."
+    },
+    {
+      "id": "agent-backends-cc-17",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Test-only public functions in production modules, including a remote-spawn branch that production never takes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/coding_agent.ex",
+          "lines": "40-54"
+        },
+        {
+          "path": "src/lib/aiur/codex/handshake.ex",
+          "lines": "20-27"
+        },
+        {
+          "path": "src/lib/aiur/codex/handshake.ex",
+          "lines": "110-116"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "54-94"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "174-176"
+        }
+      ],
+      "description": "Codex.CodingAgent.run/4 (which needs a @dialyzer nowarn), Handshake.establish/5 and send_initialize/2, AppServerPort.start_port/4 and start_port/5, and codex_command_for_test/2 have no callers in src/lib. Only app_server_port_test.exs, handshake_test.exs and coding_agent_test.exs call them. start_port/5's remote clause (86-94) duplicates open_port/5's SSH spawn but does not close the port when the callback fails, unlike open_port (100-111). Tests therefore exercise a spawn path production never uses, and the production path (start_port/6 -> open_port) gets less coverage.",
+      "evidence": "grep in src/lib for 'Handshake.establish(\\|Handshake.send_initialize\\|CodingAgent.run(' -> none; AppServerPort.start_port( is called once, with 6 args (codex/coding_agent.ex:70-77); app_server_port.ex:86-93 `with {:ok, port} <- SSH.start_port(...) do notify_process_group_started(...); {:ok, port} end` vs 104-110 `case on_port_started.(port) do ... {:error, _} = error -> close_uncontained_remote_port(port, error)`.",
+      "recommendation": "Delete run/4, establish/5, send_initialize/2 and start_port/4 and /5, and point the tests at start_port/6 and establish_with_rate_limits/5. Replace codex_command_for_test with a test through start_port and a fake command, or make codex_command/2 @doc false public.",
+      "effort": "S",
+      "refactor_hint": "Shrinks the Codex backend's public API before it becomes a package boundary."
+    },
+    {
+      "id": "agent-backends-cc-18",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "reap_orphaned_servers sweeps `rc-<pid>-<n>.debug` files that nothing creates any more, using `pkill -f`, on every boot",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "489-526"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "685-721"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "333-338"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl_agent.ex",
+          "lines": "60-66"
+        }
+      ],
+      "description": "Remote Control now runs as a `--remote-control` flag on the REPL pane. No code in src/lib launches `claude remote-control --debug-file <tmp>/aiur-rc/rc-<pid>-<n>.debug` any more. The only references to 'debug-file' and 'aiur-rc' are in this module's doc and debug_dir/0. Boot still calls cleanup_stray_remote_control_servers -> reap_orphaned_servers, which lists the directory, probes owner pids with `kill -0`, and runs `pkill -f \"remote-control.*<escaped path>\"` for dead owners. The rescue-all wrapper would hide a failure. `pkill -f` matching on command lines is the hazard class the operator notes warn about.",
+      "evidence": "grep -rn 'debug-file\\|aiur-rc' src/lib -> only remote_control.ex:496,506,721; remote_control.ex:713 `pkill -> System.cmd(pkill, [\"-f\", \"remote-control.*#{Regex.escape(debug_path)}\"], ...)`; remote_control_mode.ex:335 `RemoteControl.reap_orphaned_servers()`.",
+      "recommendation": "Delete reap_orphaned_servers/0,1, maybe_reap_orphan, kill_orphan_server, os_process_alive? and debug_dir, and drop the call from cleanup_stray_remote_control_servers. Keep Reaper.reap_orphaned_panes, which covers the live REPL design.",
+      "effort": "S",
+      "refactor_hint": "Remove before the carve so the Claude RC package does not ship legacy reapers."
+    },
+    {
+      "id": "agent-backends-cc-19",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "Approvals.maybe_handle_approval_request has 10-, 9- and 8-arity overloads with positional booleans and suppresses Credo's arity check",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/approvals.ex",
+          "lines": "10"
+        },
+        {
+          "path": "src/lib/aiur/codex/approvals.ex",
+          "lines": "12-198"
+        },
+        {
+          "path": "src/lib/aiur/codex/turn_loop.ex",
+          "lines": "165-176"
+        }
+      ],
+      "description": "The public API is maybe_handle_approval_request/10 (port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, context, paused?). It re-dispatches to /9, which pattern-matches on a trailing `true|false` paused flag and, when paused, re-calls itself with `false` for id-less payloads. /8 exists only to default paused?=false. The /10 head also special-cases item/tool/call before delegating, so tool calls are routed in two places (lines 37-38 and 92-104). The file disables Credo.Check.Refactor.FunctionArity, and every helper threads the same 7-8 values.",
+      "evidence": "approvals.ex:10 `# credo:disable-for-this-file Credo.Check.Refactor.FunctionArity`; 70-76 `def maybe_handle_approval_request(port, method, payload, payload_string, on_message, metadata, tool_executor, auto_approve_requests, true) do ... maybe_handle_approval_request(..., false)`.",
+      "recommendation": "Introduce a %Request{port, method, payload, raw, on_message, metadata} and a %Policy{tool_executor, auto_approve?, paused?, context}. Route on method in a single function, and remove /8 and /9.",
+      "effort": "M",
+      "refactor_hint": "The Codex backend's approval policy. Simplifying it makes the shared app-server tool-call path (see the app-server divergence finding) easier to extract."
+    },
+    {
+      "id": "agent-backends-cc-20",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Thirteen hand-rolled sleep-until-deadline polling loops across the REPL and process-kill code",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/repl/launcher.ex",
+          "lines": "318-344"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/rc_attach.ex",
+          "lines": "52-73"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/rc_attach.ex",
+          "lines": "89-107"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/prompt_submit.ex",
+          "lines": "59-78"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/prompt_submit.ex",
+          "lines": "97-129"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/transcript_turn.ex",
+          "lines": "135-154"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/transcript_turn.ex",
+          "lines": "200-259"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/transcript_turn.ex",
+          "lines": "281-296"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "408-425"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "443-487"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "599-616"
+        }
+      ],
+      "description": "Each loop re-implements `deadline = now + budget; cond do done? -> ...; now >= deadline -> timeout; true -> Process.sleep(n); recurse`. There are 13 Process.sleep call sites and 10 `>= deadline` checks in this unit. Budgets and poll intervals are scattered module attributes (15_000, 10_000, 5_000, 20_000, 2_000, 200, 150, 100, 25, 10 ms). transcript_turn.ex and hook_turn.ex say 'Deliberately duplicated ... do not create a shared constants module'. Several loops block the calling process and poll tmux via capture-pane on each tick.",
+      "evidence": "`grep -n Process.sleep` over the unit's files: rc_attach.ex:70,104; transcript_turn.ex:151,255,292; launcher.ex:341; prompt_submit.ex:75,121,126; remote_control.ex:422,463,484,612.",
+      "recommendation": "Add Aiur.Poll.until(fun, timeout: ms, interval: ms) returning {:ok, value} | :timeout, with an injectable clock for tests, and convert the loops to it. This keeps the one-way dependency the comments ask for, because it is a utility, not shared constants.",
+      "effort": "S",
+      "refactor_hint": "Core util package."
+    },
+    {
+      "id": "agent-backends-cc-21",
+      "category": "performance",
+      "severity": "P2",
+      "title": "graceful_kill_tree kills descendants one at a time with up to about 4 s each, and walks the tree with one `pgrep` per node",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "226-255"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "427-446"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "634-649"
+        }
+      ],
+      "description": "graceful_kill_tree/1 snapshots descendants with a recursive `pgrep -P` (one OS spawn per process in the tree). It then calls graceful_kill/1 on each descendant in sequence, and each call waits up to @kill_grace_ms (2 s) after TERM and 2 s more after KILL. A wedged tree of N processes blocks the caller for up to about 4N seconds. Callers include AppServer.Adapter.terminate_uncontained_port, Codex AppServerPort.stop_port (in the runner), Repl.Reaper.stop_session, Orchestrator.AgentTeardown.kill_repl_session, ProcessReaper and Git. The same module already fixed this for reap_workspace_agents by moving to Task.async_stream, citing #453. graceful_kill/1 also signals raw pids with no identity check. That is the pid-reuse hazard the pidfd path (369-386) exists to avoid.",
+      "evidence": "remote_control.ex:252 `descendants |> Enum.reverse() |> Enum.each(&graceful_kill/1)`; 230-233 `unless await_exit(pid, @kill_grace_ms) do System.cmd(\"kill\", [\"-KILL\", pid] ...); await_exit(pid, @kill_grace_ms)`; 634-639 comment `Kill concurrently, not serially: a single graceful_kill blocks up to its SIGTERM+SIGKILL grace ...`.",
+      "recommendation": "TERM all snapshotted pids at once, wait on the set with one deadline, then KILL the survivors. Read the tree from one `ps -eo pid,ppid` snapshot. Prefer process-group signalling when a verified group exists.",
+      "effort": "S",
+      "refactor_hint": "OsProcess module (see the RemoteControl coupling finding)."
+    },
+    {
+      "id": "agent-backends-cc-22",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "DisplayTailer can latch 'unavailable': retarget happens only on the next hook, with no timer retry",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "lines": "126-140"
+        },
+        {
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "lines": "186-219"
+        }
+      ],
+      "description": "When a hook names a transcript_path that is not on disk yet (the moduledoc notes Claude's lazy flush), maybe_retarget/3 stops any tailer, logs a warning and sets tailer: nil and path: nil. When the inner tailer exits, the same happens. In both cases the moduledoc says it 'waits for the next hook to retarget'. Nothing schedules a retry. If the agent's next hook never comes (a long single tool-less turn, a Stop that was the last hook, or a hook stream interrupted by a dashboard restart), the chat pane stays empty for the rest of the turn. The only record is a Logger.warning, which is not persisted without --debug.",
+      "evidence": "display_tailer.ex:212-217 `# Path not flushed to disk yet (lazy flush) ... stop_tailer(state.tailer); log_failure(...); notify_source(state, {:unavailable, ...}); %{state | tailer: nil, path: nil, session_id: session_id}`; 136-139 `def handle_info({:EXIT, pid, reason}, %{tailer: pid} = state) ... {:noreply, %{state | tailer: nil, path: nil}}` (the path is discarded, so it cannot even be retried).",
+      "recommendation": "Keep the last known path. On :enoent or an inner EXIT, schedule a bounded exponential retry (for example 0.5 s to 10 s) that re-attempts start_tailer for that path until a new hook supersedes it.",
+      "effort": "S",
+      "refactor_hint": "Claude REPL/RC package, display side."
+    },
+    {
+      "id": "agent-backends-cc-23",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Three backend-side state stores live in the process dictionary, so session maps work only in the process that created them",
+      "locations": [
+        {
+          "path": "src/lib/aiur/provider_account_generation/context.ex",
+          "lines": "12-18"
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/context.ex",
+          "lines": "83-89"
+        },
+        {
+          "path": "src/lib/aiur/codex/exhausted_reset.ex",
+          "lines": "48-56"
+        },
+        {
+          "path": "src/lib/aiur/codex/exhausted_reset.ex",
+          "lines": "92-100"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/emit_event.ex",
+          "lines": "56"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/emit_event.ex",
+          "lines": "127-149"
+        }
+      ],
+      "description": "The account-generation binding (via Claude and Codex AccountGeneration.Context), Codex exhausted-reset epochs keyed by port, and the per-turn progress quota are all kept with Process.put/get. A session map passed to another process (a Task, a GenServer call, a future package boundary) silently sees no binding, so fetch returns :error. AccountMeters then returns {:error, :unknown_account_generation} and ExhaustedReset.latest returns nil, which falls back to text parsing. The progress quota must be reset by DynamicTool.reset_turn_quotas in the same process as the tool call (called from agent_runner/turn_loop.ex:117 and queue_drain.ex:670). Context.clear/3 writes a `:cleared` tombstone instead of deleting, so entries accumulate for the life of the runner process.",
+      "evidence": "context.ex:15 `Process.put(context_key(context), binding)`, 86 `Process.put(context_key(context), :cleared)`; exhausted_reset.ex:95-96 `defp update(port, fun) do Process.put(key(port), fun.(Process.get(key(port), %{})))`; emit_event.ex:129-134 `count = Process.get(@progress_quota_key, 0) ... Process.put(@progress_quota_key, count + 1)`.",
+      "recommendation": "Carry this state explicitly in the session map (or turn state), returned and threaded like other session fields. If process-local storage is kept, assert the owner pid on access and fail loudly instead of returning :error or nil.",
+      "effort": "M",
+      "refactor_hint": "A carve hazard: package APIs that take a `session()` must not depend on hidden per-process state."
+    },
+    {
+      "id": "agent-backends-cc-24",
+      "category": "other",
+      "severity": "P2",
+      "title": "The two REPL turn loops handle pause differently, and HookTurn's pause-confirm knob is dead",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/repl/hook_turn.ex",
+          "lines": "25-28"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/hook_turn.ex",
+          "lines": "52"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/hook_turn.ex",
+          "lines": "71"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/hook_turn.ex",
+          "lines": "163-186"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/hook_turn.ex",
+          "lines": "223-226"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/transcript_turn.ex",
+          "lines": "94-104"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/transcript_turn.ex",
+          "lines": "261-279"
+        }
+      ],
+      "description": "HookTurn documents @pause_confirm_ms as 'how long to wait for the tailer to observe the turn closing before parking the agent as paused anyway'. It reads the option and stores it in the loop map, and then never uses it. interrupt_for_pause/2 returns {:paused, payload} as soon as Ctrl+C is sent, without waiting for a Stop hook. TranscriptTurn does wait (confirm_pause, returning :pause_confirmation_timeout on expiry). HookTurn's paused payload also drops session_id, while TranscriptTurn's comment says the runner's {:paused,_} branch reads payload[:session_id] and so the payload must carry the ids.",
+      "evidence": "hook_turn.ex:52 `pause_confirm_ms = Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms)`, 71 `pause_confirm_ms: pause_confirm_ms,` (no other reference); 179-180 `:ok -> {:paused, payload}`; 223-225 `TurnEvents.emit(on_message, :turn_paused, %{session_id: payload[:session_id]}); {:paused, payload}`; transcript_turn.ex:94-95 `The runner's {:paused, _} branch reads payload[:session_id] ... so the payload must carry the ids`.",
+      "recommendation": "Make HookTurn confirm the pause by waiting for :stop or :stop_failure up to pause_confirm_ms, and merge acc.session_id into the pause payload. Extract the shared pause and operator-queue receive clauses (duplicated verbatim in both loops) into one helper.",
+      "effort": "S",
+      "refactor_hint": "Claude REPL package: both loops should share one pause/queue handling module."
+    },
+    {
+      "id": "agent-backends-cc-25",
+      "category": "other",
+      "severity": "P2",
+      "title": "The prompt-echo check matches anywhere in the pane, so a previous turn's echo or paste chip satisfies it at once",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/repl/prompt_submit.ex",
+          "lines": "35"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/prompt_submit.ex",
+          "lines": "47-52"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/prompt_submit.ex",
+          "lines": "97-129"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/prompt_submit.ex",
+          "lines": "131-144"
+        }
+      ],
+      "description": "input_echoes?/2 joins the whole captured pane and returns true if it contains the first 24 characters of the prompt *or* the literal \"[Pasted text\". After one multi-line prompt, the chip stays in the visible scrollback, and repeated continuation prompts share a prefix. send/3's retype guard, which exists so a dropped paste is never submitted as a blank line, can then pass immediately and press Enter even though the new paste was dropped. That is the ':no_transcript' failure mode the module comment describes. submit/3's paste-landed wait is short-circuited the same way.",
+      "evidence": "prompt_submit.ex:35 `@paste_indicator \"[Pasted text\"`; 134-135 `joined = Enum.join(lines, \"\\n\"); String.contains?(joined, prefix) or String.contains?(joined, @paste_indicator)`; 143 `prompt |> String.trim() |> String.slice(0, 24)`.",
+      "recommendation": "Check only the input box region (the lines after the last prompt glyph), or snapshot the pane before pasting and require a *new* occurrence. Add a test whose pane already contains the chip from a previous turn.",
+      "effort": "S",
+      "refactor_hint": "Claude REPL package (tmux driving)."
+    },
+    {
+      "id": "agent-backends-cc-26",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "RouteCredentials promises skipped routes are announced, but it announces them only through Logger.info",
+      "locations": [
+        {
+          "path": "src/lib/aiur/coding_agent/route_credentials.ex",
+          "lines": "15-20"
+        },
+        {
+          "path": "src/lib/aiur/coding_agent/route_credentials.ex",
+          "lines": "72-86"
+        }
+      ],
+      "description": "The moduledoc says a key-less agent.priority route is 'silent per claim, announced once per boot', so the change 'can never happen invisibly'. log_startup_survey/1 is the only announcement, and it is a Logger.info line. Without --debug, Logger output is written nowhere, so an operator's first-choice route is skipped for every claim with no trace.",
+      "evidence": "route_credentials.ex:15-20 `**Skipping is silent per claim, announced once per boot.** ... can never happen invisibly`; 80 `Logger.info(\"agent.priority route #{inspect(route)} will be skipped: #{env} is not set. ...`.",
+      "recommendation": "Emit a boot-time system alert or attention (non-urgent) per skipped route, or show 'skipped: <ENV> unset' on the status board's route list.",
+      "effort": "S",
+      "refactor_hint": "Routing/config package."
+    },
+    {
+      "id": "agent-backends-cc-27",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Several backend paths drop failures with no log or alert",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/session_lifecycle.ex",
+          "lines": "37-49"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "373"
+        },
+        {
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "lines": "22-30"
+        },
+        {
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "lines": "146-153"
+        },
+        {
+          "path": "src/lib/aiur/codex/session_lifecycle.ex",
+          "lines": "59-78"
+        }
+      ],
+      "description": "(1) register_pause_containment/3 returns nil, without logging, when the pid/pgid metadata is missing or PauseContainment.register errors. The Codex session then runs with no pause containment, and a later pause cannot be enforced at the OS level. (2) Claude.CodingAgent discards AccountMeters.handle_notification's result (`_ = ...`), so {:error, :unknown_account_generation} and {:error, :provider_meter_failure_unrecorded} disappear. (3) Codex account/updated transitions (bind, invalidate) run through with_recovered_binding, which always returns :ok. (4) Codex startup account and rate-limit read failures log only at debug level.",
+      "evidence": "session_lifecycle.ex:44-45 `else _ -> nil`; claude/coding_agent.ex:373 `_ = AccountMeters.handle_notification(session, payload)`; session_lifecycle.ex:69 `Logger.debug(\"Codex account/rateLimits/read unavailable\")`.",
+      "recommendation": "Return {:ok, handle} | {:error, reason} from containment registration and fail the start, or emit an attention, when containment cannot be established. Log or alert non-:ok meter results once per session.",
+      "effort": "S",
+      "refactor_hint": "App-server session package (containment) and provider-meters package."
+    },
+    {
+      "id": "agent-backends-cc-28",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Transcript reads are unbounded: whole-file pread on backfill, and whole-file reads to test cwd during discovery",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/transcript_tailer.ex",
+          "lines": "112-161"
+        },
+        {
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "lines": "221-236"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "148-161"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "191-216"
+        }
+      ],
+      "description": "TranscriptTailer.consume/3 preads [offset, size) in a single call with no cap, then decodes and emits every line inside one GenServer callback. DisplayTailer starts it with `from: :start`, so opening a pane mid-run reads the whole session jsonl (often tens of MB) into memory and floods on_message synchronously. RemoteControl.newest_transcript/3 checks each candidate file newest first with transcript_matches_cwd?/2. That calls File.read on the whole file and JSON-decodes every line, only to find one record whose cwd matches. It runs on every cold-start poll (every 100 ms for up to 15 s in TranscriptTurn.await_transcript).",
+      "evidence": "transcript_tailer.ex:136 `case read_chunk(state.path, offset, size - offset) do`; 150 `:file.pread(fd, offset, length)`; remote_control.ex:192-194 `path |> read_transcript() |> Enum.any?(fn record -> Map.get(record, \"cwd\") == workspace end)`; 200-204 `File.read(path) ... String.split(\"\\n\", trim: true) |> Enum.flat_map(&decode_transcript_record/1)`.",
+      "recommendation": "Read in bounded chunks (for example 256 KiB per tick) and carry a partial-line remainder. For cwd matching, stream only the first N lines (File.stream!/1 |> Enum.take) and stop at the first record that has a cwd.",
+      "effort": "S",
+      "refactor_hint": "Claude transcript package."
+    },
+    {
+      "id": "agent-backends-cc-29",
+      "category": "other",
+      "severity": "P2",
+      "title": "UsageApi serves an arbitrarily old reading as fresh after repeated 429s, and the reading carries no age",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "lines": "63-68"
+        },
+        {
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "lines": "107-125"
+        }
+      ],
+      "description": "On {:error, :rate_limited}, put_cache/3 re-stores the previous good reading with a new fresh_until of now+5 min. Each further 429 extends it again, so a reading hours old keeps coming back from fetch/1 as {:ok, reading}. The reading type has no observed_at or age field, so no surface can show that the number is stale. AGENTS.md: 'If a surface computes an age, it renders the age'. Here the age is not even computed.",
+      "evidence": "usage_api.ex:118-122 `defp put_cache({:error, :rate_limited}, now_ms, _opts) do previous = :persistent_term.get(@cache_key, %{}); reading = Map.get(previous, :reading, {:error, :rate_limited}); :persistent_term.put(@cache_key, %{reading: reading, fresh_until: now_ms + @rate_limited_backoff_ms})`; type at 63-68 has no timestamp.",
+      "recommendation": "Add observed_at to the reading and keep it from the original fetch. Let callers render age or freshness. Keep the backoff separate from freshness (backoff_until vs observed_at). Consider ETS instead of :persistent_term for a value that is rewritten every few minutes.",
+      "effort": "S",
+      "refactor_hint": "Provider-meters package (Claude usage source)."
+    },
+    {
+      "id": "agent-backends-cc-30",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Provider-process metadata ({root_pid, process_group_id, descendant_pids, remote}) is built four ways, and the copies have diverged",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "246-286"
+        },
+        {
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "lines": "178-193"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/launcher.ex",
+          "lines": "143-155"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "583-623"
+        }
+      ],
+      "description": "Each backend hand-builds the provider map that Workspace.Ownership.Guardian and containment consume. Codex's maybe_put_provider_pid and maybe_put_provider_group accept both binary and integer ids. AgentRunner.SessionLifecycle's maybe_put_provider_group accepts only integers, so a string pgid from Codex metadata is silently dropped there. Claude's provider_metadata trusts os_pid as the process group without verification. The launcher only sets process_group_id when process_group_for_pid confirmed it.",
+      "evidence": "app_server_port.ex:269-276 `defp maybe_put_provider_group(provider, pid) when is_binary(pid) do case Integer.parse(pid) ...`; agent_runner/session_lifecycle.ex:615-616 `defp maybe_put_provider_group(provider, pid) when is_integer(pid) and pid > 0 ... defp maybe_put_provider_group(provider, _pid), do: provider`; claude/coding_agent.ex:182 `|> maybe_put_process_group(os_pid)`.",
+      "recommendation": "Define Aiur.ProviderProcess.new(root_pid:, process_group_id:, remote:) that normalises types, verifies the group and snapshots descendants, and use it at all four sites. Store agent_process_group_id as an integer everywhere.",
+      "effort": "S",
+      "refactor_hint": "Core OsProcess/containment package, next to the guardian."
+    },
+    {
+      "id": "agent-backends-cc-31",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Unreachable `false ->` branches, a never-produced error payload, and a validate! that cannot fail",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/emit_event.ex",
+          "lines": "82-97"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/blockers.ex",
+          "lines": "80-96"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/ticket_state.ex",
+          "lines": "79-92"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/subscriptions.ex",
+          "lines": "86-99"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/errors.ex",
+          "lines": "367-373"
+        },
+        {
+          "path": "src/lib/aiur/claude/config.ex",
+          "lines": "41-47"
+        }
+      ],
+      "description": "`true <- is_function(h, n) || {:error, atom}` can yield only `true` or `{:error, atom}`, so the four `false ->` else-clauses are unreachable. A handler that returns neither {:ok, _} nor {:error, _} (for example :ok) raises WithClauseError instead, and nothing handles it. Errors.payload(:custom_event_quota_exceeded) has no producer (EmitEvent enforces only the progress cap). Claude.Config.validate!/0 checks byte_size(String.trim(command())) > 0, but command/0 already substitutes \"aiur-claude\" for blank values.",
+      "evidence": "emit_event.ex:82 `true <- is_function(event_publisher, 3) || {:error, :event_publisher_unavailable},` ... 95 `false ->`; grep 'custom_event_quota_exceeded' src/lib -> only errors.ex:367.",
+      "recommendation": "Replace the `||` idiom with a small `require_fun(h, arity, err)` helper, add an `other -> Errors.payload({:unexpected_handler_result, other})` clause, and delete the dead error clause and validate! check.",
+      "effort": "S",
+      "refactor_hint": "Agent tools package cleanup."
+    },
+    {
+      "id": "agent-backends-cc-32",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Shell single-quote escaping is re-implemented instead of using Aiur.Shell.escape",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/repl/command.ex",
+          "lines": "105-107"
+        },
+        {
+          "path": "src/lib/aiur/claude/hook_settings.ex",
+          "lines": "76"
+        },
+        {
+          "path": "src/lib/aiur/shell.ex",
+          "lines": "24-26"
+        },
+        {
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "lines": "1297"
+        },
+        {
+          "path": "src/lib/aiur/init/labels.ex",
+          "lines": "229"
+        }
+      ],
+      "description": "Four private copies of POSIX single-quote escaping exist next to the canonical Aiur.Shell.escape/1 (which Codex's AppServerPort uses). They are equivalent today (`'\\''` vs `'\"'\"'`), but security-relevant quoting should have one implementation.",
+      "evidence": "command.ex:106 `\"'\" <> String.replace(value, \"'\", \"'\\\\''\") <> \"'\"`; hook_settings.ex:76 `defp single_quote(value), do: \"'\" <> String.replace(value, \"'\", \"'\\\\''\") <> \"'\"`; shell.ex:24-25 `def escape(value) ... String.replace(value, \"'\", \"'\\\"'\\\"'\")`.",
+      "recommendation": "Replace all four with Aiur.Shell.escape/1.",
+      "effort": "S",
+      "refactor_hint": "Core util."
+    },
+    {
+      "id": "agent-backends-cc-33",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Three `kill -0` liveness probes with different failure semantics",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "698-708"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/reaper.ex",
+          "lines": "178-184"
+        },
+        {
+          "path": "src/lib/aiur/process_identity.ex",
+          "lines": "5-11"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "226-238"
+        }
+      ],
+      "description": "RemoteControl.os_process_alive?/1 (string pid) looks kill up with find_executable and returns true when it is missing. Reaper.os_pid_alive?/1 runs \"kill\" directly. ProcessIdentity.alive?/1 (integer pid) also runs \"kill\" directly. RemoteControl.process_alive?/1 already delegates to ProcessIdentity.alive?. graceful_kill/1 runs \"kill\" without find_executable and swallows every exception into :ok.",
+      "evidence": "remote_control.ex:699-704 `case System.find_executable(\"kill\") do nil -> true; kill -> match?({_, 0}, System.cmd(kill, [\"-0\", pid], ...))`; reaper.ex:179 `match?({_, 0}, System.cmd(\"kill\", [\"-0\", pid], stderr_to_stdout: true))`.",
+      "recommendation": "Use ProcessIdentity.alive?/1 everywhere, accepting strings through one parse helper, and delete the private copies.",
+      "effort": "S",
+      "refactor_hint": "OsProcess module."
+    },
+    {
+      "id": "agent-backends-cc-34",
+      "category": "docs-drift",
+      "severity": "P3",
+      "title": "Moduledocs describe behaviour the code no longer has",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/repl_agent.ex",
+          "lines": "6-8"
+        },
+        {
+          "path": "src/lib/aiur/claude/hook_events.ex",
+          "lines": "6-9"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/operator_inject.ex",
+          "lines": "24-27"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/operator_inject.ex",
+          "lines": "98-108"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "491-499"
+        }
+      ],
+      "description": "ReplAgent says Claude.CodingAgent 'spawns `claude --print` one-shot per turn'. It actually holds one persistent aiur-claude app-server session over JSON-RPC. HookEvents cites `Aiur.Claude.ReplAgent.await_transcript/2`, which moved to Repl.TranscriptTurn. OperatorInject says 'every control byte ... Esc/C0/C1 sequences' are collapsed, but the regex covers only C0 and DEL ([\\x00-\\x1f\\x7f]), not C1 (U+0080-U+009F, for example U+009B CSI). reap_orphaned_servers documents RC servers that are no longer spawned (see the dead-code finding).",
+      "evidence": "operator_inject.ex:105 `|> String.replace(~r/[\\x00-\\x1f\\x7f]/, \" \")`; repl_agent.ex:6-7 `Where Aiur.Claude.CodingAgent spawns claude --print one-shot per turn`.",
+      "recommendation": "Fix the docs. Extend the sanitiser to `~r/[\\x00-\\x1f\\x7f\\x{80}-\\x{9f}]/u` and add a test containing U+009B.",
+      "effort": "S",
+      "refactor_hint": "Docs cleanup during the move."
+    },
+    {
+      "id": "agent-backends-cc-35",
+      "category": "config",
+      "severity": "P3",
+      "title": "HookSettings writes a new /tmp settings file per RC spawn and never deletes it",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/hook_settings.ex",
+          "lines": "52-60"
+        }
+      ],
+      "description": "write/2 creates <tmp>/aiur-claude-hooks/<identifier>-<unique>.json for every RC REPL spawn. Nothing in src/lib removes these files (grep 'aiur-claude-hooks' finds only this module), so they build up in /tmp, where the operator has hit per-user quota limits before.",
+      "evidence": "hook_settings.ex:53-57 `dir = Path.join(System.tmp_dir!(), \"aiur-claude-hooks\") ... path = Path.join(dir, \"#{slug(identifier)}-#{System.unique_integer([:positive])}.json\")`.",
+      "recommendation": "Write the file under the run's log or state dir, keyed by identifier (overwrite, do not append a unique suffix), and delete it in Reaper.stop_session.",
+      "effort": "S",
+      "refactor_hint": "Claude RC package."
+    },
+    {
+      "id": "agent-backends-cc-36",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "Claude OTLP events are validated three times, and the attribute allowlist is duplicated",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "lines": "17-33"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "lines": "149-152"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "lines": "188-236"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "lines": "306-334"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "lines": "410-447"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter/validation.ex",
+          "lines": "59-71"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "lines": "64"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "lines": "578-600"
+        }
+      ],
+      "description": "service.name and service.version are checked at resource level (authenticated_resource), again per attribute (validate_string_value) and again after normalisation (source_attributes). session.id, model, request_id, effort and query_source are validated in normalize_value, again in required_string_attributes, and a third time in UsageAdapter.Validation.measurement. @allowed_attributes and the Map.take list at 149-152 repeat the same keys. UsageAdapter.normalize/3 rebuilds the relationship catalog on every event through its default argument. count_rejection/2 keeps a hard-coded 16-atom allowlist, and any new reason becomes :other. telemetry.ex (666 lines) mixes listener lifecycle, capability registry, rate limiting, replay protection and publishing.",
+      "evidence": "event.ex:199 `not Contract.valid_session_id?(attributes[\"session.id\"])` and 412-413 `validate_string_value(\"session.id\", value, _) -> validate_string(value, &Contract.valid_session_id?/1, ...)`; validation.ex:52-55 `required_value(correlation[:session_id], &Contract.valid_session_id?/1, ...)`.",
+      "recommendation": "Validate once into a typed struct in Event, and have Validation trust it. Compute the catalog once (a module attribute or persistent term). Split Telemetry into Listener, CapabilityRegistry and Publisher.",
+      "effort": "M",
+      "refactor_hint": "Claude telemetry package, if it survives the dead-output finding."
+    },
+    {
+      "id": "agent-backends-cc-37",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "ReplAgent uses `session.identifier` as a hidden 'hooks injected' flag",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/repl_agent.ex",
+          "lines": "163-169"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/launcher.ex",
+          "lines": "311-313"
+        }
+      ],
+      "description": "drive_turn/3 routes to HookTurn when session.identifier is a binary, and otherwise to TranscriptTurn. The launcher sets identifier only when hook settings were written, so a field named for the ticket identifier doubles as the transport-mode flag. A future change that always sets identifier (it is useful for logging) would silently switch every non-RC REPL to hook-driven detection with no hooks installed. Every turn would then end in :turn_timeout.",
+      "evidence": "launcher.ex:313 `identifier: if(Map.get(ctx, :hooks?, false), do: ctx.identifier, else: nil),`; repl_agent.ex:164 `if is_binary(Map.get(session, :identifier)) do HookTurn.run(...)`.",
+      "recommendation": "Add an explicit `turn_detection: :hooks | :transcript` session field and always carry the identifier.",
+      "effort": "S",
+      "refactor_hint": "Claude REPL package."
+    },
+    {
+      "id": "agent-backends-cc-38",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "The agent state-slug list is duplicated in four modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/ticket_state.ex",
+          "lines": "32"
+        },
+        {
+          "path": "src/lib/aiur/github/labels.ex",
+          "lines": "25"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "1114"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "25"
+        }
+      ],
+      "description": "TicketState hard-codes ~w(in-progress ci-wait human-review rework error done) as the agent-settable subset. GitHub.Labels holds the canonical @state_suffixes, and two orchestrator modules keep their own ordered subsets. Adding a state means editing all four, and the known 'duplicated state label parsing' bug family lives here.",
+      "evidence": "ticket_state.ex:32 `@agent_settable_states ~w(in-progress ci-wait human-review rework error done)`; labels.ex:25 `@state_suffixes ~w(todo in-progress ci-wait human-review rework merging done error cancelled canceled)`.",
+      "recommendation": "Expose Aiur.GitHub.Labels.agent_settable_states/0 (derived as the suffixes minus todo, merging and cancelled) and use it in TicketState.",
+      "effort": "S",
+      "refactor_hint": "Tracker/labels package owns the state vocabulary. Agent tools depend on it."
+    },
+    {
+      "id": "agent-backends-cc-39",
+      "category": "config",
+      "severity": "P3",
+      "title": "linear_graphql is advertised to every agent regardless of the configured tracker",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool.ex",
+          "lines": "15"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool.ex",
+          "lines": "35-38"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/linear_graphql.ex",
+          "lines": "32-46"
+        }
+      ],
+      "description": "tool_specs/0 always returns every handler's specs, so GitHub-tracker installs send the linear_graphql schema in every thread/start (Codex and Claude). Agents can call it and get :missing_linear_api_token. This costs context tokens and invites wrong-tracker calls.",
+      "evidence": "dynamic_tool.ex:15 `@handlers [LinearGraphQL, ReviewThreads, EmitAlert, EmitEvent, Subscriptions, Blockers, TicketState]`; 36-37 `def tool_specs do Enum.flat_map(@handlers, & &1.specs())`.",
+      "recommendation": "Filter handlers by the tracker kind (and review-thread tools by the GitHub tracker) in tool_specs/1, taking the config as an argument.",
+      "effort": "S",
+      "refactor_hint": "Agent tools package: tool availability should be a function of tracker capabilities."
+    },
+    {
+      "id": "agent-backends-cc-40",
+      "category": "security",
+      "severity": "P3",
+      "title": "Codex requestUserInput auto-approval picks any 'allow*' or 'approve*' option and reports a fixed decision string",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/user_input_answers.ex",
+          "lines": "8-26"
+        },
+        {
+          "path": "src/lib/aiur/codex/user_input_answers.ex",
+          "lines": "70-92"
+        }
+      ],
+      "description": "With auto-approve on, approval_answers/1 selects 'Approve this Session', else 'Approve Once', else the first option whose label starts with 'approve' or 'allow' (for example 'Allow all future edits'). It always reports decision 'Approve this Session' in the :approval_auto_approved event, whichever label it actually chose. The audit trail can therefore misstate what was approved.",
+      "evidence": "user_input_answers.ex:23 `answer_map when map_size(answer_map) > 0 -> {:ok, answer_map, \"Approve this Session\"}`; 91 `String.starts_with?(normalized_label, \"approve\") or String.starts_with?(normalized_label, \"allow\")`.",
+      "recommendation": "Return the actually chosen label(s) as the decision. Restrict the fallback prefix match to an explicit allowlist, or log the chosen label.",
+      "effort": "S",
+      "refactor_hint": "Codex backend approval policy."
+    },
+    {
+      "id": "agent-backends-cc-41",
+      "category": "other",
+      "severity": "P3",
+      "title": "Claude disk transcript records with a missing or unparseable timestamp are stamped 'now'",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/transcript.ex",
+          "lines": "224-235"
+        }
+      ],
+      "description": "disk_timestamp/1 falls back to DateTime.utc_now() when a record's timestamp is absent or invalid. During DisplayTailer backfill (from: :start) such historical rows render and sort as if they had just happened. This is the 'unknown collapsed to a plausible default' shape.",
+      "evidence": "transcript.ex:227-233 `case DateTime.from_iso8601(ts) do {:ok, datetime, _offset} -> datetime; _ -> DateTime.utc_now() end ... _ -> DateTime.utc_now()`.",
+      "recommendation": "Return nil (or carry `timestamp_estimated: true`) and let renderers order by record position.",
+      "effort": "S",
+      "refactor_hint": "Claude transcript package."
+    },
+    {
+      "id": "agent-backends-cc-42",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "The DynamicTool error catalog is 60 function clauses, and each handler repeats the same execute/envelope skeleton",
+      "locations": [
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/errors.ex",
+          "lines": "1-430"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/emit_event.ex",
+          "lines": "75-98"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/blockers.ex",
+          "lines": "66-97"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/subscriptions.ex",
+          "lines": "72-99"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/ticket_state.ex",
+          "lines": "75-93"
+        },
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/args.ex",
+          "lines": "6-32"
+        }
+      ],
+      "description": "Errors.payload/1 has 60 clauses (430 lines), most of the form %{\"error\" => %{\"message\" => \"...\"}}. Every handler repeats `with {:ok, args} <- normalize, true <- is_function(h) || {:error, x}, {:ok, r} <- h.(args) do Response.build(true, Jason.encode!(%{\"ok\" => true, ...}, pretty: true)) else {:error, reason} -> Response.failure(Errors.payload(reason))`. Blockers and Subscriptions each map action -> {handler key, error atom} with twin case blocks. Args.string/3 and Args.alert_string/3 are the same function, and emit_alert_value/2 supports only three hard-coded keys.",
+      "evidence": "`grep -c 'def payload' errors.ex` = 60; args.ex:6-32 string/3 and alert_string/3 differ only in the key lookup.",
+      "recommendation": "Make the catalog data-driven (a map from atom to message, plus builders for the few tuple shapes). Add a Handler helper `run(normalize_fun, handler_key, arity, ok_fields)`, and merge Args.string with Args.alert_string.",
+      "effort": "M",
+      "refactor_hint": "Agent tools package: a smaller surface is easier to version when it becomes an API."
+    },
+    {
+      "id": "agent-backends-cc-43",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Claude.Config and Codex.Config duplicate the section-reading skeleton",
+      "locations": [
+        {
+          "path": "src/lib/aiur/claude/config.ex",
+          "lines": "12-18"
+        },
+        {
+          "path": "src/lib/aiur/claude/config.ex",
+          "lines": "62-66"
+        },
+        {
+          "path": "src/lib/aiur/codex/config.ex",
+          "lines": "20-26"
+        },
+        {
+          "path": "src/lib/aiur/codex/config.ex",
+          "lines": "121-125"
+        }
+      ],
+      "description": "Both define command/0 with the same trim/default logic and a section_value/1 that calls Aiur.Config.settings!() and uses Map.from_struct |> Map.get(String.to_existing_atom(key)), a round-trip from string to atom for compile-time-known keys.",
+      "evidence": "claude/config.ex:62-65 and codex/config.ex:121-124 are identical apart from `.agent.claude` / `.agent.codex`.",
+      "recommendation": "Add a small Aiur.AgentConfig helper `section(:claude)` returning the struct, and read fields directly (`section(:claude).permission_mode`).",
+      "effort": "S",
+      "refactor_hint": "Backend config contract."
+    }
+  ]
+}

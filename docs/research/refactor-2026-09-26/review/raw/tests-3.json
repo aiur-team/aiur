@@ -1,0 +1,854 @@
+{
+ "unit_id": "tests-3",
+ "files_reviewed": 153,
+ "coverage_notes": "Unit = 153 files / 40,555 lines (152 test files + test_helper.exs). READ IN FULL: dispatcher_test (3197), issue_sync_test (3032), retry_engine_test (1774), comment_wake_test (1553), reconciler_test (1057), dispatcher_blocked_by_cost_test (500), dispatcher_stale_blocked_by_test (146), opencode/server_test (444), opencode/slot_test, session_gc_test, slot/events_test, slot/sessions_test, hidden_window_test, no_leaks_test, session_writer_registry_test, webhooks consumer_equivalence/webhook_mode_contract/ingest tests, session_limit_resume_test, init/dotenv_test, the nine files under 30 lines, test_helper.exs; plus the relevant parts of src/test/support/test_support.exs (lines 1-400) and production code needed to verify claims (dispatcher.ex spawn site, issue_sync.ex arity ladder, lifecycle.ex tick logic, exchange.ex publish, github/config.ex token/repo resolution, comment_wake.ex seams). READ PARTIALLY (head + outline + targeted sections): dispatch_policy_test (~750/1041), planning_source_test (~560/927), slot_policy_test (~360/527), global_pause_test (~170/489), orphaned_workers_test (~130/502), self_pause_answer_test (~70/375), resume_control_regression_test (~70/391), startup_claim_reconciler_test (~130/386), merged_ticket_reconciler_test (~120/532), rate_limit_fallback_test (~80 + outline/767), comment_polling/reconcile_test (~230/410), session_writer_test (~80 + outline/560), realtime_test (~140/418), lifetime_dispatch_budget_test (~130/732), init/github_test (~130/413), runtime_test, scaffold_test, tts_test, quota_test, comment_polling_test, target_selection_test, tracker_health_preflight_test, attach_pane_test, correlated_replay_wake_test, protocol/bridge/token_registry heads, ticket_context_presenter_test head, relationship_registry_test, models_test, retained_index_test heads, lifecycle_test head. GREP-ONLY (not read beyond pattern hits): auto_resume, rework_requeue, command_scan, status_report, tracker_health, waiting_reason, push_routing, pr_health_scanner, lifecycle_fence, github_budget_pause, control_lifecycle(_store), blocker_merge_wake, rework_gate, comment_rework_active_entry, pr_anchored, state_test, slots_test, pause_resume(_telemetry), human_review, capacity_binding, priority_control, rework_review_transition, remote_control_mode, review_freshness, token_accounting(+payloads), event_topics, resume_decline_reason, auto_subscriptions, live_conversation_runtime, operator_messages/* (except correlated_replay_wake), all remaining init/*, opencode chat_completions/*, db, event_row, operator_text, turn_markers, warmth_report, attach_pool, bridge_port, config, active_turns, slot/state, slot/serve_lifecycle, slot_registry, slot_supervisor, usage_envelope codec/compatibility, webhooks delivery_*/event_key/interval_policy/label_state/mode_*, aiur_web build_order analytics_scope/data_source/route_state/source_runtime/ticket_context_adapter/ticket_context_selection/usage_scope, eleven_labs mint_socket, coding_agent model_label, decision_store body. Every file was covered by the counting passes (receive timeouts parsed with a bracket-aware script; Process.sleep, put_env, persistent_term, :sys, File.cd!, System.cmd/Port.open, helper-definition and fixture-duplication greps), so counts are unit-wide; qualitative judgements (which bare receives are cross-process) were verified only in the files read. No findings rated P0: no live production defect was established from test code; the Orchestrator dead-tick latch (tests-3-01) is a test-suite state hazard, not a production bug.",
+ "findings": [
+  {
+   "id": "tests-3-01",
+   "category": "anti-pattern",
+   "severity": "P1",
+   "title": "Tests rewrite the live application Orchestrator/DecisionStore/registries and leave the singleton Orchestrator with a dead tick",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/self_pause_answer_test.exs",
+     "lines": "10-51"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/resume_control_regression_test.exs",
+     "lines": "20-60"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "1254-1290"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "2762-2884"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "3016-3057"
+    },
+    {
+     "path": "src/test/aiur/opencode/slot_policy_test.exs",
+     "lines": "90-100"
+    },
+    {
+     "path": "src/test/aiur/opencode/slot_policy_test.exs",
+     "lines": "379-421"
+    },
+    {
+     "path": "src/test/aiur/opencode/token_registry_test.exs",
+     "lines": "6-35"
+    },
+    {
+     "path": "src/test/aiur/opencode/session_writer_registry_test.exs",
+     "lines": "26-31"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+     "lines": "346-357"
+    }
+   ],
+   "description": "Three test modules take the application-supervised singleton `Aiur.Orchestrator` (and `Aiur.DecisionStore`) with `Process.whereis/1` and rewrite 12-16 internal State fields with `:sys.replace_state`. Their setup cancels the singleton's pending tick timer, and on_exit restores the *original* state snapshot, which still carries the cancelled `tick_timer_ref` and old `tick_token`. After restore no `{:tick, token}` is in flight; `Lifecycle.wake_tick/1` only moves an already-scheduled tick (returns state unchanged when `next_poll_due_at_ms <= target`), so the singleton stops polling until something calls `request_refresh`. This is a latch in the shared suite state, order-dependent for every later module that relies on the app Orchestrator. Other shared singletons are mutated the same way: dispatcher_test creates blocking Decisions on the global DecisionStore via `ToolExecutor` emit_event and never answers them (4 per run, lines 2810-2817 and 3049-3055); slot_policy_test `setup` kills every process in the app-global SlotRegistry and two tests `:sys.suspend` the registry partitions; token_registry_test writes/deletes (`delete_stale(1, 2)`) in the live TokenRegistry with inline (not on_exit) cleanup; session_writer_registry_test calls `delete_all()` on the live registry.",
+   "evidence": "self_pause_answer_test.exs:11-12 `orchestrator = Process.whereis(Orchestrator); original = :sys.get_state(orchestrator)`; :29 `if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)`; :48 `:sys.replace_state(orchestrator, fn _ -> original end)`. resume_control_regression_test.exs:21-22,32 same shape; :57 `:sys.replace_state(pid, fn _state -> %{original_state | snapshot_generation: snapshot_generation} end)`. lifecycle.ex:346-357 `def wake_tick(%State{tick_timer_ref: timer_ref, poll_frozen: frozen} = state) when is_reference(timer_ref) and frozen != true ... if is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= target_ms, do: state`. :sys.replace_state counts: self_pause_answer_test 30 :sys calls, resume_control_regression_test 21, orphaned_workers_test 12. Contrast: correlated_replay_wake_test.exs:94-111 starts its own `Orchestrator.start_link(name: name)` and only rewrites that private instance.",
+   "recommendation": "Never rewrite application singletons from tests. Give each such case its own named Orchestrator/DecisionStore (the pattern correlated_replay_wake_test.exs:94 and global_pause_test already use: `Orchestrator.start_link(name: name, initial_poll?: false)`, `DecisionStore` with `name: nil, state_dir: ...`). If a singleton must be touched, restore by calling `Lifecycle.schedule_tick/2` (or `request_refresh`) in on_exit instead of reinstating a stale timer ref. Answer or delete every Decision a test files; inject a registry name into SlotPolicy/TokenRegistry/SessionWriterRegistry so tests use a private registry.",
+   "refactor_hint": "Blocks carving orchestrator/opencode into packages: these tests depend on the whole Aiur application tree being booted and on the exact State field layout. Make Orchestrator, DecisionStore and the opencode registries startable with a name/registry option and have the package test helpers start private instances.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-3-02",
+   "category": "coupling",
+   "severity": "P1",
+   "title": "Production code reads 41 test-seam keys from the shared :aiur application env; tests in this unit set 40 distinct keys 197 times",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "63-91"
+    },
+    {
+     "path": "src/test/aiur_web/build_order/planning_source_test.exs",
+     "lines": "59-86"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/lifetime_dispatch_budget_test.exs",
+     "lines": "13-57"
+    },
+    {
+     "path": "src/lib/aiur/system_load.ex",
+     "lines": "34"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+     "lines": "99"
+    },
+    {
+     "path": "src/lib/aiur/memory/tracker.ex",
+     "lines": "166"
+    },
+    {
+     "path": "src/lib/aiur/github/tracker.ex",
+     "lines": "195"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/human_review.ex",
+     "lines": "66,176"
+    },
+    {
+     "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+     "lines": "83,244"
+    },
+    {
+     "path": "src/lib/aiur/agent_control_cli.ex",
+     "lines": "3186"
+    },
+    {
+     "path": "src/lib/aiur/build_order/pack_paths.ex",
+     "lines": "59,69"
+    }
+   ],
+   "description": "Dependency injection for tests is done through VM-global `Application.put_env(:aiur, ...)`, read by production at call time. Any test touching one of these keys must be `async: false`, must save/restore by hand, and still leaks into application processes that run concurrently. Across this unit tests set 40 distinct keys in 197 put_env calls in 27 files (top: loadavg_source_override 17, build_order_planning_pack 17, file_descriptor_sample_override 15, memory_tracker_issues 14, global_pause_store_path 10). In src/lib, 41 distinct keys ending in `_override`, `_fun`, `_module`, `_recorder`, `_verifier` or `test_options` are read with Application.get_env. `:github_client_module` is resolved independently in two modules (github/tracker.ex:195 and orchestrator/human_review.ex:176). PlanningSource needs 5 keys plus `AIUR_BUILD_ORDER_DIRS` and `:repo_base_root` to be steered, so planning_source_test juggles 7 globals per test.",
+   "evidence": "`grep -oh 'Application.put_env(:aiur, :[a-z_?]+'` over the unit: 40 distinct keys, 197 sites. system_load.ex:34 `Application.get_env(:aiur, :loadavg_source_override, fn -> File.read(\"/proc/loadavg\") end)`; memory/tracker.ex:166 `Application.get_env(:aiur, :memory_tracker_issues, [])`; agent_control_cli.ex:3186 `Application.get_env(:aiur, :agent_control_cli_resume_fun, &AgentChat.resume_with_receipt/1).(identifier)`. `grep -rhoE 'Application\\.(get|fetch)_env\\(:aiur, :[a-z_?]+(override|_fun|_module|_recorder|_verifier|test_options)' src/lib | sort -u | wc -l` = 41.",
+   "recommendation": "Replace env-var seams with explicit injection: pass probes/clients/recorders through function opts or a per-process config struct built once at GenServer init (the Dispatcher already accepts `admission_probes_fun:`, `runner:`, `issue_fetcher:` opts; finish that and delete the env fallbacks). Group the remaining knobs per future package (e.g. `Aiur.Host.Probes` for loadavg/proc_stat/meminfo/fd/build_gate) so each package owns one config struct. Keep a single resolver for the GitHub client module.",
+   "refactor_hint": "Shared mutable `:aiur` env is exactly the cross-package global the carve must remove: each package needs its own app env or explicit config. Inventory the 41 seam keys and assign each to its owning package before moving code.",
+   "effort": "L"
+  },
+  {
+   "id": "tests-3-03",
+   "category": "coupling",
+   "severity": "P1",
+   "title": "Aiur.TestSupport is a 1,663-line god helper that 37 files in this unit `use`, including 4 that need none of it",
+   "locations": [
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "228-383"
+    },
+    {
+     "path": "src/test/aiur/opencode/protocol_test.exs",
+     "lines": "1-2"
+    },
+    {
+     "path": "src/test/aiur/opencode/token_registry_test.exs",
+     "lines": "1-2"
+    },
+    {
+     "path": "src/test/aiur/opencode/bridge_test.exs",
+     "lines": "1-2"
+    },
+    {
+     "path": "src/test/aiur/opencode/config_test.exs",
+     "lines": "1-2"
+    },
+    {
+     "path": "src/test/aiur_web/build_order/ticket_context_presenter_test.exs",
+     "lines": "1-2"
+    }
+   ],
+   "description": "`use Aiur.TestSupport` expands to a sync `use ExUnit.Case`, aliases 20 modules (Linear.Client, Codex.CodingAgent, StatusDashboard, HttpServer...), writes a workflow file, force-reloads WorkflowStore (15 s timeout), resets GitHub ResourceStore/AuthPreflight/PollCadence/DispatchAuthorization, restarts app children if down and stops the HTTP server, for every test. In this unit 31 orchestrator files, 5 opencode files and 1 aiur_web file use it. protocol_test (pure Protocol builders), token_registry_test, ticket_context_presenter_test (pure presenter, no Config/Application reads) and bridge_test reference no workflow/config/app state at all, yet pay the setup and are forced sync. `__using__(_opts)` drops its options, so 5 files that write `use Aiur.TestSupport, async: false` (bridge, config, protocol, token_registry, github_budget_pause) pass a no-op, and `async: true` would be silently ignored the same way; 3 files carry comments explaining that the module is not async.",
+   "evidence": "test_support.exs:228 `defmacro __using__(_opts) do` / :230 `use ExUnit.Case`; :251-259 imports; :261-380 setup (workflow root, capture_app_env, reset_global_state!, write_workflow_file!, ensure_runtime_children_running, force_reload, stop_default_http_server). Per-directory counts in this unit: orchestrator 31/69 files use it, opencode 5/36, aiur_web 1/9. `grep -cE 'write_workflow_file|Workflow\\.|Config\\.|WorkflowStore|Orchestrator|start_supervised|AlertLedger|Exchange|Alerts\\.'` = 0 for bridge_test, protocol_test, token_registry_test, ticket_context_presenter_test.",
+   "recommendation": "Split TestSupport into small opt-in helpers: `Aiur.Test.WorkflowCase` (workflow file + WorkflowStore), `Aiur.Test.GlobalStateReset` (the persistent_term resets), `Aiur.Test.Tmp` (tmp_root!), `Aiur.Test.AppChildren` (ensure_*_running). Make `__using__` honour `async:` or raise when given it. Move pure-function tests (protocol, presenter, token registry with a private registry) to `use ExUnit.Case, async: true`.",
+   "refactor_hint": "Each future package needs its own test support; today an opencode or aiur_web test cannot compile without the orchestrator, GitHub and WorkflowStore modules TestSupport aliases. Carve the helper along the same package lines before moving the tests.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-3-04",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "assert_receive with the 100 ms default waits on messages sent by other processes (\u224870 verified sites); 257 bare assert_receive in 39 files overall",
+   "locations": [
+    {
+     "path": "src/test/aiur/eleven_labs/realtime_test.exs",
+     "lines": "95-370"
+    },
+    {
+     "path": "src/test/aiur/eleven_labs/tts_test.exs",
+     "lines": "30-100"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "426,499,831,867-868,981,2684,2755,2789,2847,3033,3189"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_blocked_by_cost_test.exs",
+     "lines": "109,220"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_stale_blocked_by_test.exs",
+     "lines": "135"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+     "lines": "1163,1187"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+     "lines": "2488-2512"
+    }
+   ],
+   "description": "Parsed count across the unit: 366 assert_receive (257 without a timeout, in 39 files) and 112 refute_receive (61 without a timeout, 17 files). Most bare sites follow a synchronous call and are harmless, but several families wait on a different process with only 100 ms: the dispatcher's runner runs inside `Task.Supervisor.start_child(Aiur.TaskSupervisor, ...)`, so every `assert_receive {:agent_runner_run, ...}` races the task start (9 bare sites in dispatcher_test, 2 in dispatcher_blocked_by_cost_test, 1 in dispatcher_stale_blocked_by_test); dispatcher_test:648 waits 1_000 ms for the same message, so the file is inconsistent with itself. `start_initial_ci_readiness_check` and `maybe_warn_ci_readiness` spawn the readiness scan (dispatcher_test 867-868, 981). realtime_test has 44 bare waits on the session process (its moduledoc says the suite runs 'without a clock', but each is a 100 ms clock); tts_test has 9 on the spawned TTS process; retry_engine_test 1163/1187 wait on the Ownership guardian.",
+   "evidence": "dispatcher.ex:2503 `case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> runner.(issue, recipient, ...)`. dispatcher_test.exs:426 `assert_receive {:agent_runner_run, dispatched, _recipient, _opts}` vs :648 `assert_receive {:agent_runner_run, ^ticket_id}, 1_000`. realtime_test.exs moduledoc: 'exercised without a socket and without a clock'; 44 bare assert_receive. Worst files by bare count: realtime_test 44, comment_wake_test 24+15 refute, merged_ticket_reconciler_test 24+15, dispatcher_test 21+1, startup_claim_reconciler_test 14+2, issue_sync_test 14.",
+   "recommendation": "For cross-process messages use the existing `receive_barrier/1` from TestSupport (no wall clock) or an explicit monitor/`:DOWN`; for messages produced synchronously use `assert_received`. Do not fix this by raising ExUnit's global assert_receive_timeout. Add a Credo check or grep gate: bare `assert_receive` after a call that spawns (Task.Supervisor, Realtime.start, TTS.start) must use receive_barrier.",
+   "refactor_hint": "Move `receive_barrier/1` out of the god TestSupport into a tiny shared `Aiur.Test.Receive` module that every package's tests can import.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-3-05",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "Process.sleep used for synchronization and to age records past wall-clock TTLs (42 sites in 16 files)",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_blocked_by_cost_test.exs",
+     "lines": "115-138,144-158,203-257,259-279"
+    },
+    {
+     "path": "src/test/aiur/opencode/slot_test.exs",
+     "lines": "47-81"
+    },
+    {
+     "path": "src/test/aiur/opencode/session_writer_test.exs",
+     "lines": "8-14"
+    },
+    {
+     "path": "src/test/aiur/opencode/slot_policy_test.exs",
+     "lines": "313-330,393"
+    },
+    {
+     "path": "src/test/aiur/opencode/server_test.exs",
+     "lines": "141-146,432-443"
+    }
+   ],
+   "description": "dispatcher_blocked_by_cost_test sets `:blocked_by_max_age_ms` to 100 and sleeps 150 ms three times to make a real ResourceStore record stale, and sleeps 2 ms three times so two monotonic-millisecond timestamps differ; both depend on scheduler timing and silently change meaning if production reads a different clock. slot_test (4 sites) and session_writer_test (1) build a 'dead pid' with `spawn(fn -> :ok end); Process.sleep(10)`, which is not guaranteed under load (slot_test:68-70 does not even check liveness). slot_policy_test:327 proves 'nothing started' by sleeping 100 ms. server_test polls a real sqlite db and OS processes at 100 ms \u00d7 40.",
+   "evidence": "dispatcher_blocked_by_cost_test.exs:116 `Application.put_env(:aiur, :blocked_by_max_age_ms, 100)` ... :125 `Process.sleep(150)`; :212,:237,:248 `Process.sleep(2)`. slot_test.exs:50-52 `fake = spawn(fn -> :ok end); Process.sleep(10); refute Process.alive?(fake)`. Correct pattern already in the unit: slot_policy_test.exs:476-481 `dead_pid/0` monitors and waits for `:DOWN`.",
+   "recommendation": "Inject a clock (`now_ms_fun`) into ResourceStore/BoundedBlockedBy freshness checks instead of sleeping past a TTL; for strict ordering pass explicit timestamps. Replace sleep-based dead pids with one shared `dead_pid/0` (monitor + `:DOWN`). Replace negative sleeps with a synchronous probe (`:sys.get_state/1` after the broadcast is processed).",
+   "refactor_hint": "Freshness/TTL logic in the GitHub cache layer should take a clock seam when it moves into its own package; a shared `Aiur.Test.Process` helper (dead_pid, await_down) belongs in the common test support.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-06",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "refute_receive on a 60-second self-timer can never fail; the tests do not check the timer was cancelled",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/lifecycle_test.exs",
+     "lines": "15-28"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+     "lines": "1190-1263"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/comment_wake_test.exs",
+     "lines": "757-765"
+    }
+   ],
+   "description": "Two tests schedule `Process.send_after(self(), msg, 60_000)`, hand the ref to production code that should cancel it, then `refute_receive msg` with the 100 ms default. The message would not arrive for 60 s whether or not production cancels the timer, so the refutation passes with the cancellation reverted. The same unit already has the falsifiable pattern (`Process.read_timer(timer_ref) == false`) in comment_wake_test.",
+   "evidence": "lifecycle_test.exs:17 `old_timer = Process.send_after(self(), :superseded_tick, 60_000)` ... :27 `refute_receive :superseded_tick`. retry_engine_test.exs:1207 `timer_ref = Process.send_after(self(), :unexpected_retry, 60_000)` ... :1262 `refute_receive :unexpected_retry`. comment_wake_test.exs:763 `assert Process.read_timer(timer_ref) == false`.",
+   "recommendation": "Assert `Process.read_timer(ref) == false` (cancelled) instead of refuting the message, and mutation-check both tests by deleting the production `Process.cancel_timer` call.",
+   "refactor_hint": "Local test fix; no package impact.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-07",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Placeholder tests assert only that a function exists or returns a type, and one moduledoc claims coverage that is not there",
+   "locations": [
+    {
+     "path": "src/test/aiur/opencode/session_gc_test.exs",
+     "lines": "1-35"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/workspace_cleanup_test.exs",
+     "lines": "1-9"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/agent_teardown_test.exs",
+     "lines": "1-9"
+    },
+    {
+     "path": "src/test/aiur/opencode/slot_test.exs",
+     "lines": "40-45,103-131"
+    },
+    {
+     "path": "src/test/aiur/opencode/hidden_window_test.exs",
+     "lines": "6-11"
+    },
+    {
+     "path": "src/test/aiur/opencode/session_writer_registry_test.exs",
+     "lines": "13-17"
+    },
+    {
+     "path": "src/test/aiur/opencode/no_leaks_test.exs",
+     "lines": "18-35"
+    }
+   ],
+   "description": "session_gc_test's moduledoc says it is 'Regression coverage for T1 + T2' (GC deletes only Aiur-owned sessions not in the active set) but its only test is `function_exported?(SessionGC, :run, 1)`. workspace_cleanup_test is the same existence check. slot_test's 'PubSub event topology' test broadcasts the four events itself and asserts it receives them, so it tests Phoenix.PubSub, not Slot; the slots_topic test asserts only `is_binary`. hidden_window/session_writer_registry assert `is_binary`/`is_list`. no_leaks_test's first test iterates `for {key, %{\"name\" => name}} <- models` and passes vacuously if the models map is empty or names are missing; its contract is also covered in protocol_test.exs:37.",
+   "evidence": "session_gc_test.exs:26 `assert function_exported?(SessionGC, :run, 1)`; workspace_cleanup_test.exs:7 `assert function_exported?(WorkspaceCleanup, :cleanup_terminal_issue_artifacts, 2)`; slot_test.exs:120-129 `Phoenix.PubSub.broadcast(Aiur.PubSub, topic, {:slot_attach_added, 1, \"issue-1\"})` ... `assert_receive {:slot_attach_added, 1, \"issue-1\"}, 500`.",
+   "recommendation": "Delete existence-only tests or replace them with behaviour tests (SessionGC's filter via an injected session lister; WorkspaceCleanup against a tmp workspace; Slot events by driving the slot helper that broadcasts). Make no_leaks assert `map_size(models) > 0` and fold it into protocol_test.",
+   "refactor_hint": "These inflate apparent coverage of opencode modules that will move into an opencode package; the carve should not count them as protection.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-08",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Exchange subscribe/unsubscribe teardown copied 69 times in this unit (109 across the tree) and Publisher.set_tracked_fn reset 138 times although TestSupport already resets it",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/issue_sync_test.exs",
+     "lines": "18-31,114-125,350-361,638-646,716-728,884-890"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "1175-1183,1204-1212,1605-1613"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/reconciler_test.exs",
+     "lines": "77-85,123-130"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+     "lines": "679-686,902-909"
+    },
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "208-217"
+    }
+   ],
+   "description": "Every event-asserting test repeats: `Publisher.set_tracked_fn(fn _ -> true end)`, one or more `:ok = Exchange.subscribe(topic)`, and an on_exit that resets the tracked fn again and loops `for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)`. Teardown loop counts in this unit: issue_sync_test 38, dispatcher_test 11, reconciler_test 8, retry_engine_test 7, operator_messages/alerts_test 3, pr_anchored_test 1, github_budget_pause_test 1 (69; 109 in 27 files tree-wide). set_tracked_fn calls: issue_sync_test 76, dispatcher_test 22, reconciler_test 16, retry_engine_test 14, alerts_test 6, pr_anchored 2, github_budget_pause 2. All of these modules use TestSupport, whose `reset_global_state!/0` already calls `EventsPublisher.set_tracked_fn(fn _ -> true end)` in setup and on_exit.",
+   "evidence": "issue_sync_test.exs:18-31 (full block); test_support.exs:209 `EventsPublisher.set_tracked_fn(fn _ -> true end)` inside reset_global_state!/0 and :355 in on_exit. `grep -c 'Exchange.bindings_for(self())'` per file as listed.",
+   "recommendation": "Add `subscribe_events!(topics)` to the shared test support that subscribes and registers the unsubscribe on_exit, and delete the redundant set_tracked_fn calls. One helper replaces ~200 lines in this unit.",
+   "refactor_hint": "Put the helper next to Aiur.Events in the future events package's test support so orchestrator and web packages import it rather than copying.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-09",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Hand-rolled Application-env save/restore in 55 sites across 18 files, plus re-isolation of keys TestSupport already isolates",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "63-101,2935-2936"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/global_pause_test.exs",
+     "lines": "17-47,487-488"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/lifetime_dispatch_budget_test.exs",
+     "lines": "13-57"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_blocked_by_cost_test.exs",
+     "lines": "24-65,498-499"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_stale_blocked_by_test.exs",
+     "lines": "30-68,144-145"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+     "lines": "893-897,1759-1760"
+    },
+    {
+     "path": "src/test/aiur/opencode/config_test.exs",
+     "lines": "112-115"
+    },
+    {
+     "path": "src/test/aiur/opencode/bridge_port_test.exs",
+     "lines": "81-82"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/control_lifecycle_store_test.exs",
+     "lines": "245-246"
+    }
+   ],
+   "description": "`previous = Application.get_env(:aiur, k)` + on_exit restore appears 55 times in 18 files (dispatcher_test 11, global_pause_test 8, lifetime_dispatch_budget_test 7, planning_source_test 4, dispatcher_blocked_by_cost_test 4, control_lifecycle_store_test 4 ...). The two-clause restore helper is redefined under three names: `restore_app_env/2` (dispatcher_test, dispatcher_blocked_by_cost_test, dispatcher_stale_blocked_by_test, opencode/config_test, bridge_port_test), `restore_application_env/2` (global_pause_test, retry_engine_test), `restore_env/2` (control_lifecycle_store_test) and single-key variants (stream_policy_test, server_test). Several save keys that TestSupport already captures and restores per test: dispatcher_test saves/restores `:loadavg_source_override`/`:proc_stat_source_override` and re-sets the quiet loadavg 14 times; global_pause_test saves `:global_pause_store_path` 3 times; `restore_workflow_file_after_test/0` (5 calls) and the `original_workflow` restores in both blocked_by tests rewrite a per-test workflow file that TestSupport deletes on exit.",
+   "evidence": "dispatcher_test.exs:65-71 seven `previous_* = Application.get_env`; :2935-2936 `defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)`. test_support.exs:86-101 `@isolated_app_env_keys [... :build_gate_dir_override, :global_pause_store_path, ... :loadavg_source_override, :proc_stat_source_override ...]`. `grep -c 'loadavg_source_override, fn -> {:ok, \"0.0 0.0 0.0 1/1 1'` dispatcher_test = 14 (TestSupport installs the same quiet source).",
+   "recommendation": "Add `put_app_env!(key, value)` (save + on_exit restore, like the existing `put_runtime_state_dir!/1`) and `put_system_env!(name, value)`; delete the local restore helpers and the redundant re-isolation of keys listed in `@isolated_app_env_keys`.",
+   "refactor_hint": "Goes away naturally if tests-3-02 (env seams -> injected config) is done; until then a single helper keeps the number of places to update small during the move.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-10",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Six private polling helpers with different semantics (flunk vs false, attempts vs deadline, 5-100 ms steps)",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "51-61"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/comment_polling/reconcile_test.exs",
+     "lines": "399-409"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+     "lines": "1762-1773"
+    },
+    {
+     "path": "src/test/aiur/opencode/server_test.exs",
+     "lines": "432-443"
+    },
+    {
+     "path": "src/test/aiur/opencode/slot_policy_test.exs",
+     "lines": "460-474"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_blocked_by_cost_test.exs",
+     "lines": "393-399"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/resume_control_regression_test.exs",
+     "lines": "384-389"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/orphaned_workers_test.exs",
+     "lines": "448-465"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/comment_wake_test.exs",
+     "lines": "803-809"
+    }
+   ],
+   "description": "`wait_until/2` (2 copies: one flunks, one asserts), `eventually/2` (6 copies in this unit, 22 tree-wide: attempt-count with 10/20/100 ms sleeps, or deadline-based), `wait_until_timer_fired/2`, plus bespoke `await_*` loops (server_test, slot_policy_test, orphaned_workers_test). The copies disagree on failure mode: dispatcher_test flunks with 'condition was not reached', retry_engine_test/server_test return false and rely on the caller's `assert`, reconcile_test asserts the last value. Total budget varies from 0.5 s to 4 s for similar conditions.",
+   "evidence": "dispatcher_test.exs:51-61 `defp wait_until(fun, attempts \\\\ 200) ... Process.sleep(10)`; server_test.exs:432-443 `defp eventually(fun, attempts \\\\ 40) ... Process.sleep(100)`; slot_policy_test.exs:460 `defp eventually(fun, timeout \\\\ 2_000)` deadline-based. Tree-wide: `grep -rl 'defp eventually' src/test | wc -l` = 22; `defp wait_until` = 12.",
+   "recommendation": "Provide one `Aiur.Test.Eventually.assert_eventually(fun, timeout: ms, message: ...)` (deadline-based, flunks with the last observed value) and delete the local copies. Prefer event-driven waits (monitors, telemetry, receive_barrier) where the production code can emit a signal.",
+   "refactor_hint": "Common test-support primitive for every package; ship it before splitting test suites so each package does not grow its own copy.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-11",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "The 13-key admission-probes fixture is copied 10 times in dispatcher_test and has drifted (3 copies lack github_quota)",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "1526-1542,1630-1646,1834-1850,1991-2004,2066-2082,2151-2167,2238-2253,2305-2320,2345-2361,2996-3014"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatch_policy_test.exs",
+     "lines": "72-90,238-259"
+    }
+   ],
+   "description": "The map returned by `admission_probes_fun` (memory_mb, memory_threshold_mb, fd_sample, runnable, run_queue_threshold, schedulers, load, load_threshold, build_status, provider_backends, github_quota, cpu_snapshot, target) is written out literally 10 times in dispatcher_test, twice more in dispatch_policy_test with a different key set (cpu_headroom, queued_demand?), and once each in pr_anchored_test and agent_control_cli_test. The copies at dispatcher_test 1630, 2238 and 2305 omit `github_quota`, so those cases exercise a probe shape production never produces and cannot reach the GitHub-quota gate. A new probe key must be added to every copy by hand.",
+   "evidence": "Scan of dispatcher_test for `memory_threshold_mb:` blocks: 1529 has github_quota, 1635 no, 1837 yes, 1993 yes, 2069 yes, 2154 yes, 2241 no, 2308 no, 2348 yes, 3000 yes. `grep -rn 'memory_threshold_mb:' src/test` also hits pr_anchored_test and agent_control_cli_test.",
+   "recommendation": "Add `probes(overrides \\\\ %{})` built from one canonical default (ideally a `DispatchPolicy.Probes` struct in production with `@enforce_keys`, so a missing key fails to compile) and have every test override only the keys it varies. Reuse `contended_probes/2` (dispatcher_test:2996) as the starting point.",
+   "refactor_hint": "The probe map is the contract between host-sampling code and dispatch policy; making it a struct gives the future dispatch/admission package a typed boundary.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-12",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Domain fixture builders (tracker_identity, issue, running_entry, base_state, at/1) redefined per file with divergent defaults",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/comment_wake_test.exs",
+     "lines": "9-40,1541-1552"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+     "lines": "1068-1079"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/reconciler_test.exs",
+     "lines": "705-716"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/global_pause_test.exs",
+     "lines": "444-485"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/issue_sync_test.exs",
+     "lines": "2954-2971"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "2982,3059-3069"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatch_policy_test.exs",
+     "lines": "1024-1040"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/comment_polling_test.exs",
+     "lines": "22-40"
+    }
+   ],
+   "description": "`tracker_identity/1` is redefined in 6 files of this unit (19 tree-wide) with different owner/repository/provider_id conventions (\"owner\"/\"repository\"/\"I-<id>\", \"owner\"/\"repo\"/\"I_kwDO<id>\", \"its-everdred\"/\"aiur\"/\"node-<id>\"; reconciler_test hardcodes identifier \"42\" for every identity). `issue/1,2` exists in 7 files (17 tree-wide), `running_entry` in 9 (22 tree-wide) with different control maps, and comment_wake_test/comment_polling_test each spell out a 27-field `%State{}` base. `defp at(seconds)` anchored on fixed dates is copied in tracker_health_test, delivery_mode_test, interval_policy_test and mode_registry_test.",
+   "evidence": "Helper definition counts from `grep -l 'defp tracker_identity'` (6 in unit), `'defp issue('` (7), `'defp running_entry'` (9). comment_wake_test.exs:9-40 base_state sets todo_over_capacity_alert_active, agent_totals, codex_rate_limits ... github_command_scan_since explicitly.",
+   "recommendation": "Create `Aiur.Test.Fixtures` (tracker_identity/1, issue/2 with keyword overrides, running_entry/2 with a working/paused control default, orchestrator_state/1) and migrate files incrementally; drop explicit default-valued State fields in favour of `%State{}` + overrides.",
+   "refactor_hint": "Fixtures for Issue/TrackerIdentity belong with the tracker/core package; orchestrator-state fixtures with the orchestrator package.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-3-13",
+   "category": "complexity",
+   "severity": "P2",
+   "title": "issue_sync_test calls the 7-arity sync_polled_issue_state 40 times with the same five no-op lambdas, mirroring a positional arity ladder in production",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/issue_sync_test.exs",
+     "lines": "51-60,1481-1491,1545-1553,2092-2104,2302-2311"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+     "lines": "27-39,620-735"
+    }
+   ],
+   "description": "IssueSync exposes `sync_polled_issue_state` at arities 2, 4, 5, 6 and 7, each `@doc false` clause filling the next positional function with a default (DispatchPolicy.terminal_state_set, CurrentRunMembership.mark_reconciled/1, set_terminal_verification_pending/2). Tests therefore pass 7 positional arguments; 40 calls in issue_sync_test repeat `fn _ -> {:ok, []} end, fn _identity, _lifecycle -> :ok end, MapSet.new([\"done\"]), fn _ -> :ok end, fn _identity, _pending? -> :ok end`. The dependency-paused running entry map is also written out 13 times in the same file.",
+   "evidence": "`grep -c 'IssueSync.sync_polled_issue_state(' issue_sync_test.exs` = 40; `grep -c 'blocker_pause_generation: 1,'` = 13. issue_sync.ex:627 `def sync_polled_issue_state(%State{} = state, issues, fetch_issue_states_fun, observe_membership_fun)`, :646 (5-arity), :675 (6-arity), :706 (7-arity).",
+   "recommendation": "Collapse the ladder into `sync_polled_issue_state(state, issues, opts \\\\ [])` with keyword seams and defaults, and add a test helper `sync(state, issues, overrides)`; add `paused_on_blocker(agent, issue, blocker)` for the repeated entry.",
+   "refactor_hint": "Keyword-opts seams are easier to keep stable across a package boundary than positional arity ladders; do it before moving IssueSync.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-14",
+   "category": "large-module",
+   "severity": "P2",
+   "title": "Six test files exceed 1,000 lines and test several modules each (dispatcher_test 3,197 lines / 93 tests / 16 describes)",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "1-3197"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/issue_sync_test.exs",
+     "lines": "1-3032"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+     "lines": "1-1774"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/comment_wake_test.exs",
+     "lines": "1-1553"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/reconciler_test.exs",
+     "lines": "1-1057"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatch_policy_test.exs",
+     "lines": "1-1041"
+    }
+   ],
+   "description": "dispatcher_test (3,197 lines, 93 tests) covers decline alerts, blocked_by gate, blocking-Command gate (505-835), CI readiness (844-1010), candidate fetch, prewarm halt (1174-1403), CPU/memory/FD admission and capacity holds (1405-2566, ~1,160 lines), thrash budget, attempt provenance (2627-2884) and revalidation, and calls IssueSync 16 times and Orchestrator.handle_info once. issue_sync_test (3,032 lines, 88 tests) mixes dependency pause/resume, a PushRouting describe (460-636) although push_routing_test.exs exists, capacity/fleet starvation alerts (~830 lines), observed-error attentions, idle terminal verification, contradictory-label healing (2362-2799) and stranded reconciliation (2801-2952). retry_engine_test (1,774 lines, 22 describes) also drives RateLimitFallback.reconcile, Dispatcher.do_dispatch_issue and SessionLifecycle. comment_wake_test 1,553 lines / 65 tests; reconciler_test 1,057 / 35; dispatch_policy_test 1,041 / 62.",
+   "evidence": "Line/test counts from wc -l and `grep -cE '^\\s*test \"'`: dispatcher 3197/93, issue_sync 3032/88, retry_engine 1774/59, comment_wake 1553/65, reconciler 1057/35, dispatch_policy 1041/62. Module reference counts in dispatcher_test: Dispatcher 124, IssueSync 16, SessionLifecycle 4, DispatchPolicy 4.",
+   "recommendation": "Split by responsibility and by module under test: dispatcher/{admission,ci_readiness,decision_gate,prewarm,provenance}_test.exs; issue_sync/{dependency_resume,capacity_starvation,label_healing,stranded,terminal_verification}_test.exs; move the PushRouting describe to push_routing_test.exs and the capacity-starvation cases from dispatcher_test to issue_sync; move fallback-replacement cases from retry_engine_test to rate_limit_fallback_test.",
+   "refactor_hint": "Split along the same seams as the production modules (Dispatcher 2,670 lines, IssueSync 2,295 lines) so each extracted production module takes its tests with it.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-3-15",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "Tests reach internals: @doc false public seams, direct GenServer callback calls, :sys.get_state field reads",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "848-1170,1311-1402,2256-2260"
+    },
+    {
+     "path": "src/test/aiur/opencode/session_writer_test.exs",
+     "lines": "24-60,457-468"
+    },
+    {
+     "path": "src/test/aiur/opencode/server_test.exs",
+     "lines": "334"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/orphaned_workers_test.exs",
+     "lines": "55,96,105-107"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+     "lines": "102-1432"
+    }
+   ],
+   "description": "Dispatcher has 26 `@doc false` public functions; for 10 of them (check_initial_ci_readiness, dispatch_candidate_poll, dispatch_or_hold, emit_prewarm_blocked_alert, fetch_candidate_issues, maybe_warn_ci_readiness, monitor_without_candidates, reconcile_merged_tickets, start_initial_ci_readiness_check, dispatch_with_dependency_gate) no other lib module calls `Dispatcher.<fn>` \u2014 they are public only so tests can reach them. session_writer_test calls `SessionWriter.handle_info/2` 18 times with a hand-built state (`build_state/1`), so any State field rename breaks the test without a behaviour change. server_test reads `:sys.get_state(server).port_ref`; orphaned_workers_test reads `:sys.get_state(orchestrator).running` and `.poll_cycles_completed`.",
+   "evidence": "Scan of dispatcher.ex: 26 functions follow `@doc false`; external `Dispatcher.<fn>` callers in src/lib = 0 for the 10 listed. `grep -c 'handle_info(' session_writer_test.exs` = 18.",
+   "recommendation": "Test through the module's public API or extract the internally-tested units into their own modules with a real public API (e.g. `Dispatcher.CiReadiness`, `Dispatcher.PrewarmGate`, `Dispatcher.Admission`), then make the remaining helpers `defp`. For GenServers, test via `send/2` + a synchronous call rather than calling callbacks with a fabricated state.",
+   "refactor_hint": "The @doc false surface is effectively a second, undocumented API that the carve must preserve or break; extracting the tested units first makes the orchestrator package boundary explicit.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-3-16",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "async comment_wake_test depends on the global tracker config and the global Logger, and asserts through log text",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/comment_wake_test.exs",
+     "lines": "1-2,371-396,437-462,464-496,587-601,661-683"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+     "lines": "1402-1430,645"
+    }
+   ],
+   "description": "The module is `async: true`, yet several tests only pass because the ambient tracker 'fails the write' (comments: 'The unset tracker fails the write (permanently, here a 404)') and they assert `log =~ \"rework transition skipped\"` as proof the write was attempted. The file itself notes it 'cannot be swapped for a recording fake without serialising the file' because `Tracker.update_issue_state/2` is hard-wired at comment_wake.ex:1425 while the other seams ride inside the event map (`:issue_state_fetcher`, `:open_pr_fetcher`, `:unresolved_threads_fetcher`, `:emit_alert_fun`). `capture_log/1` captures the VM-global Logger (planning_source_test.exs:846-848 documents this, #1747), so in an async module 27 `assert log =~` and 14 `refute log =~` on generic strings can be satisfied or broken by a concurrent test.",
+   "evidence": "comment_wake_test.exs:2 `use ExUnit.Case, async: true`; :373-376 comment 'The unset tracker fails the write (permanently, here a 404)'; :395 `assert log =~ \"rework transition skipped\"`; :464-466 'the tracker adapter is global config and this module is `async: true`, so it cannot be swapped for a recording fake'. comment_wake.ex:1425 `case Tracker.update_issue_state(to_string(issue_key), \"rework\") do`. Counts: 24 capture_log/with_log, 27 assert-log, 14 refute-log.",
+   "recommendation": "Add an `:update_issue_state_fun` seam to the rework path (the merged-PR path already has one at comment_wake.ex:56-57), move test seams out of the event map into an opts keyword, and assert on the recorded write instead of log text. Keep log assertions only for unique sentinel strings.",
+   "refactor_hint": "Seams inside domain event maps leak test concerns into the event contract that webhooks and polling share; separating them makes the event shape a clean package boundary.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-17",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Tests read the real checkout and real environment: Config.repo() git-origin fallback; GITHUB_TOKEN deleted and not restored",
+   "locations": [
+    {
+     "path": "src/test/aiur_web/build_order/planning_source_test.exs",
+     "lines": "142,166,672,714,775,818,856,893"
+    },
+    {
+     "path": "src/lib/aiur/github/config.ex",
+     "lines": "24-30,160-178"
+    },
+    {
+     "path": "src/test/aiur/init/github_test.exs",
+     "lines": "321-372"
+    }
+   ],
+   "description": "planning_source_test (no TestSupport, so no configured repo) calls `Config.repo()` 8 times; `repo/0` falls back to `Aiur.Git.origin_repo()`, i.e. the git remote of the directory `mix test` runs in. On a checkout without an origin (a tarball, a fresh `git init`, some CI caches) it returns nil and `String.replace(@pack, \"acme/widgets\", nil)` raises, so the tests pass or fail on the host rather than the code. init/github_test deletes GITHUB_TOKEN (and on_exit deletes it again) in 6 tests without saving the previous value, so an operator or CI token present at suite start is gone for every later test in the VM.",
+   "evidence": "planning_source_test.exs:142 `repository = Config.repo()` then :145 `String.replace(@pack, \"acme/widgets\", String.upcase(repository))`. config.ex:30 `def repo(opts) when is_list(opts), do: explicit_repo() || origin_repo(opts)`; :173-174 `defp resolve_origin_repo do case Aiur.Git.origin_repo() do`. github_test.exs:324-325 `System.delete_env(\"GITHUB_TOKEN\"); on_exit(fn -> System.delete_env(\"GITHUB_TOKEN\") end)`; other files in the unit restore correctly (comment_polling_test.exs:8-17).",
+   "recommendation": "Pin the repository in planning_source_test (configure `tracker.github.repo` or use `Config.repo(origin_fun: fn -> \"owner/repo\" end)`). In github_test save and restore GITHUB_TOKEN with the shared `put_system_env!` helper (tests-3-09).",
+   "refactor_hint": "Build-order web code depending on the GitHub config's git-origin fallback is a cross-package reach (aiur_web -> GitHub config -> Git); pass the repository into PlanningSource explicitly.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-18",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "VM-global cwd, PATH and XDG/OPENCODE env mutated while application processes run",
+   "locations": [
+    {
+     "path": "src/test/aiur/init/dotenv_test.exs",
+     "lines": "23-43"
+    },
+    {
+     "path": "src/test/aiur/init/scaffold_test.exs",
+     "lines": "41-80"
+    },
+    {
+     "path": "src/test/aiur/init/github_test.exs",
+     "lines": "379-401"
+    },
+    {
+     "path": "src/test/aiur/init/runtime_test.exs",
+     "lines": "26-60"
+    },
+    {
+     "path": "src/test/aiur/opencode/server_test.exs",
+     "lines": "36-51,327-329,381-400"
+    }
+   ],
+   "description": "`File.cd!/2` changes the working directory of the whole BEAM; it is used 9 times in 4 init test files because the production functions read the cwd implicitly (Dotenv.load/0, Scaffold.ensure_env/1, GitHub.detect_repo/0, Runtime.detect_toolchain/0, Runtime.setup_repo_state/1). server_test prepends a stub `opencode` directory to PATH and sets OPENCODE_CONFIG/OPENCODE_CONFIG_CONTENT/XDG_* for the VM. The modules are sync, but supervised application processes (WorkflowStore reloads, Git origin resolution, any slot/prewarm spawn) keep running and resolve relative paths or spawn `opencode` during those windows. server_test's prepare_serve_root/0 also builds its tmp dir without System.pid, contrary to TestSupport.tmp_root!/1's documented cross-VM collision.",
+   "evidence": "dotenv_test.exs:38 `File.cd!(dir, fn -> Dotenv.load() end)`; scaffold_test.exs:41,48,65,76; github_test.exs:388,399; runtime_test.exs:27,57. server_test.exs:328 `System.put_env(\"PATH\", stub_dir <> \":\" <> original_path)`; :46 `System.put_env(child_env)`; :356-360 `Path.join(System.tmp_dir!(), \"aiur-opencode-reap-#{System.unique_integer(...)}\")`.",
+   "recommendation": "Give the init functions a `cwd:`/`root:` option and pass the tmp dir; give Opencode.Server an `env:`/`executable:` option so tests pass the stub path and XDG dirs to the Port instead of mutating the VM env. Use tmp_root!/1 for all tmp dirs.",
+   "refactor_hint": "Explicit cwd/env parameters are a prerequisite for moving `aiur init` and the opencode launcher into separate packages or CLIs.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-19",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Untagged tests need real binaries and OS processes (opencode, bash, pgrep, ps, git) with 15-40 s waits",
+   "locations": [
+    {
+     "path": "src/test/aiur/opencode/server_test.exs",
+     "lines": "13-118,221-352,403-430"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+     "lines": "1016-1100"
+    },
+    {
+     "path": "src/test/aiur/init/github_test.exs",
+     "lines": "379-401"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/orphaned_workers_test.exs",
+     "lines": "11-120"
+    },
+    {
+     "path": "src/test/test_helper.exs",
+     "lines": "44-55"
+    }
+   ],
+   "description": "server_test boots a real `opencode serve` (Server.start_link -> `exec opencode serve --port 0`), talks HTTP to it and reads its sqlite db; it waits up to 40 s for startup. retry_engine_test spawns `bash -c 'sleep 600 & wait'` and polls `pgrep -P` to find the child. github_test runs `git init`/`git remote add` and ignores the exit status. orphaned_workers_test runs real AgentRunner tasks on the app TaskSupervisor with 15 s waits. None are tagged, while test_helper only excludes `:external`, `:perf_regression`, `:quarantine` and `:real_proc` (on hosts without /proc), so on a host without opencode on PATH these fail rather than skip, and they dominate suite wall time.",
+   "evidence": "server_test.exs:254 `assert_receive {:serve_up, server, os_pid}, 40_000`; :403-409 boot_serve. retry_engine_test.exs:1027 `Port.open({:spawn_executable, String.to_charlist(bash)}, [:binary, args: [~c\"-c\", ~c\"sleep 600 & wait\"]])`; :1091 `System.cmd(pgrep, [\"-P\", ...])`. github_test.exs:385-386 `System.cmd(\"git\", [\"init\"], cd: dir)` result discarded. test_helper.exs:55 `ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ real_proc_exclude)`. Receive-timeout histogram in the unit: 5000 ms \u00d78, 15000 ms \u00d72, 40000 ms \u00d71.",
+   "recommendation": "Tag these `@tag :real_proc` (or a new `:needs_opencode`) and skip with a clear reason when the binary is absent; assert on System.cmd exit codes. Keep one integration test per behaviour and cover the rest with the stub executable approach already used at server_test.exs:298-352.",
+   "refactor_hint": "Integration tests that need the opencode binary should live with the opencode package's integration suite, not in the unit suite every package runs.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-20",
+   "category": "test-quality",
+   "severity": "P3",
+   "title": "`@tag :not_async` is used 7 times but nothing reads it; ExUnit async is module-level",
+   "locations": [
+    {
+     "path": "src/test/aiur/init/dotenv_test.exs",
+     "lines": "24"
+    },
+    {
+     "path": "src/test/aiur/init/github_test.exs",
+     "lines": "322,330,339,348,357,366"
+    }
+   ],
+   "description": "The tag suggests per-test serialisation, but ExUnit decides concurrency per module (`use ExUnit.Case, async: ...`) and no test_helper/CI config filters on `:not_async`. Both modules happen to be sync because `use ExUnit.Case` defaults to async: false, so the tag is dead and would give false confidence if someone flips the module to async.",
+   "evidence": "`grep -rn not_async` finds only the 7 `@tag :not_async` lines; test_helper.exs:55 excludes [:external, :perf_regression, :quarantine, :real_proc].",
+   "recommendation": "Delete the tags and write `use ExUnit.Case, async: false` explicitly with a one-line reason (env mutation).",
+   "refactor_hint": "None beyond cleanup.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-21",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "GitHub HTTP double setup copied between the two blocked_by regression files and reaching into a private persistent_term key",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_blocked_by_cost_test.exs",
+     "lines": "17-68"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_stale_blocked_by_test.exs",
+     "lines": "25-69"
+    },
+    {
+     "path": "src/lib/aiur/github/config.ex",
+     "lines": "197-207,265-277,293-296"
+    }
+   ],
+   "description": "Both files repeat the same ~45-line setup: ensure :req started, save 3-4 app keys, start a private Quota, point `:github_transport_test_options` at Req.Test, disable the budget, erase the cached token, put GITHUB_TOKEN, write a github workflow, reset ResourceStore, and restore everything. Tree-wide 9 test files set `:github_transport_test_options` and 56 put GITHUB_TOKEN. Both erase `{Aiur.GitHub.Config, :resolved_token}` directly (21 test files tree-wide do this) because GitHub.Config has no reset API; they leave the sibling key `:resolved_token_source` in place, which `token_source/0` still reads.",
+   "evidence": "dispatcher_blocked_by_cost_test.exs:17 `@token_cache_key {Aiur.GitHub.Config, :resolved_token}` ... :37 `:persistent_term.erase(@token_cache_key)`; dispatcher_stale_blocked_by_test.exs:25,43 identical. config.ex:273-274 writes both `:resolved_token` and `:resolved_token_source`; :295 `(source = :persistent_term.get({__MODULE__, :resolved_token_source}, nil)) in [:env, :keyring]`.",
+   "recommendation": "Extract `Aiur.Test.GitHubDouble.setup!(repo: ..., label_prefix: ...)` returning the stub name, and add `Aiur.GitHub.Config.reset_token_cache/0` (clears both keys) for tests; replace the 21 direct persistent_term pokes.",
+   "refactor_hint": "The GitHub client package should ship its own test double and cache-reset API; consumers (orchestrator, build order, web) then depend on that instead of the private cache key.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-22",
+   "category": "performance",
+   "severity": "P3",
+   "title": "\u224811 s of guaranteed idle wait per run from negative receives, mostly after synchronous calls",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/merged_ticket_reconciler_test.exs",
+     "lines": "119-120"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/comment_wake_test.exs",
+     "lines": "657,682,1063,1088,1352-1354,1411-1414"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/rework_requeue_test.exs",
+     "lines": "343,370,388,403,418,433"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "135,177,351,644,660,743"
+    }
+   ],
+   "description": "61 `refute_receive` without a timeout (100 ms each) plus 51 with explicit timeouts summing 5,080 ms: about 11.2 s of pure waiting in this unit, most of it in sync modules that run serially. In files like merged_ticket_reconciler_test (15 bare refutes) and comment_wake_test (15) the callbacks are invoked synchronously in the test process, so `refute_received` is equivalent and instant; where the sender is asynchronous, a 100 ms refute cannot prove absence anyway.",
+   "evidence": "Parser over the unit: refute_receive total 112, bare 61; timed refutes 51 totalling 5,080 ms. merged_ticket_reconciler_test.exs:95-120 reconcile/3 is called synchronously with `update_issue_state_fun` sending to `parent` before `refute_receive {:transition, \"1570\"}`.",
+   "recommendation": "Use `refute_received` (optionally after the issue_sync_test `mailbox_barrier/0` pattern) for synchronous producers; for asynchronous ones, synchronise on a positive completion signal first and then `refute_received`.",
+   "refactor_hint": "None; local speed-up that also makes intent clearer.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-23",
+   "category": "config",
+   "severity": "P3",
+   "title": "`@tag config: @enabled` repeated 45 times instead of @moduletag; lifetime_dispatch_budget_test re-implements TestSupport isolation by hand",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/lifetime_dispatch_budget_test.exs",
+     "lines": "13-57,90-720"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/auto_resume_test.exs",
+     "lines": "257-515"
+    }
+   ],
+   "description": "lifetime_dispatch_budget_test writes `@tag config: @enabled` before 30 tests (two override it at 670 and 720) and auto_resume_test does so 15 times. lifetime_dispatch_budget_test's 45-line setup saves and restores `:workflow_file_path`, `:dispatch_budget_store_path`, `:decision_state_dir`, `:log_file` with four copies of the same if/else, i.e. a second, divergent implementation of the TestSupport per-test workflow root.",
+   "evidence": "`grep -c '@tag config: @enabled'` = 30 (lifetime) and 15 (auto_resume). lifetime_dispatch_budget_test.exs:28-54 four `if is_nil(previous_x) do Application.delete_env ... else Application.put_env ...` blocks.",
+   "recommendation": "Use `@moduletag config: @enabled` with per-test overrides, and the shared put_app_env!/workflow helper (tests-3-09).",
+   "refactor_hint": "None.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-24",
+   "category": "test-quality",
+   "severity": "P3",
+   "title": "Struct-shape and type-only assertions where a value is the point",
+   "locations": [
+    {
+     "path": "src/test/aiur/orchestrator/reconciler_test.exs",
+     "lines": "237,439,989"
+    },
+    {
+     "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+     "lines": "315,866,882,921,2413"
+    },
+    {
+     "path": "src/test/aiur/init/runtime_test.exs",
+     "lines": "32-40"
+    },
+    {
+     "path": "src/test/aiur/webhooks/ingest_test.exs",
+     "lines": "43-49"
+    }
+   ],
+   "description": "`assert %State{} = result` (reconciler_test 439 is the last assertion of 'resolves a divergence before removing a terminal ticket' and does not check the ticket was removed), `assert is_integer(next.decision_store_unavailable_since_ms)`, `assert is_pid(state.ci_readiness_check_pid)`, `assert is_integer(state.ci_readiness_retry_at_ms)` (the retry delay value is what the test is about), `assert %DateTime{} = ...measured_at`, `is_map/is_function/has_key?` for runtime_deps, `is_binary(admission.semantic_key)`. Counts in the unit: is_integer 16, is_reference 10, is_binary 8, is_pid 6, is_map 3, struct-only matches 6. Several sit next to value assertions and are fine; the listed ones are the only check of the behaviour they name.",
+   "evidence": "reconciler_test.exs:439 `assert %State{} = result` (test at 394-440 never checks `result.running`); dispatcher_test.exs:882 `assert is_integer(state.ci_readiness_retry_at_ms)`.",
+   "recommendation": "Assert the value the behaviour produces (e.g. `refute Map.has_key?(result.running, issue.id)`, the retry deadline relative to an injected now) and mutation-check per AGENTS.md.",
+   "refactor_hint": "None.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-25",
+   "category": "test-quality",
+   "severity": "P3",
+   "title": "Assertions run inside a spawned production process in tts_test",
+   "locations": [
+    {
+     "path": "src/test/aiur/eleven_labs/tts_test.exs",
+     "lines": "12-38"
+    }
+   ],
+   "description": "The injected `request` function runs inside the process `TTS.start/3` spawns, and it contains `assert {:cont, {_request, _response}} = into.(...)`. A failed assertion there raises in the TTS process, not the test, so the test fails later on a missing message (100 ms bare assert_receive) with an unrelated error, or passes if the crash path still sends the expected messages.",
+   "evidence": "tts_test.exs:16-17 `assert {:cont, {_request, _response}} = into.({:data, <<1, 2>>}, {request, response})` inside `request = fn url, options -> ... end`, which TTS invokes from its own process (the test monitors that pid at :28).",
+   "recommendation": "Send the `into` results to the test process and assert there, and wait with an explicit timeout or monitor.",
+   "refactor_hint": "None.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-3-26",
+   "category": "test-quality",
+   "severity": "P3",
+   "title": "webhook_mode_contract_test locates consumer tests by a relative path walk tied to the current tree layout",
+   "locations": [
+    {
+     "path": "src/test/aiur/webhooks/webhook_mode_contract_test.exs",
+     "lines": "19-20,53-104,122"
+    }
+   ],
+   "description": "The meta-test enforces that every `consumer_*_test.exs` uses the dual-mode harness by globbing `Path.expand(\"../../../test/aiur/webhooks\", __DIR__)`. Moving the webhooks tests into a package changes the directory; the 'at least one consumer test file' test would then fail loudly (good), but the path climbs out of test/ and back in, so it silently couples to `src/` being the mix project root.",
+   "evidence": "webhook_mode_contract_test.exs:19 `@consumer_dir Path.expand(\"../../../test/aiur/webhooks\", __DIR__)`; :122 `defp consumer_files, do: @consumer_dir |> Path.join(@consumer_glob) |> Path.wildcard()`.",
+   "recommendation": "Use `Path.join(__DIR__, \"consumer_*_test.exs\")` so the check travels with the directory.",
+   "refactor_hint": "Update when the webhooks package is carved.",
+   "effort": "S"
+  }
+ ],
+ "lines_reviewed_estimate": 19500
+}

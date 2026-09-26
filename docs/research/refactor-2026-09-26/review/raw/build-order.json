@@ -1,0 +1,1465 @@
+{
+  "unit_id": "build-order",
+  "files_reviewed": 69,
+  "lines_reviewed_estimate": 15200,
+  "coverage_notes": "Read in full (all 69 files in the unit except the two noted below): graph_projection.ex (1825) and all graph_projection_* support modules; planning_source.ex; ticket_context_presenter.ex; ticket_history_provider.ex with its options, contract and normalizer; pack_status.ex; pack_paths.ex; usage_runtime.ex; analytics_runtime.ex; analytics_scope.ex; usage_scope.ex; ad_hoc_source.ex and its snapshot; data_source.ex; runtime.ex; source_runtime.ex; route_state.ex; context_runtime.ex; ticket_context_selection.ex; ticket_context_adapter.ex; catalog_store.ex; catalog.ex; cadence.ex; all github_graph/* modules (entry, reconciliation, pager, queries, connection, normalizer, result, request, settings, endpoint, dependencies); bounded.ex; ticket_detail.ex, ticket_detail_normalizer.ex, ticket_detail_repository.ex, ticket_detail_destinations.ex and all ticket_detail_coordinator_* modules; member.ex; root_summary.ex; selected_root.ex; activity.ex; dependency.ex; dependency_chain.ex; diagnostic.ex; edge_state.ex; lifecycle.ex; marker.ex; metadata.ex; icon.ex; provider_result.ex; graph.ex; graph_analysis.ex; progress_renderer.ex. Partly read: ticket_detail_sanitizer.ex (body and callers read; the regex attribute block was skimmed) and ticket_detail_contract.ex (module and struct outline only). Read outside the unit to verify claims: issue_log.ex event_history, github/errors.ex and graphql_errors.ex classifiers, issue_relationships.ex, resource_store.ex key/0, open_ticket_source.ex function map, current_run_membership projection generation, webhooks delivery_mode states, config/schema tracker and build_order limits, build_order_live.ex broadcast handlers, and aiur.ex child order. Tests were not in scope. I sampled only two Build Order test files, for the finding about tests pinning this unit's internals. Findings build-order-01 and build-order-10 come from static traces, not runtime reproduction. build-order-26, 32 and 33 are plausible and depend on data shapes I could not confirm without running the system. No builds, tests or daemon commands were run.",
+  "findings": [
+    {
+      "id": "build-order-01",
+      "category": "performance",
+      "severity": "P0",
+      "title": "Ticket-detail refresh loop: every failed detail read broadcasts, the open drawer re-requests, the coordinator re-reads with no backoff",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+          "lines": "145-153"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_policy.ex",
+          "lines": "73-77"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+          "lines": "132-159"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "lines": "58-68"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "lines": "113-161"
+        },
+        {
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "lines": "135-138"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail.ex",
+          "lines": "24-39"
+        }
+      ],
+      "description": "Static trace of a feedback loop that runs for as long as the Ticket Context drawer is open on a ticket whose detail read fails. (1) TicketDetailCoordinator.refresh_or_reply starts a new read whenever the entry is not fresh and not inflight, and Policy.fresh?/2 is false for any entry with a failure. The coordinator has no failure backoff, and Failure.retry_after is stored but never read. (2) TaskLifecycle.apply_entry_completion broadcasts {:ticket_detail_updated, state} on every completion, including a failure identical to the previous one. (3) BuildOrderLive routes :ticket_detail_updated to ContextRuntime.refresh_for/2, which rotates the request token. (4) reconcile_scope/2 sees the token change and calls schedule_load, which runs DataSource.load_context. That calls TicketDetailCoordinator.request/1 and returns to step (1). Each pass runs TicketDetail.fetch: a REST conditional read of the issue, then an uncached AiurLinkedPullRequests GraphQL POST, then normalization. A failure that happens after both reads spends a GraphQL request on every pass, at the speed of GitHub's round trip, and at that rate one open drawer can use up the 5,000-point hourly budget. A deterministic trigger exists: any issue body over 16 KiB fails normalization with :validation (see build-order-02). A success does not loop, because the next request finds the entry fresh for freshness_ms.",
+      "evidence": "coordinator.ex:146 `if Policy.fresh?(entry, state) or entry.inflight do ... else TaskLifecycle.start_refresh(...)`; policy.ex:73 `def fresh?(%{detail: %Snapshot{}, failure: nil, last_success_ms: ...})` / :77 `def fresh?(_entry, _state), do: false`; task_lifecycle.ex:150 `{state, [Policy.state_for(entry, state)]}` (always broadcast); build_order_live.ex:136-138 `when event in [:ticket_detail_updated, :ticket_history_updated], do: {:noreply, ContextRuntime.refresh_for(socket, identity)}`; grep shows `retry_after` is only defined in ticket_detail_contract.ex:19-21 and never read.",
+      "recommendation": "Only broadcast a detail state when its content or health changes (compare with the previous State as TicketHistoryProvider.same_content?/2 does). Give the coordinator a per-entry failure backoff that honours Failure.retry_after (reuse GraphProjection.Policy.retry_due?/2 semantics). Make refresh_for/2 skip rotation when the broadcast generation equals the one already rendered. Add a regression test: keep the drawer subscribed to a reader that always fails, then assert the reader is called a bounded number of times within N broadcasts.",
+      "effort": "M",
+      "refactor_hint": "Belongs to the Build Order read-model package. The fix is a shared 'coordinated read with backoff and change-only broadcast' primitive, which GraphProjection already approximates."
+    },
+    {
+      "id": "build-order-02",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "Issue bodies larger than 16 KiB make the whole ticket detail fail with :validation instead of being truncated",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "179-203"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_sanitizer.ex",
+          "lines": "158-169"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+          "lines": "35-41"
+        }
+      ],
+      "description": "TicketDetail.Normalizer.description/2 passes the raw body to Sanitizer.sanitize/2 with the byte limit. sanitize/2 returns :error when the input is already over the limit, and description/2 maps that to {:error, %Failure{kind: :validation}}. The whole snapshot is then rejected: title, lifecycle and destinations are thrown away along with the body. The limit is capped at TicketDetail.default_max_description_bytes() (16,384), both as the default and as the maximum, so an operator cannot raise it. GitHub bodies can be up to 65,536 characters, and Aiur ticket bodies with workpads regularly pass 16 KiB. The drawer shows 'unavailable' for those tickets, and because the failure is deterministic it drives the loop in build-order-01. The presenter degrades correctly for the same case: TicketContextPresenter.safe_description/1 returns nil on :error. So the two layers treat an oversize body differently.",
+      "evidence": "ticket_detail_normalizer.ex:182-186 `case Sanitizer.sanitize(value, max_bytes) do {:ok, sanitized} -> ... :error -> {:error, %Failure{kind: :validation}}`; ticket_detail_sanitizer.ex:160 `if byte_size(value) <= limit and String.valid?(value) do ... else :error`; coordinator_options.ex `bounded_positive_option(opts, :max_description_bytes, TicketDetail.default_max_description_bytes(), TicketDetail.default_max_description_bytes())`.",
+      "recommendation": "Truncate instead of reject: use Sanitizer.sanitize_projection/3, which already exists and returns {:ok, text, truncated?}, and carry a description_truncated? flag on the Snapshot. Keep :validation for structural faults only.",
+      "effort": "S",
+      "refactor_hint": "This is the 'fix by raising a limit' family. Make the bounded-text contract (truncate and flag) a shared primitive of the sanitizer package."
+    },
+    {
+      "id": "build-order-03",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "A failed or crashed catalog reconciliation is silently dropped and never retried on a repository without webhooks",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "318-331"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "341-349"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1739-1763"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1782-1807"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+          "lines": "41-62"
+        }
+      ],
+      "description": "The catalog is event-sourced from ResourceStore. The GraphQL reconciliation is the only way the store converges on edges that were never delivered. It runs at boot (:reconcile), when an operator runs refresh_catalog, and when the repo's delivery mode is :degraded. When the task returns {:error, reason}, the {ref, result} clause ignores `result`: it clears the inflight marker and stamps last_reconciliation_ms as if the run had succeeded. When the task crashes, the :DOWN clause clears the marker with no log. Nothing records health, raises an alert or schedules a retry. On a repo whose delivery mode is :never_configured (DeliveryMode states: :never_configured | :configured_unproven | :webhook_backed | :degraded), degradation never fires. A boot reconciliation that fails, for example on a missing token, a GraphQL budget hold or a timeout, leaves the catalog on the stale store until an operator happens to press refresh. The #2538 comments say this is the exact failure the design exists to avoid. Failures to start the task are logged only at Logger.warning, which goes nowhere without --debug.",
+      "evidence": "graph_projection.ex:322-330 `%{ref: ^ref} -> ... state = %{state | reconciliation: nil, last_reconciliation_ms: now_ms(state)}` (result unused); :346-349 `match?(%{ref: ^ref}, state.reconciliation) -> state = %{state | reconciliation: nil}`; reconciliation.ex:107-108 `{:error, reason, _state} -> {:error, reason}`; :1757 `Logger.warning(\"GraphProjection could not start reconciliation\")`.",
+      "recommendation": "Treat the reconciliation as a scope with a health record. Record failure, reason and next_retry_at, schedule a bounded-backoff retry regardless of delivery mode, publish it on the catalog snapshot (for example a :reconciliation_failed diagnostic), and emit an operator alert after N consecutive failures. Stamp last_reconciliation_ms only on success.",
+      "effort": "M",
+      "refactor_hint": "Split reconciliation scheduling out of GraphProjection into its own supervised worker (see build-order-09). It belongs with the GitHub store and ingestion boundary, not the view projection."
+    },
+    {
+      "id": "build-order-04",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Reconciliation clears every :sub_issue edge, then re-deposits only the first 100 members of each root",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+          "lines": "66-83"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/queries.ex",
+          "lines": "38-40"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/queries.ex",
+          "lines": "64"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "225-250"
+        }
+      ],
+      "description": "deposit_catalog/2 calls ResourceStore.clear(:sub_issue, owner, repo) for the whole repository, then deposits edges from each root's `subIssues(first: 100)` connection. deposit_root/2 ignores pageInfo and totalCount, and never paginates members. For a root with more than 100 sub-issues, every edge past the first page, including edges delivered correctly by webhooks, is deleted from the store on every boot and on every degraded reconciliation. A root whose subIssues connection fails Connection.parse/1 has all its edges cleared and none re-deposited (`_invalid -> :ok`). Queries.ex says outright that 'a root with more than 100 members' exists. After a reconciliation, CatalogStore.member_numbers/1, GraphProjection's member-change debounce, and the catalog member counts all read the truncated store.",
+      "evidence": "reconciliation.ex:71 `ResourceStore.clear(:sub_issue, owner, repo)`; :79-82 `case Connection.parse(Map.get(node, \"subIssues\")) do {:ok, members, _total, _page_info} -> Enum.each(members, &deposit_member(&1, node, repository)); _invalid -> :ok end`; queries.ex:38-40 'Both variants read `subIssues(first: 100)`, so a root with more than 100 members still reports unresolved counts'.",
+      "recommendation": "Clear edges only for a root whose member connection was read completely (has_next? false and length == totalCount). Otherwise leave that root's existing edges and mark it for a paginated selected-root read. Alternatively, clear per parent instead of per repository. Add a test that holds 101 members for one root and asserts no edge is lost after run/1.",
+      "effort": "M",
+      "refactor_hint": "Store/reconciliation boundary. The set-truth rule ('the query is the set truth') holds only when the query is complete. Carry that rule into the GitHub-ingestion package as a checked invariant."
+    },
+    {
+      "id": "build-order-05",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Catalog metric derivation is copied three times (CatalogStore, GitHubGraph.Normalizer, PlanningSource) and has already drifted",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "114-196"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "313-315"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "lines": "126-267"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "146-190"
+        }
+      ],
+      "description": "CatalogStore says its metric rules 'deliberately mirror' the normalizer and are 'written out rather than shared'. Copied verbatim in both files: the progress cond (resolved_count == 0 / == total / partial), metric_count/2, member_state_digest/1, validate_root_label/1, append_diagnostics/2 and @root_label \"build-order\". PlanningSource.progress/2 is a third copy of the progress cond. They have diverged. For a root with more than 100 members, the normalizer reports member_count = the true totalCount with progress nil and :unresolved (root_metrics requires has_next? false and length == total). CatalogStore instead runs Enum.take(member_numbers, 100), reports member_count 100, and computes a percentage and a :resolved/:partial resolution over the 100 lowest issue numbers, with no overflow diagnostic. The store path is now the steady-state catalog source (Options.catalog_reader defaults to &CatalogStore.fetch/1), so the page shows a capped member count and a biased percentage as resolved.",
+      "evidence": "catalog_store.ex:126 `members = Enum.take(member_numbers, @member_limit)` / :129 `total = length(members)`; normalizer.ex:134-135 `{:ok, members, total, %{has_next?: false}} when length(members) == total -> metrics_from_members(members, total); _ -> unresolved_metrics(connection_total(connection))`; identical `round(completed_count / resolved_count * 100)` at catalog_store.ex:137-138, normalizer.ex:169-170, planning_source.ex:185,188.",
+      "recommendation": "Extract a pure Aiur.BuildOrder.RootMetrics module that takes lifecycles and optional label sets plus a declared total, owns progress, metric_count, digest and the overflow rule, and is called by all three sources. CatalogStore must pass the true edge count and report :member_overflow / :unresolved exactly as the normalizer does.",
+      "effort": "M",
+      "refactor_hint": "RootMetrics belongs in the pure Build Order domain core, with no GitHub or store dependency, and the store, GraphQL and pack adapters depend on it."
+    },
+    {
+      "id": "build-order-06",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Pack manifest parsing is duplicated between PlanningSource, PackStatus and PackPaths, and ticket-number parsing has diverged",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "872-875"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "lines": "372-373"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "742-747"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "lines": "365-370"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_paths.ex",
+          "lines": "143-153"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "329-365"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "840-865"
+        }
+      ],
+      "description": "Three modules each parse the same build-order.json. The 'repository' split appears three times: PlanningSource.repository/1, PackStatus.pack_repository/1 and PackPaths.foreign_repository?/1. Ticket numbers are parsed twice, and the two parsers disagree. PlanningSource.ticket_number/1 accepts `\"ticket\"` or `\"github\": {\"number\": n}`. PackStatus.ticket_number/1 accepts only `\"ticket\"`. For a pack whose tickets carry only github.number, PlanningSource marks the ticket materialized, so pack_status_facts/1 sets requires_projection? to true. PackStatus never fetches or writes that ticket's lifecycle, so status_lifecycle/2 is nil for it indefinitely. project_pack_status_health/2 then reports the pack :stale/:unavailable with failure :pack_status_incomplete on every cycle, and no refresh clears it. Lifecycle strings are parsed a third way: PlanningSource.status_lifecycle/2 accepts 'COMPLETE'/'complete'/'CANCELED' variants, while PackStatus writes only lowercase 'completed'/'cancelled'/'open'.",
+      "evidence": "planning_source.ex:872-875 `defp ticket_number(%{\"ticket\" => ticket}) ... defp ticket_number(%{\"github\" => %{\"number\" => ticket}}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}`; pack_status.ex:372-373 `defp ticket_number(%{\"ticket\" => number}) when is_integer(number) and number > 0, do: [number]; defp ticket_number(_ticket), do: []`; planning_source.ex:355 `requires_projection? = is_integer(ticket.number)`.",
+      "recommendation": "Create Aiur.BuildOrder.Pack (a struct plus a parser) that owns manifest decoding, repository, ticket numbers, drafts and status.json reading. Have PlanningSource, PackStatus and PackPaths consume it. Add a contract test with a github.number-only pack that asserts PackStatus fetches it and the health reaches :healthy.",
+      "effort": "M",
+      "refactor_hint": "Pack/planning-contract package. It must not live under aiur_web, because PlanningSource is a web module that holds domain parsing (see build-order-27)."
+    },
+    {
+      "id": "build-order-07",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "GraphProjection.Policy.failure_class/1 matches a GitHub classification the transport never emits and misses the one it does emit",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "lines": "184-244"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "137-141"
+        },
+        {
+          "path": "src/lib/aiur/github/graphql_errors.ex",
+          "lines": "124"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "111-129"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "lines": "217-224"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1148-1171"
+        }
+      ],
+      "description": "failure_class/1 maps `{:github, c, _} when c in [:auth, :forbidden]` to :permission. The GraphQL transport emits {:github, :permission, detail} for a non-rate-limited 403 (Errors.graph_status_classification/2) and for a FORBIDDEN GraphQL error (GraphQLErrors line 124). It never emits :forbidden (grep: :forbidden appears only in auth_preflight.ex). {:github, :permission, _} matches no clause except the fallback `_ -> :provider_unavailable`, so a token that cannot read the repository is reported as 'GitHub planning data is unavailable', and count_resolution_failure/1 then maps it to nil. The same GitHub error tuple has four hand-written classifiers with different taxonomies: Policy.failure_class, TicketDetail.Normalizer.failure_from (no :permission-class clause, so {:github, :permission, _} becomes :transport), PackStatus.failure/1, and GraphProjection.count_resolution_failure/1.",
+      "evidence": "policy.ex:185 `def failure_class({:github, classification, _detail}) when classification in [:auth, :forbidden], do: :permission`; :244 `def failure_class(_reason), do: :provider_unavailable`; errors.ex:137-139 `defp graph_status_classification(403, response) do if rate_limited_response?(response, :unknown), do: :rate_limited, else: :permission`; ticket_detail_normalizer.ex:127 `def failure_from({:github, _kind, _detail}), do: %Failure{kind: :transport}`.",
+      "recommendation": "Give Aiur.GitHub.Errors one exhaustive classifier from GitHub error tuples to a small shared cause enum (:auth | :permission | :rate_limited | :timeout | :unreachable | :schema | :unknown), and have every Build Order consumer map from that enum. Add a property test that feeds every classification Errors can produce through each consumer and asserts that none lands on a specific wrong cause.",
+      "effort": "S",
+      "refactor_hint": "Shared GitHub-errors package. The consumer taxonomies (projection failure, ticket-detail Failure, pack-status failure) should be thin mappings from one source."
+    },
+    {
+      "id": "build-order-08",
+      "category": "dead-code",
+      "severity": "P1",
+      "title": "The 'labelled catalog read' cadence (about 200 lines, 6 state keys) is keyed on a flag the catalog reader now ignores",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "823-829"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1032-1176"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1421-1446"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "60-74"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "115"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "32-48"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "282-293"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/queries.ex",
+          "lines": "22-36"
+        }
+      ],
+      "description": "GraphProjection still decides every catalog read as labelled or cheap (catalog_labels_due?/2). It passes `member_labels:` in the reader options and runs the #1766 machinery on completion: record_catalog_labels_read/failure, labels_penalty_ms geometric backoff, carry_catalog_counts via Catalog.carry_forward_counts, put_catalog_count_resolution, count_resolution_failure and failure_reset_at, with six state keys (catalog_labels_read_ms, _ok_ms, _failure, _failure_reset_at, _failures, _penalty_ms). The production catalog reader is CatalogStore.fetch/1 (Options line 115). It reads only :repository and always makes the same zero-cost store read. The flag therefore changes nothing about the read, but it does flip semantics: on a 'labelled' tick a nil epic/phase count is shown as Unresolved (:incomplete), and on the next 'cheap' tick the same nil is filled from the previous generation. Identical inputs render differently on a 10-minute cycle. The budget and rate-limit classes cannot occur, because CatalogStore reports calls: 0. The labelled GraphQL variant now runs only inside Reconciliation, which always sets member_labels? true. GitHubGraph.fetch_catalog/1, Result.catalog/3 and Client.fetch_build_order_catalog/1 have no production callers; grep finds them only in tests.",
+      "evidence": "options.ex:115 `catalog_reader: Keyword.get(opts, :catalog_reader, &CatalogStore.fetch/1)`; catalog_store.ex:282-293 `defp repository(opts) do case Keyword.get(opts, :repository) ...` (no :member_labels read); graph_projection.ex:1041 `if labelled_read?(inflight) or carry_expired?(state) do candidate else Catalog.carry_forward_counts(candidate, previous) end`; `grep -rn fetch_build_order_catalog lib test` -> only lib/aiur/github/client.ex:92 and two tests.",
+      "recommendation": "Delete the labelled-read cadence from GraphProjection, Options and Cadence (graph_catalog_labels_refresh_ms). Keep count carry-forward only if the store genuinely lacks label sets, and key it on store completeness rather than a timer. Delete GitHubGraph.fetch_catalog, Result.catalog and Client.fetch_build_order_catalog, or move them to test support. Update the stale cost comments in Queries and Options.",
+      "effort": "M",
+      "refactor_hint": "Removing this before the carve shrinks the GraphProjection package by about 15% and removes a config key."
+    },
+    {
+      "id": "build-order-09",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "GraphProjection is a 1,825-line GenServer that owns catalog, selected roots, demand monitors, debounce, reconciliation, the labels cadence and PubSub",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1-1825"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "52-131"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "435-456"
+        }
+      ],
+      "description": "The module has 161 defp and 32 def, 19 handle_* clauses, and a 45-key state map built in Options.new/1. Its responsibilities include: catalog scope, selected-root scopes with LRU eviction, demand registration with monitors, forced and pending queues, per-root member-change debounce timers, retry scheduling, the GraphQL reconciliation lifecycle, delivery-mode subscription, the labelled-read cadence (build-order-08), configuration reconciliation, and broadcast. 18 of the handle_* paths begin with `reconcile(state)`. reconcile/2 calls Configuration.snapshot/2, which re-reads the workflow store, Settings.limits, Aiur.Config.build_order_graph_projection_options and Aiur.Config.settings. On the unchanged-fingerprint path it then cancels and re-arms every timer (reschedule_active_scopes/1). Every message, including each webhook-driven :github_resource_changed, pays for that. The comment at 1293-1297 admits the pattern once produced a lost-retry bug: 'this runs on almost every message: it cancels all timers, so without restoring the retry a root whose read failed would lose its backoff timer'.",
+      "evidence": "`grep -c '^\\s*defp ' graph_projection.ex` = 161; `grep -c 'def handle_'` = 19; `grep -c 'reconcile(state'` = 18; `grep -c 'broadcast_all('` = 25; the Options.new/1 map has 45 keys.",
+      "recommendation": "Split along the existing seams: (a) a Scope/Entry state machine as a pure struct plus functions (request_scope, start/complete, retry, eviction, demand), (b) a ReconciliationWorker GenServer (build-order-03), (c) MemberChangeDebouncer, (d) a thin GraphProjection GenServer that routes messages. Reconcile configuration only on :workflow_config_updated and at init, not on every message, and stop cancelling and re-arming all timers per message.",
+      "effort": "L",
+      "refactor_hint": "Carve target: `aiur_build_order_projection`. A pure scope state machine can be property-tested without a GenServer."
+    },
+    {
+      "id": "build-order-10",
+      "category": "performance",
+      "severity": "P1",
+      "title": "Due retry combined with max_inflight saturation re-arms a 0 ms timer on every pass (busy loop)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "381-399"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "794-795"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "815-821"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1248-1265"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1298-1311"
+        }
+      ],
+      "description": "Static trace, not reproduced. In handle_info({:graph_projection_due, scope, token}), the entry's timer is set to nil and reconcile/2 runs. On an unchanged fingerprint, reconcile runs reschedule_active_scopes -> restore_selected_retries -> schedule_active_scope. For a watched selected root whose next_retry_at has passed, retry_due? is true, so schedule_scope(state, scope, 0) arms a fresh 0 ms timer with a new token. The handler then calls request_scope. If inflight_by_ref already holds max_inflight reads (default 4), request_scope only defer_scope's the scope into `pending` and does not cancel the new 0 ms timer. The timer fires at once with the matching token, and the cycle repeats. Each pass re-reads configuration, until a read completes and admit_pending runs. A burst of catalog moves that dispatches several selected-root reads (request_changed_selected_roots) while another watched root is in retry backoff is enough to trigger it.",
+      "evidence": "graph_projection.ex:1258-1259 `retry_due?(entry, state) -> schedule_scope(state, scope, 0)`; :794-795 `map_size(state.inflight_by_ref) >= state.policy.max_inflight -> {defer_scope(state, scope, forced?), []}`; defer_scope/3 (815-821) touches only :pending/:forced and leaves entry.timer armed.",
+      "recommendation": "In schedule_active_scope/2, do not arm a retry timer for a scope already in `pending`: admit_pending/1 will start it. Alternatively, cancel the entry timer in defer_scope/3. Add a test: saturate max_inflight with blocked readers, put one watched root into due retry, and assert the projection's message count stays bounded over 100 ms.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-11",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Subscription failures in init are swallowed with no log or retry, which latches the event-sourced projections so they stop updating",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1513-1541"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "193-199"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+          "lines": "211-217"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "96-98"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1498-1511"
+        }
+      ],
+      "description": "GraphProjection subscribes at init to workflow configuration, to ResourceStore resource types and to delivery-mode events. Each call is wrapped in `rescue _ -> :ok; catch _, _ -> :ok`, and default_resource_subscription/1 swallows errors a second time. The catalog is event-sourced (#2313): if ResourceStore.subscribe_type/1 raises at boot, for example because the store is not yet registered, the projection never receives :github_resource_changed and the catalog stays frozen for the whole daemon lifetime. No log, health bit or retry reports it. The same pattern appears in TicketDetailCoordinator.subscribe_to_configuration/1 and in TicketHistoryProvider init (`_ = safely(options.activity_subscribe_fun)`; `_ = safely(fn -> options.configuration_subscribe_fun.(self()) end)`), which stop following configuration or activity. after_broadcast/2 and publish/2 also swallow failures, and publish/2 silently drops events when Aiur.PubSub is not registered.",
+      "evidence": "graph_projection.ex:1524-1530 `defp subscribe_to_resources(state) do state.resource_subscription.(self()) rescue _error -> :ok catch _kind, _reason -> :ok end`; options.ex:193-199 `Enum.each([:issue, :issue_labels, :sub_issue, :issue_dependency], &ResourceStore.subscribe_type/1) rescue _error -> :ok catch _kind, _reason -> :ok`; ticket_history_provider.ex:97-98 `_ = safely(options.activity_subscribe_fun)`.",
+      "recommendation": "Treat a failed subscription as a startup failure: crash and let the supervisor retry, since ordering in aiur.ex already starts the dependencies first. If it must be tolerated, record it on the snapshot health (failure: :subscription_unavailable), schedule a bounded retry, and raise an alert. Never swallow without a trace.",
+      "effort": "S",
+      "refactor_hint": "Build a shared `subscribe_or_degrade/2` helper in the projection runtime package, used by every Build Order GenServer."
+    },
+    {
+      "id": "build-order-12",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "AdHocSource and OpenTicketSource are near-copies of one event-sourced overlay and have diverged on paging",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "1-420"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "274-292"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "307-309"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "373-506"
+        }
+      ],
+      "description": "OpenTicketSource (509 lines) says it is 'modelled on AiurBuildOrder.AdHocSource'. It re-implements the same functions under the same names: reconcile_issue/5, label_names/1, fetch_pages, apply_result/2, do_apply_result/2, rebuild_snapshot/1, snapshot_status/1 (identical baseline_ok? rule), meaningful/1, broadcast/1, subscribe_to_events/0, maybe_relist/2, resolve_repo/1 and safe_label_prefix/0. The two have already diverged. OpenTicketSource.fetch_pages/7 carries a `pages_left` cap and returns a truncated? flag. AdHocSource.fetch_pages/7 follows Link headers with no cap, lists `state=all` (closed issues keep accumulating forever), and runs synchronously inside the GenServer (build-order-13).",
+      "evidence": "open_ticket_source.ex:307 `defp fetch_pages(_state, _url, _token, _owner, _repo, acc, 0), do: {:ok, flatten(acc), true}`; ad_hoc_source.ex:280-281 `nil -> {:ok, acc ++ issues}; next_url -> fetch_pages(request_fun, next_url, token, owner, repo, prefix, acc ++ issues)` (no cap, and `acc ++` makes it quadratic); both define `defp snapshot_status(%{baseline_ok?: true}), do: :available`.",
+      "recommendation": "Extract a generic `Aiur.GitHub.LabelledIssueOverlay` behaviour or module: a baseline listing with a page cap, store-event reconciliation, degraded, recovered and diverged re-listing, and snapshot status. AdHocSource and OpenTicketSource then become configurations of it: a label or filter, a member projection and a topic.",
+      "effort": "M",
+      "refactor_hint": "Belongs in the GitHub view-state package next to ViewStateSweep, not under BuildOrder."
+    },
+    {
+      "id": "build-order-13",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Blocking GitHub, file and store I/O inside GenServer callbacks that callers reach with the default 5 s call timeout",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "114-150"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "96-115"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "169-187"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "267-286"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "323-354"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "lines": "124-131"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1619-1632"
+        }
+      ],
+      "description": "AdHocSource runs the full paginated REST listing inside handle_info(:poll), handle_cast(:refresh) and the three webhook-mode handlers, deliberately, for ordering. ModeRegistry re-publishes :webhook_degraded 'on every sweep while the repo stays degraded', so every sweep during an outage blocks the server for a whole unbounded listing, and AdHocSource.snapshot/1 callers time out. TicketHistoryProvider calls history_fun, which defaults to IssueLog.event_history/2. That function File.read!s and JSON-parses every line of the issue's event log, however large, before taking the last 101. It runs inside handle_call({:request, _}), inside handle_info({:ticket_activity_changed, _}) for an unseen identity, and in init/1 once per seeded activity entry, which delays supervisor boot. PackStatus.refresh_sync/1 runs GraphQL batches in handle_call. GraphProjection.debounce_roots_containing/2 lists every :sub_issue store entry on each label or dependency event while any root is watched.",
+      "evidence": "ad_hoc_source.ex:133-135 `def handle_info(:poll, state) do {:noreply, apply_result(state, fetch(state))}`; issue_log.ex:183-193 `case File.read(path) do {:ok, content} -> content |> String.split(\"\\n\", trim: true) |> Enum.map(&parse_event_line/1) ... |> Enum.take(-limit)`; ticket_history_provider.ex:100 `state = state |> reconcile_repository() |> seed_activity()` (inside init); graph_projection.ex:1621 `members = CatalogStore.member_numbers(state.active_repository)`.",
+      "recommendation": "Move the listings into supervised tasks with a monotonic listing sequence. To keep the 'events win over the listing' rule, apply a listing result only if no store event for that issue arrived after the listing's start marker. Tail-read the issue log (seek from the end, bounded bytes). Seed history lazily on the first request instead of in init/1. Keep the parent-to-members index incrementally in CatalogStore instead of re-listing the store.",
+      "effort": "M"
+    },
+    {
+      "id": "build-order-14",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "One slow AdHocSource.snapshot/1 blanks execution and activity for the whole Build Order page",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/data_source.ex",
+          "lines": "88-99"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/source_runtime.ex",
+          "lines": "106-119"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/runtime.ex",
+          "lines": "6-22"
+        }
+      ],
+      "description": "DataSource.load_sources/1 builds %{activity, execution} and then calls AdHocSource.snapshot inside the same expression. SourceRuntime.schedule_reload/1 wraps the whole load_sources call in Runtime.safe_source_call(..., Runtime.unavailable_sources()). A GenServer.call exit from AdHocSource, which is likely while it runs a synchronous listing (build-order-13), therefore replaces all three sources with :unavailable. The execution overlay (StatusReport) and activity (TicketActivity) had loaded successfully. Separately, the only trace of the failure is a Logger.warning.",
+      "evidence": "data_source.ex:90 `Map.put(load_runtime_sources(opts), :adhoc, call(dependency(opts, :adhoc_source, AdHocSource), :snapshot, []))`; source_runtime.ex:114 `{token, Runtime.safe_source_call(source, :load_sources, [], Runtime.unavailable_sources())}`; runtime.ex:21 `def unavailable_sources, do: %{execution: :unavailable, activity: :unavailable, adhoc: :unavailable}`.",
+      "recommendation": "Guard each source independently: `%{activity: safe(TicketActivity.snapshots), execution: safe(StatusReport.snapshot_api), adhoc: safe(AdHocSource.snapshot)}`, and show per-source health on the page.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-15",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "AdHocSource resolves its repository once in init, while listings re-resolve it each time",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "105"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "167-187"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "261-272"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "396-411"
+        }
+      ],
+      "description": "state.repo comes from repo_fun exactly once, in init. fetch/1 calls state.repo_fun.() on every listing. The event filter reconcile_issue/5 and maybe_relist/2 pattern-match on the frozen state.repo. There is no :workflow_config_updated handler. If configuration was unreadable at boot (state.repo = nil), every store event and every degraded, recovered or diverged notice falls through to the no-op clause for the life of the daemon, while the boot listing still succeeds and reports :available. After a repository change, the listing and the event filter follow different repos.",
+      "evidence": "ad_hoc_source.ex:105 `state = %{state | repo: resolve_repo(state.repo_fun)}`; :187 `defp reconcile_issue(state, _owner, _repo, _id, _change), do: state`; :404 `defp maybe_relist(state, _degraded_repo), do: state`; :262 `with {:ok, {owner, repo}} <- state.repo_fun.()`.",
+      "recommendation": "Resolve the repository once per listing and store it together with the baseline. Subscribe to WorkflowStore and reset the projection on a repository change, as TicketHistoryProvider does. Report :unavailable while repo is nil instead of silently ignoring events.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Three coordinator GenServers copy the same skeleton (start_link, options, epochs, topics, LRU, task handshake, PubSub guard)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "210-231"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+          "lines": "51-76"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+          "lines": "46-90"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "lines": "344-347"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_policy.ex",
+          "lines": "19-25"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "63-67"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "594-598"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_policy.ex",
+          "lines": "102-112"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "421-432"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_task_lifecycle.ex",
+          "lines": "4-44"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+          "lines": "161-181"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_configuration.ex",
+          "lines": "45-67"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_configuration.ex",
+          "lines": "80-104"
+        }
+      ],
+      "description": "The GraphProjection, TicketDetailCoordinator and TicketHistoryProvider families (plus AdHocSource and PackStatus) duplicate the following:\n- start_link with `nil -> GenServer.start_link(__MODULE__, opts)`: 5 files in this unit, 18 in lib.\n- `Keyword.pop(opts, :runtime_config?)` option merging: 3 copies.\n- Bounded-integer option helpers: positive/non_negative in GraphProjection.Options, bounded_positive_option in TicketDetailCoordinator.Options, bounded_positive in TicketHistoryProvider.Options.\n- reset_epoch with positive_epoch or valid_epoch_or_default: 2 identical copies. GraphProjection uses new_authority_epoch instead.\n- Topic encoding `term_to_binary |> url_encode64`: 3 copies with 3 different identity keys (Policy.root_key = github_key, cache_key = {kind, downcase owner, downcase repo, provider_id}, github_key).\n- LRU eviction: GraphProjection.eviction_candidate and TicketDetailCoordinator.Policy.make_room use min_by last_access_ms after rejecting inflight entries. TicketHistoryProvider.make_room uses an access_sequence counter instead.\n- Task start with a `{:start, owner}` receive handshake plus terminate_child catch: 2 copies. The coordinator also calls Process.link on an async_nolink task.\n- Configuration repository_opts/maybe_put: 2 copies.\n- `if Process.whereis(Aiur.PubSub)` broadcast guards: 8 in this unit.",
+      "evidence": "`grep -rn 'nil -> GenServer.start_link(__MODULE__, opts)' lib | wc -l` = 18; `grep -rn 'Process.whereis(Aiur.PubSub)' lib/aiur/build_order | wc -l` = 8; reset_epoch bodies are identical at ticket_detail_coordinator_options.ex:65-76 and ticket_history_provider_options.ex:79-90.",
+      "recommendation": "Extract `Aiur.Projection.Runtime` with: an Options DSL (bounded ints, runtime_config merge), `Epoch.new/1`, `Topic.for/2`, `LruEntries` (a struct with touch, evict and insert that respects inflight), `SupervisedRead` (start, terminate, timeout, generation guard), and `Broadcast.safe/2`. Migrate the three coordinators onto it.",
+      "effort": "L",
+      "refactor_hint": "This is the natural shared runtime package for every read-model GenServer. Doing it first makes the Build Order carve mechanical."
+    },
+    {
+      "id": "build-order-17",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Case-insensitive repository equality is re-implemented in at least 13 places across the unit",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/bounded.ex",
+          "lines": "119-130"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+          "lines": "89-92"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "552-555"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1559-1572"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "lines": "300-305"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "lines": "168-176"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "lines": "194-209"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/endpoint.ex",
+          "lines": "98-104"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_paths.ex",
+          "lines": "143-153"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "396-398"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "491-495"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "699-703"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/route_state.ex",
+          "lines": "369-376"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "141-155"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "220-230"
+        }
+      ],
+      "description": "The same `String.downcase(owner) == String.downcase(other) and String.downcase(repo) == ...` comparison is written out at every location listed. The copies accept different input shapes ({owner, repo} tuples, %TrackerIdentity{}, %{owner:, repository:} maps, 'owner/repo' strings) and handle nil differently. Some raise on nil, for example TicketDetail.Repository.same_repository?/2 and TicketHistoryProvider.same_repository?/2 call String.downcase on unguarded tuple members. Others return false. Outside the unit, grep finds 4 more (current_run_outcome_snapshot/source_state.ex, github/bounded_blocked_by.ex, recent_merge.ex, tracker_identity.ex).",
+      "evidence": "`grep -rn 'defp same_repository?\\|def same_repository?\\|defp repository_match?\\|defp identity_in_repository?\\|defp repositories_match?\\|defp repository_matches_active?\\|defp same_repository_number?' lib` -> 20 definitions, 14 of them in this unit.",
+      "recommendation": "Add a canonical `Aiur.GitHub.Repo` value (a struct normalised to lowercase at construction, with parse/1 from 'owner/repo', from_identity/1, and same?/2) and replace every copy.",
+      "effort": "M",
+      "refactor_hint": "Belongs in the core identity package alongside TrackerIdentity. Every carved package needs it."
+    },
+    {
+      "id": "build-order-18",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Identity equality and 'exact node' lookup are copied 7+ times with different nil semantics",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/route_state.ex",
+          "lines": "378-386"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "lines": "255-262"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "lines": "324-330"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "lines": "272-278"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "656-664"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog.ex",
+          "lines": "252-259"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/endpoint.ex",
+          "lines": "72-78"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "lines": "264-282"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "lines": "160-176"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "lines": "239-244"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "lines": "291-302"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "lines": "255-262"
+        }
+      ],
+      "description": "The 'same identity' check (github_key equality) is re-implemented 7 times and the copies disagree. RouteState and ContextRuntime return true for (nil, nil). Presenter, Selection and Adapter return false when the left key is nil. Catalog and Endpoint.same? require both keys to be {:github, _, _, _}. The 'find the single node with this key' lookup has three copies: Selection.exact_member/exact_nodes, Adapter.exact_node/exact_node? and ContextRuntime.context_node. context_node has no uniqueness check and returns the first match, so the drawer title and capabilities can come from a different node than the one Selection and Adapter accept. The 'current scope' pattern (root.generation == generations.planning) has two copies with different guards: Selection requires a non-nil github_key, and Adapter requires joinable?.",
+      "evidence": "context_runtime.ex:241 `Enum.find(nodes, &(TrackerIdentity.github_key(&1.identity) == key))` versus ticket_context_selection.ex:270-273 `case exact_nodes(model, key) do [%Node{} = node] -> node; _ -> nil end`; route_state.ex:378 `defp same_identity?(nil, nil), do: true` versus ticket_context_presenter.ex:658 `{nil, _right} -> false`.",
+      "recommendation": "Add TrackerIdentity.same?/2 with one documented nil rule, and BuildOrderViewModel.exact_node/2 and current_scope/1 as the only implementations. Delete the private copies.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-19",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "TicketContextPresenter normalizes every field twice, with parallel near-identical function pairs",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "153-176"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "229-279"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "378-511"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "770-790"
+        }
+      ],
+      "description": "present/3 builds a View from the snapshots with history_view, progress_view, latest_evidence_view and logs_view, then pipes it into normalize_view/1. normalize_view re-normalizes every field with normalized_history, normalized_progress, normalized_evidence and normalized_logs. Each pair has the same field list and the same defaults (for example progress_view/2 at 242-254 and normalized_progress/1 at 474-486). The unavailable defaults are written a third time in unavailable_view/0 and a fourth time in each fallback clause. About 150 of the 791 lines are this duplication. The file also defines 4 modules (Capability, LogEntry, View and the presenter).",
+      "evidence": "progress_view: `%{status: map_value(progress, :status, [:known, :unknown], :unknown), percent: percent(map_value(progress, :percent)), source: map_value(progress, :source, [:checkin, :phase], nil), ...}` at 243-250 and again at 475-482. The default `%{status: :unknown, percent: nil, source: nil, occurred_at: nil, observed_at: nil, provenance: %{}}` appears at 254, 486 and 785.",
+      "recommendation": "Build the View once through normalize_view/1, adapting the snapshots into its input map, and delete the *_view/2 twins. Hoist the unavailable defaults into module attributes or a View.unavailable/0 constructor. Move Capability, LogEntry and View into their own files.",
+      "effort": "M"
+    },
+    {
+      "id": "build-order-20",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "UsageScope and AnalyticsScope decide/1 are verbatim copies, and UsageRuntime and AnalyticsRuntime share about 60 lines of plumbing",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "lines": "55-72"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "lines": "91-119"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "lines": "43-74"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "lines": "90-111"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "148-214"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "352-372"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "lines": "91-129"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "lines": "188-207"
+        }
+      ],
+      "description": "Both scope modules repeat @invalid_statuses, @pending_statuses, @unavailable_statuses, the decide/1 case over RouteState.status, selected_root/1 and authority_epoch/1, differing only in how members become a scope. Both runtimes repeat reset_on_identity_change/2, current_identity/1, put_scope/3, scope_only/3 and the six-clause decision reconcile. A new RouteState status has to be added in both places, or one pane silently falls into a case clause error. decide/1 has no catch-all.",
+      "evidence": "Identical lines: `@invalid_statuses [:invalid_parameter, :not_found, :invalid_catalog, :selected_invalid]` (usage_scope.ex:55, analytics_scope.ex:43); both decide/1 bodies contain `:catalog_stale -> from_members(route_state, :stale, {:unavailable, :catalog_stale})`; both runtimes define `defp current_identity(route_state) do case RouteState.selected_identity(route_state) do %TrackerIdentity{} = identity -> TrackerIdentity.github_key(identity)`.",
+      "recommendation": "Extract a BuildOrder.SelectedScope.decide(route_state, members_to_scope_fun) and a shared ScopedPane helper for identity reset and scope-state assigns. Keep only the fetch and present differences in UsageRuntime and AnalyticsRuntime.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-21",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Unknown failures are collapsed into specific causes (:transport, :provider_unavailable, :connection_overflow)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "125-129"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+          "lines": "240"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+          "lines": "98-102"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "351-356"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1151"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "258-262"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "285-289"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/dependencies.ex",
+          "lines": "11-21"
+        }
+      ],
+      "description": "The AGENTS.md rule 'a collapsed cause names the collapse at the source' is broken in several places:\n- TicketDetail.Normalizer.failure_from/1 maps `{:github, _, _}` and `_` to :transport.\n- The coordinator maps an unexpected reader return, and a crashed task (:DOWN), to :transport.\n- GraphProjection maps a crashed read task, which is usually an Aiur exception in normalization, to {:error, :transport}. count_resolution_failure/1 then turns :transport into :unreachable, so the operator is told the tracker is unreachable when Aiur crashed.\n- UsageRuntime rescues any exception or exit as :provider_unavailable, and apply_result/4 renders every error as health {:unavailable, :provider_unavailable}.\n- GitHubGraph.Dependencies maps an invalid, schema-broken connection to :connection_overflow. That code is in Member.@invalidating_codes, so a missing field marks the whole selected root structurally invalid as an 'overflow'.",
+      "evidence": "graph_projection.ex:353 `complete_task(state, ref, {:error, :transport})`; :1151 `defp count_resolution_failure(failure) when failure in [:unreachable, :dns, :tls, :transport], do: :unreachable`; usage_runtime.ex:259 `_error -> {:error, :provider_unavailable}`; dependencies.ex:19 `{:error, _reason} -> {[], total, Diagnostic.new(:connection_overflow)}`.",
+      "recommendation": "Add :unknown or :crashed to each failure taxonomy (TicketDetail.Failure, projection failure, Diagnostic) and use it in these clauses. Keep the original reason in a bounded `reasons` field, as analytics_cli does. Use Diagnostic :invalid_dependency or :provider_schema for an unparsable connection.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-22",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "PlanningSource silently drops unreadable or malformed packs, and a single bad ticket drops the whole pack",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "538-552"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "610-648"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "749-788"
+        }
+      ],
+      "description": "load_pack/2 returns :error on any File.read, Jason.decode, repository or ticket failure. tickets/3 halts on the first ticket that fails ticket/3, for example a doc path outside tickets/ or an unexpected 'ticket' type. load_packs/1 then flat_maps :error away. No log, diagnostic or catalog entry is produced, so an operator whose pack has one typo sees the Build Order disappear from the catalog with no reason given. PackStatus, by contrast, records {:error, :invalid_pack} for the same file and reports it through health.",
+      "evidence": "planning_source.ex:645-646 `else _error -> :error`; :543-546 `{:ok, pack} -> [pack]; :error -> []`; :753 `:error -> {:halt, :error}`.",
+      "recommendation": "Return {:error, path, reason} and surface it as a catalog diagnostic (Catalog.new/3 already carries diagnostics and search_paths). Keep valid tickets and mark invalid ones as member diagnostics rather than dropping the pack.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-23",
+      "category": "performance",
+      "severity": "P2",
+      "title": "PlanningSource re-reads and re-parses every pack, status.json and draft body from disk on every catalog, selected or demand call",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "43-57"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "75-103"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "497-534"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "808-838"
+        }
+      ],
+      "description": "catalog/0 calls membership_snapshot (CurrentRunMembership.snapshot plus StatusReport.snapshot_api), load_packs (File.read and Jason.decode of every discovered pack, File.read of each sibling status.json, and a sha256 of each body), and PackStatus.health (a GenServer call). selected_snapshot/1 calls load_packs(include_drafts?: true), which additionally reads up to 64 KB of draft body per draft ticket in every pack, only to find one pack by root. BuildOrderLive calls refresh_live_state on every :current_run_membership_changed and :build_order_pack_status_changed broadcast, which runs catalog/0 and selected/1 for each connected socket. In PackPaths.tracked_planning/0, foreign_repository?/1 reads and decodes each pack again.",
+      "evidence": "planning_source.ex:78 `case Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity)) do`; :627 `content_hash: :crypto.hash(:sha256, body)`; :813-814 `case File.read(document) do {:ok, body} when byte_size(body) in 1..64_000 -> body`.",
+      "recommendation": "Make the planning source a small GenServer or ETS cache keyed by path and mtime (or content hash) that re-parses only changed files, and load a draft body only for the selected pack.",
+      "effort": "M",
+      "refactor_hint": "The pack reader belongs in the planning-contract package (build-order-06), not in AiurWeb."
+    },
+    {
+      "id": "build-order-24",
+      "category": "other",
+      "severity": "P2",
+      "title": "Workspace pack mirrors share a single status.json, which contradicts PlanningSource's stated invariant",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/pack_paths.ex",
+          "lines": "75-88"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_paths.ex",
+          "lines": "56-73"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "lines": "441-476"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "690-697"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "826-845"
+        }
+      ],
+      "description": "Workspace mirrors are flat files at `.aiur/build_orders/<slug>.json`, and status_path/1 is `dirname/status.json`, so every mirror maps to the same `.aiur/build_orders/status.json`. PackStatus writes that file, because tracked_planning -> planning -> discovered includes workspace packs, and merges each mirror's members into it. PlanningSource reads it back for every mirror. status_completed?/1 reads the top-level 'state'/'completed' keys, which the planning contract keeps as operator annotations, so one mirror's completion marker makes every workspace mirror render as completed. The comment on retain_state_projection/2 claims 'the daemon writes status.json only beside the repository-state manifest', and the code does not do that.",
+      "evidence": "pack_paths.ex:77-78 `def status_path(pack_path) when is_binary(pack_path), do: pack_path |> Path.dirname() |> Path.join(@status_basename)`; :85-86 `workspace_directory() |> Path.join(\"*.json\")`; planning_source.ex:690-691 '# ... the daemon writes status.json only beside the repository-state manifest'.",
+      "recommendation": "Key status by pack: `<slug>.status.json` for flat mirrors, or skip PackStatus writes for workspace mirrors and resolve their status from the matching state pack by build_order_id. Fix the comment.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-25",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "PackStatus writes each pack all-or-nothing within a per-repo 200-number window, so large or interleaved packs never converge",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "lines": "14-22"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "lines": "273-330"
+        },
+        {
+          "path": "src/lib/aiur/config/schema/tracker.ex",
+          "lines": "11"
+        }
+      ],
+      "description": "One reconcile cycle fetches at most planning_call_budget (at most 4) x 50 = 200 issue numbers per repository. These are the sorted union of every tracked pack's numbers, rotated by retry_count x budget x 50. reconcile_fact/3 writes a pack only if every one of its member numbers is in this cycle's fetched map. As a result: a pack with more than 200 promoted members can never be written, and packs whose members interleave across a union larger than 200 may never fall inside one window. Completed packs stay in discovery, so the union grows over time. Their status.json freezes, which the moduledoc accepts ('a stale completion fact is strictly better'), but the health failure :planning_call_budget_exhausted recurs indefinitely and looks transient. Rotation also depends on retry_count, which resets to 0 on any fully successful cycle.",
+      "evidence": "pack_status.ex:323 `if Enum.all?(member_keys, &Map.has_key?(fetched.lifecycles, &1)) do ... else {:error, fetched.error || :incomplete_graphql_response}`; :292 `|> rotate(state.health.retry_count * state.planning_call_budget * @chunk_size)`; schema/tracker.ex:11 `@max_planning_call_budget 4`.",
+      "recommendation": "Merge partial lifecycles per member (status.json is keyed by member already), and track a per-pack cursor instead of requiring the full set in one cycle. Exclude completed packs, whose status says complete, from the poll union.",
+      "effort": "M"
+    },
+    {
+      "id": "build-order-26",
+      "category": "other",
+      "severity": "P2",
+      "title": "Synthetic planning identities reuse real-looking issue numbers in the tracked repository",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "228-229"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "250-277"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "192-226"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "lines": "97-104"
+        }
+      ],
+      "description": "For draft tickets, PlanningSource derives the issue number from the ticket id ('CT-101' becomes 101) or from phash2(id, 8000) + 1, and builds a joinable TrackerIdentity in the real configured repository with url `https://github.com/<owner>/<repo>/issues/101`. The provider_id ('PLAN_CT-101') keeps github_key distinct. However, every consumer keyed on the bare identifier or the URL aliases a real, unrelated issue #101. Member.url becomes a valid-looking link to that issue. AnalyticsScope joins telemetry by the bare `identifier` string, so the analytics pane for a pre-ticket pack can attribute real ticket #101's telemetry to draft CT-101. Plausible; not reproduced end to end.",
+      "evidence": "planning_source.ex:264-269 `# CT-101 -> 101 ... digits -> String.to_integer(digits)`; :214 `url: issue_url(identity)` for every member including `draft?: is_nil(ticket.number)`; analytics_scope.ex (file lines 97-104) `defp member_number(%{identity: %TrackerIdentity{identifier: identifier} = identity}) when is_binary(identifier), do: if(TrackerIdentity.joinable?(identity), do: [identifier], else: [])`.",
+      "recommendation": "Give draft members an explicitly non-joinable identity kind (for example :planning) with no GitHub URL, or a number range that GitHub cannot assign. Make UsageScope and AnalyticsScope reject planning identities.",
+      "effort": "M"
+    },
+    {
+      "id": "build-order-27",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "The GitHub infrastructure layer depends on Build Order internals, and Build Order hosts general-purpose utilities",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "7"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "374"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_relationships.ex",
+          "lines": "4"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_relationships.ex",
+          "lines": "68"
+        },
+        {
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "lines": "91-93"
+        },
+        {
+          "path": "src/lib/aiur/github/client.ex",
+          "lines": "6"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "8"
+        },
+        {
+          "path": "src/lib/aiur/build_order/bounded.ex",
+          "lines": "1-236"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_sanitizer.ex",
+          "lines": "1-298"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "1-926"
+        }
+      ],
+      "description": "The dependency arrows run the wrong way for a carve. Aiur.GitHub.Issues uses Aiur.BuildOrder.Bounded to validate repository components. Aiur.GitHub.IssueRelationships aliases Aiur.BuildOrder.TicketDetail.DestinationNormalizer only for a page-size constant. Aiur.GitHub.ViewStateSweep hard-codes `@sources [Aiur.BuildOrder.PackStatus]`. Aiur.GitHub.Client aliases GitHubGraph and ProviderResult. Aiur.Config aliases Aiur.BuildOrder.Cadence. Bounded, a generic GitHub URL, identifier and route validator, is also used by global_config_startup.ex and several OperatorControlCenter components. TicketDetail.Sanitizer, a generic secret and local-path redactor, is used by Aiur.LiveConversation.Normalizer and AiurWeb.Markdown. In the other direction, AiurWeb.BuildOrder.PlanningSource is a web module holding domain logic: pack parsing, lifecycle precedence and progress.",
+      "evidence": "issues.ex:7 `alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}`; issue_relationships.ex:68 `\"limit\" => DestinationNormalizer.max_pull_requests()`; view_state_sweep.ex:91-93 `@sources [ Aiur.BuildOrder.PackStatus ]`; `grep -rln 'Sanitizer.sanitize\\|TicketDetail.Sanitizer' lib` includes lib/aiur/live_conversation/normalizer.ex and lib/aiur_web/markdown.ex.",
+      "recommendation": "Before carving: move Bounded to Aiur.GitHub.Validate (or the identity package), move Sanitizer to Aiur.Redaction next to SecretRedactor, give IssueRelationships its own limit, turn ViewStateSweep sources into a registered behaviour, and move the Cadence derivation that Aiur.Config needs behind a config-side function. Move PlanningSource's domain parts into Aiur.BuildOrder.Pack (build-order-06).",
+      "effort": "M",
+      "refactor_hint": "This decides whether Build Order can be a leaf package. Today the GitHub core cannot compile without it."
+    },
+    {
+      "id": "build-order-28",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Several modules and functions have no production callers (tests only)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/marker.ex",
+          "lines": "1-73"
+        },
+        {
+          "path": "src/lib/aiur/build_order/dependency_chain.ex",
+          "lines": "1-62"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph.ex",
+          "lines": "1-83"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph.ex",
+          "lines": "12-33"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "lines": "19-30"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "lines": "52-56"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "46-50"
+        },
+        {
+          "path": "src/lib/aiur/build_order/member.ex",
+          "lines": "53"
+        },
+        {
+          "path": "src/lib/aiur/build_order/member.ex",
+          "lines": "200-201"
+        }
+      ],
+      "description": "Grepping lib/ finds no production caller for any of the following:\n- Aiur.BuildOrder.Marker (73 lines; used by catalog_test and metadata_test). Member.new/1 still parses a :marker attribute that no producer sets.\n- DependencyChain (62 lines; used only by dependency_chain_test).\n- Aiur.BuildOrder.Graph (83 lines; lifecycle_test). It is a second strongly-connected-component implementation next to GraphAnalysis, which BuildOrderPresenter actually uses.\n- GitHubGraph.fetch_catalog/1 with Result.catalog/3, reached only through Client.fetch_build_order_catalog/1, which only tests call.\n- GraphProjection.Policy.due?/3.\n- TicketHistoryProvider.snapshots/0,1.",
+      "evidence": "`grep -rn 'DependencyChain\\|BuildOrder.Marker\\|Marker.parse\\|Graph.cyclic_nodes' lib test` -> matches only in the defining files and test/aiur/build_order/{dependency_chain_test,catalog_test,metadata_test,lifecycle_test}.exs; `grep -rn 'Policy.due?\\|.due?(' lib` -> none; `grep -rn 'TicketHistoryProvider.snapshots' lib` -> none.",
+      "recommendation": "Delete these, or move them to test support if they document a contract. If a client-side highlight really needs DependencyChain, wire it in. Otherwise remove it and its test.",
+      "effort": "S",
+      "refactor_hint": "Removing them avoids carrying about 300 lines of unowned code into the new package."
+    },
+    {
+      "id": "build-order-29",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "GraphProjection scheduling has no-op and unreachable clauses left over from removed cadences",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "938"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1200-1246"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1270-1274"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1322-1369"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1393-1404"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+          "lines": "60-66"
+        }
+      ],
+      "description": "Both clauses of schedule_after_completion/3 return state unchanged, yet complete_success/5 still computes `scope_interval(state, scope)` to pass in. The second clause of schedule_from_success/2 (1227-1246) is unreachable: schedule_active_scope/2 is called only for :catalog, where schedule_from_success(:catalog) is a no-op, and from restore_selected_retries/1 only when next_retry_at is non-nil, which skips the success branch. The catalog_on_demand? arm of no_schedule?/3 is redundant; the test comment says 'catalog success scheduling is independently suppressed ... the timer assertion alone cannot distinguish removal of this on-demand branch', and the test therefore :erlang.trace's the private function. scope_interval({:selected,_}), retry_base_ms({:selected,_}) and selected_staleness_ms/1 are three names for state.policy.delivery_staleness_ms, and about 90 comment lines describe cadences that no longer exist.",
+      "evidence": "graph_projection.ex:1206 `defp schedule_after_completion(state, :catalog, _delay), do: state`; :1219 `defp schedule_after_completion(state, {:selected, _identity}, _delay), do: state`; :938 `state = schedule_after_completion(state, scope, state |> scope_interval(scope))`; test line 61-65 comment quoted above.",
+      "recommendation": "Delete schedule_after_completion, the success branch of schedule_from_success, the on-demand arm of no_schedule? and the duplicate interval accessors. Replace the trace-based test with a behavioural one, or drop it along with the branch.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-30",
+      "category": "config",
+      "severity": "P2",
+      "title": "Planning bounds and cadence ceilings are hard-coded in 4 or more places, and the member caps disagree",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "lines": "7-9"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_configuration.ex",
+          "lines": "95-99"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "42-50"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "112-114"
+        },
+        {
+          "path": "src/lib/aiur/build_order/cadence.ex",
+          "lines": "97-109"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "28-33"
+        },
+        {
+          "path": "src/lib/aiur/build_order/selected_root.ex",
+          "lines": "6"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "27-28"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "lines": "7-8"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph.ex",
+          "lines": "8"
+        },
+        {
+          "path": "src/lib/aiur/config/schema/tracker.ex",
+          "lines": "9-11"
+        },
+        {
+          "path": "src/lib/aiur/config/schema/build_order.ex",
+          "lines": "63-70"
+        }
+      ],
+      "description": "The root, page and call limits 100/4/4 appear as literals in Settings (@member_limit 100, @max_page_budget 4, @max_call_budget 4), in Configuration.valid_limits?/1 (`valid_limit?(roots, 100) and valid_limit?(pages, 4) and valid_limit?(calls, 4)`), in Options.new/1 (`positive(opts, :root_limit, 100, 100)` and the rest), and in the tracker schema. Cadence ceilings of 3_600_000 and 300_000 appear in Cadence, Options.@maxima and Schema.BuildOrder. Cadence says its values 'mirror' the schema. The 120_000 fallback is repeated in Cadence (@fallback_interval_ms) and GraphProjection (@catalog_on_demand_fallback_ms), whose comment says 'mirroring Cadence's own fallback'. The member cap is 100 in GitHubGraph, CatalogStore, Normalizer and Dependencies, but SelectedRoot uses @max_members 1000, which no provider can reach. The 'build-order' label literal appears in Queries, CatalogStore and Normalizer. The schema rejects an explicit graph_catalog_refresh_ms of 0 (greater_than: 0), while Cadence and Options treat 0 as the on-demand sentinel.",
+      "evidence": "graph_projection_configuration.ex:96 `valid_limit?(roots, 100) and valid_limit?(pages, 4) and valid_limit?(calls, 4)`; graph_projection.ex:33 `@catalog_on_demand_fallback_ms 120_000`; cadence.ex:97 `@fallback_interval_ms 120_000`; selected_root.ex:6 `@max_members 1000`; schema/build_order.ex:69 `validate_number(:graph_catalog_refresh_ms, greater_than: 0, less_than_or_equal_to: 3_600_000)`.",
+      "recommendation": "Add an Aiur.BuildOrder.Limits module (or schema-exported constants) as the single source, referenced by the schema, Settings, Options, Configuration and Cadence. Remove the unreachable 1000 cap.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-31",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Each graph read task closure captures the entire GraphProjection state and copies it to the task process",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_task_lifecycle.ex",
+          "lines": "4-20"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+          "lines": "161-170"
+        }
+      ],
+      "description": "TaskLifecycle.start/3 spawns `fn -> receive do {:graph_projection_start, ^owner} -> read(state, scope, reader_options) end end`. The closure closes over the full state map: the catalog, up to max_selected_roots (32, max 100) SelectedRoot graphs of up to 100 members each, all monitors and all timers. The BEAM copies all of it into every read task, up to max_inflight concurrently, when only the reader function is needed. TicketDetailCoordinator.TaskLifecycle.start_task/4 likewise captures `state` (all detail snapshots) to read reader, max_description_bytes and freshness_ms.",
+      "evidence": "graph_projection_task_lifecycle.ex:11 `{:graph_projection_start, ^owner} -> read(state, scope, reader_options)`; ticket_detail_coordinator_task_lifecycle.ex:168 `RequestOrigin.carry(view_originated?, fn -> read(state, identity, repository) end)`.",
+      "recommendation": "Bind only what the task needs before spawning: `reader = reader_for(state, scope)` and a small opts keyword list.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-32",
+      "category": "other",
+      "severity": "P2",
+      "title": "PlanningSource generation comes from a resettable counter under a constant authority epoch, which can freeze a live page",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "32-33"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "400-410"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/route_state.ex",
+          "lines": "299-323"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/source_runtime.ex",
+          "lines": "291-298"
+        },
+        {
+          "path": "src/lib/aiur/current_run_membership/projection.ex",
+          "lines": "12"
+        }
+      ],
+      "description": "PlanningSource publishes authority_epoch: @epoch = 1 always, and a generation equal to 1 + CurrentRunMembership generation, Cantor-paired with the PackStatus generation. CurrentRunMembership.Projection.new/1 starts generation at 0 on a new run, and PackStatus's moduledoc says membership 'is rebuilt from an empty journal whenever a new run starts'. If a run rotates while a Build Order LiveView stays mounted, the published generation falls. RouteState.catalog_update/2 and selected_update/2 then return :ignored, because the incoming generation is neither newer nor equal. Since the epoch never changes, SourceRuntime.reset/2 never fires, and the page ignores updates until the counter climbs past its old value. Plausible; depends on whether a run can rotate without a daemon restart.",
+      "evidence": "planning_source.ex:32 `@epoch 1`; :400 `defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation`; route_state.ex:306 `true -> :ignored`; projection.ex:12 `defstruct run_id: nil, members: %{}, generation: 0`.",
+      "recommendation": "Derive the epoch from run_id (bump the authority epoch when the membership run_id changes), or publish a monotonic generation owned by PlanningSource (System.unique_integer monotonic) instead of arithmetic over foreign counters.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-33",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "A single unacceptable linked pull request fails the whole ticket detail",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_destinations.ex",
+          "lines": "15-55"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_relationships.ex",
+          "lines": "10-33"
+        }
+      ],
+      "description": "DestinationNormalizer.normalize/3 reduce_while's over the linked PR nodes and halts with :error on the first one that fails pull_request/2. The whole ticket detail then fails with Failure :validation. closedByPullRequestsReferences can include pull requests in other repositories that reference this issue, and Bounded.github_pull_request_url_for/3 rejects those because the repository differs. Such a PR, or any node with an unexpected state such as a new GitHub enum value, makes the detail drawer unavailable. It also feeds the loop in build-order-01. Plausible; depends on cross-repository references existing.",
+      "evidence": "ticket_detail_destinations.ex:45-49 `case pull_request(node, identity) do {:ok, destination} -> {:cont, ...}; :error -> {:halt, :error} end`; :30-31 `else _ -> {:error, %Failure{kind: :validation}}`; :86-89 `defp state(\"OPEN\") ... defp state(_state), do: :error`.",
+      "recommendation": "Drop and count invalid PR nodes (for example pull_requests_rejected: n) instead of failing the snapshot. Treat a foreign-repository PR as an external destination.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-34",
+      "category": "naming-structure",
+      "severity": "P2",
+      "title": "File and module layout is inconsistent: files named after one module define another, and namespaces are flat",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/lifecycle.ex",
+          "lines": "1-105"
+        },
+        {
+          "path": "src/lib/aiur/build_order/edge_state.ex",
+          "lines": "25-45"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_destinations.ex",
+          "lines": "1"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_contract.ex",
+          "lines": "1-37"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_contract.ex",
+          "lines": "1-121"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_contract.ex",
+          "lines": "1-95"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "1-92"
+        }
+      ],
+      "description": "lifecycle.ex defines Aiur.BuildOrder.ProviderHealth first, then Lifecycle, and there is no provider_health.ex. edge_state.ex also defines Readiness. ticket_detail_destinations.ex defines TicketDetail.DestinationNormalizer. The *_contract.ex files bundle 2 to 6 modules; ticket_detail_contract.ex holds Failure, State, IssueDestination, PullRequestDestination, Destinations and Snapshot. GraphProjection.*, TicketDetailCoordinator.*, TicketDetail.* and TicketHistory* are spread across flat prefixed files (graph_projection_policy.ex, ticket_detail_coordinator_task_lifecycle.ex and so on), while GitHubGraph.* uses a github_graph/ directory. Presenter and adapter files also define their View and struct modules inline.",
+      "evidence": "Module map: lifecycle.ex -> [ProviderHealth, Lifecycle]; edge_state.ex -> [EdgeState, Readiness]; ticket_detail_contract.ex -> 6 modules; ticket_context_presenter.ex -> 4 modules; ticket_context_adapter.ex -> 3 modules.",
+      "recommendation": "Do the one-module-per-file move as the first commit of the carve: graph_projection/{policy,options,configuration,task_lifecycle,snapshot,failure}.ex, ticket_detail/{...}.ex, ticket_detail_coordinator/{...}.ex, ticket_history/{...}.ex, provider_health.ex, readiness.ex.",
+      "effort": "S",
+      "refactor_hint": "Mechanical and low-risk. Do it first so later diffs stay reviewable."
+    },
+    {
+      "id": "build-order-35",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Small helpers are duplicated across the unit: provenance, field/map_value, relative age, stage/phase labels",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "699-719"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "lines": "231-241"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "lines": "276-277"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "625-626"
+        },
+        {
+          "path": "src/lib/aiur/build_order/progress_renderer.ex",
+          "lines": "153-165"
+        },
+        {
+          "path": "src/lib/aiur/build_order/progress_renderer.ex",
+          "lines": "195-200"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "115-124"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "342-351"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "lines": "153-175"
+        },
+        {
+          "path": "src/lib/aiur/build_order/member.ex",
+          "lines": "143-212"
+        },
+        {
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "lines": "101-172"
+        }
+      ],
+      "description": "The following are duplicated:\n- provenance/1 is byte-identical in TicketContextPresenter and TicketHistory.Normalizer (the same four keys and OpaqueIdentifier handling).\n- A string-or-atom field accessor appears in four modules (Presenter.map_value, ProgressRenderer.field, TicketHistoryProvider.field, TicketHistory.Normalizer.field).\n- relative_age ('just now' / 'm ago') appears in ProgressRenderer and 4 other web files: decision_card.ex, ticket_context.ex, analytics_live.ex, github_cache_live.ex.\n- Phase labels are listed in Presenter @phase_labels and again in Normalizer.topic_kind/1, whose stage list duplicates @stages in the same file. The Normalizer's other labels ('Decision state updated') are overwritten by Presenter.log_label/2 ('Agent decision updated'), so they are dead.\n- Member and RootSummary duplicate title, url, safe_url, identity, identity_diagnostic, lifecycle, labels and datetime helpers.",
+      "evidence": "`grep -rln '\"just now\"' lib` -> 5 files; ticket_history_normalizer.ex:169 `safe_slug(slug, :agent_decision, \"Decision state updated\")` versus ticket_context_presenter.ex:343 `defp log_label(:agent_decision, _label), do: \"Agent decision updated\"`.",
+      "recommendation": "Create one Aiur.BuildOrder.Fields helper (field/2, provenance/1), one relative-age formatter in AiurWeb, and one Label module shared by Member and RootSummary. Let the normalizer own labels and the presenter pass them through.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-36",
+      "category": "anti-pattern",
+      "severity": "P3",
+      "title": "Production code has test seams in global application env and test-only public APIs",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "367-373"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "497-505"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "557-608"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/runtime.ex",
+          "lines": "24-34"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "341-346"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_paths.ex",
+          "lines": "113-118"
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "lines": "65-67"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "79-81"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/data_source.ex",
+          "lines": "128-137"
+        }
+      ],
+      "description": "The following Application.get_env and Endpoint.config keys exist only so tests can swap collaborators at runtime: :build_order_planning_membership_snapshot, :build_order_pack_status_health_snapshot, :build_order_display_clock, :bo_usage_flush_timer and :build_order_workspace_directory. :build_order_planning_pack(s) is a demo override. They are global mutable state, which makes async tests unsafe. PackStatus.refresh_sync/1 and AdHocSource.refresh_sync/1 are public and documented as 'test/support'. Every DataSource function accepts opts only to swap modules through apply/3.",
+      "evidence": "planning_source.ex:368 `Application.get_env(:aiur, :build_order_pack_status_health_snapshot, &PackStatus.health/0).()`; runtime.ex:25 `Application.get_env(:aiur, :build_order_display_clock, &DateTime.utc_now/0).()`; pack_status.ex:65 '@doc \"Synchronously reconciles and returns the written pack paths (test/support).\"'.",
+      "recommendation": "Inject collaborators through start options or a struct (as GraphProjection.Options already does) instead of global env, and move refresh_sync into a test helper that sends :poll and awaits the broadcast.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-37",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "Minor complexity in GraphProjection demand bookkeeping",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "616-625"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "672-753"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1647-1660"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "956-959"
+        }
+      ],
+      "description": "add_demand/3 returns {state, identity} and passes back an identity it never changes. remove_demand_by_monitor/3 takes an unused pid. selected_scope/2 returns the sentinel {:selected, nil}, which is then used as a MapSet key. active_scope_in?/2 duplicates active_scope?/2 (1313-1320) over a different map. drop_member_due/2 duplicates clear_member_due/2. Event lists are built with `events ++ next_events` inside reduces (request_changed_selected_roots, admit_pending), which is quadratic in watched roots.",
+      "evidence": "graph_projection.ex:744 `_entry -> {:selected, nil}`; :699 `defp remove_demand_by_monitor(state, ref, _pid) do`; :958 `{state, events ++ next_events}`.",
+      "recommendation": "Fold these into the scope state machine extraction (build-order-09): one active?/1 on the entry, one cancel_member_due/2, and prepend-then-reverse for event lists.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-38",
+      "category": "test-quality",
+      "severity": "P3",
+      "title": "Build Order tests trace private functions and assert an absence after Process.sleep",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+          "lines": "60-83"
+        },
+        {
+          "path": "src/test/aiur/build_order/ad_hoc_source_test.exs",
+          "lines": "159-164"
+        }
+      ],
+      "description": "graph_projection_catalog_on_demand_test.exs :erlang.trace's the private GraphProjection.no_schedule?/3 and reads :sys.get_state. It pins the test to private function names and internal state keys, so any refactor of GraphProjection breaks it, and it asserts a branch the comment admits is behaviourally unobservable. ad_hoc_source_test's 'an issue without the label is not a member' sleeps 100 ms and asserts `members == []`. That is also the starting state, so the test passes against a server that ignores all events and cannot fail without the production behaviour. (Tests are outside this unit's file list; noted because they pin this unit's internals.)",
+      "evidence": "graph_projection_catalog_on_demand_test.exs:66 `:erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, [{:_, [], [{:return_trace}]}], [:local])`; ad_hoc_source_test.exs:163-164 `Process.sleep(100)\\n assert AdHocSource.snapshot(server).members == []`.",
+      "recommendation": "Replace the trace with a behavioural assertion (no reader call within the window) or delete it along with the dead branch (build-order-29). For the absence test, deposit a labelled issue first, relabel it, and assert that it disappears. Use a synchronous barrier (call the server) instead of sleeping.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-39",
+      "category": "docs-drift",
+      "severity": "P3",
+      "title": "Comments and moduledocs describe cadences and read variants that no longer exist",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/github_graph/queries.ex",
+          "lines": "10-36"
+        },
+        {
+          "path": "src/lib/aiur/build_order/cadence.ex",
+          "lines": "147-162"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "18-21"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "690-691"
+        },
+        {
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "lines": "58-59"
+        }
+      ],
+      "description": "Queries says 'GraphProjection buys [the labelled variant] on a slow, separate cadence (default every 10 minutes)' and quotes catalog poll-cost arithmetic, but the catalog reads the store and the labelled query runs only during Reconciliation. Cadence.effective/1's doc says on-demand means refresh 'on a page mount', which GraphProjection.demand/2 explicitly does not do. Options still documents catalog_labels_refresh_ms as the labelled-read cadence. PlanningSource's comment about where status.json is written is wrong (build-order-24). ViewStateSweep still lists AdHocSource as 'a labelled issue listing, every 60s', while AdHocSource's moduledoc says the sweep no longer sweeps it.",
+      "evidence": "cadence.ex (effective/1 doc) 'the catalog has *no timer* ... refresh only on demand \u2014 a page mount or an explicit `refresh`'; graph_projection.ex:52-54 'Selecting a root, opening the page and holding it open are all this call, so all three are free'.",
+      "recommendation": "Rewrite these comments when build-order-08 and build-order-29 land. Delete the cost arithmetic rather than re-deriving it, and link to website/docs-app/apis/github.md as AGENTS.md requires.",
+      "effort": "S"
+    },
+    {
+      "id": "build-order-40",
+      "category": "anti-pattern",
+      "severity": "P3",
+      "title": "TicketHistoryProvider retries the Exchange subscription every 100 ms forever, with no backoff or log",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "202-207"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "lines": "580-607"
+        }
+      ],
+      "description": "When Events.Exchange is down or subscribe fails, subscribe_exchange/1 and monitor_exchange/1 schedule :resubscribe_exchange after a fixed 100 ms, with no cap, no backoff and no log. During an Exchange restart storm the provider wakes 10 times a second, and a permanently failing subscribe loops for the life of the daemon without anyone knowing.",
+      "evidence": "ticket_history_provider.ex:607 `defp schedule_exchange_retry, do: Process.send_after(self(), :resubscribe_exchange, 100)`.",
+      "recommendation": "Use an exponential backoff capped at a few seconds, log once per transition, and report history_health :unavailable while unsubscribed.",
+      "effort": "S"
+    }
+  ]
+}

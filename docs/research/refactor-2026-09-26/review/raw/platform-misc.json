@@ -1,0 +1,1340 @@
+{
+ "unit_id": "platform-misc",
+ "files_reviewed": 156,
+ "lines_reviewed_estimate": 15500,
+ "coverage_notes": "Unit platform-misc: 156 files, 21,818 lines (Python line count from the chunk file list). About 15,500 lines were read in full or in large part; the rest were skimmed or grepped.\n\nREAD IN FULL: workspace/ownership/{guardian, store, waiter, reconciler}, workspace/{ownership, provisioner, hooks, reconstruction, git_metadata, host_lock, checkout, remove, layout, materialize, context, refresh, remote}; ticket_activity/{projection, reducer}; linear/{client, tracker, config}; memory/tracker; config/{paths, env_ref, routing_value, codex_sandbox_policy}; config/schema.ex; config/schema/{agent, agent_validation, tracker, polling, build_order, attrs, env_resolver, errors, string_or_map, github_credential, decisions, pricing_policy, prewarm, workspace, hooks}; current_run_membership/{store, projection, reconciler, reconciler/snapshot}; current_run_membership/store/{runtime, recovery, marker, file_ops, paths, terminal_verification}; current_run_projections/{projector, checkpoint, checkpoint_persistence, source_collector, source_fallback, units_builder}; current_run_projection/value; current_run_summary/facts; current_run_outcome_snapshot/outcomes; decision_store/{retained_index, retained_snapshot/query, retained_snapshot/query_plan}; decision_query/{params, store_reader}; decision_dispatch_tasks/{owner, queue, saturation, worker}; decision_event/unrecognized; eleven_labs/{realtime, quota, tts}; env/schema; init/{github, labels, agent_cli, runtime, dotenv}; logs/retention; upgrade/{registry, state, notice, version}; progress_checkin/worker; workflow_store/cache; supervision_health/{tree, formatter}; alert_feed/backfill; alert_ledger/tail; open_ticket_source/snapshot; model_discovery/source + {anthropic, open_ai, open_router}; protocol/map_access; sandbox/* (4).\n\nSKIMMED (structure, grep, or first part only): eleven_labs/realtime/mint_socket (init, timeout, send paths), prewarm/detect (first 80 lines), workspace/bootstrap_image (first 60 lines), decision_api/legacy_pagination (first 40), decision_store/retained_snapshot and retained_snapshot/legacy_page (headers and collect loop), current_run_membership/event (via grep).\n\nNOT REACHED (only named or grepped): init/{prompt, questions, scaffold, prewarm, resume, templates, prewarm/failure, codeowners, bot_account, alerts, eleven_labs, github_app, format}; codeowners/edit; current_run_membership/event/codec, store/checkpoint; current_run_outcome_snapshot/{membership_index, projection, source_state}; current_run_summary/{progress, projection, status}; current_run_projections/{finalizer, membership_cache, refresh, source_adapter, state (only lines 9 and 22), weight_facts}; decision_api/{public_projection, public_lifecycle_projection} (only the dual-key helper line); decision_query/cursor; eleven_labs/realtime/{mint_transport, transport}; config/schema/{alerts, eleven_labs, events, github_app, observability, opencode, pr_health, pr_watch, server, upgrade, webhooks, worker}. None of these showed issues in greps for blanket rescue/catch, Logger-only failures or AiurWeb references.\n\nCROSS-UNIT GREPS used for duplication and evidence (outside this unit, cited only as corroboration): dispatch_policy, github/state_policy, github_webhook, ticket_observation, build_order/ticket_history_normalizer, orchestrator/{waiting_reason, retry_engine, orphaned_workers}, agent_event_log, alerts, fs, decision_store, config.ex, workspace.ex, env.ex, the aiur-engine.sh launcher, and deps/req in the live checkout (Req 0.7.2 option validation). Whole-tree censuses: dual-key map access (48 sites in 42 files), state-dir consumers (17), AiurWeb references from src/lib/aiur (16 files), global sync_filesystem users (12), github.com clone-URL literals (7). A field-vs-cast-list script over all 30 config schema modules found one mismatch (finding 01). An env-var census found all 46 literal System.get_env names declared in Env.Schema, so no finding there. Tests were not run (read-only review). Test-quality findings rely on reading test call sites, not on execution.",
+ "findings": [
+  {
+   "id": "platform-misc-01",
+   "category": "config",
+   "severity": "P0",
+   "title": "agent.max_consecutive_noop_turns is declared and documented but never cast, so operator config is silently ignored",
+   "locations": [
+    {
+     "path": "src/lib/aiur/config/schema/agent.ex",
+     "lines": "185-191"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/agent.ex",
+     "lines": "277-323"
+    },
+    {
+     "path": "src/lib/aiur/config.ex",
+     "lines": "898-903"
+    },
+    {
+     "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+     "lines": "433-443"
+    },
+    {
+     "path": "website/docs-app/reference/configuration.md",
+     "lines": "224"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/turn_loop_noop_bound_test.exs",
+     "lines": "74-134"
+    }
+   ],
+   "description": "The field is declared in the Agent embedded_schema with default 3, but it is missing from the explicit cast/3 permitted list. Ecto drops non-permitted keys, so any operator value (0 to disable, or a larger cap) never reaches the struct: every run always uses the default 3. The configuration reference documents the key as configurable with '0 disables the bound'. The only tests pass the cap through TurnLoop opts, never through Schema.parse, so no test can catch this.",
+   "evidence": "agent.ex:191 `field(:max_consecutive_noop_turns, :integer, default: 3)`; the cast list at agent.ex:282-321 goes `:max_turns, :max_retry_attempts, ...` with no `:max_consecutive_noop_turns`. config.ex:901 reads `Map.get(settings.agent, :max_consecutive_noop_turns)`. A script comparing every `field(:x` against the cast lists of all 30 schema modules found this as the only mismatch. The test turn_loop_noop_bound_test.exs passes `max_consecutive_noop_turns: 3` directly in opts (lines 74, 97, 134).",
+   "recommendation": "Add :max_consecutive_noop_turns to the cast list and a validate_number(greater_than_or_equal_to: 0). Add a Schema.parse test that sets the key to 0 and to 7 and asserts the parsed struct. Derive the permitted list from `__schema__(:fields) -- __schema__(:embeds)` so the two lists cannot drift (see platform-misc-02).",
+   "effort": "S",
+   "refactor_hint": "Config package: make the cast list derived, not hand-maintained, before splitting schemas into per-package config sections."
+  },
+  {
+   "id": "platform-misc-02",
+   "category": "silent-failure",
+   "severity": "P1",
+   "title": "Config schemas silently drop unknown, misspelled and removed keys; obsolete-key policy is inconsistent (error tuple vs raise vs silent)",
+   "locations": [
+    {
+     "path": "src/lib/aiur/config/schema.ex",
+     "lines": "72-94"
+    },
+    {
+     "path": "src/lib/aiur/config/schema.ex",
+     "lines": "140-181"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/build_order.ex",
+     "lines": "29-37"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/polling.ex",
+     "lines": "61-67"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/agent.ex",
+     "lines": "277-323"
+    }
+   ],
+   "description": "Every embedded schema uses cast/3 with a hand-written permitted list. Keys outside the list are dropped with no warning, so a typo (agent.max_turn), a removed key, or a key that was declared but not added to the list (platform-misc-01) is silently ignored. The code base relies on this on purpose for removed build_order keys. At the same time, obsolete keys are handled in three different ways: a root `codex:` section returns an error tuple, `polling.interval_ms` raises ArgumentError from inside a changeset (Schema.parse/1 is specced to return {:error, {:invalid_workflow_config, msg}}, and Config.settings/0 does not rescue), and removed build_order keys are silently accepted.",
+   "evidence": "build_order.ex:35-36 `# A configuration that still sets them keeps loading: `cast/3` ignores keys outside the permitted list`. polling.ex:63-66 `raise ArgumentError, \"polling.interval_ms is no longer supported...\"`. schema.ex:90-91 returns `{:error, {:invalid_workflow_config, \"codex is no longer supported...\"}}`. A search of config.ex, config/, workflow.ex and workflow_store.ex found no unknown-key detection at all.",
+   "recommendation": "Add one unknown-key pass in Schema.parse/1 that walks the normalized attrs against each schema's `__schema__(:fields)`. Emit a structured warning (and an alert at daemon start) for unknown keys, and a hard error for a registry of known-obsolete keys with rename hints. Replace the raise in Polling.changeset with add_error so parse keeps its error-tuple contract.",
+   "effort": "M",
+   "refactor_hint": "Config package boundary: a per-section schema registry with known-obsolete keys lets each carved package own its section without silently losing operator settings."
+  },
+  {
+   "id": "platform-misc-03",
+   "category": "error-handling",
+   "severity": "P1",
+   "title": "Workspace ownership guardian can latch a ticket forever (survives restarts) with no timer, alert or operator exit, while status calls the wait 'self-clearing'",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "383-401"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "186-201"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "249-262"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "71-91"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership.ex",
+     "lines": "211-236"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+     "lines": "171-176"
+    }
+   ],
+   "description": "When the owner dies with provider_expected?: true and no provider tracked, or with a remote provider, maybe_release_or_reap moves the lease to :reaping and loops with no retry timer. In :reaping, track_provider, expect_provider and mark_provider_cleanup_* are all refused by their `phase in [:provisioning, :active]` guards, and a `release` request re-enters the same clause, so the release waiter is never answered. The receipt is persisted in :reaping, and Guardian.restore/3 at boot re-runs maybe_release_or_reap on it, so the latch survives daemon restarts. The only exit is deleting the receipts file by hand. Ownership.call/2 turns the unanswered `release` into `:ok` after 5 s (timeout_result(_message) -> :ok), so the caller believes the release happened. The status surface classifies the resulting wait as 'a known, self-clearing wait'.",
+   "evidence": "guardian.ex:386-388 `defp maybe_release_or_reap(%{provider: nil, provider_expected?: true} = state) do loop(update_phase(state, :reaping))`. guardian.ex:400-401 remote: `loop(update_phase(state, :reaping))`. ownership.ex:236 `defp timeout_result(_message), do: :ok` (covers {:release, gen}). waiting_reason.ex:171 `# A workspace-ownership reclaim is a known, self-clearing wait`.",
+   "recommendation": "Keep the fail-closed default, but make it observable and exit-able: (1) emit a needs_attention alert naming ticket, generation and provider state when a lease enters an indefinite retain; (2) add an operator verb (aiur workspace release <ticket> --force) that deletes the receipt after confirmation; (3) answer release waiters with {:error, :retained} instead of timing out into :ok; (4) give WaitingReason a distinct :workspace_retained reason instead of the 'self-clearing' label.",
+   "effort": "M",
+   "refactor_hint": "Workspace package: the guardian is the lease authority; carve it with an explicit lease state machine (provisioning/active/reaping/retained/released) and an operator API."
+  },
+  {
+   "id": "platform-misc-04",
+   "category": "performance",
+   "severity": "P1",
+   "title": "Every workspace-lease transition runs a host-wide `sync` subprocess inside one serialized GenServer, behind a 5 s call timeout",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/ownership/store.ex",
+     "lines": "97-113"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/store.ex",
+     "lines": "292-306"
+    },
+    {
+     "path": "src/lib/aiur/fs.ex",
+     "lines": "86-92"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "583-606"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/store/recovery.ex",
+     "lines": "10-24"
+    }
+   ],
+   "description": "Ownership.Store.persist/3 rewrites the whole receipts file with fsync and then calls sync_fun, which defaults to Fs.sync_filesystem/0 = System.cmd(\"sync\"). `sync` flushes the dirty pages of every mounted filesystem. The guardian persists on claim, activate, every provider/host-lock update and every phase change, so one dispatch runs several host-wide syncs. All of them go through one GenServer, and each caller uses the default 5 s GenServer.call timeout. On a busy host with many dirty pages (agents compiling), a sync can take seconds: callers get {:error, {:store_unavailable, timeout}}, the guardian maps this to :workspace_ownership_lost, and dispatch fails. The Store may still complete the write afterwards. The same global-sync default is used by about 12 other durable stores.",
+   "evidence": "store.ex:103 `Application.get_env(:aiur, :workspace_ownership_sync_fun, &Fs.sync_filesystem/0)`; store.ex:295-296 `with :ok <- Fs.atomic_write(path, contents, fsync: true, mode: 0o600), :ok <- sync_fun.()`; fs.ex:88 `case System.cmd(\"sync\", [], stderr_to_stdout: true)`. Other sync_filesystem defaults: decision_log.ex:46, progress_retention.ex:251, repo_base.ex:1161/1275/1289, decision_store.ex:528, recent_merge_store.ex:71, current_run_membership/store/recovery.ex:17, usage_aggregate/recovery.ex:18, usage_compaction/coordinator.ex:314, usage_ledger/store.ex:80, usage_ledger/recovery.ex:17, webhooks/delivery_log.ex:189.",
+   "recommendation": "Replace Fs.sync_filesystem with a directory-entry fsync (open the parent directory and :file.sync the fd, or :prim_file-based datasync) that makes only the rename durable. Keep the file fsync. Give Ownership.Store calls an explicit timeout above the worst measured write latency and separate 'store slow' from 'ownership lost'.",
+   "effort": "M",
+   "refactor_hint": "Shared persistence primitive (Aiur.Fs) used by every would-be package; fix once before the carve so each package inherits a cheap durable rename."
+  },
+  {
+   "id": "platform-misc-05",
+   "category": "performance",
+   "severity": "P1",
+   "title": "Reconstruction.with_log_lock is a cluster-wide :global spin lock with no timeout, held for whole hook runs; every alert or event write for that workspace blocks behind it",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/reconstruction.ex",
+     "lines": "22-46"
+    },
+    {
+     "path": "src/lib/aiur/workspace/reconstruction.ex",
+     "lines": "48-86"
+    },
+    {
+     "path": "src/lib/aiur/agent_event_log.ex",
+     "lines": "26-37"
+    },
+    {
+     "path": "src/lib/aiur/alerts.ex",
+     "lines": "170-192"
+    },
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "28-32"
+    },
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "408-449"
+    }
+   ],
+   "description": "Reconstruction.run/3 takes the lock and holds it while prepare.(stage) runs. For after_create and before_run reconstruction, prepare is the operator's clone/compile hook (hooks.timeout_ms default 600 000 ms). The lock is :global.register_name, which takes a cluster-wide global lock on every attempt, and waiters poll every 10 ms with no deadline. AgentEventLog.write/3 takes the same lock for every transcript event. Alerts.emit calls AgentEventLog.write synchronously in the calling process, so any process that emits an alert for a ticket whose workspace is being cloned blocks for up to the full hook duration. That can be the orchestrator or a runner.",
+   "evidence": "reconstruction.ex:78-85 `case :global.register_name(name, self()) do :yes -> :ok; :no -> Process.sleep(10); acquire_log_lock(name)`; reconstruction.ex:29-35 `with_log_lock(workspace, fn -> ... case prepare.(stage) do`; agent_event_log.ex:27 `Reconstruction.with_log_lock(workspace, fn ->`; alerts.ex:191 `AgentEventLog.write(workspace, worker_host, alert_event)` inside the emit path.",
+   "recommendation": "Use a local lock primitive (a per-workspace Registry or :ets owner with monitor-based waiting) with an acquisition timeout. Shrink the critical section to the promotion and log-merge step, not the whole hook. Make AgentEventLog writes asynchronous (a per-workspace writer process or buffer) so alert emission never blocks the caller on disk or lock.",
+   "effort": "M",
+   "refactor_hint": "Workspace package vs transcript/alerts package: the shared lock couples them; give transcript writing its own writer process in the carve."
+  },
+  {
+   "id": "platform-misc-06",
+   "category": "error-handling",
+   "severity": "P1",
+   "title": "Hook timeouts kill the BEAM task but not the OS process; orphaned hooks keep running into workspaces that are then removed or rebuilt, and git lock repair deletes live locks",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "125-148"
+    },
+    {
+     "path": "src/lib/aiur/workspace/remote.ex",
+     "lines": "35-45"
+    },
+    {
+     "path": "src/lib/aiur/workspace.ex",
+     "lines": "100-108"
+    },
+    {
+     "path": "src/lib/aiur/workspace/git_metadata.ex",
+     "lines": "84-93"
+    },
+    {
+     "path": "src/lib/aiur/workspace/git_metadata.ex",
+     "lines": "286-296"
+    },
+    {
+     "path": "src/lib/aiur/workspace/git_metadata.ex",
+     "lines": "322-327"
+    }
+   ],
+   "description": "run_local_hook runs System.cmd(sh, [\"-c\", cmd]) in Task.async and, on timeout, calls Task.shutdown(task, :brutal_kill). Killing the task closes the port but sends no signal to the `sh` process group, so a timed-out clone or compile keeps running. The same holds for SSH hooks in Remote.run_bounded (the remote side keeps running). After the timeout, provisioning calls cleanup_incomplete_workspace (rm_rf) or cold fallback while the orphan still writes into the path. The next before_run then runs GitMetadata.ensure_git_metadata_writable, which unconditionally deletes index.lock, FETCH_HEAD.lock, ORIG_HEAD.lock and the branch ref lock ('remove_stale_lock'), including a lock held by the orphan's live git process.",
+   "evidence": "hooks.ex:125-147 `task = Task.async(fn -> System.cmd(shell, [\"-c\", scrubbed_command], ...) end) ... nil -> Task.shutdown(task, :brutal_kill)`; remote.ex:43 `Task.shutdown(task, :brutal_kill)`; git_metadata.ex:286-291 `with :ok <- File.mkdir_p(...), :ok <- remove_stale_lock(path), {:ok, io} <- File.open(path, [:write, :exclusive])`; remote script git_metadata.ex:87 `rm -f \"$lock_path\"`. No process-group kill helper exists for hooks (grep for setsid/kill -TERM finds only app_server/adapter.ex, pause_containment.ex, opencode/server.ex).",
+   "recommendation": "Run hooks through a port wrapper that starts the command in its own process group (setsid, or the existing pause_containment approach) and on timeout kill the whole group (TERM, then KILL) before cleanup. For SSH, run the remote command under `timeout --kill-after` or a remote setsid and kill it through the control path. Only remove git lock files older than a threshold, or after confirming no git process has the workspace as cwd.",
+   "effort": "M",
+   "refactor_hint": "Workspace hook runner: extract one CommandRunner (local and remote) with process-group semantics; reuse it for provider launch and build gates."
+  },
+  {
+   "id": "platform-misc-07",
+   "category": "error-handling",
+   "severity": "P1",
+   "title": "HostLock stale-lock reclaim has a TOCTOU race that lets two daemons both acquire, and PID-only liveness can strand a workspace after PID reuse",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/host_lock.ex",
+     "lines": "178-211"
+    },
+    {
+     "path": "src/lib/aiur/workspace/host_lock.ex",
+     "lines": "222-226"
+    },
+    {
+     "path": "src/lib/aiur/workspace/host_lock.ex",
+     "lines": "1-29"
+    }
+   ],
+   "description": "The lock exists to stop two daemons from writing one working tree (moduledoc: 'silent corruption'). Reclaim reads the holder, decides it is dead, then File.rm(path) by path and retries the O_EXCL create. Two contenders that both read the same stale holder can interleave: A rm, A create (ok), B rm (removes A's fresh lock), B create (ok). Both then hold the lock. Separately, liveness is only alive_fun.(os_pid). After a reboot or crash the recorded pid can be reused by an unrelated process, and the lock is then honoured forever. The guardian already captures process identity (birth time and session) to detect PID reuse; HostLock does not.",
+   "evidence": "host_lock.ex:203-210 `Logger.warning(\"Reclaiming stale workspace lock...\"); case File.rm(path) do :ok -> attempt(path, workspace, holder, alive_fun, false)`; host_lock.ex:225 `defp live?({:ok, %{os_pid: os_pid}}, alive_fun) when is_integer(os_pid) and os_pid > 0, do: alive_fun.(os_pid)`.",
+   "recommendation": "Reclaim by atomic rename of the stale lock to a unique tombstone (rename fails for the loser), or use flock(2) through a small port so the kernel releases the lock on process death. Record the process identity (start time from /proc or ps, as RemoteControl.process_identity does) in the lock and treat a pid whose identity differs as dead.",
+   "effort": "M",
+   "refactor_hint": "Workspace package: HostLock and Ownership should share one ProcessIdentity abstraction."
+  },
+  {
+   "id": "platform-misc-08",
+   "category": "other",
+   "severity": "P1",
+   "title": "Logs.Retention can rm -rf another live daemon's session directory under the shared ~/.aiur/logs",
+   "locations": [
+    {
+     "path": "src/lib/aiur/logs/retention.ex",
+     "lines": "1-16"
+    },
+    {
+     "path": "src/lib/aiur/logs/retention.ex",
+     "lines": "102-132"
+    },
+    {
+     "path": "src/lib/aiur/logs/retention.ex",
+     "lines": "134-165"
+    },
+    {
+     "path": "src/lib/aiur/logs/retention.ex",
+     "lines": "175-189"
+    },
+    {
+     "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+     "lines": "870-873"
+    }
+   ],
+   "description": "Every daemon launch creates ~/.aiur/logs/<utc>-<pid>. The directory is shared by all daemons on the host (several repos, aiurdev and aiur). Each daemon's Retention sweep sorts all session directories by directory mtime and rm -rf's the oldest until under cap. It protects only its own current session. Another daemon that is still running is deleted if its directory is older. Directory mtime changes only when entries are added or removed, not when log files grow, so a long-running live session looks 'oldest'. Its open logs (including daemon-owned evidence such as log/event-publications.ndjson, which AGENTS.md says must survive) are unlinked while it writes. The root is hard-coded to ~/.aiur/logs and ignores AIUR_LOGS_ROOT. The moduledoc still refers to `.aiurconfig`, which is now rejected.",
+   "evidence": "retention.ex:112-120 `dir == current -> {:cont, acc}; true -> File.rm_rf(dir)`; retention.ex:165 `defp default_root, do: Path.expand(\"~/.aiur/logs\")`; retention.ex:159 `File.stat(dir, time: :posix) ... mtime`; aiur-engine.sh:872 `AIUR_LOGS_ROOT=\"$(printf '%s/%s-%s' \"$HOME/.aiur/logs\" ...)\"`.",
+   "recommendation": "Have each daemon hold a liveness marker in its session directory (a pid file plus process identity, or an flock). Skip any session whose marker is live. Order candidates by the newest mtime of the files inside, not by the directory mtime. Read the root from the launcher (AIUR_LOGS_ROOT parent) instead of a literal. Fix the moduledoc.",
+   "effort": "S",
+   "refactor_hint": "Observability/logging package: log retention is host-scoped, not daemon-scoped; model it that way when carving."
+  },
+  {
+   "id": "platform-misc-09",
+   "category": "error-handling",
+   "severity": "P1",
+   "title": "CurrentRunMembership.Store latches writable?: false on one transient write failure for the rest of the run; terminal verification can never clear afterwards",
+   "locations": [
+    {
+     "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+     "lines": "150-214"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/store.ex",
+     "lines": "98-108"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/store/recovery.ex",
+     "lines": "107-117"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/store/recovery.ex",
+     "lines": "225-247"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+     "lines": "281-282"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+     "lines": "1263-1290"
+    }
+   ],
+   "description": "Any append, checkpoint, directory-sync or journal-compaction error sets writable?: false. No code path sets it back to true while the process lives (the only true assignment is at boot in Recovery.load). A degraded marker written for checkpoint or journal corruption also keeps the store unwritable across restarts for the same run. From then on every observe/3 returns {:error, {:membership_unavailable, _}}. The orchestrator's terminal path then takes retain_terminal_retry_claim and sets terminal_verification_pending, and Runtime.reconciliation_status turns every later :fresh into :unavailable while anything is pending. One ENOSPC blip or slow sync therefore degrades membership, and the run summary built on it, for the rest of the run.",
+   "evidence": "runtime.ex:153 `{:error, reason} -> persist_failed(%{state | writable?: false}, {:append_failed, reason})`; runtime.ex:183/186/201 same for checkpoint failures; store.ex:99-100 `def handle_call({:observe, ...}, _from, %{writable?: false} = state) do {:reply, {:error, {:membership_unavailable, state.health}}, state}`; runtime.ex:281 `defp reconciliation_status(%{terminal_verification_pending?: true}, :fresh), do: :unavailable`. `grep writable?` over current_run_membership/ shows no runtime path back to true.",
+   "recommendation": "Split transient persistence faults from integrity faults. For append or sync failures, keep the in-memory projection authoritative, retry the journal append with backoff, and restore writable? after a successful checkpoint of the full projection. Keep the permanent latch only for integrity faults (corrupt checkpoint or journal). Emit an alert on entering and leaving the degraded state.",
+   "effort": "M",
+   "refactor_hint": "CurrentRunMembership package: its availability contract feeds the orchestrator's terminal path, so define recoverable vs terminal health states explicitly."
+  },
+  {
+   "id": "platform-misc-10",
+   "category": "duplication",
+   "severity": "P1",
+   "title": "Issue-state normalization is reimplemented in at least 12 places with 5 different semantics; the schema's default active_states hits the divergence",
+   "locations": [
+    {
+     "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+     "lines": "1079-1098"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+     "lines": "1187-1212"
+    },
+    {
+     "path": "src/lib/aiur/github/state_policy.ex",
+     "lines": "6-12"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/agent_validation.ex",
+     "lines": "10-23"
+    },
+    {
+     "path": "src/lib/aiur/linear/tracker.ex",
+     "lines": "184-196"
+    },
+    {
+     "path": "src/lib/aiur/memory/tracker.ex",
+     "lines": "180-192"
+    },
+    {
+     "path": "src/lib/aiur/workspace/context.ex",
+     "lines": "6-10"
+    },
+    {
+     "path": "src/lib/aiur/workspace/context.ex",
+     "lines": "78-84"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex",
+     "lines": "105-107"
+    },
+    {
+     "path": "src/lib/aiur/current_run_summary/facts.ex",
+     "lines": "137-143"
+    },
+    {
+     "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+     "lines": "572-576"
+    },
+    {
+     "path": "src/lib/aiur/test_reset.ex",
+     "lines": "421-426"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/tracker.ex",
+     "lines": "214-216"
+    }
+   ],
+   "description": "The same concept (normalize a tracker state or label for comparison) has these variants: trim+downcase (DispatchPolicy.normalize_issue_state, Workspace.Context, TurnLoop, Snapshot, TestReset); downcase only, no trim (AgentValidation.normalize_issue_state, used for max_concurrent_agents_by_state keys); trim+downcase+replace ' '->'-' (GitHub.StatePolicy); trim+downcase+replace [\\s_]+->'-' (Linear, Memory, DispatchPolicy.state_slug); trim+downcase+[\\s-]+->'_' then strip '_' (CurrentRunSummary.Facts: 'human-review' -> 'humanreview'). The GitHub poller and webhook compare active states through StatePolicy ('In Progress' -> 'in-progress'), but DispatchPolicy.active_state_set uses normalize_issue_state ('in progress'). The schema default active_states is [\"Todo\", \"In Progress\"], which is exactly the display-name trap AGENTS.md warns about.",
+   "evidence": "dispatch_policy.ex:1081 `String.downcase(String.trim(state_name))`; state_policy.ex:7-11 `|> String.replace(\" \", \"-\")`; agent_validation.ex:12 `String.downcase(state_name)`; facts.ex:140 `|> String.replace(~r/[\\s-]+/, \"_\") |> String.replace(\"_\", \"\")`; tracker.ex:214 `default: [\"Todo\", \"In Progress\"]`; github_webhook.ex:360 comment 'StatePolicy.normalize_state/1 turns \"In Progress\" into \"in-progress\"' vs dispatch_policy.ex:1207-1211 active_state_set via normalize_issue_state.",
+   "recommendation": "Create one TrackerState module (in the tracker-core package) with state_key/1 (the canonical slug) and label_to_state/2. Replace all 12 copies. Make the config defaults slug-form ([\"todo\", \"in-progress\"]), or normalize configured states to slugs at parse time. Add one property test that the poller, webhook, dispatch policy and config validators agree for display names and slugs.",
+   "effort": "M",
+   "refactor_hint": "Tracker-core package: the state vocabulary is shared by orchestrator, workspace, membership, summary and trackers; it must be one module before those packages split."
+  },
+  {
+   "id": "platform-misc-11",
+   "category": "error-handling",
+   "severity": "P1",
+   "title": "Upgrade registry passes an unknown option (timeout:) to Req, which raises; the fail-open rescue turns every version check into 'no notice'",
+   "locations": [
+    {
+     "path": "src/lib/aiur/upgrade/registry.ex",
+     "lines": "13-30"
+    }
+   ],
+   "description": "Req 0.7.2 (mix.lock) validates options in Req.merge/2 and raises ArgumentError for unregistered ones. The registered list (deps/req/lib/req/steps.ex register_options) has :receive_timeout, :pool_timeout and :request_timeout, but no :timeout. fetch_dist_tags/2 therefore always raises. The rescue returns {:error, %ArgumentError{}}, and by the documented 'fail-open by contract' the notice is suppressed. The upgrade notice has never fired in production. The tests inject a fake transport, so they cannot see this. Blast radius is small (a notice), but the feature is dead and nothing reports it.",
+   "evidence": "registry.ex:15 `case Req.get(url, timeout: timeout_ms, headers: [accept: \"application/json\"]) do`; registry.ex:28-29 `rescue error -> {:error, error}`; deps/req/lib/req/request.ex:1124-1129 `raise ArgumentError, \"unknown option #{inspect(name)}...\"`.",
+   "recommendation": "Use receive_timeout: timeout_ms (plus connect_options: [timeout: ...]) and retry: false. Add one test that calls Transport.Req.fetch_dist_tags against a Req.Test plug or bypass, so the real transport's option handling is exercised. Log (and count) the fail-open error class instead of discarding it.",
+   "effort": "S",
+   "refactor_hint": "Upgrade package: small and self-contained; good first carve once its transport is tested."
+  },
+  {
+   "id": "platform-misc-12",
+   "category": "coupling",
+   "severity": "P1",
+   "title": "Core current-run projections depend on the web layer (AiurWeb.OperatorControlCenter.UnitsRow/UnitsPolicy, AiurWeb.ObservabilityPubSub)",
+   "locations": [
+    {
+     "path": "src/lib/aiur/current_run_projections.ex",
+     "lines": "156-165"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/state.ex",
+     "lines": "9-22"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/units_builder.ex",
+     "lines": "1-65"
+    },
+    {
+     "path": "src/lib/aiur/current_run_summary/facts.ex",
+     "lines": "1-47"
+    },
+    {
+     "path": "src/lib/aiur/current_run_summary/facts.ex",
+     "lines": "160-164"
+    }
+   ],
+   "description": "The run summary and outcome read models, which CLIs and status reports also use, compute their unit rows with AiurWeb.OperatorControlCenter.UnitsRow.snapshot/1. They classify rows with AiurWeb.OperatorControlCenter.UnitsPolicy (in_scope?, condition?) and subscribe to AiurWeb.ObservabilityPubSub. Business rules (which unit is live, unfinished or queued) therefore live in the web namespace, and core cannot compile without aiur_web. Across src/lib/aiur, 16 files reference AiurWeb.* (for example alerts.ex, agent_pubsub.ex, orchestrator/snapshot_store.ex, recent_merge_store.ex).",
+   "evidence": "state.ex:22 `units_snapshot_fun: Keyword.get(opts, :units_snapshot_fun, &UnitsRow.snapshot/1)`; units_builder.ex:5 `alias AiurWeb.OperatorControlCenter.UnitsRow`; facts.ex:45-46 `live: Enum.count(rows, &UnitsPolicy.in_scope?(&1, :live)), remaining: Enum.count(rows, &UnitsPolicy.in_scope?(&1, :unfinished))`; current_run_projections.ex:163 `&AiurWeb.ObservabilityPubSub.subscribe/0`.",
+   "recommendation": "Move UnitsRow.snapshot and UnitsPolicy into a core module (for example Aiur.RunUnits) that both the projections and the OCC presenter call. Replace the ObservabilityPubSub subscription with a core PubSub topic that the web layer re-broadcasts. Add a boundary check (the `boundary` library or an xref CI check) that forbids Aiur.* -> AiurWeb.* references.",
+   "effort": "M",
+   "refactor_hint": "Hard carve blocker: core->web edges must be cut before aiur_web becomes its own package."
+  },
+  {
+   "id": "platform-misc-13",
+   "category": "error-handling",
+   "severity": "P2",
+   "title": "Ownership.Waiter.wait blocks its caller with an unbounded receive; the orchestrator calls it inline on one path",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/ownership/waiter.ex",
+     "lines": "8-16"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/waiter.ex",
+     "lines": "42-59"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+     "lines": "381-393"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/orphaned_workers.ex",
+     "lines": "191-203"
+    }
+   ],
+   "description": "Waiter.wait spawns an unlinked, unmonitored subscriber and then does `receive {:workspace_waiter_ready, ^waiter, result} -> result end` with no after clause. If the subscriber crashes (for example Registry.lookup raising because the registry is gone), the caller blocks forever. While the guardian is slow (blocked in Ownership.Store.put, see platform-misc-04), the subscriber resubscribes every 100 ms and the caller keeps waiting. RetryEngine.synchronize_workspace_wait's fallback clause calls it from the Orchestrator process, although the clause above it says 'so the Orchestrator never blocks on a guardian'. OrphanedWorkers already knows it blocks and runs it in a spawned process.",
+   "evidence": "waiter.ex:11-15 `waiter = spawn(fn -> subscribe(...) end) receive do {:workspace_waiter_ready, ^waiter, result} -> result end`; retry_engine.ex:389 `case Ownership.wait_for_release(identifier, self()) do`; orphaned_workers.ex:191 '`Ownership.wait_for_release/2` blocks its caller until the guardian acknowledges, so it runs in its own process.'",
+   "recommendation": "Monitor the subscriber and add a deadline to Waiter.wait that returns {:error, :timeout}. Make the orchestrator path always asynchronous (the OrphanedWorkers pattern), with the answer arriving as a message.",
+   "effort": "S",
+   "refactor_hint": "Workspace package API: expose only asynchronous subscribe/notify, never a blocking wait, to orchestrator callers."
+  },
+  {
+   "id": "platform-misc-14",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Daemon-private state paths: 7 copy-pasted leaf helpers, about 13 ad-hoc leaf computations, and AIUR_BG_STATE_DIR with 3 different fallbacks",
+   "locations": [
+    {
+     "path": "src/lib/aiur/config/paths.ex",
+     "lines": "76-234"
+    },
+    {
+     "path": "src/lib/aiur/config/paths.ex",
+     "lines": "339-344"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/store.ex",
+     "lines": "164-184"
+    },
+    {
+     "path": "src/lib/aiur/upgrade/state.ex",
+     "lines": "35-40"
+    },
+    {
+     "path": "src/lib/aiur/env/schema.ex",
+     "lines": "180"
+    }
+   ],
+   "description": "current_run_membership_state_dir, progress_retention_state_dir, usage_ledger_state_dir, usage_aggregate_state_dir, usage_compaction_state_dir, takeover_alert_state_dir and balance_baseline_state_dir are the same 8-line function with a different app-env key and leaf. The root is misnamed decision_state_dir/0, although it is the root for all daemon state, and runtime_state_dir/0 returns that root itself with no leaf. This contradicts the stated 'own leaf so it can never be mistaken for decision state' rule. Other stores compute leaves themselves: ownership store 'workspace-ownership', ci_approval_store, pr_ready_ledger_store, executor_command_attention, dispatch_budget_store, metrics, recent_merge_store, tool_call_ledger/storage, branch_ref_store, resource_store, global_pause_store, webhooks/delivery_log. AIUR_BG_STATE_DIR falls back to `File.cwd!()/.aiur-state` in Paths, to '~/.config/aiur' in the Env schema default, and to $XDG_CONFIG_HOME/aiur in Upgrade.State. The live checkout shows an untracked .aiur-state/ created by the cwd fallback.",
+   "evidence": "paths.ex:98-109 and 117-128 are identical except the key and leaf string; paths.ex:342 `_ -> Path.join(File.cwd!(), \".aiur-state\")`; env/schema.ex:180 `{\"AIUR_BG_STATE_DIR\", ..., default: \"~/.config/aiur\"}`; upgrade/state.ex:38 `_ -> Path.join(Path.expand(System.get_env(\"XDG_CONFIG_HOME\") || \"~/.config\"), \"aiur\")`; ownership/store.ex:182-183 `with {:ok, root} <- Paths.decision_state_dir(), do: {:ok, Path.join(root, \"workspace-ownership\")}`.",
+   "recommendation": "Replace the 7 functions with one `state_dir(leaf_atom)` backed by a single registry map (leaf name plus app-env override key). Rename decision_state_dir to daemon_state_root. Give decision and runtime state their own leaves (with a one-time migration). Make every store resolve through the registry. Make the AIUR_BG_STATE_DIR fallback single-sourced from Env.Schema.",
+   "effort": "M",
+   "refactor_hint": "Each carved package needs a state-dir contract; a registry of leaves is the natural seam and removes the shared-root ambiguity."
+  },
+  {
+   "id": "platform-misc-15",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "The atom-or-string map key accessor is reimplemented 48 times in 42 files with two different semantics, although two shared helpers exist",
+   "locations": [
+    {
+     "path": "src/lib/aiur/protocol/map_access.ex",
+     "lines": "6-13"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projection/value.ex",
+     "lines": "6-13"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex",
+     "lines": "102-104"
+    },
+    {
+     "path": "src/lib/aiur/ticket_observation.ex",
+     "lines": "176-192"
+    },
+    {
+     "path": "src/lib/aiur/decision_api/public_projection.ex",
+     "lines": "107"
+    },
+    {
+     "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+     "lines": "131"
+    },
+    {
+     "path": "src/lib/aiur_web/operator_control_center/units_row/value.ex",
+     "lines": "8"
+    },
+    {
+     "path": "src/lib/aiur/upgrade/state.ex",
+     "lines": "126-131"
+    }
+   ],
+   "description": "A regex census of src/lib found 48 definitions or inline uses of 'get key as atom, else as string' across 42 files, for example decision_answer, decision_event, decision_history, decision_revision, decision_sanitizer, decision_store (3), decision_validation, executor_listener, issue_log, usage_envelope (4 variants), run_telemetry sampler (3) and writer, token_accounting, control_lifecycle, and several aiur_web presenters. There are two semantics. `Map.get(m,k) || Map.get(m,str)` falls through when the atom key holds false or nil (Snapshot.row_value, MapAccess.get, ExecutorListener, TokenAccounting). `Map.get(m,k, Map.get(m,str))` respects a present false or nil (Value.get, most decision modules). For boolean fields such as tracker_paused this changes the answer. CurrentRunProjection.Value.get is duplicated byte-for-byte in aiur_web/.../units_row/value.ex:8. TicketObservation uses String.to_atom(key) for the reverse direction.",
+   "evidence": "snapshot.ex:104 `defp row_value(row, key), do: Map.get(row, key) || Map.get(row, Atom.to_string(key))`; value.ex:10 `Map.get(value, key, Map.get(value, Atom.to_string(key), default))`; ticket_observation.ex:176 `Map.get(payload, key, Map.get(payload, String.to_atom(key)))`.",
+   "recommendation": "Keep one helper (Aiur.Protocol.MapAccess.fetch/3 with explicit present-false semantics) and delete the rest. Better: normalize external payloads to atom keys once at the boundary (JSON decode or ingress) so internal code never needs dual-key reads.",
+   "effort": "M",
+   "refactor_hint": "Shared-kernel utility; decide the boundary-normalization rule before carving so packages do not each ship a copy."
+  },
+  {
+   "id": "platform-misc-16",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Every workspace operation is implemented twice (Elixir local and SSH shell remote), and the pairs have already drifted",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "253-270"
+    },
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "561-625"
+    },
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "12-16"
+    },
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "302-340"
+    },
+    {
+     "path": "src/lib/aiur/workspace/remove.ex",
+     "lines": "13-50"
+    },
+    {
+     "path": "src/lib/aiur/workspace/remove.ex",
+     "lines": "89-150"
+    },
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "171-201"
+    },
+    {
+     "path": "src/lib/aiur/workspace/git_metadata.ex",
+     "lines": "54-117"
+    }
+   ],
+   "description": "Readiness, ready marker, recreate, remove, before_remove hook and git-metadata probing each exist as an Elixir function for local and as an inline shell script for remote. Examples of drift: (a) the ready marker path is the @workspace_ready_marker constant locally but is hard-coded twice in shell ('$workspace/.claude/.aiur-workspace-ready', provisioner.ex:570 and :599); (b) local remove checks Layout.validate_workspace_path before rm -rf, remote remove runs `rm -rf \"$workspace\"` unchecked; (c) the remote before_remove hook interpolates the raw command (`\"  #{command}\"`) with no AgentEnvironment.scrub_shell_command and no hook_env, while Hooks.remote_hook_command scrubs and exports env; (d) git-dir containment uses PathSafety locally and `pwd -P` case matching remotely.",
+   "evidence": "provisioner.ex:16 `@workspace_ready_marker \".claude/.aiur-workspace-ready\"` vs provisioner.ex:570 `\"  elif [ -f \\\"$workspace/.claude/.aiur-workspace-ready\\\" ]; then\"`; remove.ex:16 `case Layout.validate_workspace_path(workspace, nil)` (local only); remove.ex:127 `\"  #{command}\"`; hooks.ex:194 `scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)`.",
+   "recommendation": "Introduce a WorkspaceHost behaviour (Local, Ssh) with one operation per verb (readiness, mark_ready, recreate, remove, run_hook, probe_git). Generate the remote scripts from shared constants, and route every remote hook through Hooks.remote_hook_command. Add a parity test per verb that runs the same scenario against Local and a local-sh 'remote' shim.",
+   "effort": "L",
+   "refactor_hint": "Workspace package: the Local/Remote host split is the natural internal seam, and remote workers could become their own adapter."
+  },
+  {
+   "id": "platform-misc-17",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Path containment is implemented four ways; git-dir expansion and discovery are duplicated between GitMetadata and CodexSandboxPolicy",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/layout.ex",
+     "lines": "54-81"
+    },
+    {
+     "path": "src/lib/aiur/workspace/git_metadata.ex",
+     "lines": "227-258"
+    },
+    {
+     "path": "src/lib/aiur/config/codex_sandbox_policy.ex",
+     "lines": "298-320"
+    },
+    {
+     "path": "src/lib/aiur/config/paths.ex",
+     "lines": "346-353"
+    },
+    {
+     "path": "src/lib/aiur/workspace/reconstruction.ex",
+     "lines": "318-328"
+    }
+   ],
+   "description": "Layout.validate_workspace_path does canonicalize plus String.starts_with?(ws <> \"/\", root <> \"/\"). GitMetadata.ensure_git_dir_inside_workspace does the same with its own error shapes. CodexSandboxPolicy.path_inside?/2 is a third string-prefix check. Paths and Reconstruction use PathSafety.contained?/2. GitMetadata.local_git_metadata_dir plus expand_git_dir and CodexSandboxPolicy.local_git_metadata_root plus expand_git_dir run the same two `git rev-parse` calls and the same expansion code.",
+   "evidence": "git_metadata.ex:243-245 `defp expand_git_dir(workspace, git_dir) do if Path.type(git_dir) == :absolute, do: Path.expand(git_dir), else: Path.expand(git_dir, workspace)` and codex_sandbox_policy.ex:311-316 the same logic; codex_sandbox_policy.ex:318-320 `defp path_inside?(path, root), do: String.starts_with?(path <> \"/\", root <> \"/\")`; layout.ex:68 `String.starts_with?(canonical_workspace <> \"/\", canonical_root_prefix)`.",
+   "recommendation": "Route every containment check through PathSafety.contained?/2 and map its results to domain errors at the call site. Move git-dir discovery into one Aiur.Git.dir/1 used by GitMetadata and the sandbox policy.",
+   "effort": "S",
+   "refactor_hint": "Shared kernel (PathSafety, Git); both workspace and codex-backend packages depend on it."
+  },
+  {
+   "id": "platform-misc-18",
+   "category": "dead-code",
+   "severity": "P2",
+   "title": "Provisioner keeps test-only legacy arities whose readiness logic differs from production; readiness is recomputed about 7 times per dispatch with 3 git subprocesses each",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "136-224"
+    },
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "376-406"
+    },
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "251-294"
+    },
+    {
+     "path": "src/lib/aiur/workspace/checkout.ex",
+     "lines": "6-21"
+    },
+    {
+     "path": "src/lib/aiur/workspace.ex",
+     "lines": "138-150"
+    },
+    {
+     "path": "src/lib/aiur/workspace/refresh.ex",
+     "lines": "118-144"
+    },
+    {
+     "path": "src/test/aiur/workspace/provisioner_test.exs",
+     "lines": "179-361"
+    }
+   ],
+   "description": "Production calls only ensure_workspace/5 (workspace.ex:71) and recreate/4 (refresh.ex:80). ensure_workspace/2 (local clause), /3 and /4 and recreate/2 (local clause) have no production callers, yet provisioner_test.exs exercises ensure_workspace(ws, nil) at 179, 192, 209, 223, 239 and 361. The readiness cond appears three times with different outcomes: ensure_workspace/5 and /2 return {:ok, ws, false} for 'dir with .git but not a valid checkout', while workspace_readiness/1 returns {:error, {:workspace_ambiguous, ..., :invalid_git_checkout}}. Checkout.valid_workspace?/1 runs `git rev-parse --show-toplevel`, `git rev-parse --verify HEAD` and a full `git status --porcelain` (only its exit code is used). One create plus before_run reaches it from ensure_workspace, ensure_workspace_usable, mark_workspace_ready, Refresh.refresh_workspace_readiness, run_before_run_command and ensure_dispatch_ready.",
+   "evidence": "provisioner.ex:143-144 `def ensure_workspace(workspace, worker_host, pr_head_ref), do: ensure_workspace(workspace, worker_host, pr_head_ref, legacy_branch_name(workspace))` (no callers outside tests); checkout.ex:16 `{_status, 0} <- System.cmd(\"git\", [\"-C\", workspace, \"status\", \"--porcelain\"], ...)`; provisioner.ex:165-167 vs 258-259 give opposite verdicts for the same condition.",
+   "recommendation": "Delete the legacy arities and move the tests to ensure_workspace/5. Collapse the three conds into workspace_readiness/1 plus an explicit 'interrupted init tolerated' option. Replace `git status --porcelain` with `git rev-parse --git-dir` (validity) and compute readiness once per dispatch, passing it down instead of re-probing.",
+   "effort": "M",
+   "refactor_hint": "Workspace package: shrinking Provisioner to one entry point makes the public API of the carved package obvious."
+  },
+  {
+   "id": "platform-misc-19",
+   "category": "error-handling",
+   "severity": "P3",
+   "title": "Remote command timeouts are always labelled hook 'remote_command'; the per-hook timeout match clauses are unreachable",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/remote.ex",
+     "lines": "35-45"
+    },
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "64-73"
+    },
+    {
+     "path": "src/lib/aiur/workspace/remove.ex",
+     "lines": "132-147"
+    }
+   ],
+   "description": "run_bounded returns {:error, {:workspace_hook_timeout, \"remote_command\", timeout_ms}} whatever the caller was running. Hooks.run_hook matches {:workspace_hook_timeout, ^hook_name, _} and Remove matches {:workspace_hook_timeout, \"before_remove\", _}; neither can ever match. Both fall to the generic clause, and the logs and alerts name 'remote_command' instead of the real hook. This is a cause collapsed to a specific but wrong label, which AGENTS.md's 'collapsed cause' rule forbids.",
+   "evidence": "remote.ex:44 `{:error, {:workspace_hook_timeout, \"remote_command\", timeout_ms}}`; hooks.ex:68 `{:error, {:workspace_hook_timeout, ^hook_name, _timeout_ms} = reason} ->`; remove.ex:142 `{:error, {:workspace_hook_timeout, \"before_remove\", _timeout_ms} = reason} ->`.",
+   "recommendation": "Pass the operation name into run_remote_command/4 so the timeout carries it, and delete the dead clauses.",
+   "effort": "S"
+  },
+  {
+   "id": "platform-misc-20",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Two implementations of the $VAR env-reference grammar with different trimming; the one that claims to be the 'single home' is mostly unused",
+   "locations": [
+    {
+     "path": "src/lib/aiur/config/env_ref.ex",
+     "lines": "1-82"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/env_resolver.ex",
+     "lines": "1-76"
+    },
+    {
+     "path": "src/lib/aiur/config/schema.ex",
+     "lines": "195-239"
+    },
+    {
+     "path": "src/lib/aiur/linear/config.ex",
+     "lines": "20-42"
+    }
+   ],
+   "description": "Config.EnvRef's moduledoc says it is the 'Single home for the `$VAR` env-reference resolution grammar', but its resolve/2 and reference_name/1 have no production callers. Only normalize_secret/1 is used, by Linear.Config. Schema.finalize_settings and Config use Config.Schema.EnvResolver, which reimplements resolve_env_value, reference_name (env_reference_name) and the regex. Semantics differ: EnvRef.normalize_secret trims, EnvResolver.normalize_secret_value does not, so the same secret with trailing whitespace resolves differently depending on the path.",
+   "evidence": "env_ref.ex:15 `@env_name_pattern ~r/^[A-Za-z_][A-Za-z0-9_]*$/` and env_resolver.ex:53 `String.match?(env_name, ~r/^[A-Za-z_][A-Za-z0-9_]*$/)`; env_ref.ex:63-75 and env_resolver.ex:28-41 are the same function; grep: EnvRef.* used only at linear/config.ex:22 and :41 (normalize_secret).",
+   "recommendation": "Keep one module (EnvRef), move EnvResolver's path-token helper into it, delete the duplicate, and decide on trimming once (trim secrets).",
+   "effort": "S",
+   "refactor_hint": "Config package."
+  },
+  {
+   "id": "platform-misc-21",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Ticket activity stage/progress vocabulary and phase parsing are copied across 6 modules, and TicketActivity re-sanitizes what TicketObservation already normalized",
+   "locations": [
+    {
+     "path": "src/lib/aiur/ticket_activity/projection.ex",
+     "lines": "386-418"
+    },
+    {
+     "path": "src/lib/aiur/ticket_activity/projection.ex",
+     "lines": "516-601"
+    },
+    {
+     "path": "src/lib/aiur/ticket_observation.ex",
+     "lines": "15-16"
+    },
+    {
+     "path": "src/lib/aiur/ticket_observation.ex",
+     "lines": "124-192"
+    },
+    {
+     "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+     "lines": "8-9"
+    },
+    {
+     "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+     "lines": "152-165"
+    },
+    {
+     "path": "src/lib/aiur/agent_list/activity_intake.ex",
+     "lines": "128"
+    },
+    {
+     "path": "src/lib/aiur_web/build_order_presenter.ex",
+     "lines": "29"
+    },
+    {
+     "path": "src/lib/aiur_web/stream_deck_grid.ex",
+     "lines": "129"
+    }
+   ],
+   "description": "The stage list brainstorm/plan/work/review appears 7 times in 6 files (as atoms and as strings). The progress event names [\"progress\",\"progress.checkin\",\"progress.phase\"] appear in 3 files. The 'phase.<stage>.<transition>' parser exists 3 times (Projection.phase_source, TicketObservation.parse_stage, TicketHistoryNormalizer.topic_kind). TicketObservation.new already normalizes source, attributes and provenance into safe shapes; TicketActivity.Projection then re-applies safe_source, safe_attributes and safe_provenance to the same struct. Adding a stage (for example 'verify') means editing all of them.",
+   "evidence": "projection.ex:589 `when stage in [\"brainstorm\", \"plan\", \"work\", \"review\"] and transition in [\"start\", \"end\"] ->`; ticket_observation.ex:16 `@stages [\"brainstorm\", \"plan\", \"work\", \"review\"]`; ticket_history_normalizer.ex:159 same guard; projection.ex:390 and 517 repeat `[\"progress\", \"progress.checkin\", \"progress.phase\"]`.",
+   "recommendation": "Create an Aiur.AgentPhase vocabulary module (stages/0, transitions/0, progress_event_names/0, parse_phase_topic/1) and use it everywhere. Let TicketActivity trust the TicketObservation contract (or assert it) instead of re-sanitizing.",
+   "effort": "S",
+   "refactor_hint": "Agent-events/telemetry package: the phase vocabulary is part of the agent protocol and belongs with it."
+  },
+  {
+   "id": "platform-misc-22",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Membership Reconciler.Snapshot keeps a hand-copied waiting-reason list that has drifted from Orchestrator.WaitingReason, and uses a fixed precedence chain",
+   "locations": [
+    {
+     "path": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex",
+     "lines": "7-21"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex",
+     "lines": "60-107"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+     "lines": "13-33"
+    },
+    {
+     "path": "src/lib/aiur/current_run_summary/facts.ex",
+     "lines": "7-8"
+    }
+   ],
+   "description": "Snapshot.@waiting_reasons has 12 atoms. WaitingReason.t has 20. Reasons not in the copy include :run_paused, :paused_operator, :paused_transient, :provider_limited, :latched_lifetime and :claim_released. A row with such a reason and no matching work_state falls through the lifecycle_for_row precedence chain to the bucket default (:running for running rows, :queued for idle rows). So a provider-limited or lifetime-latched ticket is recorded in durable membership as running. The cancelled-state vocabulary also differs: Snapshot treats only cancelled/canceled as :cancelled, while CurrentRunSummary.Facts also counts not_planned/notplanned.",
+   "evidence": "snapshot.ex:7-20 `@waiting_reasons [:waiting_for_human, ..., :unresponsive]` (12 entries); waiting_reason.ex:13-33 @type t lists 20 values; snapshot.ex:105 `if(normalize_state(state) in [\"cancelled\", \"canceled\"], ...)` vs facts.ex:8 `@cancelled_states ~w(cancelled canceled not_planned notplanned)`.",
+   "recommendation": "Have WaitingReason export waiting_reasons/0 (or a lifecycle_for/1 mapping) and use it in Snapshot. Put cancelled-state detection in the shared TrackerState module (platform-misc-10). Add a test that every WaitingReason value maps to a deliberate membership lifecycle.",
+   "effort": "S",
+   "refactor_hint": "Orchestrator <-> membership boundary: the mapping from orchestrator status to membership lifecycle should be owned by one side and exported."
+  },
+  {
+   "id": "platform-misc-23",
+   "category": "error-handling",
+   "severity": "P2",
+   "title": "Health and freshness are collapsed to wrong or unknown causes: a read-only but intact DecisionStore reads as 'data unavailable', and there is no single health type",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_query/store_reader.ex",
+     "lines": "63-89"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "740-748"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "4365-4368"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projection/value.ex",
+     "lines": "15-27"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/source_fallback.ex",
+     "lines": "16-52"
+    }
+   ],
+   "description": "StoreReader.health/1 maps :writable to available, {:corrupt,_,_} to partial, and everything else to unavailable_health() ('Retained Decision data unavailable'). DecisionStore goes read-only with its in-memory data intact for {:repair, reason} and {:lifecycle_append_failed, type, reason}. Surfaces then label complete data as unavailable while still returning it (read_one returns {:ok, decision, unavailable_health}). CurrentRunProjection.Value.health/1 has a `_ -> :unavailable` catch-all, and health and freshness travel as bare atoms, tagged tuples and maps depending on the source (SourceFallback writes {:unavailable, :read_failed} for membership, :unavailable for status, %{status: :stale} or :stale for freshness). This forces every reader to accept all shapes.",
+   "evidence": "store_reader.ex:87-89 `defp health(:writable), do: available_health(); defp health({:corrupt, _line, _reason}), do: partial_health(); defp health(_unavailable), do: unavailable_health()`; decision_store.ex:748 `%{state | writable?: false, health: {:repair, reason}}`; value.ex:22 `def health(_status), do: :unavailable`.",
+   "recommendation": "Add an explicit read-only-intact state (for example :read_only with a reason list) to StoreReader and render it as 'complete, not writable'. Define one Health struct (status, reasons, observed_at) and one Freshness struct for all current-run and decision sources, and replace the catch-all with :unknown per the AGENTS.md collapsed-cause rule.",
+   "effort": "M",
+   "refactor_hint": "A shared kernel health/freshness type would let every carved read model report state uniformly."
+  },
+  {
+   "id": "platform-misc-24",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Linear client duplicates its GraphQL selection, silently truncates blockers at 50, re-queries the viewer on every poll, and ships test seams in production",
+   "locations": [
+    {
+     "path": "src/lib/aiur/linear/client.ex",
+     "lines": "12-96"
+    },
+    {
+     "path": "src/lib/aiur/linear/client.ex",
+     "lines": "106-161"
+    },
+    {
+     "path": "src/lib/aiur/linear/client.ex",
+     "lines": "196-246"
+    },
+    {
+     "path": "src/lib/aiur/linear/client.ex",
+     "lines": "503-543"
+    },
+    {
+     "path": "src/lib/aiur/linear/client.ex",
+     "lines": "563-586"
+    },
+    {
+     "path": "src/lib/aiur/linear/config.ex",
+     "lines": "12-62"
+    },
+    {
+     "path": "src/lib/aiur/workspace/layout.ex",
+     "lines": "102-116"
+    }
+   ],
+   "description": "(a) @query and @query_by_ids repeat the same 34-line issue selection; use a GraphQL fragment. (b) inverseRelations(first: $relationFirst) is fetched with relationFirst: 50 and no pageInfo, so blockers beyond 50 are dropped silently (fix-by-limit family). (c) With assignee 'me', routing_assignee_filter runs resolve_viewer_assignee_filter, a viewer GraphQL request, on every fetch_candidate_issues and fetch_issue_states_by_ids call; the result is never cached. (d) Four public *_for_test functions. (e) Config access is split: Linear.Config (trims project_slug, has its own endpoint default), Client (reads settings.tracker.linear.* raw) and Workspace.Layout.repo_segment (raw project_slug) disagree on whitespace. (f) The api_key/project_slug cond is duplicated in fetch_candidate_issues and fetch_issues_by_states.",
+   "evidence": "client.ex:34 and 79 `inverseRelations(first: $relationFirst) {`, client.ex:260 `relationFirst: @issue_page_size` (50); client.ex:518-519 `\"me\" -> resolve_viewer_assignee_filter()`; client.ex:197-246 `normalize_issue_for_test`, `next_page_cursor_for_test`, `merge_issue_pages_for_test`, `fetch_issue_states_by_ids_for_test`; linear/config.ex:10 `@default_endpoint` duplicates tracker.ex:192 schema default.",
+   "recommendation": "Use a shared fragment; paginate relations or at least flag truncation when hasNextPage; cache the viewer id per api_key; move test seams behind an injected graphql_fun option; route all Linear config reads through Linear.Config.",
+   "effort": "M",
+   "refactor_hint": "Linear adapter is a natural separate package or repo; clean its config access so it depends only on Tracker behaviour plus its own config section."
+  },
+  {
+   "id": "platform-misc-25",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Memory tracker keeps state in Application env with non-atomic read-modify-write and inconsistent mutation semantics, so tests cannot reach real behaviours",
+   "locations": [
+    {
+     "path": "src/lib/aiur/memory/tracker.ex",
+     "lines": "84-126"
+    },
+    {
+     "path": "src/lib/aiur/memory/tracker.ex",
+     "lines": "128-171"
+    }
+   ],
+   "description": "The in-memory tracker used by tests and local development keeps issues in Application.get_env(:aiur, :memory_tracker_issues) and mutates them with get_env then put_env, which races under concurrent callers. The mutations are also inconsistent: update_issue_state/2 only sends an event and does not change state, update_issue_state/3 with expected_state does change it, add_label only sends an event, and remove_label mutates. A test that adds a label and then polls never sees the label, which is a fixture that cannot reach the behaviour under test.",
+   "evidence": "tracker.ex:85-88 `def update_issue_state(issue_id, state_name) do send_event(...); :ok`; tracker.ex:141 `Application.put_env(:aiur, :memory_tracker_issues, List.update_at(issues, index, &%{&1 | state: state_name}))`; tracker.ex:106-109 add_label sends only; tracker.ex:112-126 remove_label mutates via put_env.",
+   "recommendation": "Back the memory tracker with an Agent or ETS table owned by a test-started process, make every write mutate state consistently (state and labels), and send the notification after the mutation.",
+   "effort": "S",
+   "refactor_hint": "Tracker test double belongs in a tracker-testkit package used by all adapters."
+  },
+  {
+   "id": "platform-misc-26",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "Workspace layer reaches into GitHub, Alerts, BuildGate and RepoBase; repo identity and the repo URL are rebuilt locally instead of via Tracker",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "1-11"
+    },
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "283-317"
+    },
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "331-380"
+    },
+    {
+     "path": "src/lib/aiur/workspace/layout.ex",
+     "lines": "97-127"
+    },
+    {
+     "path": "src/lib/aiur/workspace/provisioner.ex",
+     "lines": "8-14"
+    }
+   ],
+   "description": "Workspace.Hooks aliases GitHub.AuthPreflight, GitHub.Client, GitHub.Config and GitHub.Tracker to run a GitHub preflight and format alert text; it also calls Alerts.emit_custom, BuildGate, AgentBuildGuard and RepoBase. Layout.repo_segment switches on tracker.kind ('github' -> GitHubConfig.repo(), 'linear' -> settings.tracker.linear.project_slug) instead of using Tracker.project_identity/0, which already exists (Paths.repo_name uses it). Memory returns 'memory' there but nil here. The literal \"https://github.com/#{repo}.git\" is built in 7 places: workspace/hooks.ex:310, agent_environment.ex:625, repo_base.ex:1477, build_order/pack_paths.ex:123, init/runtime.ex:144, executor/state_paths.ex:102, init/prewarm.ex:140. `.git` suffix parsing exists in 3 places: git.ex:160, repo_base.ex:1511, init/github.ex:299.",
+   "evidence": "hooks.ex:308-310 `with \"github\" <- Config.settings!().tracker.kind, repo when is_binary(repo) and repo != \"\" <- Aiur.GitHub.Config.repo() do \"https://github.com/#{repo}.git\"`; layout.ex:106-109 `case settings.tracker.kind do \"github\" -> GitHubConfig.repo(); \"linear\" -> settings.tracker.linear.project_slug`.",
+   "recommendation": "Add clone_url/0 and repo_segment/0 callbacks to the Tracker behaviour, implemented per adapter. Move the GitHub preflight out of Workspace.Hooks into a provisioning precondition that the orchestrator supplies (dependency injection). Add one RepoUrl module for build and parse.",
+   "effort": "M",
+   "refactor_hint": "Workspace package must not depend on the GitHub adapter; invert through Tracker callbacks."
+  },
+  {
+   "id": "platform-misc-27",
+   "category": "large-module",
+   "severity": "P2",
+   "title": "Config.Schema.Agent is a 45-field grab-bag in a file that also defines Codex, Claude and Rtk, with fields and cast list maintained by hand",
+   "locations": [
+    {
+     "path": "src/lib/aiur/config/schema/agent.ex",
+     "lines": "1-107"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/agent.ex",
+     "lines": "109-275"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/agent.ex",
+     "lines": "277-380"
+    },
+    {
+     "path": "src/lib/aiur/config/codex_sandbox_policy.ex",
+     "lines": "1-346"
+    }
+   ],
+   "description": "agent.ex (476 lines) defines 4 modules. The Agent section mixes dispatch routing, the load governor (max_load_average, target_load_average, load_ramp_step, run_queue_threshold, min_free_memory_mb), the build gate (max_concurrent_builds, build_gate_*), GitHub budget-broker alerting (budget_broker_*), the saturation log and turn limits. Its 38 permitted keys are a second hand-maintained copy of the field list (see platform-misc-01), plus 24 validate_number lines. The Codex-specific CodexSandboxPolicy (347 lines) lives in Config, shells out to git and writes probe files into configured roots at config validation time.",
+   "evidence": "agent.ex:256-269 budget_broker_* fields under `agent`; agent.ex:152-169 build_gate fields; codex_sandbox_policy.ex:225-241 `probe_configured_root` writes `.aiur-write-probe-...` files; codex_sandbox_policy.ex:298-309 runs `git rev-parse` from Config.",
+   "recommendation": "Split the agent section by owner (agent.routing, agent.limits, load_governor, build_gate, github.budget_broker) with key aliases for compatibility. One module per file. Move CodexSandboxPolicy to the Codex backend package and make config validation pure (probe roots at dispatch, not parse).",
+   "effort": "M",
+   "refactor_hint": "Each carved package should own its config section schema; this file is where the sections are currently tangled."
+  },
+  {
+   "id": "platform-misc-28",
+   "category": "duplication",
+   "severity": "P3",
+   "title": "AgentValidation repeats the route checks and the level-key normalize/validate triplets",
+   "locations": [
+    {
+     "path": "src/lib/aiur/config/schema/agent_validation.ex",
+     "lines": "75-104"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/agent_validation.ex",
+     "lines": "150-170"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/agent_validation.ex",
+     "lines": "202-258"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/agent.ex",
+     "lines": "355-370"
+    }
+   ],
+   "description": "priority_route_error/3 and routing_errors/4 run the same sequence (backend known, +remote capability, effort valid) with slightly different messages. normalize_agent_routing, normalize_complexity_prompts and normalize_max_turns_by_complexity all normalize integer level keys. validate_complexity_prompts and validate_max_turns_by_complexity repeat the level check. Backend-membership checks for switch_model_on_ratelimit and rate_limit_primary are inline closures in agent.ex.",
+   "evidence": "agent_validation.ex:95 and :160 both `RoutingValue.routing_remote_flag?(...) and not CodingAgent.remote_control?(...)`; agent_validation.ex:218 and :247 both `not is_integer(level) or level <= 0 -> [{field, \"complexity levels must be positive integers\"}]`.",
+   "recommendation": "Extract route_error(route, known) shared by priority and routing, and one normalize_level_map(map, value_fun) plus validate_level_map(field, value_check).",
+   "effort": "S"
+  },
+  {
+   "id": "platform-misc-29",
+   "category": "anti-pattern",
+   "severity": "P2",
+   "title": "Guardian is a hand-rolled spawn/receive loop with 12 near-identical call clauses; one bad receipt halts the Reconciler and with it daemon boot",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "11-28"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "138-223"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "314-378"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "664-756"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/reconciler.ex",
+     "lines": "1-35"
+    },
+    {
+     "path": "src/lib/aiur/alert_feed/backfill.ex",
+     "lines": "1-22"
+    }
+   ],
+   "description": "Guardian (759 lines, the largest file in the unit) uses bare spawn/1, not proc_lib or GenServer, so it has no sys debugging, no supervision and no crash reports. Its message loop repeats `{reply, next} = f(state, gen); reply(from, ref, reply); loop(next)` for 12 message kinds, with a separate client-side timeout table in Ownership.timeout_result. The positive-pid predicate `is_integer(&1) and &1 > 0` over descendant_pids is written 5 times (lines 319, 358, 377, 671, 752). Ownership.Reconciler is a GenServer whose only work is init; if any receipt fails Guardian.restore (for example {:invalid_workspace_receipt, _} from a missing key) the reduce_while halts and init returns {:stop, ...}, failing the supervision tree start. AlertFeed.Backfill is the same pattern: a GenServer that starts one unobserved task and then idles forever.",
+   "evidence": "guardian.ex:13 `spawn(fn -> init(owner, ticket, generation, registry, opts) end)`; reconciler.ex:31 `{:error, reason} -> {:halt, {:error, reason}}` and :23 `{:error, reason} -> {:stop, {:workspace_ownership_reconciliation_failed, reason}}`; backfill.ex:19 `Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> AlertFeed.backfill(opts) end)`.",
+   "recommendation": "Convert Guardian to a :gen_statem (explicit states provisioning/active/reaping/retained) started under a DynamicSupervisor with restart: :temporary. Make the Reconciler quarantine an unrestorable receipt (log and alert) instead of halting boot, and use Task children (restart: :transient) for one-shot boot work.",
+   "effort": "L",
+   "refactor_hint": "Workspace package core; a gen_statem makes the lease state machine and its latches (platform-misc-03) explicit and testable."
+  },
+  {
+   "id": "platform-misc-30",
+   "category": "duplication",
+   "severity": "P3",
+   "title": "The Decision lifecycle vocabulary is copied in 4 places ('moot' missing from the API parser), and the two pagination paths have different limits and scan caps",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_query/params.ex",
+     "lines": "12-26"
+    },
+    {
+     "path": "src/lib/aiur/decision_store/retained_index.ex",
+     "lines": "6"
+    },
+    {
+     "path": "src/lib/aiur/decision_store/retained_snapshot.ex",
+     "lines": "8-20"
+    },
+    {
+     "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+     "lines": "7-15"
+    },
+    {
+     "path": "src/lib/aiur/decision_api/legacy_pagination.ex",
+     "lines": "6-9"
+    },
+    {
+     "path": "src/lib/aiur/decision_store/retained_snapshot/legacy_page.ex",
+     "lines": "7-30"
+    }
+   ],
+   "description": "Decision.decision_status includes :moot, and RetainedIndex and QueryPlan index and filter it, but Params.@lifecycle_by_name has no \"moot\", so ?lifecycle=moot is rejected as invalid. The status lists are in RetainedIndex, RetainedSnapshot, QueryPlan (3 lists) and Params. The cursor path caps scans at 1,000 reads (QueryPlan @maximum_candidate_reads); the offset path (LegacyPage) has no read cap with @maximum_offset 1_000_000. Defaults differ: cursor 25/100 vs legacy 50/200.",
+   "evidence": "params.ex:12-26 map lacks \"moot\"; decision.ex:67 `@type decision_status :: :open | :deferred | :expired | :dismissed | :moot | ...`; query_plan.ex:15 `@maximum_candidate_reads 1_000`; legacy_pagination.ex:6-8 `@default_limit 50 @maximum_limit 200 @maximum_offset 1_000_000`.",
+   "recommendation": "Export Decision.statuses/0 and lifecycle_filters/0 and derive all lists from them; add the read cap to LegacyPage; share limit constants.",
+   "effort": "S",
+   "refactor_hint": "Decision package: keep the vocabulary on the Decision struct module."
+  },
+  {
+   "id": "platform-misc-31",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "current_run_projections stores its checkpoint inside CurrentRunMembership.Store, copies helpers three ways, and swallows UnitsRow failures without a log",
+   "locations": [
+    {
+     "path": "src/lib/aiur/current_run_membership/store.ex",
+     "lines": "47-65"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/store.ex",
+     "lines": "123-181"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/checkpoint.ex",
+     "lines": "60-81"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/projector.ex",
+     "lines": "174-184"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+     "lines": "94-116"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/source_collector.ex",
+     "lines": "93-109"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/units_builder.ex",
+     "lines": "56-65"
+    }
+   ],
+   "description": "The projection 'checkpoint' (full summary and outcome snapshots plus up to 1,000 entries per source) is kept in the Membership Store GenServer's state through put_projection_checkpoint/_fenced, so another subsystem's process holds foreign state so that it survives the projection's restart. Store's API therefore has three projection-only calls. start_task/2 and safe_supervised_start/2 are duplicated in SourceCollector and CheckpointPersistence, both silently falling back to unsupervised Task.start/1. restore_canonical/1 exists in Projector (twice, as canonical_state and restore_canonical with identical bodies) and in CheckpointPersistence. UnitsBuilder.safe_snapshot rescues and catches everything from UnitsRow.snapshot and returns an empty unit set with no log.",
+   "evidence": "store.ex:52-65 `put_projection_checkpoint/3`, `put_projection_checkpoint_fenced/3`; projector.ex:174-176 and 180-182 identical bodies; units_builder.ex:61-64 `rescue _error -> empty(membership) catch _kind, _reason -> empty(membership)`.",
+   "recommendation": "Give the projection checkpoint its own small holder (an ETS table owned by a supervisor-level process, or a durable file) instead of borrowing Membership.Store. Extract one TaskStarter helper that fails loudly when the task supervisor is missing. Log and count UnitsRow failures.",
+   "effort": "S",
+   "refactor_hint": "Needed to carve CurrentRunMembership separately from the projections/summary read models."
+  },
+  {
+   "id": "platform-misc-32",
+   "category": "naming-structure",
+   "severity": "P2",
+   "title": "The current-run read model spans 5 sibling namespaces (singular and plural 'Projection(s)') and about 4,600 lines for one run-progress view",
+   "locations": [
+    {
+     "path": "src/lib/aiur/current_run_projection/value.ex",
+     "lines": "1-41"
+    },
+    {
+     "path": "src/lib/aiur/current_run_projections/projector.ex",
+     "lines": "1-245"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/store.ex",
+     "lines": "1-182"
+    },
+    {
+     "path": "src/lib/aiur/current_run_summary/facts.ex",
+     "lines": "1-189"
+    },
+    {
+     "path": "src/lib/aiur/current_run_outcome_snapshot/outcomes.ex",
+     "lines": "1-145"
+    }
+   ],
+   "description": "CurrentRunMembership (1,892 lines in submodules plus 87 parent), CurrentRunProjections (1,642 plus 178), CurrentRunSummary (497 plus 45), CurrentRunOutcomeSnapshot (517 plus 44) and CurrentRunProjection (singular, 41: only the Value helper) are peers under Aiur.*. Lifecycle atoms are re-declared in Membership.Event (@terminal_lifecycles), Reconciler.Snapshot (@lifecycle_values) and Summary.Facts (@nonterminal_lifecycles). Aiur.CurrentRunProjection vs Aiur.CurrentRunProjections differ by one letter, which makes wrong-module aliases likely.",
+   "evidence": "Line counts from this snapshot: current_run_membership/* 1892, current_run_projections/* 1642, current_run_outcome_snapshot/* 517, current_run_summary/* 497, current_run_projection/value.ex 41. facts.ex:7 `@nonterminal_lifecycles [:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]` vs snapshot.ex:21 `@lifecycle_values [...]`.",
+   "recommendation": "Group under one Aiur.CurrentRun.* namespace (Membership, Projections, Summary, Outcomes, Value), move lifecycle atoms to Aiur.CurrentRun.Lifecycle, and rename CurrentRunProjection.Value to CurrentRun.Value.",
+   "effort": "M",
+   "refactor_hint": "Natural single package ('run-progress read model') once the web dependency (platform-misc-12) is cut."
+  },
+  {
+   "id": "platform-misc-33",
+   "category": "duplication",
+   "severity": "P3",
+   "title": "Small reinventions of shared primitives: hand-rolled atomic writes, a stdlib-equivalent semver, a shell escaper, and copy-paste label stages",
+   "locations": [
+    {
+     "path": "src/lib/aiur/upgrade/state.ex",
+     "lines": "57-124"
+    },
+    {
+     "path": "src/lib/aiur/workspace/git_metadata.ex",
+     "lines": "160-184"
+    },
+    {
+     "path": "src/lib/aiur/upgrade/version.ex",
+     "lines": "1-123"
+    },
+    {
+     "path": "src/lib/aiur/init/labels.ex",
+     "lines": "67-178"
+    },
+    {
+     "path": "src/lib/aiur/init/labels.ex",
+     "lines": "229"
+    }
+   ],
+   "description": "Upgrade.State.write/2 and write_notified/2 are the same tmp-write-rename block twice, and neither fsyncs, although Aiur.Fs.atomic_write/3 exists. GitMetadata.write_exclusions hand-rolls another. Upgrade.Version (123 lines) implements semver 2.0 precedence, which Elixir's stdlib Version.compare/2 already provides (init/agent_cli.ex uses it). Init.Labels has four stage functions (complexity, model, effort, remote) with the same body shape, and shell_arg/1 duplicates Aiur.Shell.escape/1.",
+   "evidence": "upgrade/state.ex:62-78 and 107-123 identical except the payload; labels.ex:229 `defp shell_arg(value), do: \"'\" <> String.replace(to_string(value), \"'\", \"'\\\\''\") <> \"'\"`; agent_cli.ex uses `Version.parse/1` and `Version.compare/2`.",
+   "recommendation": "Use Fs.atomic_write everywhere; replace Upgrade.Version.compare with Version.compare plus the existing strict parse guard; make label stages data-driven ({name, labels, intro, hint, default}); use Aiur.Shell.escape.",
+   "effort": "S"
+  },
+  {
+   "id": "platform-misc-34",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "The init wizard bypasses the GitHub transport, and runtime env precedence depends on the init namespace, with a different .env precedence than runtime",
+   "locations": [
+    {
+     "path": "src/lib/aiur/init/github.ex",
+     "lines": "147-182"
+    },
+    {
+     "path": "src/lib/aiur/init/dotenv.ex",
+     "lines": "1-60"
+    },
+    {
+     "path": "src/lib/aiur/env.ex",
+     "lines": "480-490"
+    }
+   ],
+   "description": "Init.GitHub.fetch_label_names issues raw Req.get calls to https://api.github.com/repos/.../labels, bypassing Aiur.GitHub.Transport and the budget guard that the same file says the rest of init uses (#2353 comment at 289-292). Aiur.GitHub.Labels already owns label REST access. The runtime module Aiur.Env reads .env files through Aiur.Init.Dotenv.parse/1, so runtime depends on the wizard namespace. Init.Dotenv.load only reads ./.env, while AGENTS.md defines runtime precedence as env, then ./.env, then ~/.aiur/.env with GitHub credentials resolved as a group. `aiur init` can therefore report 'GITHUB_TOKEN not set' when the daemon would find it in ~/.aiur/.env.",
+   "evidence": "init/github.ex:161-169 `url = \"https://api.github.com/repos/#{owner}/#{name}/labels?per_page=100&page=#{page}\" ... Req.get(url, headers: headers, ...)`; env.ex:485 `|> Dotenv.parse()` where Dotenv is Aiur.Init.Dotenv; dotenv.ex:14 `path = Path.join(File.cwd!(), @env_file_name)`.",
+   "recommendation": "Move Dotenv to a shared Aiur.Dotenv and have init use Aiur.Env's precedence resolver. Route label listing through GitHub.Labels/Transport.",
+   "effort": "S",
+   "refactor_hint": "Init CLI can become its own package only after it stops being a dependency of runtime modules."
+  },
+  {
+   "id": "platform-misc-35",
+   "category": "silent-failure",
+   "severity": "P2",
+   "title": "after_run and before_remove hook failures and timeouts are discarded, visible only in Logger output that is off without --debug",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "39-52"
+    },
+    {
+     "path": "src/lib/aiur/workspace/hooks.ex",
+     "lines": "219-231"
+    },
+    {
+     "path": "src/lib/aiur/workspace/remove.ex",
+     "lines": "89-150"
+    }
+   ],
+   "description": "run_after_run and both maybe_run_before_remove_hook clauses pipe the result into ignore_hook_failure/1, which maps {:error, _} to :ok. The only record is Logger.warning in handle_hook_command_result (and Logger.warning on timeout), which AGENTS.md notes is written nowhere without --debug. A broken after_run (for example one that uploads artifacts or releases external resources) fails on every run with no alert, counter or status field. Remove.remove_issue_workspaces also returns :ok whatever remove/2 returns.",
+   "evidence": "hooks.ex:49-50 `run_hook(command, workspace, issue_context, \"after_run\", worker_host) |> ignore_hook_failure()`; hooks.ex:230-231 `def ignore_hook_failure({:error, _reason}), do: :ok`; remove.ex:56-66 `{:ok, workspace} -> remove(workspace, worker_host) ... :ok`.",
+   "recommendation": "Keep the non-fatal semantics but record failures: emit a (rate-limited) warning alert per hook name and ticket, and count failures in run telemetry so the status report shows 'after_run failing N/N'.",
+   "effort": "S"
+  },
+  {
+   "id": "platform-misc-36",
+   "category": "duplication",
+   "severity": "P3",
+   "title": "ElevenLabs API-key resolution is written 4 times with 3 trimming behaviours; backlog overflow reports the wrong cause",
+   "locations": [
+    {
+     "path": "src/lib/aiur/eleven_labs/realtime.ex",
+     "lines": "127-146"
+    },
+    {
+     "path": "src/lib/aiur/eleven_labs/realtime.ex",
+     "lines": "308-317"
+    },
+    {
+     "path": "src/lib/aiur/eleven_labs/quota.ex",
+     "lines": "154-163"
+    },
+    {
+     "path": "src/lib/aiur/eleven_labs/tts.ex",
+     "lines": "112-126"
+    },
+    {
+     "path": "src/lib/aiur/eleven_labs/realtime.ex",
+     "lines": "359-367"
+    }
+   ],
+   "description": "Realtime.configured?/1 treats a whitespace key as absent but Realtime.api_key/1 then sends the untrimmed key. Quota.api_key/1 does not trim (a ' ' key counts as configured and is sent). TTS.configured/1 trims and sends the trimmed value. queue_audio/2 fails a backlog overflow with 'Speech-to-text session did not become ready', the same text as the ready timeout, which collapses two causes into one message.",
+   "evidence": "quota.ex:156 `key when is_binary(key) and key != \"\" -> {:ok, key}`; realtime.ex:310 `key when is_binary(key) -> if String.trim(key) == \"\", do: :none, else: {:ok, key}`; tts.ex:112-120 trims; realtime.ex:363 `fail(state, \"Speech-to-text session did not become ready\")` on backlog overflow.",
+   "recommendation": "Add ElevenLabs.Credential.fetch/1 (trim, blank means :none, rescue-safe) used by all three, and a distinct overflow message.",
+   "effort": "S",
+   "refactor_hint": "Voice/ElevenLabs is a clean separate package (Stream Deck and dashboard voice)."
+  },
+  {
+   "id": "platform-misc-37",
+   "category": "complexity",
+   "severity": "P3",
+   "title": "TicketActivity/RetainedIndex internal duplication: twin comparators, twin add/remove paths, identical key functions",
+   "locations": [
+    {
+     "path": "src/lib/aiur/ticket_activity/projection.ex",
+     "lines": "432-435"
+    },
+    {
+     "path": "src/lib/aiur/decision_store/retained_index.ex",
+     "lines": "110-182"
+    },
+    {
+     "path": "src/lib/aiur/decision_store/retained_index.ex",
+     "lines": "253-259"
+    }
+   ],
+   "description": "Projection.newer?/2 and newer_order?/2 are the same comparison over different wrappers. RetainedIndex.add/remove and add_entries/remove_entries repeat the bucket and lifecycle bookkeeping for the audit and current views. audit_key/1 and current_key/1 have identical bodies, so the two orderings differ only in which Decision is passed in.",
+   "evidence": "retained_index.ex:253-259 `defp audit_key(%Decision{} = decision) do {-DateTime.to_unix(decision.created_at, :microsecond), decision.decision_id}` and `defp current_key` identical; projection.ex:432-435.",
+   "recommendation": "Implement add/remove once over a view struct and call it for both views; keep one sort_key/1.",
+   "effort": "S"
+  },
+  {
+   "id": "platform-misc-38",
+   "category": "dead-code",
+   "severity": "P3",
+   "title": "Unreferenced production modules: ModelDiscovery.Source.Anthropic and four empty Sandbox modules",
+   "locations": [
+    {
+     "path": "src/lib/aiur/model_discovery/source/anthropic.ex",
+     "lines": "1-48"
+    },
+    {
+     "path": "src/lib/aiur/sandbox/event_flow_demo.ex",
+     "lines": "1-6"
+    },
+    {
+     "path": "src/lib/aiur/sandbox/event_flow_unrelated_1.ex",
+     "lines": "1-6"
+    },
+    {
+     "path": "src/lib/aiur/sandbox/event_flow_unrelated_2.ex",
+     "lines": "1-3"
+    },
+    {
+     "path": "src/lib/aiur/sandbox/event_flow_unrelated_3.ex",
+     "lines": "1-3"
+    }
+   ],
+   "description": "The Anthropic discovery adapter says itself that 'No registry backend declares this source today'; only OpenAI and OpenRouter sources appear in open_ai_compat/registry.ex. The four Aiur.Sandbox.* modules are empty scaffolds that manual --test agents edit, compiled into the production release.",
+   "evidence": "anthropic.ex:8 'No registry backend declares this source today'; grep of src/lib shows models_endpoint set only to Source.OpenAI (registry.ex:20,47) and Source.OpenRouter (registry.ex:88); event_flow_demo.ex has an empty module body.",
+   "recommendation": "Delete the Anthropic adapter until a backend uses it (or wire it). Move the sandbox scaffolds to a test-support path or a fixture repo that --test resets, out of lib/.",
+   "effort": "S"
+  },
+  {
+   "id": "platform-misc-39",
+   "category": "error-handling",
+   "severity": "P2",
+   "title": "A terminal membership member ignores every later lifecycle, so a reopened ticket stays 'completed' for the rest of the run",
+   "locations": [
+    {
+     "path": "src/lib/aiur/current_run_membership/projection.ex",
+     "lines": "118-159"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/event.ex",
+     "lines": "8"
+    },
+    {
+     "path": "src/lib/aiur/current_run_membership/reconciler.ex",
+     "lines": "101-122"
+    }
+   ],
+   "description": "Projection.apply_event returns {:ignored, :terminal, state} for any event on a member whose terminal? is true. If a ticket completes (for example it is closed by merge) and is then reopened or moved back to rework in the same run, the reconciler's :running observations are all ignored. The Reconciler counts {:ok, %{status: :terminal}} as success, so the summary keeps reporting the unit as successful_terminal while an agent works it. If this is intended ('first outcome wins'), it is undocumented and has no reopen path.",
+   "evidence": "projection.ex:139-140 `%Member{terminal?: true} -> {:ignored, :terminal, state}`; event.ex:8 `@terminal_lifecycles [:completed, :cancelled]`.",
+   "recommendation": "Decide the rule explicitly. If reopen should count, accept a non-terminal event that is newer than the terminal one and record a :reopened transition. Either way document it and add a test.",
+   "effort": "S"
+  },
+  {
+   "id": "platform-misc-40",
+   "category": "other",
+   "severity": "P3",
+   "title": "Reconstruction staging and backup directories use VM-local unique integers and are never swept after a crash",
+   "locations": [
+    {
+     "path": "src/lib/aiur/workspace/reconstruction.ex",
+     "lines": "24-46"
+    },
+    {
+     "path": "src/lib/aiur/workspace/reconstruction.ex",
+     "lines": "92-100"
+    },
+    {
+     "path": "src/lib/aiur/workspace/reconstruction.ex",
+     "lines": "335-347"
+    }
+   ],
+   "description": "Stage roots and backups are named .<basename>.aiur-stage-<unique_integer> and .aiur-previous-<unique_integer>. run/3 removes only the stage_root it created this call. A daemon crash between mkdir and cleanup (or during promotion) leaves full checkout copies next to the workspace forever, because the next run picks a new token and never looks for older siblings. unique_integer also restarts at each VM boot.",
+   "evidence": "reconstruction.ex:338 `token = System.unique_integer([:positive, :monotonic])`; reconstruction.ex:32 `File.rm_rf!(stage_root)` removes only this call's stage.",
+   "recommendation": "At the start of run/3 (under the lock), remove stale '.<basename>.aiur-stage-*' siblings. Keep '.aiur-previous-*' only if the workspace path is missing, and restore it instead.",
+   "effort": "S"
+  }
+ ]
+}

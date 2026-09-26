@@ -1,0 +1,648 @@
+{
+  "unit_id": "web-rest",
+  "files_reviewed": 50,
+  "lines_reviewed_estimate": 15800,
+  "coverage_notes": "Read in full: live/dashboard_live.ex (2858), live/github_cache_live.ex (1809), live/streamdeck_live.ex (1799), build_order_presenter.ex (1045), live/analytics_live.ex (714), streamdeck_logs.ex, streamdeck_channel.ex, presenter.ex, streamdeck_projection.ex, router.ex, voice_channel.ex, controllers/observability_api_controller.ex, live/build_order_live.ex, stream_deck_grid.ex, control_center_presenter.ex, control_center_cache.ex, static_assets.ex, financial_data.ex, financial_data/cache.ex, financial_data/cache/pending.ex, financial_data/change_bridge.ex, financial_data/subscription_authority.ex, financial_data/supervisor.ex, financial_data_access.ex, financial_data_access/generation.ex, financial_data_access/proof.ex, github_webhook.ex and github_webhook/{auth,body_reader,signature}.ex, controllers/{github_webhook,decision_api,static_asset,commands_redirect,streamdeck_session}_controller.ex, markdown.ex, streamdeck_{strip,commands,key_face_contract,transcript_relay,auth,socket}.ex, supervisor_auth.ex, voice_{socket,session_limiter}.ex, observability_pubsub.ex, endpoint.ex, error_{html,json}.ex. Skimmed only for structure: build_order_view_model.ex (6 structs in one file; not read line by line). To verify cross-unit duplication and drift I also read targeted parts of files OUTSIDE this unit: aiur_web/build_order/usage_runtime.ex, aiur_web/components/operator_control_center/run_summary_strip.ex (durable meter code), operator_control_center/payload_loader.ex, units_presenter.ex, tickets_presenter.ex, overview.ex, agent_log_modal.ex, aiur/workspace/layout.ex, aiur/model_availability.ex, aiur/agent_chat.ex, aiur/agent_control_cli.ex (reason table), aiur/github/budget_map.ex, aiur/github/transport.ex, aiur/rtk.ex, aiur/poll_cadence.ex, aiur.ex (supervision order), the TS sidecar (grep only) and docs (guide/stream-deck.md). The snapshot omits src/priv; priv/static contents were checked with git ls-tree against commit 3339b887 in the live checkout (read-only). Not reached: the unit's tests (streamdeck_channel_test.exs etc.) were only grepped, not reviewed; the TS/JS hooks were not reviewed beyond grep. No builds or tests were run, so runtime claims (crash paths, perf) are from code reading, not reproduction.",
+  "findings": [
+    {
+      "id": "web-rest-01",
+      "category": "security",
+      "severity": "P1",
+      "title": "Stream Deck channel bypasses the dashboard read-only (dashboard_writable) gate for every write",
+      "locations": [
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "78-90"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "107-113"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "151-165"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "176-182"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "193-203"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "185-189"},
+        {"path": "src/lib/aiur_web/router.ex", "lines": "55-62"}
+      ],
+      "description": "observability.dashboard_writable: false is the documented authorization gate for write controls. It is enforced by the router (:require_writable), DashboardLive (handle_writable_event), the Stream Deck browser emulator (dashboard_writable? before key-press/command-press/mic-hold) and VoiceChannel/VoiceSocket at join. The physical deck's StreamdeckChannel never checks it: pause/resume, implement (queue a ticket via AgentControlCLI.todo), answer_command (a durable operator decision) and say (message to an agent) all run on a read-only dashboard. guide/stream-deck.md states 'Read-only Dashboard | Pause and Mic are disabled'; the sidecar has no read-only handling either (grep of packages/streamdeck/src for writable/read-only finds nothing) and no channel test covers read-only.",
+      "evidence": "streamdeck_channel.ex:78 `def handle_in(\"control\", %{\"identifier\" => identifier, \"action\" => action}, socket) when ... action in [\"pause\", \"resume\"] do` -> `\"pause\" -> pause_agent(identifier)` with no writable check; compare streamdeck_live.ex:185 `if dashboard_writable?() do handle_key_press(params, socket)` and voice_channel.ex:49 `with true <- Endpoint.config(:dashboard_writable) == true`. grep -n writable streamdeck_channel.ex streamdeck_projection.ex streamdeck_socket.ex -> no matches.",
+      "recommendation": "Gate every mutating handle_in (control, answer_command, say, voice_start) on one shared authorization function (e.g. AiurWeb.WriteGate.writable?/0) and reply {:error, %{reason: \"read_only\"}}; carry `writable` in the join snapshot so the device can disable keys; add channel tests for read-only mode.",
+      "refactor_hint": "Introduce a single WriteGate used by router plug, LiveViews and channels before the web package is carved, so the authorization rule has one owner.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-02",
+      "category": "anti-pattern",
+      "severity": "P1",
+      "title": "ControlCenterCache runs the whole dashboard loader inside its GenServer, under the daemon's top-level rest_for_one ahead of the Opencode supervisors",
+      "locations": [
+        {"path": "src/lib/aiur_web/control_center_cache.ex", "lines": "27-85"},
+        {"path": "src/lib/aiur.ex", "lines": "115"},
+        {"path": "src/lib/aiur.ex", "lines": "473-481"},
+        {"path": "src/lib/aiur_web/operator_control_center/payload_loader.ex", "lines": "91-116"},
+        {"path": "src/lib/aiur_web/operator_control_center/payload_loader.ex", "lines": "134-151"}
+      ],
+      "description": "fetch/4 and fetch_event/4 do GenServer.call(..., :infinity) and execute loader.() inside handle_call. The loader is PayloadLoader.load_uncached, which runs ControlCenterPresenter.state_payload, DecisionProvider.counts, UnitsPresenter.load (UnitsRow.snapshot join, not wrapped in rescue) and TicketsPresenter.load (not wrapped). (1) Every connected dashboard serializes behind one process with no timeout, so one slow provider stalls all dashboards. (2) Any exception in that presentation code crashes the cache process. The cache is a direct child of Aiur.Supervisor, which is :rest_for_one; the children after it are FinancialData.Supervisor, Aiur.HttpServer, Aiur.Opencode.TokenRegistry, ActiveTurns, PaneSupervisor, SessionSupervisor, BridgeSupervisor and the CLI children. A dashboard presenter bug therefore restarts the HTTP server and the agents' Opencode session and bridge machinery. Several dashboards crashing on the same event can exceed default restart intensity (3 in 5s) and stop the daemon. FinancialData.Cache already solves this correctly: it runs loaders in a Task.Supervisor with per-key waiters.",
+      "evidence": "control_center_cache.ex:30 `GenServer.call(server, {:fetch, key, max_age_ms, loader}, :infinity)`; :52 `payload = loader.()` inside handle_call; aiur.ex:115 `Supervisor.start_link(children, Keyword.put(opts, :strategy, :rest_for_one))`; aiur.ex:473-481 `if(dashboard?, do: AiurWeb.ControlCenterCache), ... Aiur.HttpServer, Aiur.Opencode.TokenRegistry, ... Aiur.Opencode.SessionSupervisor, Aiur.Opencode.BridgeSupervisor`.",
+      "recommendation": "Reuse the FinancialData.Cache.Pending design: run the loader in a supervised Task, dedupe waiters per key, reply with a bounded timeout, and never execute foreign code in the cache process. Move ControlCenterCache, FinancialData.Supervisor and HttpServer under one web-local one_for_one supervisor so a web fault cannot cascade into Opencode children.",
+      "refactor_hint": "Web package: own a single AiurWeb.Supervisor subtree (cache, financial data, endpoint) and attach it to the app supervisor as one child placed after the agent machinery.",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-03",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Durable model-usage meter parsing duplicated verbatim in two surfaces; both raise FunctionClauseError on a window the writer can persist",
+      "locations": [
+        {"path": "src/lib/aiur_web/streamdeck_projection.ex", "lines": "116-121"},
+        {"path": "src/lib/aiur_web/streamdeck_projection.ex", "lines": "272-337"},
+        {"path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex", "lines": "486-522"},
+        {"path": "src/lib/aiur/model_availability.ex", "lines": "353-373"}
+      ],
+      "description": "durable_observation/1, durable_percent_entry/1 and the ISO-parse helper are copied between StreamdeckProjection and RunSummaryStrip (the Stream Deck comment even says it mirrors the dashboard). Both use a single-clause anonymous function with a guard inside Enum.map. ModelAvailability.maybe_add_bucket stores normalize_window(value) for any bucket that has a window length, and normalize_window drops nil keys. A provider bucket with a window length but no used/used_percent is therefore persisted as %{\"reset_at\" => ...}. A limit of 0 also fails the guard. Either shape raises FunctionClauseError. The `with` in durable_observation does not rescue it, and StreamdeckProjection.provider_meters/0 wraps only the fetch, not the normalization. The branch runs only for providers still :unknown this boot, which is right after a restart. Possible blast radius: StreamdeckLive mount (refresh_grid), the StreamdeckChannel join snapshot, and the DashboardLive render through RunSummaryStrip. Each call also re-reads and JSON-decodes model-usage.json once per unobserved provider.",
+      "evidence": "streamdeck_projection.ex:322 `|> Enum.map(fn {_window, %{\"used\" => used, \"limit\" => limit}} when is_number(used) and is_number(limit) and limit > 0 ->` (no fallback clause); identical at run_summary_strip.ex:519; model_availability.ex:369-372 `used = percent || number(window[\"used\"]) ... |> Map.reject(fn {_key, value} -> is_nil(value) end)`; streamdeck_projection.ex:117-120 `provider_meters_fun() |> safe_call(%{}) |> provider_meters(DateTime.utc_now())`.",
+      "recommendation": "Move the durable reading into one domain function (e.g. Aiur.ModelAvailability.governing_percent/1 returning {:ok, %{percent, observed_at}} | :none) with a total clause set (Enum.flat_map with a catch-all). Call it from both surfaces and load the ledger once per projection.",
+      "refactor_hint": "Belongs with ModelAvailability/provider-meter domain, not in two web presenters; do it before carving the Stream Deck surface away from the dashboard.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-04",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "DashboardLive is a 2,858-line god LiveView owning ~15 unrelated features on the hottest web path",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1-2858"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "105-186"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "800-983"},
+        {"path": "src/lib/aiur_web/live/build_order_live.ex", "lines": "40-67"}
+      ],
+      "description": "One module holds the decision inbox and history pagination, units filters, unit pause/resume controls with PubSub subscription sync, the tickets panel and search, the add-agent modal and async submission, capacity controls, global pause, the usage summary with drill-down and auth gating, provider meters, run summary, run outcomes, the ticket context drawer with detail/history subscriptions, the conversation drawer, agent chat sending with retry ids, and three polling ticks. Measurements: 265 defp, 64 handle_event clauses, 28 handle_info clauses, 82 distinct assign keys, 16 Endpoint.config seams. mount/3 is 82 lines and render/1 is 184 lines. BuildOrderLive (310 lines) shows the pattern already used in this repo: delegate to SourceRuntime, ContextRuntime, UsageRuntime and AnalyticsRuntime modules.",
+      "evidence": "grep counts on dashboard_live.ex: `defp: 265 ... handle_event clauses: 64 handle_info clauses: 28 Endpoint.config: 16`; 82 unique `assign(:key` names; build_order_live.ex:52-55 `|> SourceRuntime.initialize(source) |> ContextRuntime.initialize(request_epoch) |> UsageRuntime.initialize() |> AnalyticsRuntime.initialize()`.",
+      "recommendation": "Split by responsibility into runtime modules mirroring BuildOrder: DecisionsRuntime (inbox, history, filters), UnitsRuntime (selection, controls, subscriptions), TicketsRuntime (panel, search, add-agent), CapacityRuntime (capacity, global pause), UsageRuntime (reuse the existing one; see web-rest-10), ContextRuntime (ticket context), ConversationRuntime (drawer, chat). Consider separate live routes for /commands vs / since they share almost no state.",
+      "refactor_hint": "Carve this before moving the web layer into its own package; the runtime modules become the package's public seams and the LiveView becomes wiring only.",
+      "effort": "L"
+    },
+    {
+      "id": "web-rest-05",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Domain layer depends on the web layer: AiurWeb.ObservabilityPubSub and AiurWeb.BuildOrderPresenter are used by Aiur.* modules",
+      "locations": [
+        {"path": "src/lib/aiur_web/observability_pubsub.ex", "lines": "1-27"},
+        {"path": "src/lib/aiur/orchestrator/snapshot_store.ex", "lines": "14"},
+        {"path": "src/lib/aiur/alerts.ex", "lines": "13"},
+        {"path": "src/lib/aiur/recent_merge_store.ex", "lines": "17"},
+        {"path": "src/lib/aiur/current_run_projections.ex", "lines": "163"},
+        {"path": "src/lib/aiur/build_orders_cli.ex", "lines": "17-19"},
+        {"path": "src/lib/aiur_web/build_order_presenter.ex", "lines": "1-8"}
+      ],
+      "description": "The 'observability:dashboard' topic contract lives in AiurWeb, but its publishers are domain processes: Orchestrator.SnapshotStore (3 broadcast sites), Aiur.Alerts, Aiur.RecentMergeStore, and CurrentRunProjections as a subscriber. BuildOrderPresenter is documented as a pure join ('performs no I/O') over Aiur.BuildOrder structs, yet it sits in AiurWeb and is called by Aiur.BuildOrdersCLI. The domain CLI also references AiurWeb.BuildOrder.DataSource/Runtime/SourceRuntime and OperatorControlCenter.BuildOrderGridModel. Overall at least 15 Aiur.* files reference AiurWeb modules. A web package cannot be split out while the domain imports it.",
+      "evidence": "snapshot_store.ex:123/147/255 `:ok = ObservabilityPubSub.broadcast_update()`; alerts.ex:197 `ObservabilityPubSub.broadcast_update()`; build_orders_cli.ex:85 `model = BuildOrderPresenter.present(planning, Map.get(sources, :execution), Map.get(sources, :activity))`; build_order_presenter.ex:6 'This module performs no I/O'.",
+      "recommendation": "Move ObservabilityPubSub to Aiur.ObservabilityEvents (domain-owned topic, web subscribes). Move BuildOrderPresenter and BuildOrderViewModel to Aiur.BuildOrder.ViewModel/Presenter (pure domain projection) and have both the CLI and LiveView call it. Add a boundary check (e.g. mix xref or the boundary library) that fails when lib/aiur references AiurWeb.",
+      "refactor_hint": "Prerequisite for any web/domain package split; enforce with xref graph --sink in CI.",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-06",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "StreamdeckKeyFaceContract reads the TypeScript sidecar's JSON from packages/streamdeck at compile time",
+      "locations": [
+        {"path": "src/lib/aiur_web/streamdeck_key_face_contract.ex", "lines": "142-185"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "70-85"},
+        {"path": "src/lib/aiur_web/streamdeck_logs.ex", "lines": "64"}
+      ],
+      "description": "The Elixir app embeds ../../../packages/streamdeck/src/key-face-contract.json via File.read! in a module attribute and raises at compile time if its shape changes. StreamdeckLive also builds CSS from it at compile time, and StreamdeckLogs derives @directions from it. Compiling src/ therefore requires the sibling TS package checkout at a fixed relative path. That blocks moving the Stream Deck sidecar to its own repository, and blocks building the Elixir app from a tree without packages/.",
+      "evidence": "streamdeck_key_face_contract.ex:142-144 `@contract_path Path.expand(\"../../../packages/streamdeck/src/key-face-contract.json\", __DIR__) ... @contract @contract_path |> File.read!() |> Jason.decode!()`.",
+      "recommendation": "Make the Elixir side the owner of the contract (priv/streamdeck/key-face-contract.json, served over the channel or an HTTP endpoint), have the sidecar fetch or vendor it with a version check, and keep the compile-time validation against the priv copy.",
+      "refactor_hint": "Required before carving packages/streamdeck into a separate repo; decide the contract owner and version it.",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-07",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Control-failure reason taxonomy hand-maintained in the REST controller and the CLI, already diverged",
+      "locations": [
+        {"path": "src/lib/aiur_web/controllers/observability_api_controller.ex", "lines": "245-314"},
+        {"path": "src/lib/aiur/agent_control_cli.ex", "lines": "3355-3390"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1238-1253"}
+      ],
+      "description": "The REST API decides 409 (conflict) versus 503 (failure) from a hand-written list of 22 atoms plus 5 tuple clauses. The CLI keeps its own message table for the same Orchestrator.pause_agent/resume_agent reasons. They disagree. thrash_circuit_open, lifetime_dispatch_latch, dispatch_not_started, below_active_count, unknown_issue and agent_finished are named in the CLI but fall to the API's 503 'control_failed' catch-all, although they are conflicts, not outages. already_inactive, control_request_conflict, globally_paused and stale_generation appear only in the API list. Every new orchestrator decline reason is added by hand, one incident at a time, to at most one of them. The Stream Deck emulator shows inspect(reason) instead.",
+      "evidence": "observability_api_controller.ex:284-310 `when reason in [:already_inactive, :already_claimed, ... :workspace_ownership_waiting] do error_response(conn, 409, \"control_conflict\", ...)` then :312 `error_response(conn, 503, \"control_failed\", inspect(reason))`; agent_control_cli.ex:3385-3387 `thrash_circuit_open: ..., lifetime_dispatch_latch: ..., dispatch_failed: ...`.",
+      "recommendation": "Create Aiur.Orchestrator.ControlReason with classify/1 -> :conflict | :invalid | :unavailable and message/1, owned next to pause_resume.ex. Use it from the API, CLI, StreamdeckLive/Channel and AgentLogModal.format_error. Add a test that enumerates every reason the orchestrator can return.",
+      "refactor_hint": "Domain-owned vocabulary consumed by the web and CLI packages.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-08",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Rescue-everything with no logging is the default error strategy across the web unit (83 rescue/catch lines, 2 Logger calls)",
+      "locations": [
+        {"path": "src/lib/aiur_web/controllers/decision_api_controller.ex", "lines": "257-263"},
+        {"path": "src/lib/aiur_web/controllers/decision_api_controller.ex", "lines": "347-349"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1410-1415"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1276-1284"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1929-1941"},
+        {"path": "src/lib/aiur_web/financial_data/change_bridge.ex", "lines": "369-383"},
+        {"path": "src/lib/aiur_web/financial_data_access/generation.ex", "lines": "187-192"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "241-330"}
+      ],
+      "description": "Counts of rescue/catch lines versus Logger calls per file: dashboard_live 18/0, github_cache_live 14/0, streamdeck_live 11/0, analytics_live 10/0, streamdeck_channel 7/0, streamdeck_projection 5/0, change_bridge 4/0, decision_api_controller 4/0, control_center_presenter 4/0, voice_channel 4/2. Concrete harms: (a) DecisionApiController.invoke turns any exception, including a FunctionClauseError from a malformed payload, into 503 decision_service_unavailable with no log, so a bug reads as an outage. (b) StreamdeckLive.update_logs `rescue _ -> socket` hides every StreamdeckLogs.scroll bug. (c) DashboardLive.refresh_open_tickets swallows OpenTicketSource and orchestrator refresh failures, so add-agent reports success while the panel stays stale. (d) ChangeBridge.safe_subscribe returns :error at init, but the bridge never retries or reports, so dashboards stop refreshing financial data. (e) Generation.subscribe returns :ok when the Generation server is down, so callers such as StreamdeckChannel.join (`:ok = FinancialDataAccess.subscribe_to_configuration_changes()`) believe they will be told about credential rotation. Without --debug, Logger output goes nowhere, so even the 2 Logger calls are weak.",
+      "evidence": "decision_api_controller.ex:257-263 `apply(decision_api(conn), operation, args) rescue _error -> {:error, :store_unavailable} catch :exit, _reason -> {:error, :store_unavailable}`; streamdeck_live.ex:1413 `rescue _ -> socket`; generation.ex:190-191 `catch :exit, _reason -> :ok`; change_bridge.ex:371-374 `rescue _error -> :error catch _kind, _reason -> :error`.",
+      "recommendation": "Adopt one helper (e.g. AiurWeb.Safe.call(fun, fallback, tag)) that emits an Aiur.Alerts/telemetry event with the tag and exception class before returning the fallback. Narrow rescues to expected failures (:exit from GenServer.call, noproc). Make Generation.subscribe return {:error, :unavailable} and make ChangeBridge retry subscription with backoff. Reserve 503 for real store exits and return 500 with a logged error id for exceptions.",
+      "refactor_hint": "Cross-cutting web-package policy; define it once in the package's shared support module during the carve.",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-09",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Presenter's workspace path fallback drifted from Workspace.Layout, so /api/v1/:issue reports a wrong path for idle issues",
+      "locations": [
+        {"path": "src/lib/aiur_web/presenter.ex", "lines": "543-547"},
+        {"path": "src/lib/aiur/workspace/layout.ex", "lines": "33-47"},
+        {"path": "src/lib/aiur/workspace/layout.ex", "lines": "100-130"}
+      ],
+      "description": "issue_payload_body falls back to Path.join(workspace.root, issue_identifier) whenever the running and retry rows lack :workspace_path. That is always true for idle-only issues, because idle rows carry no workspace_path. The real layout (AGENTS.md and Workspace.Layout.issue_workspace_path) is <root>/<repo-segment>/<issue-id>, with the identifier sanitized through Paths.sanitize. For a GitHub or Linear tracker the API therefore returns a directory that does not exist, and an unsanitized one.",
+      "evidence": "presenter.ex:546 `Path.join(Config.settings!().workspace.root, issue_identifier)`; layout.ex:33-47 `case repo_segment() do nil -> Path.join(root, safe_id); segment -> ... Path.join([trimmed, segment, safe_id])`.",
+      "recommendation": "Call Aiur.Workspace.Layout.issue_workspace_path(root, Layout.safe_identifier(id)), or better, have the orchestrator snapshot carry workspace_path for idle rows too, and delete the fallback.",
+      "refactor_hint": "Path policy must have one owner (Workspace.Layout); the web layer should only render what the domain reports.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-10",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Protected usage-summary pipeline copied across DashboardLive, BuildOrder.UsageRuntime and AnalyticsLive (about 300 lines, already diverging)",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1387-1684"},
+        {"path": "src/lib/aiur_web/build_order/usage_runtime.ex", "lines": "94-140"},
+        {"path": "src/lib/aiur_web/build_order/usage_runtime.ex", "lines": "300-420"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "519-549"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "673-688"}
+      ],
+      "description": "The following are copied in DashboardLive and UsageRuntime: authorized_context/1 (also in AnalyticsLive), usage_aggregate_generation/0 (also in AnalyticsLive), open_usage_drill/page_usage_drill/refresh_open_drill, usage_drill_dimension with the same @usage_drill_dimensions list, parse_cursor/1, the tier_facts stub returning %{}, apply/demote-to-locked, and the stash/flush debounce. The copies have started to differ. UsageRuntime has prefer_message/2 so a real update beats the :scope sentinel, and folds an authority epoch into its cache key. DashboardLive has neither. AnalyticsLive reimplements the fetch with its own loader and swallows every error into :unavailable.",
+      "evidence": "dashboard_live.ex:82 `@usage_drill_dimensions ~w(by_provider by_ticket by_agent_family by_model by_account_generation)a` vs usage_runtime.ex:43 `@drill_dimensions ~w(by_provider by_ticket by_agent_family by_model by_account_generation)a`; dashboard_live.ex:1420-1427 and usage_runtime.ex:406-413 and analytics_live.ex:681-688 are the same authorized_context/1 body.",
+      "recommendation": "Generalize BuildOrder.UsageRuntime into AiurWeb.UsageSummaryRuntime parameterized by scope resolver and assign prefix, then use it from DashboardLive and AnalyticsLive. Put authorized_context/1 in FinancialDataAccess.",
+      "refactor_hint": "One financial-data client module in the web package; the three LiveViews become consumers.",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-11",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Five copies of the same debounce/coalesce state machine (pending + flush_scheduled? + Endpoint-configurable timer)",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1325-1385"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1513-1541"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1710-1767"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1795-1837"},
+        {"path": "src/lib/aiur_web/build_order/usage_runtime.ex", "lines": "320-345"}
+      ],
+      "description": "run_summary, usage_summary, provider_meters, current_run_outcomes (DashboardLive) and bo_usage (UsageRuntime) each implement stash_X/flush_X/schedule_X_flush with an X_pending assign, an X_flush_scheduled? assign, a 250 ms constant and an Endpoint.config(:X_flush_timer) test seam. That makes 5 near-identical blocks, 10 assigns and 5 config keys. run_summary and current_run_outcomes also share an identical apply function (reconcile -> present -> announcement).",
+      "evidence": "dashboard_live.ex:1380-1385 `case Endpoint.config(:run_summary_flush_timer) do timer when is_function(timer, 3) -> timer.(self(), :flush_run_summary, @run_summary_flush_ms)`; the same shape at 1536-1541 (:usage_summary_flush_timer), 1762-1767 (:provider_meters_flush_timer), 1832-1837 (:current_run_outcomes_flush_timer), usage_runtime.ex:341-346 (:bo_usage_flush_timer).",
+      "recommendation": "Extract AiurWeb.Coalescer with stash(socket, key, value) / flush(socket, key) keeping state in one assign map and one timer seam, and a generic apply_snapshot(presenter, source_key) for the reconcile/present/announce triple.",
+      "refactor_hint": "Shared LiveView support module in the web package.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-12",
+      "category": "performance",
+      "severity": "P2",
+      "title": "DashboardLive.render eagerly re-projects units and tickets on every render (every 1 s tick) through Map.put_new fallbacks",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "800-846"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "204-208"},
+        {"path": "src/lib/aiur_web/operator_control_center/tickets_presenter.ex", "lines": "104-129"}
+      ],
+      "description": "render/1 starts with 40 Map.put_new calls whose default values are evaluated eagerly even when the key exists. Each render therefore runs UnitsPresenter.project over the whole units catalog (policy filter plus counts), TicketsPresenter.normalize and TicketsPresenter.search over the whole backlog (TicketSearch.filter when a query is set), CapacityPresenter.present, three nil presenters, fallback_decision_page and RouteRegistry.current_route. The :runtime_tick handler assigns :now every 1_000 ms, so this happens every second for every open tab. mount already assigns almost every key; only :retained_counts and :capacity_view depend on the fallback.",
+      "evidence": "dashboard_live.ex:817-820 `|> Map.put_new(:units_view, UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), ...))`; :826 `|> then(&Map.put_new(&1, :tickets_panel_view, TicketsPresenter.search(&1.tickets_view, &1.tickets_query)))`; :206-207 `schedule_runtime_tick(); {:noreply, assign(socket, :now, DateTime.utc_now())}` with @runtime_tick_ms 1_000.",
+      "recommendation": "Delete the fallback block. Assign :retained_counts and :capacity_view in mount/reload_payload, and use Map.put_new_lazy/assign_new for anything that truly needs a default. Consider rendering the ticking clock in a small child component or JS hook so the whole page does not diff every second.",
+      "refactor_hint": "Falls out naturally when DashboardLive is split into runtimes (web-rest-04).",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-13",
+      "category": "performance",
+      "severity": "P2",
+      "title": "GithubCacheLive rebuilds its entire model, including a filesystem glob and read of every agent-cache.tsv, on every cache write, with no coalescing",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "151-164"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "226-239"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "310-330"},
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "306-321"},
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "477-482"}
+      ],
+      "description": "Each {:github_resource_changed, _} (any ResourceStore write: every poll response and every webhook) calls load/1. load/1 re-projects the ETS store and re-reads the quota meter, cache history, quota history and agent cache metrics. It also calls BudgetMap.snapshot, which globs <root>/*/.aiur-runtime/github-quota/agent-cache.tsv, File.reads every matching file whole, and reads the broker ledger. All of this runs synchronously in the LiveView process, once per open tab per write. The only protection is the ETS projection ceiling. DashboardLive coalesces the same kind of event through PayloadLoader, but this page does not. The page promises 'zero GitHub requests', but its local I/O is unbounded and grows with workspace count and log size.",
+      "evidence": "github_cache_live.ex:154-159 `Process.send_after(self(), {:unhighlight, identity}, @highlight_ms) ... |> load()`; :238 `|> assign(:budget_map, budget_map_snapshot(projection, quota))`; budget_map.ex:316 `|> Path.wildcard()` and :478 `case File.read(path) do`.",
+      "recommendation": "On a change event, only mark the row highlighted and schedule a debounced (e.g. 1 s) projection refresh. Refresh budget map, agent cache metrics and history only on their own sampler ticks (they already have :quota_history_sampled/:cache_history_sampled). Cache BudgetMap's file-derived parts in the sampler, not per view.",
+      "refactor_hint": "GitHub observability page belongs with the GitHub package; its data should come from samplers owned there, not ad-hoc reads in the view.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-14",
+      "category": "performance",
+      "severity": "P2",
+      "title": "AnalyticsLive shells out to rtk (5 s timeout) and parses telemetry synchronously in handle_params, twice per page load",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "49-53"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "92-94"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "348-394"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "408-417"},
+        {"path": "src/lib/aiur/rtk.ex", "lines": "220-240"}
+      ],
+      "description": "load_model/1 runs in handle_params, so once for the dead render and again for the connected mount, and on every range change. It calls rtk_panel/0 -> Aiur.Rtk.savings, which runs System.cmd under Task.yield with a 5_000 ms timeout. It also calls Presenter.load, which for range :full parses cross-boot run summaries or falls back to a full telemetry parse. All of this blocks the socket process, and the dead render pays for it too. BuildOrderLive already runs its analytics through start_async (handle_async({:build_order_analytics, key}, ...)).",
+      "evidence": "analytics_live.ex:51 `socket |> assign(:analytics_scope, ...) |> load_model()`; :365 `socket = assign(socket, :rtk, rtk_panel())`; rtk.ex:52 `@probe_timeout_ms 5_000`, :240 `System.cmd(rtk, args, stderr_to_stdout: true)`.",
+      "recommendation": "Skip the model load on the dead render (connected? check), move rtk and Presenter.load into start_async as BuildOrderLive does, and cache rtk savings in a daemon sampler rather than probing per page view.",
+      "refactor_hint": "Analytics runtime can be shared with BuildOrder.AnalyticsRuntime.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-15",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Agent control seams (send, pause, resume, capabilities) duplicated across four surfaces with inconsistent injection",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "2644-2657"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "2752-2764"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1588-1608"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "78-90"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "462-477"},
+        {"path": "src/lib/aiur_web/controllers/observability_api_controller.ex", "lines": "186-199"},
+        {"path": "src/lib/aiur/agent_chat.ex", "lines": "104-113"}
+      ],
+      "description": "pause_agent/1 appears three times (DashboardLive, StreamdeckLive, StreamdeckChannel), resume_agent/1 twice, and send_agent_message/3 twice with the same arity-3/arity-2 branching. The injection is inconsistent. The LiveViews and channel override through :agent_chat_*_fun, which fall back to AgentChat, and AgentChat.pause/resume calls Orchestrator.pause_agent(identifier) on the default registered name, ignoring Endpoint.config(:orchestrator). The REST controller instead calls Orchestrator.pause_agent(orchestrator(), id) with the :orchestrator seam. StreamdeckChannel pauses through the seam but resumes through AgentChat.resume directly (line 83). A test that sets one seam exercises a different path than production uses on another surface.",
+      "evidence": "streamdeck_channel.ex:81-84 `\"pause\" -> pause_agent(identifier)` / `\"resume\" -> AgentChat.resume(identifier)`; agent_chat.ex:106-112 `Orchestrator.pause_agent(issue_identifier)`; observability_api_controller.ex:195-196 `Orchestrator.pause_agent(orchestrator(), issue_identifier)`.",
+      "recommendation": "Define one AiurWeb.AgentControl module (or behaviour) exposing send/pause/resume/capabilities, taking the orchestrator server explicitly and selected once via a single config key. Route every surface through it and delete the per-module copies.",
+      "refactor_hint": "This is the web package's port to the orchestrator; make it a behaviour so the web package does not name Aiur.Orchestrator defaults in 8 places.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-16",
+      "category": "config",
+      "severity": "P2",
+      "title": "About 60 global-config test seams (Endpoint.config / Application.get_env / conn.private) act as a service locator in production modules",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "784-797"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1960-1975"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "241-330"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1644-1711"},
+        {"path": "src/lib/aiur_web/streamdeck_projection.ex", "lines": "200-210"},
+        {"path": "src/lib/aiur_web/router.ex", "lines": "204-213"},
+        {"path": "src/lib/aiur_web/controllers/decision_api_controller.ex", "lines": "361-386"}
+      ],
+      "description": "grep finds 43 distinct Endpoint.config/endpoint_config keys in aiur_web. DashboardLive adds 8 more through dynamic call_context/call_conversation keys (ticket_detail_request_fun, live_conversation_resolve_fun, ...). GithubCacheLive uses 7 Application.get_env provider seams, AnalyticsLive 3, and the webhook path 4. The router reads conn.private[:aiur_dashboard_credentials] and DecisionApiController reads conn.private[:decision_api]. There are three different mechanisms, and three copies of an endpoint_config/1 helper that falls back from Endpoint.config to Application.get_env with rescue (StreamdeckLive 1707, StreamdeckProjection 535, DecisionApiController 380). Each seam hard-codes a domain default (Aiur.Orchestrator, AgentChat, DecisionStore, CacheInspector).",
+      "evidence": "grep -rhoE '(Endpoint\\.config|endpoint_config)\\(:[a-z_]+\\)' aiur_web | sort -u | wc -l -> 43; streamdeck_live.ex:1707-1711 `Endpoint.config(key) || Application.get_env(:aiur, Endpoint, []) |> Keyword.get(key) rescue _ -> ...`.",
+      "recommendation": "Replace per-function seams with a few behaviours (FleetSource, DecisionSource, AgentControl, GithubObservability, UsageSource) resolved once at mount (or passed via live_session on_mount) from one config map. Delete the endpoint_config fallbacks.",
+      "refactor_hint": "These behaviours become the explicit dependency surface of the carved web package; today they are implicit and scattered.",
+      "effort": "L"
+    },
+    {
+      "id": "web-rest-17",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "same_identity?/2 reimplemented 8 times with divergent nil semantics",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "2240-2245"},
+        {"path": "src/lib/aiur_web/build_order_presenter.ex", "lines": "1005-1011"},
+        {"path": "src/lib/aiur_web/build_order/context_runtime.ex", "lines": "255-262"},
+        {"path": "src/lib/aiur_web/build_order/route_state.ex", "lines": "378-386"},
+        {"path": "src/lib/aiur_web/build_order/ticket_context_selection.ex", "lines": "324-330"},
+        {"path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex", "lines": "272-278"},
+        {"path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex", "lines": "656-664"},
+        {"path": "src/lib/aiur/build_order/catalog.ex", "lines": "252-259"}
+      ],
+      "description": "Every copy compares TrackerIdentity.github_key/1, but context_runtime.ex and route_state.ex treat (nil, nil) as equal (true), while the other six return false. catalog.ex additionally requires a {:github, _, _, _} shape. BuildOrderPresenter's version accepts non-struct arguments. A future change to identity equality (for example Linear identities) has to be made in 8 places.",
+      "evidence": "context_runtime.ex:255 `defp same_identity?(nil, nil), do: true` vs dashboard_live.ex:2240-2245 `defp same_identity?(%TrackerIdentity{} = left, %TrackerIdentity{} = right) do key = TrackerIdentity.github_key(left); not is_nil(key) and key == ... end; defp same_identity?(_left, _right), do: false`.",
+      "recommendation": "Add TrackerIdentity.same?/2 (strict: nil never equal) and handle the explicit nil==nil 'no selection' case at the two call sites that want it.",
+      "refactor_hint": "Domain helper in Aiur.TrackerIdentity; consumed by both web and BuildOrder packages.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-18",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "LiveView shell boilerplate copied into five LiveViews, and the tracker/agent 'kind' helper has five diverged variants",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "33-67"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "704-713"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "106-130"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "1802-1808"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "88-117"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1791-1798"},
+        {"path": "src/lib/aiur_web/live/build_order_live.ex", "lines": "41-61"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "2588-2589"},
+        {"path": "src/lib/aiur_web/build_order/runtime.ex", "lines": "37-45"}
+      ],
+      "description": "Each LiveView repeats NavState.assign_nav, AwaitingCommands.mount, the current_route/analytics/tracker_kind/agent_kind assigns, the 'toggle-nav'/'restore-nav' handle_event clauses, the {:decision_changed,...}/:awaiting_commands_tick handle_info clauses, and the DashboardShell + Overview.decisions_banner wrapper (grep: 5 files, 30 repeated lines). The kind helpers differ in error handling. GithubCacheLive rescues and catches :exit but returns the raw value, not a string. StreamdeckLive rescues only, so an :exit crashes mount. AnalyticsLive catches everything. DashboardLive has no protection (`to_string(Aiur.Config.tracker_kind())`). BuildOrder.Runtime has a fifth variant.",
+      "evidence": "streamdeck_live.ex:1791-1798 `defp kind(provider, fallback) do case provider.() do ... end rescue _ -> fallback end` (no catch); github_cache_live.ex:1802-1808 `fun.() rescue ... catch :exit, _reason -> fallback`; dashboard_live.ex:2588 `defp tracker_kind, do: to_string(Aiur.Config.tracker_kind())`.",
+      "recommendation": "Create an on_mount hook (AiurWeb.Shell) that assigns nav, awaiting commands, route and kinds, and uses attach_hook for the nav events and awaiting-command messages. Keep a single kind resolver in it.",
+      "refactor_hint": "Shared shell for the web package; reduces each page to its own concern.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-19",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "StreamdeckChannel queues tickets by calling the CLI module (AgentControlCLI.todo) and decoding exit codes",
+      "locations": [
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "92-113"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "438-457"}
+      ],
+      "description": "The comment explains why queue rules must not be duplicated. The chosen reuse point, though, is the CLI command itself: it prints to stdout inside the channel process, and the channel translates integer exit codes (0 -> :ok, 1 -> :queue_failed). A web socket handler now depends on the CLI package and on its textual and exit-code protocol, and cannot get a structured refusal reason (terminal ticket, already queued, ...). Those reasons collapse to :queue_failed.",
+      "evidence": "streamdeck_channel.ex:439-445 `case queue_ticket_fun().(identifier) do :ok -> :ok; 0 -> :ok; 1 -> {:error, :queue_failed}; ...`; :455 `fn identifier -> AgentControlCLI.todo([identifier]) end`.",
+      "recommendation": "Extract the queue rules from AgentControlCLI.todo into a domain function (e.g. Aiur.Queue.todo(identifier) :: :ok | {:error, reason}) that both the CLI (for printing) and the channel call.",
+      "refactor_hint": "Keeps the CLI package a thin presentation layer; web must not depend on CLI.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-20",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Stream Deck logs feed loaded two ways, and only the emulator papers over the event-before-write race with fixed 50 ms retries",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "45-47"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "268-299"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1428-1464"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1487-1495"},
+        {"path": "src/lib/aiur_web/streamdeck_logs.ex", "lines": "626-636"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "289-293"}
+      ],
+      "description": "StreamdeckLive.agent_event_feed/1 is a copy of StreamdeckLogs.load/1: the same AgentEventFeed.list(identifier, %{\"limit\" => 50}) and bus_events call. On each transcript, alert or control event the emulator re-reads the durable feed, then schedules two more re-reads 50 ms apart (@durable_feed_retry_attempts 2), evidently because the PubSub event can arrive before IssueLog has flushed. That is 3 disk reads per event, and still stale if the write takes more than 100 ms. The physical deck channel reads once per event with no retry, so the two renderers of 'the same document' behave differently. There are also four handle_info clauses with identical bodies (lines 268-299).",
+      "evidence": "streamdeck_live.ex:46-47 `@durable_feed_retry_attempts 2 / @durable_feed_retry_ms 50`; :1458 `case AgentEventFeed.list(identifier, %{\"limit\" => 50}) do` vs streamdeck_logs.ex:630 identical; streamdeck_channel.ex:289-292 `push(socket, \"logs\", logs_projection(identifier))` with no retry.",
+      "recommendation": "Have IssueLog (or AgentEventFeed) publish a 'feed appended' event after the durable write, and subscribe to that instead of the raw transcript event. Use StreamdeckLogs.load/1 (seam-injected) from both surfaces and drop the fixed-delay retry.",
+      "refactor_hint": "Stream Deck package should depend on one feed API that is ordered after persistence.",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-21",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "ElevenLabs realtime session lifecycle duplicated in StreamdeckChannel and VoiceChannel; the copies differ on errors and on stale audio",
+      "locations": [
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "193-230"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "305-327"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "355-399"},
+        {"path": "src/lib/aiur_web/voice_channel.ex", "lines": "84-101"},
+        {"path": "src/lib/aiur_web/voice_channel.ex", "lines": "153-167"},
+        {"path": "src/lib/aiur_web/voice_channel.ex", "lines": "196-282"}
+      ],
+      "description": "Both channels start Realtime with owner: self(), push audio, commit or stop, relay :elevenlabs_transcript/:elevenlabs_error/:elevenlabs_closed, and clean up in terminate. StreamdeckChannel mints session ids, monitors the session, drains stale messages and drops frames for a stale session. VoiceChannel does none of that. It handles {:elevenlabs_error, reason} only when reason is binary (other reasons fall to the catch-all and are silently dropped). Its handle_in(\"audio\") dereferences socket.assigns.stt.pid, and stt is set to nil by release_stt on :elevenlabs_closed. An audio frame already in flight when the provider closes therefore crashes the channel (undefined function nil.pid/0) instead of being dropped.",
+      "evidence": "voice_channel.ex:90 `Realtime.push(socket.assigns.stt.pid, data)`; :218-220 `defp release_stt(socket) do socket |> assign(:stt, nil)`; :159 `def handle_info({:elevenlabs_error, reason}, socket) when is_binary(reason)` vs streamdeck_channel.ex:311 `def handle_info({:elevenlabs_error, reason}, ...)` using reason_text/1.",
+      "recommendation": "Extract AiurWeb.VoiceSession (start/push/commit/stop, session-id fencing, drain on stop, message normalization) and use it from both channels; guard audio on a live session.",
+      "refactor_hint": "Voice belongs in its own module or package shared by the dashboard and Stream Deck transports.",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-22",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "StreamdeckLive is 1,799 lines with a 426-line render and mixes grid paging math, logs, Commands, meters and the install modal",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "336-761"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "763-1041"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1119-1213"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1505-1586"}
+      ],
+      "description": "render/1 is 426 lines of HEEx with inline SVG icons and five mode branches. The module also re-derives provider meter segments from StreamdeckProjection output (provider_segment/provider_meter/window_percentage). Its used/limit branch and atom-key lookups in get_value/3 are dead, because StreamdeckProjection.external_value stringifies all keys and emits used_percent, not used/limit. It also carries column-major paging arithmetic that StreamDeckGrid already partly exposes (max_column_offset, windows), the Commands page state machine (7 assigns), and OS detection and prompts for the install modal. 167 defp in total.",
+      "evidence": "streamdeck_live.ex:336 `def render(assigns) do` ... :761 `end`; :1581 `is_number(used) and is_number(limit) and limit > 0 -> round(used / limit * 100)` while streamdeck_projection.ex:426-433 emits only used_percent/remaining/resets_at/observed_at/age_seconds/freshness; :1568-1569 `Map.get(map, key, Map.get(map, String.to_existing_atom(key), default))`.",
+      "recommendation": "Split into function components (StreamdeckGridKeys, StreamdeckCmdKeys, StreamdeckLogsView, StreamdeckCommandsView, StreamdeckInstallModal) plus a pure StreamdeckEmulatorState module for paging and mode transitions. Move the meter segment shaping into StreamdeckProjection so the emulator and device consume one shape.",
+      "refactor_hint": "Stream Deck web emulator should live beside the Stream Deck projection/channel in its own namespace (AiurWeb.StreamDeck.*).",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-23",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "GithubCacheLive is 1,809 lines: about 1,150 lines of HEEx components with policy prose, plus seven provider seams",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "346-1159"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "1339-1550"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "241-344"}
+      ],
+      "description": "The module mixes data loading (7 Application.get_env-seamed providers, each with rescue/catch), five page layers, and budget-map panels (identity meters, caller map, admissions, store, webhooks, agent cache), each a function component. It also contains many small formatters (age_text, age_label, measured, share_text, value, count_label) and filter/sort logic. usage_layer alone is about 160 lines.",
+      "evidence": "github_cache_live.ex: 171 defp; usage_layer spans 617-775; budget_map_layer + subpanels 784-1075; data seams at 241-330 (`Application.get_env(:aiur, :github_agent_cache_metrics_provider, ...)`, `:github_read_cache_provider`, `:github_quota_history_provider`, `:github_cache_history_provider`, `:github_quota_server`, `:github_budget_map_headroom_fun`, `:github_budget_map_modes_fun`).",
+      "recommendation": "Extract a GithubCache.PageModel loader (one seam), move the layers into AiurWeb.OperatorControlCenter.GithubCache.Components (map, trends, usage, budget map, group, entry), and share formatters with a common Format module.",
+      "refactor_hint": "Pairs with the GitHub package carve: the page model should be fed by that package's public snapshot API.",
+      "effort": "M"
+    },
+    {
+      "id": "web-rest-24",
+      "category": "docs-drift",
+      "severity": "P2",
+      "title": "GitHub cache page tells the operator that REST calls can never be attributed, but Transport tags REST requests with a caller",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "761-771"},
+        {"path": "src/lib/aiur/github/transport.ex", "lines": "675-712"},
+        {"path": "src/lib/aiur/github/transport.ex", "lines": "744"}
+      ],
+      "description": "The 'usage-rest-caveat' block, always shown for the core budget, asserts that the caller tag is attached only inside Transport.maybe_put_caller/2, which is called solely from the GraphQL path, so every REST request bills as unattributed. Transport.fetch_json_list, fetch_json_list_conditional and the request at line 744 call put_caller/2 on REST GETs. The UI therefore states a false limitation as fact. AGENTS.md treats a wrong doc as worse than a missing one. The text also references issue numbers (#2298, #2297) that go stale silently.",
+      "evidence": "github_cache_live.ex:767-768 'The caller tag is attached only inside <code>Transport.maybe_put_caller/2</code>, which is invoked solely from the GraphQL send path — so every REST request bills as <code>unattributed</code>'; transport.ex:679 `request = put_caller(%{method: :get, url: url, token: token}, opts)`, :711 `request = put_caller(request, opts)`.",
+      "recommendation": "Derive the caveat from data (show it only when the core ranking has just one 'unattributed' row), or delete it. Move long-form explanations to website/docs-app/apis/github.md and link to it.",
+      "refactor_hint": "UI claims about another package's behavior should be computed from that package's data.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-25",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Static assets are served by two mechanisms; Plug.Static shadows 12 router routes and the compile-time embedded copies",
+      "locations": [
+        {"path": "src/lib/aiur_web/endpoint.ex", "lines": "31-58"},
+        {"path": "src/lib/aiur_web/router.ex", "lines": "111-131"},
+        {"path": "src/lib/aiur_web/static_assets.ex", "lines": "13-28"},
+        {"path": "src/lib/aiur_web/static_assets.ex", "lines": "46-75"},
+        {"path": "src/lib/aiur_web/static_assets.ex", "lines": "101-112"},
+        {"path": "src/lib/aiur_web/controllers/static_asset_controller.ex", "lines": "8-60"}
+      ],
+      "description": "The Endpoint runs Plug.Static with `only:` equal to StaticAssets.revalidated_static_paths (dashboard.css, all hooks, aiur-dom-svg-layout*, ...), long_lived_static_paths (aiur-logo.png, bungee.woff2) and provider_asset_paths, before the router. All of those files exist in src/priv/static at the snapshot commit (git ls-tree). The router routes for /dashboard.css, the 5 hook JS files, /aiur-dom-svg-layout-adapter.js, the loader and :module, /aiur-logo.png, /bungee.woff2 and /provider-assets/* are therefore reached only when a file is missing, in which case they 404 anyway. The compile-time embedded @dashboard_css and @dom_svg_layout_adapter copies (File.read! at compile) are never what the browser receives. layout_asset_urls/0 has no production caller; grep finds only test/aiur/extensions_test.exs.",
+      "evidence": "endpoint.ex:33-40 `plug(Plug.Static, at: \"/\", from: :aiur, ..., only: AiurWeb.StaticAssets.revalidated_static_paths(), ...)`; router.ex:114 `get(\"/dashboard.css\", StaticAssetController, :dashboard_css)`; static_assets.ex:63 `@dashboard_css File.read!(@dashboard_css_path)`; `grep -rn layout_asset_urls` -> static_assets.ex and test/aiur/extensions_test.exs:1160 only.",
+      "recommendation": "Pick one path: keep Plug.Static for files under priv/static and the controller only for vendor Phoenix JS and content-addressed layout assets. Delete the shadowed routes, the embedded copies and layout_asset_urls/0 (or wire it into the page if intended).",
+      "refactor_hint": "Asset serving is a web-package concern; simplify before extracting.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-26",
+      "category": "config",
+      "severity": "P2",
+      "title": "Stream Deck download descriptor hard-codes a dev build pinned to one commit, and the 'unpublished' branch is effectively test-only",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "58-64"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1680-1691"}
+      ],
+      "description": "@streamdeck_package pins version 0.0.0-dev.0098e3ac86a2, a fixed commit, and a release URL. streamdeck_package/0 falls back to it whenever :streamdeck_package is unset. No production code sets that key (grep: only the test sets it to %{}). Every daemon, whatever its version, therefore offers the same stale dev sidecar tarball. The comment's intended behavior ('a daemon without a release artifact ... only the download link is dropped') is unreachable.",
+      "evidence": "streamdeck_live.ex:59-63 `version: \"0.0.0-dev.0098e3ac86a2\", commit: \"0098e3ac86a2e49e685e8e6ff67248373de43f1d\", url: \"https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac...\"`; :1686 `_unpublished -> @streamdeck_package`; grep streamdeck_package -> only streamdeck_live.ex and streamdeck_live_test.exs.",
+      "recommendation": "Resolve the package descriptor from a release manifest produced by the packaging pipeline (or from the Stream Deck repo's latest release) and default to 'unpublished' (%{}).",
+      "refactor_hint": "When Stream Deck becomes its own repo, its release metadata must be an input, not a constant in the daemon.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-27",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "AnalyticsLive renders unknown values as zero or as a dash, against the codebase's never-invent-a-value rule",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "701-702"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "513-514"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "647-654"},
+        {"path": "src/lib/aiur_web/control_center_presenter.ex", "lines": "338-348"}
+      ],
+      "description": "gb(_bytes) returns \"0 GB\" for a missing memory reading, so the 'Memory headroom' KPI claims zero memory in use or zero host memory. provider_spend_item and the pressure_* helpers render unknown as \"—\", which GithubCacheLive explicitly forbids ('Never an em-dash standing in for a number'). ControlCenterPresenter.unavailable_fleet also fabricates counts %{running: 0, retrying: 0, idle: 0} beside an error. Three pages apply three different policies for 'unknown'.",
+      "evidence": "analytics_live.ex:702 `defp gb(_bytes), do: \"0 GB\"`; :514 `do: %{label: \"Provider spend\", val: \"—\", sub: \"not available\", tone: nil}`; github_cache_live.ex:1298-1302 `# Never an em-dash standing in for a number ... defp measured(_value), do: \"not measured\"`.",
+      "recommendation": "Create one shared Format.unknown/1 policy (e.g. 'not measured') used by all pages. Make gb/1 return it for non-numbers, and add the unknown-path mutation test AGENTS.md requires.",
+      "refactor_hint": "Shared formatting module for the web package.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-28",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "FinancialData.Cache: infinite-timeout call plus unbounded loader time lets one hung load pin a pending slot and block the LiveView",
+      "locations": [
+        {"path": "src/lib/aiur_web/financial_data/cache.ex", "lines": "181-183"},
+        {"path": "src/lib/aiur_web/financial_data/cache/pending.ex", "lines": "17-61"},
+        {"path": "src/lib/aiur_web/financial_data/cache/pending.ex", "lines": "173-190"}
+      ],
+      "description": "Cache.fetch uses GenServer.call(..., :infinity). The load worker has no deadline, and a pending entry is resolved only by the worker's result, its DOWN, or a configuration change. A loader that blocks (for example UsageAggregate.cells_snapshot waiting on a busy GenServer) therefore leaves every waiter's LiveView blocked forever. Because cache keys include the per-connection generation, up to @max_entries 8 distinct hung keys make every further key answer :provider_unavailable immediately, until restart. Nothing polls or expires a stuck pending entry.",
+      "evidence": "cache.ex:182 `GenServer.call(server, {:fetch, context, identity, source, key, max_age_ms, loader}, :infinity)`; pending.ex:29-30 `:error when map_size(state.pending) >= @max_entries -> {:reply, {:error, :provider_unavailable}, state}`; pending.ex:173 `send(cache, {:financial_data_loaded, load_ref, load_result(context, identity, loader)})` with no timer.",
+      "recommendation": "Start a per-load deadline timer (Process.send_after(self(), {:load_timeout, ref}, ms)) that kills the worker and replies {:error, :provider_unavailable}. Give fetch/7 a finite call timeout.",
+      "refactor_hint": "Same deadline pattern should back ControlCenterCache once it adopts this design (web-rest-02).",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-29",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "AiurWeb.Presenter builds the same row fields in five payload builders",
+      "locations": [
+        {"path": "src/lib/aiur_web/presenter.ex", "lines": "303-383"},
+        {"path": "src/lib/aiur_web/presenter.ex", "lines": "442-464"},
+        {"path": "src/lib/aiur_web/presenter.ex", "lines": "526-541"}
+      ],
+      "description": "running_entry_payload, retry_entry_payload, idle_entry_payload, running_issue_payload and retry_issue_payload each restate waiting_reason, open_decision_count, open_decision_count_health, ci: ci_payload(...), review: review_status(...), worker_host, workspace_path, tag/title/url and maybe_put_tracker_identity, each with its own defaults. That is five copies of about 15 fields. running_issue_payload and running_entry_payload differ only in a few keys. retry rows hard-code runtime_seconds: 0 and tracker_paused: false, which StreamDeckGrid then has to undo ('Retry rows hard-code runtime_seconds: 0 ... projected as nil').",
+      "evidence": "presenter.ex:328-331, 354-357, 376-379, 458-461, 535-538 each contain `open_decision_count: Map.get(x, :open_decision_count, 0), open_decision_count_health: Map.get(x, :open_decision_count_health, :unknown), ci: ci_payload(Map.get(x, :ci_result)), review: review_status(...)`; stream_deck_grid.ex:132-134 comment about retry rows hard-coding 0.",
+      "recommendation": "Build a common_row_fields(entry) map, merge kind-specific fields on top, and stop inventing runtime_seconds: 0 and tracker_paused: false for retry rows (emit nil).",
+      "refactor_hint": "Fleet row projection belongs in one presenter used by API, dashboard and Stream Deck.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-30",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "BuildOrderPresenter and BuildOrderViewModel sit at the aiur_web root beside an AiurWeb.BuildOrder.* namespace; six structs share one file",
+      "locations": [
+        {"path": "src/lib/aiur_web/build_order_presenter.ex", "lines": "388-461"},
+        {"path": "src/lib/aiur_web/build_order_presenter.ex", "lines": "866-886"},
+        {"path": "src/lib/aiur_web/build_order_view_model.ex", "lines": "1-233"}
+      ],
+      "description": "The Build Order web code lives in two namespaces (AiurWeb.BuildOrderPresenter/BuildOrderViewModel versus AiurWeb.BuildOrder.ContextRuntime/SourceRuntime/...). build_order_view_model.ex defines 6 modules (Edge, Node, Capability, Group, Relationships, BuildOrderViewModel). build_node/4 filters all edges per node and selected_relationships filters all edges twice, so a render is O(nodes × edges). That is fine at current sizes, but it is the pattern to avoid if Build Orders grow.",
+      "evidence": "build_order_presenter.ex:397 `edge_states = edges |> Enum.filter(&(&1.target_key == key)) |> Enum.map(& &1.state)` inside the per-node build_node/4; build_order_view_model.ex defmodules at lines 1, 37, 101, 134, 149, 174.",
+      "recommendation": "Move to Aiur.BuildOrder.ViewModel.{Edge,Node,...} (one file per struct), and pre-index edges by target_key/source_key once in render/4.",
+      "refactor_hint": "Part of moving the pure projection to the domain (web-rest-05).",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-31",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Unreachable or drifted handlers in DashboardLive and StreamdeckChannel",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "220-223"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "358"},
+        {"path": "src/lib/aiur_web/live/dashboard_live.ex", "lines": "1065-1075"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "115-122"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "184-187"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "205"}
+      ],
+      "description": "(1) handle_info(:observability_updated) handles a bare atom that nothing sends; ObservabilityPubSub only broadcasts {:observability_updated, event_id}. (2) handle_event(\"toggle-fleet-filter\") is a no-op for a button rendered only by Overview.fleet_overview, whose only caller is FleetTable.fleet_table, which has no callers. The component chain and the \"fleet\" entry in @table_sort_columns are dead. (3) DashboardLive.unavailable_retained_counts/0 is a drifted copy of PayloadLoader's version: it lacks scope and health.partial?/reason, and PayloadLoader always sets :retained_counts, so it is only a fallback. (4) The unauthorized clauses for implement/say/voice_start in StreamdeckChannel are unreachable, because join/3 refuses any socket without streamdeck_authenticated: true and that assign never changes.",
+      "evidence": "grep ':observability_updated' without a tuple finds only handlers (dashboard_live.ex:221, current_run_projections.ex:145); grep fleet_overview -> fleet_table.ex:24 only; grep 'FleetTable\\.' -> no callers; streamdeck_channel.ex:42 `def join(\"streamdeck:fleet\", _payload, _socket), do: {:error, %{reason: \"unauthorized\"}}`.",
+      "recommendation": "Delete the bare-atom clauses, the fleet filter button chain (Overview.fleet_overview, FleetTable, FleetFilters if otherwise unused) and the no-op handler, the drifted unavailable_retained_counts, and the unreachable channel clauses.",
+      "refactor_hint": "Trim before moving files so dead components are not carried into the new package.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-32",
+      "category": "anti-pattern",
+      "severity": "P3",
+      "title": "Stream Deck emulator renders fabricated dial values as accessible slider readings",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1723-1749"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "690-706"}
+      ],
+      "description": "knob_descriptors/4 hard-codes Focus 62, Volume 74 and Speed 48. They are rendered as role=\"slider\" with aria-valuenow and data-value, so screen readers and tests read invented measurements. Only the Page dial is real.",
+      "evidence": "streamdeck_live.ex:1739-1741 `%{label: \"Focus\", value: \"62\", angle: 138, hint: back_hint}, %{label: \"Volume\", value: \"74\", angle: 174, hint: nil}, %{label: \"Speed\", value: \"48\", angle: 78, hint: nil}`.",
+      "recommendation": "Render the three decorative dials without a value (aria-hidden, or role=button with their press action), or derive real values.",
+      "refactor_hint": "Emulator component extraction (web-rest-22).",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-33",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Small helpers copied across the unit, some already drifted",
+      "locations": [
+        {"path": "src/lib/aiur_web/streamdeck_logs.ex", "lines": "541-562"},
+        {"path": "src/lib/aiur_web/streamdeck_strip.ex", "lines": "146-163"},
+        {"path": "src/lib/aiur_web/streamdeck_projection.ex", "lines": "328-337"},
+        {"path": "src/lib/aiur_web/streamdeck_projection.ex", "lines": "490-499"},
+        {"path": "src/lib/aiur_web/live/analytics_live.ex", "lines": "628-637"},
+        {"path": "src/lib/aiur_web/streamdeck_logs.ex", "lines": "620-622"},
+        {"path": "src/lib/aiur_web/streamdeck_projection.ex", "lines": "533"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1568-1572"},
+        {"path": "src/lib/aiur_web/financial_data_access/proof.ex", "lines": "153-159"},
+        {"path": "src/lib/aiur_web/streamdeck_auth.ex", "lines": "231-234"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1776-1779"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "491-494"},
+        {"path": "src/lib/aiur_web/live/streamdeck_live.ex", "lines": "1132"},
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "550"}
+      ],
+      "description": "relative_time/1 exists in StreamdeckLogs and StreamdeckStrip, and has drifted: the Logs version takes an injected now and truncates a non-ISO stamp to 6 characters, while the Strip version uses utc_now and returns the raw stamp, which can overflow the face. ISO-8601 parse helpers appear 4 times in this unit (two in StreamdeckProjection alone). Dual atom/string key getters appear 3 times (value/3, field/2, get_value/3). secure_equal?/2 is copied in Proof and StreamdeckAuth. transcript_flush_ms/0 is copied in StreamdeckLive and StreamdeckChannel with the same default of 250. The 'answerable' status list [\"open\", \"deferred\"] is repeated in StreamdeckLive (1132, 1173, 1187), StreamdeckChannel (550) and the TS client. The snapshot_timeout_ms expression PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, ...) is repeated in 6 places, and the `Endpoint.config(:orchestrator) || Aiur.Orchestrator` seam in 8.",
+      "evidence": "streamdeck_strip.ex:158-159 `_ -> timestamp` vs streamdeck_logs.ex:557-558 `_ -> String.slice(timestamp, 0, 6)`; observability_api_controller.ex:167, streamdeck_live.ex:1697, streamdeck_projection.ex:505, analytics_live.ex:362, analytics_runtime.ex:158, payload_loader.ex:162 all compute the same snapshot tolerance.",
+      "recommendation": "Collect into AiurWeb.Support.{Time, Maps, Crypto} and one AiurWeb.Runtime.snapshot_opts/0. Put the answerable-status predicate on Aiur.Decision (Decision.answerable?/1) and export it to the TS client through the channel payload.",
+      "refactor_hint": "Shared support module of the web package; decision vocabulary stays in the domain.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-34",
+      "category": "performance",
+      "severity": "P3",
+      "title": "Stream Deck pushes read the orchestrator snapshot twice per event and may pair fleet and grid from different snapshots",
+      "locations": [
+        {"path": "src/lib/aiur_web/streamdeck_channel.ex", "lines": "232-264"},
+        {"path": "src/lib/aiur_web/streamdeck_projection.ex", "lines": "63-88"}
+      ],
+      "description": "handle_info(:streamdeck_snapshot) builds snapshot() (fleet() reads the snapshot) and then grid() (a second read). running_changed and status_changed do the same with fleet() plus grid(). The two halves of one pushed message can therefore describe different orchestrator generations. status_changed fires on agent-list pane visibility changes, which are not fleet changes, so each pane open or close costs every connected deck two snapshot reads plus provider meter normalization.",
+      "evidence": "streamdeck_channel.ex:234 `push(socket, \"snapshot\", StreamdeckProjection.snapshot() |> Map.put(\"grid\", StreamdeckProjection.grid()))`; :262 `push(socket, \"fleet\", StreamdeckProjection.fleet() |> Map.put(\"grid\", StreamdeckProjection.grid()))`; projection.ex:69 and :82 each call `safe_call(snapshot_fun(), ...)`.",
+      "recommendation": "Read the snapshot once per push and derive fleet and grid from it. Ignore status_changed messages whose status is pane visibility.",
+      "refactor_hint": "StreamdeckProjection API should take a snapshot argument rather than fetching.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-35",
+      "category": "other",
+      "severity": "P3",
+      "title": "Retry due_at is computed from wall-clock now instead of the snapshot's capture time",
+      "locations": [
+        {"path": "src/lib/aiur_web/presenter.ex", "lines": "578-583"},
+        {"path": "src/lib/aiur_web/presenter.ex", "lines": "24-35"}
+      ],
+      "description": "due_at_iso8601/1 adds due_in_ms to DateTime.utc_now(). due_in_ms is relative to when the orchestrator built the snapshot, and dashboard_snapshot may return a :stale snapshot within the configured tolerance (polling-interval scaled). The reported due_at is therefore later than the real retry time by the snapshot's age.",
+      "evidence": "presenter.ex:579-580 `DateTime.utc_now() |> DateTime.add(div(due_in_ms, 1_000), :second)`; :26 `{status, snapshot, freshness} when status in [:current, :stale] ->`.",
+      "recommendation": "Have the orchestrator publish an absolute due_at (or the snapshot's captured_at) and render that.",
+      "refactor_hint": "Absolute timestamps should be produced by the domain snapshot, not reconstructed in the web layer.",
+      "effort": "S"
+    },
+    {
+      "id": "web-rest-36",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "VoiceSessionLimiter supervised under FinancialData.Supervisor; generic module names collide conceptually",
+      "locations": [
+        {"path": "src/lib/aiur_web/financial_data/supervisor.ex", "lines": "14-17"},
+        {"path": "src/lib/aiur_web/presenter.ex", "lines": "1-18"},
+        {"path": "src/lib/aiur_web/control_center_presenter.ex", "lines": "1-18"}
+      ],
+      "description": "The financial-data rest_for_one tree also starts VoiceSessionLimiter, so a financial-data Generation restart also resets all voice leases. AiurWeb.Presenter.state_payload/3 and AiurWeb.ControlCenterPresenter.state_payload/3 share a name and arity but return different shapes (the second wraps the first). The unit also has AiurWeb.OperatorControlCenter.Analytics.Presenter and other Presenter modules, so 'Presenter' does not identify a responsibility.",
+      "evidence": "financial_data/supervisor.ex:14 `children = [Generation, SubscriptionAuthority, FinancialData, ChangeBridge, VoiceSessionLimiter]`; control_center_presenter.ex:30 `Presenter.state_payload(orchestrator, snapshot_timeout_ms, presenter_opts)`.",
+      "recommendation": "Give voice its own supervisor (with VoiceChannel support). Rename AiurWeb.Presenter to AiurWeb.FleetPayload (API/fleet projection) and ControlCenterPresenter to ControlCenterReadModel.",
+      "refactor_hint": "Name modules by responsibility before the move so the new package's module tree is self-explanatory.",
+      "effort": "S"
+    }
+  ]
+}

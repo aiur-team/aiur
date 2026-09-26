@@ -1,0 +1,1335 @@
+{
+  "surface": "subsystems",
+  "coverage_notes": "46 features covering usage accounting, provider meters/accounts, telemetry and analytics, metrics logs, current-run projections, health/forensics, logging, build gate, admission, process/pause containment, workspaces (provisioning, ownership, remote, warm base), sandbox (Codex policy and --test harness), upgrade, init, env, boot plumbing, rtk, dev tooling, utilities and the durable state layout. Totals: lib_loc 61494 (snapshot src/lib at 3339b88 plus src/priv and engine-shell lines counted from `git show 3339b88` where noted), test_loc 51833, loc_saving_estimate 35462. Usage sources: 39 retained run dirs in ~/.aiur/logs (2026-09-15..09-26: telemetry.ndjson, alerts.ndjson, boot.out.log, 3 debug aiur.log); 14 instance state dirs in ~/.config/aiur (the engine's AIUR_BG_STATE_DIR default); ~/.aiur/repo/*/*/{executor wake streams, analytics, github-quota, meta}; ~/.aiur/build-gate; 7 real configs (~/.aiur/config, config.archon, repo-local aiur, archon, kevinweaver-dev, <private repo> (private) (private), <private repo> (private) (private)) parsed with Ruby YAML for key names only; 68,609 Executor tool uses extracted from 1,190 transcript files under ~/.claude/projects/-home-everdred-github-everdred-* (split into operational vs code-reading commands by a regex that drops src/lib, tests, worktrees, diffs; this research session excluded); 6,534 Codex sessions and 1,123 Claude agent transcripts grepped with fixed strings/regex. Limits: Claude transcripts only go back to 2026-09-01 and run logs to 2026-09-15, so older use (July-August) is invisible except through git history, wake streams and meta logs. Features whose code is shared with other surfaces are attributed here by primary owner: dispatch_policy.ex lines 1-605 only (admission); Claude OTLP receiver (claude/telemetry.ex etc.) left to the agent-backend surface; dashboard presenters/LiveViews that read these subsystems left to the web surface; `aiur upgrade`, `aiur usage`, `aiur analytics` and `aiur init` as commands are also CLI-surface items - here they are listed for the machinery behind them. Test LOC is by file-name match plus a scan for test files referencing each module >=3 times; a few mixed files (dispatch_policy_test.exs, workspace_and_config_test.exs) are attributed whole. Private-repo configs are reported as counts only.",
+  "features": [
+    {
+      "id": "subsystems-01",
+      "name": "Run telemetry recorder (writer, resource sampler, lifecycle events, retention)",
+      "surface": "subsystems",
+      "description": "Daemon-owned NDJSON stream <run-log>/log/telemetry.ndjson: lifecycle phase events per ticket attempt (dispatch, prewarm, workspace_setup, workspace_ownership, agent_spinup, implement, build_test, review_pause, pr_opened, pr_merged, comment_received), procfs resource samples of daemon and agent process trees, sampler warnings, capacity holds, firehose polls, restarts; size/age retention and segment roll.",
+      "modules": [
+        "lib/aiur/run_telemetry.ex",
+        "lib/aiur/run_telemetry/writer.ex",
+        "lib/aiur/run_telemetry/sampler.ex",
+        "lib/aiur/run_telemetry/procfs.ex",
+        "lib/aiur/run_telemetry/lifecycle.ex",
+        "lib/aiur/run_telemetry/retention.ex",
+        "lib/aiur/run_telemetry/supervisor.ex"
+      ],
+      "lib_loc": 2756,
+      "test_loc": 2120,
+      "entry_points": [
+        "Aiur.RunTelemetry (facade)",
+        "Aiur.RunTelemetry.Lifecycle.record/5 (13 call sites in orchestrator, agent_runner, workspace/provisioner, coding_agent)",
+        "Aiur.RunTelemetry.Supervisor (started when observability.telemetry_enabled, default true)",
+        "config: observability.telemetry_enabled, telemetry_retention_max_bytes (64 MiB), telemetry_retention_max_age_days (30), telemetry_retention_prune_interval_bytes"
+      ],
+      "docs": "website/docs-app/reference/configuration.md (observability.telemetry_* keys); guide/gui.md (Analytics page reads it)",
+      "usage": "heavy",
+      "usage_evidence": "Fires in every run: 34 of 39 retained run dirs (~/.aiur/logs/*/log/telemetry.ndjson, 2026-09-15..09-26) hold 454 MB. Record census (python over all files): 457,706 kind=resource, 434,147 kind=warning (243,151 ticket_roots_unavailable + 191,003 resource_sample_warning), 17,880 lifecycle, 3,247 firehose_poll, 42 restart, 9 capacity_hold, 7 capacity_resumed. So 97.6% of records are resource samples or sampler warnings; lifecycle is 2%. Largest file 57 MB, all under the 64 MiB cap (retention works). Consumers: the Executor reads the raw file directly (grep 'telemetry.ndjson' in Executor tool uses, excluding code-reading commands: 93 commands in 25 transcript files, mostly dispatch/lifecycle/resource greps); 14 Codex agent sessions also read it; the /analytics dashboard page (via subsystems-02) is observed in 79 of 173 aiur-team meta files. merged-fixes area N: run_telemetry/writer.ex touched by 4 daemon-stability fixes.",
+      "recommendation": "simplify",
+      "rationale": "Lifecycle phase timings are the one dataset the Executor actually greps, and they are cheap. The procfs sampler and its warnings produce ~98% of the bytes and nearly all of the noise (ticket_roots_unavailable fires every sample for every ticket whose workspace is not running). Keep the lifecycle writer + retention; cut per-process procfs sampling to a coarse host sample (load/mem) or drop it, and never persist per-sample warnings.",
+      "loc_saving_estimate": 1200,
+      "rewrite_notes": "Remove Procfs (312) and most of Sampler (841); keep Writer + Retention with one schema. Emit warnings as counters in a periodic summary record, not one line per miss. Consider making lifecycle events the only telemetry and deriving capacity/firehose facts from them."
+    },
+    {
+      "id": "subsystems-02",
+      "name": "Telemetry reporting: dataset reducer, run summaries, HTML dashboard generator, timeline, GitHub enricher, `aiur analytics` CLI",
+      "surface": "subsystems",
+      "description": "Elixir reducers over telemetry.ndjson: Dataset.build, Summaries.materialize (writes ~/.aiur/repo/<o>/<r>/analytics/runs/<boot>/run-summary.json), a self-contained HTML dashboard generator (mix aiur.telemetry.dashboard) with a GitHub-events enricher and timeline, and the `aiur analytics` CLI that reuses the dashboard Analytics presenter.",
+      "modules": [
+        "lib/aiur/run_telemetry/dataset.ex",
+        "lib/aiur/run_telemetry/summaries.ex",
+        "lib/aiur/run_telemetry/dashboard.ex",
+        "lib/aiur/run_telemetry/timeline.ex",
+        "lib/aiur/run_telemetry/github_enricher.ex",
+        "lib/mix/tasks/aiur.telemetry.dashboard.ex",
+        "lib/aiur/analytics_cli.ex"
+      ],
+      "lib_loc": 3227,
+      "test_loc": 2007,
+      "entry_points": [
+        "Aiur.RunTelemetry.Summaries.materialize/0 (called from Writer on roll)",
+        "AiurWeb.OperatorControlCenter.Analytics.{Presenter,LatestRun} (dashboard /analytics)",
+        "mix aiur.telemetry.dashboard",
+        "aiur analytics [--json] (Aiur.AnalyticsCLI)"
+      ],
+      "docs": "website/docs-app/guide/gui.md (Analytics page); reference/cli.md (aiur analytics)",
+      "usage": "occasional",
+      "usage_evidence": "run-summary.json materialized 21 times in total (find ~/.aiur/repo -path '*analytics/runs/*' -name run-summary.json, excluding latest/): 20 for aiur-team/aiur, 1 for architecture-docs, 0 for khala despite 20 retained khala run dirs; newest 2026-09-21. `aiur analytics` CLI: 0 Executor invocations in retained transcripts (regex 'aiur(dev)? analytics' over 68,609 Executor tool uses), 5 Codex agent sessions executing it (rg over ~/.codex/sessions exec 'cmd' fields; agents building the feature). mix aiur.telemetry.dashboard: 3 Executor mentions, all while reviewing code, 0 operational. The /analytics page that consumes Dataset/Summaries is captured in 79 of 173 aiur-team meta files (analytics.png); a meta note records its spend panel as 'genuinely absent' usage.",
+      "recommendation": "simplify",
+      "rationale": "One reader matters (the /analytics page). The portable HTML dashboard, its GitHub enricher, the timeline, the mix task and the `aiur analytics` CLI have no operational use in the retained window and duplicate what the page shows. Summaries also duplicates the Python reducer (subsystems-03).",
+      "loc_saving_estimate": 1514,
+      "rewrite_notes": "Keep Dataset + Summaries (~1,700 lines) feeding the page; delete Dashboard (619), GitHubEnricher (335), Timeline (90), the mix task (150) and AnalyticsCLI (320). If a CLI is wanted, print the same summary JSON the page reads."
+    },
+    {
+      "id": "subsystems-03",
+      "name": "Analytics Python toolkit (analytics/: reduce, run-summary, build-report, cost-report, flake-report)",
+      "surface": "subsystems",
+      "description": "Offline Python reducer and report scripts over telemetry NDJSON with a JSON schema; cost-report shells into mix aiur.cost_report; flake-report is a stub that exits with 'not shipped'.",
+      "modules": [
+        "analytics/lib/analytics/__init__.py",
+        "analytics/lib/analytics/build_report.py",
+        "analytics/lib/analytics/cli.py",
+        "analytics/lib/analytics/flake_report.py",
+        "analytics/lib/analytics/reduce.py",
+        "analytics/lib/analytics/reduce_cmd.py",
+        "analytics/lib/analytics/render.py",
+        "analytics/lib/analytics/run_summary.py",
+        "analytics/lib/analytics/sources.py",
+        "analytics/run-summary",
+        "analytics/reduce",
+        "analytics/build-report",
+        "analytics/cost-report",
+        "analytics/flake-report",
+        "analytics/schema/flake-report.v1.json",
+        "analytics/schema/run-summary.v1.json"
+      ],
+      "lib_loc": 2246,
+      "test_loc": 799,
+      "entry_points": [
+        "analytics/reduce",
+        "analytics/run-summary",
+        "analytics/build-report",
+        "analytics/cost-report",
+        "analytics/flake-report"
+      ],
+      "docs": "analytics/README.md only (not in website/docs-app)",
+      "usage": "none-found",
+      "usage_evidence": "Executor tool uses matching 'analytics/(run-summary|reduce|build-report|cost-report|flake-report)': 4, all in one 2026-08-22 code-review session (reading reduce.py, running its unit tests); 0 operational runs. Codex agent sessions executing 'analytics/run-summary': 0 (rg over ~/.codex/sessions exec cmd fields). Claude agent transcripts mentioning 'analytics/run-summary': 0 of 1,123 files. git: 2 commits (2026-08-09, 08-23).",
+      "recommendation": "cut",
+      "rationale": "Unused in every source searched, and it is a second implementation of the Elixir Summaries reducer (the README's 'one reducer' claim is false: Summaries.materialize also writes run-summary.json). flake-report ships as a stub.",
+      "loc_saving_estimate": 2100,
+      "rewrite_notes": "Delete the directory; keep run-summary.v1.json (108 lines) as the documented contract if the summary format survives."
+    },
+    {
+      "id": "subsystems-04",
+      "name": "Usage envelope and headless usage adapters (token accounting intake)",
+      "surface": "subsystems",
+      "description": "Provider-neutral UsageEnvelope contract (codec, exact-money, relationship registry) and per-backend adapters that turn Codex turn/thread usage, Claude request usage, DeepSeek/Kimi/OpenRouter/OpenAI-compatible responses and Claude OTLP usage into envelopes for the ledger; TokenUsage display helpers.",
+      "modules": [
+        "lib/aiur/usage_envelope.ex",
+        "lib/aiur/usage_envelope/codec.ex",
+        "lib/aiur/usage_envelope/exact_money.ex",
+        "lib/aiur/usage_envelope/relationship_registry.ex",
+        "lib/aiur/usage/headless/adapter.ex",
+        "lib/aiur/usage/headless/catalog.ex",
+        "lib/aiur/usage/headless/claude/request_usage.ex",
+        "lib/aiur/usage/headless/codex/thread_usage.ex",
+        "lib/aiur/usage/headless/codex/tokens.ex",
+        "lib/aiur/usage/headless/codex/turn_usage.ex",
+        "lib/aiur/usage/headless/compatibility.ex",
+        "lib/aiur/usage/headless/context.ex",
+        "lib/aiur/usage/headless/deep_seek/request_usage.ex",
+        "lib/aiur/usage/headless/emitter.ex",
+        "lib/aiur/usage/headless/kimi/request_usage.ex",
+        "lib/aiur/usage/headless/normalizer.ex",
+        "lib/aiur/usage/headless/open_ai_compat/request_usage.ex",
+        "lib/aiur/usage/headless/open_router/request_usage.ex",
+        "lib/aiur/token_usage.ex",
+        "lib/aiur/claude/telemetry/usage_adapter.ex",
+        "lib/aiur/claude/telemetry/usage_adapter/relationship.ex",
+        "lib/aiur/claude/telemetry/usage_adapter/validation.ex"
+      ],
+      "lib_loc": 3361,
+      "test_loc": 1991,
+      "entry_points": [
+        "Aiur.Usage.Headless.Emitter (from agent_runner/message_handler and coding_agent)",
+        "Aiur.Claude.Telemetry.UsageAdapter",
+        "Aiur.UsageEnvelope"
+      ],
+      "docs": "none found in website/docs-app beyond configuration.md pricing keys",
+      "usage": "heavy",
+      "usage_evidence": "18,589 envelopes accepted across 10 non-empty instance ledgers (~/.config/aiur/<key>/<repo>/usage-ledger/segments/00000001.ndjson; 4 more instance dirs are empty smoke/test shells). By source: codex turn usage 7,164, claude request usage 5,400, codex thread usage 4,892, deepseek request usage 1,133; kimi, open_router and generic openai-compat adapters: 0 records. Coverage: 18,414 (99.1%) have delta.cost=null; 18,589 (100%) carry coverage_reason missing_trusted_occurrence_time; 17,456 (94%) unknown_account_generation. Months: Jul 3,079, Aug 4,120, Sep 11,390.",
+      "recommendation": "simplify",
+      "rationale": "Token capture is real and continuous, but the envelope carries ~30 fields of provenance (relationship revisions, counter epochs, account generations, exact-money) that end up null or 'unknown' on almost every record. Codex emits two record streams (turn usage and thread usage). Three adapters have never produced a record.",
+      "loc_saving_estimate": 2000,
+      "rewrite_notes": "One record per turn: {run, ticket, attempt, backend, model, input, cached_input, output, reasoning, observed_at}. Drop RelationshipRegistry (458), ExactMoney (261), Compatibility, one of the two Codex streams, and the Kimi/OpenRouter adapters until a config uses them."
+    },
+    {
+      "id": "subsystems-05",
+      "name": "Usage ledger (canonical crash-safe raw usage store)",
+      "surface": "subsystems",
+      "description": "Single-writer append-only ledger with idempotency/counter checkpoint, counter policy, retired floor, recovery and quarantine; publishes ordered deltas to the aggregate.",
+      "modules": [
+        "lib/aiur/usage_ledger.ex",
+        "lib/aiur/usage_ledger/checkpoint.ex",
+        "lib/aiur/usage_ledger/counter_policy.ex",
+        "lib/aiur/usage_ledger/paths.ex",
+        "lib/aiur/usage_ledger/record.ex",
+        "lib/aiur/usage_ledger/recovery.ex",
+        "lib/aiur/usage_ledger/retired_floor.ex",
+        "lib/aiur/usage_ledger/store.ex"
+      ],
+      "lib_loc": 1790,
+      "test_loc": 1626,
+      "entry_points": [
+        "Aiur.UsageLedger (supervised child)",
+        "Aiur.UsageLedger.append/1 (from Usage.Headless.Emitter)"
+      ],
+      "docs": "none in website/docs-app",
+      "usage": "regular",
+      "usage_evidence": "Written in 10 of 14 instance dirs: segment files 0.3-5.8 MB (718-2,553 records each), checkpoint.json ~1.0 MB each. Readers: only UsageAggregate.Store (grep 'Aiur.UsageLedger.' over src/lib: usage_aggregate/store.ex and usage/headless/emitter.ex). Executor reads of usage-ledger files: 7 commands in 2 transcript files, both 2026-09-26 research; git: 2 commits (2026-07-17).",
+      "recommendation": "merge",
+      "rationale": "A durable ledger for data whose cost is null 99% of the time does not need its own recovery/quarantine/counter-policy machinery. Merge ledger, aggregate (subsystems-06) and compaction (subsystems-07) into one append-only usage log with an in-memory rollup rebuilt on boot.",
+      "loc_saving_estimate": 1300,
+      "rewrite_notes": "Keep an NDJSON append + fsync; drop CounterPolicy (396), Recovery (470), RetiredFloor, Checkpoint quarantine. Use the shared durable-log helper proposed in subsystems-45."
+    },
+    {
+      "id": "subsystems-06",
+      "name": "Usage aggregate projection (queryable rollup of the ledger)",
+      "surface": "subsystems",
+      "description": "Crash-safe checkpointed projection of ledger deltas into relationship-revision-partitioned cells; bounded queries by ticket/run.",
+      "modules": [
+        "lib/aiur/usage_aggregate.ex",
+        "lib/aiur/usage_aggregate/checkpoint.ex",
+        "lib/aiur/usage_aggregate/key.ex",
+        "lib/aiur/usage_aggregate/paths.ex",
+        "lib/aiur/usage_aggregate/projection.ex",
+        "lib/aiur/usage_aggregate/query.ex",
+        "lib/aiur/usage_aggregate/recovery.ex",
+        "lib/aiur/usage_aggregate/store.ex"
+      ],
+      "lib_loc": 1387,
+      "test_loc": 597,
+      "entry_points": [
+        "Aiur.UsageAggregate.Store",
+        "Aiur.UsageAggregate.Query (via Usage.GroupedScopes, BuildOrder usage_runtime, mix aiur.cost_report)"
+      ],
+      "docs": "none in website/docs-app",
+      "usage": "regular",
+      "usage_evidence": "usage-aggregate/checkpoint.json present in 10 instance dirs (22-247 KB). Consumers: Usage.GroupedScopes -> AnalyticsLive, DashboardLive, OCC UsageSummaryPresenter, BuildOrder usage_runtime; mix aiur.cost_report (0 operational runs). The dashboard Analytics page it feeds is observed in 79/173 meta files.",
+      "recommendation": "merge",
+      "rationale": "Same data as the ledger, projected once more with its own checkpoint/recovery/degraded marker. Fold into subsystems-05's rollup.",
+      "loc_saving_estimate": 1000,
+      "rewrite_notes": "A map keyed by {run, ticket, model} rebuilt from the log on boot replaces Store/Checkpoint/Recovery/Key."
+    },
+    {
+      "id": "subsystems-07",
+      "name": "Usage compaction (retention of the usage ledger into compacted blocks)",
+      "surface": "subsystems",
+      "description": "Coordinator, policy, floor and manifest for dimension-preserving compaction of old ledger data into blocks.",
+      "modules": [
+        "lib/aiur/usage_compaction/block.ex",
+        "lib/aiur/usage_compaction/coordinator.ex",
+        "lib/aiur/usage_compaction/floor.ex",
+        "lib/aiur/usage_compaction/manifest.ex",
+        "lib/aiur/usage_compaction/paths.ex",
+        "lib/aiur/usage_compaction/policy.ex"
+      ],
+      "lib_loc": 1297,
+      "test_loc": 555,
+      "entry_points": [
+        "Aiur.UsageCompaction.Coordinator (supervised child)"
+      ],
+      "docs": "none",
+      "usage": "none-found",
+      "usage_evidence": "find ~/.config/aiur -path '*usage-compaction*' -type f | wc -l = 0: the directory (and blocks/) exists in 11 instance dirs but no block or manifest was ever written. git: 1 commit (2026-07-17). Executor mentions: 3 commands, 2 files, 2026-09-26 research only.",
+      "recommendation": "cut",
+      "rationale": "Never produced output on any real instance; the ledger segments are 6 MB at most, so there is nothing to compact.",
+      "loc_saving_estimate": 1297,
+      "rewrite_notes": "Delete. If growth ever matters, rotate the usage log by month."
+    },
+    {
+      "id": "subsystems-08",
+      "name": "Pricing: price table, pricing windows, grouped usage scopes, cost report tasks",
+      "surface": "subsystems",
+      "description": "Versioned per-provider price table with effective-date windows and validator, component/dimension pricing, GroupedScopes cost rollups for the dashboard, and mix aiur.cost_report / aiur.pricing_window.",
+      "modules": [
+        "lib/aiur/usage/price_table.ex",
+        "lib/aiur/usage/price_table/data.ex",
+        "lib/aiur/usage/price_table/provider_dimensions.ex",
+        "lib/aiur/usage/price_table/validator.ex",
+        "lib/aiur/usage/price_table/window.ex",
+        "lib/aiur/usage/pricing.ex",
+        "lib/aiur/usage/pricing/components.ex",
+        "lib/aiur/usage/pricing/dimensions.ex",
+        "lib/aiur/usage/pricing/result.ex",
+        "lib/aiur/usage/grouped_scopes.ex",
+        "lib/aiur/usage/grouped_scopes/price_adapter.ex",
+        "lib/aiur/usage/grouped_scopes/scope.ex",
+        "lib/aiur/config/schema/pricing_policy.ex",
+        "lib/mix/tasks/aiur.cost_report.ex",
+        "lib/mix/tasks/aiur.pricing_window.ex"
+      ],
+      "lib_loc": 2871,
+      "test_loc": 2408,
+      "entry_points": [
+        "Aiur.Usage.Pricing",
+        "Aiur.Usage.PriceTable",
+        "Aiur.Usage.GroupedScopes (AnalyticsLive, DashboardLive, OCC)",
+        "mix aiur.cost_report",
+        "mix aiur.pricing_window",
+        "config: agent pricing_policy schema"
+      ],
+      "docs": "website/docs-app/reference/configuration.md (pricing keys)",
+      "usage": "rare",
+      "usage_evidence": "Priced records: 175 of 18,589 ledger records (0.9%) carry a cost (all others cost=null). mix aiur.cost_report: 0 Executor operational runs, 7 Codex agent sessions (development). pricing_window: 11 Executor mentions, all code work, 0 operational. Meta note (aiur-team meta): Analytics 'reports run-scoped usage telemetry (genuinely absent)'. Fix #1978 (effective-date DeepSeek repricing).",
+      "recommendation": "simplify",
+      "rationale": "The machinery prices almost nothing because upstream records lack trusted time and account; the cost shown to the Executor comes from provider meters (subsystems-10), not from here.",
+      "loc_saving_estimate": 1800,
+      "rewrite_notes": "A static model->price map and one multiply at read time; drop windows, validator, provider dimensions, property tests, both mix tasks."
+    },
+    {
+      "id": "subsystems-09",
+      "name": "Provider account generation (opaque account identity for usage and meters)",
+      "surface": "subsystems",
+      "description": "Owner/registry/lifecycle/tombstones minting opaque local 'account generations' per provider auth binding, with per-backend context modules for Claude, Codex and OpenAI-compatible backends.",
+      "modules": [
+        "lib/aiur/provider_account_generation.ex",
+        "lib/aiur/provider_account_generation/context.ex",
+        "lib/aiur/provider_account_generation/continuity.ex",
+        "lib/aiur/provider_account_generation/events.ex",
+        "lib/aiur/provider_account_generation/lifecycle.ex",
+        "lib/aiur/provider_account_generation/monitor.ex",
+        "lib/aiur/provider_account_generation/owner.ex",
+        "lib/aiur/provider_account_generation/registry.ex",
+        "lib/aiur/provider_account_generation/snapshot.ex",
+        "lib/aiur/provider_account_generation/state.ex",
+        "lib/aiur/provider_account_generation/tombstones.ex",
+        "lib/aiur/provider_account_generation/validation.ex",
+        "lib/aiur/claude/account_generation.ex",
+        "lib/aiur/claude/account_generation/context.ex",
+        "lib/aiur/codex/account_generation.ex",
+        "lib/aiur/codex/account_generation/context.ex",
+        "lib/aiur/open_ai_compat/account_generation.ex"
+      ],
+      "lib_loc": 1525,
+      "test_loc": 1509,
+      "entry_points": [
+        "Aiur.ProviderAccountGeneration (supervised)",
+        "Claude/Codex/OpenAICompat .AccountGeneration contexts"
+      ],
+      "docs": "none",
+      "usage": "rare",
+      "usage_evidence": "Of 18,589 usage envelopes, 17,456 (94%) record account_generation {health: unavailable, reason: owner_unavailable}; only the 1,133 DeepSeek (openai-compatible) records are 'healthy'. git: 3 commits (07-15..08-09).",
+      "recommendation": "cut",
+      "rationale": "Built to key usage and meters by account without storing account ids; in practice the owner is unavailable for Codex and Claude, so the field is 'unknown' on nearly every record and pricing then refuses to price.",
+      "loc_saving_estimate": 1400,
+      "rewrite_notes": "Key usage by backend + configured credential name. Delete ProviderAccountGeneration.* and the three backend context modules."
+    },
+    {
+      "id": "subsystems-10",
+      "name": "Provider meters (plan/credit balance meters and `aiur usage`)",
+      "surface": "subsystems",
+      "description": "Canonical provider-neutral account meter store/reconciler, projection and refresh; Claude usage API, Codex rate-limit windows, OpenAI-compatible meter probe and OpenRouter credits; ProviderMeterProbe runs a 'usage-probe' in a workspace; `aiur usage` prints it.",
+      "modules": [
+        "lib/aiur/provider_meters.ex",
+        "lib/aiur/provider_meters/events.ex",
+        "lib/aiur/provider_meters/input.ex",
+        "lib/aiur/provider_meters/probe_crash.ex",
+        "lib/aiur/provider_meters/reconciler.ex",
+        "lib/aiur/provider_meters/store.ex",
+        "lib/aiur/provider_meter_probe.ex",
+        "lib/aiur/provider_meter_projection.ex",
+        "lib/aiur/provider_meter_refresh.ex",
+        "lib/aiur/provider_meter_snapshot.ex",
+        "lib/aiur/claude/account_meters.ex",
+        "lib/aiur/claude/usage_api.ex",
+        "lib/aiur/open_ai_compat/meter_adapter.ex",
+        "lib/aiur/open_ai_compat/meter_windows.ex",
+        "lib/aiur/open_ai_compat/provider_meter_probe.ex"
+      ],
+      "lib_loc": 2808,
+      "test_loc": 2901,
+      "entry_points": [
+        "Aiur.ProviderMeters.Store",
+        "Aiur.ProviderMeterProjection",
+        "Aiur.ProviderMeterRefresh",
+        "Aiur.ProviderMeterProbe",
+        "aiur usage (AgentControlCLI.usage/2)",
+        "dashboard Units tile, Stream Deck meters"
+      ],
+      "docs": "website/docs-app/guide/gui.md, guide/stream-deck.md, concepts/units.md, reference/cli.md (aiur usage)",
+      "usage": "regular",
+      "usage_evidence": "`aiur usage`: 6 operational Executor commands in 4 transcript files. balance-baselines/balance-baseline.json present in 10 instance dirs. Meta checks: 'meter' in 30 of 173 aiur-team meta files (e.g. Units 'Claude tile: 82% - reset time passed'). Executor mentions of provider meter code/state: 7 operational commands in 2 files. OPENROUTER_MANAGEMENT_KEY documented for the credits meter.",
+      "recommendation": "simplify",
+      "rationale": "Operators do look at remaining plan/credit headroom, and it drives usage-limit decisions. The store/reconciler/probe-crash/account-generation plumbing is heavier than a poll-and-cache per provider.",
+      "loc_saving_estimate": 1200,
+      "rewrite_notes": "One poller per provider writing {provider, window, used, limit, reset_at, observed_at} to an ETS table; render age/freshness (AGENTS.md rule). Drop Reconciler (266), ProbeCrash, and the workspace usage-probe."
+    },
+    {
+      "id": "subsystems-11",
+      "name": "Model availability ledger (model-usage.json) for rate-limit fallback and provider gate",
+      "surface": "subsystems",
+      "description": "Durable per-backend hourly/weekly/monthly window observations used by the dispatch provider gate and the opt-in rate-limit model fallback; stored as model-usage.json beside the workflow config.",
+      "modules": [
+        "lib/aiur/model_availability.ex"
+      ],
+      "lib_loc": 421,
+      "test_loc": 271,
+      "entry_points": [
+        "Aiur.ModelAvailability (dispatch_policy.read_provider_backends, orchestrator/rate_limit_fallback, codex/session_lifecycle, agent_runner/turn_alerts)",
+        "config: agent.switch_model_on_ratelimit"
+      ],
+      "docs": "website/docs-app/reference/optional-optimizations.md, reference/configuration.md",
+      "usage": "regular",
+      "usage_evidence": "Read on every dispatch through the provider gate. The file is written into the tracked repo: .aiur/model-usage.json has 5 commits on main and shows ' M' in the live checkout's git status; the Executor ran 'git checkout -- .aiur/model-usage.json' 15 times to clean it (grep over Executor tool uses), and mentions the file in 36 operational commands in 10 files. agent.switch_model_on_ratelimit set in 1 of 7 real configs (private).",
+      "recommendation": "simplify",
+      "rationale": "Needed for usage-limit handling, but writing runtime state beside the config dirties the git tree the agents clone from.",
+      "loc_saving_estimate": 100,
+      "rewrite_notes": "Move the file under the daemon state dir (Config.Paths) and fold it into the provider-meter cache (subsystems-10)."
+    },
+    {
+      "id": "subsystems-12",
+      "name": "Model catalog and discovery (model/list probes, provider model sources)",
+      "surface": "subsystems",
+      "description": "Asks backend app-servers which models they accept (ModelCatalog) and discovers models from Anthropic/OpenAI/OpenRouter sources; caches ~/.aiur/model-catalog.json; feeds init, routing preview and model labels.",
+      "modules": [
+        "lib/aiur/model_catalog.ex",
+        "lib/aiur/model_discovery.ex",
+        "lib/aiur/model_discovery/source.ex",
+        "lib/aiur/model_discovery/source/anthropic.ex",
+        "lib/aiur/model_discovery/source/open_ai.ex",
+        "lib/aiur/model_discovery/source/open_router.ex"
+      ],
+      "lib_loc": 1287,
+      "test_loc": 654,
+      "entry_points": [
+        "Aiur.ModelCatalog",
+        "Aiur.ModelDiscovery",
+        "agent_runner/model_label_refresh",
+        "init/runtime",
+        "OCC agent_routing_preview"
+      ],
+      "docs": "none specific",
+      "usage": "occasional",
+      "usage_evidence": "~/.aiur/model-catalog.json exists (1,231 bytes, updated 2026-09-25). Executor mentions: 2 operational commands in 2 files. 12 lib files reference ModelDiscovery/ModelCatalog. git: model_discovery.ex 2 commits, model_catalog.ex 2 commits.",
+      "recommendation": "merge",
+      "rationale": "Belongs with the agent-backend registry (another surface's feature), not as a separate subsystem; three discovery sources for a list the operator configures by hand in agent.routing.",
+      "loc_saving_estimate": 500,
+      "rewrite_notes": "Keep one model/list probe per backend in the backend package; drop the OpenAI/Anthropic/OpenRouter HTTP sources unless a config needs them."
+    },
+    {
+      "id": "subsystems-13",
+      "name": "Decision lifecycle latency metrics",
+      "surface": "subsystems",
+      "description": "Observes Decision events after DecisionStore append, keeps a bounded latency projection, and writes redacted snapshots to <state>/metrics/decision_latency.ndjson via an async compacting writer; Metrics path helper.",
+      "modules": [
+        "lib/aiur/decision_metrics.ex",
+        "lib/aiur/decision_metrics/bootstrap.ex",
+        "lib/aiur/decision_metrics/canonical.ex",
+        "lib/aiur/decision_metrics/collector.ex",
+        "lib/aiur/decision_metrics/event.ex",
+        "lib/aiur/decision_metrics/event/fields.ex",
+        "lib/aiur/decision_metrics/log.ex",
+        "lib/aiur/decision_metrics/options.ex",
+        "lib/aiur/decision_metrics/sample.ex",
+        "lib/aiur/decision_metrics/window.ex",
+        "lib/aiur/decision_metrics/writer.ex",
+        "lib/aiur/decision_metrics/writer/persistence.ex",
+        "lib/aiur/metrics.ex"
+      ],
+      "lib_loc": 1503,
+      "test_loc": 839,
+      "entry_points": [
+        "Aiur.DecisionMetrics (supervised)",
+        "Aiur.DecisionMetrics.Writer",
+        "CommandsCLI and OCC payload_loader/decision_provider/control_center_presenter read snapshots"
+      ],
+      "docs": "none",
+      "usage": "occasional",
+      "usage_evidence": "metrics/decision_latency.ndjson written in 10 instance dirs (up to 470 KB, aiur). Executor reads of decision_latency: 0 (regex over 68,609 tool uses). Snapshots are surfaced through `aiur commands` (114 operational Executor commands in 8 files) and the OCC Commands page; whether operators read the latency fields there is not separable (unknown).",
+      "recommendation": "simplify",
+      "rationale": "DecisionStore already holds every lifecycle timestamp; a second bounded projection plus a durable compacting writer duplicates it.",
+      "loc_saving_estimate": 1200,
+      "rewrite_notes": "Compute latency on read from DecisionStore events; delete Writer/Persistence/Window/Canonical/Sample (~1,200 lines)."
+    },
+    {
+      "id": "subsystems-14",
+      "name": "Operator message wait log",
+      "surface": "subsystems",
+      "description": "Appends one NDJSON line per delivered Executor message (queued->delivered wait) to <log-root>/metrics/operator_message_wait.ndjson.",
+      "modules": [
+        "lib/aiur/operator_wait_log.ex"
+      ],
+      "lib_loc": 116,
+      "test_loc": 91,
+      "entry_points": [
+        "Aiur.OperatorWaitLog (supervised)",
+        "orchestrator/operator_messages.ex record_queued/record_delivered"
+      ],
+      "docs": "none",
+      "usage": "none-found",
+      "usage_evidence": "File present in 13 of 39 retained run dirs. Readers: none (grep 'OperatorWaitLog|operator_message_wait' over src/lib finds only the writer and its two call sites; nothing in website/docs-app or .claude/skills). Executor reads: 0.",
+      "recommendation": "cut",
+      "rationale": "Write-only metric; the same wait is visible as QUEUED->delivered in the chat pane and could be a lifecycle telemetry event.",
+      "loc_saving_estimate": 116,
+      "rewrite_notes": "If kept, emit one run-telemetry lifecycle event instead of a separate file."
+    },
+    {
+      "id": "subsystems-15",
+      "name": "Perf phase logger (aiur_perf lines)",
+      "surface": "subsystems",
+      "description": "Always-on `aiur_perf phase=...` log lines for pane-open and opencode lifecycle; feeds the debug footer in the agent list.",
+      "modules": [
+        "lib/aiur/perf.ex"
+      ],
+      "lib_loc": 104,
+      "test_loc": 0,
+      "entry_points": [
+        "Aiur.Perf (19 call sites in agent_list, pane_manager, opencode, claude/repl)"
+      ],
+      "docs": "none",
+      "usage": "occasional",
+      "usage_evidence": "4,767 aiur_perf lines across the 3 retained aiur.log files (aiur.log exists only for --debug boots: 3 of 39 run dirs). Executor: 1 operational command in 1 file. git: 1 commit (2026-06-02).",
+      "recommendation": "merge",
+      "rationale": "Tiny, but a second timing channel beside run telemetry lifecycle events.",
+      "loc_saving_estimate": 60,
+      "rewrite_notes": "Emit these phases as telemetry lifecycle events or debug Logger metadata."
+    },
+    {
+      "id": "subsystems-16",
+      "name": "Current-run membership store",
+      "surface": "subsystems",
+      "description": "Crash-safe per-run ticket membership (events, codec, projection, reconciler, store with checkpoint, marker, recovery, terminal verification) under <state>/current-run-membership/runs/<run>/.",
+      "modules": [
+        "lib/aiur/current_run_membership.ex",
+        "lib/aiur/current_run_membership/event.ex",
+        "lib/aiur/current_run_membership/event/codec.ex",
+        "lib/aiur/current_run_membership/projection.ex",
+        "lib/aiur/current_run_membership/reconciler.ex",
+        "lib/aiur/current_run_membership/reconciler/snapshot.ex",
+        "lib/aiur/current_run_membership/store.ex",
+        "lib/aiur/current_run_membership/store/checkpoint.ex",
+        "lib/aiur/current_run_membership/store/file_ops.ex",
+        "lib/aiur/current_run_membership/store/marker.ex",
+        "lib/aiur/current_run_membership/store/paths.ex",
+        "lib/aiur/current_run_membership/store/recovery.ex",
+        "lib/aiur/current_run_membership/store/runtime.ex",
+        "lib/aiur/current_run_membership/store/terminal_verification.ex"
+      ],
+      "lib_loc": 1979,
+      "test_loc": 1308,
+      "entry_points": [
+        "Aiur.CurrentRunMembership.Store",
+        "Aiur.CurrentRunMembership.Reconciler",
+        "consumers: build_order/pack_status, orchestrator/comment_wake, OCC units_row, dashboard_live, planning_source"
+      ],
+      "docs": "website/docs-app/concepts/units.md, guide/gui.md, guide/tui.md",
+      "usage": "regular",
+      "usage_evidence": "membership.ndjson in 10 instance dirs (20 files incl. checkpoints; find ~/.config/aiur -path '*current-run-membership*' -type f). Its main surface (dashboard Units page) appears in 78 of 173 aiur-team meta files. Executor direct reads: 2 operational commands.",
+      "recommendation": "simplify",
+      "rationale": "Membership = tickets dispatched since the run started. That is derivable from dispatch claims/telemetry; a separate store with markers, terminal verification and recovery is over-built.",
+      "loc_saving_estimate": 1300,
+      "rewrite_notes": "Derive membership from the run's dispatch lifecycle events (subsystems-01) or a single append-only run file."
+    },
+    {
+      "id": "subsystems-17",
+      "name": "Current-run projections, outcome snapshot and run summary",
+      "surface": "subsystems",
+      "description": "CurrentRunProjections owner (projector, refresh, source adapters/fallback, weight facts, units builder, checkpoint persistence), CurrentRunOutcomeSnapshot (merge outcomes associated with the run) and CurrentRunSummary (exact-fraction progress).",
+      "modules": [
+        "lib/aiur/current_run_projections.ex",
+        "lib/aiur/current_run_projections/checkpoint.ex",
+        "lib/aiur/current_run_projections/checkpoint_persistence.ex",
+        "lib/aiur/current_run_projections/finalizer.ex",
+        "lib/aiur/current_run_projections/membership_cache.ex",
+        "lib/aiur/current_run_projections/projector.ex",
+        "lib/aiur/current_run_projections/refresh.ex",
+        "lib/aiur/current_run_projections/source_adapter.ex",
+        "lib/aiur/current_run_projections/source_collector.ex",
+        "lib/aiur/current_run_projections/source_fallback.ex",
+        "lib/aiur/current_run_projections/state.ex",
+        "lib/aiur/current_run_projections/units_builder.ex",
+        "lib/aiur/current_run_projections/weight_facts.ex",
+        "lib/aiur/current_run_projection/value.ex",
+        "lib/aiur/current_run_outcome_snapshot.ex",
+        "lib/aiur/current_run_outcome_snapshot/membership_index.ex",
+        "lib/aiur/current_run_outcome_snapshot/outcomes.ex",
+        "lib/aiur/current_run_outcome_snapshot/projection.ex",
+        "lib/aiur/current_run_outcome_snapshot/source_state.ex",
+        "lib/aiur/current_run_summary.ex",
+        "lib/aiur/current_run_summary/facts.ex",
+        "lib/aiur/current_run_summary/progress.ex",
+        "lib/aiur/current_run_summary/projection.ex",
+        "lib/aiur/current_run_summary/status.ex"
+      ],
+      "lib_loc": 2964,
+      "test_loc": 2111,
+      "entry_points": [
+        "Aiur.CurrentRunProjections (supervised)",
+        "Aiur.CurrentRunSummary / Aiur.CurrentRunOutcomeSnapshot (dashboard_live, run_summary_presenter, current_run_outcomes_presenter)"
+      ],
+      "docs": "website/docs-app/concepts/units.md, guide/gui.md",
+      "usage": "regular",
+      "usage_evidence": "Consumed only by the dashboard (grep: dashboard_live.ex, run_summary_presenter.ex, current_run_outcomes_presenter.ex). The Units page is observed in 78/173 aiur-team meta files. No separate projection file observed in state dirs (checkpoints appear to share the membership leaf: membership.checkpoint.json in 3 instance dirs; unverified). Executor direct use: 0 operational. git: 10 commits (07-17..08-17).",
+      "recommendation": "simplify",
+      "rationale": "Three read models with their own checkpoints and staleness provenance for one dashboard strip. Exact integer fractions and coverage/lower-bound bookkeeping are more precision than the page shows.",
+      "loc_saving_estimate": 2000,
+      "rewrite_notes": "One pure function run_summary(membership, ticket states, merges) computed on read with an age stamp."
+    },
+    {
+      "id": "subsystems-18",
+      "name": "Ticket activity projection, progress retention and progress ETA tracker",
+      "surface": "subsystems",
+      "description": "Headless projection of per-ticket progress/stage/latest safe event; durable last-known progress checkpoint across restarts; ETS ring of progress samples for an ETA column.",
+      "modules": [
+        "lib/aiur/ticket_activity.ex",
+        "lib/aiur/ticket_activity/projection.ex",
+        "lib/aiur/ticket_activity/reducer.ex",
+        "lib/aiur/progress_retention.ex",
+        "lib/aiur/progress_tracker.ex"
+      ],
+      "lib_loc": 1544,
+      "test_loc": 916,
+      "entry_points": [
+        "Aiur.TicketActivity (supervised)",
+        "Aiur.ProgressRetention (supervised)",
+        "Aiur.ProgressTracker",
+        "consumers: agent_list, status_report, build order data source, dashboard"
+      ],
+      "docs": "website/docs-app/guide/tui.md (progress column)",
+      "usage": "regular",
+      "usage_evidence": "progress-retention/checkpoint.json present in 7 instance dirs (8-169 KB). Consumers in 10 lib files (agent list, status report, build order). Executor direct reads of progress-retention: 0.",
+      "recommendation": "merge",
+      "rationale": "Three modules hold the same per-ticket progress fact (in-memory projection, durable copy, ETS ring).",
+      "loc_saving_estimate": 600,
+      "rewrite_notes": "One per-ticket activity record persisted with the run state; compute ETA on render."
+    },
+    {
+      "id": "subsystems-19",
+      "name": "Supervision health monitor",
+      "surface": "subsystems",
+      "description": "Compares live children of Aiur.Supervisor to the expected child list; reports N/N in status and raises system.supervision.degraded.",
+      "modules": [
+        "lib/aiur/supervision_health.ex",
+        "lib/aiur/supervision_health/formatter.ex",
+        "lib/aiur/supervision_health/tree.ex"
+      ],
+      "lib_loc": 307,
+      "test_loc": 278,
+      "entry_points": [
+        "Aiur.SupervisionHealth (last supervised child)",
+        "status/agents output 'supervision N/N'"
+      ],
+      "docs": "effectively undocumented (only apis/github.md mentions supervision)",
+      "usage": "regular",
+      "usage_evidence": "Rendered in every status call; handoffs/meta quote it ('supervision 117/117', 'SUPERVISION 103/103'): 13 of 173 aiur-team meta files. system.supervision.degraded alerts in all retained ledgers (run alerts.ndjson + ~/.config/aiur alert ledgers): 0.",
+      "recommendation": "keep",
+      "rationale": "Small and read on every status check; the degraded alert never fired in the window, which is fine for a health signal.",
+      "loc_saving_estimate": 0,
+      "rewrite_notes": "Keep; document it in the status/cli page."
+    },
+    {
+      "id": "subsystems-20",
+      "name": "Saturation sentinel (CPU saturation crash diagnostics)",
+      "surface": "subsystems",
+      "description": "Watches host 1-min load vs schedulers and appends diagnostic snapshots to saturation.log beside the daemon log.",
+      "modules": [
+        "lib/aiur/saturation_sentinel.ex"
+      ],
+      "lib_loc": 245,
+      "test_loc": 97,
+      "entry_points": [
+        "Aiur.SaturationSentinel (supervised)"
+      ],
+      "docs": "website/docs-app/reference/configuration.md",
+      "usage": "none-found",
+      "usage_evidence": "Broken in production: retained aiur.log/boot.out.log contain 236 'saturation_sentinel entered' and 569 'saturation_sentinel record_failed' lines (Jason.Encoder error on a {:total, N} tuple) and 0 successful records; find for saturation.log under ~/.aiur/logs and ~/.config/aiur: 0 files. Executor: 3 operational mentions. git: 1 commit (2026-08-09).",
+      "recommendation": "cut",
+      "rationale": "It has never written its output in the retained window and the crash class it was built for (#852) is covered by crash dumps.",
+      "loc_saving_estimate": 245,
+      "rewrite_notes": "Delete; host load is already sampled by run telemetry."
+    },
+    {
+      "id": "subsystems-21",
+      "name": "Daemon death forensics: crash-dump capture, BEAM-death watchdog, lifecycle journal, launcher self-halt watchdog",
+      "surface": "subsystems",
+      "description": "Engine exports ERL_CRASH_DUMP into the run log dir, baselines the dump identity, and a disowned watchdog writes aiur.crash, a per-instance .last-crash marker and a system.beam.crash_dump alert on unexpected BEAM death; DaemonLifecycle journals start/stop to executor/<repo>.control-lifecycle.json; LauncherWatchdog self-halts a detached BEAM whose operator left.",
+      "modules": [
+        "lib/aiur/daemon_lifecycle.ex",
+        "lib/aiur/launcher_watchdog.ex",
+        "packaging/npm/aiur-cli/libexec/aiur-engine.sh (crash functions, ~142 lines)"
+      ],
+      "lib_loc": 363,
+      "test_loc": 316,
+      "entry_points": [
+        "packaging/npm/aiur-cli/libexec/aiur-engine.sh: aiur_crash_marker_path(1558), crash_dump_identity(1572), new_completed_crash_dump_slogan(1582), write_crash_dump_alert(1592), record_new_crash_dump_alert(1613), record_beam_crash(1627), start_beam_death_watchdog(1795), ERL_CRASH_DUMP export (~878-900)",
+        "Aiur.DaemonLifecycle",
+        "Aiur.LauncherWatchdog",
+        "AgentEnvironment scrubs ERL_CRASH_DUMP(_SECONDS) from agents",
+        "env: ERL_CRASH_DUMP, ERL_CRASH_DUMP_SECONDS"
+      ],
+      "docs": "website/docs-app/concepts/operating-aiur.md, reference/cli.md; AGENTS.md Auth section (ERL_CRASH_DUMP*)",
+      "usage": "rare",
+      "usage_evidence": "Retained window: aiur.crash files in ~/.aiur/logs: 0 of 39 dirs; system.beam.crash_dump alerts: 0; erl_crash.dump under ~/.aiur/logs: 0; .last-crash markers in ~/.config/aiur: 1 (2026-07-28). Meanwhile 42 erl_crash.dump files sit in repo roots and worktrees (find ~/github/everdred ~/.aiur -maxdepth 6 -name erl_crash.dump), all short-lived control/boot BEAMs dying at boot ('nodistribution', 'badarg during boot'), which the capture does not route. control-lifecycle.json journals exist for 6 repos (khala 229 KB); Executor read them 14 times.",
+      "recommendation": "simplify",
+      "rationale": "Keep the dump path export and one crash marker; the dump-identity baselining and slogan diffing are elaborate for zero captures, and the stray dumps show the real gap is control BEAMs, not the daemon.",
+      "loc_saving_estimate": 100,
+      "rewrite_notes": "Set ERL_CRASH_DUMP for every BEAM the launcher starts (or disable dumps for control nodes); write one crash marker; keep the lifecycle journal."
+    },
+    {
+      "id": "subsystems-22",
+      "name": "Daemon log file, run-log retention and boot marker",
+      "surface": "subsystems",
+      "description": "LogFile configures log/aiur.log (only under --debug) and per-session log roots; Logs.Retention prunes ~/.aiur/logs to max_log_history_mb; Boot marks start time and mints the run_id.",
+      "modules": [
+        "lib/aiur/log_file.ex",
+        "lib/aiur/logs/retention.ex",
+        "lib/aiur/boot.ex"
+      ],
+      "lib_loc": 548,
+      "test_loc": 507,
+      "entry_points": [
+        "Aiur.LogFile",
+        "Aiur.Logs.Retention (supervised)",
+        "Aiur.Boot",
+        "config: max_log_history_mb (default 1000), debug"
+      ],
+      "docs": "website/docs-app/reference/configuration.md (max_log_history_mb)",
+      "usage": "heavy",
+      "usage_evidence": "~/.aiur/logs holds 39 run dirs / 873 MB under the 1,000 MB default (retention works); max_log_history_mb set in 2 of 7 configs. aiur.log exists in 3 of 39 run dirs (debug boots only); boot.out.log in 30. Executor reads aiur.log in 92 operational commands (15 files) and boot.out.log in 24 (15 files).",
+      "recommendation": "keep",
+      "rationale": "Core diagnostics the Executor uses daily.",
+      "loc_saving_estimate": 0,
+      "rewrite_notes": "Consider always writing a bounded aiur.log (not only under --debug); 36 of 39 runs have no daemon log except boot.out.log."
+    },
+    {
+      "id": "subsystems-23",
+      "name": "Per-issue run logs (IssueLog: github-<repo>.<n>.log / .events.log / .agent_events.jsonl)",
+      "surface": "subsystems",
+      "description": "One GenServer per active issue subscribes to the agent PubSub topic and appends transcript, events and agent events to three files per issue under <run-log>/log.",
+      "modules": [
+        "lib/aiur/issue_log.ex"
+      ],
+      "lib_loc": 1049,
+      "test_loc": 478,
+      "entry_points": [
+        "Aiur.IssueLog (DynamicSupervisor Aiur.IssueLog.Supervisor)"
+      ],
+      "docs": "none specific",
+      "usage": "regular",
+      "usage_evidence": "348 each of *.log, *.events.log, *.agent_events.jsonl across retained run dirs (1,044 files). Executor reads 'log/github-' files in 74 operational commands in 9 files (60 of them in khala).",
+      "recommendation": "simplify",
+      "rationale": "Three files per issue duplicate the workspace agent.ndjson (subsystems-24) and the event stream.",
+      "loc_saving_estimate": 500,
+      "rewrite_notes": "One NDJSON per issue in the run dir, or point the Executor at the workspace agent.ndjson."
+    },
+    {
+      "id": "subsystems-24",
+      "name": "Workspace transcript logs (logs/agent.ndjson and agent.md projection)",
+      "surface": "subsystems",
+      "description": "AgentEventLog writes every agent event to <workspace>/logs/agent.ndjson and materializes a markdown projection; AgentLog parses them for the dashboard and CLI log pane.",
+      "modules": [
+        "lib/aiur/agent_event_log.ex",
+        "lib/aiur/agent_log.ex"
+      ],
+      "lib_loc": 547,
+      "test_loc": 929,
+      "entry_points": [
+        "Aiur.AgentEventLog",
+        "Aiur.AgentLog",
+        "Aiur.AlertFeed reads agent.ndjson alert lines"
+      ],
+      "docs": "AGENTS.md (Per-issue workspaces)",
+      "usage": "heavy",
+      "usage_evidence": "Written for every agent session (823 workspaces per census). AGENTS.md requires agent.ndjson (AlertFeed input, crash reasons #708). Executor reads agent.ndjson in 1 operational command; logs/agent.md: 0.",
+      "recommendation": "simplify",
+      "rationale": "agent.ndjson is load-bearing; the markdown projection is legacy (the web prefers ndjson).",
+      "loc_saving_estimate": 150,
+      "rewrite_notes": "Drop agent.md; render markdown on read if the TUI pane needs it."
+    },
+    {
+      "id": "subsystems-25",
+      "name": "Event publication log (daemon-owned event-publications.ndjson)",
+      "surface": "subsystems",
+      "description": "Persists call-correlated publication outcomes outside agent-writable workspaces.",
+      "modules": [
+        "lib/aiur/event_publication_log.ex"
+      ],
+      "lib_loc": 62,
+      "test_loc": 56,
+      "entry_points": [
+        "Aiur.EventPublicationLog"
+      ],
+      "docs": "AGENTS.md (Per-issue workspaces)",
+      "usage": "regular",
+      "usage_evidence": "event-publications.ndjson in 22 of 39 retained run dirs; Executor reads it in 26 operational commands in 12 files.",
+      "recommendation": "keep",
+      "rationale": "Tiny and read during diagnosis.",
+      "loc_saving_estimate": 0
+    },
+    {
+      "id": "subsystems-26",
+      "name": "Agent process spawn log (agent-processes.tsv)",
+      "surface": "subsystems",
+      "description": "Periodically scans agent workspaces' process trees and appends subprocess spawns to ~/.aiur/repo/<o>/<r>/github-quota/agent-processes.tsv (for the #2245 budget investigation).",
+      "modules": [
+        "lib/aiur/agent_process_log.ex"
+      ],
+      "lib_loc": 576,
+      "test_loc": 343,
+      "entry_points": [
+        "Aiur.AgentProcessLog (supervised)"
+      ],
+      "docs": "none (one mention in .claude/skills/aiur-debug/evidence-and-correlation.md)",
+      "usage": "none-found",
+      "usage_evidence": "Written: agent-processes.tsv in 5 repos (0.14-2.45 MB, 6.4 MB total). Readers: none in src/lib (grep 'AgentProcessLog' finds only the supervisor child) or docs; Executor reads: 0 (regex 'agent[-_]process' outside code work). git: 1 commit (2026-08-22).",
+      "recommendation": "cut",
+      "rationale": "A one-incident diagnostic left running forever; write-only.",
+      "loc_saving_estimate": 576,
+      "rewrite_notes": "Delete; the procfs sampler (or `ps`) answers the same question on demand."
+    },
+    {
+      "id": "subsystems-27",
+      "name": "Build gate (shared build/test slot leases for agent mix runs)",
+      "surface": "subsystems",
+      "description": "BASH_ENV hook + detached Python lease holder + command wrapper limit concurrent agent mix/elixir builds to agent.max_concurrent_builds, with start stagger, free-memory floor, max hold, retain window; shim entrypoints for non-bash shells; daemon hold-timeout alert monitor; status reads advisory records.",
+      "modules": [
+        "lib/aiur/build_gate.ex",
+        "lib/aiur/build_gate_hold_monitor.ex",
+        "lib/aiur/agent_build_guard.ex",
+        "src/priv/build_gate.bash",
+        "src/priv/build_gate_holder.py",
+        "src/priv/build_gate_command_wrapper.bash (counted from git show 3339b88; not in the snapshot copy)"
+      ],
+      "lib_loc": 4285,
+      "test_loc": 3353,
+      "entry_points": [
+        "Aiur.BuildGate.shell_env/1 (AgentEnvironment)",
+        "src/priv/build_gate.bash (1,912)",
+        "src/priv/build_gate_holder.py (1,025)",
+        "src/priv/build_gate_command_wrapper.bash (292)",
+        "Aiur.BuildGateHoldMonitor",
+        "Aiur.AgentBuildGuard",
+        "config: agent.max_concurrent_builds (default 4), build_start_stagger_seconds, min_free_memory_mb, build_gate_max_hold_seconds, build_gate_retain_seconds, mix_scheduler_cap"
+      ],
+      "docs": "website/docs-app/reference/configuration.md, reference/cli.md, guide/gui.md",
+      "usage": "heavy",
+      "usage_evidence": "On by default for every repo (max_concurrent_builds default 4; set explicitly in 2 of 7 configs). ~/.aiur/build-gate holds 25,454 leaked per-lease temp files = 4,242 lease sessions (4,191 in Aug, 51 in Sep, 1 since 09-19) never cleaned. build_test lifecycle events: 2,720 in retained telemetry. Codex agent sessions mention aiur_build_gate 36,485 times (hook output), 15 Claude agent transcripts show AIUR_BUILD_GATE. Executor: 69 operational commands in 15 files; 31 of 173 aiur-team meta files mention it ('Build-gate leak verified three times this hour, cleared three times'). merged-fixes 2.18: 6 slot-leak fixes in 6 days (#1000..#2401). system.build_gate.hold_timeout alerts in retained ledgers: 0.",
+      "recommendation": "simplify",
+      "rationale": "Limiting concurrent compiles is needed on one host, but 4,285 lines of bash/python/Elixir lease machinery leaked slots repeatedly and leaks temp files. An flock-per-slot wrapper does the same job.",
+      "loc_saving_estimate": 3500,
+      "rewrite_notes": "`aiur build-slot -- <cmd>` using flock on N lock files (kernel releases on death, no holder process, no retain window); drop BASH_ENV hook, holder.py, HoldMonitor, stagger and memory floor (admission covers memory)."
+    },
+    {
+      "id": "subsystems-28",
+      "name": "Host-load admission / load governor (dispatch gates and capacity binding)",
+      "surface": "subsystems",
+      "description": "Dispatch-time gates on 1-min load per scheduler, CPU headroom, MemAvailable, file descriptors, BEAM run queue, build status, provider and GitHub quota; AIMD load envelope with cold-start seed, ramp and cooldown; CapacityBinding names the binding constraint; emits system.fleet.capacity.* and system.dispatch.capacity_starved.",
+      "modules": [
+        "lib/aiur/system_load.ex",
+        "lib/aiur/system_memory.ex",
+        "lib/aiur/system_cpu.ex",
+        "lib/aiur/system_file_descriptors.ex",
+        "lib/aiur/orchestrator/capacity_binding.ex",
+        "lib/aiur/orchestrator/dispatch_policy.ex (lines 1-605 of 1,213; the rest is dispatch ordering, owned by the orchestrator surface)"
+      ],
+      "lib_loc": 1206,
+      "test_loc": 1741,
+      "entry_points": [
+        "Aiur.Orchestrator.DispatchPolicy (lines 1-605: read_*/*_gate/admission_gate/load_envelope)",
+        "Aiur.SystemLoad/SystemMemory/SystemCpu/SystemFileDescriptors",
+        "Aiur.Orchestrator.CapacityBinding",
+        "config: agent.max_load_average (default 1.5), target_load_average, load_ramp_step, load_cooldown_seconds, run_queue_threshold, min_free_memory_mb"
+      ],
+      "docs": "website/docs-app/reference/configuration.md, reference/optional-optimizations.md, concepts/operating-aiur.md, concepts/units.md",
+      "usage": "heavy",
+      "usage_evidence": "Executor wake streams (~/.aiur/repo/*/*/executor/*.executor.wakes.ndjson, 9,774 wakes): system.fleet.capacity.starved 1,727 (needs_attention), system.dispatch.capacity_starved 567, fleet.capacity.resumed 399, fleet.capacity.backoff 242, resolved 233 - 3,171 capacity wakes. Telemetry capacity_hold 9 / capacity_resumed 7. max_load_average set in 3 of 7 configs (default on for all); AIMD keys (target_load_average, load_ramp_step, load_cooldown_seconds) only in kevinweaver-dev (1 of 7). The Executor also checks load itself (loadavg/uptime) in 433 operational commands in 73 files. merged-fixes 2.18: load gate not applied or latched, 7 fixes, #2564 open (admission is per daemon).",
+      "recommendation": "simplify",
+      "rationale": "Admission is necessary on a shared host and fires constantly, but six gates plus an AIMD controller produced a latching/stale-sample bug chain and a wake flood. The Executor still watches load by hand.",
+      "loc_saving_estimate": 600,
+      "rewrite_notes": "One host-wide admission check (load per core + MemAvailable) shared by all daemons on the host (fixes #2564); drop AIMD envelope, fd and run-queue gates; make capacity events edge-triggered with a minimum dwell to stop wake floods."
+    },
+    {
+      "id": "subsystems-29",
+      "name": "Agent resource guard (trim synthetic load generators)",
+      "surface": "subsystems",
+      "description": "Watches registered agent process roots and kills known load-generator descendants (yes/stress) above a cap.",
+      "modules": [
+        "lib/aiur/agent_resource_guard.ex"
+      ],
+      "lib_loc": 192,
+      "test_loc": 105,
+      "entry_points": [
+        "Aiur.AgentResourceGuard (supervised)",
+        "config: agent.synthetic_load_process_cap"
+      ],
+      "docs": "website/docs-app/reference/configuration.md",
+      "usage": "none-found",
+      "usage_evidence": "Active by default (synthetic_load_process_cap null = cores/4; the key appears only as a commented template line in the home config and 12 of 12 home-config backups, uncommented in 0 of 7 configs). Trims observed: 0 log lines mentioning resource_guard/synthetic load in retained aiur.log/boot.out.log. git: 1 commit (2026-06-23).",
+      "recommendation": "cut",
+      "rationale": "Guards against one historical agent behaviour; no trims observed.",
+      "loc_saving_estimate": 192
+    },
+    {
+      "id": "subsystems-30",
+      "name": "Process reaper and shutdown cleanup",
+      "surface": "subsystems",
+      "description": "Central registry of agent OS pids, process groups and tmux panes, reaped at shutdown in kind order; pidfd-based reap helper; engine-side reaping of stale agents by workspace cwd; ProcessIdentity liveness probe; Shutdown chokepoint deletes opencode sessions.",
+      "modules": [
+        "lib/aiur/process_reaper.ex",
+        "lib/aiur/process_identity.ex",
+        "lib/aiur/shutdown.ex",
+        "src/priv/pidfd_reap.py (169, from git show 3339b88)",
+        "packaging/npm/aiur-cli/libexec/aiur-engine.sh (reap functions, ~115 lines)"
+      ],
+      "lib_loc": 926,
+      "test_loc": 419,
+      "entry_points": [
+        "Aiur.ProcessReaper (supervised)",
+        "Aiur.Shutdown.cleanup/0",
+        "src/priv/pidfd_reap.py (169)",
+        "packaging/npm/aiur-cli/libexec/aiur-engine.sh: reap_stale_manual_smoke(1338), reap_aiur_agents(1408), reap_workspace_cwd_agents(1720), reap_workspace_cwd_from_file(1765)"
+      ],
+      "docs": "website/docs-app/reference/cli.md (stop)",
+      "usage": "regular",
+      "usage_evidence": "ticket.N.agent.orphan_reaped alerts: 113 and agent.startup_orphan_claim_released: 92 across retained alert ledgers. merged-fixes 2.17: process reaping recurred (#426/#458/#501 -> #2080 -> #2179 -> #2391, #2406 open, PID reuse).",
+      "recommendation": "simplify",
+      "rationale": "Necessary; the recurrence chain comes from tracking pids by hand in three places (BEAM registry, pidfd helper, engine shell).",
+      "loc_saving_estimate": 250,
+      "rewrite_notes": "Launch each agent in its own process group (or systemd scope/cgroup) and kill the group; one registry in the BEAM, no shell-side reaping."
+    },
+    {
+      "id": "subsystems-31",
+      "name": "Pause containment (agent process-group registration for pause/stop)",
+      "surface": "subsystems",
+      "description": "Registers each agent's root pid and process group with a generation; confirm/release/paused? during cooperative pause; liveness polling.",
+      "modules": [
+        "lib/aiur/pause_containment.ex"
+      ],
+      "lib_loc": 404,
+      "test_loc": 191,
+      "entry_points": [
+        "Aiur.PauseContainment (supervised)",
+        "agent_runner, agent_runner/turn_loop, app_server/adapter, codex/turn_loop, orchestrator/pause_resume"
+      ],
+      "docs": "none",
+      "usage": "regular",
+      "usage_evidence": "Registered at every agent spawn (6 call-site modules). Retained daemon logs contain 71 containment lines, all 'Orchestrator ignored message: {:pause_containment_runtime, ...}' - the runtime notification has no handler.",
+      "recommendation": "merge",
+      "rationale": "A second pid/pgid registry beside ProcessReaper; its runtime message is dropped by the orchestrator.",
+      "loc_saving_estimate": 250,
+      "rewrite_notes": "Fold into the process-group registry of subsystems-30."
+    },
+    {
+      "id": "subsystems-32",
+      "name": "Workspace provisioning (create, hooks, checkout, git metadata, refresh, reconstruction, removal)",
+      "surface": "subsystems",
+      "description": "Per-issue workspace lifecycle under <workspace.root>/<repo>/<issue>: provisioner, after_create/before_run/before_remove hooks, PR-anchored checkout, .git-writable metadata, refresh, reconstruction, removal, host lock.",
+      "modules": [
+        "lib/aiur/workspace.ex",
+        "lib/aiur/workspace/provisioner.ex",
+        "lib/aiur/workspace/hooks.ex",
+        "lib/aiur/workspace/checkout.ex",
+        "lib/aiur/workspace/layout.ex",
+        "lib/aiur/workspace/materialize.ex",
+        "lib/aiur/workspace/git_metadata.ex",
+        "lib/aiur/workspace/refresh.ex",
+        "lib/aiur/workspace/reconstruction.ex",
+        "lib/aiur/workspace/remove.ex",
+        "lib/aiur/workspace/context.ex",
+        "lib/aiur/workspace/host_lock.ex"
+      ],
+      "lib_loc": 3130,
+      "test_loc": 6079,
+      "entry_points": [
+        "Aiur.Workspace",
+        "Aiur.Workspace.Provisioner",
+        "Aiur.Workspace.Hooks",
+        "config: workspace.root, hooks_file"
+      ],
+      "docs": "AGENTS.md (Per-issue workspaces, Workflow bootstrap); website/docs-app/reference/configuration.md",
+      "usage": "heavy",
+      "usage_evidence": "Telemetry: 1,154 workspace_setup and 1,078 agent_spinup lifecycle events in the retained window; census: 823 distinct ticket workspaces, 26 GB on disk; hooks_file set in 7 of 7 configs. merged-fixes area K: 56 fix PRs (workspace.ex 12, agent_environment 8).",
+      "recommendation": "simplify",
+      "rationale": "Core. The complexity (reconstruction, refresh, git-metadata repair) accreted from fixes; remote-worker and warm-base branches (subsystems-34/35) inflate it.",
+      "loc_saving_estimate": 800,
+      "rewrite_notes": "Local-only provisioning: clone (or worktree) + hooks + one validated writable .git capability; drop remote clauses."
+    },
+    {
+      "id": "subsystems-33",
+      "name": "Workspace ownership, cleanup and orphaned-worker reaping",
+      "surface": "subsystems",
+      "description": "Ownership guardian/store/receipts/reconciler/waiter prevent two workers from using one workspace; WorkspaceCleanup removes workspaces of closed tickets; OrphanedWorkers releases claims whose owner died.",
+      "modules": [
+        "lib/aiur/workspace/ownership.ex",
+        "lib/aiur/workspace/ownership/guardian.ex",
+        "lib/aiur/workspace/ownership/reconciler.ex",
+        "lib/aiur/workspace/ownership/store.ex",
+        "lib/aiur/workspace/ownership/waiter.ex",
+        "lib/aiur/orchestrator/workspace_cleanup.ex",
+        "lib/aiur/orchestrator/orphaned_workers.ex"
+      ],
+      "lib_loc": 1802,
+      "test_loc": 2180,
+      "entry_points": [
+        "Aiur.Workspace.Ownership.{Store,Reconciler} (supervised)",
+        "Aiur.Orchestrator.WorkspaceCleanup",
+        "Aiur.Orchestrator.OrphanedWorkers"
+      ],
+      "docs": "website/docs-app/concepts/ticket-lifecycle.md, reference/cli.md",
+      "usage": "heavy",
+      "usage_evidence": "1,772 workspace_ownership lifecycle events in retained telemetry. 36 workspace-ownership.receipts.corrupt-* files across instance dirs (18 in one aiur instance) plus stray .tmp files; live receipts are usually 45 bytes (empty). orphan_reaped alerts: 113. 'ownership' appears in 76 meta/handoff files (manual lock recovery). Executor operational commands on ownership state: 1.",
+      "recommendation": "simplify",
+      "rationale": "Needed, but receipts corrupt routinely and recovery is manual.",
+      "loc_saving_estimate": 1000,
+      "rewrite_notes": "flock on <workspace>/.aiur-owner held by the worker process; the kernel releases it on death. Drop Guardian (759), receipts Store, Waiter, Reconciler."
+    },
+    {
+      "id": "subsystems-34",
+      "name": "Remote SSH workers and Docker bootstrap image",
+      "surface": "subsystems",
+      "description": "Run workspaces and agents on worker.ssh_hosts over SSH, and seed warm caches from workspace.bootstrap_image via docker.",
+      "modules": [
+        "lib/aiur/ssh.ex",
+        "lib/aiur/workspace/remote.ex",
+        "lib/aiur/workspace/bootstrap_image.ex",
+        "lib/aiur/config/schema/worker.ex"
+      ],
+      "lib_loc": 362,
+      "test_loc": 361,
+      "entry_points": [
+        "Aiur.SSH",
+        "Aiur.Workspace.Remote",
+        "Aiur.Workspace.BootstrapImage",
+        "config: worker.ssh_hosts, worker.max_concurrent_agents_per_host, workspace.bootstrap_image, workspace.bootstrap_image_pull"
+      ],
+      "docs": "website/docs-app/reference/configuration.md",
+      "usage": "none-found",
+      "usage_evidence": "worker.ssh_hosts set (uncommented) in 0 of 7 real configs; it appears only as the commented template line '# worker: { ssh_hosts: [] ... }' in the home config and 12 of 12 backups. workspace.bootstrap_image in 0 of 7 configs and 0 of 12 backups. The worker_host parameter is threaded through 57 lib files (grep -rl worker_host); matches of worker_host|ssh_hosts|SSH.|Remote. per file: provisioner 57, session_lifecycle 55, dispatcher 45, agent_runner 45, workspace.ex 40.",
+      "recommendation": "cut",
+      "rationale": "No configuration uses it, yet it forks every workspace and agent path into local/remote clauses.",
+      "loc_saving_estimate": 900,
+      "rewrite_notes": "362 lines of modules plus an estimated ~550 lines of worker_host clauses across 57 files. If remote execution returns, do it as a separate runner package."
+    },
+    {
+      "id": "subsystems-35",
+      "name": "Repo base warm checkout and prewarm (warm-base materialization and dispatch gate)",
+      "surface": "subsystems",
+      "description": "RepoBase keeps a pre-compiled base checkout at ~/.aiur/repo/<o>/<r>/latest so workspaces materialize copy-on-write; prewarm detects/runs the base build; the dispatcher holds the fleet while the base is building (system.dispatch.prewarm_blocked). RepoBase also exports the per-repo state path helpers (repo_path/builds_path) used by 22 files.",
+      "modules": [
+        "lib/aiur/repo_base.ex",
+        "lib/aiur/prewarm/detect.ex",
+        "lib/aiur/config/schema/prewarm.ex"
+      ],
+      "lib_loc": 1852,
+      "test_loc": 1824,
+      "entry_points": [
+        "Aiur.RepoBase (supervised)",
+        "Aiur.Prewarm.Detect",
+        "DispatchPolicy.prewarm_gate + dispatcher prewarm hold (~150 lines in orchestrator/dispatcher.ex)",
+        "config: prewarm.enabled (default false), prewarm.base_build/base_build_file, prewarm.poll_seconds"
+      ],
+      "docs": "website/docs-app/reference/configuration.md, guide/quick-start.md, concepts/units.md, concepts/ticket-lifecycle.md, reference/cli.md",
+      "usage": "occasional",
+      "usage_evidence": "prewarm.enabled=true in 2 of 7 configs (aiur, kevinweaver-dev). Retained telemetry prewarm events: 22 materialize starts, 9 success, 13 materialize_failed -> cold fallback (59% failure), 430 'existing' skips, 89 'disabled'. aiur Executor wake stream: 1,015 system.dispatch.prewarm_blocked wakes between 2026-08-18 and 08-24. merged-fixes 2.17: 5-fix chain (#441, #571, #1555, #2274, #2434), disabled in #2242 (two starts stalled with 31 ready tickets and 0 agents), later re-enabled. Executor: 36 operational commands in 8 files. Note: pre_warmed_sessions (opencode pane prewarm, 7/7 configs) is a different feature owned by the TUI/opencode surface.",
+      "recommendation": "cut",
+      "rationale": "Materialization fails more often than it succeeds, the gate has halted the whole fleet, and it produced the largest single wake flood. A per-workspace cold clone plus a shared deps/_build cache is simpler.",
+      "loc_saving_estimate": 1700,
+      "rewrite_notes": "Delete warm-base build, prewarm gate and init prewarm step; keep repo_path/builds_path as Config.Paths helpers; share hex/mix/npm caches via env vars (already done: .aiur-hex/.aiur-mix/.aiur-npm-cache)."
+    },
+    {
+      "id": "subsystems-36",
+      "name": "Test sandbox reset (`aiur --test` / `--test3` three-ticket event-flow sandbox)",
+      "surface": "subsystems",
+      "description": "Resets pinned GitHub sandbox tickets, restores sandbox Elixir files, and guards against running in agent workspaces or dirty trees.",
+      "modules": [
+        "lib/aiur/test_reset.ex",
+        "lib/aiur/sandbox/event_flow_demo.ex",
+        "lib/aiur/sandbox/event_flow_unrelated_1.ex",
+        "lib/aiur/sandbox/event_flow_unrelated_2.ex",
+        "lib/aiur/sandbox/event_flow_unrelated_3.ex",
+        "lib/mix/tasks/aiur.test.reset.ex"
+      ],
+      "lib_loc": 916,
+      "test_loc": 537,
+      "entry_points": [
+        "Aiur.TestReset",
+        "mix aiur.test.reset",
+        "src/lib/aiur/sandbox/*.ex (stub modules agents edit)",
+        ".aiur-test-tickets.json"
+      ],
+      "docs": "website/docs-app/reference/cli.md (--test); AGENTS.md (Manual testing)",
+      "usage": "rare",
+      "usage_evidence": "'aiurdev ... --test' in retained Executor transcripts (2026-09-01+): 0 invocations; test_reset mentions: 0 operational. .aiur-test-tickets.json last modified 2026-08-01. git: 17 commits (06-02..09-18). AGENTS.md names it the only acceptable manual test.",
+      "recommendation": "externalize",
+      "rationale": "A developer harness for Aiur's own repo, shipped in the product release and reached via product flags.",
+      "loc_saving_estimate": 900,
+      "rewrite_notes": "Move to scripts/ or a dev-tools package; the sandbox stub modules should not live in lib/."
+    },
+    {
+      "id": "subsystems-37",
+      "name": "Upgrade notice (channel-aware update check)",
+      "surface": "subsystems",
+      "description": "Background npm registry check per dist-tag channel with TTL state file; the launcher prints the notice.",
+      "modules": [
+        "lib/aiur/upgrade.ex",
+        "lib/aiur/upgrade/notice.ex",
+        "lib/aiur/upgrade/registry.ex",
+        "lib/aiur/upgrade/state.ex",
+        "lib/aiur/upgrade/version.ex",
+        "lib/aiur/config/schema/upgrade.ex",
+        "packaging/npm/aiur-cli/libexec/aiur-engine.sh (notice functions, ~69 lines; cmd_upgrade itself belongs to the CLI surface)"
+      ],
+      "lib_loc": 789,
+      "test_loc": 441,
+      "entry_points": [
+        "Aiur.Application.start_upgrade_check/0 -> Aiur.Upgrade.check_and_announce/1",
+        "packaging/npm/aiur-cli/libexec/aiur-engine.sh: maybe_surface_upgrade_notice(3780), maybe_print_upgrade_notice(3807), upgrade_state_*",
+        "config: upgrade.check_enabled; env AIUR_UPGRADE_CHECK_DISABLED"
+      ],
+      "docs": "website/docs-app/reference/configuration.md, reference/cli.md, guide/quick-start.md",
+      "usage": "rare",
+      "usage_evidence": "Disabled under aiurdev (Upgrade.check_and_announce returns early when dev_launcher?/0), which every retained Executor transcript uses. ~/.config/aiur/upgrade.json: last_check 2026-09-17, dist_tags {}, notice null (never produced a notice). 'aiur_upgrade' log lines: 0. Executor 'aiur upgrade/update': 0 operational.",
+      "recommendation": "simplify",
+      "rationale": "Reasonable for npm users, but a BEAM task, a registry client, version parsing and engine glue is heavy for one comparison.",
+      "loc_saving_estimate": 600,
+      "rewrite_notes": "Do the check in bin/aiur.js (Node already has fetch) with a 24 h cache; delete Aiur.Upgrade.*."
+    },
+    {
+      "id": "subsystems-38",
+      "name": "Init wizard and scaffolding (`aiur init`)",
+      "surface": "subsystems",
+      "description": "Interactive wizard: tracker/agents/routing questions, GitHub labels, bot account and GitHub App, CODEOWNERS, agent CLI install checks, dotenv, alerts sounds, ElevenLabs, prewarm opt-in and first warm-base build, resume readback; scaffolds .aiur/config, hooks, prompt.md.",
+      "modules": [
+        "lib/aiur/init.ex",
+        "lib/aiur/init/agent_cli.ex",
+        "lib/aiur/init/alerts.ex",
+        "lib/aiur/init/bot_account.ex",
+        "lib/aiur/init/codeowners.ex",
+        "lib/aiur/init/dotenv.ex",
+        "lib/aiur/init/eleven_labs.ex",
+        "lib/aiur/init/format.ex",
+        "lib/aiur/init/github.ex",
+        "lib/aiur/init/github_app.ex",
+        "lib/aiur/init/labels.ex",
+        "lib/aiur/init/prewarm.ex",
+        "lib/aiur/init/prewarm/failure.ex",
+        "lib/aiur/init/prompt.ex",
+        "lib/aiur/init/questions.ex",
+        "lib/aiur/init/resume.ex",
+        "lib/aiur/init/runtime.ex",
+        "lib/aiur/init/scaffold.ex",
+        "lib/aiur/init/templates.ex",
+        ".aiur/examples/{config,hooks,prompt.md,alerts.linux,alerts.macos,executor-handoff.md}.example (672 lines, from git show 3339b88)"
+      ],
+      "lib_loc": 3943,
+      "test_loc": 4495,
+      "entry_points": [
+        "Aiur.Init",
+        "aiur init (engine build_init_cmd)",
+        ".aiur/examples/*.example (672 lines embedded at compile time)",
+        "src/examples/workflows (350 lines)"
+      ],
+      "docs": "website/docs-app/guide/quick-start.md, reference/cli.md",
+      "usage": "occasional",
+      "usage_evidence": "`aiur init`: 6 operational Executor commands in 2 files (18 more while developing it); every real config (7 of 7) has the scaffolded hooks_file/prompt_file keys. git: 31 commits under src/lib/aiur/init (06-15..09-26).",
+      "recommendation": "simplify",
+      "rationale": "First-run setup matters for adoption, but the wizard carries optional steps (prewarm 360 lines, ElevenLabs, resume readback) for features this inventory recommends cutting.",
+      "loc_saving_estimate": 900,
+      "rewrite_notes": "Scaffold from one annotated template + label provisioning + credential check; drop prewarm, ElevenLabs and resume steps."
+    },
+    {
+      "id": "subsystems-39",
+      "name": "Environment variable schema, startup validation and global-config startup",
+      "surface": "subsystems",
+      "description": "Env.Schema declares every operator env var; startup validation, disabled-integration notice, .env precedence warning, .env.example generation; GlobalConfigStartup prepares labels when a run uses ~/.aiur/config.",
+      "modules": [
+        "lib/aiur/env.ex",
+        "lib/aiur/env/schema.ex",
+        "lib/aiur/env/types.ex",
+        "lib/aiur/global_config_startup.ex",
+        "lib/mix/tasks/aiur.env.example.ex"
+      ],
+      "lib_loc": 999,
+      "test_loc": 895,
+      "entry_points": [
+        "Aiur.Env.validate_startup!/2 (Application)",
+        "Aiur.GlobalConfigStartup.prepare/0",
+        "mix aiur.env.example"
+      ],
+      "docs": "AGENTS.md (Auth); website/docs-app/reference/configuration.md",
+      "usage": "heavy",
+      "usage_evidence": "Runs on every boot (Application.maybe_validate_environment). ~/.aiur/.env and repo .env files exist; home-config runs (khala uses ~/.aiur/config) go through GlobalConfigStartup.",
+      "recommendation": "keep",
+      "rationale": "Cheap and prevents misconfigured boots.",
+      "loc_saving_estimate": 0
+    },
+    {
+      "id": "subsystems-40",
+      "name": "Boot plumbing: Erlang distribution, PubSub boot sequencing, legacy launch-state adoption",
+      "surface": "subsystems",
+      "description": "Distribution validates the release node/cookie; PubSub.Boot waits for a previous incarnation's registry names; LaunchStateAdoption one-time adopts legacy event counters and alert ledgers from older log dirs.",
+      "modules": [
+        "lib/aiur/distribution.ex",
+        "lib/aiur/pubsub_boot.ex",
+        "lib/aiur/launch_state_adoption.ex"
+      ],
+      "lib_loc": 290,
+      "test_loc": 63,
+      "entry_points": [
+        "Aiur.Distribution",
+        "Aiur.PubSub.Boot",
+        "Aiur.LaunchStateAdoption"
+      ],
+      "docs": "none",
+      "usage": "regular",
+      "usage_evidence": "Distribution and PubSub boot run every start. LaunchStateAdoption (added 2026-09-18, 1 commit): 2 'adopt' log lines in retained logs.",
+      "recommendation": "simplify",
+      "rationale": "Distribution/PubSub boot are needed; the adoption shim is a one-release migration.",
+      "loc_saving_estimate": 145,
+      "rewrite_notes": "Delete LaunchStateAdoption once every live instance has booted past 2026-09-18."
+    },
+    {
+      "id": "subsystems-41",
+      "name": "RTK output-compression admission",
+      "surface": "subsystems",
+      "description": "Opt-in gate that wraps agent shell commands with the `rtk` CLI and reads its savings.",
+      "modules": [
+        "lib/aiur/rtk.ex"
+      ],
+      "lib_loc": 241,
+      "test_loc": 155,
+      "entry_points": [
+        "Aiur.Rtk",
+        "config: agent.rtk.enabled (default off)"
+      ],
+      "docs": "website/docs-app/reference/configuration.md",
+      "usage": "none-found",
+      "usage_evidence": "agent.rtk.* set in 0 of 7 real configs. Codex agent sessions executing 'rtk git|rtk gain': 0 (rg over ~/.codex/sessions); Claude agent transcripts containing 'rtk ': 0. Executor: 22 operational commands in 3 files, all 2026-09-03 while building it. git: 1 commit.",
+      "recommendation": "cut",
+      "rationale": "Opt-in and never enabled.",
+      "loc_saving_estimate": 241
+    },
+    {
+      "id": "subsystems-42",
+      "name": "Developer tooling compiled into the product (affected tests, test shards, specs check, lint/PR-body/workspace mix tasks)",
+      "surface": "subsystems",
+      "description": "Deterministic changed-file -> test mapping (mix aiur.affected_tests), content-stable CI shard assignment, @spec checker, lint and PR-body checks, workspace.before_remove task.",
+      "modules": [
+        "lib/aiur/affected_tests.ex",
+        "lib/aiur/test_shard.ex",
+        "lib/aiur/specs_check.ex",
+        "lib/mix/tasks/aiur.affected_tests.ex",
+        "lib/mix/tasks/aiur.test_shard.ex",
+        "lib/mix/tasks/specs.check.ex",
+        "lib/mix/tasks/lint.ex",
+        "lib/mix/tasks/pr_body.check.ex",
+        "lib/mix/tasks/workspace.before_remove.ex"
+      ],
+      "lib_loc": 1226,
+      "test_loc": 1493,
+      "entry_points": [
+        "mix aiur.affected_tests",
+        "mix aiur.test_shard",
+        "mix specs.check",
+        "mix lint",
+        "mix pr_body.check",
+        "mix workspace.before_remove"
+      ],
+      "docs": "CONTRIBUTING.md; agent prompt (shared-agent-instructions)",
+      "usage": "heavy",
+      "usage_evidence": "'mix aiur.affected_tests' executed in 288 Codex agent sessions (rg over exec cmd fields) and named in the agent prompt; aiur.test_shard executed in 4; specs_check runs in CI.",
+      "recommendation": "externalize",
+      "rationale": "Heavily used, but only by agents developing Aiur itself; it is repo dev tooling, not orchestrator functionality.",
+      "loc_saving_estimate": 1226,
+      "rewrite_notes": "Move to a dev-only package or mix alias outside lib/ so the release does not carry it."
+    },
+    {
+      "id": "subsystems-43",
+      "name": "Agent workspace environment plumbing (scratch TMPDIR, command shims, bundled skills install)",
+      "surface": "subsystems",
+      "description": "Per-workspace TMPDIR, installed bin/ entrypoints, and installation of Aiur's bundled agent skills into each workspace.",
+      "modules": [
+        "lib/aiur/agent_scratch.ex",
+        "lib/aiur/agent_command_installer.ex",
+        "lib/aiur/agent_skills.ex"
+      ],
+      "lib_loc": 581,
+      "test_loc": 549,
+      "entry_points": [
+        "Aiur.AgentScratch",
+        "Aiur.AgentCommandInstaller",
+        "Aiur.AgentSkills"
+      ],
+      "docs": "AGENTS.md; website/docs-app/skills.md",
+      "usage": "heavy",
+      "usage_evidence": "Applied at every agent spawn; 'TMPDIR=' appears 2,368 times in Codex sessions; every agent prompt routes to the installed aiur-agent skill.",
+      "recommendation": "keep",
+      "rationale": "Fixed a real clobbering class (#agent_scratch) and delivers the agent manual.",
+      "loc_saving_estimate": 0
+    },
+    {
+      "id": "subsystems-44",
+      "name": "Shared utility libraries (fs, jsonl, json store, yaml, os/shell escaping, path safety, redaction, external-content wrapper, periodic worker)",
+      "surface": "subsystems",
+      "description": "Small helpers used across subsystems.",
+      "modules": [
+        "lib/aiur/fs.ex",
+        "lib/aiur/jsonl.ex",
+        "lib/aiur/json_store.ex",
+        "lib/aiur/json_safe.ex",
+        "lib/aiur/yaml.ex",
+        "lib/aiur/os.ex",
+        "lib/aiur/shell.ex",
+        "lib/aiur/path_safety.ex",
+        "lib/aiur/opaque_identifier.ex",
+        "lib/aiur/secret_redactor.ex",
+        "lib/aiur/external_content.ex",
+        "lib/aiur/periodic_worker.ex"
+      ],
+      "lib_loc": 766,
+      "test_loc": 731,
+      "entry_points": [
+        "Aiur.Fs",
+        "Aiur.JSONL",
+        "Aiur.JSONStore",
+        "Aiur.PathSafety",
+        "Aiur.SecretRedactor",
+        "Aiur.ExternalContent",
+        "Aiur.PeriodicWorker"
+      ],
+      "docs": "none",
+      "usage": "heavy",
+      "usage_evidence": "Imported across lib (e.g. PathSafety by config/paths, codex_sandbox_policy, build_gate; PeriodicWorker by pollers).",
+      "recommendation": "keep",
+      "rationale": "Foundational; the durable-store duplication (subsystems-45) should reuse JSONL/JSONStore instead of re-implementing them.",
+      "loc_saving_estimate": 0
+    },
+    {
+      "id": "subsystems-45",
+      "name": "Durable daemon state layout (Config.Paths) and the per-subsystem checkpoint pattern",
+      "surface": "subsystems",
+      "description": "Resolves ~/.config/aiur/<instance>/<repo>/<leaf> for decisions, usage-ledger, usage-aggregate, usage-compaction, current-run-membership, progress-retention, workspace-ownership, metrics, executor takeover alerts and more; each leaf's owner re-implements checkpoint + recovery + quarantine + degraded marker.",
+      "modules": [
+        "lib/aiur/config/paths.ex"
+      ],
+      "lib_loc": 354,
+      "test_loc": 514,
+      "entry_points": [
+        "Aiur.Config.Paths"
+      ],
+      "docs": "none",
+      "usage": "heavy",
+      "usage_evidence": "14 instance/repo dirs under ~/.config/aiur, each with ~15 leaves; 4 are empty smoke/test shells (fb354c5068/aiur, 3c753a863d/*, khala-home-smoke). Test fixtures leak into real state: ~/.aiur/repo has acme/widgets, test-org/test-repo, owner/repo and _unresolved dirs; ~/.cache holds many aiur-test-logs-* membership dirs.",
+      "recommendation": "simplify",
+      "rationale": "At least eight subsystems (usage ledger/aggregate/compaction, membership, projections checkpoint, decision metrics writer, progress retention, ownership receipts) each carry their own crash-safe file protocol; one small library would replace them. Savings are counted in those features, not here.",
+      "loc_saving_estimate": 0,
+      "rewrite_notes": "One DurableLog (append+fsync+tail-repair) and one AtomicJSON (write-temp+rename) used by every store; tests must set the state root explicitly."
+    },
+    {
+      "id": "subsystems-46",
+      "name": "Codex sandbox policy (writable roots)",
+      "surface": "subsystems",
+      "description": "Derives the Codex turn sandbox policy and writable roots from the workspace, validates configured extras.",
+      "modules": [
+        "lib/aiur/config/codex_sandbox_policy.ex"
+      ],
+      "lib_loc": 347,
+      "test_loc": 0,
+      "entry_points": [
+        "Aiur.Config.CodexSandboxPolicy.resolve/3 (codex/config.ex)",
+        "config: agent.codex.thread_sandbox, agent.codex.turn_sandbox_policy.{type,networkAccess,writableRoots}"
+      ],
+      "docs": "website/docs-app/reference/configuration.md",
+      "usage": "regular",
+      "usage_evidence": "Applied to every Codex turn (Codex is 12,056 of 18,589 usage records). turn_sandbox_policy keys set in 2 of 7 configs. merged-fixes 2.17: sandbox writable roots recurred (#1314 -> #1413 -> #2086 -> #2283). Tests live inside workspace_and_config_test.exs (37 writableRoots assertions; counted under subsystems-32).",
+      "recommendation": "keep",
+      "rationale": "Required for Codex agents to write the shared budget/build roots; the #2283 derivation removed the hand-maintained list.",
+      "loc_saving_estimate": 0,
+      "rewrite_notes": "Belongs in the Codex backend package."
+    }
+  ]
+}

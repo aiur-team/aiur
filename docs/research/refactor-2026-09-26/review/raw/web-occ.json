@@ -1,0 +1,1164 @@
+{
+  "unit_id": "web-occ",
+  "files_reviewed": 82,
+  "lines_reviewed_estimate": 16500,
+  "coverage_notes": "Read in full (every line): analytics/presenter.ex, run_summary_strip.ex, usage_summary_presenter.ex, analytics/charts.ex, github_cache/charts.ex, provider_meters_presenter.ex, units_presenter.ex, build_order_grid_model.ex, units_table.ex, decision_commands.ex, revision_commands.ex, run_summary_presenter.ex, current_run_outcomes_presenter.ex, layouts.ex, dashboard_shell.ex, build_order_selected.ex, build_order_breakdown.ex, build_order_catalog.ex, ticket_context.ex, build_order_ticket_context.ex, history.ex, build_order_graph.ex, conversation_drawer.ex, conversation_drawer/presenter.ex, ticket_search.ex, tickets_presenter.ex, agent_routing_preview.ex, payload_loader.ex, units_policy.ex, units_control_policy.ex, units_presentation.ex, units_row.ex and all units_row/*.ex, units_url.ex, decision_card.ex, decision_action.ex, decision_revision_action.ex, decision_detail.ex, decision_inbox.ex, decision_presenter.ex, decision_provider.ex, decision_events.ex, decision_path.ex, awaiting_commands.ex, add_agent_submission.ex, add_agent_modal.ex, agent_log_modal.ex, build_order_analytics.ex, build_order_usage.ex, build_order_status.ex, build_order_epic_icon.ex, build_order_icon.ex, tickets_panel.ex, usage_summary.ex, current_run_outcomes.ex, fleet_table.ex, fleet_filters.ex, overview.ex, units_filters.ex, ticket_detail_modal.ex, capacity_presenter.ex, provider_meter_source.ex, route_registry.ex, analytics/latest_run.ex, analytics/scope_resolver.ex, analytics/styles.ex, time_format.ex, row_token.ex, nav_state.ex, money.ex. Skimmed (head, attrs, public functions only, then confirmed unused by grep): capacity_control.ex, lifecycle_components.ex, decision_latency.ex, recent_outcomes.ex, run_summary.ex (component), provider_meters.ex (component); github_cache/styles.ex read at head and tail only (CSS). Outside the unit, read narrowly to verify claims: dashboard_live.ex (event handlers, reload_payload, outcome pipeline, capacity handlers, browser_time_zone), control_center_cache.ex, model_availability.ex (load/normalize_window), agent_log.ex (read paths), decision_store.ex (call timeouts, dismiss), decision_metrics.ex (snapshot/snapshots), build_order/metadata.ex, current_run_projection/value.ex, open_ticket_source.ex (excerpt length), the core/CLI files that alias OCC modules, and a few tests (ticket_search_test, dashboard_live_test around Command answering, stale-label assertions). Population census for web-occ-26 used the live checkout's .aiur/model-usage.json read-only (1 window, 0 would raise). Not done: no code was compiled or run; the dashboard stylesheet (dashboard.css) is not in the snapshot, so CSS-gated behaviour (e.g. the static 'Offline' badge in DashboardShell) was not assessed; test files for this unit were not reviewed systematically (only spot-checked), so test-quality findings are absent; the XSS source-trust chain for model names (web-occ-12) was not traced end to end, hence P2.",
+  "findings": [
+    {
+      "id": "web-occ-01",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Core daemon and five CLIs depend on AiurWeb.OperatorControlCenter projection/policy modules (core -> web inversion)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/current_run_projections/units_builder.ex",
+          "lines": "5,47"
+        },
+        {
+          "path": "src/lib/aiur/current_run_projections/state.ex",
+          "lines": "9,22"
+        },
+        {
+          "path": "src/lib/aiur/current_run_summary/facts.ex",
+          "lines": "5,45-46,163"
+        },
+        {
+          "path": "src/lib/aiur/units_cli.ex",
+          "lines": "7,33,52-66,116-119"
+        },
+        {
+          "path": "src/lib/aiur/commands_cli.ex",
+          "lines": "5"
+        },
+        {
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "lines": "5"
+        },
+        {
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "lines": "19"
+        },
+        {
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "lines": "38"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row.ex",
+          "lines": "1-47"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "lines": "1-191"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "lines": "1-240"
+        }
+      ],
+      "description": "Several modules in this unit are not web code at all: they are the domain truth for Units rows, Units scope/condition policy, row presentation, the decision read facade, the build-order grid model and the analytics model. The daemon-owned current-run summary (Aiur.CurrentRunSummary.Facts) counts live/remaining units with the web module's UnitsPolicy, the current-run projection state builds its snapshot with AiurWeb...UnitsRow.snapshot/1, and every CLI (`aiur units`, `aiur commands`, `aiur analytics`, `aiur build-orders`, agent control) reaches into AiurWeb.OperatorControlCenter. `aiur units` even goes through PayloadLoader, which imports Phoenix.Component.assign/3 and resolves services via AiurWeb.Endpoint.config/1, so a CLI read depends on Phoenix endpoint configuration.",
+      "evidence": "grep of src/lib/aiur for AiurWeb.OperatorControlCenter finds 9 files: `alias AiurWeb.OperatorControlCenter.UnitsRow` (units_builder.ex:5, state.ex:9); `alias AiurWeb.OperatorControlCenter.UnitsPolicy` + `live: Enum.count(rows, &UnitsPolicy.in_scope?(&1, :live))` (facts.ex:5,45); `alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPolicy, UnitsPresentation, UnitsPresenter}` + `fn -> PayloadLoader.load(:fresh) end` (units_cli.ex:7,119); `alias AiurWeb.OperatorControlCenter.DecisionProvider` (commands_cli.ex:5); `alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, ScopeResolver}` (analytics_cli.ex:5); `alias AiurWeb.OperatorControlCenter.BuildOrderGridModel` (build_orders_cli.ex:19); `alias AiurWeb.OperatorControlCenter.UnitsPresentation` (agent_control_cli.ex:38). payload_loader.ex:4 `import Phoenix.Component, only: [assign: 3]`.",
+      "recommendation": "Move the non-rendering modules into a core projections package (e.g. Aiur.Projections.Units: UnitsRow, UnitsRow.*, UnitsPolicy, UnitsControlPolicy, UnitsPresentation; Aiur.Projections.Decisions: DecisionProvider, DecisionPresenter; Aiur.BuildOrder.GridModel; Aiur.Analytics.{Presenter, LatestRun, ScopeResolver}). Split PayloadLoader into a pure `load/1` (core, takes an explicit provider struct instead of Endpoint.config) and a socket-side scheduler (web). The web layer and CLIs then both depend on core, never the reverse.",
+      "effort": "L",
+      "refactor_hint": "Carve blocker: any split of aiur_web into its own package creates a core<->web cycle until these modules move down. Do this first."
+    },
+    {
+      "id": "web-occ-02",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Three diverged row classifiers (UnitsPolicy, UnitsControlPolicy, FleetFilters) plus a fourth reason list decide paused/queued/blocked/finished differently for the same row",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "lines": "11-12,107-125,129-143"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "lines": "273-308"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+          "lines": "4-8,47-56,75-84"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "lines": "6-12,181-195"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presenter.ex",
+          "lines": "454"
+        }
+      ],
+      "description": "The same Units row facts are classified by independent predicate sets that have already drifted. UnitsPolicy (filter chips/counts, and via web-occ-01 the daemon summary) treats a row as paused when `Map.get(row, :tracker_paused?) == true` or a pause reason is present; UnitsControlPolicy (which control button renders) requires `running_ish?(row)` and only reads `runtime.tracker_paused?`. UnitsPolicy counts `lifecycle in [:queued, :retrying, :waiting]` or waiting_reason in @queue_reasons as queued; UnitsControlPolicy counts only `runtime_bucket == :queued or lifecycle in [:queued, :waiting]`. FleetFilters classifies `:waiting_for_dependency` as blocked while UnitsPolicy's @queue_reasons classifies it as queued, and FleetFilters decides finished by parsing tracker state strings (`[\"done\", \"closed\", \"cancelled\", \"canceled\"]`) instead of the `terminal?` fact. Fields has its own @blocking_reasons list including :waiting_for_ci/:waiting_for_review that FleetFilters lacks. The comment in UnitsControlPolicy (\"Mirror UnitsPolicy's flat-key fallback so both policies classify a row the same way\") shows the intent; only the accessor was mirrored, not the predicates. UnitsPresenter.normalize_condition also hard-codes its own copy of the condition list.",
+      "evidence": "units_policy.ex:11 `@queue_reasons [:awaiting_dispatch, :waiting_for_dependency, :tracker_unavailable, :backing_off]`; units_policy.ex:107-113 `paused?`: `Map.get(row, :tracker_paused?) == true or get_in(row, [:runtime, :tracker_paused?]) == true or present?(reason(row, :pause)) or work_state(row) in [:paused, :sleeping]`; units_control_policy.ex:281-284 `paused?`: `running_ish?(row) and (work_state(row) in [:paused, :sleeping] or get_in(row, [:runtime, :tracker_paused?]) == true)`; units_control_policy.ex:301-303 `queued?`: `runtime_bucket(row) == :queued or Map.get(row, :lifecycle) in [:queued, :waiting]`; fleet_filters.ex:6 `@blocked_reasons [:waiting_for_human, :waiting_for_supervisor, :waiting_for_dependency]`, :8 `@finished_states [\"done\", \"closed\", \"cancelled\", \"canceled\"]`; fields.ex:6-12 @blocking_reasons adds :waiting_for_ci, :waiting_for_review; units_presenter.ex:454 `when condition in [:active, :alert, :paused, :stuck, :queued, :finished]`.",
+      "recommendation": "Make one row-classification module the only truth (e.g. Aiur.Projections.Units.Classify) exposing `lifecycle_class/1 :: :active | :paused | :queued | :blocked | :stuck | :finished` plus the reason lists, and derive UnitsPolicy conditions, UnitsControlPolicy affordance gates, and (if kept) FleetFilters from it. Add a property test that enumerates row fixtures and asserts filter-chip class and control affordance agree. UnitsPresenter.normalize_condition should call UnitsPolicy.conditions/0.",
+      "effort": "M",
+      "refactor_hint": "Belongs in the core Units projection package (see web-occ-01); the daemon summary already consumes UnitsPolicy."
+    },
+    {
+      "id": "web-occ-03",
+      "category": "other",
+      "severity": "P1",
+      "title": "Ticket search indexes only the first 8 unique words of each title and description (index reuses the 8-term query cap)",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/ticket_search.ex",
+          "lines": "33,57-69,75-81,237-246"
+        }
+      ],
+      "description": "`words/1`, which builds the per-ticket index for title and body, calls `terms/1`, and `terms/1` truncates to `@max_terms` (8) because it was written to bound the operator's query. The index is therefore capped too: a title word after the eighth unique word, and every description word after the eighth unique word of the 1,000-character excerpt (OpenTicketSource @body_excerpt_chars), can never match. The moduledoc promises matching against \"title words, and a bounded excerpt of its description\" and the panel hint says \"Matches ticket titles, descriptions, and IDs\". Live correctness defect, scoped to the Tickets panel filter; the existing test only asserts the query cap (`length(TicketSearch.terms(...50 terms...)) == 8`) and no test searches for a late word.",
+      "evidence": "ticket_search.ex:33 `@max_terms 8`; :57-68 `terms(query) ... |> Enum.uniq() |> Enum.take(@max_terms)`; :239-244 `defp words(text) when is_binary(text) do text |> terms() |> Enum.uniq() end`; :78-79 `title: words(Map.get(row, :title)), body: words(Map.get(row, :body_excerpt))`. src/lib/aiur/open_ticket_source.ex:68 `@body_excerpt_chars 1_000`. Failure: ticket titled \"Stop the build gate from double counting queued jobs on restart\" does not match the query \"restart\" (11th unique word).",
+      "recommendation": "Split the tokenizer from the cap: `tokenize/1` (NFC, downcase, split, uniq) used by `index/1`, and `terms/1 = tokenize |> Enum.take(@max_terms)` for queries only. Bound index cost by the excerpt length (already bounded) rather than by the query cap. Add a test that finds a word beyond position 8 in both title and body and fails with the current code.",
+      "effort": "S",
+      "refactor_hint": "Web-only; fix before or during the carve."
+    },
+    {
+      "id": "web-occ-04",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Answerable-status sets diverged: UI offers \"Change choice\" on a selected dismissed Command, the command adapter rejects it with a false \"not loaded\" error",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_action.ex",
+          "lines": "20-29,136"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "lines": "92-98"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_detail.ex",
+          "lines": "28-32"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "lines": "15-31,109-132"
+        }
+      ],
+      "description": "DecisionAction renders the answer form for `status in [:open, :deferred, :dismissed]` and labels the submit \"Change choice\" for dismissed Commands; DecisionDetail always renders DecisionAction for the selected Command. DecisionCommands.selected_open_decision/2 accepts the *selected* decision only when `status in [:open, :deferred]`, and its second clause (which does allow :dismissed) is guarded by `decision_id != selected_id`. So submitting \"Change choice\" on a dismissed Command's detail page (or its expanded History row) always returns \"This Command is not loaded on this page; return to the Commands list.\", and `change/3` silently drops every phx-change for it, so selecting \"Custom response\" never reveals the textarea. The same action works from the inbox card (non-selected). No test covers answering a selected dismissed Command (dashboard_live_test.exs only covers the non-selected case at 2088-2130). Same file: `acknowledgeable?` is always false (see web-occ-29).",
+      "evidence": "decision_action.ex:20 `answerable? = status in [:open, :deferred, :dismissed]`; :136 `{if @decision.decision_status in [:dismissed, :deferred], do: \"Change choice\", else: \"Decision\"}`; decision_commands.ex:109-114 `defp selected_open_decision(%{assigns: %{selected_decision: %{decision_id: decision_id, decision_status: status} = decision}}, decision_id) when status in [:open, :deferred]`; :121-126 second clause `when is_list(decisions) and decision_id != selected_id` with `&1.decision_status in [:open, :deferred, :dismissed]`; :29 error text \"This Command is not loaded on this page; return to the Commands list.\"",
+      "recommendation": "Define the answerable/dismissible/deferrable status sets once (e.g. `Aiur.Decision.answerable_statuses/0` or a DecisionPolicy module) and use it in DecisionAction, DecisionCard, DecisionInbox.open?/1 and both selected_open_decision clauses. Add a LiveView test that answers a dismissed Command from /commands/:id and asserts the store records the answer.",
+      "effort": "S",
+      "refactor_hint": "Decision policy belongs with the Decision domain (core), consumed by the web command adapters."
+    },
+    {
+      "id": "web-occ-05",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "Decision writes collapse a GenServer timeout into \"storage unavailable\" and discard the idempotency key, defeating retry dedup; RevisionCommands does the opposite",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "lines": "85-107,173-183,215-219,254-258,273-284,296-302,369-372"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "lines": "156-171,173-184,196-198"
+        }
+      ],
+      "description": "DecisionStore.answer/dismiss/defer/revise are GenServer.calls with @request_timeout. Every `safe_*` wrapper catches any `:exit` (including a call timeout, where the store may still commit the write) and returns `{:error, :store_unavailable}`, rendered as \"Command storage is currently unavailable.\" That names a specific cause for an unknown outcome (the AGENTS.md collapsed-cause rule; AgentLogModal already has an explicit `{:outcome_unknown, _}` message for the same situation in operator messages). Worse, DecisionCommands.put_error/3 deletes `:idempotency_key` on every error, so the operator's retry after a timeout carries a fresh key: if the first write landed, the retry hits `{:conflict, {:already_decided, _}}` / stale_version and is told \"Another durable answer already won\" about their own answer. RevisionCommands.put_revision_error keeps `:revision_idempotency_key` across errors, so the two adapters already disagree about the same mechanism.",
+      "evidence": "decision_commands.ex:173-177 `defp safe_answer(...) do DecisionStore.answer(...) catch :exit, _reason -> {:error, :store_unavailable} end`; :296-301 `put_error ... &(&1 |> Map.put(:error, message) |> Map.delete(:notice) |> Map.delete(:idempotency_key))`; :372 `command_error(:store_unavailable), do: \"Command storage is currently unavailable.\"`; revision_commands.ex:196-197 `put_revision_error ... &(&1 |> Map.put(:revision_error, message) |> Map.delete(:revision_notice))` (key retained). src/lib/aiur/decision_store.ex:190-192 `def answer(..., timeout \\\\ @request_timeout) ... GenServer.call(server, {:answer, ...}, timeout)`.",
+      "recommendation": "Distinguish `{:exit, {:timeout, _}}` as `{:error, :outcome_unknown}` with copy that says the answer may have been recorded and to retry (same key) or refresh. Keep the idempotency key until a definitive success or a definitive non-retryable rejection; clear it only on success or on a validation error that changes the payload. Share one wrapper (`DecisionWrite.call/2`) between DecisionCommands and RevisionCommands so the two cannot drift again.",
+      "effort": "S",
+      "refactor_hint": "Web command adapters; the wrapper can live next to DecisionStore's client API in core."
+    },
+    {
+      "id": "web-occ-06",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "46 rescue/catch fallbacks and zero logging in the unit; several swallow real faults, drop records, or relabel them as a different cause",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/decision_presenter.ex",
+          "lines": "20-30"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/decision_provider.ex",
+          "lines": "25-36,86-92"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "72-104,190-196,1078-1093"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presenter.ex",
+          "lines": "158-167,405-407"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/tickets_presenter.ex",
+          "lines": "189-197"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/provider_meter_source.ex",
+          "lines": "69-78"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "lines": "61-65,212-216,283-289"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "lines": "189-193,230-235,245-250"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_analytics.ex",
+          "lines": "200-202"
+        }
+      ],
+      "description": "`grep Logger` over the 82 files returns nothing; `grep -cE '^\\s*(rescue|catch)'` returns 46 sites in 15 files. Most return a neutral 'unavailable' view, which is reasonable for a renderer, but with no log, metric, or alert the cause is lost (and without --debug the daemon writes no Logger output anyway). The harmful cases: (1) DecisionPresenter.present/1 rescues any error and returns `[]`, so a Decision that fails to present disappears from the Commands inbox while AwaitingCommands' counts (read directly from DecisionQuery) still include it; a blocking Command can be invisible in the list. (2) DecisionProvider.detail maps that same presenter failure to `{:error, :store_unavailable}`, naming the wrong cause. (3) Analytics.Presenter.load wraps the whole load in `rescue _error -> {:unavailable, :error}`, and BuildOrderAnalytics renders any such bug as \"The durable telemetry stream could not be read.\" (4) DecisionCommands discards the result of `resolve_legacy_attention/1` (which returns `{:error, :attention_registry_unavailable}` on exit) after a successful dismiss/defer, so a stale legacy attention stays up with no signal.",
+      "evidence": "decision_presenter.ex:22-28 `def present(%Decision{} = decision) do [row(decision)] rescue _error -> [] catch _kind, _reason -> [] end`; decision_provider.ex:25-35 `case DecisionPresenter.present(result.decision) do [decision] -> ... [] -> {:error, :store_unavailable} end`; analytics/presenter.ex:102-103 `rescue _error -> {:unavailable, :error}`; build_order_analytics.ex:200-201 `pane_state(%{unavailable: reason}) when not is_nil(reason) -> state(\"Telemetry unavailable\", \"The durable telemetry stream could not be read.\")`; decision_commands.ex:191 `resolve_legacy_attention(decision)` (result ignored), :247-249 `catch :exit, _reason -> {:error, :attention_registry_unavailable}`; units_presenter.ex:158-165 `safe_source ... rescue _error -> fallback catch _kind, _reason -> fallback`.",
+      "recommendation": "Introduce one `AiurWeb.SafeRead.call(source_name, fun, fallback)` that returns the fallback *and* emits a telemetry event / rate-limited alert with the exception class, and use it at every site. For DecisionPresenter, return `{:error, decision_id, reason}` rows and render an explicit 'N Commands could not be displayed' notice instead of dropping them; DecisionProvider.detail should return `{:error, {:presentation_failed, reason}}`. Analytics.Presenter.load should rescue only around the I/O calls and report `{:unavailable, {:exception, module}}`.",
+      "effort": "M",
+      "refactor_hint": "Cross-cutting; the helper belongs in a shared web-support package and the Decision presenter moves to core with web-occ-01."
+    },
+    {
+      "id": "web-occ-07",
+      "category": "other",
+      "severity": "P1",
+      "title": "Analytics substitutes the local config cap (or a hard-coded 10) when the effective cap is unknown, and the concurrency chart draws it as the real cap",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "28,206,1033-1039,1078-1084"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "lines": "113-140"
+        }
+      ],
+      "description": "When no capacity snapshot is available, `cap_facts/1` returns `cap: safe_cap()`, where safe_cap/0 reads `Aiur.Config.max_concurrent_agents()` (the local .aiur/config) or falls back to @default_cap 10. The comment directly above says the local config \"is NOT substituted here\" because it \"would put a confident number under an admitted unknown\". cap_label/1 correctly prints \"unknown cap\" and wasted_slot_hours/3 returns nil, but Charts.concurrency/1 reads `model.cap` unconditionally and draws the cap line, the \"cap N\" label, and the shaded wasted-capacity band from it. The KPI tile and the chart beneath it therefore disagree, which is the #1564/#2241 failure this module's docs describe. compute_kpis also copies the substituted value into `kpis.cap`.",
+      "evidence": "presenter.ex:1033-1039 comment \"The local config file is NOT substituted here ... reporting it as \\\"configured\\\" would put a confident number under an admitted unknown.\" followed by `defp cap_facts(_reading) do [cap: safe_cap(), cap_available?: false, ...]`; :1078-1084 `defp safe_cap do Aiur.Config.max_concurrent_agents() rescue _ -> @default_cap ...`; :28 `@default_cap 10`; charts.ex:116 `%{... cap: cap, ...} = model`, :126-135 `cap_y = r2(yf.(cap))` ... `text(ml + 2, cap_y - 4, \"cap #{cap}\", ...)` with no cap_available? check.",
+      "recommendation": "Carry `cap: nil` when `cap_available?` is false and make every consumer handle nil: Charts.concurrency omits the cap line and wasted band and titles the chart 'cap unknown'; KPIs render the em dash. Add a test that builds the model with an unavailable capacity reading and asserts the concurrency SVG contains no \"cap \" label.",
+      "effort": "S",
+      "refactor_hint": "Analytics model/charts package."
+    },
+    {
+      "id": "web-occ-08",
+      "category": "other",
+      "severity": "P2",
+      "title": "Host memory silently defaults to 32 GiB off Linux, and 'cores' is scheduler count; both render as measured facts",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "27,212-213,712,998-1003,1086-1100"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "lines": "212-236"
+        }
+      ],
+      "description": "host_mem_bytes/0 reads /proc/meminfo and returns @default_host_mem_bytes (32 GiB) on any failure, including every macOS host (the npm packaging ships darwin platforms: packaging/scripts/platforms.mjs). The memory chart then draws a 'host 32.0 GB' ceiling and the `mem_headroom_pct` KPI is computed against that invented denominator, with no marker that it is a default. `cores` is `System.schedulers_online()`, which is the BEAM +S setting, not the host core count, yet the CPU chart labels `cores * 100` as the \"machine ceiling\". This is the 'plausible default for an unknown' pattern AGENTS.md asks reviewers to reject.",
+      "evidence": "presenter.ex:27 `@default_host_mem_bytes 32 * 1024 * 1024 * 1024`; :1086-1093 `case File.read(\"/proc/meminfo\") do {:ok, content} -> meminfo_total(content); _ -> @default_host_mem_bytes end`; :712 `mem_headroom_pct: max(round((1 - mem_now / max(ctx.host_mem, 1)) * 100), 0)`; :1001 `Keyword.put_new(:cores, System.schedulers_online())`; charts.ex:101 `\"machine ceiling #{round(ceiling)}%\"`, :230 `\"host #{fmt_bytes(host)}\"`.",
+      "recommendation": "Return `nil` host memory when unknown (or read it portably via :memsup / `sysctl hw.memsize` on darwin) and render 'host memory unknown' with no headroom KPI; use `:erlang.system_info(:logical_processors_available)` for cores. Keep the defaults out of the model.",
+      "effort": "S",
+      "refactor_hint": "Analytics model; host facts should come from a core HostFacts module shared with the run-telemetry sampler."
+    },
+    {
+      "id": "web-occ-09",
+      "category": "docs-drift",
+      "severity": "P2",
+      "title": "\"stale\" is rendered as \"Healthy\"/\"Available\" in 9 places across 6 modules whose own docs promise stale stays visibly distinct",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "lines": "18-20,374,405,428,450"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "lines": "10-12,587"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "lines": "7-10,330"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "lines": "10-12,265"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_status.ex",
+          "lines": "57"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presenter.ex",
+          "lines": "362-366"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/tickets_presenter.ex",
+          "lines": "230"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_catalog.ex",
+          "lines": "303-304"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "373-381"
+        }
+      ],
+      "description": "A product decision to stop telling the operator that data is out of date was implemented by editing each label table independently: `freshness_label(:stale)`, `health_label(:stale)`, `status_label(:stale)` and `window_freshness_label(:stale)` all return \"Healthy\", BuildOrderStatus returns \"Available\", and the stale messages became \"Open tickets are shown below.\" / \"Build Orders are listed below.\" The moduledocs still claim the opposite (e.g. RunSummaryPresenter: \"keeps the distinct states (unknown, partial coverage, stale, unavailable, zero, exact) visibly separate\"; ProviderMetersPresenter: \"Each meter window keeps its ... standing, freshness, and reset distinct\"), and Analytics.Presenter.cap_label still prints \"stale, 5m old\" for the same kind of reading, so two surfaces now disagree. Tests assert the collapsed label (usage_summary_presenter_test.exs:331 `assert degraded.freshness.label == \"Healthy\"`), so it is deliberate, but it is scattered and undocumented.",
+      "evidence": "provider_meters_presenter.ex:374 `defp status_label(:stale), do: \"Healthy\"`, :405 `defp health_label(:stale), do: \"Healthy\"`, :428 `defp freshness_label(:stale), do: \"Healthy\"`, :450 `defp window_freshness_label(:stale), do: \"Healthy\"`; usage_summary_presenter.ex:587, run_summary_presenter.ex:330, current_run_outcomes_presenter.ex:265 `defp freshness_label(:stale), do: \"Healthy\"`; build_order_status.ex:57 `defp health_label(%{state: :stale}), do: \"Available\"`; units_presenter.ex:362-364 comment \"the dashboard no longer tells the operator that a view is out of date\"; presenter.ex:378 `{:stale, age_ms} -> \"stale#{age_suffix(age_ms)}\"`.",
+      "recommendation": "Decide the policy once and encode it in a single `AiurWeb.StateLabels` module (freshness/health/status -> label) used by every presenter; update the moduledocs to match. If stale is intentionally hidden, keep the age available (AGENTS.md: a surface that computes an age renders it) and make the Analytics cap label follow the same rule.",
+      "effort": "S",
+      "refactor_hint": "Shared web label vocabulary; do it while consolidating presenters (web-occ-16)."
+    },
+    {
+      "id": "web-occ-10",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "Analytics.Presenter is a 1,101-line module mixing I/O, cap/label formatting, bucketing, pressure aggregation, KPIs and ticket timelines",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "1-1101"
+        }
+      ],
+      "description": "One module owns: telemetry loading and cross-session merge (73-201), the model builder (205-285, 80-line function), user-facing cap/age copy (313-396), per-actor bucketing (436-457), a 40-line pressure-cell merger with five put_* helpers (476-557), pressure summary (611-662), KPIs (693-734), ticket lifecycle rows and complexity breakdown (738-836), window/timeline math (844-944), and runtime fact acquisition: Orchestrator.dashboard_snapshot, Aiur.Config, /proc/meminfo, System.schedulers_online (998-1100). The pure part is testable only through a keyword bag of 12 override options.",
+      "evidence": "wc -l: 1101. Largest functions: model/2 205-285 (81 lines), merge_pressure_cell/2 476-515 (40 lines), pressure_summary/1 611-636 (26 lines). I/O in the same module: `Orchestrator.dashboard_snapshot(orchestrator, timeout)` (1052), `File.read(\"/proc/meminfo\")` (1087), `Aiur.Config.max_concurrent_agents()` (1079).",
+      "recommendation": "Split into Analytics.Loader (dataset selection, cross-session merge, runtime facts), Analytics.Model (pure: window/timeline, bucketing, series, KPIs), Analytics.Pressure (pressure cells and summary), Analytics.TicketRows, and Analytics.CapLabel (cap_label/wasted_slot_hours_label). Pass runtime facts as a struct instead of 12 keyword options.",
+      "effort": "M",
+      "refactor_hint": "Whole Analytics folder (presenter, charts, latest_run, scope_resolver) is a natural standalone package consumed by web and analytics_cli."
+    },
+    {
+      "id": "web-occ-11",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Analytics.Charts and GithubCache.Charts copy the same SVG primitives verbatim; the chart skeleton is repeated in 11 functions and both stylesheets duplicate the palette",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "lines": "9,79-91,117-123,145-153,216-222,325-331,349-352,391-394,454-457,489-521,540-572,611-615,634-660"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "lines": "44,50-56,78-84,121-127,285-316,318-348,350-364"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/styles.ex",
+          "lines": "15-22"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/styles.ex",
+          "lines": "33-51"
+        }
+      ],
+      "description": "`stacked_areas/4`, `poly/1`, `line/1`, `x_axis`, `y_grid/5`, `svg`, `text/4`, `fmt_elapsed/1` and `r2/1` exist in both chart modules with identical bodies (GithubCache.Charts' moduledoc even says it uses \"the same\" house style). Every chart function re-declares `h`, `{ml, mr, mt, mb}`, `pw = @w - ml - mr`, `ph = h - mt - mb`, `xf = fn t -> ml + (t - t0) / max(t1 - t0, 1) * pw end`, `yf = fn v -> mt + ph - v / vmax * ph end`. Analytics.Charts also has two different elapsed formatters (`elapsed/1` floors minutes, `fmt_elapsed/1` rounds seconds first). The two Styles modules hard-code overlapping categorical hex palettes (#3987e5, #d95926, #199e70, #c98500, #d55181 and the light-theme variants appear in both).",
+      "evidence": "analytics/charts.ex:504-506 `defp poly([{x, y} | rest]) do \"M #{r2(x)},#{r2(y)} \" <> Enum.map_join(rest, \" \", fn {a, b} -> \"L #{r2(a)},#{r2(b)}\" end) <> \" Z\"` == github_cache/charts.ex:312-314; analytics/charts.ex:553-561 y_grid == github_cache/charts.ex:331-339; analytics/charts.ex:634-646 fmt_elapsed == github_cache/charts.ex:350-362; analytics/charts.ex:599-609 `elapsed/1` vs :634-646 `fmt_elapsed/1` in the same file; analytics/styles.ex:16 `--an-s1:#3987e5;...--an-s4:#c98500;--an-s5:#199e70;--an-s6:#d95926` vs github_cache/styles.ex:34-38 `--ghc-series-1: #3987e5; --ghc-series-2: #d95926; --ghc-series-3: #199e70; --ghc-series-4: #c98500; --ghc-series-5: #d55181`.",
+      "recommendation": "Extract AiurWeb.Charts.Svg (path builders, axes, text with mandatory escaping, time_svg/svg wrappers) and AiurWeb.Charts.Frame (a struct holding width/height/margins with xf/yf builders). Both chart modules keep only their chart-specific composition. Move the categorical palette into dashboard.css as shared tokens and have both scoped stylesheets reference them.",
+      "effort": "M",
+      "refactor_hint": "A small shared 'web charts' library inside the web package; no domain dependencies."
+    },
+    {
+      "id": "web-occ-12",
+      "category": "security",
+      "severity": "P2",
+      "title": "Analytics.Charts interpolates model names, actor keys and ticket ids unescaped into SVG that is rendered with Phoenix.HTML.raw; the sibling chart module escapes",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "lines": "279,312,419-420,611-615"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/usage_summary.ex",
+          "lines": "93-94"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_analytics.ex",
+          "lines": "76,86,116"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "lines": "192,275-277"
+        }
+      ],
+      "description": "text/4 embeds its body raw (`>#{body}</text>`), and callers pass data-derived strings: `\"##{r.id}\"` (ticket id from telemetry), `a.label` (actor label; any key not prefixed ticket: or _daemon/_operator is passed through verbatim), and `entry.label` / `model_label(entry.label)` in model_tokens_timeline (model ids from the usage snapshot, i.e. strings reported by providers or requested via ticket model labels) inside both `<title>` and `<text>`. The output is inserted with `Phoenix.HTML.raw` in UsageSummary, BuildOrderAnalytics and AnalyticsLive. A label containing `<` or `&` breaks the SVG; a hostile one injects markup into an authenticated dashboard that can answer Commands and pause agents. GithubCache.Charts already escapes its data labels (`escape(band.label)`), so the safer pattern exists in the unit.",
+      "evidence": "analytics/charts.ex:614 `~s|<text ... >#{body}</text>|`; :279 `text(ml - 6, ..., \"##{r.id}\", ...)`; :312 `text(ml - 6, ..., a.label, ...)`; :419 `<title>#{entry.label}: #{entry.total} tokens</title>`; usage_summary.ex:93 `{Phoenix.HTML.raw(Charts.model_tokens_timeline(@view.models))}`; github_cache/charts.ex:192 `<title>#{escape(band.label)}: ...` and :275-277 `defp escape(text) ... Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()`.",
+      "recommendation": "Escape inside the shared text/title helper (web-occ-11) so no caller can forget, and escape attribute values (aria-label). Add a test that renders a model named `<script>` and asserts the SVG contains `&lt;script&gt;`.",
+      "effort": "S",
+      "refactor_hint": "Fix in the shared SVG helper extracted for web-occ-11."
+    },
+    {
+      "id": "web-occ-13",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "About 1,270 lines of components are never rendered, plus a capacity view and control handlers with no UI",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "lines": "1-191"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+          "lines": "1-85"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "lines": "1-86"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/lifecycle_components.ex",
+          "lines": "1-102"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary.ex",
+          "lines": "1-188"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/capacity_control.ex",
+          "lines": "1-144"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_latency.ex",
+          "lines": "1-102"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_icon.ex",
+          "lines": "1-58"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/provider_meters.ex",
+          "lines": "1-196"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/current_run_outcomes.ex",
+          "lines": "1-121"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/overview.ex",
+          "lines": "17-27,93-121"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/capacity_presenter.ex",
+          "lines": "1-107"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "358,630-649,831"
+        }
+      ],
+      "description": "No module in src/lib references FleetTable, RecentOutcomes, LifecycleComponents, RunSummary (component), CapacityControl, DecisionLatency, BuildOrderIcon, ProviderMeters (component) or CurrentRunOutcomes (component): there are no `import AiurWeb.OperatorControlCenter...` statements and grep for `<X.` / `X.fn(` returns only the defining file. FleetFilters and Overview.fleet_overview/1 are reachable only from the dead FleetTable; Overview.readonly_banner/1 has no caller. DashboardLive still computes `capacity_view` via CapacityPresenter and keeps capacity-increment/decrement/set handlers and a no-op \"toggle-fleet-filter\" handler for UI that no longer renders. Several of these have tests (FleetTable 6 refs, LifecycleComponents 3, DecisionLatency 5), which keeps the dead code green.",
+      "evidence": "Reference counts outside the defining file in src/lib: FleetTable 0, RecentOutcomes 0, LifecycleComponents 0, `RunSummary.run_summary` 0, CapacityControl 0, DecisionLatency 0, BuildOrderIcon 0, `ProviderMeters.provider_meters` 0, `CurrentRunOutcomes.current_run_outcomes` 0; `grep -rn 'import AiurWeb' src/lib` empty; dashboard_live.ex:831 `Map.put_new(:capacity_view, CapacityPresenter.present(...))` with no `@capacity_view` anywhere; dashboard_live.ex:358 `def handle_event(\"toggle-fleet-filter\", _params, socket), do: {:noreply, socket}`. Line total of the ten dead files: 191+85+86+102+188+144+102+58+196+121 = 1,273.",
+      "recommendation": "Delete the dead components, their tests, CapacityPresenter's unused view assignment, and the capacity handlers (or re-mount CapacityControl if the feature is wanted and document it). Do this before the carve so the moved packages do not carry them.",
+      "effort": "S",
+      "refactor_hint": "Pure deletion; shrinks the web package by ~10%."
+    },
+    {
+      "id": "web-occ-14",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Current-run outcomes, run-summary and provider-meter announcements are computed on every update but never rendered",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "lines": "14-20,79-80,169-176"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "152,268-272,835,841,844-845,1370-1377,1744-1748,1777-1829"
+        }
+      ],
+      "description": "DashboardLive subscribes to current-run outcome snapshots, debounces them on a 250 ms timer, reconciles and presents them, and assigns `current_run_outcomes` plus an announcement, but nothing renders `@current_run_outcomes` (the CurrentRunOutcomes component is dead, web-occ-13). Inside the presenter, `finished_this_run?` is computed and never read by any renderer, and `heading/3` ignores its arguments and always returns the neutral heading, while the moduledoc says the region \"is labelled `Finished this run` only when ...\". `run_summary_announcement` and `provider_meters_announcement` are likewise assigned and never rendered. This is the AGENTS.md 'computed but never rendered' shape: it reads as handled in review while nothing reaches the operator.",
+      "evidence": "current_run_outcomes_presenter.ex:174 `defp heading(_source, _state, _retained?), do: neutral_heading()`; :169-172 finished_this_run?/3 (only consumers are presenter tests); dashboard_live.ex:1821-1828 `apply_current_run_outcomes ... assign(:current_run_outcomes, view) |> assign(:current_run_outcomes_announcement, ...)`; grep for `@current_run_outcomes`, `@run_summary_announcement`, `@provider_meters_announcement` in src/lib returns nothing.",
+      "recommendation": "Either render the region again (and make heading/3 honour finished_this_run?) or remove the subscription, flush timer, presenter and announcements. Do not carry the pipeline into the carved package unrendered.",
+      "effort": "S",
+      "refactor_hint": "Web; decide keep-or-delete before moving the presenter."
+    },
+    {
+      "id": "web-occ-15",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "The Units table Remote Control link can never render: no producer emits remote_control_url and the projection strips it",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "lines": "131-139,229-231"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "lines": "89,185-187"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/projection.ex",
+          "lines": "102-131"
+        }
+      ],
+      "description": "UnitsTable renders the remote-control anchor only when `row.live_conversation.remote_control_url` or `row.remote_control_url` is present, and UnitsPresentation.command/1 reports `remote_control: :available` on the same keys. grep over src/lib finds no code that sets `remote_control_url`: the daemon models the session as `remote_control: %{status: :on, session_url: url}` (agent_list/rc_pane_borders.ex:49, agent_runner/session_lifecycle.ex:70), Projection.row/5 never copies either key onto the row, and public_live_conversation/1 `Map.take`s only [:generation_handle, :state, :health, :freshness, :observed_at, :reason]. The link and the `:remote_control` availability are therefore permanently unavailable, with no test referencing remote_control_url.",
+      "evidence": "units_table.ex:229-230 `defp remote_control_url(%{live_conversation: %{remote_control_url: url}}) ...` / `defp remote_control_url(%{remote_control_url: url}) ...`; projection.ex:123-130 `Map.take(conversation, [:generation_handle, :state, :health, :freshness, :observed_at, :reason])`; `grep -rn remote_control_url src/lib` matches only units_table.ex and units_presentation.ex.",
+      "recommendation": "Project the daemon's `remote_control.session_url` into the Units row under one name (validated against Aiur.Claude.RemoteControl's session URL pattern) and read it in one place, or delete the link and the availability flag.",
+      "effort": "S",
+      "refactor_hint": "Units projection (core) plus the table component."
+    },
+    {
+      "id": "web-occ-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Seventeen duration/age formatters and five timestamp renderers with three timezone conventions; TimeFormat exists but is used twice",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "lines": "41-57,224-228"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "lines": "372-383"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "lines": "431-447"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "385-396"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "lines": "599-609,634-646"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "lines": "350-362"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "lines": "370-381,750-766"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_status.ex",
+          "lines": "32-42,49-54"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "lines": "231-242"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/ticket_context.ex",
+          "lines": "224-242"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "lines": "149-153"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_latency.ex",
+          "lines": "78-93"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_analytics.ex",
+          "lines": "210-211"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+          "lines": "256-263"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/current_run_outcomes.ex",
+          "lines": "116-120"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_detail.ex",
+          "lines": "161-163"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/ticket_detail_modal.ex",
+          "lines": "73-74"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_graph.ex",
+          "lines": "251"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_catalog.ex",
+          "lines": "283-285"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/time_format.ex",
+          "lines": "1-29"
+        }
+      ],
+      "description": "The same quantity renders differently by surface. 90 seconds is \"1m 30s\" (UnitsPresentation.age_label), \"1 minute old\" (ProviderMetersPresenter), \"1m\" (Analytics humanize_age, RunSummaryStrip duration), \"1m ago\" (BuildOrderStatus, DecisionCard, TicketContext); under a minute is \"under 1m\" (RunSummaryPresenter), \"0m\" (UnitsPresentation.format_duration, FleetTable), \"just now\" (TicketContext, DecisionCard) or \"Observed 42s ago\" (BuildOrderStatus.health_age, which never scales to minutes). UnitsPresentation.age_label's doc even says stale surfaces \"must carry their age in one shape wherever they appear\". Absolute times use viewer timezone (TimeFormat in History, ProviderMeters), ISO-8601 UTC (ConversationDrawer, CurrentRunOutcomes, DecisionDetail, TicketDetailModal), `%H:%M:%SZ` (BuildOrderGraph) or `%H:%M UTC` (BuildOrderCatalog). TicketContext computes relative time with `DateTime.utc_now()` at render, the exact 'ages on screen without re-render' problem History's comment (289-291) explains avoiding.",
+      "evidence": "units_presentation.ex:52 `age_seconds < 3_600 -> \"#{div(age_seconds, 60)}m #{rem(age_seconds, 60)}s\"`; provider_meters_presenter.ex:434-436 `\"#{minutes} #{pluralize(minutes, \"minute\", \"minutes\")} old\"`; run_summary_presenter.ex:379 `true -> \"under 1m\"`; build_order_status.ex:50-51 `\"Observed #{seconds}s ago\"`; ticket_context.ex:234 `diff = DateTime.diff(DateTime.utc_now(), value, :second)`; conversation_drawer.ex:258-259 `{DateTime.to_iso8601(@value)}`; build_order_catalog.ex:284 `Calendar.strftime(\"%H:%M UTC\")`.",
+      "recommendation": "Create AiurWeb.Format.Time with `duration/1`, `age/2` (with explicit style: :compact | :ago | :sentence) and a single `<.timestamp value time_zone style>` component, and route every site through it. Pass `now` and `time_zone` from the LiveView instead of calling DateTime.utc_now in components.",
+      "effort": "M",
+      "refactor_hint": "Shared web formatting helpers; the CLI (web-occ-01 consumers) would want the same duration formatter from a core Format module."
+    },
+    {
+      "id": "web-occ-17",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Last-known-good reconcile and health/freshness/reason presenters copied across four snapshot presenters",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "lines": "36-45,100-113,151-155,313-332,346-356"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "lines": "52-61,139-145,248-267,283-297,301-313"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "lines": "67-76,577-590,690-694"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "lines": "351-352,403-429"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+          "lines": "215-221"
+        }
+      ],
+      "description": "`reconcile/2` has the identical three-branch cond in RunSummaryPresenter, CurrentRunOutcomesPresenter and UsageSummaryPresenter (adopt available incoming; retain current when available and same run/scope; else incoming), differing only in the available?/same_* predicates. present_health/health_label, present_freshness/freshness_label, reasons_text/reason_phrase/reasons_sentence and pluralize are re-declared per presenter, with small drifts (RunSummaryPresenter special-cases :unhealthy_weight_facts in reason_phrase, UsageSummaryPresenter's health accepts tuples, ConversationDrawer's freshness uses :current not :fresh).",
+      "evidence": "run_summary_presenter.ex:37-43 `cond do available?(incoming) -> {incoming, false}; is_map(current) and available?(current) and same_run?(current, incoming) -> {current, true}; true -> {incoming, false} end` == current_run_outcomes_presenter.ex:53-59 == usage_summary_presenter.ex:68-74 (same_scope?); reasons_text/1 defined at run_summary_presenter.ex:102 and current_run_outcomes_presenter.ex:141; pluralize/3 at current_run_outcomes_presenter.ex:296 and provider_meters_presenter.ex:351.",
+      "recommendation": "Extract AiurWeb.SnapshotView: `reconcile(current, incoming, available?: fun, same?: fun)`, `health(status_map)`, `freshness(status_map)`, `reasons_text(list, overrides)`. Each presenter keeps only its domain fields.",
+      "effort": "S",
+      "refactor_hint": "Shared presenter helpers in the web package."
+    },
+    {
+      "id": "web-occ-18",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Small label/validation helpers re-implemented per file with divergent fallbacks",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "lines": "775-784"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "lines": "358-374,486-491"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "lines": "356-361,380-385"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "lines": "115-120,156-164,230-232"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "lines": "250-252"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "lines": "246-248,267-271,323-328"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "lines": "239-244,315-322"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+          "lines": "182-186"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/ticket_context.ex",
+          "lines": "318-320"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+          "lines": "270-275"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "lines": "181-188"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/url.ex",
+          "lines": "1-30"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "lines": "174-185,192-208,217-229"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_action.ex",
+          "lines": "179-188"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "lines": "171-179"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/history.ex",
+          "lines": "250-283"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/value.ex",
+          "lines": "1-10"
+        }
+      ],
+      "description": "provider_label: 4 copies with different unknown-provider fallbacks (`to_string/1`, split-and-capitalize, `String.capitalize/1`, nil). tier_label: identical in UsageSummaryPresenter and ProviderMetersPresenter. identity_label \"owner/repo #n\": 3 copies (plus BuildOrderPresenter). verb/control_verb: 3 copies. valid_close_event?/safe_opaque: 2 copies. URL trust: FleetTable.trusted_url and CurrentRunOutcomesPresenter.trusted_url (any http/https host), UnitsRow.URL.normalize (github.com issue for identity), and Bounded.github_issue_url_for in UnitsTable, i.e. two validators run on the same Units row URL. Option-label lookup (`Enum.find(options, &(&1.id == option_id))` -> \"Option #{id}\"): 5 copies. Actor-kind detection (operator/executor/supervisor, atom or string): 2 copies. The atom-or-string getter `Map.get(m, k, Map.get(m, Atom.to_string(k)))` appears 9 times in aiur_web and 37 times in src/lib; UnitsRow.Value.get/3 duplicates Aiur.CurrentRunProjection.Value.get/3.",
+      "evidence": "run_summary_strip.ex:777 `descriptor_field(provider, :label, to_string(provider))`; usage_summary_presenter.ex:367-372 split on \"_\" and capitalize; provider_meters_presenter.ex:359 `provider |> to_string() |> String.capitalize()`; tier_label/1 identical at usage_summary_presenter.ex:486-491 and provider_meters_presenter.ex:380-385; units_table.ex:269 / current_run_outcomes_presenter.ex:241 / conversation_drawer/presenter.ex:184 `\"#{owner}/#{repository} ##{identifier}\"`; units_row/value.ex:8 vs src/lib/aiur/current_run_projection/value.ex:9-11 same body.",
+      "recommendation": "Create small shared modules: AiurWeb.Labels (provider, tier, identity, verb, humanize), AiurWeb.SafeUrl (one validator with explicit policy: :github_issue_for(identity) | :http), Decision option/actor helpers next to DecisionPresenter, and one core `Aiur.MapAccess.get/3` for the atom-or-string getter. Delete UnitsRow.Value in favour of the core one.",
+      "effort": "M",
+      "refactor_hint": "Mostly web-shared; MapAccess and the Decision helpers belong in core."
+    },
+    {
+      "id": "web-occ-19",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "complexity:/build-lane: label parsing duplicated in UnitsRow.Fields with different validity rules than Aiur.BuildOrder.Metadata",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "lines": "138-179"
+        },
+        {
+          "path": "src/lib/aiur/build_order/metadata.ex",
+          "lines": "20-57,99-117"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_grid_model.ex",
+          "lines": "418-422"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "787"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "lines": "22,221-227"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "lines": "166-171"
+        }
+      ],
+      "description": "UnitsRow.Fields parses `complexity:N` as any positive integer (`Integer.parse`, `integer > 0`) and `build-lane:X` as any trimmed non-empty string, taking the first matching label. Aiur.BuildOrder.Metadata accepts complexity only as a single digit 1..5 and lanes only matching `^[a-z0-9][a-z0-9-]{0,63}$`, and reports ambiguity when two labels conflict. BuildOrderGridModel, Analytics.Presenter and AgentRoutingPreview each re-declare the 1..5 range. So a ticket labelled `complexity:12` shows `Cx:12` and a HIGH priority pill in the Units table (UnitsPresentation.priority: complexity >= 4 -> HIGH) while the build order treats it as invalid, and `build-lane: Foo Bar` shows a lane pill that Metadata rejects.",
+      "evidence": "fields.ex:139-141 `value when is_integer(value) and value > 0 -> value; _value -> label_value(issue, \"complexity:\", &parse_positive_integer/1)`; :165-169 `{integer, \"\"} when integer > 0 -> integer`; metadata.ex:99 `defp parse_complexity(\"complexity:\" <> <<level>>) when level in ?1..?5`; :117 `Regex.match?(~r/^[a-z0-9][a-z0-9-]{0,63}$/, lane)`; build_order_grid_model.ex:418 `when complexity in 1..5`; presenter.ex:787 `complexity in 1..5`; agent_routing_preview.ex:22 `@complexities 1..5`.",
+      "recommendation": "Have Fields call Aiur.BuildOrder.Metadata.parse/1 (or a smaller Aiur.Labels.complexity/1 / lane/1 it exposes) and expose `Metadata.complexity_range/0` for the other four sites.",
+      "effort": "S",
+      "refactor_hint": "Label vocabulary belongs to core (tracker/labels package), consumed by the Units projection."
+    },
+    {
+      "id": "web-occ-20",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Source health/freshness normalization implemented three times with different mappings",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/sources.ex",
+          "lines": "137-146,199-221"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presenter.ex",
+          "lines": "232-252,263-329"
+        },
+        {
+          "path": "src/lib/aiur/current_run_projection/value.ex",
+          "lines": "15-40"
+        }
+      ],
+      "description": "UnitsRow.Sources.source_health/1 keeps :available, :healthy, :degraded, :unavailable, :unknown distinct and maps unknown shapes to :unknown; UnitsPresenter.source_health/3 derives :available/:degraded/:unavailable from payload.provider_health and treats anything else as :unavailable; Aiur.CurrentRunProjection.Value.health/1 folds :available into :healthy and :stale/:partial/:unknown into :degraded. freshness_status/1 and freshness_age_seconds/1 exist in both Sources and UnitsPresenter (the latter reading `snapshot.freshness.status`, where `status` is the name of the StatusReport source, not a field). UnitsPresenter.catalog_status/1 is an 8-clause precedence chain over these values that grows per incident (see comments at 278-304).",
+      "evidence": "sources.ex:199-206 `{:degraded, _reason} -> :degraded ... status when status in [:healthy, :available, :degraded, :unavailable, :unknown] -> status; _status -> :unknown`; units_presenter.ex:232-238 `true -> :unavailable`; current_run_projection/value.ex:16-17 `def health(status) when status in [:healthy, :available, :writable], do: :healthy; def health(status) when status in [:degraded, :stale, :partial, :unknown], do: :degraded`; units_presenter.ex:316-321 `case snapshot |> Map.get(:freshness, %{}) |> Map.get(:status) do %{status: status} -> status`.",
+      "recommendation": "Adopt one SourceHealth type in core (`{status, reason, freshness, age_seconds}`) with a single normalizer, used by the current-run projection, UnitsRow.Sources and UnitsPresenter. Rename the StatusReport source key from `:status` to `:fleet` to remove the status/status collision. Replace catalog_status's clause chain with a table over (membership health, fleet degraded?, rows empty?).",
+      "effort": "M",
+      "refactor_hint": "Core projection package (web-occ-01)."
+    },
+    {
+      "id": "web-occ-21",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "DecisionCommands and RevisionCommands duplicate their socket-state and store plumbing; 'unavailable Command counts' exists three times",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "lines": "134-162,173-183,215-219,254-258,273-321,347-385"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "lines": "106-134,151-171,173-240,256-283"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "lines": "201-203"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/awaiting_commands.ex",
+          "lines": "21-29,79-88"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "lines": "212-237"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "1065-1074"
+        }
+      ],
+      "description": "answer_content/1, selected_decision/2, decision_identity/1, update_state/put_state, decision_store/0, the `ensure_*_key` idempotency helper and the conflict/store error copy are duplicated between the two command adapters (7 near-identical `safe_*` wrappers catching :exit). confirmation_required?/1 is duplicated between the server adapter and the DecisionRevisionAction component. The 'counts unavailable' map is defined in AwaitingCommands, PayloadLoader and DashboardLive, and has already diverged (PayloadLoader adds `scope`, `partial?`, `reason`); both AwaitingCommands and PayloadLoader implement counts via `{:ok, counts} = DecisionProvider.counts(...)` with rescue-on-MatchError.",
+      "evidence": "decision_commands.ex:148-162 answer_content/1 vs revision_commands.ex:120-134 (only the copy text differs); decision_commands.ex:310-317 vs revision_commands.ex:227-236 update_state/put_state; revision_commands.ex:151-154 vs decision_revision_action.ex:201-203 `Map.get(decision, :reversibility) == :irreversible or Map.get(decision, :kind) == \"destructive_op\"`; awaiting_commands.ex:21-29 @unavailable vs payload_loader.ex:221-236 unavailable_retained_counts/0 vs dashboard_live.ex:1065.",
+      "recommendation": "Extract DecisionActionState (socket assigns helpers keyed by decision id, idempotency keys) and DecisionWrite (store calls with uniform error classification, see web-occ-05). Put `requires_confirmation?/1` and `unavailable_counts/0` on DecisionProvider (or core DecisionQuery) and reuse everywhere.",
+      "effort": "S",
+      "refactor_hint": "Web command adapters; DecisionProvider moves to core with web-occ-01."
+    },
+    {
+      "id": "web-occ-22",
+      "category": "performance",
+      "severity": "P2",
+      "title": "RunSummaryStrip does file I/O, env and registry reads inside render, twice per render",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "lines": "34-38,154-166,281-299,434-454,474-523"
+        }
+      ],
+      "description": "provider_cards/2 is called from both run_summary_strip/1 and run_summary_compact/1 on every render. For each provider in :unknown state it calls ModelAvailability.load/0, which reads and JSON-decodes model-usage.json from disk; keyed_cards/1 calls CodingAgent.backends() and System.get_env/1 per card. Function components re-run whenever their assigns change, i.e. on every payload refresh. The component module also owns provider-card assembly, durable-ledger interpretation, money summation and ElevenLabs/GitHub quota formatting (785 lines), which is presenter work.",
+      "evidence": "run_summary_strip.ex:38 `assign(:cards, provider_cards(assigns.usage, assigns.meters))`; :166 `assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters)))`; :493 `with %{\"backends\" => backends} <- ModelAvailability.load()`; :437 `get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat])`; :450 `System.get_env(env)`.",
+      "recommendation": "Move provider-card assembly (keyed filter, durable observation, ordering, spend total) into a ProviderCardsPresenter called once per payload load in the LiveView (or in PayloadLoader), and pass ready cards to both components. Split the component into ApisCard, ModelsCard and RunSummaryCompact files.",
+      "effort": "M",
+      "refactor_hint": "Web presenter layer; ModelAvailability read belongs to the payload loader, not render."
+    },
+    {
+      "id": "web-occ-23",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Open agent-log modal re-reads and re-parses the whole agent log on every payload reload, and renders every message",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/agent_log_modal.ex",
+          "lines": "36-41,98-127,147-160"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "985-992"
+        },
+        {
+          "path": "src/lib/aiur/agent_log.ex",
+          "lines": "42-67,96-111"
+        }
+      ],
+      "description": "DashboardLive.reload_payload/2 calls AgentLogModal.refresh/2 on every payload reload (debounced to at most one per ~400 ms). refresh rebuilds from the running entry, which calls Aiur.AgentLog.read_workspace/1: `File.read` of the entire logs/agent.ndjson (or agent.md) followed by a full parse. These logs grow for the life of a session. The modal then renders every parsed message with no cap; the conversation drawer's log (via agent_log_composer) does the same. This is blocking file I/O and O(log size) work in the LiveView process at payload cadence.",
+      "evidence": "dashboard_live.ex:992 `|> assign(:agent_log_modal, AgentLogModal.refresh(socket.assigns.agent_log_modal, payload))`; agent_log_modal.ex:153-154 `Aiur.AgentLog.read_workspace(workspace_path)`; agent_log.ex:97 `case File.read(path) do {:ok, content} -> {:ok, content |> parse_structured_entries() |> display_messages()}`; agent_log_modal.ex:37 `:for={message <- @modal.messages}`.",
+      "recommendation": "Tail-read with a byte/line bound and remember the file offset per modal (incremental append), refresh only when the file mtime/size changed, and render a bounded window with a 'load earlier' control.",
+      "effort": "S",
+      "refactor_hint": "AgentLog reader lives in core; the web modal should consume a bounded tail API."
+    },
+    {
+      "id": "web-occ-24",
+      "category": "performance",
+      "severity": "P2",
+      "title": "DecisionProvider issues one GenServer.call per listed decision for latency (N+1) although a bulk call exists",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/decision_provider.ex",
+          "lines": "43-54,72-84"
+        }
+      ],
+      "description": "list/2 walks every decision id and calls DecisionMetrics.snapshot/2 (a GenServer.call with the default 5 s timeout) one at a time; a single slow call stalls the page load and a single exit halts the rest as :unavailable. DecisionMetrics already exposes `snapshots/1`, returning every retained snapshot in one call.",
+      "evidence": "decision_provider.ex:72-75 `Enum.reduce_while(decision_ids, {%{}, :ok}, fn decision_id, {snapshots, health} -> next_latency_snapshot(...)`; :79 `DecisionMetrics.snapshot(decision_id, metrics)`; src/lib/aiur/decision_metrics.ex:42-43 `GenServer.call(server, {:snapshot, decision_id})`, :48 `def snapshots(server \\\\ __MODULE__), do: GenServer.call(server, :snapshots)`.",
+      "recommendation": "Call DecisionMetrics.snapshots/1 once and `Map.take/2` the listed ids (or add `snapshots_for(ids)` if the full map is large).",
+      "effort": "S",
+      "refactor_hint": "Decision read facade (core after web-occ-01)."
+    },
+    {
+      "id": "web-occ-25",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Payload loads run inside the ControlCenterCache GenServer with :infinity, serializing every dashboard; the callers' exit fallback cannot fire on a slow load",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "lines": "91-115,134-154"
+        },
+        {
+          "path": "src/lib/aiur_web/control_center_cache.ex",
+          "lines": "27-37,43-62,64-84"
+        }
+      ],
+      "description": "PayloadLoader passes `fn -> load_uncached(providers) end` to ControlCenterCache.fetch/fetch_event, which runs the loader inside handle_call with a `:infinity` caller timeout. load_uncached performs an orchestrator snapshot (15 s tolerance), DecisionQuery.counts, membership and activity reads, the open-ticket snapshot and one AgentRoutingPreview per ticket. While one load runs, every other LiveView's payload fetch waits behind it. The `catch :exit -> load_uncached(providers)` fallback in PayloadLoader only fires if the cache process is dead; a slow loader never triggers it, and a crashing loader takes the cache down and is then retried in every caller.",
+      "evidence": "control_center_cache.ex:30 `GenServer.call(server, {:fetch, key, max_age_ms, loader}, :infinity)`, :52 `payload = loader.()` inside handle_call; payload_loader.ex:104-115 `ControlCenterCache.fetch(...) catch :exit, _reason -> load_uncached(providers)`; :162 `PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, ...)`.",
+      "recommendation": "Keep single-flight but run the loader in a Task owned by the cache, reply to waiters when it completes, give callers a finite timeout with a stale-payload fallback, and rescue loader exceptions inside the task.",
+      "effort": "M",
+      "refactor_hint": "Payload/cache layer sits at the core/web seam; decide ownership during the carve."
+    },
+    {
+      "id": "web-occ-26",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "durable_percent_entry/1 uses a single-clause guarded anonymous function; a durable window without used/limit crashes the Units page render",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "lines": "492-523"
+        },
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "367-374"
+        }
+      ],
+      "description": "`Enum.map(fn {_window, %{\"used\" => used, \"limit\" => limit}} when is_number(used) and is_number(limit) and limit > 0 -> ... end)` has no fallback clause, so any hourly/weekly/monthly entry lacking `used` or `limit`, or with limit 0, raises FunctionClauseError inside a `with` clause head (not rescued) during render. ModelAvailability.normalize_window/1 drops nil keys (`Map.reject(fn {_key, value} -> is_nil(value) end)`), so a provider window that reports only a reset time is persisted as `%{\"reset_at\" => ...}`. Census of the live .aiur/model-usage.json on 2026-09-26: 1 window (codex weekly), 1 of 1 has used/limit, 0 would raise, so this is latent.",
+      "evidence": "run_summary_strip.ex:519-521 `|> Enum.map(fn {_window, %{\"used\" => used, \"limit\" => limit}} when is_number(used) and is_number(limit) and limit > 0 -> %{percent: min(round(used / limit * 100), 100)} end)`; model_availability.ex:367-373 `used = percent || number(window[\"used\"]); limit = if(is_number(percent), do: 100, else: number(window[\"limit\"])) ... |> Map.reject(fn {_key, value} -> is_nil(value) end)`.",
+      "recommendation": "Use `Enum.flat_map` with a catch-all clause returning [], and move the whole durable-observation read out of the component (web-occ-22). Add a test with a window `%{\"reset_at\" => ...}` that currently raises.",
+      "effort": "S",
+      "refactor_hint": "Presenter layer."
+    },
+    {
+      "id": "web-occ-27",
+      "category": "performance",
+      "severity": "P2",
+      "title": "LatestRun's ETS cache never evicts superseded entries and is owned by whichever process called first",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/latest_run.ex",
+          "lines": "9-16,68-147"
+        }
+      ],
+      "description": "Each new or regenerated run summary changes the cache identity (it folds in every summary's size and mtime), and cache_put/2 inserts the new decoded dataset list without deleting the previous key. The moduledoc claims the design avoids \"retaining one key per boot forever\", but nothing ever deletes old keys; in a long-lived LiveView (Build Order pane refreshes every 30 s) each materialization adds a full copy of every decoded prior dataset. The table is a public named table created by the first caller; when that process exits, every other caller silently loses the cache.",
+      "evidence": "latest_run.ex:120-123 `defp cache_put(key, value) do ensure_table(); :ets.insert(@cache_table, {key, value}); :ok`; :91-105 identity `{Summaries.state_node(), current_boot, summaries}` with per-summary `{boot_id, stat.size, stat.mtime}`; :27 `@cache_options [:named_table, :public, :set, read_concurrency: true]`; :12-13 doc \"without retaining one key per boot forever\".",
+      "recommendation": "Store a single entry (`:latest`) holding `{identity, value}` and replace it on miss, or `:ets.delete_all_objects` before insert. Own the table from a supervised process (or use a small GenServer/Cachex) instead of the first LiveView.",
+      "effort": "S",
+      "refactor_hint": "Analytics package."
+    },
+    {
+      "id": "web-occ-28",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "A browser-supplied time zone reaches DateTime.shift_zone!/2 unvalidated",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/time_format.ex",
+          "lines": "11-28"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "1089-1094"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/history.ex",
+          "lines": "292-294"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/provider_meters.ex",
+          "lines": "186-191"
+        },
+        {
+          "path": "src/lib/aiur_web/components/layouts.ex",
+          "lines": "274-283"
+        }
+      ],
+      "description": "The LiveSocket connect params carry `Intl.DateTimeFormat().resolvedOptions().timeZone`; DashboardLive accepts any non-empty string and TimeFormat.format/iso8601 call `DateTime.shift_zone!/2`, which raises for a zone the bundled Tz database does not know (a spoofed param, or a zone name newer than the database). The History table render then crashes and the LiveView reconnects with the same param, looping.",
+      "evidence": "dashboard_live.ex:1091 `%{\"time_zone\" => zone} when is_binary(zone) and zone != \"\" -> zone`; time_format.ex:16 `|> DateTime.shift_zone!(time_zone)`; history.ex:293 `TimeFormat.format(created_at, time_zone)`.",
+      "recommendation": "Validate at intake (`DateTime.shift_zone(DateTime.utc_now(), zone)` succeeds, else \"Etc/UTC\") and make TimeFormat use the non-bang shift with a UTC fallback.",
+      "effort": "S",
+      "refactor_hint": "Web formatting helper (web-occ-16)."
+    },
+    {
+      "id": "web-occ-29",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Unreachable branches and unused public functions in live modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_action.ex",
+          "lines": "27-29,128-135"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/add_agent_modal.ex",
+          "lines": "126-144"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/ticket_search.ex",
+          "lines": "123-127"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+          "lines": "52-53"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/provider_meter_source.ex",
+          "lines": "44-59"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_url.ex",
+          "lines": "8-11"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/route_registry.ex",
+          "lines": "73-84,91-92,100-101,111"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_epic_icon.ex",
+          "lines": "113-115"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presenter.ex",
+          "lines": "56"
+        }
+      ],
+      "description": "DecisionAction: `acknowledgeable? = ... status == :open and ... not dismissible?` while `dismissible? = status in [:open, :deferred]`, so it is always false and the Acknowledge button never renders. AddAgentModal handles `{:ok, labels}`, `{:partial, ...}`, `{:error, :no_labels}` and non-binary `{:error, reason}` results, but DashboardLive only ever assigns `nil` or `{:error, message}` with a binary message. No caller in lib or test: TicketSearch.score/2, ConversationDrawer.Presenter.participation_notice/0, ProviderMeterSource.subscribe/1, UnitsURL.version/0, BuildOrderEpicIcon.planning_lanes/0; test-only: ProviderMeterSource.reload/3, RouteRegistry.route/2 and active?/2. RouteRegistry.routes/1 takes an `analytics` argument only to pass it to a no-op `resolve_runtime_availability/2`, and document?/1 can never be true (no route has type :document). UnitsPresenter.load/2's fallback clause calls `load(%{})`, discarding the caller's test seams.",
+      "evidence": "decision_action.ex:27 `dismissible? = status in [:open, :deferred]`, :29 `acknowledgeable? = decision.options == [] and status == :open and not blocking? and not dismissible?`; dashboard_live.ex:1256 `Map.put(updated, :result, {:error, message})` is the only non-nil result; route_registry.ex:111 `defp resolve_runtime_availability(route, _analytics), do: route`; units_presenter.ex:56 `def load(_payload, _opts), do: load(%{})`.",
+      "recommendation": "Delete the dead branches and functions; fix the acknowledge condition if the button is still wanted; drop the unused `analytics` parameter from RouteRegistry.routes/1 and the :document route type.",
+      "effort": "S"
+    },
+    {
+      "id": "web-occ-30",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Build-order lane vocabulary enumerated in five places, with inline hex colours that bypass the theme-token test",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/metadata.ex",
+          "lines": "6,67"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_epic_icon.ex",
+          "lines": "15-79,113-115"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_icon.ex",
+          "lines": "8-26"
+        },
+        {
+          "path": "src/lib/aiur/build_order/icon.ex",
+          "lines": "9"
+        }
+      ],
+      "description": "Metadata.@lanes lists the five built-in lanes; BuildOrderEpicIcon keeps three parallel maps (icons, colours, labels) for eleven lanes including demo lanes (comment at :22 \"e.g. the CropTracker demo\") plus an unused planning_lanes/0 that re-lists the five; BuildOrderIcon and Aiur.BuildOrder.Icon keep their own lane glyph keys. @lane_colors are literal hex values emitted as inline `style=\"color: #8fbcff\"`, which escapes the no-literal-hex rule enforced on the stylesheet (GithubCache.Styles moduledoc: \"never a literal hex, which AiurWeb.DashboardCssThemeTest enforces\") and ignores light/dark themes.",
+      "evidence": "build_order_epic_icon.ex:51-63 `@lane_colors %{\"plan-graph\" => \"#8fbcff\", \"runtime\" => \"#f2cd6b\", ...}`, :91 `assign(:style, assigns.colored && \"color: #{color(assigns.lane)}\")`, :115 `def planning_lanes, do: [\"plan-graph\", \"runtime\", \"dashboard-ui\", \"accounting\", \"platform\"]`; metadata.ex:6 `@lanes ~w(plan-graph runtime dashboard-ui accounting platform)`.",
+      "recommendation": "One lane registry (in Aiur.BuildOrder.Metadata or a Lanes module) carrying slug, label, icon name and a CSS token name (`--lane-runtime`) defined per theme in the stylesheet; components read from it.",
+      "effort": "S",
+      "refactor_hint": "Build-order domain (core) plus theme tokens in the web assets."
+    },
+    {
+      "id": "web-occ-31",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "Directory/namespace mismatch, pure models under components/, inline JS hooks and CSS-in-Elixir",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_grid_model.ex",
+          "lines": "1-16"
+        },
+        {
+          "path": "src/lib/aiur_web/components/layouts.ex",
+          "lines": "46-289"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/styles.ex",
+          "lines": "1-78"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/styles.ex",
+          "lines": "1-388"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_analytics.ex",
+          "lines": "42"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/usage_summary.ex",
+          "lines": "82"
+        }
+      ],
+      "description": "Both src/lib/aiur_web/components/operator_control_center/ and src/lib/aiur_web/operator_control_center/ define modules in the same AiurWeb.OperatorControlCenter namespace, so a module's file location does not say whether it renders. BuildOrderGridModel (a pure projection used by build_orders_cli) lives under components/. Layouts.root embeds ~240 lines of JavaScript (AgentLogPanel, NavToggle, UsageWatch, ThemeToggle, CopyToClipboard hooks) in a HEEx string while seven other hooks are shipped as static files. Two stylesheets (466 lines) live in Elixir heredocs and are injected with `Phoenix.HTML.raw(\"<style>\" <> Styles.css() <> \"</style>\")` by each component that needs them (twice on the Build Order page: analytics pane and usage summary).",
+      "evidence": "components dir file build_order_grid_model.ex:1 `defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel` with moduledoc \"Pure projection\"; layouts.ex:56-242 inline `Hooks.AgentLogPanel = {...}` ... `Hooks.CopyToClipboard = {...}`; build_order_analytics.ex:42 and usage_summary.ex:82 both `{Phoenix.HTML.raw(\"<style>\" <> Styles.css() <> \"</style>\")}`.",
+      "recommendation": "During the carve: namespace components as AiurWeb.Components.OCC.* and presenters/models as AiurWeb.OCC.* (or move models to core per web-occ-01); move the inline hooks into static JS files like the others; move the scoped stylesheets into dashboard.css (or static css files) so they are cached and linted with the rest.",
+      "effort": "M",
+      "refactor_hint": "Package layout decision for the web package."
+    },
+    {
+      "id": "web-occ-32",
+      "category": "coupling",
+      "severity": "P3",
+      "title": "Service injection via AiurWeb.Endpoint.config/1 in production code paths, with a second DI mechanism in Analytics",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "lines": "144,156-184,197-210"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "lines": "205,384-385"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "lines": "283"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/awaiting_commands.ex",
+          "lines": "88"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/add_agent_submission.ex",
+          "lines": "56,85"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/scope_resolver.ex",
+          "lines": "33"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "1048-1052"
+        }
+      ],
+      "description": "19 lookups in this unit (58 in src/lib) read `Endpoint.config(:decision_store) || DecisionStore`, `:orchestrator`, `:add_agent_fun`, `:units_membership_fun`, `:control_center_reload_timer` and similar at call time. These are test seams living in the endpoint's application env, so production code in presenters and command adapters depends on the Phoenix endpoint (and the CLI inherits it via PayloadLoader). Analytics uses a different mechanism (keyword opts `:orchestrator`, `:snapshot_timeout_ms` defaulting to a raw 15_000, while PayloadLoader wraps the same 15_000 in PollCadence.snapshot_tolerance_ms), and ScopeResolver uses `Application.get_env(:aiur, :build_order_data_source, ...)`. AddAgentSubmission's default even dispatches by function name: `&apply(Tracker, &3, [&1, &2])`.",
+      "evidence": "payload_loader.ex:158-162 `Endpoint.config(:orchestrator) || Aiur.Orchestrator, Endpoint.config(:decision_store) || Aiur.DecisionStore, ... PollCadence.snapshot_tolerance_ms(Endpoint.config(:snapshot_timeout_ms) || 15_000, class: :dispatch)`; presenter.ex:1050 `timeout = Keyword.get(opts, :snapshot_timeout_ms, 15_000)`; add_agent_submission.ex:56 `Endpoint.config(:add_agent_fun) || (&apply(Tracker, &3, [&1, &2]))`.",
+      "recommendation": "Resolve providers once at mount into a `%OCC.Providers{}` struct (built from config in one module) and pass it explicitly; share one snapshot-timeout policy. Replace the apply-by-name default with explicit add/remove functions.",
+      "effort": "M",
+      "refactor_hint": "Needed to let the projection modules move to core without dragging AiurWeb.Endpoint along."
+    },
+    {
+      "id": "web-occ-33",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "Very long render functions and presenter logic embedded in components",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+          "lines": "32-245"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/ticket_context.ex",
+          "lines": "85-222"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "lines": "17-155"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_graph.ex",
+          "lines": "27-154"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "lines": "1-785"
+        }
+      ],
+      "description": "ConversationDrawer.conversation_drawer/1 is one 214-line function (drawer, metadata, message list, agent log, voice composer). TicketContext.context_content/1 is 138 lines; UnitsTable.units_table/1 139 lines with per-row helpers called repeatedly per cell (`conversation_handle(row)` 5 times, `agent_label(row)` twice, UnitsPolicy.condition? evaluated twice via row_tone/attention_emoji?); BuildOrderGraph.build_order_graph/1 128 lines and it rebuilds the whole BuildOrderGridModel on every render. RunSummaryStrip is a 785-line component module of which ~520 lines are non-template helpers.",
+      "evidence": "Line spans from the file reads: conversation_drawer.ex 32-245, ticket_context.ex 85-222, units_table.ex 17-155, build_order_graph.ex 27-154 (`grid = BuildOrderGridModel.build(assigns.model, assigns.adhoc)` at :28).",
+      "recommendation": "Split the drawer into header/messages/log/composer function components; precompute per-row display fields once in the presenter (a `display` map per row) instead of calling helpers per cell; compute the grid model when the view model changes, not in render.",
+      "effort": "M",
+      "refactor_hint": "Web component package."
+    },
+    {
+      "id": "web-occ-34",
+      "category": "security",
+      "severity": "P3",
+      "title": "TicketDetailModal renders the tracker URL as an href without the URL validation every other surface applies; operator-facing errors show inspect/1 of internal terms",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/ticket_detail_modal.ex",
+          "lines": "31"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/add_agent_submission.ex",
+          "lines": "32-35,89-95"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/agent_log_modal.ex",
+          "lines": "145"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/add_agent_modal.ex",
+          "lines": "144"
+        }
+      ],
+      "description": "`<a :if={@ticket.url} ... href={@ticket.url}>` uses the raw tracker URL, while Units, Fleet, outcomes and build-order surfaces validate scheme/host first (a plain `<a href>` is not scheme-checked the way `<.link href>` is). AddAgentSubmission.message/1 and AgentLogModal.format_error/1 fall back to `inspect(error)`, putting tuples such as `{:tracker_exception, \"...\"}` or `{:exit, ...}` in operator copy.",
+      "evidence": "ticket_detail_modal.ex:31 `<a :if={@ticket.url} class=\"tool-btn\" href={@ticket.url} target=\"_blank\" ...>`; add_agent_submission.ex:34 `\"Stopped: #{inspect(error)}. Retry applies only the remaining changes.\"`; agent_log_modal.ex:145 `def format_error(reason), do: inspect(reason)`.",
+      "recommendation": "Route the modal URL through the shared SafeUrl helper (web-occ-18) and map unknown errors to a generic sentence plus a logged detail.",
+      "effort": "S"
+    }
+  ]
+}
