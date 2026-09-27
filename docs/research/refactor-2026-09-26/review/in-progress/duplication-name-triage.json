@@ -88029,10 +88029,533 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "rate_limit_remaining",
+      "assessment": "Remaining-quota extraction differs in fallback evidence.",
+      "constraints": [
+        "GitHub.Config prefers header remaining and falls back to response-body remaining; its helpers were read and accept list/map headers case-insensitively plus resources.core.remaining or rate.remaining bodies.",
+        "GitHub.Errors delegates to GraphQLErrors, whose implementation reads only the header through Transport and accepts a parsed string or integer, otherwise nil.",
+        "Preserve endpoint/body fallback versus header-only evidence. A remaining count is not freshness, credential identity or budget completeness."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1031,
+          "module": "Aiur.GitHub.Config",
+          "name": "rate_limit_remaining",
+          "path": "src/lib/aiur/github/config.ex",
+          "kind": "defp",
+          "end_line": 1033,
+          "body_sha256": "a26797ab057502bde57f68e62ce88b65842b0110bb837487ce50879b92407095",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1035,
+          "module": "Aiur.GitHub.Config",
+          "name": "rate_limit_remaining",
+          "path": "src/lib/aiur/github/config.ex",
+          "kind": "defp",
+          "end_line": 1035,
+          "body_sha256": "41bcb22626c6653052a27b0784a85c453ac1f165141cd76be5619cb68a150553",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 160,
+          "module": "Aiur.GitHub.Errors",
+          "name": "rate_limit_remaining",
+          "path": "src/lib/aiur/github/errors.ex",
+          "kind": "defdelegate",
+          "end_line": 160,
+          "body_sha256": "964499f435d9279691d4f000901a711770ea62aadbc4fa1281ee0d84c33622db",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 43,
+          "module": "Aiur.GitHub.GraphQLErrors",
+          "name": "rate_limit_remaining",
+          "path": "src/lib/aiur/github/graphql_errors.ex",
+          "kind": "def",
+          "end_line": 49,
+          "body_sha256": "6d50484d4be293b73a9c92355c395dc95039b4f2e75799fa777a5909d9b46b29",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 51,
+          "module": "Aiur.GitHub.GraphQLErrors",
+          "name": "rate_limit_remaining",
+          "path": "src/lib/aiur/github/graphql_errors.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "read_tail",
+      "assessment": "Tail readers differ in error signaling, resource ownership and pagination.",
+      "constraints": [
+        "AlertLedger.Tail seeks to a bounded suffix, drops a partial first line and decodes lines, returning empty on a failed file operation.",
+        "DecisionMetrics.Log delegates content reading and closes its supplied descriptor in an after block.",
+        "IssueLog validates limit/cursor, bounds offsets against file size and returns a tagged page; missing file becomes an empty page while other errors are retained.",
+        "Share byte-window mechanics only with explicit descriptor ownership and missing/error contracts; empty output does not universally prove no events."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 22,
+          "module": "Aiur.AlertLedger.Tail",
+          "name": "read_tail",
+          "path": "src/lib/aiur/alert_ledger/tail.ex",
+          "kind": "defp",
+          "end_line": 33,
+          "body_sha256": "8686795281c0f1c3e9d05e1e36fa9227f0352a44132429fdc6b3bee6af991c3f",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 94,
+          "module": "Aiur.DecisionMetrics.Log",
+          "name": "read_tail",
+          "path": "src/lib/aiur/decision_metrics/log.ex",
+          "kind": "defp",
+          "end_line": 98,
+          "body_sha256": "b9f351f38cdb0ec929f749d196051d7897c698b0dbe898208119c712fd48ec88",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 123,
+          "module": "Aiur.IssueLog",
+          "name": "read_tail",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "def",
+          "end_line": 141,
+          "body_sha256": "bf60a3ee92b0d1594722b02f0d64739c1fb301023d319a9b6bf9e7216849007d",
+          "normalized_body_lines": 29,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reason",
+      "assessment": "Reason construction, validation and row lookup have different contracts.",
+      "constraints": [
+        "ModelLabelRefresh explains already-placed backend/model versus labels or delegates label-status cause wording.",
+        "ExactMoney accepts nil or validates a reason enum with a domain-specific error.",
+        "UnitsPolicy prioritizes nested reasons over direct row fields, then runtime waiting reason only for waiting.",
+        "Do not flatten domain explanation, validated unknown-money cause and fallback selection into a generic formatter."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 119,
+          "module": "Aiur.AgentRunner.ModelLabelRefresh",
+          "name": "reason",
+          "path": "src/lib/aiur/agent_runner/model_label_refresh.ex",
+          "kind": "defp",
+          "end_line": 122,
+          "body_sha256": "43476a1fbbe168ef0cc3404f360f18a80811abe6285071680249f315c82be4d2",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 124,
+          "module": "Aiur.AgentRunner.ModelLabelRefresh",
+          "name": "reason",
+          "path": "src/lib/aiur/agent_runner/model_label_refresh.ex",
+          "kind": "defp",
+          "end_line": 129,
+          "body_sha256": "7459412176cf49e28dce5dcbd5c592999cdfba6de0a2d6ad1fa679094f242e64",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 227,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "reason",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "kind": "defp",
+          "end_line": 227,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 228,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "reason",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "kind": "defp",
+          "end_line": 228,
+          "body_sha256": "103650ab1a81b53e756b934caef1655e524e9c99acfccfa6e813b702178a1ade",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 133,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPolicy",
+          "name": "reason",
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "kind": "defp",
+          "end_line": 143,
+          "body_sha256": "ed1f9ee01385c550441426604031af382e8b677b2906e3cc9f181cc5b470315d",
+          "normalized_body_lines": 19,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reasons",
+      "assessment": "Reason collections represent derived health, aggregate counts and control-specific categories.",
+      "constraints": [
+        "OutcomeSnapshot.SourceState accumulates invalid-run, repository, membership, merge, truncation and reconciliation causes before freshness reasons.",
+        "ReadCache.Metrics selects matching scope entries into a reason/count map.",
+        "UnitsRow.Fields derives separate waiting/blocking/alert/pause/resume/stuck fields through domain helpers.",
+        "Preserve reason order, count scope and category distinctions. These wrappers do not verify every underlying causal classification."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 133,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.SourceState",
+          "name": "reasons",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/source_state.ex",
+          "kind": "defp",
+          "end_line": 145,
+          "body_sha256": "25f913505721ba7b704c95fd82903acce950b5f2d20ef0b9feace1bacdd940f3",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 287,
+          "module": "Aiur.GitHub.ReadCache.Metrics",
+          "name": "reasons",
+          "path": "src/lib/aiur/github/read_cache/metrics.ex",
+          "kind": "defp",
+          "end_line": 291,
+          "body_sha256": "c4e52b6de61d606d3a2f50bbdf9df7e0e1a19ef8bb2191e7d75b5a6c0ad8b4dc",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 38,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Fields",
+          "name": "reasons",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "47dbb034eb0c2bdafe9af4c2bbf5654eeb2f246610c7cdbb10c7198bad4a58ac",
+          "normalized_body_lines": 19,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reconcile_issue",
+      "assessment": "Two resource projections share event branching while startup reconciliation handles claims.",
+      "constraints": [
+        "AdHocSource and OpenTicketSource ignore other repositories, remove on data? false, update held labels/membership when the resource body is absent and otherwise apply the issue change.",
+        "Their removal/held-update helpers differ; common branching is an extraction candidate only if domain membership semantics remain explicit.",
+        "StartupClaimReconciler skips non-in-progress or live identifiers, retains exhausted retries as latched and otherwise attempts orphaned-claim release.",
+        "Resource projection absence is not orphaned execution authority. Helper correctness and live claim populations remain unverified."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 167,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "reconcile_issue",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "6f1d89860cddd69eb5e244de27700aa50b5d0438c5c5668f35f99dce8a99821d",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 187,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "reconcile_issue",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 187,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 191,
+          "module": "Aiur.OpenTicketSource",
+          "name": "reconcile_issue",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 210,
+          "body_sha256": "9182dba987ee8fe4a6c6ae4604e304a3e402ce51a9129314d777abf2d1b8be29",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 212,
+          "module": "Aiur.OpenTicketSource",
+          "name": "reconcile_issue",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 212,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 109,
+          "module": "Aiur.Orchestrator.StartupClaimReconciler",
+          "name": "reconcile_issue",
+          "path": "src/lib/aiur/orchestrator/startup_claim_reconciler.ex",
+          "kind": "defp",
+          "end_line": 126,
+          "body_sha256": "e540eeddfe8e99674f5042a3798ea1ee30b15d886a70f3523678b331ad7d5081",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 128,
+          "module": "Aiur.Orchestrator.StartupClaimReconciler",
+          "name": "reconcile_issue",
+          "path": "src/lib/aiur/orchestrator/startup_claim_reconciler.ex",
+          "kind": "defp",
+          "end_line": 128,
+          "body_sha256": "6bcfceef847b669d2ee2e4de1198b9c93767499bde064f4e465d99a6b4f3fe9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reconciliation_status",
+      "assessment": "Reconciliation states encode different completion and uncertainty policies.",
+      "constraints": [
+        "CurrentRunMembership.Reconciler returns fresh when every result matches ok, including an empty results list, and unavailable otherwise.",
+        "Membership.Store.Runtime converts fresh to unavailable while terminal verification is pending, otherwise preserves status.",
+        "RecentMergeStore keeps partial sticky and retains maximum fetched pages; a nonpartial current state takes the new partial/complete result.",
+        "Preserve pending verification, empty-population semantics and sticky partial evidence; a shared success boolean would erase material distinctions."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 122,
+          "module": "Aiur.CurrentRunMembership.Reconciler",
+          "name": "reconciliation_status",
+          "path": "src/lib/aiur/current_run_membership/reconciler.ex",
+          "kind": "defp",
+          "end_line": 122,
+          "body_sha256": "72cbff23c64ec874f90c121fac36d63b573be6971294a777c1092ff94e8728b9",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 281,
+          "module": "Aiur.CurrentRunMembership.Store.Runtime",
+          "name": "reconciliation_status",
+          "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+          "kind": "defp",
+          "end_line": 281,
+          "body_sha256": "586b98f048e679a7158398a2db393f35d783902b99a8dc19edd4229efba40f14",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 282,
+          "module": "Aiur.CurrentRunMembership.Store.Runtime",
+          "name": "reconciliation_status",
+          "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+          "kind": "defp",
+          "end_line": 282,
+          "body_sha256": "8f5a7672eedaa43fb2311a093e04dbeabee779de4d4ce393239700325f3ff8fa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 259,
+          "module": "Aiur.RecentMergeStore",
+          "name": "reconciliation_status",
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "kind": "defp",
+          "end_line": 261,
+          "body_sha256": "79ca67d2cbd26f01c1bdeac286901511103ba5397d5e18c5f7b7cb6fc2dade43",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 263,
+          "module": "Aiur.RecentMergeStore",
+          "name": "reconciliation_status",
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "kind": "defp",
+          "end_line": 269,
+          "body_sha256": "17e64002f854657b1c4243372360593158c483f3f410a9fec4b663668f0f39bb",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "record_activity",
+      "assessment": "Activity recording spans best-effort async submission, synchronous RPC and state transition.",
+      "constraints": [
+        "Webhooks submits ModeRegistry.record_activity_async through safely and always returns ok.",
+        "ModeRegistry's synchronous form calls the selected server with repo, observation and supplied/default timestamp.",
+        "DeliveryMode retains the latest activity timestamp and returns no action.",
+        "Keep enqueue versus applied-update evidence separate. The public ok result alone does not establish registry completion or fresh delivery activity."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 46,
+          "module": "Aiur.Webhooks",
+          "name": "record_activity",
+          "path": "src/lib/aiur/webhooks.ex",
+          "kind": "def",
+          "end_line": 49,
+          "body_sha256": "cb36499d17d9379ae0a79ca65b713b29259e318d5e96fa566c69337925cbcbb5",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 190,
+          "module": "Aiur.Webhooks.DeliveryMode",
+          "name": "record_activity",
+          "path": "src/lib/aiur/webhooks/delivery_mode.ex",
+          "kind": "def",
+          "end_line": 192,
+          "body_sha256": "39cb73f204f81e492467b8e24e893dff4b3f20f627d97be6c4e9f5a55c568543",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 115,
+          "module": "Aiur.Webhooks.ModeRegistry",
+          "name": "record_activity",
+          "path": "src/lib/aiur/webhooks/mode_registry.ex",
+          "kind": "def",
+          "end_line": 119,
+          "body_sha256": "ccac44ee31a2ab0c9983f5be083fe429dbc743291f38162a66396b093484de01",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "record_slot_pane",
+      "assessment": "Two wrappers duplicate index updates followed by best-effort title setting.",
+      "constraints": [
+        "GenericOpen and SlotAttach both call PaneManager.State.record_slot_pane, set the title and return the new state.",
+        "Aliases and title helpers were read: both call the same Tmux and State modules, discard the title result and return ok.",
+        "State updates identifier-to-pane, pane-to-identifier, pane-to-slot and slot-to-pane maps.",
+        "The wrappers are equivalent extraction candidates; indexed state does not prove title application or pane liveness, and stale reverse-map cleanup is not established by this function."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 127,
+          "module": "Aiur.PaneManager.GenericOpen",
+          "name": "record_slot_pane",
+          "path": "src/lib/aiur/pane_manager/generic_open.ex",
+          "kind": "defp",
+          "end_line": 131,
+          "body_sha256": "d69663e03d09f529bd811d4d5975807372a579052290c09e36359f242fe91507",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 175,
+          "module": "Aiur.PaneManager.SlotAttach",
+          "name": "record_slot_pane",
+          "path": "src/lib/aiur/pane_manager/slot_attach.ex",
+          "kind": "def",
+          "end_line": 179,
+          "body_sha256": "d69663e03d09f529bd811d4d5975807372a579052290c09e36359f242fe91507",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 48,
+          "module": "Aiur.PaneManager.State",
+          "name": "record_slot_pane",
+          "path": "src/lib/aiur/pane_manager/state.ex",
+          "kind": "def",
+          "end_line": 56,
+          "body_sha256": "abf90b7cb93863c52896d6a2a95f678131f2301583da3937f2cbe4a5618562a9",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6636,
-  "limits": "533 selected families and 6636 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6669,
+  "limits": "541 selected families and 6669 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

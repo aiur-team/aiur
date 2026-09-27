@@ -1975,3 +1975,7 @@ Read payload_value, plan, pop, pr_title, present_freshness, present_health, prev
 ### Name duplication: queue and process identity policies
 
 Read print_rows, priority_rank, process_identity, process_stopped, provider_turn_id, put_snapshot, queued? and queued_dispatch_demand?: 35 literal entries across eight families. Two provider-turn payload extractors match. Preserve urgency scales, resolved versus diagnostic process identity, account shutdown steps, snapshot retention/generation history and different queued/demand policies. Name triage now 533 families/6636 entries, leaving 1147 cross-module names. Raw findings and skeptic counts are unchanged; no complete retirement, dispatchability or durable-storage guarantee is added.
+
+### Name duplication: reconciliation and completion evidence
+
+Read rate_limit_remaining, read_tail, reason, reasons, reconcile_issue, reconciliation_status, record_activity and record_slot_pane: 33 literal entries across eight families. Preserve header/body quota fallback, tail-reader error/descriptor contracts, reason categories, projection-versus-claim reconciliation and sticky/pending completeness states. Pane-recording wrappers match after alias/title-helper inspection; async activity ok is not applied-update evidence. Name triage now 541 families/6669 entries, leaving 1139 cross-module names. Raw findings and skeptic counts are unchanged; no complete reconciliation, registry completion or pane-liveness guarantee is added.
