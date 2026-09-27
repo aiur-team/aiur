@@ -811,3 +811,17 @@ different actions. SnapshotStore already uses PollCadence; preserve default,
 floor and derived-formula semantics. DeliveryLog's 512-byte prefix plus digest
 is not a 512-byte stored-key maximum. Port line framing is not a total response
 size bound. Hashes checked; no production changes or live timing claims.
+
+## Numeric admission and streaming checkpoint
+
+142 of 162 attribute groups assessed; 20 numeric groups remain. Nine groups
+cover 250, 10, 128, 120, 15000, 32, 65536, 20 and 60, retaining every listed site.
+Ticket search input/server bounds form a shared policy, without proving browser
+and Elixir Unicode counting equivalent. Streaming file digest mechanics can be
+shared without turning chunk size into total-input admission policy.
+
+Keep bearer-token minimum size separate from SHA-256 digest size; UI counters,
+telemetry cardinality and storage cadence are distinct. Schema/Budget defaults
+remain per-field contracts. Source comments preserving REPL dependency direction
+are evidence to weigh before extraction, not grounds to invent a shared module.
+Source hashes/publication checks passed; no production changes.
