@@ -926,3 +926,7 @@ Read all 28 changeset definitions across 28 modules. Existing Ecto reuse carries
 ### Name duplication: constructors and initialization policy
 
 Read all 46 new definitions/declarations in 35 modules. Separate empty structs, validated records, runtime wiring and checkpoint restoration; preserve unknown/unavailable startup state, authority epochs, recovery bounds, diagnostic distinctions and observation age. Name triage now 37 families/1165 literal entries. Struct defaults and transitive validation are not certified by this pass; remaining sweeps stay open, with no new defect or savings count.
+
+### Name duplication: presentation scope and current status
+
+Read all 35 present definitions/declarations in 16 modules. Preserve retained data versus current health, ticket identity matching, capability-gated cards, accounting distinctions and unavailable/error shapes. Two trimmed-string helpers are a narrow sharing candidate; matching presentation names do not imply one view contract. Name triage now 38 families/1200 literal entries. Rendered output, transitive privacy and remaining sweeps remain unverified by this pass.
