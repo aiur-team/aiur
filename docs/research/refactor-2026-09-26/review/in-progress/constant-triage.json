@@ -715,10 +715,419 @@
         }
       ],
       "caveat": "RetiredFloor.write/3 checks nonnegative integers but does not apply the ceiling in its visible guard/body, while its loader does. Equality of decoder constants does not prove every writer is symmetrically bounded. Caller reachability and runtime effect of an oversized floor were not investigated; do not present a reproduced incident."
+    },
+    {
+      "expression_sha256": "a7f012499190940239d6edc4a31092cfae255de695e7b5fa1178c9e4c880d0a3",
+      "modules": 4,
+      "site_count": 4,
+      "sites": [
+        {
+          "line": 31,
+          "module": "Aiur.ProviderMeterProjection",
+          "name": "providers",
+          "path": "src/lib/aiur/provider_meter_projection.ex",
+          "expression": "Aiur.CodingAgent.provider_families()",
+          "numeric_value": null,
+          "expression_sha256": "a7f012499190940239d6edc4a31092cfae255de695e7b5fa1178c9e4c880d0a3"
+        },
+        {
+          "line": 5,
+          "module": "Aiur.ProviderMeters.Input",
+          "name": "providers",
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "expression": "Aiur.CodingAgent.provider_families()",
+          "numeric_value": null,
+          "expression_sha256": "a7f012499190940239d6edc4a31092cfae255de695e7b5fa1178c9e4c880d0a3"
+        },
+        {
+          "line": 7,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "providers",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression": "Aiur.CodingAgent.provider_families()",
+          "numeric_value": null,
+          "expression_sha256": "a7f012499190940239d6edc4a31092cfae255de695e7b5fa1178c9e4c880d0a3"
+        },
+        {
+          "line": 18,
+          "module": "Aiur.UsageEnvelope",
+          "name": "providers",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "expression": "Aiur.CodingAgent.provider_families()",
+          "numeric_value": null,
+          "expression_sha256": "a7f012499190940239d6edc4a31092cfae255de695e7b5fa1178c9e4c880d0a3"
+        }
+      ],
+      "disposition": "already_registry_derived",
+      "assessment": "Four fully-qualified calls already obtain provider families from CodingAgent. This is reuse, not four independent provider lists. Keep local compile-time values where guard membership requires them; splitting packages must choose the registry dependency explicitly. Same owner as aliased-call group 21.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "100ca9e43748dda26badd222ffcd0b8daa709cb5d4622b95fd3fda9e38002cb2",
+      "modules": 2,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 17,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "providers",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression": "CodingAgent.provider_families()",
+          "numeric_value": null,
+          "expression_sha256": "100ca9e43748dda26badd222ffcd0b8daa709cb5d4622b95fd3fda9e38002cb2"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "agent_families",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression": "CodingAgent.provider_families()",
+          "numeric_value": null,
+          "expression_sha256": "100ca9e43748dda26badd222ffcd0b8daa709cb5d4622b95fd3fda9e38002cb2"
+        },
+        {
+          "line": 16,
+          "module": "Aiur.UsageEnvelope.RelationshipRegistry",
+          "name": "providers",
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "expression": "CodingAgent.provider_families()",
+          "numeric_value": null,
+          "expression_sha256": "100ca9e43748dda26badd222ffcd0b8daa709cb5d4622b95fd3fda9e38002cb2"
+        }
+      ],
+      "disposition": "already_registry_derived_alias_match",
+      "assessment": "The aliases in Key and RelationshipRegistry resolve CodingAgent to Aiur.CodingAgent; three assignments share the same owner as group 6 despite distinct syntax hashes. Provider and agent-family fields remain separate fields even when allowed vocabularies match.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "04d1129c3278c6dfb1d9bb32474e68456ebcf94021e5de8c6e173bae5ef4f7ac",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 18,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "backends",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression": "Enum.uniq(CodingAgent.usage_backends() ++ [:remote_control, :unknown])",
+          "numeric_value": null,
+          "expression_sha256": "04d1129c3278c6dfb1d9bb32474e68456ebcf94021e5de8c6e173bae5ef4f7ac"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.UsageEnvelope",
+          "name": "backends",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "expression": "Enum.uniq(CodingAgent.usage_backends() ++ [:remote_control, :unknown])",
+          "numeric_value": null,
+          "expression_sha256": "04d1129c3278c6dfb1d9bb32474e68456ebcf94021e5de8c6e173bae5ef4f7ac"
+        }
+      ],
+      "disposition": "shared_derived_backend_vocabulary",
+      "assessment": "Envelope and aggregate checkpoint derive backend vocabulary from CodingAgent plus remote_control/unknown. Centralize that usage-contract extension if needed, while retaining field validation and checkpoint codecs. Do not replace registry derivation with a frozen copied backend list.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "56a427402d268d3002eaf3f417c3351f798be32101b9b6eee249932891bef05d",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 16,
+          "module": "Aiur.Claude.Telemetry.Event",
+          "name": "source",
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "expression": "Contract.source()",
+          "numeric_value": null,
+          "expression_sha256": "56a427402d268d3002eaf3f417c3351f798be32101b9b6eee249932891bef05d"
+        },
+        {
+          "line": 16,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter",
+          "name": "source",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "expression": "Contract.source()",
+          "numeric_value": null,
+          "expression_sha256": "56a427402d268d3002eaf3f417c3351f798be32101b9b6eee249932891bef05d"
+        }
+      ],
+      "disposition": "already_contract_owned",
+      "assessment": "Both Contract aliases resolve to Aiur.Claude.Telemetry.Contract. Event admission and UsageAdapter already share source identity; adapter also derives source_version. Preserve this existing boundary rather than inventing another constants owner.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "c899746c0cfe45a9e94a4caaac44e28e8f8fcf16eae50ba6c69e003cf8e2e432",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 6,
+          "module": "Aiur.AppServer.Messages",
+          "name": "version",
+          "path": "src/lib/aiur/app_server/messages.ex",
+          "expression": "Mix.Project.config()[:version]",
+          "numeric_value": null,
+          "expression_sha256": "c899746c0cfe45a9e94a4caaac44e28e8f8fcf16eae50ba6c69e003cf8e2e432"
+        },
+        {
+          "line": 10,
+          "module": "Aiur.CLI",
+          "name": "version",
+          "path": "src/lib/aiur/cli.ex",
+          "expression": "Mix.Project.config()[:version]",
+          "numeric_value": null,
+          "expression_sha256": "c899746c0cfe45a9e94a4caaac44e28e8f8fcf16eae50ba6c69e003cf8e2e432"
+        }
+      ],
+      "disposition": "already_build_metadata_owned",
+      "assessment": "CLI version reporting and app-server initialize messages read the same Mix project version at compile time. Two consumption sites are not duplicated version policy. A package split must preserve product release identity rather than silently report separate package versions.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "cd5ed9e938d131d24d9c3c9c36448fe962a1b25e3db748cd64355e5ee31513c7",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 20,
+          "module": "Aiur.Usage.Headless.Codex.ThreadUsage",
+          "name": "definition",
+          "path": "src/lib/aiur/usage/headless/codex/thread_usage.ex",
+          "expression": "%{\n  provider: :codex,\n  source: @source,\n  source_version: @source_version,\n  revision: @relationship_revision,\n  provider_total_authoritative: true,\n  dimensions: %{\n    input: :additive,\n    cached_input: {:subset_of, :input},\n    cache_creation_input: {:subset_of, :input},\n    output: :additive,\n    reasoning_output: {:subset_of, :output}\n  }\n}",
+          "numeric_value": null,
+          "expression_sha256": "cd5ed9e938d131d24d9c3c9c36448fe962a1b25e3db748cd64355e5ee31513c7"
+        },
+        {
+          "line": 21,
+          "module": "Aiur.Usage.Headless.Codex.TurnUsage",
+          "name": "definition",
+          "path": "src/lib/aiur/usage/headless/codex/turn_usage.ex",
+          "expression": "%{\n  provider: :codex,\n  source: @source,\n  source_version: @source_version,\n  revision: @relationship_revision,\n  provider_total_authoritative: true,\n  dimensions: %{\n    input: :additive,\n    cached_input: {:subset_of, :input},\n    cache_creation_input: {:subset_of, :input},\n    output: :additive,\n    reasoning_output: {:subset_of, :output}\n  }\n}",
+          "numeric_value": null,
+          "expression_sha256": "cd5ed9e938d131d24d9c3c9c36448fe962a1b25e3db748cd64355e5ee31513c7"
+        }
+      ],
+      "disposition": "same_expression_distinct_pinned_records",
+      "assessment": "ThreadUsage and TurnUsage definition maps have identical syntax but reference different source and relationship_revision attributes. Full adapter modules read: thread uses cumulative absolute/thread observations; turn uses delta/turn observations and includes source_sequence in event identity. Preserve those identities and overlapping-stream semantics. Shared dimension relationship structure could be a factory input, not one identical catalog record.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "46f7454b954fa801113caf8fe657df17d36cd88c89e8a2a3f9b05ef32f42a1fd",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 18,
+          "module": "Aiur.Usage.Headless.Codex.ThreadUsage",
+          "name": "source_version",
+          "path": "src/lib/aiur/usage/headless/codex/thread_usage.ex",
+          "expression": "\"codex-app-server-2026-07\"",
+          "numeric_value": null,
+          "expression_sha256": "46f7454b954fa801113caf8fe657df17d36cd88c89e8a2a3f9b05ef32f42a1fd"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.Usage.Headless.Codex.TurnUsage",
+          "name": "source_version",
+          "path": "src/lib/aiur/usage/headless/codex/turn_usage.ex",
+          "expression": "\"codex-app-server-2026-07\"",
+          "numeric_value": null,
+          "expression_sha256": "46f7454b954fa801113caf8fe657df17d36cd88c89e8a2a3f9b05ef32f42a1fd"
+        },
+        {
+          "line": 21,
+          "module": "Aiur.Usage.PriceTable.Data",
+          "name": "openai_relationship",
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "expression": "\"codex-app-server-2026-07\"",
+          "numeric_value": null,
+          "expression_sha256": "46f7454b954fa801113caf8fe657df17d36cd88c89e8a2a3f9b05ef32f42a1fd"
+        }
+      ],
+      "disposition": "equal_string_different_version_roles",
+      "assessment": "Thread/Turn adapters use this string as source_version; PriceTable.Data uses it as a relationship revision. Thread/turn relationship_revision values are different pinned strings. Equal bytes do not imply the source protocol version and historical pricing relationship must always change together. Preserve explicit version roles; compatibility lookup correctness is outside this constant check.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "e81447763da20584a7f9db2194cdf5878e0176c864125e8bedc8a28bcc9400f6",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 8,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter.Relationship",
+          "name": "revision",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter/relationship.ex",
+          "expression": "\"claude-remote-control-2026-07\"",
+          "numeric_value": null,
+          "expression_sha256": "e81447763da20584a7f9db2194cdf5878e0176c864125e8bedc8a28bcc9400f6"
+        },
+        {
+          "line": 42,
+          "module": "Aiur.Usage.PriceTable.Data",
+          "name": "anthropic_relationship",
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "expression": "\"claude-remote-control-2026-07\"",
+          "numeric_value": null,
+          "expression_sha256": "e81447763da20584a7f9db2194cdf5878e0176c864125e8bedc8a28bcc9400f6"
+        }
+      ],
+      "disposition": "pinned_relationship_reference",
+      "assessment": "Claude telemetry Relationship and PriceTable.Data use the same historical relationship revision in different contracts. A shared immutable revision identity may reduce drift, but never derive historical pricing rows from a mutable latest revision. Relationship catalog resolves exact pinned definitions.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "7c8cd2b6073acf1311ec8814dcc42e67873736010edc22bf00e251f052b81747",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 7,
+          "module": "Aiur.OpenAICompat.AccountGeneration",
+          "name": "backend",
+          "path": "src/lib/aiur/open_ai_compat/account_generation.ex",
+          "expression": ":openai_compat",
+          "numeric_value": null,
+          "expression_sha256": "7c8cd2b6073acf1311ec8814dcc42e67873736010edc22bf00e251f052b81747"
+        },
+        {
+          "line": 4,
+          "module": "Aiur.OpenAICompat.MeterAdapter",
+          "name": "backend",
+          "path": "src/lib/aiur/open_ai_compat/meter_adapter.ex",
+          "expression": ":openai_compat",
+          "numeric_value": null,
+          "expression_sha256": "7c8cd2b6073acf1311ec8814dcc42e67873736010edc22bf00e251f052b81747"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "backend",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "expression": ":openai_compat",
+          "numeric_value": null,
+          "expression_sha256": "7c8cd2b6073acf1311ec8814dcc42e67873736010edc22bf00e251f052b81747"
+        }
+      ],
+      "disposition": "shared_transport_backend_identity",
+      "assessment": "AccountGeneration binding, MeterAdapter completion updates and ProviderMeterProbe snapshots all use openai_compat as backend while retaining separate provider identity. This is a common adapter-family contract. Share via registry/adapter descriptor if reorganized; do not collapse provider distinctions or their separate source-version mappings.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "b4438c255ef5a38fe6391a39b8b2f8b3e285364d26d63f7ad8db34ee2dc6bf07",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 6,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "name": "auth_modes",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "expression": "[:subscription, :api_key, :unknown]",
+          "numeric_value": null,
+          "expression_sha256": "b4438c255ef5a38fe6391a39b8b2f8b3e285364d26d63f7ad8db34ee2dc6bf07"
+        },
+        {
+          "line": 7,
+          "module": "Aiur.ProviderMeters.Input",
+          "name": "auth_modes",
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "expression": "[:subscription, :api_key, :unknown]",
+          "numeric_value": null,
+          "expression_sha256": "b4438c255ef5a38fe6391a39b8b2f8b3e285364d26d63f7ad8db34ee2dc6bf07"
+        }
+      ],
+      "disposition": "meter_auth_vocabulary",
+      "assessment": "RateLimitAdapter and ProviderMeters.Input share subscription/api_key/unknown admission. RateLimitAdapter.auth_mode maps chatgpt/chatgptAuthTokens/personalAccessToken strings to subscription. This metering vocabulary differs from usage-envelope chatgpt vocabulary; retain an explicit conversion boundary, not a global enum union.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "40c5dd977bf5876b8c31582805f38b311cbb7697a43d4412554875a175048ec6",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 20,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "auth_modes",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression": "[:api_key, :chatgpt, :unknown]",
+          "numeric_value": null,
+          "expression_sha256": "40c5dd977bf5876b8c31582805f38b311cbb7697a43d4412554875a175048ec6"
+        },
+        {
+          "line": 25,
+          "module": "Aiur.UsageEnvelope",
+          "name": "auth_modes",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "expression": "[:api_key, :chatgpt, :unknown]",
+          "numeric_value": null,
+          "expression_sha256": "40c5dd977bf5876b8c31582805f38b311cbb7697a43d4412554875a175048ec6"
+        }
+      ],
+      "disposition": "usage_auth_vocabulary",
+      "assessment": "UsageEnvelope and aggregate checkpoint preserve api_key/chatgpt/unknown. Shared usage vocabulary is appropriate while caller codecs retain different errors and accepted representations. Do not mechanically substitute meter subscription for retained chatgpt values.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "478f122abeafe030612990cfe1855cd6a64198620e340680bd3cba2eaf2c2e04",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 21,
+          "module": "Aiur.UsageEnvelope",
+          "name": "measurement_kinds",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "expression": "[:delta, :absolute]",
+          "numeric_value": null,
+          "expression_sha256": "478f122abeafe030612990cfe1855cd6a64198620e340680bd3cba2eaf2c2e04"
+        },
+        {
+          "line": 13,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "kinds",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "expression": "[:delta, :absolute]",
+          "numeric_value": null,
+          "expression_sha256": "478f122abeafe030612990cfe1855cd6a64198620e340680bd3cba2eaf2c2e04"
+        }
+      ],
+      "disposition": "measurement_kind_shared_vocabulary_separate_values",
+      "assessment": "Envelope and ExactMoney both admit delta/absolute but money carries its own measurement_kind and counter_scope. Centralize vocabulary within usage contracts if useful; do not force money and token measurements to share the same kind.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "7eb01380e2ebcc4eb74ed0d6b9ffbae15ea5d59171867d5b2aa424a00cf1be84",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 22,
+          "module": "Aiur.UsageEnvelope",
+          "name": "counter_scopes",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "expression": "[:request, :turn, :thread, :session]",
+          "numeric_value": null,
+          "expression_sha256": "7eb01380e2ebcc4eb74ed0d6b9ffbae15ea5d59171867d5b2aa424a00cf1be84"
+        },
+        {
+          "line": 14,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "scopes",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "expression": "[:request, :turn, :thread, :session]",
+          "numeric_value": null,
+          "expression_sha256": "7eb01380e2ebcc4eb74ed0d6b9ffbae15ea5d59171867d5b2aa424a00cf1be84"
+        }
+      ],
+      "disposition": "counter_scope_shared_vocabulary_separate_values",
+      "assessment": "Envelope and ExactMoney admit request/turn/thread/session with separate validation/error names. A shared scope vocabulary is appropriate; source-specific observations and money scopes remain independent fields, not inferred from one another.",
+      "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
     }
   ],
-  "assessed_group_count": 9,
-  "remaining_candidate_groups": 153,
+  "assessed_group_count": 22,
+  "remaining_candidate_groups": 140,
   "sources": [
     {
       "path": "src/lib/aiur/coding_agent.ex",
@@ -967,6 +1376,66 @@
     {
       "path": "src/lib/aiur_web/observability_pubsub.ex",
       "sha256": "89a5751f185710fb3c40bc216ba5346f190c91e5e6fa9f7127d7001b1cdae459"
+    },
+    {
+      "path": "src/lib/aiur/app_server/messages.ex",
+      "sha256": "d68ac3d8cb988b9a5d044f5f09e51f0531daf379a56a6e106bd0503d61c056f4"
+    },
+    {
+      "path": "src/lib/aiur/claude/telemetry/contract.ex",
+      "sha256": "c74e3d155897c6025c7d23a55da08f56e02b4825957723f4c562ec87f8d8088a"
+    },
+    {
+      "path": "src/lib/aiur/claude/telemetry/event.ex",
+      "sha256": "1154592a4f18d2d5fed30b3bcda9a7b725490b60adcb6b2be4f780ff1d820cef"
+    },
+    {
+      "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+      "sha256": "810458443b03ad09ea0bd01f4a8eb6d1d3e4dd38c7bb5c4fd357b99bfe236c84"
+    },
+    {
+      "path": "src/lib/aiur/claude/telemetry/usage_adapter/relationship.ex",
+      "sha256": "bf14a954dcc8e1dfe84f10c49d6c0f5441b4b8f8a4e18478b665d89271a46020"
+    },
+    {
+      "path": "src/lib/aiur/cli.ex",
+      "sha256": "80f2579b9f4a99bfb9461241234f54f55369bab3ad82f0669daf553820031967"
+    },
+    {
+      "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+      "sha256": "7cd3e57744f59577c9966975f58090e3d6c66b056c582fc4eb336afcc0e88db2"
+    },
+    {
+      "path": "src/lib/aiur/open_ai_compat/account_generation.ex",
+      "sha256": "534474d1783dac97bf2aa71cb5546abc51f5bb77c9c9cfc1f0fbb152efd460a6"
+    },
+    {
+      "path": "src/lib/aiur/open_ai_compat/meter_adapter.ex",
+      "sha256": "fe5de8c81cc75a25c15a5ce1211710486abc4db07f6923305a3ed9c2ee33e6b7"
+    },
+    {
+      "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+      "sha256": "504caa189ad92e8bb471df9b312c5510f76bd6f319e378af250d29e5133567ea"
+    },
+    {
+      "path": "src/lib/aiur/provider_meter_projection.ex",
+      "sha256": "a217eea49aef28d71e4e54f27c0f0b8c5e1447bb7151b5e34a30fd45735b0e30"
+    },
+    {
+      "path": "src/lib/aiur/provider_meters/input.ex",
+      "sha256": "d80dd7853da744a2d3899e42e4a3036a835d0db084117e047200d2d3786b103b"
+    },
+    {
+      "path": "src/lib/aiur/usage/headless/codex/thread_usage.ex",
+      "sha256": "4f3812ae7b922baac11f604518bc469508c03d4bb22546285a858f34a5141b20"
+    },
+    {
+      "path": "src/lib/aiur/usage/headless/codex/turn_usage.ex",
+      "sha256": "1884c3db3e59a3655aca1079a61494af2c27e8788e8b50b5b5c6bfed02891bb2"
+    },
+    {
+      "path": "src/lib/aiur/usage/headless/context.ex",
+      "sha256": "5a6f149dfb08b83f09b124dde814cbb112a2b4e15ac179f735a71c91149bae14"
     }
   ],
   "additional_sites": [
@@ -1028,7 +1497,7 @@
       "coverage": "full module; provider/component restriction"
     }
   ],
-  "limits": "Nine of 162 attribute groups assessed. All 28 regex candidate groups are assessed separately in regex-triage.json; two older overlapping notes remain here. Relevant declarations/consumers read, not all source files in full. No runtime correctness, current financial data, savings or whole storage refactor verification claimed.",
+  "limits": "22 of 162 attribute groups assessed. All 28 regex candidate groups assessed separately in regex-triage.json. Relevant declarations/consumers read, not all files in full. Aliased and fully-qualified registry calls overlap semantically; matching expressions may reference distinct attributes. No runtime correctness, current pricing, savings or whole-package completion claimed.",
   "regex_assessments": [
     {
       "modules": 3,

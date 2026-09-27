@@ -703,3 +703,19 @@ payloads and failure semantics should not be collapsed because names repeat.
 Declaration/reference contexts and frozen hashes were checked. No production
 changes, runtime tests or savings claims. Regex candidate review remains complete
 within its bounded syntax census; broader constant and concept sweeps remain open.
+
+## Provider contract constants checkpoint
+
+22 of 162 attribute groups assessed (140 remain). Thirteen additional groups
+cover registry-derived providers/backends, telemetry source ownership, build
+version metadata, pinned usage relationship revisions and measurement/auth enums.
+Fully qualified and aliased CodingAgent calls share one owner; they are not
+independent provider lists. Event and UsageAdapter already use Contract.source.
+
+Identical Codex definition-map syntax resolves distinct thread/turn source and
+relationship identities. Full adapters confirm absolute/thread versus delta/turn
+observations and different source-event fingerprints. Keep those distinctions.
+Meter subscription and retained usage chatgpt vocabularies are separate, with
+explicit rate-limit conversion. Historical pricing relationship revisions must
+not silently follow a mutable latest source version. Source hashes matched; no
+production changes, current pricing audit or runtime verification claimed.
