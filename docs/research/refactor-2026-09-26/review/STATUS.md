@@ -1230,3 +1230,7 @@ Read event_sort_key, fail, failure_reason, fetch_blocked_by, fetch_candidate_iss
 ### Name duplication: identities and presentation contracts
 
 Read fingerprint, fleet_view, format_amount and format_datetime: 20 literal entries across four families. Three date-formatting implementations have equivalent clauses; money formatting and fingerprint serialization preserve different contracts. Fleet view wrappers already delegate and carry stale freshness explicitly. Read the headless scalar and fleet process fallback helpers, and checked the Money alias and scale. Name triage now 461 families/6229 entries, leaving 1219 cross-module names. Raw findings and skeptic counts are unchanged; no runtime correctness or savings claim is added.
+
+### Name duplication: provider handlers and hydration
+
+Read format_reason, git, handle, handle_interrupt_error, handle_malformed, handle_method, head_sha and hydrate_blocked_by: 85 literal entries across eight families. Preserve provider-specific interruption/failure semantics, diagnostic filtering, recovery guidance, credential environments and missing-head contracts. Blocker hydration bypasses fetching for prepopulated blocker fields; the bounded default does not prove universal freshness. Read Git environment/result helpers and interrupt recognition entry/continuation helpers without certifying their complete transitive behavior. Name triage now 469 families/6314 entries, leaving 1211 cross-module names. Raw findings and skeptic counts are unchanged; no production correctness or savings claim is added.
