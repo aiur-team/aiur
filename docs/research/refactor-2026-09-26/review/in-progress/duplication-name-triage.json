@@ -97703,10 +97703,322 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "branch_target_entry",
+      "assessment": "CI and comment polling use identical branch-entry construction.",
+      "constraints": [
+        "Both prefer a known branch and mark known_branch true, otherwise use guessed branches and mark false.",
+        "Read both immediate helpers: known_branch selects explicit branch metadata or an open-PR head reference and accepts nonempty binaries; guessed_branches returns generated then legacy names unless identical.",
+        "A shared branch-selection policy is a concrete candidate. Deeper head-reference extraction and branch generation are not newly certified; overlap with earlier helper reviews is non-additive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 155,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "branch_target_entry",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 160,
+          "body_sha256": "5a758c71fd3be366aea9b4aa9d1757843d29869773d3c84ca8bc7c3b8b84ac53",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 193,
+          "module": "Aiur.GitHub.CommentPollBatch",
+          "name": "branch_target_entry",
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 198,
+          "body_sha256": "5a758c71fd3be366aea9b4aa9d1757843d29869773d3c84ca8bc7c3b8b84ac53",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "break_stale_lock",
+      "assessment": "Age-based stale lock cleanup has materially different ownership checks.",
+      "constraints": [
+        "Executor.Claims stats the path and, beyond its age threshold, logs and attempts File.rm directly, returning ok.",
+        "ControlLifecycleStore uses the age threshold then calls reclaim_stale_lock with the stat and parsed owner.",
+        "Read reclaim clauses: valid owners require lock_owner_dead? before owner-aware release; invalid-owner records use a captured fingerprint for release. Preserve these guards before consolidation; deeper race/fencing correctness is not certified and no lock was removed."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 409,
+          "module": "Aiur.Executor.Claims",
+          "name": "break_stale_lock",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "kind": "defp",
+          "end_line": 417,
+          "body_sha256": "ba0b820e68aaa22420f79bdbe2305ad1ce3237511f6c205b8c2767be46fdb5ee",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 145,
+          "module": "Aiur.Orchestrator.ControlLifecycleStore",
+          "name": "break_stale_lock",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "f761ac7c6929df4c54c95747356b30fe656d61d3d9fed59dbebcb71369eb92c1",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "broadcast_all",
+      "assessment": "Two iteration wrappers broadcast different domain populations.",
+      "constraints": [
+        "GraphProjection iterates events with the current state passed into broadcast.",
+        "TicketDetailCoordinator iterates states through broadcast_state.",
+        "A generic Enum.each wrapper adds little shared domain behavior; preserve event-versus-state semantics and do not infer delivery from iteration."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 1480,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "broadcast_all",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "defp",
+          "end_line": 1480,
+          "body_sha256": "6586d22e5b3fb81918a1f4b83a6c67e7fd958604ea4203581d4f996a2cfbf595",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 203,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator",
+          "name": "broadcast_all",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+          "kind": "defp",
+          "end_line": 203,
+          "body_sha256": "cf6cf1e0b3cac20f266272c7798d078abc5c25d8f0d963a1f99fc1b292b4245b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "broadcast_event",
+      "assessment": "Best-effort PubSub emission shares failure handling but different envelope construction.",
+      "constraints": [
+        "AttachPool broadcasts a supplied payload on its topic.",
+        "Perf constructs an aiur_perf envelope with phase, map metadata, monotonic timestamp and boot elapsed time before broadcasting.",
+        "Both rescue exceptions and catch all thrown/exited outcomes as ok. A shared best-effort primitive must preserve envelope/topic ownership; ok is not a delivery receipt."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 873,
+          "module": "Aiur.Opencode.AttachPool",
+          "name": "broadcast_event",
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "kind": "defp",
+          "end_line": 879,
+          "body_sha256": "5087d27e76c04a1c169fcf8c9d0ed5edd05d462acef994aa984c23ae4c2b9bf8",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 54,
+          "module": "Aiur.Perf",
+          "name": "broadcast_event",
+          "path": "src/lib/aiur/perf.ex",
+          "kind": "defp",
+          "end_line": 70,
+          "body_sha256": "fad2a63900c97b90a06271765a5c108a8f56a363eec506c1c2faf5dc31253250",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "broadcast_reset",
+      "assessment": "Reset emission mechanics match with different topics and event tags.",
+      "constraints": [
+        "TicketDetailCoordinator and TicketHistoryProvider check PubSub registration then broadcast their respective reset tag with state.reset_epoch.",
+        "A shared emitter could accept an explicit topic/tag and epoch.",
+        "Process registration is not an atomic liveness guarantee, and these functions have no local rescue; subscriber reset processing remains outside this read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 219,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator",
+          "name": "broadcast_reset",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+          "kind": "defp",
+          "end_line": 223,
+          "body_sha256": "10fb51e3ad8e9c18612b0221fb02285cfb089825f515267b99e6c6e612b05cc0",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 574,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider",
+          "name": "broadcast_reset",
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "kind": "defp",
+          "end_line": 578,
+          "body_sha256": "65c1d032146faf3adefedddc31c21f83478a4031661b308c512dda5701342f32",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "broadcast_update",
+      "assessment": "Financial updates enforce identity scope; observability updates use a process-local event ID.",
+      "constraints": [
+        "FinancialData requires current configuration generation, PubSub registration and authorized identities, then pattern-matches each identity to that generation when broadcasting.",
+        "ObservabilityPubsub checks registration, creates a monotonic positive unique integer and broadcasts one global update; absent registration returns ok.",
+        "Preserve authorized identity scope versus global invalidation. The financial iteration assumes generation-consistent identities; upstream guarantees and races are not certified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 91,
+          "module": "AiurWeb.FinancialData",
+          "name": "broadcast_update",
+          "path": "src/lib/aiur_web/financial_data.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "101be64333c0dcd2c99c5bc35df65b192f454a3b7979cfd1e1c0426b47d703a4",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 17,
+          "module": "AiurWeb.ObservabilityPubSub",
+          "name": "broadcast_update",
+          "path": "src/lib/aiur_web/observability_pubsub.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "bf7934f49f025b4ef576db2f2a4ce1d7b4a7b56f8d6b09e145b946e95f3c7262",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bucket",
+      "assessment": "Search prefix indexing and grouped usage aggregation share only a name.",
+      "constraints": [
+        "RetainedIndex lowercases a string, takes a bounded number of graphemes and joins the prefix.",
+        "GroupedScopes accumulates token and money entries by separate key functions, finalizes/presents groups and sorts by presented key.",
+        "Keep lexical indexing separate from accounting aggregation; truncation width and population conservation are not established here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 211,
+          "module": "Aiur.DecisionStore.RetainedIndex",
+          "name": "bucket",
+          "path": "src/lib/aiur/decision_store/retained_index.ex",
+          "kind": "defp",
+          "end_line": 217,
+          "body_sha256": "d0c5e1df84b02008cc2f0cb26bbf80bb64d46aba6ae64efa531b588e46c94029",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 320,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "bucket",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 326,
+          "body_sha256": "f0271ff34b2828a887a3a3e3d52e74fcf002969571150d919ca15fe430efb849",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "buffer_operator_delivery",
+      "assessment": "Callback adaptation and synchronous tailer ingress own different failure semantics.",
+      "constraints": [
+        "MessageHandler invokes a two-argument buffer callback and maps only ok to buffered; missing callbacks, other returns, exceptions and catches invoke missing_source_session.",
+        "Claude.DisplayTailer accepts a map item and sends a synchronous GenServer call with item and timestamp.",
+        "Preserve source-session failure policy and RPC ownership; buffered/call acceptance alone does not prove durable storage or rendered delivery."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 531,
+          "module": "Aiur.AgentRunner.MessageHandler",
+          "name": "buffer_operator_delivery",
+          "path": "src/lib/aiur/agent_runner/message_handler.ex",
+          "kind": "defp",
+          "end_line": 546,
+          "body_sha256": "29c90424679ab98d39596cbc8d1b8c4251164836c2fa64a670478b09a3e187d6",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 90,
+          "module": "Aiur.Claude.DisplayTailer",
+          "name": "buffer_operator_delivery",
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "kind": "def",
+          "end_line": 92,
+          "body_sha256": "dcdcadb8fea1a6458ee82efe2043ce8f116f65b66f3f9db3acf774a2b85e518d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7237,
-  "limits": "693 selected families and 7237 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7253,
+  "limits": "701 selected families and 7253 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
