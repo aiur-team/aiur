@@ -732,6 +732,41 @@
       "lines": 251,
       "read": "full",
       "assessment": "All251 lines read. Readable-file gate precedes dispatch; classify by artifact metadata and content rather than path, distinguish requirements-only from implementation-ready, and keep HTML report-only. Conditional lenses follow challenge surface, not size alone; bounded concurrency queues capacity errors instead of mislabeling failure. Unified slices require broader context when traceability demands it; user-settled provenance and prior-round evidence inform suppression without cross-session invented history. Headless preserves finding classes but applies safe_auto; unlike code review, this is not universally report-only. Peer egress route is fixed before dispatch and actual independence is required for corroboration. Detailed synthesis, mutation safety and persona contracts remain unread; no document review or peer dispatch invoked."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/synthesis-and-presentation.md",
+      "sha256": "bf96388c08d7ebbebddd2b7eb9d2df68fe5c5fec87c969c123a03c74ae1492fb",
+      "lines": 429,
+      "read": "full",
+      "assessment": "All429 lines read in three bounded segments. Validate before gate/dedup; severity, evidence and mutation class are separate, peer-only evidence cannot silently apply and independent corroboration does not stack without bound. Count attribution and chain rendering share final linked set; contradictions remain explicit decisions. User-settled annotations cannot be silently rewritten. Synthesis root-rejection predicate appears to conflate rejecting a finding with rejecting its criticized component; candidate18 pending persona reconciliation. Dropped low-anchor findings versus residual output and late placement of R29/R30 require reconciliation with shared template, candidate19. Qualitative agreement promotion is policy, not empirically validated confidence calibration. No review or mutation executed."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/bulk-preview.md",
+      "sha256": "4ba7e0e096d26e52b4faf06dbd69a92a79b2e0f7d3735e700980ddb6f0a015f7",
+      "lines": 134,
+      "read": "full",
+      "assessment": "All134 lines read. Explicit preview precedes choice; Apply/Defer/Skip scope excludes already-decided items, Cancel leaves that batch unchanged, and read-only append availability remaps otherwise impossible Defer recommendations visibly. Best judgment executes stored recommendations rather than inventing new actions mid-batch. No disk state changed by reading; no approval inferred from silence. Illustrative low-confidence skipped rows are not proof those items pass actual gate."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/walkthrough.md",
+      "sha256": "7a30f56021d868583a2b6a34eefd7414745ecf49816ab0bc2be4e9ccd304a6d9",
+      "lines": 285,
+      "read": "full",
+      "assessment": "All285 lines read in two bounded segments. Apply accumulates before batch write, Defer appends inline and Skip is no-op; missing-fix Apply routes to explicit alternatives rather than invented edit. Cascade is confirmed, but Skip/Defer on root is treated as dissolving component premise while Apply is called premise-held: candidate18. In-memory state loss on interruption is explicitly a limitation; pending Apply is not applied evidence. Post-choice confirmation example says Applied before actual batch execution, so status must be interpreted carefully; no observed misleading user report. User authorization remains governed by outer context, not illustrative menu rigidity."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/open-questions-defer.md",
+      "sha256": "47ea89291b5f0b11d28bc4feb5db7e97dbfeabde3a48c048d0a88bc623494270",
+      "lines": 155,
+      "read": "full",
+      "assessment": "All155 lines read. Append to existing section wherever located, use date subsections and visible section/title/rationale compound key for retry dedup. Re-read before write reduces but does not eliminate concurrent-edit window; no lock or compare-and-swap guarantee claimed. Explicit failure outcome distinguishes on-disk deferral from report-only decision and retry/skip. Availability is session-cached but transient failure remains per finding. Concern summary intentionally omits full fix/evidence; durable decision packet is not guaranteed by this append alone."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/review-output-template.md",
+      "sha256": "3a56097cf82ecb15dfdff66c3c91eb3919442fafba80e12b2d4dd751447ca05c",
+      "lines": 124,
+      "read": "full",
+      "assessment": "All124 lines read. User-facing finding handles and escaped table pipes preserve readability; actionable, FYI, residual, deferred and applied outputs are distinguished. Final coverage must equal route buckets with one attribution per merged finding; illustrative table includes feasibility count3 while route buckets sum2, so example is not a valid census. Residual output below gate needs reconciliation with synthesis suppression candidate19. Chain rendering counts each dependent once. No generated report assessed."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1112,7 +1147,12 @@
     "All35 lines read. Layer-specific entry validation, business invariant, environment guard and diagnostic evidence require a concrete failure mode and independent bypass tests, not repeated checks everywhere. Logging examples must be adapted to privacy scope; generic env capture is not authorization to publish credentials. No guards or instrumentation added.",
     "All374 lines read in two bounded segments. Cross-component correlation, minimization, controlled timing, bounded condition waits, observer-effect caution and evidence preservation support diagnosis. Single isolated test pass is not sufficient to prove pollution, and bisect needs a valid failure oracle rather than treating unavailable builds as defect evidence. Language/version commands and framework claims are examples not verified runtime support. Boundary shell example concatenates SET marker with actual nonempty IDENTITY value, so it is not a presence-only logger; no live environment inspected or exposed. No bisect, debugger, process signal, database query or service operation executed.",
     "All60 lines read. Caller invocation does not mint authority; action envelope excludes merge/rebase/force-push/gated-CI approval, and content must converge to intended behavior. Genuine design divergence returns decision context without mutation; recurring own-fix oscillation differs from progressive repair or external changes. No assertion weakening to green, no nested quality tail, and structured return distinguishes pushed fix, diagnosis, infrastructure and needs-human. Reading reference did not authorize any described operation.",
-    "All251 lines read. Readable-file gate precedes dispatch; classify by artifact metadata and content rather than path, distinguish requirements-only from implementation-ready, and keep HTML report-only. Conditional lenses follow challenge surface, not size alone; bounded concurrency queues capacity errors instead of mislabeling failure. Unified slices require broader context when traceability demands it; user-settled provenance and prior-round evidence inform suppression without cross-session invented history. Headless preserves finding classes but applies safe_auto; unlike code review, this is not universally report-only. Peer egress route is fixed before dispatch and actual independence is required for corroboration. Detailed synthesis, mutation safety and persona contracts remain unread; no document review or peer dispatch invoked."
+    "All251 lines read. Readable-file gate precedes dispatch; classify by artifact metadata and content rather than path, distinguish requirements-only from implementation-ready, and keep HTML report-only. Conditional lenses follow challenge surface, not size alone; bounded concurrency queues capacity errors instead of mislabeling failure. Unified slices require broader context when traceability demands it; user-settled provenance and prior-round evidence inform suppression without cross-session invented history. Headless preserves finding classes but applies safe_auto; unlike code review, this is not universally report-only. Peer egress route is fixed before dispatch and actual independence is required for corroboration. Detailed synthesis, mutation safety and persona contracts remain unread; no document review or peer dispatch invoked.",
+    "All429 lines read in three bounded segments. Validate before gate/dedup; severity, evidence and mutation class are separate, peer-only evidence cannot silently apply and independent corroboration does not stack without bound. Count attribution and chain rendering share final linked set; contradictions remain explicit decisions. User-settled annotations cannot be silently rewritten. Synthesis root-rejection predicate appears to conflate rejecting a finding with rejecting its criticized component; candidate18 pending persona reconciliation. Dropped low-anchor findings versus residual output and late placement of R29/R30 require reconciliation with shared template, candidate19. Qualitative agreement promotion is policy, not empirically validated confidence calibration. No review or mutation executed.",
+    "All134 lines read. Explicit preview precedes choice; Apply/Defer/Skip scope excludes already-decided items, Cancel leaves that batch unchanged, and read-only append availability remaps otherwise impossible Defer recommendations visibly. Best judgment executes stored recommendations rather than inventing new actions mid-batch. No disk state changed by reading; no approval inferred from silence. Illustrative low-confidence skipped rows are not proof those items pass actual gate.",
+    "All285 lines read in two bounded segments. Apply accumulates before batch write, Defer appends inline and Skip is no-op; missing-fix Apply routes to explicit alternatives rather than invented edit. Cascade is confirmed, but Skip/Defer on root is treated as dissolving component premise while Apply is called premise-held: candidate18. In-memory state loss on interruption is explicitly a limitation; pending Apply is not applied evidence. Post-choice confirmation example says Applied before actual batch execution, so status must be interpreted carefully; no observed misleading user report. User authorization remains governed by outer context, not illustrative menu rigidity.",
+    "All155 lines read. Append to existing section wherever located, use date subsections and visible section/title/rationale compound key for retry dedup. Re-read before write reduces but does not eliminate concurrent-edit window; no lock or compare-and-swap guarantee claimed. Explicit failure outcome distinguishes on-disk deferral from report-only decision and retry/skip. Availability is session-cached but transient failure remains per finding. Concern summary intentionally omits full fix/evidence; durable decision packet is not guaranteed by this append alone.",
+    "All124 lines read. User-facing finding handles and escaped table pipes preserve readability; actionable, FYI, residual, deferred and applied outputs are distinguished. Final coverage must equal route buckets with one attribution per merged finding; illustrative table includes feasibility count3 while route buckets sum2, so example is not a valid census. Residual output below gate needs reconciliation with synthesis suppression candidate19. Chain rendering counts each dependent once. No generated report assessed."
   ],
   "follow_up_candidates": [
     {
@@ -1174,9 +1214,17 @@
     {
       "id": "skills-prompts-candidate-17",
       "question": "Assess whether retaining unverifiable merge-state claims with an as-of qualifier preserves durable uncertainty when degraded status appears only in the run report; distinguish previously verified historical assertions from newly unsupported landed claims."
+    },
+    {
+      "id": "skills-prompts-candidate-18",
+      "question": "Resolve document-review premise cascade polarity: Skip rejects a finding without editing plan, yet synthesis and walkthrough treat skipping a premise criticism as rejecting its component. Read persona contracts to distinguish explicit scope rejection from declining criticism before promoting."
+    },
+    {
+      "id": "skills-prompts-candidate-19",
+      "question": "Reconcile document-review dropped0/25 findings with residual-concern output and R29/R30 placement after apply instructions. Determine whether shared template/phase order prevents low-confidence re-entry or repeated safe edits before alleging a defect."
     }
   ],
-  "next": "Continue ce-doc-review references and personas. Coverage 104/250 full files, 16920/36169 lines. Eight provisional P2 and three P3 findings; fifteen follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-doc-review subagent template, personas and cross-model references. Coverage 109/250 full files, 18047/36169 lines. Eight provisional P2 and three P3 findings; seventeen follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
