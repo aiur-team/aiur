@@ -1,0 +1,178 @@
+{
+  "status": "in-progress",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "candidate_clusters": 41,
+  "reviewed_clusters": [
+    {
+      "renamed_body_sha256": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad",
+      "disposition": "debug_configuration_candidate",
+      "assessment": "All five full spans read. Renaming adds Opencode.Slot.AttachPane.debug_mode? to four exact sites: same trim/lowercase AIUR_DEBUG parsing with 1/true/yes. Group under one debug policy owner, preserving each caller boot/runtime sampling time; no independent fifth abstraction.",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 142,
+          "module": "Aiur.AgentList.State",
+          "name": "debug_env?",
+          "path": "src/lib/aiur/agent_list/state.ex",
+          "kind": "defp",
+          "end_line": 150,
+          "renamed_body_sha256": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad",
+          "body_sha256": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 151,
+          "module": "Aiur.LogFile",
+          "name": "debug_enabled?",
+          "path": "src/lib/aiur/log_file.ex",
+          "kind": "def",
+          "end_line": 159,
+          "renamed_body_sha256": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad",
+          "body_sha256": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 165,
+          "module": "Aiur.Opencode.Slot.AttachPane",
+          "name": "debug_mode?",
+          "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+          "kind": "def",
+          "end_line": 170,
+          "renamed_body_sha256": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad",
+          "body_sha256": "d27254ec61bbe59243d7cc23cd432c29ca04da3d8b49451e74e4e1e94d2ad234",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 436,
+          "module": "Aiur.PaneManager",
+          "name": "debug_mode?",
+          "path": "src/lib/aiur/pane_manager.ex",
+          "kind": "defp",
+          "end_line": 444,
+          "renamed_body_sha256": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad",
+          "body_sha256": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 240,
+          "module": "Aiur.PaneManager.Layout",
+          "name": "debug_mode?",
+          "path": "src/lib/aiur/pane_manager/layout.ex",
+          "kind": "defp",
+          "end_line": 248,
+          "renamed_body_sha256": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad",
+          "body_sha256": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "renamed_body_sha256": "86187939c70960f89b32e5542208bae6bfad892178e6b57827acf46e34aef5ae",
+      "disposition": "financial_access_gate_candidate",
+      "assessment": "All three full spans read and AnalyticsLive alias verified as AiurWeb.FinancialDataAccess. AnalyticsLive differs only in unused fallback variable name, joining UsageRuntime and DashboardLive. Preserve authorized capability AND typed context, else locked. Candidate ownership remains FinancialDataAccess; this pass does not establish every fetch/subscription has revocation coverage.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 406,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "authorized_context",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 413,
+          "renamed_body_sha256": "86187939c70960f89b32e5542208bae6bfad892178e6b57827acf46e34aef5ae",
+          "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 681,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "authorized_context",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 688,
+          "renamed_body_sha256": "86187939c70960f89b32e5542208bae6bfad892178e6b57827acf46e34aef5ae",
+          "body_sha256": "6358b727474198b4ceeab3c125699569c4a94e189cdee962d53cc2fda329eef2",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1420,
+          "module": "AiurWeb.DashboardLive",
+          "name": "authorized_context",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1427,
+          "renamed_body_sha256": "86187939c70960f89b32e5542208bae6bfad892178e6b57827acf46e34aef5ae",
+          "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "renamed_body_sha256": "abb58f5375f4d211ef24bc982a9d3810104802d5aec9b6fa942e766933db2fb8",
+      "disposition": "presence_preserving_map_access_candidate",
+      "assessment": "Read all three spans and adjacent fallback clauses. ProgressRenderer.field joins wake projection and telemetry lifecycle. Each preserves explicit atom-key nil/false instead of falling back to a string key. Guards/fallbacks differ across callers. Do not replace with current MapAccess.get truthy fallback; share only an explicitly presence-preserving primitive.",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 195,
+          "module": "Aiur.BuildOrder.ProgressRenderer",
+          "name": "field",
+          "path": "src/lib/aiur/build_order/progress_renderer.ex",
+          "kind": "defp",
+          "end_line": 200,
+          "renamed_body_sha256": "abb58f5375f4d211ef24bc982a9d3810104802d5aec9b6fa942e766933db2fb8",
+          "body_sha256": "c10c47587304dcdc4f35aaef7371dc060541ba47c6c7667fc84c1c4ce2c3b224",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 87,
+          "module": "Aiur.ExecutorWakeProjection",
+          "name": "value",
+          "path": "src/lib/aiur/executor_wake_projection.ex",
+          "kind": "defp",
+          "end_line": 92,
+          "renamed_body_sha256": "abb58f5375f4d211ef24bc982a9d3810104802d5aec9b6fa942e766933db2fb8",
+          "body_sha256": "880c92757a2b6d813a22367480cd1695535247c5185145fa18b797fe3a415069",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 548,
+          "module": "Aiur.RunTelemetry.Lifecycle",
+          "name": "value",
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "kind": "defp",
+          "end_line": 553,
+          "renamed_body_sha256": "abb58f5375f4d211ef24bc982a9d3810104802d5aec9b6fa942e766933db2fb8",
+          "body_sha256": "880c92757a2b6d813a22367480cd1695535247c5185145fa18b797fe3a415069",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    }
+  ],
+  "remaining_clusters": 38,
+  "limits": "Variable names canonicalized by first appearance in body AST, without lexical scope or binding analysis. Heads/guards excluded. Repeated variable spelling preserved; aliases, explicit call names, module-attribute expressions, literals and special compiler variables retained. Unexpanded bare identifiers may be variables or zero-argument calls; that ambiguity requires source review. Groups must cross modules and contain differing exact body hashes. Candidates are not semantic equivalence, exhaustive near-duplicates, or removable LOC. Exact-body and renamed-body populations overlap; do not add their site counts.",
+  "next": [
+    "Assess remaining renamed-body candidates against all listed sites and surrounding contracts.",
+    "Reconcile with exact-body candidates and inherited finding IDs; do not sum overlapping counts.",
+    "Complete repeated-name, concept and constant sweeps before promoting raw duplication units."
+  ]
+}

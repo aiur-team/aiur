@@ -1,12 +1,13 @@
 # Parse only: never compile or load project modules. Body hashes are syntactic
 # candidates, not semantic equivalence (aliases/imports/attributes can differ).
 defmodule ResearchFunctionCensus do
-  def run(root) do
+  def run(root, renamed \\ false) do
     files = Path.wildcard(Path.join(root, "src/lib/**/*.ex")) |> Enum.sort()
     rows = Enum.flat_map(files, fn path ->
       source = File.read!(path)
       ast = Code.string_to_quoted!(source, columns: true, token_metadata: true)
-      walk(ast, nil, Path.relative_to(path, root))
+      rows = walk(ast, nil, Path.relative_to(path, root))
+      if renamed, do: rows, else: Enum.map(rows, &Map.delete(&1, :renamed_body_sha256))
     end)
     inputs = Enum.map(files, fn path ->
       %{path: Path.relative_to(path, root), sha256: hash(File.read!(path))}
@@ -27,7 +28,7 @@ defmodule ResearchFunctionCensus do
     normalized = tail |> clean() |> Macro.to_string()
     [%{path: path, module: module, kind: Atom.to_string(kind), name: name,
        arity: arity, line: meta[:line], end_line: end_line(node),
-       body_sha256: hash(normalized), normalized_body_lines: length(String.split(normalized, "\n")),
+       body_sha256: hash(normalized), renamed_body_sha256: renamed_hash(tail), normalized_body_lines: length(String.split(normalized, "\n")),
        has_body: tail != []}]
   end
   defp walk(list, module, path) when is_list(list), do: Enum.flat_map(list, &walk(&1, module, path))
@@ -40,6 +41,28 @@ defmodule ResearchFunctionCensus do
     {form, metadata, args} when is_list(metadata) -> {form, [], args}
     other -> other
   end)
+  # Candidate heuristic only: first-appearance variable numbering does not model
+  # lexical binding/shadowing. Preserve aliases, explicit calls, literals and special
+  # compiler variables; only variable AST nodes are renamed.
+  defp renamed_hash(ast) do
+    protected = Macro.prewalk(clean(ast), fn
+      {:@, _, _} = attribute -> {"research_attribute", Macro.to_string(attribute)}
+      node -> node
+    end)
+    {renamed, _} = Macro.prewalk(protected, %{}, fn
+      {name, metadata, context} = node, names when is_atom(name) and is_atom(context) ->
+        if name in [:_, :__MODULE__, :__ENV__, :__CALLER__, :__DIR__] do
+          {node, names}
+        else
+          key = {name, context}
+          index = Map.get(names, key, map_size(names))
+          {{String.to_atom("research_var_#{index}"), metadata, context}, Map.put(names, key, index)}
+        end
+      node, names -> {node, names}
+    end)
+    renamed |> Macro.to_string() |> hash()
+  end
+
   defp end_line(ast) do
     {_, lines} = Macro.prewalk(ast, [], fn
       {_, metadata, _} = node, acc when is_list(metadata) ->
@@ -51,5 +74,7 @@ defmodule ResearchFunctionCensus do
   end
   defp hash(data), do: :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 end
-[root] = System.argv()
-ResearchFunctionCensus.run(root)
+case System.argv() do
+  [root] -> ResearchFunctionCensus.run(root)
+  [root, "--renamed"] -> ResearchFunctionCensus.run(root, true)
+end

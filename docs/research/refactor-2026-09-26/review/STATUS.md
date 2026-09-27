@@ -355,3 +355,32 @@ All recorded sites were rechecked against frozen census hashes, and final
 candidate IDs/sites exactly match the census population. No raw review unit
 is promoted; completion totals remain 24/32 units and 50/60 claims. No
 production files changed and no savings are claimed.
+
+## Renamed-body census checkpoint
+
+The optional `--renamed` mode of function_census.exs canonicalizes variable
+spellings by first appearance. The default census output remains identical to
+the previous full parse. Renamed output was reproduced twice and all 1,032
+input hashes matched the frozen census. Fixtures check renaming, repeated
+variable use, literal changes, distinct module attributes and explicit calls.
+No project source was compiled or executed.
+
+`renamed-census-summary.json` lists 41 cross-module candidate clusters (138
+sites) containing different exact-body hashes under the existing size limits.
+These overlap the exact-body population and must not be added to its count.
+The heuristic preserves attributes, literals and explicit call names but does
+not model lexical binding; bare identifiers can also denote zero-argument
+calls. It is a candidate finder, not semantic equivalence or an exhaustive
+near-duplicate detector.
+
+Three groups have initial source assessments: a fifth AIUR_DEBUG reader in
+Opencode slot attachment, a third financial-access gate in AnalyticsLive, and
+a third presence-preserving map accessor in BuildOrder progress rendering.
+Thirty-eight groups remain. Findings stay grouped with the existing policy
+candidates; no raw duplication unit is promoted.
+
+Reproduce with `elixir tooling/function_census.exs /path/to/frozen-snapshot
+--renamed` (arguments on one line), then
+`python3 tooling/renamed_census_summary.py /path/to/renamed-census.json`.
+Use Elixir 1.19.5 / OTP 28.5 on PATH. The existing research fixture command
+also exercises the new mode. No production files changed.

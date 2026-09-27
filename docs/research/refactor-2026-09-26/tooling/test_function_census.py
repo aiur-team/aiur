@@ -58,3 +58,44 @@ end
     assert changed['guarded']['body_sha256'] != rows['guarded']['body_sha256']
     assert changed['alternate']['body_sha256'] == rows['alternate']['body_sha256']
 print('Census fixture checks passed: module scope, clauses, guards, quote exclusion, metadata stability and literal sensitivity.')
+
+# Renaming is a candidate heuristic: preserve variable reuse and literal values.
+with tempfile.TemporaryDirectory(prefix='aiur-renamed-check-') as temp:
+    root = Path(temp)
+    (root / 'src/lib').mkdir(parents=True)
+    fixture = """defmodule A do
+  def first(value) do
+    case value do
+      nil -> :missing
+      other -> {value, other}
+    end
+  end
+end
+defmodule B do
+  def second(input) do
+    case input do
+      nil -> :missing
+      result -> {input, result}
+    end
+  end
+end
+"""
+    path = root / 'src/lib/fixture.ex'
+    path.write_text(fixture)
+    def renamed_rows():
+        data = json.loads(subprocess.check_output(['elixir', str(Path(__file__).with_name('function_census.exs')), str(root), '--renamed'], text=True))
+        return data['definitions']
+    first, second = renamed_rows()
+    assert first['body_sha256'] != second['body_sha256']
+    assert first['renamed_body_sha256'] == second['renamed_body_sha256']
+    path.write_text(fixture.replace('{input, result}', '{result, result}'))
+    assert renamed_rows()[1]['renamed_body_sha256'] != first['renamed_body_sha256']
+    path.write_text(fixture.replace('nil -> :missing', 'nil -> :different', 1))
+    assert renamed_rows()[0]['renamed_body_sha256'] != second['renamed_body_sha256']
+    path.write_text(fixture.replace('{value, other}', '{@alpha, other}').replace('{input, result}', '{@beta, result}'))
+    first, second = renamed_rows()
+    assert first['renamed_body_sha256'] != second['renamed_body_sha256']
+    path.write_text(fixture.replace('{value, other}', '{foo(value), other}').replace('{input, result}', '{bar(input), result}'))
+    first, second = renamed_rows()
+    assert first['renamed_body_sha256'] != second['renamed_body_sha256']
+print('Renamed-body fixtures passed: variable rename, repeated-variable distinction, literals, attributes and explicit calls.')
