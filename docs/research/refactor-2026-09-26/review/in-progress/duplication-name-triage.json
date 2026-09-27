@@ -103607,10 +103607,442 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "decode_summary",
+      "assessment": "RTK summary validation and telemetry artifact decoding use distinct schemas.",
+      "constraints": [
+        "RTK requires an integer positive total_commands, distinguishes zero as no_data and reads token/savings fields through numeric helpers.",
+        "RunTelemetry.Summaries decodes JSON maps and nested records/restarts/actors/tickets, retaining findings/warnings/provenance with defaults and returning invalid_summary for failed clauses.",
+        "Preserve no-data versus malformed distinction and nested schema ownership; decoded savings fields are not independently measured savings."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 185,
+          "module": "Aiur.Rtk",
+          "name": "decode_summary",
+          "path": "src/lib/aiur/rtk.ex",
+          "kind": "defp",
+          "end_line": 186,
+          "body_sha256": "137d4c9dd6aef875dae27f32eaf90bc7ef3434b79d8a24594af6cf39560d7d67",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 188,
+          "module": "Aiur.Rtk",
+          "name": "decode_summary",
+          "path": "src/lib/aiur/rtk.ex",
+          "kind": "defp",
+          "end_line": 188,
+          "body_sha256": "80aafc459e25e47a0420512d185489fc945218676f50dc6c411e54d1f6530b58",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 190,
+          "module": "Aiur.Rtk",
+          "name": "decode_summary",
+          "path": "src/lib/aiur/rtk.ex",
+          "kind": "defp",
+          "end_line": 199,
+          "body_sha256": "8e690330a3a8d6ee78b82731808748b85f9697b6f6c0ff6c483042f881b42844",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 201,
+          "module": "Aiur.Rtk",
+          "name": "decode_summary",
+          "path": "src/lib/aiur/rtk.ex",
+          "kind": "defp",
+          "end_line": 201,
+          "body_sha256": "137d4c9dd6aef875dae27f32eaf90bc7ef3434b79d8a24594af6cf39560d7d67",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 249,
+          "module": "Aiur.RunTelemetry.Summaries",
+          "name": "decode_summary",
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "kind": "def",
+          "end_line": 269,
+          "body_sha256": "eb428e9a35f03bc86b74aeab18da61b8e4ebcc023a4acae6ef9126ce3a9335a9",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 271,
+          "module": "Aiur.RunTelemetry.Summaries",
+          "name": "decode_summary",
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "kind": "def",
+          "end_line": 271,
+          "body_sha256": "80b97d6a0297b38e219e064652e04709a459a308a610c0d949a3cb9588677efa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "decode_ticket",
+      "assessment": "Telemetry ticket reconstruction and accounting ticket identity decoding differ.",
+      "constraints": [
+        "RunTelemetry.Summaries builds a ticket map, atomizes event/interval keys and defaults missing arrays.",
+        "UsageAggregate.Key accepts unknown or a GitHub identity tuple encoded as a list after opaque-field validation, otherwise error.",
+        "Keep presentation/history reconstruction separate from stable accounting identity; atomization and opaque validation helpers remain transitive."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 396,
+          "module": "Aiur.RunTelemetry.Summaries",
+          "name": "decode_ticket",
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "kind": "defp",
+          "end_line": 404,
+          "body_sha256": "2798edc08421c05f0350f0254d89dc1f02e659ebfafd5407634db93d9a6738e6",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 194,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "decode_ticket",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 194,
+          "body_sha256": "81df0eea79b856c98568ede6df2bbd5487bce0e0e39698878d512cb803392ace",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 196,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "decode_ticket",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 202,
+          "body_sha256": "7add9454b2c9492bddebad4a5f915c27e0ed0de5ad626e0b17cd2b6a765035a9",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 204,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "decode_ticket",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 204,
+          "body_sha256": "703fe067863f696dcda9c9e4ca8e19715247f9f3c5f97bfd4931650886c31703",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_choice",
+      "assessment": "Initial answers and revisions use different selection precedence.",
+      "constraints": [
+        "DecisionAction chooses custom for no options, otherwise recommendation option ID or the first option.",
+        "DecisionRevisionAction prefers a previous selected option, then a previous custom response, then custom for no options or the first option.",
+        "Preserve prior-answer intent versus new-answer recommendation. These defaults alone do not validate option membership or submit an answer."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 172,
+          "module": "AiurWeb.OperatorControlCenter.DecisionAction",
+          "name": "default_choice",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_action.ex",
+          "kind": "defp",
+          "end_line": 172,
+          "body_sha256": "668d0fddddb8bb04f93305938c8b022c09f60f3dfa11125bb9cb2df56c0016fa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 174,
+          "module": "AiurWeb.OperatorControlCenter.DecisionAction",
+          "name": "default_choice",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_action.ex",
+          "kind": "defp",
+          "end_line": 177,
+          "body_sha256": "5bcf726e824cc0b11d5f853ae889e033b33ad3cd1afde5021c6343c8e25c782b",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 164,
+          "module": "AiurWeb.OperatorControlCenter.DecisionRevisionAction",
+          "name": "default_choice",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "kind": "defp",
+          "end_line": 165,
+          "body_sha256": "6f656bd1648d9063a01fd990fa38d31b2049a0ec1e1a42b8094abdca45f1919e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 167,
+          "module": "AiurWeb.OperatorControlCenter.DecisionRevisionAction",
+          "name": "default_choice",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "kind": "defp",
+          "end_line": 167,
+          "body_sha256": "668d0fddddb8bb04f93305938c8b022c09f60f3dfa11125bb9cb2df56c0016fa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 168,
+          "module": "AiurWeb.OperatorControlCenter.DecisionRevisionAction",
+          "name": "default_choice",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "kind": "defp",
+          "end_line": 168,
+          "body_sha256": "668d0fddddb8bb04f93305938c8b022c09f60f3dfa11125bb9cb2df56c0016fa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 169,
+          "module": "AiurWeb.OperatorControlCenter.DecisionRevisionAction",
+          "name": "default_choice",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "kind": "defp",
+          "end_line": 169,
+          "body_sha256": "66f42249cc68c816f393af820557a01c1bda5fa3970aa8465898a460804862a3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_enabled?",
+      "assessment": "PR health and rework use identical defensive enablement policy.",
+      "constraints": [
+        "Both require pr_health_enabled? and the GitHub tracker adapter, rescuing exceptions and catching failures to false.",
+        "Verified GitHubConfig, Tracker and GitHubTracker aliases match.",
+        "A shared enablement policy is a concrete candidate; false on configuration failure is not proof the feature was intentionally disabled."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 104,
+          "module": "Aiur.Orchestrator.PRHealthScanner",
+          "name": "default_enabled?",
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "kind": "defp",
+          "end_line": 110,
+          "body_sha256": "cf6121c25bca489cd372676d32446e6ab8e4f0c71c0c2249c9102fa9cd61f028",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 136,
+          "module": "Aiur.Orchestrator.ReworkRequeue",
+          "name": "default_enabled?",
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "kind": "defp",
+          "end_line": 142,
+          "body_sha256": "cf6121c25bca489cd372676d32446e6ab8e4f0c71c0c2249c9102fa9cd61f028",
+          "normalized_body_lines": 7,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_max_description_bytes",
+      "assessment": "TicketDetail already delegates its default size policy.",
+      "constraints": [
+        "Normalizer returns the verified 16384-byte default constant.",
+        "TicketDetail exposes the owner through a delegate.",
+        "Keep the default with normalization policy; this accessor does not prove that every incoming description is bounded or sanitized."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 17,
+          "module": "Aiur.BuildOrder.TicketDetail",
+          "name": "default_max_description_bytes",
+          "path": "src/lib/aiur/build_order/ticket_detail.ex",
+          "kind": "defdelegate",
+          "end_line": 17,
+          "body_sha256": "601c894abe69e36b0384a47d028e2419a6e0ad55457d651b8c67efe8944dedf0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 12,
+          "module": "Aiur.BuildOrder.TicketDetail.Normalizer",
+          "name": "default_max_description_bytes",
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "kind": "def",
+          "end_line": 12,
+          "body_sha256": "f496687c20d27294b3319c155c5a97382a90035915c28ae909c3f1dd19fc0399",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_reviews",
+      "assessment": "Two review adapters have identical result handling.",
+      "constraints": [
+        "Both call the same verified GitHubClient conditional review fetcher, return review lists, map not_modified to an empty list and preserve tagged errors.",
+        "A shared response adapter is a concrete candidate.",
+        "An empty list produced from not_modified is not direct evidence of no reviews; actual validator/cache behavior and production incidence require caller/transport tracing."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 366,
+          "module": "Aiur.Orchestrator.PRHealthScanner",
+          "name": "default_reviews",
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "kind": "defp",
+          "end_line": 372,
+          "body_sha256": "8209563d21518d0722b9f4c0fb460939ce1c8e0178a812ed4282275b7a6be88d",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 151,
+          "module": "Aiur.Orchestrator.ReworkRequeue",
+          "name": "default_reviews",
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "8209563d21518d0722b9f4c0fb460939ce1c8e0178a812ed4282275b7a6be88d",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_root",
+      "assessment": "Ledger root resolution has adoption side effects unlike retention path construction.",
+      "constraints": [
+        "AlertLedger resolves runtime state, calls adopt_file_once with its ledger/backfill details and returns the root; resolution failure falls back to log_root_dir.",
+        "Logs.Retention expands its default user log directory.",
+        "Preserve migration/adoption ownership and fallback versus pure path construction; no files were adopted or inspected and migration correctness remains unverified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 392,
+          "module": "Aiur.AlertLedger",
+          "name": "default_root",
+          "path": "src/lib/aiur/alert_ledger.ex",
+          "kind": "defp",
+          "end_line": 402,
+          "body_sha256": "972da716c813f8ae6e26c54476bb142e270be029cbe3ee8edf4a16f6c25058ff",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 165,
+          "module": "Aiur.Logs.Retention",
+          "name": "default_root",
+          "path": "src/lib/aiur/logs/retention.ex",
+          "kind": "defp",
+          "end_line": 165,
+          "body_sha256": "6ca0a18e44ed62b332e621356154ac19c9fc069b6363bf1d03da13209a9e052c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_selection",
+      "assessment": "UnitsURL already delegates default selection to UnitsPolicy.",
+      "constraints": [
+        "Verified UnitsPolicy alias; the policy default is live scope with no conditions.",
+        "This is an existing shared selection policy, not duplicate default logic.",
+        "Retain the facade; live/default selection is not proof of row freshness or authorization."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 29,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPolicy",
+          "name": "default_selection",
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "kind": "def",
+          "end_line": 29,
+          "body_sha256": "eb82c7039aca088073a9fd8a9c2bb656eaf22be2958bd7f7ccdc20a8c392e81b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 14,
+          "module": "AiurWeb.OperatorControlCenter.UnitsURL",
+          "name": "default_selection",
+          "path": "src/lib/aiur_web/operator_control_center/units_url.ex",
+          "kind": "def",
+          "end_line": 14,
+          "body_sha256": "9df5f6d2a0ef898bd4cabadf57dca797a412caf300eed69c0a3949ab8e321d29",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7579,
-  "limits": "813 selected families and 7579 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7605,
+  "limits": "821 selected families and 7605 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
