@@ -1200,3 +1200,8 @@ Read AgentGitHubGuard through line 2700 of 5764 (lines 501-2700 newly inspected 
 ### tests-1b review unit completed
 
 All 75 manifest files are now fully read: 35,287 lines. Checked every file hash and exact manifest membership, then published review/raw/tests-1b.json with eight bounded findings (seven P2, one P3) and explicit probe/suite limitations. Final GitHub guard pass preserves reconciliation causes, credential identity, real-Git workspace protections, cache isolation/freshness and conditional replay contracts. The migration helper confirms a marker-before-probe plus timed-settle limitation; no mutation sensitivity or production defect is claimed. Different-resource concurrency overlap remains a hypothesis because result/count assertions do not directly establish simultaneous execution. Supporting TestSupport remains excerpt-only. No new production edit, full suite, live GitHub measurement or TUI run. Raw review coverage advances to 26/32; inherited review depth, final skepticism/deduplication and the six missing units remain open.
+
+
+### tests-1a initial review checkpoint
+
+31 full reads, 2670 lines, with frozen hashes recorded; 44 manifest files remain. Preserve membership/log privacy, shell quoting, unavailable/exhausted resource semantics, decision provenance/artifact policies, meter identity/freshness and test-selection contracts. PubSub-child termination and controller restart are linked to inherited shared-supervisor research without treating explicit terminate_child as proof of a rest_for_one crash cascade. Async saturation log configuration and early-failure watcher cleanup remain hypotheses. No new promoted finding or suite execution. Overall raw review completion remains 26/32; no production changes.

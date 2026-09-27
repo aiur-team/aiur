@@ -1,0 +1,253 @@
+{
+  "unit_id": "tests-1a",
+  "status": "partial",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "files": [
+    {
+      "path": "src/test/aiur/current_run_membership_checkpoint_test.exs",
+      "sha256": "34ef696857f48ef46ac3b90cbdfaa64da8bc501dae5c60c4f29314d32e469f42",
+      "lines": 50,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/current_run_membership_marker_test.exs",
+      "sha256": "181df5263a331549341883f67ab81b4e3b5f568251d45d0218e894e64eecaa64",
+      "lines": 46,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/event_publication_log_test.exs",
+      "sha256": "a219e2d04d1e75dd85d872cffce3849488849c52dd423e4418352b27453af97f",
+      "lines": 56,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/json_safe_test.exs",
+      "sha256": "84e2fbece7814e903c7acbaf3e6cc988769bca086395e8a0b6109eea37a3947c",
+      "lines": 29,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/opaque_identifier_test.exs",
+      "sha256": "a16399bd5caef731c1dc083895db1e00ef4d729b3fb84c2ed9dc3d7bc8ba74a1",
+      "lines": 17,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/supervisor_token_test.exs",
+      "sha256": "9949fa76140106a6902a52e46ff2ca1ba3ed4f94cc0637330b11b3d46ece03b1",
+      "lines": 29,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/secret_redactor_test.exs",
+      "sha256": "2e25107a35c1d55a51dcd5d3c751225c8f01a6a37a64cbb12594dc4f35fde6d8",
+      "lines": 60,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/shell_test.exs",
+      "sha256": "5f3a5fd86f58deeddffba91eaa2c6d5f5c1a6b153490853a30dd86ab4d5d3a95",
+      "lines": 57,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/fs_test.exs",
+      "sha256": "351ad57542bf711583b58d23acb206b8f725543d2143fa4396f1d054e2c95217",
+      "lines": 91,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/system_cpu_test.exs",
+      "sha256": "17a6842078e748bd5dc24ac63c27f6f1cec2dc4268799a6d77b3a81c967a19a3",
+      "lines": 67,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/system_load_test.exs",
+      "sha256": "dec714ebb81060ed1f45c833d423d53e9ad7a71449d4b45c6ed85453a9ac7938",
+      "lines": 44,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/system_file_descriptors_test.exs",
+      "sha256": "712a47d12a48a26358d476bb8d640d0df4aff33c80381ab1a14d8b5609f722a8",
+      "lines": 107,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/coding_agent_claude_test.exs",
+      "sha256": "258098befa7e43d4cdb11025e448102dff6feeea762854bf3c13e7e9f3d023a5",
+      "lines": 60,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/issue_context_test.exs",
+      "sha256": "35b1635d999a83698784f31d7138e928dd9b850008133637f6e18d67cf14144f",
+      "lines": 66,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/launcher_watchdog_test.exs",
+      "sha256": "0e9daf9d69a5093f82a3f9b2c16397914d93c7e0ce4bf95cbfc03638150d9a45",
+      "lines": 49,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_broadcast_test.exs",
+      "sha256": "692fb28651817245af59ae19366809272d40195c527e1ca7666a50bda40cfd19",
+      "lines": 24,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/boot_test.exs",
+      "sha256": "e974ddb64ca58b342c4c07fc455eceef8cf37ddb059f47bb0be04096e5c0caa4",
+      "lines": 85,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_dispatch_test.exs",
+      "sha256": "dc06e510c76a54703456d83484db110823ece2163b5fa94c577af501c34a69f6",
+      "lines": 97,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_provenance_test.exs",
+      "sha256": "de04e24d6d36fabdc636596aac719bb64819a52183306844bb50b0fc70081e92",
+      "lines": 102,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_artifact_test.exs",
+      "sha256": "0a6146668695ea35eaf2d0ece8676aac378dbac7e883556932ff74fe68209351",
+      "lines": 132,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/poll_cadence_test.exs",
+      "sha256": "56d9e5a638cbf9148f8e8b271ada0d7a56c41181450465e6dc914c74cba97ea9",
+      "lines": 114,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/provider_meter_watch_test.exs",
+      "sha256": "ed7be377c3f5f3f686e2898e8783f405836c4d162cdea211ebb3fea428fdac76",
+      "lines": 80,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/provider_meters_events_test.exs",
+      "sha256": "a34386c6038febd81ad4254a9f39d7acd7d2200bbfbbd156bd49afcbe3e1682c",
+      "lines": 106,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/affected_tests_test.exs",
+      "sha256": "e366b0ad612db68d6ab2a65ea23d2e4844283ec2a5a070ddfcd7b5a3b495c894",
+      "lines": 177,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_control_cli_usage_test.exs",
+      "sha256": "3ad9a054b70aead5e5e7bd22eda1f830eb632ced307b028e2261a6454161d0aa",
+      "lines": 190,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_event_log_test.exs",
+      "sha256": "5fa82916b7b29c005d361e3fb72e8dd9078aa3cc7839c8cc6a513f80d069182e",
+      "lines": 176,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/model_catalog_test.exs",
+      "sha256": "80c81b7df8e372f9ee627df63cfd852d1fe8c9bed51b5596f96fa3cfa85394f0",
+      "lines": 90,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/github_usage_cli_test.exs",
+      "sha256": "4a3d1ea8a2a3130e81f3891c5b4235cf9e620f13c2ba3f8cfa1f85aad41240c2",
+      "lines": 117,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/saturation_sentinel_test.exs",
+      "sha256": "b1192ad4e027abd8f6901aad71a2d6302bf2ade72a8e06ac4b7f2e6eb758f159",
+      "lines": 97,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_tracked_set_test.exs",
+      "sha256": "4f091fc64edb7cf478b07a035889f2f764275d139f96e6e8857cf46b5f45d5b5",
+      "lines": 123,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/provider_meter_projection_integration_test.exs",
+      "sha256": "8163f51dbfba30782ef8db953d9a55d87237f71696cc51d2fb1bbe251cffd2e1",
+      "lines": 132,
+      "read": "full"
+    }
+  ],
+  "scope_note": "31 complete file reads, 2670 lines. Source review only in this continuation; no suite, live application or manual TUI execution. Remaining 44 manifest files are unreviewed in this unit.",
+  "findings": [],
+  "preserve": [
+    "Membership checkpoint tests recompute the checksum after adding a forbidden content field, so rejection cannot pass merely on checksum mismatch. Marker tests enforce content-free reasons, extra-field rejection, private file mode and corrupt-content rejection.",
+    "Publication log tests separate daemon-owned outcome location from workspace symlinks and preserve the target of a rejected configured symlink. Fs tests exercise fresh BEAM quarantine names with both archived byte sequences; fsync:true content equality alone does not prove crash durability.",
+    "JSONSafe asserts the complete normalized identity record. OpaqueIdentifier bounds size/type/format and rejects credential shapes. SecretRedactor covers multiple credentials, idempotence and escaped capability URLs; these fixtures do not establish exhaustive secret detection.",
+    "Shell tests round-trip quoting edge cases through a real POSIX shell, including newlines and expansion syntax. SupervisorToken explicitly treats whitespace-only values as absent while rejecting surrounding whitespace on nonempty credentials.",
+    "CPU tests preserve unavailable versus valid headroom and reclaimable nice time; descriptor tests distinguish exhausted EMFILE from ordinary unavailable samples and assert exact injected usage/limit arithmetic. Host procfs coverage is conditional on platform.",
+    "LauncherWatchdog tests inject liveness and verify callback plus normal process termination, not actual host restart. Claude backend tests retain workspace refusal and closed-port tolerance; they do not launch a provider.",
+    "IssueContext tests preserve truncate-before-wrap ordering, escaped delimiter balance, author attribution and secret/hidden-content removal. AgentEventLog retains non-alert events, tuple crash reasons and markdown/NDJSON output, with explicit remote no-op and best-effort write failure semantics.",
+    "DecisionDispatch tests assert correlation identity and lifecycle guidance with injected send callbacks. DecisionProvenance restamps trusted acceptance time, preserves unknown model facts and refuses content-bearing/credential identity fields. DecisionArtifact distinguishes canonical local paths from HTTPS host-policy and encoded-credential refusal.",
+    "PollCadence preserves explicit zero freshness tolerance, last valid cadence and bounded widening. Meter events distinguish generation-scoped and fan-out topics; private store/projection integration checks actual observed values and removal of generation identity, not rendered dashboard UX.",
+    "Usage CLI tests inject a private projection, synchronize observation via a server round-trip, assert ages and unknown states, and distinguish credits/local concurrency from provider percentages. Webhook mode fixtures require observed activity to classify silence as degraded.",
+    "AffectedTests covers fail-closed executable/build changes and missing mappings, deleted-reference boundaries and dependency mappings; configured .aiur paths are deliberately excluded. ModelCatalog fixtures retain provider order, hidden-model exclusion and unknown-shape errors rather than empty success.",
+    "TrackedSet tests freeze poll mutation before restarting the application-owned controller and assert ETS ownership survives. SaturationSentinel covers pure escalation/cooldown decisions and diagnostic append behavior; its mutable global configuration remains a test-isolation follow-up."
+  ],
+  "cross_references": [
+    {
+      "path": "src/test/aiur/provider_meters_events_test.exs",
+      "lines": [
+        14,
+        29
+      ],
+      "finding": "Explicitly terminates the application-owned PubSub child and tests its recovery. Relate this to tests-2-01 shared-supervisor coupling, but do not infer terminate_child causes the same automatic rest_for_one cascade as an unexpected child crash.",
+      "related_finding": "tests-2-01"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_tracked_set_test.exs",
+      "lines": [
+        19,
+        116
+      ],
+      "finding": "Controller restart uses the application supervisor after freezing polls; this is another package-boundary integration seam, not an independent demonstrated flake.",
+      "related_finding": "tests-2-01"
+    }
+  ],
+  "follow_up_candidates": [
+    {
+      "path": "src/test/aiur/saturation_sentinel_test.exs",
+      "lines": [
+        88,
+        96
+      ],
+      "status": "unverified hypothesis",
+      "question": "This async module writes global :aiur/:log_file for file_path and restores nil via put_env rather than deleting an absent key. Check concurrent readers and test-support isolation before promoting a cross-test contamination finding."
+    },
+    {
+      "path": "src/test/aiur/provider_meter_watch_test.exs",
+      "lines": [
+        32,
+        50
+      ],
+      "status": "unverified hypothesis",
+      "question": "Unlinked watcher cleanup occurs only after two assertions; an early assertion failure may leave its infinite sleeper alive. Check suite lifecycle and demonstrate the failure path before promoting a leak finding; successful-path cleanup exists."
+    }
+  ],
+  "next": [
+    "Continue the remaining 44 tests-1a manifest files, including skill tests, decision lifecycle tests and controller lifecycle/deactivation coverage.",
+    "Keep shared-supervisor observations linked to existing findings and verify hypotheses before adding severity-bearing findings."
+  ]
+}

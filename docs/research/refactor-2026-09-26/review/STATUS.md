@@ -518,3 +518,11 @@ Cross-unit deduplication and unresolved hypotheses remain for synthesis.
 Raw review units: **26/32**. Remaining: tests-1a, tests-4, skills-prompts,
 dup-by-name, dup-by-concept and dup-by-constant. Unit presence does not establish
 uniform review depth or overall research completion.
+
+
+## tests-1a started
+
+31 of 75 files read in full (2670 lines), with hashes in the in-progress
+ledger. Privacy, identity, recovery and meter contracts are recorded; shared
+supervisor observations link to existing findings. No new finding is promoted
+from the two test-isolation hypotheses. Raw review coverage remains 26/32.
