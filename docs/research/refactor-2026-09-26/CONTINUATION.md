@@ -2215,3 +2215,7 @@ Read integer_like, integer_value, interrupt_agent, interval, invalid?, invalidat
 ### Name duplication: execution layers and selection policy
 
 Read issue_url, issue_version, item_id, jitter_ms, join_pane, journal_base_repair, json, kill_pane, kill_repl_session, kind_label, known_agent_kinds and known_branch: 33 literal entries across twelve families. Transcript item IDs and branch selection share mechanics; backend enumeration and REPL teardown already delegate. Preserve input adapters, opaque versions, deterministic versus random jitter, pane API/execution layers, journal result contracts, progress versus HTTP JSON and credential versus meter labels. Read transcript accessors, PR head-ref helpers and jitter settings/uses. Name triage now 1029 families/8291 entries, leaving 651 cross-module names. Raw findings and skeptic counts are unchanged; no complete URL safety, durable journal, observed teardown or rendered pane guarantee is added.
+
+### User requirement: file size and modularity
+
+The final refactor plan must enforce a hard 500-line file limit and prefer files of 200 lines or fewer. Decompose large components by responsibility and interface. See `synthesis/refactor-constraints.md` for the requirement and planning acceptance obligations. Research remains paused for the separately authorized Muse integration; this entry records the new constraint only.
