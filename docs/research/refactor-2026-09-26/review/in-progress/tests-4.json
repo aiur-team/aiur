@@ -430,6 +430,76 @@
       "lines": 129,
       "read": "full",
       "assessment": "Exact answer choices cover session approval preference, once fallback, allow-label fallback, multiple questions and rejection/missing shape. Returned descriptive third tuple remains session-approval text even for once/allow answers; tests intentionally expect that current contract, not actual granted authority. Unavailable answers compare helper value per question; helper separately requires non-interactive wording. No provider approval execution or transport confirmation."
+    },
+    {
+      "path": "src/test/aiur/executor/claims_test.exs",
+      "sha256": "b20acee2c2ddc1f88e73778d0a645d27957e4e8927016f25ea09f9351535c251",
+      "lines": 126,
+      "read": "full",
+      "assessment": "Private persisted claims constrain first owner, rejection naming live holder, expired-lease succession, named revoke/release and observer separation. Identity test title says never inferred from environment but actually checks supported explicit AIUR_EXECUTOR_ID fallback plus argument precedence; preserve implementation contract rather than title. Lock timeout tests constrain constants and clamping/invalid override policy, not actual lock contention or competing claimant atomicity. Environment helpers restore absent versus present values."
+    },
+    {
+      "path": "src/test/aiur/executor/principal_test.exs",
+      "sha256": "924b4e7b6566be0b4b288ff1b24321965dfacb2ef8b20022728ef21377f9ea41",
+      "lines": 93,
+      "read": "full",
+      "assessment": "Real supervised Principal renews private owner and observer entries twice through bounded polling; lease renewal is explicitly not consumption (nil acknowledgement timestamp and zero count). Observer stays observer while owner remains; stop_supervised releases ownership. This exercises component supervision, not full launcher/executor lifecycle or cross-process contention."
+    },
+    {
+      "path": "src/test/aiur/executor/handoff_test.exs",
+      "sha256": "ec7fbd43deb0167b67f5b3de8aff0018dea15b7a116c890042602f89d701c701",
+      "lines": 69,
+      "read": "full",
+      "assessment": "Private repo-state root verifies template seeding, exact current-section import without superseded text and source preservation, and non-overwrite on repeated init. Serial application override restored. No concurrent initialization or malformed legacy-file corpus exercised; durable operator context remains distinct from transient agent logs."
+    },
+    {
+      "path": "src/test/aiur/executor/recording_test.exs",
+      "sha256": "f72b4c0a20bc4ca0db50efa79722e1a5f046abd0c3f26c596707b0d2ed5508f6",
+      "lines": 237,
+      "read": "full",
+      "assessment": "Real Exchange/listener/private inbox tests record three operational topic classes without executor mode and omit free-text fields. A second inbox reads earlier writes; stopped/restarted inbox uses same ledger; successor receives exact six unacknowledged wake IDs after four acknowledgements. Observer cannot advance cursor or write owner consumption evidence. Unattended 100-enqueue fixture checks <=25 records plus exact eviction cursor75, so cursor advance cannot be equated to consumption. This is component persistence and injected publication, not daemon reboot or delivered operator action. Setup deletes rather than restores executor_state_dir/executor_mode overrides; assess enclosing TestSupport before alleging isolation defect. Ledger reader maps read errors to empty, but restart test demands two and bound test additionally demands cursor75."
+    },
+    {
+      "path": "src/test/aiur/executor/roster_test.exs",
+      "sha256": "d711494e009e7bb2e6e9f565679b1d191b6b2134c0314f2bba6b32fa37283beb",
+      "lines": 155,
+      "read": "full",
+      "assessment": "Private claims with fixed clock constrain own-acknowledgement activity versus shared cursor movement, stalled renewing owner, expired lease, idle empty queue and observer role. Removing persisted evidence yields exact unknown state, never active; direct acknowledgement by non-owner fails. Roster state and describe-line assertion supplement each other. Activity means acknowledged stream consumption here, not demonstrated task completion."
+    },
+    {
+      "path": "src/test/aiur/executor/takeover_alert_snapshot_test.exs",
+      "sha256": "a4a137eeee9555e067a0649896da7c8d490ed016de47e7045a40993def9c6c44",
+      "lines": 153,
+      "read": "full",
+      "assessment": "Injected membership/running snapshots preserve terminal rows and reject authoritative status for degraded or truncated membership. Injected HTTP responses check ticket-branch PR evidence, nil absent PR versus error unavailable tracker (despite misleading unavailable test title), and optional failing-CI enrichment. Ordinary-ticket request callback rejects check-runs calls but does not count all requests or forbid commit-status path, so no production quota saving is established. Token/cache state restored; no real GitHub request or measured population."
+    },
+    {
+      "path": "src/test/aiur/executor/takeover_alert_store_test.exs",
+      "sha256": "94c4d9184d096da85c824e3b1943aed3eaaa92d4e19ac4a4a0a7bc01a74dc3b8",
+      "lines": 147,
+      "read": "full",
+      "assessment": "Real named store with private state directory preserves initial anchor through repeated observations, counts false-to-true owner episodes, records alert and PR-check timestamps including checked nil, lists identities, and reports active-alert status when forgetting. Stop/start store reloads anchor, last alert, dispatch count and PR number; this is component restart within one VM, not whole-daemon restart. Fresh store absence stays nil."
+    },
+    {
+      "path": "src/test/aiur/executor/takeover_alert_test.exs",
+      "sha256": "e324fc1d58396aee269e6b588e237dad8b614c95289287db01bf1974baa6af92",
+      "lines": 139,
+      "read": "full",
+      "assessment": "Pure policy fixtures cover inclusive first threshold, repeat cadence, independently disabled first/repeats, invalid negative thresholds and earlier PR age floor. Advisory message assertions include numeric age, push age, owner absence, dispatch count, missing CI/PR wording, and per-ticket resolution topic. No terminal UI or automatic takeover; age_hours title says whole hours while fixture deliberately preserves fractional0.5."
+    },
+    {
+      "path": "src/test/aiur/executor/takeover_alert_monitor_test.exs",
+      "sha256": "76b0cfc048dcd55bdebfb7d73887990425269f331cd5b34649f700c029af5403",
+      "lines": 446,
+      "read": "full",
+      "assessment": "Real private store/monitor with injected clock, snapshots and emitters checks first/repeat advisory cadence, component restart persistence, terminal/disabled resolution, out-of-scope grace, non-authoritative retention, failed PR-refresh cached floor, brief absence and independent tickets. Positive effects await matching callback messages. Some negative checks wait on already-true stored values; empty-mailbox helper only proves tick dequeue, not completion. Initial Store.observe also precedes PR refresh/emission in production, so record existence is not whole-tick completion. Production captures now once near tick start, limiting the alleged clock race; retain synchronization concern as hypothesis until demonstrated. No actual alert-feed routing, automatic timer cadence or daemon reboot is proved."
+    },
+    {
+      "path": "src/test/aiur/current_run_summary/projection_test.exs",
+      "sha256": "72c6789facf8235b6376d20c492a654c5ed426ac3e6d5fcbe1997d2a3e63a17e",
+      "lines": 247,
+      "read": "full",
+      "assessment": "Pure projection tests assert exact rational weighted numerator/progress/coverage and counts excluding non-work terminals, plus ETA requiring sufficient completed-weight evidence. Stale/missing member progress, invalid run despite cached fields, unknown membership freshness, unhealthy complexity and malformed containers suppress exact progress/ETA with distinct reasons. Denominator signature is order-invariant and changes with weight or terminal eligibility. ETA formula correctness is not empirical predictive accuracy, and no rendered freshness/age surface is tested."
     }
   ],
   "scope_note": "Source review with an isolated extracted-assertion order probe; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
@@ -513,7 +583,17 @@
     "Direct handlers with real cat ports and private ProviderTurnLedger stores constrain exact/idempotent terminal retirement, accepted-ID retirement before resume, pending control generation, hard error versus quota pause and paired idle/interrupted completion. Closed tool-response port returns terminal error after tool execution and suppresses completion event; oversized output round-trips through private workspace spill. Real account owner plus injected private availability observer tests reduced account/rate events, unknown lifecycle invalidation and sentinel exclusion from outcomes/logs, including paused RPC routing. Explicit unlimited clears availability without rotating account identity. Live turn defers notification checkpoint; idle pending interrupt preserves other state. First emits-before-completing test asserts callback event presence only after synchronous return, not an independently observed ordering boundary. Script-free direct tests do not establish provider/TUI behavior.",
     "Fixed-clock pure policy plus private ModelAvailability persistence verifies expired text receives 300-second minimum, configurable 60-second minimum, repeated refusal holds of 300/600/1200/2400/3600/3600 seconds, streak reset after long absence and unchanged future numeric reset. Exact just-before/at decisions guard timing; fresh unknown refusal does not inherit expired deadline. Real cat-port exhausted-window metadata checks bare patch clears snapshot bucket. Helper invokes policy and ledger explicitly as runner would; does not prove automatic scheduler wiring or wall-clock resume.",
     "Scripted app-server integration drives real CodingAgent sessions through numeric quota pause, stale completion on resumed turn, text-reset fallback after below-100 update, quoted assistant/tool refusal and bounded silent timeout. TurnAlerts persistence, direct orchestrator control handlers and fallback reconcile constrain provider-limited versus human-waiting state, unchanged retry budget and resume-message boundary at reset. Operator/global/label pauses survive both working and paused starting status and are never converted into automatic quota recovery. This is a fake provider and manually invoked reconciliation with a resume message to the test process, not proof of real provider recovery or rendered UI.",
-    "Exact answer choices cover session approval preference, once fallback, allow-label fallback, multiple questions and rejection/missing shape. Returned descriptive third tuple remains session-approval text even for once/allow answers; tests intentionally expect that current contract, not actual granted authority. Unavailable answers compare helper value per question; helper separately requires non-interactive wording. No provider approval execution or transport confirmation."
+    "Exact answer choices cover session approval preference, once fallback, allow-label fallback, multiple questions and rejection/missing shape. Returned descriptive third tuple remains session-approval text even for once/allow answers; tests intentionally expect that current contract, not actual granted authority. Unavailable answers compare helper value per question; helper separately requires non-interactive wording. No provider approval execution or transport confirmation.",
+    "Private persisted claims constrain first owner, rejection naming live holder, expired-lease succession, named revoke/release and observer separation. Identity test title says never inferred from environment but actually checks supported explicit AIUR_EXECUTOR_ID fallback plus argument precedence; preserve implementation contract rather than title. Lock timeout tests constrain constants and clamping/invalid override policy, not actual lock contention or competing claimant atomicity. Environment helpers restore absent versus present values.",
+    "Real supervised Principal renews private owner and observer entries twice through bounded polling; lease renewal is explicitly not consumption (nil acknowledgement timestamp and zero count). Observer stays observer while owner remains; stop_supervised releases ownership. This exercises component supervision, not full launcher/executor lifecycle or cross-process contention.",
+    "Private repo-state root verifies template seeding, exact current-section import without superseded text and source preservation, and non-overwrite on repeated init. Serial application override restored. No concurrent initialization or malformed legacy-file corpus exercised; durable operator context remains distinct from transient agent logs.",
+    "Real Exchange/listener/private inbox tests record three operational topic classes without executor mode and omit free-text fields. A second inbox reads earlier writes; stopped/restarted inbox uses same ledger; successor receives exact six unacknowledged wake IDs after four acknowledgements. Observer cannot advance cursor or write owner consumption evidence. Unattended 100-enqueue fixture checks <=25 records plus exact eviction cursor75, so cursor advance cannot be equated to consumption. This is component persistence and injected publication, not daemon reboot or delivered operator action. Setup deletes rather than restores executor_state_dir/executor_mode overrides; assess enclosing TestSupport before alleging isolation defect. Ledger reader maps read errors to empty, but restart test demands two and bound test additionally demands cursor75.",
+    "Private claims with fixed clock constrain own-acknowledgement activity versus shared cursor movement, stalled renewing owner, expired lease, idle empty queue and observer role. Removing persisted evidence yields exact unknown state, never active; direct acknowledgement by non-owner fails. Roster state and describe-line assertion supplement each other. Activity means acknowledged stream consumption here, not demonstrated task completion.",
+    "Injected membership/running snapshots preserve terminal rows and reject authoritative status for degraded or truncated membership. Injected HTTP responses check ticket-branch PR evidence, nil absent PR versus error unavailable tracker (despite misleading unavailable test title), and optional failing-CI enrichment. Ordinary-ticket request callback rejects check-runs calls but does not count all requests or forbid commit-status path, so no production quota saving is established. Token/cache state restored; no real GitHub request or measured population.",
+    "Real named store with private state directory preserves initial anchor through repeated observations, counts false-to-true owner episodes, records alert and PR-check timestamps including checked nil, lists identities, and reports active-alert status when forgetting. Stop/start store reloads anchor, last alert, dispatch count and PR number; this is component restart within one VM, not whole-daemon restart. Fresh store absence stays nil.",
+    "Pure policy fixtures cover inclusive first threshold, repeat cadence, independently disabled first/repeats, invalid negative thresholds and earlier PR age floor. Advisory message assertions include numeric age, push age, owner absence, dispatch count, missing CI/PR wording, and per-ticket resolution topic. No terminal UI or automatic takeover; age_hours title says whole hours while fixture deliberately preserves fractional0.5.",
+    "Real private store/monitor with injected clock, snapshots and emitters checks first/repeat advisory cadence, component restart persistence, terminal/disabled resolution, out-of-scope grace, non-authoritative retention, failed PR-refresh cached floor, brief absence and independent tickets. Positive effects await matching callback messages. Some negative checks wait on already-true stored values; empty-mailbox helper only proves tick dequeue, not completion. Initial Store.observe also precedes PR refresh/emission in production, so record existence is not whole-tick completion. Production captures now once near tick start, limiting the alleged clock race; retain synchronization concern as hypothesis until demonstrated. No actual alert-feed routing, automatic timer cadence or daemon reboot is proved.",
+    "Pure projection tests assert exact rational weighted numerator/progress/coverage and counts excluding non-work terminals, plus ETA requiring sufficient completed-weight evidence. Stale/missing member progress, invalid run despite cached fields, unknown membership freshness, unhealthy complexity and malformed containers suppress exact progress/ETA with distinct reasons. Denominator signature is order-invariant and changes with weight or terminal eligibility. ETA formula correctness is not empirical predictive accuracy, and no rendered freshness/age surface is tested."
   ],
   "cross_references": [
     {
@@ -535,7 +615,14 @@
       "lines": "7-19",
       "hypothesis": "Non-never default promised by comment is not constrained by default membership assertion because never belongs to allowed set.",
       "next": "Check intended schema policy and other default guards before deciding whether to promote, correct comment, or deduplicate."
+    },
+    {
+      "id": "tests-4-candidate-04",
+      "path": "src/test/aiur/executor/takeover_alert_monitor_test.exs",
+      "lines": "67-104",
+      "hypothesis": "Record-existence and empty-mailbox waits do not prove entire monitor tick completion; already-true state predicates further weaken negative timing assertions.",
+      "next": "Use deterministic held callbacks with the actual helper before promoting. Monitor captures now once before snapshot processing, so demonstrate the claimed behavioral gap rather than assuming every clock advance races. Cross-reference existing barrier findings to avoid duplication."
     }
   ],
-  "next": "61/100 full files, 14787/40603 lines. Codex manifest complete. Continue remaining executor, usage, web and launcher files. One confirmed P2 and two unverified candidates; raw unit incomplete."
+  "next": "71/100 full files, 16599/40603 lines. Executor and current-run projection manifest complete. Continue usage, compaction, web, engine, launcher and browser fixture files. One confirmed P2 and three unverified candidates; raw unit incomplete."
 }
