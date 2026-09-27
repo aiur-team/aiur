@@ -332,9 +332,51 @@
       "sha256": "e3e37a67c9866dc89c11fa6225be95a0a1decaadcb5aab10f113c1bc26f7666e",
       "lines": 289,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_process_log_test.exs",
+      "sha256": "c0dfe2d1fb3f60654985fa1009ded2a2a6a45bf060829337c606635902f738a8",
+      "lines": 343,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/tmux_test.exs",
+      "sha256": "7b161420d869f9734f90e8fc58e9db2d52ebc6f9e09eb30da09130dd53d4d63b",
+      "lines": 406,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/pane_manager_live_test.exs",
+      "sha256": "9cae75eb444270a696257cf62f949209f2a20fe5fcadb403331917c2e8bf26fd",
+      "lines": 359,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/pane_manager_test.exs",
+      "sha256": "4cf717c06750683b67907f462fa69760ab0b5f8e46e42cc38a609dc60a46f767",
+      "lines": 535,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_queue_test.exs",
+      "sha256": "da1b808652c5771bfb624ea58a30a76a6245ff0ce62380b8c14b9f3fff7815d4",
+      "lines": 538,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_firehose_test.exs",
+      "sha256": "641c233d7063114163af9bd9c9be513ce13c58c94a9d1c8076262b49ec360d57",
+      "lines": 433,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_max_duration_test.exs",
+      "sha256": "36b9b4612ca8fca166f5190edbe269fc517b75d36433a49bf37b87f9f879d232",
+      "lines": 463,
+      "read": "full"
     }
   ],
-  "scope_note": "55 complete file reads, 8929 lines; remaining paths unreviewed. Isolated probes recorded in prior checkpoints; the nine files added in this checkpoint were read, not executed. No full application suite or live runtime launched.",
+  "scope_note": "62 complete file reads, 12006 lines; remaining paths unreviewed. Isolated assertion probes ran; seven new test files were read, not run as a suite. No live tmux or full application verification.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -428,6 +470,23 @@
       "recommendation": "Hold the first operation beyond the configured deadline and assert both no successor execution and worker liveness before releasing it. Prefer a controllable timer seam when available.",
       "refactor_hint": "Preserve operation-specific timeout overrides and keyed-lane exclusion when extracting coordination; test the temporal guarantee rather than only initial queue population.",
       "limits": "One isolated test was selected from the unchanged frozen module; unused helpers produce compiler warnings. The source mutation exists only in memory and no production file changed. The timing guard is a bounded wall-clock probe, not a claim of exhaustive scheduler interleavings."
+    },
+    {
+      "id": "tests-1b-cont-06",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Refused-resume assertion ignores generation-aware worker messages",
+      "locations": [
+        {
+          "file": "src/test/aiur/orchestrator_max_duration_test.exs",
+          "lines": "300-334"
+        }
+      ],
+      "description": "The concurrency-cap case uses refute_received {:resume_agent, _request_id}, while generation-aware success tests in the same module expect {:resume_agent, request_id, 101}. The two-element pattern cannot reject the three-element message.",
+      "evidence": "tooling/resume_message_oracle_probe.exs extracts the exact negative assertion. With {:resume_agent,7,101} queued, the original assertion passes and a three-element control assertion fails. PauseResume source has both legacy two-element and generation-aware three-element constructors.",
+      "recommendation": "Reject both supported resume-message shapes, or match the generation-aware shape associated with the fixture and separately preserve legacy coverage.",
+      "refactor_hint": "Make worker-control protocol shape shared by producer and contract tests when extracting control transport.",
+      "limits": "The probe evaluates the assertion block only; it does not show that production sends a forbidden resume or that all other refusal assertions would miss a mutation."
     }
   ],
   "preserve": [
@@ -467,7 +526,13 @@
     "WorkspaceMaterialize uses real local Git repositories to preserve warm ignored artifacts, ticket/PR branch selection, exact PR head, live-origin freshness, stale-lock cleanup and cold-copy error fallback.",
     "GitHubAuthPreflight retains pre-poll refusal, secret omission, stable-cause alert deduplication/recovery/rearm and a dispatch hold distinct from available capacity.",
     "Codeowners distinguishes absent/comment-only rules from populated ownership, delegates trusted fallback, propagates quota-held unknown authority, avoids caching failures and matches logins case-insensitively.",
-    "DecisionMetrics asserts each lifecycle duration and nil for incomplete/out-of-order intervals, concurrent deduplication, content omission, actor distinctions and rejection of forged observations; real-store request coverage includes canonical append."
+    "DecisionMetrics asserts each lifecycle duration and nil for incomplete/out-of-order intervals, concurrent deduplication, content omission, actor distinctions and rejection of forged observations; real-store request coverage includes canonical append.",
+    "AgentProcessLog tests inject process inventories/clocks and assert ticket attribution, first-observed lifetime, PID-start-time reuse, allowlisted argv, tail fingerprint and TSV control-byte escaping.",
+    "Tmux mock tests constrain command/response framing, error propagation, launch-only environment, bracketed paste and temporary-file cleanup; a joined mock command string alone does not prove OS argv boundaries.",
+    "PaneManager unit tests protect slot reuse, retitling/sanitization, stale-pane reconciliation, packed layout and focused/background pane distinction. Live tests use isolated tmux sockets for geometry and external-close reconciliation; these are geometry integration tests, not full user chat verification.",
+    "AgentQueue tests retain claim/provider-acknowledgement separation, attempt counters, correlation conflict refusal, idempotent retries, lifetime-scoped action deduplication and visibility of failed/in-flight operator messages.",
+    "Firehose tests preserve watermark pagination, Retry-After/X-Poll-Interval, DNS recovery, 304 page accounting and durable attention resolution with failed-publication retry.",
+    "Duration watchdog tests retain cooperative request before confirmed pause, operator-only budget reset, automated cumulative budget, concurrency refusal and grace-limited escalation."
   ],
   "next": [
     "Continue remaining tests-1b paths; audit test support and shared-state restoration.",
@@ -510,6 +575,15 @@
       ],
       "scope": "excerpt",
       "finding": "Infinity timeout resolver mutated in memory; actual scheduler timer differentiates guarded original from mutant."
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+      "lines": [
+        1617,
+        1839
+      ],
+      "scope": "search matches",
+      "finding": "Legacy two-element and generation-aware three-element resume constructors coexist."
     }
   ],
   "follow_up_candidates": [

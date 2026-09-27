@@ -1165,3 +1165,8 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 ### tests-1b fifty-five-file checkpoint
 
 55 full test reads, 8929 lines. Added Units/Analytics CLI, Upgrade, AgentEvents, PauseContainment, WorkspaceMaterialize, GitHubAuthPreflight, Codeowners and DecisionMetrics. Preserved explicit unknown/empty/stale/partial envelopes and rendered ages, exact time windows, channel-safe notices with counted transport calls, local-Git freshness/PR-head fixtures, quota-unknown authority and canonical metrics provenance. No new promoted finding. Pause failed-reap completion coverage is a hypothesis because paused is already true before fallback completes. New files were read, not executed; no production changes.
+
+
+### tests-1b sixty-two-file checkpoint
+
+62 full reads,12006 lines. Added process logging, tmux, pane manager unit/live geometry, queue, firehose and duration watchdog. Confirmed negative-assertion arity hole in refused resume: actual two-element assertion passes with a three-element generation-aware message; corrected control fails. Portable assertion probe added. This does not prove a production cap bypass. Preserve claim/provider-ack separation and distinguish mocked commands, geometry integration and real chat UX. No new test suite or live tmux execution; no production changes.
