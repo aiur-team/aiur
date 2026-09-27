@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "1a958957d7d874612df29315617f66e78e1ddef17e125e490836b4ba3d8357d4"
+    "name_triage": "29f11bcf2ab2e7b75a671dbc77d4e7d75a8016c7d76f3d07ff99f412b074c922"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 90,
-    "remaining_cross_module_names": 1590,
-    "remaining_literal_entries": 6997
+    "reviewed_cross_module_names": 96,
+    "remaining_cross_module_names": 1584,
+    "remaining_literal_entries": 6938
   },
   "families": [
-    {
-      "name": "source_version",
-      "clauses": 11,
-      "modules": 10,
-      "summed_source_span_lines": 27
-    },
-    {
-      "name": "all",
-      "clauses": 10,
-      "modules": 9,
-      "summed_source_span_lines": 54
-    },
-    {
-      "name": "available?",
-      "clauses": 10,
-      "modules": 9,
-      "summed_source_span_lines": 41
-    },
-    {
-      "name": "boot",
-      "clauses": 9,
-      "modules": 9,
-      "summed_source_span_lines": 100
-    },
-    {
-      "name": "catalog",
-      "clauses": 10,
-      "modules": 9,
-      "summed_source_span_lines": 62
-    },
-    {
-      "name": "checksum",
-      "clauses": 9,
-      "modules": 9,
-      "summed_source_span_lines": 63
-    },
     {
       "name": "classify",
       "clauses": 29,

@@ -986,3 +986,7 @@ Read payload, child_spec, entries, handle_continue, maybe_put, now and now_ms: 1
 ### Name duplication: acquisition, preparation and presence
 
 Read open, path, prepare, present? and select: 62 literal entries across five families. Separate resource acquisition from filtered reads, preserve filesystem sync and compaction phase policies, and distinguish nonblank-string checks from broader presence predicates. Six modules implement equivalent trimmed-binary presence checks, a narrow sharing candidate; existing DecisionLog reuse already owns creation mechanics. Name triage now 90 families/3271 entries, leaving 1590 cross-module names. Raw findings and skeptic counts are unchanged; transitive containment and runtime correctness are not certified.
+
+### Name duplication: versions, availability and checksums
+
+Read source_version, all, available?, boot, catalog and checksum: 59 literal entries across six families. Four durable-record checksum implementations are identical, while tuple canonicalization, JSON normalization and tmux layout checksums require separate contracts. Preserve enumeration completeness, partial-health policy, recovery return shapes and catalog provenance. Name triage now 96 families/3330 entries, leaving 1584 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
