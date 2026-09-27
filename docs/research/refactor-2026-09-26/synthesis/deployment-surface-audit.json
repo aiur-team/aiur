@@ -25,13 +25,32 @@
       "lines": "429-478,500-516,746-759",
       "sha256": "40b91537c572f8f5820ff7e9e0a73b2b6bc3a17b351918c9e31029806d998918",
       "assessment": "Release-to-checkout freshness and command classification; prior isolated probe covers classification."
+    },
+    {
+      "path": "src/lib/aiur/agent_control_cli.ex",
+      "lines": "97-221",
+      "sha256": "329f38d6eff41137666c5a4c3f8f783154a9fc0399de4625a2d4ed5845e3be66",
+      "assessment": "Status renders fleet freshness, pause, rows, capacity, polling, supervision, CI, build gate, prewarm and asks; no running-build comparison in this path."
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/status_report.ex",
+      "lines": "336-420",
+      "sha256": "dd5069346f4ceba3c769c756bdf476e0b9bab7030840ee9c70eba83196024327",
+      "assessment": "Complete top-level status/snapshot constructors inspected: no daemon build identity or upstream comparison fields."
+    },
+    {
+      "path": "src/lib/aiur_web/presenter.ex",
+      "lines": "1-83",
+      "sha256": "c8be4c9263882424f134423cc58ab43671c25b663d112a737039104aa074d054",
+      "assessment": "Shared dashboard/API top-level snapshot and auxiliary payload constructors inspected; no running-build comparison."
     }
   ],
   "findings": [
     "Published-version upgrade notices exist; their dev suppression is deliberate.",
     "The one-shot --version path identifies the invoked release, not an RPC query of a running daemon.",
     "Restart receipt verifies the requested build against the disk release stamp; this is not comparison with upstream main.",
-    "Installed upgrade refuses replacement when its selected control-plane probe reports a live daemon unless --force is used; this is not proof that every daemon sharing a release is protected."
+    "Installed upgrade refuses replacement when its selected control-plane probe reports a live daemon unless --force is used; this is not proof that every daemon sharing a release is protected.",
+    "The inspected standard status/snapshot/dashboard payload constructors have no running-build identity or comparison. Repository-wide source search for source_sha/git_rev/build_stamp/build_sha/running_version found only CLI's compile-time revision under src/lib; this search is not an exhaustive semantic proof."
   ],
-  "limits": "Read-only source audit. No launcher, upgrade, daemon or release command executed. No exhaustive absence claim about all status/dashboard surfaces; no current GitHub issue-state refresh. Historical incident timing and restart side effects remain separately unresolved."
+  "limits": "Read-only source audit; no launcher, upgrade, daemon or release command executed. Negative finding is scoped to inspected standard status/snapshot/presenter paths and named search terms. No universal absence claim and no current GitHub issue-state refresh."
 }

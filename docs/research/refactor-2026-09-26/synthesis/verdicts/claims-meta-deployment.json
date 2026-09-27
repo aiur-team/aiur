@@ -1,0 +1,28 @@
+{
+  "verdicts": [
+    {
+      "id": "meta-08",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for inspected launcher/status/retry source contracts; moderate for bounded historical records; unresolved for claimed incident population",
+      "corrected_claim": "Merged source, checkout HEAD, assembled release, invoked CLI and running daemon are distinct identities. The dev shim already rebuilds automatically on selected paths, so requiring every build by hand is false. Published-channel upgrade notices and restart provenance receipts exist; the inspected standard status/snapshot/dashboard payload paths do not expose a running-dev-build versus upstream-main comparison. Same-checkout executor-wait/watch can still select ensure_built in the frozen shim, conditionally rewriting a shared release. Historical records support repeated reported activation gaps, with mixed authority interpretations and deliberate delays. PR2677 commit-to-deployment-completion-report is about 10h25, whereas the first read merged/undeployed observation-to-report is about 10h23; neither measures exact activation. The reported September 18 WIP loss/restoration is one account copied into six handoffs. DecisionStore retry counters reset at boot in both frozen source and the historical revision named in the September 17 report; persisted attempts remain and transient-failure eligibility determines renewed dispatch.",
+      "method": "Sequential reproduction and interpretation checks: source-hashed launcher classification probe; exact source inspection of version notices, restart receipt, status/snapshot/presenter constructors and DecisionStore retry gates; Git historical source comparison; nine hashed primary historical records, six identical copied-paragraph hashes, and timestamp arithmetic from Git committer time to handoff observations. No live release mutation or manual runtime verification.",
+      "note": "The compound claim overstates absence of automation and version surfaces, conflates persisted operator pause with preservation defects, and treats heterogeneous self-reports as measured incidence. The twelve-restarter/backup population and four re-reported fixed bugs could not be reproduced from the named records and remain unsupported, not zero. Earlier all-day/six-to-seven-hour durations remain approximate or unverified. Retain release isolation, immutable running identity and explicit deployment receipts as design requirements; this evidence does not uniquely justify hot upgrade, clearing durable pauses or mandatory automatic restart.",
+      "unresolved": [
+        "Independent count and evidence for twelve restarts and per-restart backups",
+        "Raw patch size and destructive path for the reported WIP loss",
+        "Four re-reported fixed bugs and their loaded revisions",
+        "Exact activation timestamps and actual re-delivery frequency",
+        "Whether other uninspected or differently named build-age surfaces existed"
+      ],
+      "evidence_artifacts": [
+        "synthesis/launcher-control-audit.json",
+        "synthesis/deployment-surface-audit.json",
+        "synthesis/deployment-episodes.json",
+        "synthesis/decision-restart-contract.json"
+      ],
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher; unsupported subclaims explicitly retained"
+    }
+  ]
+}

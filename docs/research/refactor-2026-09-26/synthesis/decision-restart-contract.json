@@ -24,5 +24,12 @@
     "The existing restart-between-answer-and-redispatch test starts with retry_delays_ms [], records one failed attempt, restarts, and expects a second failed attempt before explicit new-worker delivery."
   ],
   "interpretation": "A DecisionStore process restart can reopen the automatic retry budget for an eligible transiently failed active answer. This is narrower than every daemon restart redelivering every answer. It also differs from the deliberate new-worker retry-budget reset. Package design must specify whether budgets are process-local, durable per action, or target-generation-scoped while preserving durable attempt identity and unknown-outcome handling.",
-  "limits": "Source and existing test inspected; no Mix suite, isolated runtime probe or live daemon executed. This frozen contract is not proof of exact behavior on the historical September 17 deployed revision or of the number/cost of re-deliveries. Twelve historical restarts/backups remain uncounted."
+  "limits": "Source and existing test inspected; no Mix suite, isolated runtime probe or live daemon executed. Historical source checked at the revision named by the deployment report, without attesting loaded process bytes. Twelve historical restarts/backups and actual re-delivery frequency remain uncounted.",
+  "historical_source": {
+    "commit": "33fa9920b036de3be38292317ed1b8293ba77eef",
+    "path": "src/lib/aiur/decision_store.ex",
+    "sha256": "a15916bff883c579352f0736a35392551472dc9dafa7f5dbaac59c3fcb3c4eb5",
+    "lines": "473-520,3135-3165,3885-3898,3995-4005",
+    "assessment": "The revision named by the September 17 deployment report also initializes retry maps empty and permits transiently failed latest attempts in boot reconciliation. Its dispatchable clauses lack the later moot and unknown-outcome clauses; do not apply the frozen safeguards backward. This links the mechanism to the reported deployed source, not independently captured loaded BEAM code or observed incident frequency."
+  }
 }

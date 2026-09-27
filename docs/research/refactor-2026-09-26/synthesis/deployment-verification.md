@@ -1,7 +1,7 @@
 # Deployment verification checkpoint
 
-Claim meta-08 remains open for its complete historical episode and build-age
-surface audit. The checks below establish the launcher path independently of
+Claim meta-08 has a bounded negative verdict in verdicts/claims-meta-deployment.json.
+Unsupported historical subclaims remain explicit unresolved questions. The checks below establish the launcher path independently of
 the historical narrative. Code revision: `3339b887`.
 
 ## Confirmed launcher boundary
@@ -134,3 +134,19 @@ mechanism operated on the September 17 deployed revision and how often it
 recurred remain historical questions. A targeted literal search of Khala
 handoffs/meta did not locate the twelve-restart claim; no absence or zero
 count is inferred from that failed search.
+
+## Verdict and remaining uncertainty
+
+Meta-08 is rejected as written under both reproduction and interpretation.
+The corrected claim preserves supported activation and shared-artifact risks
+without repeating a universal absence-of-automation or absence-of-version-
+surfaces claim. The inspected status/snapshot/presenter constructors lack the
+specific running-build comparison; optional npm notices are a different feature.
+
+The September 17 reported deployed source (33fa9920) has the process-local retry
+reset mechanism too, with different guards from the frozen revision. Source
+comparison cannot attest which bytes a live process loaded or count actual
+re-deliveries. The twelve-restart population, four repeated bugs, raw WIP size/
+destructive path and exact activation times remain unresolved in the verdict;
+they must not become measured design benefits. Earlier checkpoint paragraphs
+describe the audit progression and are superseded by this verdict.

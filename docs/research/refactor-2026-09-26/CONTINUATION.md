@@ -937,3 +937,16 @@ hashes, exact ranges and explicit source-only verification limits.
 No test or daemon executed. The September 17 deployed revision and incident
 frequency remain unverified; a targeted search did not locate the twelve-
 restart claim, which remains unresolved. Meta-08 is still open, 50/60 claims.
+
+## Meta-08 bounded verdict checkpoint
+
+Both lenses reject meta-08 as written. The corrected claim distinguishes
+automatic dev builds, existing npm notices and restart receipts from the absent
+comparison in inspected standard status/snapshot/presenter paths. Historical
+33fa9920 source confirms retry-map reset, with guards differing from frozen HEAD.
+Historical incidence is not inferred from source or copied handoffs.
+
+Twelve restarts/backups, four repeated bugs, exact activation times and raw WIP
+loss mechanism remain explicit unsupported subclaims in the verdict. They are
+not measured findings or projected savings. Claim lens coverage is now 51/60;
+this does not resolve those questions or complete the research. No live changes.
