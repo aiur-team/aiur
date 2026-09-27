@@ -577,6 +577,48 @@
       "lines": 216,
       "read": "full",
       "assessment": "Real private ledger/coordinator/block/manifest integrate raw-prefix retirement with floor-plus-tail exact projection reconstruction. Constructed prepared state rolls back preserving raw; source_retired rolls forward; in-flight floor and broken-floor aggregate fail closed; corrupt manifest quarantines and halts retirement. Sync callbacks stubbed and crash states authored directly, so no actual killed-process or power-loss durability proof. Content-free artifact assertion uses ordinary fixtures without injected secret-bearing inputs; preserves observed output shape, not adversarial whole-pipeline privacy."
+    },
+    {
+      "path": "src/test/aiur/usage/price_table/window_test.exs",
+      "sha256": "077fadaa610c7605dca4a5291072b18923bb8c5e1e0aa9d566db47bdfca83b14",
+      "lines": 169,
+      "read": "full",
+      "assessment": "Pinned times assert inclusive-start/exclusive-end peak windows, effective-dated weekend rules, malformed classification unknown and resolver conservative-peak fallback. Synthetic schedules make timezone offset and schedule-driven boundary scanning observable where default windows could not distinguish an omitted offset. Unknown schedule has no next boundary. Named-offset constant test does not prove its comment/documentation; behavioral synthetic fixtures supply real coverage. Historical fixture policy only, not current provider schedule verification."
+    },
+    {
+      "path": "src/test/aiur/usage/pricing_property_test.exs",
+      "sha256": "ca9e4a681467ca195fb663b2a9be2dd1c81c6abd9ffc9668f71c8171fb1f0385",
+      "lines": 53,
+      "read": "full",
+      "assessment": "Fifty generated parent/subset token cases independently assert canonical input+output and exact sum of priced component token counts. Decimal amount equals sum of returned components; this guards conservation but is not an independent rate oracle. Provider EUR remains separate from API USD. Uses fixture registry/default catalog, not measured invoices or live provider data."
+    },
+    {
+      "path": "src/test/aiur/usage/pricing_fixture.exs",
+      "sha256": "f3b385866ee1f451484b82289079f86d8f2694b5cd1dc10f656ef91237fe745f",
+      "lines": 284,
+      "read": "full",
+      "assessment": "Fixture helpers build explicit historic source revisions and contrasting Codex subset versus Claude additive relationships, DeepSeek disjoint input/cache counts, trusted/unknown account generations, occurrence/ingestion timestamps and distinct EUR provider estimate. Custom price table carries exact decimal strings and version/source metadata. Fixtures deliberately supply identity/semantics rather than validate real ingress; Map.merge overrides are shallow. No executable test in this helper file."
+    },
+    {
+      "path": "src/test/aiur/usage/pricing_test.exs",
+      "sha256": "9bc087c520e10d3dd48e25a14f73f96fad2a529224bd9d94842d76d0c0da5038",
+      "lines": 410,
+      "read": "full",
+      "assessment": "Exact expected Decimal totals and component token counts constrain additive/subset remainder pricing, context/cache-duration partitions and mutually exclusive alternatives. Provider authoritative discrepancy is retained but prevents inferred pricing; unknown relationships/model/auth/currency/time/required dimensions and invalid remainder preserve reasons and suppress totals. Missing one rate retains four priced components while total stays nil. Historic relationship does not fall forward; unknown account generation removes tier join without erasing independently supported API estimate. DeepSeek occurrence-time pricing differs from aggregate conservative fallback. Distinct provider/API currencies and subscription estimate disclosure are asserted; no actual billed-spend evidence."
+    },
+    {
+      "path": "src/test/aiur/usage/price_table_test.exs",
+      "sha256": "da86ae83f0ac4137b7e85a7fef3b4f4b2fc18d56331250151981c9105b529df0",
+      "lines": 553,
+      "read": "full",
+      "assessment": "Pinned catalog fixture counts/rate matrices and custom effective-date series constrain exact historical decimal rates, provider/model/currency/relationship/dimension/context/TTL join boundaries, flat versus peak/off-peak intervals and exclusive expiry. Unknown window fallback is conservative peak; uncovered window differs from not-yet-effective. Duplicate interval/revision conflict/float price and invalid metadata are rejected; registry fake provider accepted. Fifty generated date-series cases assert interval membership plus repeated determinism, supplemented by explicit old/new rate assertions. Source URL/review-date fields only assert catalog metadata: they do not verify linked sources or current prices. No savings claim."
+    },
+    {
+      "path": "src/test/aiur/usage/grouped_scopes/grouped_scopes_test.exs",
+      "sha256": "7d7966d4348a092e7a4fbdaa5bc1d24631be29f5eb02112a984d8d5cdcc0118e",
+      "lines": 444,
+      "read": "full",
+      "assessment": "Pure projections of supplied aggregate records constrain run/ticket intersection, qualified repository collision, cross-run explicit membership, separate currencies and provider/API bases, explicit unknown partition coverage and subset remainder. Grouped remainder is compared to individual Pricing result; positive computed overcount alone does not independently assert its subtraction. Provider-route/upstream exact values and counts supplement reconciliation flags. Aggregate missing occurrence time deliberately uses peak estimate. Unknown generation/backend omits tier keys; known-empty/unavailable/stale/partial remain distinct. Pagination proves first two pages disjoint and max limit, not full traversal/cursor invalidity. Cache-key test title claims every authority generation but only inspects scope kind, schema version and binary price revision; freshness changes all three generation fields together, not independently. Replay duplicate records preserve snapshot sans authority; no process restart or physical retention occurs."
     }
   ],
   "scope_note": "Source review with an isolated extracted-assertion order probe; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
@@ -702,7 +744,13 @@
     "Private files and pure blocks compare all cells to existing projection, preserve distinct relationship revisions/upstream dimensions, round-trip covered metadata and recompute checksum for legitimate legacy dimension omission. Tampered checksum rejected, missing/empty distinct, gaps/empty ranges rejected. Atomic byte-identical title only reloads cell equality; no byte comparison or interrupted-write proof. Pricing-date span fixture only asserts Date/nondecreasing endpoints, not varied endpoint exactness.",
     "Pure state-machine tests constrain contiguous prepare, phase ordering, rollback watermark and finalized cover; private file reload checks retired watermark. Round-trip loop omits source_retired despite every-phase title. Gap/path-escape fixtures lack checksum, so strict key gate rejects before decode_blocks; isolated mutation probe confirms both pass with structural validation bypassed, while correctly signed controls detect bypass. Recorded tests-4-cont-02, no production acceptance bug alleged.",
     "Exact fixtures constrain min recovery window, max-count pressure, raw-byte pressure, batch bounds and monotonic retired watermark; finite grid validates safety for retire outcomes, but accepts any noop and is not a complete liveness oracle. Explicit examples demand retirement. Invalid configuration clamps specified defaults; pressure arithmetic not measured disk savings.",
-    "Real private ledger/coordinator/block/manifest integrate raw-prefix retirement with floor-plus-tail exact projection reconstruction. Constructed prepared state rolls back preserving raw; source_retired rolls forward; in-flight floor and broken-floor aggregate fail closed; corrupt manifest quarantines and halts retirement. Sync callbacks stubbed and crash states authored directly, so no actual killed-process or power-loss durability proof. Content-free artifact assertion uses ordinary fixtures without injected secret-bearing inputs; preserves observed output shape, not adversarial whole-pipeline privacy."
+    "Real private ledger/coordinator/block/manifest integrate raw-prefix retirement with floor-plus-tail exact projection reconstruction. Constructed prepared state rolls back preserving raw; source_retired rolls forward; in-flight floor and broken-floor aggregate fail closed; corrupt manifest quarantines and halts retirement. Sync callbacks stubbed and crash states authored directly, so no actual killed-process or power-loss durability proof. Content-free artifact assertion uses ordinary fixtures without injected secret-bearing inputs; preserves observed output shape, not adversarial whole-pipeline privacy.",
+    "Pinned times assert inclusive-start/exclusive-end peak windows, effective-dated weekend rules, malformed classification unknown and resolver conservative-peak fallback. Synthetic schedules make timezone offset and schedule-driven boundary scanning observable where default windows could not distinguish an omitted offset. Unknown schedule has no next boundary. Named-offset constant test does not prove its comment/documentation; behavioral synthetic fixtures supply real coverage. Historical fixture policy only, not current provider schedule verification.",
+    "Fifty generated parent/subset token cases independently assert canonical input+output and exact sum of priced component token counts. Decimal amount equals sum of returned components; this guards conservation but is not an independent rate oracle. Provider EUR remains separate from API USD. Uses fixture registry/default catalog, not measured invoices or live provider data.",
+    "Fixture helpers build explicit historic source revisions and contrasting Codex subset versus Claude additive relationships, DeepSeek disjoint input/cache counts, trusted/unknown account generations, occurrence/ingestion timestamps and distinct EUR provider estimate. Custom price table carries exact decimal strings and version/source metadata. Fixtures deliberately supply identity/semantics rather than validate real ingress; Map.merge overrides are shallow. No executable test in this helper file.",
+    "Exact expected Decimal totals and component token counts constrain additive/subset remainder pricing, context/cache-duration partitions and mutually exclusive alternatives. Provider authoritative discrepancy is retained but prevents inferred pricing; unknown relationships/model/auth/currency/time/required dimensions and invalid remainder preserve reasons and suppress totals. Missing one rate retains four priced components while total stays nil. Historic relationship does not fall forward; unknown account generation removes tier join without erasing independently supported API estimate. DeepSeek occurrence-time pricing differs from aggregate conservative fallback. Distinct provider/API currencies and subscription estimate disclosure are asserted; no actual billed-spend evidence.",
+    "Pinned catalog fixture counts/rate matrices and custom effective-date series constrain exact historical decimal rates, provider/model/currency/relationship/dimension/context/TTL join boundaries, flat versus peak/off-peak intervals and exclusive expiry. Unknown window fallback is conservative peak; uncovered window differs from not-yet-effective. Duplicate interval/revision conflict/float price and invalid metadata are rejected; registry fake provider accepted. Fifty generated date-series cases assert interval membership plus repeated determinism, supplemented by explicit old/new rate assertions. Source URL/review-date fields only assert catalog metadata: they do not verify linked sources or current prices. No savings claim.",
+    "Pure projections of supplied aggregate records constrain run/ticket intersection, qualified repository collision, cross-run explicit membership, separate currencies and provider/API bases, explicit unknown partition coverage and subset remainder. Grouped remainder is compared to individual Pricing result; positive computed overcount alone does not independently assert its subtraction. Provider-route/upstream exact values and counts supplement reconciliation flags. Aggregate missing occurrence time deliberately uses peak estimate. Unknown generation/backend omits tier keys; known-empty/unavailable/stale/partial remain distinct. Pagination proves first two pages disjoint and max limit, not full traversal/cursor invalidity. Cache-key test title claims every authority generation but only inspects scope kind, schema version and binary price revision; freshness changes all three generation fields together, not independently. Replay duplicate records preserve snapshot sans authority; no process restart or physical retention occurs."
   ],
   "cross_references": [
     {
@@ -733,5 +781,5 @@
       "next": "Use deterministic held callbacks with the actual helper before promoting. Monitor captures now once before snapshot processing, so demonstrate the claimed behavioral gap rather than assuming every clock advance races. Cross-reference existing barrier findings to avoid duplication."
     }
   ],
-  "next": "82/100 full files, 17992/40603 lines. Headless adapters and compaction complete. Continue grouped_scopes_test, price_table/window, price_table, pricing fixtures/property/tests, then web/engine/launcher/browser fixture. Two confirmed P2 findings and three unverified candidates; raw unit incomplete."
+  "next": "88/100 full files, 19905/40603 lines. Usage, pricing and compaction manifest complete. Continue web controllers/live views, engine, launcher and browser fixture. Two confirmed P2 findings and three unverified candidates; raw unit incomplete."
 }
