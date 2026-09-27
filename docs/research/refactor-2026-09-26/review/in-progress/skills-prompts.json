@@ -1432,6 +1432,48 @@
       "lines": 147,
       "read": "full",
       "assessment": "Full147 lines read. User-directed device approval avoids collecting API keys; durable opt-out disclosed, worktree-aware local exclude avoids tracked config change. Remote draft persistence is an external effect distinct from public posting. Legacy auth output fallback may surface credential prefixes; inspect actual behavior before exposure claim. Source assertions about CLI output/version are not freshly verified. No install/login/draft generation performed."
+    },
+    {
+      "path": ".claude/skills/ce-proof/SKILL.md",
+      "sha256": "8f70c3c24030b9f2cc4def49516b2d1e82c8a76585e9d104506123334d7f681c",
+      "lines": 346,
+      "read": "full",
+      "assessment": "Full346 lines read. Preserve narrow operations, revision/conflict handling, pending-write reconciliation, source-file JSON encoding, owner/everyday credential separation and explicit ephemeral deletion scope. Actual extracted local-pull write command overwrites an existing file with null for a structured error or empty bytes for an empty response, both exit0; valid document preserves trailing newlines, malformed JSON preserves prior file. No HTTP call or credential used. External API behavior assertions remain unverified; retry identity and bug-report payload privacy need follow-up."
+    },
+    {
+      "path": ".claude/skills/ce-resolve-pr-feedback/SKILL.md",
+      "sha256": "e7ade36dd9176b80a26278485d3a1211ee298dd2fb914b47216c5cd0e5ff28f2",
+      "lines": 67,
+      "read": "full",
+      "assessment": "Full file read. Preserve centralized legitimacy assessment, untrusted-comment boundary, inherited action scope, URL host/repository identity and demonstrated non-convergence escalation. Main never-block promise conflicts with referenced summary and targeted-mode blocking questions; pipeline-specific override limits impact. Read-only research, no fixer dispatch or GitHub call."
+    },
+    {
+      "path": ".claude/skills/ce-resolve-pr-feedback/references/targeted-mode.md",
+      "sha256": "6ccedae7a3fc19b22d31a84ed4f1a2b24265d63172383a7589b24b04eb17cede",
+      "lines": 38,
+      "read": "full",
+      "assessment": "Full file read. Preserve precise comment-to-thread identity, per-call enterprise host and outdated-location handling. Follow-up required for blocking-question instruction versus main no-block contract, and missing-script fallback losing explicit host/repository. No thread touched."
+    },
+    {
+      "path": ".claude/skills/ce-resolve-pr-feedback/references/full-mode.md",
+      "sha256": "ab4a63cc15ee97456c5fc2c680f8c8e288f4bd718bdbae8500dd1de7e12a68e5",
+      "lines": 262,
+      "read": "full",
+      "assessment": "Full file read in bounded parts. Preserve central grouping, enumerated class fixes, overlapping-file serialization, push-before-reply, explicit host/base-repository and bounded convergence. Untouched-file failure classification is not baseline evidence: a changed dependency can break an unchanged caller/test. Ambient checkout/head is not bound to requested PR before edits/stage/push; existing scope candidate extended. No remote calls or code changes."
+    },
+    {
+      "path": ".claude/skills/ce-resolve-pr-feedback/references/evaluation-rubric.md",
+      "sha256": "ebc3e598853e2e4840f9f077676ea406722c5ad5efdaab60d06c9731e8f59b1c",
+      "lines": 112,
+      "read": "full",
+      "assessment": "Full file read. Preserve actual-code and positive-intent evidence, bounded same-invariant class repair, per-site judgment exceptions and evidence-supported decline. Reviewer agreement alone is not independent proof. Strict same-file outdated search can escalate a tractable move; tradeoff rather than defect without concrete case. Pipeline decision-context override is explicit in parent."
+    },
+    {
+      "path": ".claude/skills/ce-resolve-pr-feedback/references/agents/pr-comment-resolver.md",
+      "sha256": "731ae580e046a8a1a9737d51198ebabebd5a012a909fd914a7bb5d9e1bdee73e",
+      "lines": 59,
+      "read": "full",
+      "assessment": "Full file read. Preserve untrusted-comment prohibition, enumerated mutation boundary, targeted verification, every covered feedback ID and concrete-contradiction bailout. Fixer summaries list whole files, so parent staging still needs dirty-state provenance. No subagent invoked."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1802,6 +1844,40 @@
       "recommendation": "Persist an explicit canonical source for each strategy metric, or use the same class-aware default resolver in setup and reporting. Render source identity and missing-data status faithfully.",
       "refactor_hint": "Use one typed metric/source contract for configuration and report queries instead of separately narrated default rules.",
       "limits": "Instruction-level routing mismatch only; no live provider queried and no incorrect report observed. Cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-16",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Proof pull replaces local document before validating the response",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-proof/SKILL.md",
+          "lines": "320-329"
+        }
+      ],
+      "description": "The pull recipe uses curl without HTTP failure gating and jq -jr .markdown without validating ok or string shape. An error JSON missing markdown yields null with exit0 and is atomically moved over the existing document; an empty response similarly produces an empty replacement.",
+      "evidence": "tooling/proof_pull_response_probe.py extracts the exact frozen jq/mv command. Four synthetic cases: valid document exit0 preserves trailing newlines; AUTH-shaped error exit0 replaces with null; empty response exit0 empties file; malformed JSON exit5 preserves original. No network.",
+      "recommendation": "Require successful transport/status and validated document envelope with a string markdown field before replacing the target; preserve legitimate empty markdown, and clean up temporary files on failure.",
+      "refactor_hint": "Separate remote fetch/validation from atomic local replacement using one typed result contract.",
+      "limits": "Reproduces local shell behavior only, not an observed service outage or user data loss. No Proof API invoked; cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-17",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "PR feedback labels unrelated-file failures pre-existing without a baseline",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/references/full-mode.md",
+          "lines": "124-132"
+        }
+      ],
+      "description": "Combined validation is intended to catch cross-agent interactions, but step5 classifies failures in files no fixer changed as pre-existing and proceeds to commit/push. A changed shared dependency can cause an unchanged caller or test to fail, so failing-file location cannot establish pre-existence.",
+      "evidence": "Direct full-reference read: line132 explicitly instructs treat as pre-existing, with no baseline execution or equivalent prior failure evidence. This is an invalid provenance rule, not a claim that any specific historical failure was caused by a fixer.",
+      "recommendation": "Require matching baseline evidence before declaring pre-existing; otherwise investigate the dependency path or return an unresolved validation result without asserting provenance.",
+      "refactor_hint": "Carry validation evidence and baseline identity as structured data instead of inferring cause from changed-file overlap.",
+      "limits": "Instruction-level defect; no production tests or PR workflow executed. Cross-unit dedup pending."
     }
   ],
   "preserve": [
@@ -2008,7 +2084,13 @@
     "Full260 lines read in two ranges. Preserve credentials outside config, canonical metric sources, pending-versus-excluded metrics and bounded clarification. Class-default source omission conflicts with analytics-only report fallback (finding15). Promised tracing/schedule/quality-note persistence conflicts with flat schema and not-persisted list; candidate33. No interview or config write invoked.",
     "Full89 lines read. Preserve actual values, source windows, no invented deltas, visible no-data for strategy metrics, and PII scan of errors/followups. Class-default source mismatch confirmed. General delete-unavailable-lines direction must not erase explicitly required no-data metrics. No report/query generated.",
     "Full139 lines read. Draft-only, no posting/commit/PR action. Source list includes active PR and unreleased changelog, so actual shipped/released status must not be inferred merely from supplied code changes. Spiral opt-out and direct fallback preserve usability; installed auth does not prove output-publication authority. No CLI/auth/provider call executed.",
-    "Full147 lines read. User-directed device approval avoids collecting API keys; durable opt-out disclosed, worktree-aware local exclude avoids tracked config change. Remote draft persistence is an external effect distinct from public posting. Legacy auth output fallback may surface credential prefixes; inspect actual behavior before exposure claim. Source assertions about CLI output/version are not freshly verified. No install/login/draft generation performed."
+    "Full147 lines read. User-directed device approval avoids collecting API keys; durable opt-out disclosed, worktree-aware local exclude avoids tracked config change. Remote draft persistence is an external effect distinct from public posting. Legacy auth output fallback may surface credential prefixes; inspect actual behavior before exposure claim. Source assertions about CLI output/version are not freshly verified. No install/login/draft generation performed.",
+    "Full346 lines read. Preserve narrow operations, revision/conflict handling, pending-write reconciliation, source-file JSON encoding, owner/everyday credential separation and explicit ephemeral deletion scope. Actual extracted local-pull write command overwrites an existing file with null for a structured error or empty bytes for an empty response, both exit0; valid document preserves trailing newlines, malformed JSON preserves prior file. No HTTP call or credential used. External API behavior assertions remain unverified; retry identity and bug-report payload privacy need follow-up.",
+    "Full file read. Preserve centralized legitimacy assessment, untrusted-comment boundary, inherited action scope, URL host/repository identity and demonstrated non-convergence escalation. Main never-block promise conflicts with referenced summary and targeted-mode blocking questions; pipeline-specific override limits impact. Read-only research, no fixer dispatch or GitHub call.",
+    "Full file read. Preserve precise comment-to-thread identity, per-call enterprise host and outdated-location handling. Follow-up required for blocking-question instruction versus main no-block contract, and missing-script fallback losing explicit host/repository. No thread touched.",
+    "Full file read in bounded parts. Preserve central grouping, enumerated class fixes, overlapping-file serialization, push-before-reply, explicit host/base-repository and bounded convergence. Untouched-file failure classification is not baseline evidence: a changed dependency can break an unchanged caller/test. Ambient checkout/head is not bound to requested PR before edits/stage/push; existing scope candidate extended. No remote calls or code changes.",
+    "Full file read. Preserve actual-code and positive-intent evidence, bounded same-invariant class repair, per-site judgment exceptions and evidence-supported decline. Reviewer agreement alone is not independent proof. Strict same-file outdated search can escalate a tractable move; tradeoff rather than defect without concrete case. Pipeline decision-context override is explicit in parent.",
+    "Full file read. Preserve untrusted-comment prohibition, enumerated mutation boundary, targeted verification, every covered feedback ID and concrete-contradiction bailout. Fixer summaries list whole files, so parent staging still needs dirty-state provenance. No subagent invoked."
   ],
   "follow_up_candidates": [
     {
@@ -2049,7 +2131,7 @@
     },
     {
       "id": "skills-prompts-candidate-11",
-      "question": "Reconcile remote review plan/standards discovery and ambient HEAD report metadata with reviewed-ref scope; check requirements-completeness findings introduced during Stage6 against earlier numbering/validation mechanics before promoting distinct defects."
+      "question": "Reconcile remote review plan/standards discovery and ambient HEAD report metadata with reviewed-ref scope; check requirements-completeness findings introduced during Stage6 against earlier numbering/validation mechanics before promoting distinct defects. Resolve-feedback full mode also edits/stages/pushes ambient checkout without binding requested PR head/dirty ownership; targeted fallback identity needs the same audit."
     },
     {
       "id": "skills-prompts-candidate-12",
@@ -2135,9 +2217,17 @@
     {
       "id": "skills-prompts-candidate-35",
       "question": "Promotion drafts treat active PR/unreleased changelog/current-main diff as what shipped without release-state proof; inspect prior provenance findings for dedup. Also distinguish optional remote persisted drafts from public posting and inspect legacy auth output without exposing secrets. No external call made."
+    },
+    {
+      "id": "skills-prompts-candidate-36",
+      "question": "Proof examples generate a new idempotency key per execution while partial-write advice says retry only the failed operation with the same key; verify API payload/key contract before recommending retries. Automatic raw-response bug reporting may include document excerpts; inspect privacy scope before any external report."
+    },
+    {
+      "id": "skills-prompts-candidate-37",
+      "question": "Resolve-feedback main says escalations never block in all modes, but full-mode summary and targeted needs-human require a blocking question and wait. Pipeline no-block override narrows the contradiction but interactive contract remains inconsistent; reconcile against other workflow authority findings."
     }
   ],
-  "next": "Continue ce-proof markdown. Coverage 204/250 full files, 31296/36169 lines. Ten provisional P2 and five P3 findings; thirty-one follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-riffrec-feedback-analysis markdown. Coverage 210/250 full files, 32180/36169 lines. Twelve provisional P2 and five P3 findings; thirty-three follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",

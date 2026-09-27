@@ -726,3 +726,7 @@ Read all11 POV markdown files; coverage 199/250 files, 30,485/36,169 lines. Pres
 ### Skills/prompts: product metrics and promotion evidence
 
 Read five complete pulse/promotion markdown files; coverage 204/250 files, 31,296/36,169 lines. Recorded provisional P2 metric-source mismatch: setup omits payments-class default overrides but report fallback queries analytics. Added settings persistence, quality-score calibration and shipped-state/provider questions. Preserve buffered windows, explicit unknowns, PII exclusion, read-only DB and draft/publication distinction. All 204 hashes/line counts verified. No live query, credential access, provider call, scheduling or production change. Raw units remain28/32; next ce-proof.
+
+### Skills/prompts: publication and PR-feedback boundaries
+
+Read six complete markdown files; coverage 210/250 files, 32,180/36,169 lines. Added provisional P2 findings for unchecked Proof pull replacement and unsupported pre-existing-test classification. Extracted shell-command probe: structured error overwrites with null, empty response empties target, valid response preserves trailing newlines, malformed JSON preserves original. Added retry/privacy and escalation-contract questions; extended checkout provenance candidate. All 210 hashes/line counts verified. No external service call, credential access, PR mutation, subagent or production change. Raw units remain28/32; next recording-analysis skills.
