@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "b51ddd8f33178f922a27426685f50db71faac4083c2477b292c15d6c62bb18e3"
+    "name_triage": "3e13ade2a465c838d87b68720dcf0138680c798f7551a7566d283e42572b2f30"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 781,
-    "remaining_cross_module_names": 899,
-    "remaining_literal_entries": 2784
+    "reviewed_cross_module_names": 789,
+    "remaining_cross_module_names": 891,
+    "remaining_literal_entries": 2760
   },
   "families": [
-    {
-      "name": "coverage_status",
-      "clauses": 7,
-      "modules": 2,
-      "summed_source_span_lines": 15
-    },
-    {
-      "name": "coverage_text",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "create_session",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 41
-    },
-    {
-      "name": "credentials",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "credit_window",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 39
-    },
-    {
-      "name": "css",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 66
-    },
-    {
-      "name": "current_branch",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "current_configuration_generation",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
     {
       "name": "current_scope?",
       "clauses": 3,

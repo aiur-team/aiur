@@ -101987,10 +101987,418 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "coverage_status",
+      "assessment": "Grouped coverage counts and ledger uncertainty accumulation use different state machines.",
+      "constraints": [
+        "GroupedScopes maps zero known/unknown counts to none, only known to known, only unknown to unknown and mixed counts to partial.",
+        "CounterPolicy preserves prior unknown; prior partial remains partial unless the new envelope is unknown; other prior states use envelope update kind/reasons/cost to select full/partial/unknown.",
+        "Preserve aggregate count classification versus sticky per-counter uncertainty. Caller count validity and envelope coverage helpers remain transitive."
+      ],
+      "clauses": 7,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 272,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "coverage_status",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 272,
+          "body_sha256": "2c5c97c78073f6dec15597043895648c08ddcbcdef2e050f5f6b34e979ac49ec",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 273,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "coverage_status",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 273,
+          "body_sha256": "d15580e036bd79ad61cca892492e21a026a6407927fd6710774321daeeb5ddad",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 274,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "coverage_status",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 274,
+          "body_sha256": "0923e42f28e53b351b6f64ffdf39e6e837a414f6e0975a624751da1308c285d5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 275,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "coverage_status",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 275,
+          "body_sha256": "25f2a6fc294506d872328ea560c18d9300ca381358c19e7dfcb88e3de724e19a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 277,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "coverage_status",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 277,
+          "body_sha256": "0923e42f28e53b351b6f64ffdf39e6e837a414f6e0975a624751da1308c285d5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 279,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "coverage_status",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 281,
+          "body_sha256": "17a74c11dbd66d0480e2ea7693095b6e704f500a7aeef4f69f534a54644821bc",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 283,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "coverage_status",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 289,
+          "body_sha256": "96d349d70f9cf918706d8ac1209471049a72685a9981bc2a4c3bbde5d65d9af1",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "coverage_text",
+      "assessment": "Coverage prose serves different sentence contexts with explicit unknown handling.",
+      "constraints": [
+        "RunSummary component emits Coverage unknown for nil or a statement about eligible weight measured.",
+        "RunSummaryPresenter emits an unknown share for nil or a percent phrase.",
+        "Keep unknown evidence and eligible-weight meaning; common number formatting may be shared, but these strings are not identical UI contracts."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 173,
+          "module": "AiurWeb.OperatorControlCenter.RunSummary",
+          "name": "coverage_text",
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary.ex",
+          "kind": "defp",
+          "end_line": 173,
+          "body_sha256": "5ada27698f73e3371d29ab3ae9154662ca14c44a7bc99d1dbce5bf0dceb16306",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 174,
+          "module": "AiurWeb.OperatorControlCenter.RunSummary",
+          "name": "coverage_text",
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary.ex",
+          "kind": "defp",
+          "end_line": 174,
+          "body_sha256": "8170a6004e1cd7e9de0aefeb4ab5971cf9255a330d046798e815af00857470c3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 143,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryPresenter",
+          "name": "coverage_text",
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 143,
+          "body_sha256": "be1496889345c8b122aca31e8cdaaad69d6ee27f78bfabce7fec414d1ae605cd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 144,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryPresenter",
+          "name": "coverage_text",
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 144,
+          "body_sha256": "b28333b4b5c0d7fcb5ce5c7d56e69802cf0a4f64250ccc771ed2cc6f96540c77",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "create_session",
+      "assessment": "HTTP session creation and per-issue setup are already separate layers.",
+      "constraints": [
+        "ApiClient creates a title/model body, optionally URL-encodes directory and posts to /session.",
+        "SessionWriterRegistry derives a workspace/model, attempts mkdir_p and accepts three binary-ID response shapes, otherwise returning unexpected_response or the request error.",
+        "Preserve request building versus workspace setup/response normalization; ignored mkdir result and successful ID extraction do not prove a usable rendered session. No session was created."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 9,
+          "module": "Aiur.Opencode.ApiClient",
+          "name": "create_session",
+          "path": "src/lib/aiur/opencode/api_client.ex",
+          "kind": "def",
+          "end_line": 9,
+          "body_sha256": "b2c797c3db2327a3b51345b1690ca2e678287631cab6cff2d29c6d864f0a800c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 20,
+          "module": "Aiur.Opencode.ApiClient",
+          "name": "create_session",
+          "path": "src/lib/aiur/opencode/api_client.ex",
+          "kind": "def",
+          "end_line": 36,
+          "body_sha256": "71f0d0da0de883ea703e033016265abea2e38ee740bc5cd968a3a041db7aa140",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 170,
+          "module": "Aiur.Opencode.SessionWriterRegistry",
+          "name": "create_session",
+          "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+          "kind": "defp",
+          "end_line": 192,
+          "body_sha256": "61aaa3e72dc33de4d0db1dc26a13afb5312a775c60001ffbf2d8ad7cd6b3e3fb",
+          "normalized_body_lines": 19,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "credentials",
+      "assessment": "Resolvable GitHub credential enumeration and dashboard credential sourcing differ.",
+      "constraints": [
+        "CredentialRegistry filters configured entries through resolvable?.",
+        "FinancialDataAccess.Proof accepts an explicit username/password tuple, maps explicit nil/invalid overrides to absent values and reads environment only when the option is absent.",
+        "Preserve explicit override precedence and provider domains; no environment credentials were read, and sourced/resolvable values do not prove authentication success."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 38,
+          "module": "Aiur.GitHub.CredentialRegistry",
+          "name": "credentials",
+          "path": "src/lib/aiur/github/credential_registry.ex",
+          "kind": "def",
+          "end_line": 42,
+          "body_sha256": "2255041d749ad7f120d9f9e877c541be6e29a80c7255fbd0d288f2358ff2ccc0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 58,
+          "module": "AiurWeb.FinancialDataAccess.Proof",
+          "name": "credentials",
+          "path": "src/lib/aiur_web/financial_data_access/proof.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "3c9b5dca8bbaf2bda329e4119983559f60c521a1c8fc3973098412d5caefd59f",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "credit_window",
+      "assessment": "Boolean credit capability and amount-based credit probes carry different evidence.",
+      "constraints": [
+        "Codex.RateLimitAdapter accepts absent/nil credits as no window, requires boolean hasCredits/unlimited for a supported window and rejects malformed shapes.",
+        "OpenAICompat.ProviderMeterProbe constructs amount/remaining fields, available-versus-exhausted status, a five-minute expiry and optional used_percent.",
+        "Preserve status-only versus measured-amount schemas, expiry and malformed-input handling; amount validity and credit_status policy are not independently certified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 284,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "name": "credit_window",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 307,
+          "body_sha256": "76afd781d40fe3a5b7074745132605ef8830b0b8e8dce1cf3865946af5136704",
+          "normalized_body_lines": 28,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 187,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "credit_window",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 201,
+          "body_sha256": "dde53f742a229d3346e557c66bbcbb95d2f27fc8e4726dcebb361bb2c516ce9d",
+          "normalized_body_lines": 32,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "css",
+      "assessment": "Style accessors cover separate visual surfaces and storage forms.",
+      "constraints": [
+        "Analytics.Styles returns literal CSS for analytics controls/charts/legends, theme colors and responsive breakpoints; the full literal body was read.",
+        "GitHubCache.Styles returns its css module attribute.",
+        "No semantic duplication follows from the generic accessor name. The attribute contents, cross-surface token reuse and rendered responsiveness are not certified by this family read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 13,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Styles",
+          "name": "css",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/styles.ex",
+          "kind": "def",
+          "end_line": 77,
+          "body_sha256": "02d2de92b45290e7720cf14d130eeb808750c9f9de4d4432b90f6a95c9690db4",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 387,
+          "module": "AiurWeb.OperatorControlCenter.GithubCache.Styles",
+          "name": "css",
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/styles.ex",
+          "kind": "def",
+          "end_line": 387,
+          "body_sha256": "d35d7a6e8a2de223f7dc5b58fca05bd4ef4c241f7523b1697b6d7bf000f101fc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "current_branch",
+      "assessment": "Workspace branch lookup and removal-hook branch lookup differ in execution context.",
+      "constraints": [
+        "Workspace.Checkout invokes symbolic-ref --quiet --short HEAD with explicit git -C workspace, returning trimmed output on zero status and nil otherwise.",
+        "Workspace.BeforeRemove uses run_command for git branch --show-current, maps empty output/errors to nil and returns a nonempty trimmed branch.",
+        "Preserve explicit workspace targeting and empty-output policy. No branch was queried through these functions; command wrapper behavior and wrong-checkout protection remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "Aiur.Workspace.Checkout",
+          "name": "current_branch",
+          "path": "src/lib/aiur/workspace/checkout.ex",
+          "kind": "def",
+          "end_line": 86,
+          "body_sha256": "c33906b60debf35afbbb193d2eed66e270546bef57f4f158ceb83b4d4110a15e",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 117,
+          "module": "Mix.Tasks.Workspace.BeforeRemove",
+          "name": "current_branch",
+          "path": "src/lib/mix/tasks/workspace.before_remove.ex",
+          "kind": "defp",
+          "end_line": 128,
+          "body_sha256": "998d1a5c9a7a952ca739cb7a38794bac855ff555909a981971dd98aa16ab97f8",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "current_configuration_generation",
+      "assessment": "FinancialDataAccess already delegates generation acquisition to Proof.",
+      "constraints": [
+        "The facade supplies its version to Proof.current_configuration_generation.",
+        "Proof returns configuration generation on success and authentication_required for other results.",
+        "Preserve failure policy and proof owner boundary; returned configuration generation alone does not authorize a session or establish connection generation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 136,
+          "module": "AiurWeb.FinancialDataAccess",
+          "name": "current_configuration_generation",
+          "path": "src/lib/aiur_web/financial_data_access.ex",
+          "kind": "def",
+          "end_line": 136,
+          "body_sha256": "33010103b6d0df92b4efc3de9e0d42b4922230dc99a1d475418c43bce45e091b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 133,
+          "module": "AiurWeb.FinancialDataAccess.Proof",
+          "name": "current_configuration_generation",
+          "path": "src/lib/aiur_web/financial_data_access/proof.ex",
+          "kind": "def",
+          "end_line": 138,
+          "body_sha256": "56669c8a2c9a9ffb1e0a3138db2b66adf0daad4d6369bae7e10da62e7320f96f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7484,
-  "limits": "781 selected families and 7484 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7508,
+  "limits": "789 selected families and 7508 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
