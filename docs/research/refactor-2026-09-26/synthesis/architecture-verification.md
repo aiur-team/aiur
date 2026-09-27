@@ -96,3 +96,35 @@ and `read_cache/metrics.ex:60` (paths relative to `src/lib/aiur/github`). These
 are allocation sites, including a private per-cycle table, not a live table
 census. Seven direct GenServer definitions are likewise not proof of seven
 processes running on this machine.
+
+## Attention-routing check in progress
+
+`attention-routing-audit.json` checks direct default binding membership for
+synthetic examples of the eleven alert families named by claim codebase-07.
+None matches the 26 defaults. The metadata `needs_attention` and severity do
+not affect `ExecutorListener.matching_fresh_event?/2` (lines 169–178), which
+requires a matching topic plus the Executor watermark rule. `Alerts` publishes
+that metadata through the Exchange; `ExecutorWakeProjection` preserves it.
+
+This establishes a direct-topic gap, not that each underlying condition is
+invisible. `OperatorMessages` emits an `agent.attention.paused-<cause>` topic
+for a working-to-paused transition (lines 896–907, 938–940), invoked by
+`PauseResume.transition_control_status/4` (lines 1238–1262). Synthetic usage-limit
+and global-pause examples match the existing attention wildcard. The paired
+`.resolved` topic has another segment and does not match that wildcard. These
+are static path and membership checks, not observations of live delivery.
+
+The frozen aiur-run skill says 24 bindings (lines 267–268, 337), and its jq
+monitor filter names eight topic classes (line 306), omitting some defaults.
+The aiur-monitor `watch-alerts.sh` explicitly excludes the central alert file
+(lines 18–24) and discovers workspace `agent.ndjson` files (line 402). Treat
+these as different consumers with differing coverage, not as proof that all
+routing is performed by the skill filter.
+
+Claim codebase-07 remains open: the original approximately 81 literal topics /
+50 unmatched topics have not been independently reproduced as an emission-site
+census. Literal searches conflate declarations, documentation and emitters and
+miss dynamic helpers. Complete that census and check other condition-level
+paths before assigning lost idle time or prescribing a blanket wake policy.
+A policy must distinguish actionable alerts, automatic recovery, intentional
+pause and resolution events to avoid unnecessary Executor wakeups.

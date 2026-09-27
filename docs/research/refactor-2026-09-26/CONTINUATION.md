@@ -46,7 +46,9 @@ Six additional combined checks cover `codebase-02` through `codebase-06` and
 See `synthesis/architecture-verification.md` for corrected conclusions,
 revision-specific graph counts, reproduction commands and parser limitations.
 The graph tool parses source without compiling or booting Aiur. Both saved
-summaries reproduce exactly. Attention routing (`codebase-07`) remains open.
+summaries reproduce exactly. Attention routing (`codebase-07`) remains open. The checkpoint now includes a
+14-topic membership sample and confirmed alternate pause-attention path; the
+complete emit-site census and condition-level coverage remain outstanding.
 
 Privacy corrections preserve every numerical CSV measurement and public row;
 76 private identifier/chronology cells were blanked. Three verdict fields were

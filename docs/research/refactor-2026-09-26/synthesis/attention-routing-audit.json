@@ -1,0 +1,68 @@
+{
+  "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "method": "Read defaults directly from ExecutorBindings; independent AMQP segment matcher checked against the pure Topic source. EXAMPLE is a synthetic ticket segment. This table proves direct default-pattern membership, not live delivery or absence of another alert for the same condition.",
+  "default_pattern_count": 26,
+  "samples": [
+    {
+      "topic": "system.pr_health.stale_unreviewed",
+      "matching_defaults": []
+    },
+    {
+      "topic": "system.pr_health.unmergeable_author",
+      "matching_defaults": []
+    },
+    {
+      "topic": "ticket.EXAMPLE.agent.stalled",
+      "matching_defaults": []
+    },
+    {
+      "topic": "ticket.EXAMPLE.agent.thrash_circuit_open",
+      "matching_defaults": []
+    },
+    {
+      "topic": "ticket.EXAMPLE.agent.usage_limit_exhausted",
+      "matching_defaults": []
+    },
+    {
+      "topic": "ticket.EXAMPLE.agent.model_fallback_waiting",
+      "matching_defaults": []
+    },
+    {
+      "topic": "system.executor_takeover.EXAMPLE",
+      "matching_defaults": []
+    },
+    {
+      "topic": "system.supervision.degraded",
+      "matching_defaults": []
+    },
+    {
+      "topic": "system.build_gate.hold_timeout.slot-1",
+      "matching_defaults": []
+    },
+    {
+      "topic": "system.ci_readiness.not_ready",
+      "matching_defaults": []
+    },
+    {
+      "topic": "system.github.budget_broker_degraded",
+      "matching_defaults": []
+    },
+    {
+      "topic": "ticket.EXAMPLE.agent.attention.paused-usage_limit_exhausted",
+      "matching_defaults": [
+        "ticket.*.agent.attention.*"
+      ]
+    },
+    {
+      "topic": "ticket.EXAMPLE.agent.attention.paused-global_pause",
+      "matching_defaults": [
+        "ticket.*.agent.attention.*"
+      ]
+    },
+    {
+      "topic": "ticket.EXAMPLE.agent.attention.paused-global_pause.resolved",
+      "matching_defaults": []
+    }
+  ],
+  "limits": "Not a census of all emitted topics. The original 81/~50 counts are withdrawn from authoritative conclusions pending a complete AST emit-site census, including dynamic helpers. No runtime experiment was run."
+}
