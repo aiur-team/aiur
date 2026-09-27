@@ -1238,3 +1238,7 @@ Read format_reason, git, handle, handle_interrupt_error, handle_malformed, handl
 ### Name duplication: identity keys and channel admission
 
 Read idempotency_key, increment, index, interrupt, interval_ms, issue_context, issue_identifier and join: 35 literal entries across eight families. Preserve identity-domain fields, counter failure visibility, internal versus display identifiers, runtime cadence unavailability and channel authority/lease semantics. Issue-context formatting is equivalent apart from input shape; checked Issue/delegation aliases and interval/hash-slot constants. Name triage now 477 families/6349 entries, leaving 1203 cross-module names. Raw findings and skeptic counts are unchanged; no complete delivery, authorization or savings claim is added.
+
+### Name duplication: serialization and liveness evidence
+
+Read journal_path, json_safe, known, legacy_page, legacy_path, lifecycle_fact, line and live_running_entry?: 54 literal entries across eight families. Two SVG builders and their rounding helpers match; three running-entry predicates check PID shape only. Preserve tuple normalization, unavailable pagination evidence, separate durable paths and the internal-to-public lifecycle allowlist. Read JSON key/surrounding clauses, legacy filename helpers and SVG rounding helpers. Name triage now 485 families/6403 entries, leaving 1195 cross-module names. Raw findings and skeptic counts are unchanged; no universal JSON safety, privacy or process-liveness guarantee is added.

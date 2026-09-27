@@ -83711,10 +83711,781 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "journal_path",
+      "assessment": "Journal accessors intentionally select different durable streams.",
+      "constraints": [
+        "Executor.StatePaths selects path_for journal; ExecutorEvents delegates to its journal_path, while ExecutorWakeInbox delegates to wakes_path.",
+        "Common path authority already exists. Preserve event-journal versus wake-inbox identity; their shared local helper name does not mean shared storage."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 70,
+          "module": "Aiur.Executor.StatePaths",
+          "name": "journal_path",
+          "path": "src/lib/aiur/executor/state_paths.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "5c58bddb977020533bafd390b92c22fed488a0ab35bb62c806ed6be4b2d8ebdb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 523,
+          "module": "Aiur.ExecutorEvents",
+          "name": "journal_path",
+          "path": "src/lib/aiur/executor_events.ex",
+          "kind": "defp",
+          "end_line": 523,
+          "body_sha256": "8eb7f3e146d99da94d65d78c559a15c5db275cd613456c76d5e5705c7f118eca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 616,
+          "module": "Aiur.ExecutorWakeInbox",
+          "name": "journal_path",
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "kind": "defp",
+          "end_line": 616,
+          "body_sha256": "16b3a6192191fd1057841ac80d364c14b368f3d3478dbaa98c005eca858d3380",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "json_safe",
+      "assessment": "JSON normalization differs in recursion and supported values.",
+      "constraints": [
+        "AgentEventLog and IssueLog recursively normalize DateTime, maps and lists while preserving nil/booleans and stringifying other atoms.",
+        "AgentEventLog additionally turns tuples into recursively normalized lists; IssueLog leaves tuples through its catch-all. Their map-key helper and surrounding clauses were read.",
+        "CostReport only updates scope and contributors through ticket-stringification helpers; it is not a generic recursive normalizer.",
+        "Neither logging catch-all proves all remaining terms are JSON-encodable, and normalization is not redaction. Preserve tuple/error evidence and key-collision semantics before extraction; real input populations were not measured."
+      ],
+      "clauses": 16,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 85,
+          "module": "Aiur.AgentEventLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 85,
+          "body_sha256": "6444c08becce56613845e01d5aabd6f64c8b795a692edf1b20cd650915793cd3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 86,
+          "module": "Aiur.AgentEventLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 86,
+          "body_sha256": "cb625d9d83019ff3a4ebfa62517179db024b2fac078dcd6dcb1d28752f4b0a56",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 87,
+          "module": "Aiur.AgentEventLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 87,
+          "body_sha256": "716ce104d27f727f0b40507958ed080d8e33fd50c9b68fc96fc2d33981f2ad19",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 91,
+          "module": "Aiur.AgentEventLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 91,
+          "body_sha256": "6a1d8650a7f2f225643d1024570e323f50e87dcfa1d43eb185c93e710fe68a28",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Aiur.AgentEventLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 92,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 93,
+          "module": "Aiur.AgentEventLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 94,
+          "module": "Aiur.AgentEventLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "f9418266f3faac9ec37bdb40b475414e776fd80c62fe32e972df46de691f6015",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 95,
+          "module": "Aiur.AgentEventLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 95,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 756,
+          "module": "Aiur.IssueLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 756,
+          "body_sha256": "6444c08becce56613845e01d5aabd6f64c8b795a692edf1b20cd650915793cd3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 758,
+          "module": "Aiur.IssueLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 760,
+          "body_sha256": "1dd2b8670e082f9a7ef869b640882757dd2d598cf327d9a317e9bbeebacaffeb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 762,
+          "module": "Aiur.IssueLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 762,
+          "body_sha256": "716ce104d27f727f0b40507958ed080d8e33fd50c9b68fc96fc2d33981f2ad19",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 769,
+          "module": "Aiur.IssueLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 769,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 770,
+          "module": "Aiur.IssueLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 770,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 771,
+          "module": "Aiur.IssueLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 771,
+          "body_sha256": "f9418266f3faac9ec37bdb40b475414e776fd80c62fe32e972df46de691f6015",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 772,
+          "module": "Aiur.IssueLog",
+          "name": "json_safe",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 772,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 363,
+          "module": "Mix.Tasks.Aiur.CostReport",
+          "name": "json_safe",
+          "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+          "kind": "defp",
+          "end_line": 367,
+          "body_sha256": "29913f41fc3cb61aacdee5b7ce2453013eb08e146235e9bb07d4f357e696a8dd",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "known",
+      "assessment": "Known-value presentation and account-generation snapshots are different concepts.",
+      "constraints": [
+        "ProviderAccountGeneration.Snapshot constructs current/healthy metadata with supplied identity and observed_at; this function itself does not validate those inputs.",
+        "UnitsTable accepts a nonempty binary or caller fallback; ConversationDrawer.Presenter uses the same binary predicate and a fixed Unknown fallback.",
+        "The two display selectors can share mechanics while retaining fallback choice; neither selector validates observation freshness."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 7,
+          "module": "Aiur.ProviderAccountGeneration.Snapshot",
+          "name": "known",
+          "path": "src/lib/aiur/provider_account_generation/snapshot.ex",
+          "kind": "def",
+          "end_line": 19,
+          "body_sha256": "4a9a12105e404f796982e300a3ac09e74723882a17009359de8d7afa0e64dfe1",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 401,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "known",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 401,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 402,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "known",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 402,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 403,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "known",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 403,
+          "body_sha256": "5eee631634ce0a65650e713d7df0ef77ad33491494e2da61441f310eaae47f42",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 240,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter",
+          "name": "known",
+          "path": "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+          "kind": "defp",
+          "end_line": 240,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 241,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter",
+          "name": "known",
+          "path": "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+          "kind": "defp",
+          "end_line": 241,
+          "body_sha256": "e89d840b64baa55ca353b36317a1df5cb7cf4833f82c5c2f80122d4827a3cf96",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "legacy_page",
+      "assessment": "Legacy pagination spans API adaptation, query policy and retained-store admission.",
+      "constraints": [
+        "LegacyPagination derives next_offset only when next_cursor is binary and returned decisions are nonempty, then overlays requested limit/offset.",
+        "DecisionQuery validates input types, forces cursor nil/current ordering, delegates to StoreReader and maps unavailable store to a successful unavailable-page projection.",
+        "RetainedSnapshot separately checks valid query and readable health before building a legacy snapshot.",
+        "These are complementary layers. Preserve unavailable versus empty evidence, offset semantics and retained-read policy; helper correctness and concurrent traversal consistency remain unverified."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 46,
+          "module": "Aiur.DecisionApi.LegacyPagination",
+          "name": "legacy_page",
+          "path": "src/lib/aiur/decision_api/legacy_pagination.ex",
+          "kind": "defp",
+          "end_line": 59,
+          "body_sha256": "502c07cfe71e1c9e5e753eab884b1833356ac1be026dba1742e3ddbb72989bb3",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 60,
+          "module": "Aiur.DecisionQuery",
+          "name": "legacy_page",
+          "path": "src/lib/aiur/decision_query.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 4,
+          "line": 62,
+          "module": "Aiur.DecisionQuery",
+          "name": "legacy_page",
+          "path": "src/lib/aiur/decision_query.ex",
+          "kind": "def",
+          "end_line": 72,
+          "body_sha256": "e47a6e2c896bd9c6194bafbfc3e088b68b8e36412491315966aeb37c2ab368bd",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 74,
+          "module": "Aiur.DecisionQuery",
+          "name": "legacy_page",
+          "path": "src/lib/aiur/decision_query.ex",
+          "kind": "def",
+          "end_line": 74,
+          "body_sha256": "6079e684101f1b8a4d55c376162c8827c4bfd79a7e04bfef1e09f7a595653d8e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 65,
+          "module": "Aiur.DecisionStore.RetainedSnapshot",
+          "name": "legacy_page",
+          "path": "src/lib/aiur/decision_store/retained_snapshot.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "9b9efaba0d20272c1e38140b885b702d2ec228a95350bbdf439396d037e555c1",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 75,
+          "module": "Aiur.DecisionStore.RetainedSnapshot",
+          "name": "legacy_page",
+          "path": "src/lib/aiur/decision_store/retained_snapshot.ex",
+          "kind": "def",
+          "end_line": 75,
+          "body_sha256": "462a61e9fd249bfef0317dd1716cca5408f725341ab0d9adc5d2a3879afb2aed",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "legacy_path",
+      "assessment": "Legacy paths share root mechanics but preserve separate migration identities.",
+      "constraints": [
+        "CiApprovalStore and Events.IdGenerator join log_root_dir with repo-prefixed legacy filenames; helpers were read and select ci-approvals.json versus event_id.",
+        "Executor.StatePaths uses its keyed legacy-name map under the same root and repo prefix.",
+        "Consolidation must preserve filenames and migration lookup behavior; matching path construction does not prove common retention, migration or authority policy."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 160,
+          "module": "Aiur.CIApprovalStore",
+          "name": "legacy_path",
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "kind": "def",
+          "end_line": 160,
+          "body_sha256": "4bd0a5ba3d83686c1dbe616d73b518b5d8d17b179159223b36f965a95f1213b8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 290,
+          "module": "Aiur.Events.IdGenerator",
+          "name": "legacy_path",
+          "path": "src/lib/aiur/events/id_generator.ex",
+          "kind": "def",
+          "end_line": 290,
+          "body_sha256": "4bd0a5ba3d83686c1dbe616d73b518b5d8d17b179159223b36f965a95f1213b8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 97,
+          "module": "Aiur.Executor.StatePaths",
+          "name": "legacy_path",
+          "path": "src/lib/aiur/executor/state_paths.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "ce455247f254b27dab0f3b0a2f39ea56099ec58ff9f41f6119079b8e00931eed",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "lifecycle_fact",
+      "assessment": "Lifecycle facts are constructed internally, sanitized and then publicly projected.",
+      "constraints": [
+        "DecisionProjection retains action, actor, source, detail, occurred_at, event_id and run_id from an event.",
+        "DecisionSanitizer projects only action_id/occurred_at and a sanitized actor; nil remains nil.",
+        "PublicLifecycleProjection invokes the sanitizer and emits string-keyed action_id, actor and timestamp fields.",
+        "Keep provenance-rich internal evidence separate from the public allowlist. The stages are not redundant copies; nested actor/timestamp privacy guarantees require separate verification."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 94,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "lifecycle_fact",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "def",
+          "end_line": 94,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 96,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "lifecycle_fact",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "def",
+          "end_line": 104,
+          "body_sha256": "c4d175947bc7cde601fb868d15364efbfdb2b9eb6a7479b74f433eefda740f02",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 823,
+          "module": "Aiur.DecisionProjection",
+          "name": "lifecycle_fact",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 833,
+          "body_sha256": "f826388d6fc8e954ab3e7806853279891865c14031d79e5ecca0e19ab52f9d31",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 31,
+          "module": "Aiur.DecisionSanitizer",
+          "name": "lifecycle_fact",
+          "path": "src/lib/aiur/decision_sanitizer.ex",
+          "kind": "def",
+          "end_line": 31,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 33,
+          "module": "Aiur.DecisionSanitizer",
+          "name": "lifecycle_fact",
+          "path": "src/lib/aiur/decision_sanitizer.ex",
+          "kind": "def",
+          "end_line": 37,
+          "body_sha256": "df8fb0c3706ee99b321b170786828355e9384e7ddbe851fb5babdc7c94ee1363",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "line",
+      "assessment": "Two SVG path builders are equivalent; log-line rendering is a separate domain.",
+      "constraints": [
+        "Analytics.Charts and GitHubCache.Charts emit M/L coordinate sequences or an empty string for no points.",
+        "Their r2 helpers were read and both round numeric inputs converted to float to two decimals, supporting a shared SVG helper candidate.",
+        "StreamdeckLogs renders event headers, messages, diff lines and diff summaries with an INFO fallback.",
+        "Retain SVG numeric formatting and log projection contracts separately; these functions do not establish upstream escaping or complete rendering safety."
+      ],
+      "clauses": 9,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 510,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "line",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 512,
+          "body_sha256": "20d2e69fb2a3b5172968a3381caa42da828841ae15130b7f6c9a57001cd90f52",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 514,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "line",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 514,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 306,
+          "module": "AiurWeb.OperatorControlCenter.GithubCache.Charts",
+          "name": "line",
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "kind": "defp",
+          "end_line": 308,
+          "body_sha256": "20d2e69fb2a3b5172968a3381caa42da828841ae15130b7f6c9a57001cd90f52",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 310,
+          "module": "AiurWeb.OperatorControlCenter.GithubCache.Charts",
+          "name": "line",
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "kind": "defp",
+          "end_line": 310,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 250,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "line",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "def",
+          "end_line": 250,
+          "body_sha256": "99fa3366de43615e50e88001d8a5b28ab1f150ebef1415b607b4b59aacd376a6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 251,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "line",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "def",
+          "end_line": 251,
+          "body_sha256": "fd276451233e05b9a0e88a25ed13126c49f0e243a8883af80f63f7e09fc5b9ee",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 255,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "line",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "def",
+          "end_line": 255,
+          "body_sha256": "98e886bf9ee8f9e307c73d2ad226eb0ee80813ebe90b31595447cb61452ad0e7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 257,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "line",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "def",
+          "end_line": 259,
+          "body_sha256": "0962b5af41fb9e75209c46b4a302f980d8baf05517c76c0ec904009b45a6c675",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 261,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "line",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "def",
+          "end_line": 261,
+          "body_sha256": "f002b06b3da52ad22a1076d6388c8093fe543acc14958b6e0db126e28a83f681",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "live_running_entry?",
+      "assessment": "Three identical predicates check PID shape rather than process liveness.",
+      "constraints": [
+        "RateLimitFallback, RemoteControlMode and RetryEngine return true for a map containing a pid-valued pid and false otherwise.",
+        "No literal clause calls Process.alive? or another liveness observer.",
+        "These can share a shape predicate, but naming or consolidation must not convert PID presence into proof of a live worker. Caller fencing and stale-entry populations were not established here."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 525,
+          "module": "Aiur.Orchestrator.RateLimitFallback",
+          "name": "live_running_entry?",
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "kind": "defp",
+          "end_line": 525,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 526,
+          "module": "Aiur.Orchestrator.RateLimitFallback",
+          "name": "live_running_entry?",
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "kind": "defp",
+          "end_line": 526,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 215,
+          "module": "Aiur.Orchestrator.RemoteControlMode",
+          "name": "live_running_entry?",
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "kind": "defp",
+          "end_line": 215,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 216,
+          "module": "Aiur.Orchestrator.RemoteControlMode",
+          "name": "live_running_entry?",
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "kind": "defp",
+          "end_line": 216,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1403,
+          "module": "Aiur.Orchestrator.RetryEngine",
+          "name": "live_running_entry?",
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "kind": "defp",
+          "end_line": 1403,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1404,
+          "module": "Aiur.Orchestrator.RetryEngine",
+          "name": "live_running_entry?",
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "kind": "defp",
+          "end_line": 1404,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6349,
-  "limits": "477 selected families and 6349 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6403,
+  "limits": "485 selected families and 6403 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
