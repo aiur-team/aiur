@@ -161,7 +161,14 @@
       "disposition": "corroborated_six_integer_bounds_existing_reuse",
       "assessment": "Verified six unsigned-64 literal sites: five attributes plus inline aggregate checkpoint bound. Record.bounded_integer? already serves Ledger.Checkpoint and CounterPolicy. A common storage bound is supported, but retain positive/nonnegative domains and contextual error atoms. RetiredFloor writer/load bound asymmetry needs caller review. Checksum, quarantine, atomic-write, degraded-marker and complete cell-codec recommendations are not all reverified by this constant pass.",
       "evidence": "constant-triage.json"
+    },
+    {
+      "finding_id": "web-occ-09",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_four_freshness_label_mappings",
+      "assessment": "Read all25freshness_label clauses. Four presenters map stale to Healthy, while ConversationDrawer keeps Stale and GitHubCache uses older. This confirms a subset of the inherited label-collapse finding; it does not independently verify all nine locations, test assertions or the historical product-decision explanation. Status atoms remain alongside labels at inspected ProviderMeters and CurrentRunOutcomes call sites. Link this evidence to the original finding instead of counting another defect.",
+      "evidence": "duplication-name-triage.json"
     }
   ],
-  "limits": "Ten selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
+  "limits": "Eleven selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
 }

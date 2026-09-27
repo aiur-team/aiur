@@ -858,3 +858,7 @@ Closed the skills-prompts raw unit as reviewed_pending_synthesis after revalidat
 ### Name duplication: filesystem and control-call contracts
 
 Read all six atomic_write and all six control_api_call definitions. Four filesystem wrappers already use Fs; spill writing adds exclusive creation/containment and a different result shape. Control-call extraction must preserve configured versus caller/fixed timeouts and PauseResume's specific crash reasons. Updated name triage to9families/170literal definitions; no extra raw finding or savings count, because common bodies overlap the body sweep. Callback/name sweep remains incomplete.
+
+### Name duplication: age, freshness and count contracts
+
+Read21age_label,25freshness_label and18count_label clauses across six modules per family. Preserve units, missingness, partial/truncated counts and vocabulary differences. Four stale-to-Healthy mappings corroborate part of web-occ-09; linked without adding a new defect or validating the full inherited claim. Name triage now12families/234literal definitions; callback and remaining-name review still open.
