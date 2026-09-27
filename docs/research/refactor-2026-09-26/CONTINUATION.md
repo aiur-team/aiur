@@ -671,3 +671,18 @@ behavior guarantees are claimed. Reproduce regex census with elixir
 tooling/regex_census.exs /path/to/snapshot; fixtures use
 python3 tooling/test_regex_census.py. Semantic review of remaining regex groups
 and the broader numeric/string-key sweep remain open.
+
+## Regex candidate assessment checkpoint
+
+All 28 cross-module sigil groups now have source-consumer assessments in
+regex-triage.json, with every listed site inspected and source hashes matched.
+This completes the generated regex candidate assessment, not the constant unit.
+Dynamic Regex.compile strings and broader numeric/key analysis remain open.
+
+Existing owners support reuse for EnvRef dollar-reference recognition and
+Config.Paths filename sanitization. Git/Init origin parsing matches, while
+RepoBase retains additional path safeguards. Shared request attribution must
+preserve atom/string output boundaries. Identifier hashing, rejection, redaction,
+length limits, topic identity and nil policies remain distinct. Terminal scrubbing
+replaces the same controls other validators reject; diff display preserves leading
+spaces that generic single-line display can discard. No production code changed.
