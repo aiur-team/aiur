@@ -4,77 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "7f86be9fd4294e351ce23138beab0ed481c2a7472770ac59298c1f068dce703f"
+    "name_triage": "64296038383a8799a71b492de31403e7fe0fdc8ef7cb150ecbe5b3ea6cfdfb93"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 657,
-    "remaining_cross_module_names": 1023,
-    "remaining_literal_entries": 3144
+    "reviewed_cross_module_names": 667,
+    "remaining_cross_module_names": 1013,
+    "remaining_literal_entries": 3118
   },
   "families": [
-    {
-      "name": "approved?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 25
-    },
-    {
-      "name": "arrival_version",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "artifacts",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "assign_usage_view",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "atom_name",
-      "clauses": 6,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "atomic_install",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "attach_selected",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "attention_topic",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "attribute_value",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "attributes",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 30
-    },
     {
       "name": "authenticate",
       "clauses": 3,

@@ -95807,10 +95807,472 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "approved?",
+      "assessment": "Remote standing-review acquisition differs from a context classification predicate.",
+      "constraints": [
+        "HumanReviewGate acquires pull request reviews through ResourceFetch with decision freshness, an injectable conditional fetcher and store ETag; unavailable/non-list results return false.",
+        "ReviewFreshness uppercases a binary review_decision and compares it with the verified APPROVED constant.",
+        "Preserve read/failure policy versus local classification. The source comment's quota-saving claim is not verified by reading this mechanism; standing-verdict semantics and head freshness remain outside this literal comparison."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 146,
+          "module": "Aiur.GitHub.HumanReviewGate",
+          "name": "approved?",
+          "path": "src/lib/aiur/github/human_review_gate.ex",
+          "kind": "defp",
+          "end_line": 164,
+          "body_sha256": "0102b34ba43f47d3ca1cba2f97748848ef75e684371b2153e9a68f3d31a8eaec",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 48,
+          "module": "Aiur.Orchestrator.ReviewFreshness",
+          "name": "approved?",
+          "path": "src/lib/aiur/orchestrator/review_freshness.ex",
+          "kind": "defp",
+          "end_line": 53,
+          "body_sha256": "6b8a2cb4704b1a0bdfd5dc9fd23809e5f45aa8d874e8b9ddb14fdef2294d8083",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "arrival_version",
+      "assessment": "Arrival timestamps share a format but differ in clock injection.",
+      "constraints": [
+        "Graph reconciliation emits current UTC time in ISO8601.",
+        "Webhook deposit uses an opts :at DateTime when supplied, otherwise current UTC time.",
+        "A shared clock/format helper must preserve injection. Neither function by itself proves unique or monotonic event versions."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 200,
+          "module": "Aiur.BuildOrder.GitHubGraph.Reconciliation",
+          "name": "arrival_version",
+          "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+          "kind": "defp",
+          "end_line": 200,
+          "body_sha256": "f7d4cf93142dd3b69934de4cf75cc08eefb1845d6791ae46f5283d7d4b530b90",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 732,
+          "module": "Aiur.Events.GithubWebhook.Deposit",
+          "name": "arrival_version",
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "kind": "defp",
+          "end_line": 737,
+          "body_sha256": "5a6ba97e89cd2f7f805a001d0952c59461ceb0744ae892a2799fbdd5e5e505ec",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "artifacts",
+      "assessment": "Public artifact projection already delegates sanitation.",
+      "constraints": [
+        "PublicProjection calls DecisionSanitizer.artifacts then serializes kind/value into string-keyed maps.",
+        "DecisionSanitizer accepts lists, processes map entries and drops other inputs; artifact helper keeps binary paths and delegates URL policy to safe_url_artifact.",
+        "Keep sanitation before projection. Binary-path acceptance is not a privacy or filesystem-access guarantee, and URL filtering was not certified here."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "Aiur.DecisionApi.PublicProjection",
+          "name": "artifacts",
+          "path": "src/lib/aiur/decision_api/public_projection.ex",
+          "kind": "defp",
+          "end_line": 88,
+          "body_sha256": "0d2e5158d94d226f573ec3d07a142836a637b56fb12a58d8b951ff1a2cf1d256",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 52,
+          "module": "Aiur.DecisionSanitizer",
+          "name": "artifacts",
+          "path": "src/lib/aiur/decision_sanitizer.ex",
+          "kind": "def",
+          "end_line": 57,
+          "body_sha256": "f8f837e1e50b26c9bcb17f58e511496603ae152fa6e6f659e77ef599e555e898",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 59,
+          "module": "Aiur.DecisionSanitizer",
+          "name": "artifacts",
+          "path": "src/lib/aiur/decision_sanitizer.ex",
+          "kind": "def",
+          "end_line": 59,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "assign_usage_view",
+      "assessment": "Usage assignment mechanics match with surface-specific socket keys.",
+      "constraints": [
+        "BuildOrder.UsageRuntime assigns bo_usage_view and bo_usage_announcement; DashboardLive assigns usage_summary and usage_summary_announcement.",
+        "Both call UsageSummaryPresenter.announcement(view).",
+        "A common assignment helper would need explicit keys; these functions alone do not prove announcement rendering or freshness disclosure."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 427,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "assign_usage_view",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 431,
+          "body_sha256": "476d91c6fab43b11ed2d57d10a1b1c265fe3823d25bdaedaafcbf5d5bf87b207",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1507,
+          "module": "AiurWeb.DashboardLive",
+          "name": "assign_usage_view",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1511,
+          "body_sha256": "0cac87352670890dd1deb52d683464e7e5cacc62d5044bc11053381ab82cbddd",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "atom_name",
+      "assessment": "Two public API projections have identical atom/string conversion.",
+      "constraints": [
+        "Both convert atoms with Atom.to_string, preserve binaries and return nil for other inputs.",
+        "The atom clause also accepts nil and booleans, converting them to strings; sharing must not silently change that behavior.",
+        "This is a concrete shared scalar primitive, not evidence of enum validation or complete public-schema equivalence."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 135,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "atom_name",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "defp",
+          "end_line": 135,
+          "body_sha256": "f9418266f3faac9ec37bdb40b475414e776fd80c62fe32e972df46de691f6015",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 136,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "atom_name",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "defp",
+          "end_line": 136,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 137,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "atom_name",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "defp",
+          "end_line": 137,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.DecisionApi.PublicProjection",
+          "name": "atom_name",
+          "path": "src/lib/aiur/decision_api/public_projection.ex",
+          "kind": "defp",
+          "end_line": 111,
+          "body_sha256": "f9418266f3faac9ec37bdb40b475414e776fd80c62fe32e972df46de691f6015",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 112,
+          "module": "Aiur.DecisionApi.PublicProjection",
+          "name": "atom_name",
+          "path": "src/lib/aiur/decision_api/public_projection.ex",
+          "kind": "defp",
+          "end_line": 112,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 113,
+          "module": "Aiur.DecisionApi.PublicProjection",
+          "name": "atom_name",
+          "path": "src/lib/aiur/decision_api/public_projection.ex",
+          "kind": "defp",
+          "end_line": 113,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "atomic_install",
+      "assessment": "Executable installation uses different temporary-file creation contracts.",
+      "constraints": [
+        "AgentCommandInstaller delegates to verified Aiur.Fs with mode 0755 and wraps errors with the supplied tag.",
+        "AgentGithubGuard opens its sibling temp exclusively, writes/closes/chmods/renames in sequence and attempts temp removal on a tagged error.",
+        "Read Fs atomic_write and helpers: the default path uses File.write without exclusive creation, applies mode then renames with cleanup; fsync is opt-in and not requested here. Preserve exclusive-create, error and descriptor-cleanup semantics before consolidation; no live failure incidence or crash durability is claimed."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 107,
+          "module": "Aiur.AgentCommandInstaller",
+          "name": "atomic_install",
+          "path": "src/lib/aiur/agent_command_installer.ex",
+          "kind": "defp",
+          "end_line": 115,
+          "body_sha256": "0874d8cf961aba04020a116b6b5d2e0cc609417cb610307f28eda464e8e63f29",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 494,
+          "module": "Aiur.AgentGitHubGuard",
+          "name": "atomic_install",
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "kind": "defp",
+          "end_line": 508,
+          "body_sha256": "ff3e091d75a753123104b0a6fbfce3b330e1ea38b71da0c945af066ca35ce3b3",
+          "normalized_body_lines": 20,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "attach_selected",
+      "assessment": "UI activation logic and asynchronous command ingress are different layers.",
+      "constraints": [
+        "Activation reads the selected summary, blocks completed entries through logging and otherwise calls attach_selected_agent; missing selection returns ok.",
+        "AgentList.App sends a GenServer.cast with attach_selected.",
+        "Keep command acceptance separate from selection validation and attachment completion; a cast return is not proof of an attached pane."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 27,
+          "module": "Aiur.AgentList.Activation",
+          "name": "attach_selected",
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "kind": "def",
+          "end_line": 39,
+          "body_sha256": "96eb85bc8159615b4ba1c064c537435cfc3b67cfef7e954c77bb84f8218c9b3c",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 63,
+          "module": "Aiur.AgentList.App",
+          "name": "attach_selected",
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "2b9d67d6ebb7b0aa028c0b03245aeee79609e6787ba8570c99ed71e9a50e3a7c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "attention_topic",
+      "assessment": "Attention topics use different identity suffixes.",
+      "constraints": [
+        "DecisionAttention combines issue identifier and attention slug.",
+        "DecisionAttentionSignals combines ticket identifier, kind and the first 16 lowercase hexadecimal characters of a SHA256 decision-ID digest.",
+        "Preserve event identity and deduplication domains; the truncated digest is not a proof of collision-free identity and no collision incidence is asserted."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 457,
+          "module": "Aiur.DecisionAttention",
+          "name": "attention_topic",
+          "path": "src/lib/aiur/decision_attention.ex",
+          "kind": "defp",
+          "end_line": 457,
+          "body_sha256": "06bd79388a798f52a4f145470d16ce10361eacbdd51de43f1791506ccda18252",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 176,
+          "module": "Aiur.DecisionAttentionSignals",
+          "name": "attention_topic",
+          "path": "src/lib/aiur/decision_attention_signals.ex",
+          "kind": "defp",
+          "end_line": 179,
+          "body_sha256": "898e1894a1bae6ece0e0d7fdd04fd7698ae97bd35d00ba73b846a813c590bd98",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "attribute_value",
+      "assessment": "Provider wire attributes and internal map attributes have different encodings.",
+      "constraints": [
+        "Claude.Telemetry.Event searches list entries for the matching key and a binary stringValue.",
+        "RunTelemetry.Writer reads an atom key then falls back to its string form through truthy-or semantics.",
+        "Do not conflate OTLP-style decoding with internal key compatibility; false atom values can fall through in the map accessor, and caller impact remains unverified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 299,
+          "module": "Aiur.Claude.Telemetry.Event",
+          "name": "attribute_value",
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "kind": "defp",
+          "end_line": 304,
+          "body_sha256": "6c4a36be0530a7b761965279936d644a0f2bdcc2c4d173f6a4dd10fb63ff9e69",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 621,
+          "module": "Aiur.RunTelemetry.Writer",
+          "name": "attribute_value",
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "kind": "defp",
+          "end_line": 621,
+          "body_sha256": "16be32ab5a55bdaaf11d533725ebbbe7bc1c2779da8f7605442091324c702a28",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "attributes",
+      "assessment": "Ticket-history allowlisting and lifecycle identity construction have different schemas.",
+      "constraints": [
+        "TicketHistoryNormalizer retains percent integers 0..100, atom stages brainstorm/plan/work/review, start/end transitions, boolean attention and info/warning/critical severity strings; nonmaps become empty maps.",
+        "RunTelemetry.Lifecycle sanitizes metadata, forms an identity tuple including ticket/attempt/event/boundary/operation/source and merges canonical fields plus event_key.",
+        "Verified history constants. Preserve validation versus identity construction and canonical-field precedence; metadata sanitation and event-key uniqueness remain transitive."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 220,
+          "module": "Aiur.BuildOrder.TicketHistory.Normalizer",
+          "name": "attributes",
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "kind": "defp",
+          "end_line": 227,
+          "body_sha256": "3ae3a88aff291db46308a0360a69879556b68a7645671cfc03644b805dad4f4b",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 229,
+          "module": "Aiur.BuildOrder.TicketHistory.Normalizer",
+          "name": "attributes",
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "kind": "defp",
+          "end_line": 229,
+          "body_sha256": "50ab143a3470d3cc763005869bf95865e005acfc9f4a0c98df4008c0a9f38335",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 185,
+          "module": "Aiur.RunTelemetry.Lifecycle",
+          "name": "attributes",
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "kind": "defp",
+          "end_line": 205,
+          "body_sha256": "e566820cbee0bce80af438fff60bac80d2e5c83fadb137fecf4fd6d3573c3115",
+          "normalized_body_lines": 21,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7124,
-  "limits": "657 selected families and 7124 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7150,
+  "limits": "667 selected families and 7150 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
