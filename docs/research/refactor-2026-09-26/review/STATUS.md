@@ -834,3 +834,7 @@ Candidate21 resolved into three source-level findings: PR base replaced by trunk
 ### Skills/prompts: shared sweep ownership and completion
 
 Candidate40 resolved with tooling/sweep_shared_lease_probe.py against the actual frozen engine and two temporary Git clones. A remote takeover does not invalidate ownership in a stale checkout (OK versus LEASE-LOST control); wrap-up publication precedes completion and release, leaving those local changes unpublished. No external source write occurred. Findings62 (41P2/21P3);36/42 candidates resolved,6 remain. Initial probe had an incorrect assertion that empty default last_run must be serialized; removed that unrelated assumption and reran successfully.
+
+### Skills/prompts: sweep ingestion, retry and resolution evidence
+
+Candidates39/41 reconciled into four source-contract findings: older-parent reply discovery, missing Slack actor setup, landing-only resolution and persisted media retry scheduling. No live missed reply, failed retry or false close-out claimed. Explicit failed-ack cursor hold prevents promoting the intended workflow as skipping deferred items; capped pagination, read-only source progress, archive collisions and close-out idempotency retain stated evidence limits. Findings66 (44P2/22P3);38/42 candidates resolved,4 remain.

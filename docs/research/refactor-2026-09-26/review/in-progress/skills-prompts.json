@@ -3251,6 +3251,98 @@
       "recommendation": "Record the completed outcome and release before the final publication, with explicit recovery semantics for a failed publication; verify the published terminal state.",
       "refactor_hint": "Separate durable shared ownership and completion receipts from checkout-local bookkeeping.",
       "limits": "Local Git reproduction only. A later commit may eventually carry these changes; it does not repair the current run's promised final publication or immediate shared-state visibility. Semantic dedup with script/state reviews pending."
+    },
+    {
+      "id": "skills-prompts-cont-63",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Slack fetch recipe omits discovery of replies to older parents",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-sweep/references/sources/slack.md",
+          "lines": "19-25"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/references/sources/slack.md",
+          "lines": "41-47"
+        }
+      ],
+      "description": "The connector promises every in-range reply as an item, but its concrete fetch guidance only pulls replies for parents in range. A parent before the cursor with a reply after it requires a discovery path absent from that recipe.",
+      "evidence": "Source-contract counterexample: parent timestamp100, cursor200, reply300. Selecting only parents after200 cannot select that parent for reply expansion. No Slack API response or live missed message was observed.",
+      "recommendation": "Specify a complete reply-discovery strategy independent of the parent's creation timestamp, with bounded pagination and overlap/dedup semantics.",
+      "refactor_hint": "Make ingestion completeness, processing backlog and resolution evidence separate explicit contracts.",
+      "limits": "This is an incomplete retrieval recipe, not proof every possible connected Slack tool misses such replies. A tool that directly returns new replies could satisfy the broader contract."
+    },
+    {
+      "id": "skills-prompts-cont-64",
+      "severity": "P3",
+      "category": "correctness",
+      "title": "Slack acknowledgment identity is required but not established",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-sweep/references/interview.md",
+          "lines": "21-71"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/references/interview.md",
+          "lines": "201-201"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/SKILL.md",
+          "lines": "89-94"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/references/sources/slack.md",
+          "lines": "3-24"
+        }
+      ],
+      "description": "The Slack connector requires a configured bot/app user identity for existing-ack and close-out checks. Setup captures channel, action names, approval and sensitivity but not that identity; dispatch passes config verbatim without an identity-resolution step.",
+      "evidence": "Compared the setup capture list and dispatch inputs with the connector's required seed. Neither establishes which reaction actor represents the connected writer.",
+      "recommendation": "Resolve the authenticated writer identity through the connector and pass it explicitly, or capture a validated identity in setup; degrade explicitly when it cannot be established.",
+      "refactor_hint": "Make ingestion completeness, processing backlog and resolution evidence separate explicit contracts.",
+      "limits": "An agent might infer identity from connected tooling. No wrong attribution or duplicate reaction was observed; the finding is a missing input contract."
+    },
+    {
+      "id": "skills-prompts-cont-65",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Sweep closes a report on landing evidence alone",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-sweep/SKILL.md",
+          "lines": "136-144"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/references/state-schema.md",
+          "lines": "73-90"
+        }
+      ],
+      "description": "Fix verification accepts a claimed PR merged into the default branch or a claimed commit's ancestry and then closes the feedback item. Neither condition establishes that the change addresses the reported symptom, although closed is documented as resolved and verified.",
+      "evidence": "The recipe validates reference syntax and landing, but includes no comparison of the change to the report or behavior evidence. The PR query asks for mergedAt and baseRefName while the required closed record also needs verified_merge_sha, leaving another evidence input unspecified.",
+      "recommendation": "Record landing separately from symptom resolution; require report-specific evidence before resolved close-out and fetch the exact merge identity for the durable record.",
+      "refactor_hint": "Make ingestion completeness, processing backlog and resolution evidence separate explicit contracts.",
+      "limits": "Source-level evidence mismatch, not an observed wrongly closed report. No external PR or source mutation. Bare reference repository binding overlaps existing finding40 and must be deduplicated."
+    },
+    {
+      "id": "skills-prompts-cont-66",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Media retry states are outside the next run's new-item loop",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-sweep/SKILL.md",
+          "lines": "89-113"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/SKILL.md",
+          "lines": "131-134"
+        }
+      ],
+      "description": "Acknowledgment advances the source cursor before media analysis. Media work is then limited to new items; failures become needs_download or needs_analysis, but no step adds these persisted states back to the next run's media workset despite the promised three attempts across runs.",
+      "evidence": "An acknowledged Slack item can advance the cursor to its own timestamp, fail analysis, and then be excluded by the connector's strictly-after fetch rule. The item remains durably recorded, but the next new-item-only media loop does not schedule it.",
+      "recommendation": "Build the media workset from new items plus retryable persisted states, with explicit attempt accounting and deduplication.",
+      "refactor_hint": "Make ingestion completeness, processing backlog and resolution evidence separate explicit contracts.",
+      "limits": "Logical workflow counterexample only, not an executed scheduled sweep. A source update could incidentally resurface an item; this does not establish reliable retries."
     }
   ],
   "preserve": [
@@ -3676,7 +3768,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All 250 files read; 36/42 candidates resolved. Six remain: attention/pause contracts, readiness delivery, capacity precedence, peer access scope, sweep fetch/cursor completeness and sweep closure. Semantic dedup and raw-unit closure still pending.",
+  "next": "All 250 files read; 38/42 candidates resolved. Four remain: attention/pause contracts, readiness delivery, capacity precedence and peer access scope. Semantic dedup and raw-unit closure still pending.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3991,6 +4083,26 @@
       ],
       "reason": "Actual two-checkout engine probe reproduces divergent ownership and terminal-state publication gap.",
       "subconcerns": "Advisory file locks remain useful within a checkout. No repo-wide source-write incident claimed; per-write publication interpretation and missing atomic fencing are stated explicitly."
+    },
+    {
+      "id": "skills-prompts-candidate-39",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-63",
+        "skills-prompts-cont-64"
+      ],
+      "reason": "Reply-discovery recipe and required acknowledgment identity are incomplete.",
+      "subconcerns": "Do not promote cursor-skips-deferred as an intended-workflow bug: the main skill explicitly forbids advancing past a failed ack, even though the engine guard only checks a referenced item's existence and monotonicity. Capped fetch completeness needs a connector-specific oldest-first/page-boundary contract; no real truncated fetch observed. Email and approved:false sources intentionally remain ack_deferred; no automatic forward-cursor policy is promised, so repeated fetch cost/starvation is an explicit design question rather than measured loss."
+    },
+    {
+      "id": "skills-prompts-candidate-41",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-65",
+        "skills-prompts-cont-66"
+      ],
+      "reason": "Landing does not establish report-specific resolution, and new-item processing does not schedule persisted media retries.",
+      "subconcerns": "Bare-repository binding overlaps finding40. Missing PR merge SHA is included in finding65 rather than counted twice. Existing-closeout retry behavior needs adapter idempotency evidence; no duplicate effect claimed. Dated archive collisions require a collision policy but no overwrite was observed. Stable R-ID reuse is explicitly required and arbitrary state fields are preserved, so absence of a fixed allocator is not itself proof of renumbering. Fresh default-head acquisition remains a verification requirement, not an observed stale-head incident."
     }
   ],
   "coverage_validation": {
@@ -4003,15 +4115,13 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 36,
-    "unresolved_candidates": 6,
+    "terminal_dispositions": 38,
+    "unresolved_candidates": 4,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
       "skills-prompts-candidate-07",
-      "skills-prompts-candidate-20",
-      "skills-prompts-candidate-39",
-      "skills-prompts-candidate-41"
+      "skills-prompts-candidate-20"
     ],
     "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."
   }
