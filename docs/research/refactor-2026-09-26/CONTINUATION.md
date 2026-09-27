@@ -2015,3 +2015,7 @@ Read unavailable_health, unavailable_source, unknown, url, usage_aggregate_gener
 ### Name duplication: acknowledgement and transition roles
 
 Read warning, windows, write_error, absolute, accumulate_key, acknowledge, acknowledge_queue_item_delivery and action_matches_status?: 29 literal entries across eight families. The sweep now reaches two-module names. Key accumulators match; action/status predicates use opposite transition sides and must not share a mapping. Preserve warning provenance, meter validation, exit-code ownership and acknowledgement boundaries. Name triage now 613 families/6976 entries, leaving 1067 cross-module names. Raw findings and skeptic counts are unchanged; no complete delivery, durable acknowledgement or transition-correctness guarantee is added.
+
+### Name duplication: activity and adapter selection
+
+Read actionable_review?, active_attention?, active_by_ref, active_issue_state?, activity_status, actor_kind, adapter and add_agent_modal: 26 literal entries across eight families. Attention and task-reference predicates match; preserve review-state normalization, active-state vocabulary source, nil/unknown activity sentinels, actor grouping and adapter fallback. Read normalization helpers/allowlists and the full literal modal template without browser verification. Name triage now 621 families/7002 entries, leaving 1059 cross-module names. Raw findings and skeptic counts are unchanged; no complete admission, liveness or authorization guarantee is added.

@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "b12543e30416856e4c7ff9fef8d2bde106a689b2c2fee7c78b73f16ca1c67382"
+    "name_triage": "de147d59eb2c08561228877232d4df383ac926540a0ed8cacfb3f35db890ba32"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 613,
-    "remaining_cross_module_names": 1067,
-    "remaining_literal_entries": 3292
+    "reviewed_cross_module_names": 621,
+    "remaining_cross_module_names": 1059,
+    "remaining_literal_entries": 3266
   },
   "families": [
-    {
-      "name": "actionable_review?",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "active_attention?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "active_by_ref",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "active_issue_state?",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "activity_status",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "actor_kind",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "adapter",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "add_agent_modal",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 120
-    },
     {
       "name": "add_buckets",
       "clauses": 2,
