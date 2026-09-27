@@ -65473,10 +65473,458 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "safe",
+      "assessment": "Failure wrappers share one exact pair but catch scope and return contracts differ.",
+      "constraints": [
+        "UsageAggregate.Store and UsageCompaction.Coordinator identically wrap success in ok, preserve rescued exceptions as error values and preserve caught kind/reason pairs.",
+        "SaturationSentinel applies a function with arguments and collapses rescued/caught failures to nil. AgentRoutingPreview calls a zero-arity function and returns a supplied fallback on any rescued/caught failure.",
+        "WorkflowStore.Cache discards a successful return and returns :ok, rescuing only ArgumentError to :ok. A common failure wrapper must retain catch scope and avoid confusing fallback success with observed completion."
+      ],
+      "clauses": 6,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 234,
+          "module": "Aiur.SaturationSentinel",
+          "name": "safe",
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "kind": "defp",
+          "end_line": 236,
+          "body_sha256": "561b9741ee8acbd946095e792772f4a4c3c07121a27e9731ca2cf9dd5ec393bf",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 238,
+          "module": "Aiur.SaturationSentinel",
+          "name": "safe",
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "kind": "defp",
+          "end_line": 244,
+          "body_sha256": "8de9a6bd6dd742bd74015ab9a3a94842c066d44319932541246347f56d139577",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 328,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "safe",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "defp",
+          "end_line": 334,
+          "body_sha256": "c01c921edc9068658da484db2dc09c68275d890d0cd68388c3f38eb0f30c2359",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 354,
+          "module": "Aiur.UsageCompaction.Coordinator",
+          "name": "safe",
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "kind": "defp",
+          "end_line": 360,
+          "body_sha256": "c01c921edc9068658da484db2dc09c68275d890d0cd68388c3f38eb0f30c2359",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 144,
+          "module": "Aiur.WorkflowStore.Cache",
+          "name": "safe",
+          "path": "src/lib/aiur/workflow_store/cache.ex",
+          "kind": "defp",
+          "end_line": 149,
+          "body_sha256": "a46004f1b9a3c347bb6f60beadd5f9533417efd6bb6c3b4bd6d52c9bf1d07d1d",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 283,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "safe",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 289,
+          "body_sha256": "098193486ff4f17d21507be7a3a4bf34f888d4696496c06470143fcdaacb8aa3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "safely",
+      "assessment": "Two wrappers are identical, while others preserve different failure classes and observability.",
+      "constraints": [
+        "BudgetMap and CredentialRegistry identically return a default on rescued exceptions or exits; they do not catch throws.",
+        "TicketHistoryProvider wraps success and collapses all rescued/caught failures to unavailable. Webhooks catches exits only, allowing other failures to propagate.",
+        "Shutdown catches kind/reason and logs a labeled warning, rather than returning a caller-specified default. Shared mechanics need explicit failure policy and logging ownership; these entry bodies do not prove that callers distinguish unavailable from empty data."
+      ],
+      "clauses": 5,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 609,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider",
+          "name": "safely",
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "kind": "defp",
+          "end_line": 615,
+          "body_sha256": "0178818243f10903ee1463ac2df8bda9f5731ba11168c94ea956abb270258eaa",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 334,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "safely",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "defp",
+          "end_line": 340,
+          "body_sha256": "3f4ea2a4ed679737c6de861a52667145315e498736bbcb9b7026c2f9f69f58d2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 146,
+          "module": "Aiur.GitHub.CredentialRegistry",
+          "name": "safely",
+          "path": "src/lib/aiur/github/credential_registry.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "3f4ea2a4ed679737c6de861a52667145315e498736bbcb9b7026c2f9f69f58d2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 223,
+          "module": "Aiur.Shutdown",
+          "name": "safely",
+          "path": "src/lib/aiur/shutdown.ex",
+          "kind": "defp",
+          "end_line": 228,
+          "body_sha256": "71197a1f8ddb1e299f6e9be62fad55dc72a8914909af1ccea6c974f1dcbb2709",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 89,
+          "module": "Aiur.Webhooks",
+          "name": "safely",
+          "path": "src/lib/aiur/webhooks.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "5bf1aa4fe1a6bc1ade3b93f5654532b5fb032aa9dcba54dc180f7f857f0a2679",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "sample",
+      "assessment": "Three sampling RPC wrappers are identical but sample data contracts differ.",
+      "constraints": [
+        "AgentCacheMetrics, CacheHistory and QuotaHistory identically call the owner for sample and return :ok on exits. This is best-effort invocation rather than proof that a measurement was obtained.",
+        "QuotaUsage only creates a timestamped budget sample for an observed snapshot with a nonempty windows map; invalid inputs return nil.",
+        "SystemFileDescriptors supports an injected source or process-id sampling, normalizes the pid and delegates descriptor/limit collection, returning unavailable on invalid pid, exceptions or exits.",
+        "Retain observed-versus-unavailable evidence and owner failure behavior if RPC wrappers are shared. Do not replace nil/unavailable with a zero sample."
+      ],
+      "clauses": 9,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "Aiur.GitHub.AgentCacheMetrics",
+          "name": "sample",
+          "path": "src/lib/aiur/github/agent_cache_metrics.ex",
+          "kind": "def",
+          "end_line": 88,
+          "body_sha256": "42da6202877a354f7cc7a3b2536ec0331586efb1572c8e19c611a238a3df57b9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 86,
+          "module": "Aiur.GitHub.CacheHistory",
+          "name": "sample",
+          "path": "src/lib/aiur/github/cache_history.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "42da6202877a354f7cc7a3b2536ec0331586efb1572c8e19c611a238a3df57b9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 63,
+          "module": "Aiur.GitHub.QuotaHistory",
+          "name": "sample",
+          "path": "src/lib/aiur/github/quota_history.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "42da6202877a354f7cc7a3b2536ec0331586efb1572c8e19c611a238a3df57b9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 95,
+          "module": "Aiur.GitHub.QuotaUsage",
+          "name": "sample",
+          "path": "src/lib/aiur/github/quota_usage.ex",
+          "kind": "def",
+          "end_line": 95,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 97,
+          "module": "Aiur.GitHub.QuotaUsage",
+          "name": "sample",
+          "path": "src/lib/aiur/github/quota_usage.ex",
+          "kind": "def",
+          "end_line": 106,
+          "body_sha256": "b1c3235284d631f4484a86b5bce2b3650480a226116a70f7d80f15c2584ab4d9",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 108,
+          "module": "Aiur.GitHub.QuotaUsage",
+          "name": "sample",
+          "path": "src/lib/aiur/github/quota_usage.ex",
+          "kind": "def",
+          "end_line": 108,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 30,
+          "module": "Aiur.SystemFileDescriptors",
+          "name": "sample",
+          "path": "src/lib/aiur/system_file_descriptors.ex",
+          "kind": "def",
+          "end_line": 39,
+          "body_sha256": "9a2ef05346c53ac22d22158b6b7e7f6aa3c87d3c23ca61cfc2187e44d85153f7",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 43,
+          "module": "Aiur.SystemFileDescriptors",
+          "name": "sample",
+          "path": "src/lib/aiur/system_file_descriptors.ex",
+          "kind": "def",
+          "end_line": 43,
+          "body_sha256": "c44c0f6b506141b7fc78e5a56da287e79f0b0fa99c67933c5272654b943d42e8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 47,
+          "module": "Aiur.SystemFileDescriptors",
+          "name": "sample",
+          "path": "src/lib/aiur/system_file_descriptors.ex",
+          "kind": "def",
+          "end_line": 61,
+          "body_sha256": "c6a99a39d799ed82e29ede6c1e3f91d9658c0a10d151210fb42709a508e2bae6",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "save",
+      "assessment": "Persistence entry points deliberately expose different failure and merge semantics.",
+      "constraints": [
+        "CIApprovalStore normalizes three maps and writes JSON, but logs rescued failures and returns :ok. PrReadyLedgerStore likewise logs missing state-directory or rescued write failures and returns :ok.",
+        "GlobalPauseStore returns an explicit path_unavailable error when resolution fails and otherwise delegates persistence. ControlLifecycleStore delegates a merge with existing lifecycle state rather than blind replacement.",
+        "SessionHandle writes schema/backend/thread/host/time payload without a local rescue. A shared serializer or writer must not silently change fail-open versus propagated errors, merge behavior or session scope; a save return is not universal durability evidence."
+      ],
+      "clauses": 6,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 73,
+          "module": "Aiur.CIApprovalStore",
+          "name": "save",
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 75,
+          "module": "Aiur.CIApprovalStore",
+          "name": "save",
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "kind": "def",
+          "end_line": 88,
+          "body_sha256": "ebc7ba48754c5b0a35d8ce497cac4b311cd83fc23dd8d920289220678530b2ee",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 30,
+          "module": "Aiur.Orchestrator.ControlLifecycleStore",
+          "name": "save",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "kind": "def",
+          "end_line": 32,
+          "body_sha256": "1b42a5b080edcaefade20f8e0e4aac02cf6cc4420f54821ebc25ecfc1ccd83f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 49,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "save",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "def",
+          "end_line": 65,
+          "body_sha256": "d0a4ce871c4f2401ca60848406440ddfe0a0b20fac202f2517ff55315475652b",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 50,
+          "module": "Aiur.PrReadyLedgerStore",
+          "name": "save",
+          "path": "src/lib/aiur/pr_ready_ledger_store.ex",
+          "kind": "def",
+          "end_line": 64,
+          "body_sha256": "5c942f3bc95a9edaeda243ee637889909e550dc25650f7a4c0245681e2425436",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 57,
+          "module": "Aiur.SessionHandle",
+          "name": "save",
+          "path": "src/lib/aiur/session_handle.ex",
+          "kind": "def",
+          "end_line": 68,
+          "body_sha256": "5fa783fc82ef956c527634cc6c3a3f261b47fd36fe349e64e25ecd99c54795cf",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "section_value",
+      "assessment": "Configuration section lookups repeat mechanics but one suppresses ArgumentError.",
+      "constraints": [
+        "Claude.Config, Codex.Config, GitHub.Config and Linear.Config read different typed sections from settings!, convert the struct to a map and use String.to_existing_atom for lookup.",
+        "Opencode.Config uses the same shape for its section but rescues ArgumentError to nil. Existing-atom lookup avoids creating new atoms but does not prove the supplied name is a valid field.",
+        "A common section accessor could take the section explicitly while preserving unknown-key and error policy. The rescue covers the whole body, not only key conversion; call-site input restrictions remain outside this family read."
+      ],
+      "clauses": 5,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 62,
+          "module": "Aiur.Claude.Config",
+          "name": "section_value",
+          "path": "src/lib/aiur/claude/config.ex",
+          "kind": "defp",
+          "end_line": 66,
+          "body_sha256": "8a298fc62e964ee410992dfaa056f8fe5331c1510d97f67594fb2b55257fcc2b",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 121,
+          "module": "Aiur.Codex.Config",
+          "name": "section_value",
+          "path": "src/lib/aiur/codex/config.ex",
+          "kind": "defp",
+          "end_line": 125,
+          "body_sha256": "0dddffb4fc1d39f05d12ce8a2a94c67d1a8e170bfac733f5f5f59dd0a86eb882",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 587,
+          "module": "Aiur.GitHub.Config",
+          "name": "section_value",
+          "path": "src/lib/aiur/github/config.ex",
+          "kind": "defp",
+          "end_line": 591,
+          "body_sha256": "fecb07c2d78da6fc958b73e4864162a7ae266ab3ea519e96eb00c535d7650705",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 58,
+          "module": "Aiur.Linear.Config",
+          "name": "section_value",
+          "path": "src/lib/aiur/linear/config.ex",
+          "kind": "defp",
+          "end_line": 62,
+          "body_sha256": "aabf7aed23dc3366aecb651dcd30f61734f480e3c7d8399a1897d35f26746c80",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 200,
+          "module": "Aiur.Opencode.Config",
+          "name": "section_value",
+          "path": "src/lib/aiur/opencode/config.ex",
+          "kind": "defp",
+          "end_line": 206,
+          "body_sha256": "7ad04e3812060dac15ef49b033a7294993e40f439eb3c69240df8e51c7ef7577",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5112,
-  "limits": "261 selected families and 5112 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5143,
+  "limits": "266 selected families and 5143 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

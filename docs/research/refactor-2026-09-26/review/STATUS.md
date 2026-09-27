@@ -1114,3 +1114,7 @@ Read metadata, normalize_issue_state, opaque, parse_line, poll and provider_heal
 ### Name duplication: quarantine and retention contracts
 
 Read provider_label, quarantine, register, required_string, resolve_repo and retain: 48 literal entries across six families. Three injected repository resolvers are identical; identical provider-label wrappers have different transitive fallbacks. Preserve evidence quarantine, registration authority, string validation and retention lifetimes. Name triage now 261 families/5112 entries, leaving 1419 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect, persistence proof or saving is claimed.
+
+### Name duplication: failure wrappers and persistence
+
+Read safe, safely, sample, save and section_value: 31 literal entries across five families. Identify exact failure-wrapper and sampling-RPC repeats while preserving exception/exit/throw scope, unavailable evidence, persistence merge/error contracts and configuration lookup policy. Name triage now 266 families/5143 entries, leaving 1414 cross-module names. Raw findings and skeptic counts are unchanged; no runtime completion, durability or saving is claimed.
