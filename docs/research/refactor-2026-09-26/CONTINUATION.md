@@ -825,3 +825,17 @@ telemetry cardinality and storage cadence are distinct. Schema/Budget defaults
 remain per-field contracts. Source comments preserving REPL dependency direction
 are evidence to weigh before extraction, not grounds to invent a shared module.
 Source hashes/publication checks passed; no production changes.
+
+## High-frequency numeric contract checkpoint
+
+152 of 162 attribute groups assessed; ten numeric groups remain. Groups indexed
+10 through 19 now retain source-consumer assessments for every listed site.
+Decision identity limits mix character and byte units; equality of 256 does not
+establish validator equivalence. Usage polling fallbacks repeat the inline schema
+300-second default; reset-delay defaults belong to a separate schema field.
+
+Usage drill pages and legacy pagination have shared admission contracts. Preserve
+protocol request IDs, distinct retry/exhaustion semantics, financial pending-waiter
+bounds and chart overflow bars. Counts, time units and schema defaults should not
+be combined solely because they share a number. Source hashes and targeted privacy
+checks passed; no production edits or runtime correctness claims.
