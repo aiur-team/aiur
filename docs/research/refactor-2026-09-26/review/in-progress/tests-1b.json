@@ -278,9 +278,63 @@
       "sha256": "eb0be310b432eb84302119ad15fc0ea3936a13e5460031d7dd38c6c06231b416",
       "lines": 271,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/units_cli_test.exs",
+      "sha256": "134f1952f8200d5580604dd9578e52fe0b6689b58323485169c96a9b88447f59",
+      "lines": 405,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/upgrade_test.exs",
+      "sha256": "1b9d3b4d63b950fb965c874c5c2ba0dbf122e17fd1e24ebc16931feb44675c7d",
+      "lines": 441,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_events_test.exs",
+      "sha256": "be7e1344d74f0e9f454c63e49ab677682dc43e2b84705f204117dbf6faaf0765",
+      "lines": 197,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/pause_containment_test.exs",
+      "sha256": "d56a96888940959dd193bd6279998e75ae8a8ea3c3ed3d2e1112cde4255e205a",
+      "lines": 191,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/analytics_cli_test.exs",
+      "sha256": "e9f75fe3938553625f92b0309530573e6ce210614e629672611820f7a3bab8cc",
+      "lines": 260,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/workspace_materialize_test.exs",
+      "sha256": "722a6c524ee738c6a255f59602ab21c31e0c75e438fc21b7003427ce89116561",
+      "lines": 214,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/github_auth_preflight_test.exs",
+      "sha256": "58a41442ad78f6fe6243aeedc59e3102176b341114bbbb3d3fa3f475b3eae542",
+      "lines": 236,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/codeowners_test.exs",
+      "sha256": "41cfae5e22c254f12ed7efbdd6ec26d6b426385c85d3ba1cbd8092fb5d9c839f",
+      "lines": 237,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_metrics_test.exs",
+      "sha256": "e3e37a67c9866dc89c11fa6225be95a0a1decaadcb5aab10f113c1bc26f7666e",
+      "lines": 289,
+      "read": "full"
     }
   ],
-  "scope_note": "46 complete file reads, 6459 lines; remaining paths unreviewed. Isolated assertion/policy/lifecycle probes and a targeted coordinator mutation ran; no full application suite or live runtime launched.",
+  "scope_note": "55 complete file reads, 8929 lines; remaining paths unreviewed. Isolated probes recorded in prior checkpoints; the nine files added in this checkpoint were read, not executed. No full application suite or live runtime launched.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -404,7 +458,16 @@
     "CoordinationTasks tests cover keyed ordering and fairness, overload recovery, task-start retry/coalescing, expired admission, worker/coordinator death and bounded redacted failure details.",
     "Issue-disposition tests invoke the actual hook with safely passed JSON and cover shell wrappers, substitutions, API creation refusal and read-only commands.",
     "DurableRuntimeState tests separate launch logs from persistent state, prove monotonic IDs across crash/clock rollback, retain subscription cursors and reject stale legacy session adoption.",
-    "ProcessReaper tests preserve kind filtering, PID normalization, recycled-PID command guards, missing-server tolerance, non-draining restart admission and launcher pidfile records with injected kill callbacks."
+    "ProcessReaper tests preserve kind filtering, PID normalization, recycled-PID command guards, missing-server tolerance, non-draining restart admission and launcher pidfile records with injected kill callbacks.",
+    "UnitsCLI asserts complete source envelopes and human output for unavailable versus observed-empty, stale/partial causes, ages, scope filtering, and explicit table/record layouts.",
+    "AnalyticsCLI preserves exact requested windows without visual brush widening, unavailable/empty/unknown distinctions, source age, scope propagation and measured capacity timestamps.",
+    "Upgrade tests use a counting canned transport and temporary state to preserve channel/prerelease ordering, no downgrade offers, missing-channel migration, notice deduplication, TTL and disabled/CI/dev zero-request gates. Historical fixture comments are not current registry measurements.",
+    "AgentEvents tests fix tool-body fallback, structured attention metadata, glyph fallback, summary nil filtering and Stream Deck precedence as distinct presentation contracts.",
+    "PauseContainment tests inject reaping and exercise generation-specific fallback, stale-message rejection, failure latch retention and independent sibling arming during a stuck reap.",
+    "WorkspaceMaterialize uses real local Git repositories to preserve warm ignored artifacts, ticket/PR branch selection, exact PR head, live-origin freshness, stale-lock cleanup and cold-copy error fallback.",
+    "GitHubAuthPreflight retains pre-poll refusal, secret omission, stable-cause alert deduplication/recovery/rearm and a dispatch hold distinct from available capacity.",
+    "Codeowners distinguishes absent/comment-only rules from populated ownership, delegates trusted fallback, propagates quota-held unknown authority, avoids caching failures and matches logins case-insensitively.",
+    "DecisionMetrics asserts each lifecycle duration and nil for incomplete/out-of-order intervals, concurrent deduplication, content omission, actor distinctions and rejection of forged observations; real-store request coverage includes canonical append."
   ],
   "next": [
     "Continue remaining tests-1b paths; audit test support and shared-state restoration.",
@@ -475,6 +538,15 @@
         33
       ],
       "question": "Regex inventories literal get_env/fetch_env and attribute strings but may omit fetch_env! or dynamic names; verify actual omissions before calling this a coverage defect.",
+      "status": "unverified hypothesis"
+    },
+    {
+      "path": "src/test/aiur/pause_containment_test.exs",
+      "lines": [
+        55,
+        75
+      ],
+      "question": "Failure-latch test polls paused? immediately after sending fallback, but the armed state is already paused. Check a completion barrier or controlled mutation before asserting that it covers the failed-reap completion transition.",
       "status": "unverified hypothesis"
     }
   ]

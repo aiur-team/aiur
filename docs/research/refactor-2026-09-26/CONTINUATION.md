@@ -1160,3 +1160,8 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 ### tests-1b timeout mutation checkpoint
 
 46 full test reads,6459 lines. Confirmed infinity-timeout oracle hole: original targeted test passes baseline and a resolver mutation replacing infinity with20ms; guarded80ms hold passes baseline and fails mutant on premature successor. Portable AST-extraction/in-memory mutation probe added. Initial probe used recursive prewalk insertion and hung two disposable VMs; terminated those exact processes and changed to postwalk, then all four expected outcomes completed. No production edits. ProcessReaper full review preserves injected-kill and PID guard contracts; draining late-registration test only exercises an unreadable dead PID, not a real kill. Broader mutation coverage remains incomplete.
+
+
+### tests-1b fifty-five-file checkpoint
+
+55 full test reads, 8929 lines. Added Units/Analytics CLI, Upgrade, AgentEvents, PauseContainment, WorkspaceMaterialize, GitHubAuthPreflight, Codeowners and DecisionMetrics. Preserved explicit unknown/empty/stale/partial envelopes and rendered ages, exact time windows, channel-safe notices with counted transport calls, local-Git freshness/PR-head fixtures, quota-unknown authority and canonical metrics provenance. No new promoted finding. Pause failed-reap completion coverage is a hypothesis because paused is already true before fallback completes. New files were read, not executed; no production changes.
