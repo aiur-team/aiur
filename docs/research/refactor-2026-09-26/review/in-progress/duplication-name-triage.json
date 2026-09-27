@@ -111311,10 +111311,490 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "format_invalid",
+      "assessment": "Two Mix task error formatters accept different input shapes.",
+      "constraints": [
+        "CostReport renders a single key/value with -- prefix or a lone key.",
+        "Telemetry.Dashboard joins a list of option/value pairs, removes nil parts and separates options with commas.",
+        "Preserve per-option versus aggregate formatting and prefix grammar; the shared name does not identify identical parser output."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 87,
+          "module": "Mix.Tasks.Aiur.CostReport",
+          "name": "format_invalid",
+          "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+          "kind": "defp",
+          "end_line": 87,
+          "body_sha256": "d5549717e302d0bd85d92daff58781b2761141d849c88567df4fb9fa6feb9c02",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 88,
+          "module": "Mix.Tasks.Aiur.CostReport",
+          "name": "format_invalid",
+          "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+          "kind": "defp",
+          "end_line": 88,
+          "body_sha256": "47b7cf9e5f59f7fd425f19e047b0d2d646c295f66d75a1ae51d6da49b1cabb31",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 129,
+          "module": "Mix.Tasks.Aiur.Telemetry.Dashboard",
+          "name": "format_invalid",
+          "path": "src/lib/mix/tasks/aiur.telemetry.dashboard.ex",
+          "kind": "defp",
+          "end_line": 133,
+          "body_sha256": "7f6cd664354f370a6684ebeecf90c94957e3b80dada22ab7edd5644897abe590",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "format_runtime",
+      "assessment": "CLI and TUI runtime formatting differ in precision and unknown policy.",
+      "constraints": [
+        "AgentControlCLI accepts nonnegative integer seconds, formats seconds/minutes/hours and uses a dash otherwise.",
+        "Renderer.Cells clamps negative seconds to 0:00, preserves seconds below ten hours, emits whole hours above and also maps invalid input to 0:00.",
+        "Preserve compact versus clock formatting and distinguish unknown from observed zero. Literal formatter behavior does not establish caller reachability or rendered correctness."
+      ],
+      "clauses": 7,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 2762,
+          "module": "Aiur.AgentControlCLI",
+          "name": "format_runtime",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 2768,
+          "body_sha256": "569f1621cff09828a5b75cd8ff37db2f544ad3591034a24d086e4d18223a47ab",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2770,
+          "module": "Aiur.AgentControlCLI",
+          "name": "format_runtime",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 2770,
+          "body_sha256": "09e2f8dea13439a03d31c06b039ab61abc4fec7c6a22f34a4d77d03aae3cb2dd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 120,
+          "module": "Aiur.AgentList.Renderer.Cells",
+          "name": "format_runtime",
+          "path": "src/lib/aiur/agent_list/renderer/cells.ex",
+          "kind": "def",
+          "end_line": 120,
+          "body_sha256": "6dee8860cd0942ff10572147ba11a1d9e4470271c188c4dc2d7919371bf0862b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 122,
+          "module": "Aiur.AgentList.Renderer.Cells",
+          "name": "format_runtime",
+          "path": "src/lib/aiur/agent_list/renderer/cells.ex",
+          "kind": "def",
+          "end_line": 126,
+          "body_sha256": "3e9cf5c9a56d5b713150fc8414d4d2df02a4c784127c5fd64fc97d313bd244e2",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 128,
+          "module": "Aiur.AgentList.Renderer.Cells",
+          "name": "format_runtime",
+          "path": "src/lib/aiur/agent_list/renderer/cells.ex",
+          "kind": "def",
+          "end_line": 133,
+          "body_sha256": "12bf47f4ed33aae0b31f6ca25d430b844b5686d94c18b9cb1d6dba57799f0cac",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 135,
+          "module": "Aiur.AgentList.Renderer.Cells",
+          "name": "format_runtime",
+          "path": "src/lib/aiur/agent_list/renderer/cells.ex",
+          "kind": "def",
+          "end_line": 135,
+          "body_sha256": "b641cb14c89293b6212fd2d56f1fbf502d086e1fb35c01ea43cf54230041d67f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 137,
+          "module": "Aiur.AgentList.Renderer.Cells",
+          "name": "format_runtime",
+          "path": "src/lib/aiur/agent_list/renderer/cells.ex",
+          "kind": "def",
+          "end_line": 137,
+          "body_sha256": "6dee8860cd0942ff10572147ba11a1d9e4470271c188c4dc2d7919371bf0862b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "format_validation_error",
+      "assessment": "Compatible-provider tools already delegate validation text to ToolSpec.",
+      "constraints": [
+        "ToolSpec distinguishes nonobject arguments, unsupported tool, missing required, unexpected and invalid-type arguments.",
+        "Tools is a delegate; no catch-all formatter clause appears in this family.",
+        "Keep validation taxonomy with the tool schema owner. Formatting alone is not validation or redaction of tool-supplied values."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 95,
+          "module": "Aiur.OpenAICompat.ToolSpec",
+          "name": "format_validation_error",
+          "path": "src/lib/aiur/open_ai_compat/tool_spec.ex",
+          "kind": "def",
+          "end_line": 95,
+          "body_sha256": "dd6fa99f5bb096b654a8cf9eaefa31cab2377a9209f11592e0b4cae0c9313a53",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 97,
+          "module": "Aiur.OpenAICompat.ToolSpec",
+          "name": "format_validation_error",
+          "path": "src/lib/aiur/open_ai_compat/tool_spec.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "18836f7aa52118c765af8a2e8d424e592310aae7afaf42ee42d4db235eea2e54",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 100,
+          "module": "Aiur.OpenAICompat.ToolSpec",
+          "name": "format_validation_error",
+          "path": "src/lib/aiur/open_ai_compat/tool_spec.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "5214a033f8ad761d38d1c3a23ca5d707f258df52bbda3d76af6c14b7eeeed808",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 103,
+          "module": "Aiur.OpenAICompat.ToolSpec",
+          "name": "format_validation_error",
+          "path": "src/lib/aiur/open_ai_compat/tool_spec.ex",
+          "kind": "def",
+          "end_line": 104,
+          "body_sha256": "518a0af28f559b439a59bf0d5ca2e412a13b8e5267893c4354b7aad229c941e3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 106,
+          "module": "Aiur.OpenAICompat.ToolSpec",
+          "name": "format_validation_error",
+          "path": "src/lib/aiur/open_ai_compat/tool_spec.ex",
+          "kind": "def",
+          "end_line": 107,
+          "body_sha256": "5bed4f3a3f6cea073faf72331574f650e7bc39d2b221b06e3e538787faf4e4b5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 15,
+          "module": "Aiur.OpenAICompat.Tools",
+          "name": "format_validation_error",
+          "path": "src/lib/aiur/open_ai_compat/tools.ex",
+          "kind": "defdelegate",
+          "end_line": 15,
+          "body_sha256": "af95c6812093ce0d9c33bd43d348eab47ac3be93ba9b7411b617087bc147ac47",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fraction",
+      "assessment": "Progress uses exact reduced rational values while quota uses a capped rounded proportion.",
+      "constraints": [
+        "Progress rejects nonpositive/noninteger denominator, then reduces integer numerator/denominator by gcd and preserves signed or greater-than-one values.",
+        "Quota rejects invalid/nonpositive spend, otherwise divides attribution by spend, caps above at one and rounds to four decimals.",
+        "Do not share by name: units, result shape, precision and numerator guards differ. Neither output proves valid counted production population."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 124,
+          "module": "Aiur.CurrentRunSummary.Progress",
+          "name": "fraction",
+          "path": "src/lib/aiur/current_run_summary/progress.ex",
+          "kind": "defp",
+          "end_line": 125,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 127,
+          "module": "Aiur.CurrentRunSummary.Progress",
+          "name": "fraction",
+          "path": "src/lib/aiur/current_run_summary/progress.ex",
+          "kind": "defp",
+          "end_line": 130,
+          "body_sha256": "90efeed5101e994189e0378728cb68a07e34e69ad5ecaf1190b05c3176e8f113",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 971,
+          "module": "Aiur.GitHub.Quota",
+          "name": "fraction",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 971,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 972,
+          "module": "Aiur.GitHub.Quota",
+          "name": "fraction",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 972,
+          "body_sha256": "473d6e20998d135bf628508c42a9e536cce5b134b31c8e2981dfb000e85aea6e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "from_github",
+      "assessment": "Lifecycle normalization and canonical tracker identity construction are separate boundaries.",
+      "constraints": [
+        "BuildOrder.Lifecycle normalizes state/reason into its struct.",
+        "TrackerIdentity validates configured/requested/response repository relationships, provider/database IDs and display number before building a joinable GitHub identity; invalid outer shape errors.",
+        "Preserve identity validation separately from lifecycle interpretation. Full helper validation and upstream repository proof are not certified by these entry points."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 75,
+          "module": "Aiur.BuildOrder.Lifecycle",
+          "name": "from_github",
+          "path": "src/lib/aiur/build_order/lifecycle.ex",
+          "kind": "def",
+          "end_line": 76,
+          "body_sha256": "a8b82050dd288d1097ec256da83ea245e6943947641d4d0b185e7edc68b1988e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 65,
+          "module": "Aiur.TrackerIdentity",
+          "name": "from_github",
+          "path": "src/lib/aiur/tracker_identity.ex",
+          "kind": "def",
+          "end_line": 86,
+          "body_sha256": "204d247e057b18021e19712180c924ef7607a0121619e058831109b7802e107a",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 88,
+          "module": "Aiur.TrackerIdentity",
+          "name": "from_github",
+          "path": "src/lib/aiur/tracker_identity.ex",
+          "kind": "def",
+          "end_line": 88,
+          "body_sha256": "889422563c4c22111d594257b071e007f10f761bb159dc7d5bdeef8943d08660",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "from_members",
+      "assessment": "Analytics and usage scopes consume the same selected-root shape but retain different identity semantics.",
+      "constraints": [
+        "Read selected_root helpers: both require selected TrackerIdentity and SelectedRoot snapshot.",
+        "Analytics scope_decision uses member numbers, rejected count, ticket MapSet and sorted-number/authority-epoch key; empty or no accepted numbers yields distinct states.",
+        "Usage extracts TrackerIdentity members, delegates explicit ticket-set construction/selectability and builds its own membership key. Do not replace structured identity scope with numeric-only scope; rejected-member accounting and provider semantics require separate reconciliation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 69,
+          "module": "AiurWeb.BuildOrder.AnalyticsScope",
+          "name": "from_members",
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "kind": "defp",
+          "end_line": 74,
+          "body_sha256": "43688bbc9b7b2e342a752fab18ab8b0c00371c413ca33f96dca590b3b69ab6aa",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 74,
+          "module": "AiurWeb.BuildOrder.UsageScope",
+          "name": "from_members",
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "kind": "defp",
+          "end_line": 89,
+          "body_sha256": "a4e46fef8c5d68b64f1bbf24ef248488e63bc569dc47368bed7eb1e9bc9cd3b6",
+          "normalized_body_lines": 19,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "github_next_poll_delay_ms",
+      "assessment": "Orchestrator already delegates delay aggregation to TrackerHealth.",
+      "constraints": [
+        "TrackerHealth takes nonnegative integer values from github_poll_delays and returns their maximum or nil; malformed outer state yields nil.",
+        "Zero is retained and nil is not normalized to zero.",
+        "Preserve conservative maximum and unknown delay. The aggregate does not prove actual polling cadence or measured quota savings."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 287,
+          "module": "Aiur.Orchestrator",
+          "name": "github_next_poll_delay_ms",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 287,
+          "body_sha256": "e534dc68af17418723a528ab7b42a4ed9f0aa180cbdcc029e8beb0b333232f4c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 344,
+          "module": "Aiur.Orchestrator.TrackerHealth",
+          "name": "github_next_poll_delay_ms",
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "kind": "def",
+          "end_line": 349,
+          "body_sha256": "ce87471a7ffd30388c2b704853f8e59b4ffc56c5edd462d19502e1ed0d9d5ad3",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 351,
+          "module": "Aiur.Orchestrator.TrackerHealth",
+          "name": "github_next_poll_delay_ms",
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "kind": "def",
+          "end_line": 351,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "github_token_present?",
+      "assessment": "Runtime credential presence and scaffold key existence are different checks.",
+      "constraints": [
+        "Init tests the injected token result against nil and empty string; it does not validate type or trim whitespace.",
+        "Scaffold parses dotenv including empty entries and checks only for GITHUB_TOKEN key; verified key constant.",
+        "Preserve value presence versus existing configuration slot, including blank assignment. Neither predicate proves authentication, and no credentials were read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 274,
+          "module": "Aiur.Init",
+          "name": "github_token_present?",
+          "path": "src/lib/aiur/init.ex",
+          "kind": "defp",
+          "end_line": 274,
+          "body_sha256": "2c9f9cb9d4a6c318cdf71ac580eb5e6e3c68b8776e3b583ccb61dc332b5299c4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 156,
+          "module": "Aiur.Init.Scaffold",
+          "name": "github_token_present?",
+          "path": "src/lib/aiur/init/scaffold.ex",
+          "kind": "defp",
+          "end_line": 160,
+          "body_sha256": "53d7787d2fa9ce4fd39325a94acd5e03d8d865568f9d198c43e693d4ecdefca5",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 8031,
-  "limits": "965 selected families and 8031 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 8061,
+  "limits": "973 selected families and 8061 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

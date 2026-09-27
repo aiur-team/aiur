@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "d8603400e48e0e9f24a2fe1a69766f03976dd3877224bc31f3c0141997366fee"
+    "name_triage": "cda9f15d6c452e50c56f5dbbb3574ad18cbe66166d7802ceba3ab71487b75687"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 965,
-    "remaining_cross_module_names": 715,
-    "remaining_literal_entries": 2237
+    "reviewed_cross_module_names": 973,
+    "remaining_cross_module_names": 707,
+    "remaining_literal_entries": 2207
   },
   "families": [
-    {
-      "name": "format_invalid",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "format_runtime",
-      "clauses": 7,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "format_validation_error",
-      "clauses": 6,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "fraction",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "from_github",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 25
-    },
-    {
-      "name": "from_members",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "github_next_poll_delay_ms",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "github_token_present?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
     {
       "name": "github_tracker?",
       "clauses": 2,
