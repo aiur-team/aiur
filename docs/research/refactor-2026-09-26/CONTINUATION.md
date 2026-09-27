@@ -1847,3 +1847,7 @@ Read backoff_ms, bind, bounded, broadcast_changed, bump and close_port: 35 liter
 ### Name duplication: confirmation and identity extraction
 
 Read comment_body, configured_repository, confirm, correlation, decision_id and delete: 31 literal entries across six families. Identify repeated index extraction and repository wrappers while preserving comment precedence, confirmation authority, measurement correlation and deletion failure policy. Name triage now 295 families/5320 entries, leaving 1385 cross-module names. Raw findings and skeptic counts are unchanged; no version-specific deposit, runtime containment or saving is claimed.
+
+### Name duplication: demand and diagnostic evidence
+
+Read demand, derive, detail, diagnostics, digest and dump: 40 literal entries across six families. Identify matching full SHA-256 mechanics and existing decision-query reuse while preserving monitored demand, attribution, diagnostic meaning, truncated identity and accounting serialization. Name triage now 301 families/5360 entries, leaving 1379 cross-module names. Raw findings and skeptic counts are unchanged; no runtime correctness, privacy guarantee or saving is claimed.

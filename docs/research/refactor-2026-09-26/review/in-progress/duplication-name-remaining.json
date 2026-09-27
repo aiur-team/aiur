@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "bfbf0da878610459a25a2e72e5fb4267dac7452beca6d540e509d9124f9b67e8"
+    "name_triage": "62903baf2fee900ec57f65e29d64f43f3cf3606c949cef36adfc74b21b54ad0e"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 295,
-    "remaining_cross_module_names": 1385,
-    "remaining_literal_entries": 4948
+    "reviewed_cross_module_names": 301,
+    "remaining_cross_module_names": 1379,
+    "remaining_literal_entries": 4908
   },
   "families": [
-    {
-      "name": "demand",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "derive",
-      "clauses": 9,
-      "modules": 4,
-      "summed_source_span_lines": 32
-    },
-    {
-      "name": "detail",
-      "clauses": 7,
-      "modules": 4,
-      "summed_source_span_lines": 39
-    },
-    {
-      "name": "diagnostics",
-      "clauses": 10,
-      "modules": 4,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "digest",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "dump",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 44
-    },
     {
       "name": "ensure_directory",
       "clauses": 4,

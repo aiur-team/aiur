@@ -68494,10 +68494,583 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "demand",
+      "assessment": "Demand means either monitored interest, owner request or selected planning data.",
+      "constraints": [
+        "ViewStateDemand keeps a pid set and monitor map, adds only new demanders and reports whether this is the first demander. Repeated demand is a no-op.",
+        "GraphProjection exposes a synchronous owner call. DataSource delegates through an injected/default graph projection dependency.",
+        "PlanningSource returns its selected snapshot directly for TrackerIdentity input. Preserve demand lifetime and first-subscriber behavior rather than treating every demand method as a data getter; transitive release and cleanup are outside this read."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 59,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "demand",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "def",
+          "end_line": 59,
+          "body_sha256": "5a437435a54c287432fc6cfbb084c4011285ba719b7dd8896c8c528b8194b7ed",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 34,
+          "module": "Aiur.GitHub.ViewStateDemand",
+          "name": "demand",
+          "path": "src/lib/aiur/github/view_state_demand.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "cd92170bea927c8be6b0426a93b788cda5d6d388dc842759010e24f83d93efd2",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 66,
+          "module": "AiurWeb.BuildOrder.DataSource",
+          "name": "demand",
+          "path": "src/lib/aiur_web/build_order/data_source.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "0f16985cd84ec5b407902cafa49ae7efa2311fdf609cec9ac3a74207dfc1a65a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 67,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "demand",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "c235c4ecd81610d42dc2bf5b90a1c3e5b5a3881d72954e8357145476e2d4533b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "derive",
+      "assessment": "Derived values serve cadence, attribution, deduplication and label-ordering policies.",
+      "constraints": [
+        "Cadence converts interval seconds then derives millisecond cadence. GraphQLCost prefers an explicit nonnil atom or nonempty binary caller, otherwise derives an operation name or route shape.",
+        "EventKey combines event name, repository and event identity parts, returning nil when required inputs cannot be derived.",
+        "LabelState requires a subject map, positive issue number, integer position and label list before returning label state; missing evidence returns error.",
+        "Keep attribution fallback, event identity and label ordering separate from arithmetic derivation. Construction does not prove collision resistance, source completeness or out-of-order handling downstream."
+      ],
+      "clauses": 9,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 130,
+          "module": "Aiur.BuildOrder.Cadence",
+          "name": "derive",
+          "path": "src/lib/aiur/build_order/cadence.ex",
+          "kind": "def",
+          "end_line": 132,
+          "body_sha256": "60f62750cfb5a536e7116b3fdab34484b6ab44fd7ae21ca70256eba6fee29380",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 415,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "derive",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "kind": "def",
+          "end_line": 415,
+          "body_sha256": "44b8343bfee254bf1b94428adb59526f5cef4df20819ab71e129d52325b72e7d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 416,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "derive",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "kind": "def",
+          "end_line": 416,
+          "body_sha256": "111e5268bcd666022c199908029db1a7bc58255909b2447cd713f55c033d5efa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 418,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "derive",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "kind": "def",
+          "end_line": 423,
+          "body_sha256": "e48042488b4b1bc90769cd299bb0723ac31474b91e6356c6d9ac2f9e28c9753d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 425,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "derive",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "kind": "def",
+          "end_line": 425,
+          "body_sha256": "1a1e2cf48be2b70a079406d30ae87c1cdac7f2729cb2054eba2e9e6cb987453d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 24,
+          "module": "Aiur.Webhooks.EventKey",
+          "name": "derive",
+          "path": "src/lib/aiur/webhooks/event_key.ex",
+          "kind": "def",
+          "end_line": 31,
+          "body_sha256": "b116e1cd3cc528277eba241053650e91b9384fd441ace9cdc0763ab562a9d1ce",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 33,
+          "module": "Aiur.Webhooks.EventKey",
+          "name": "derive",
+          "path": "src/lib/aiur/webhooks/event_key.ex",
+          "kind": "def",
+          "end_line": 33,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 37,
+          "module": "Aiur.Webhooks.LabelState",
+          "name": "derive",
+          "path": "src/lib/aiur/webhooks/label_state.ex",
+          "kind": "def",
+          "end_line": 46,
+          "body_sha256": "6ef4de98551475fc0d726dd61dd77b905553c34a5c1cb6863aaaaf727912a694",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 48,
+          "module": "Aiur.Webhooks.LabelState",
+          "name": "derive",
+          "path": "src/lib/aiur/webhooks/label_state.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "703fe067863f696dcda9c9e4ca8e19715247f9f3c5f97bfd4931650886c31703",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "detail",
+      "assessment": "Detail helpers already share decision querying but preserve different presentation and absence contracts.",
+      "constraints": [
+        "DecisionPath URL-encodes the decision id before applying filter/query parameters. It builds navigation rather than retrieving data.",
+        "DecisionProvider uses DecisionQuery, attaches latency to presented data, and retains scope/health. An empty presentation becomes store_unavailable.",
+        "PayloadLoader returns none for nil, not_found for other invalid input and delegates binary ids with selected providers. StreamdeckCommands also uses DecisionQuery but presents a smaller item.",
+        "Preserve public projection, health and latency evidence as well as none-versus-error behavior. Shared query access is already present; routing and presentation are not duplicate query implementations."
+      ],
+      "clauses": 7,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 14,
+          "module": "AiurWeb.OperatorControlCenter.DecisionPath",
+          "name": "detail",
+          "path": "src/lib/aiur_web/operator_control_center/decision_path.ex",
+          "kind": "def",
+          "end_line": 14,
+          "body_sha256": "9de568bfd3ffba934bf7aff34667317a6435deb6e475ed755a9ee52c637c3757",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 17,
+          "module": "AiurWeb.OperatorControlCenter.DecisionPath",
+          "name": "detail",
+          "path": "src/lib/aiur_web/operator_control_center/decision_path.ex",
+          "kind": "def",
+          "end_line": 20,
+          "body_sha256": "d3bec1eff985d643c34ff79d3620427f5a701423cd7885ae54a816bc1e384498",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 21,
+          "module": "AiurWeb.OperatorControlCenter.DecisionProvider",
+          "name": "detail",
+          "path": "src/lib/aiur_web/operator_control_center/decision_provider.ex",
+          "kind": "def",
+          "end_line": 38,
+          "body_sha256": "a801961ef5b0bc6538430c22ad20ec69eda706ab0eca6b6716874672ad1de572",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 33,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "detail",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "kind": "def",
+          "end_line": 33,
+          "body_sha256": "2c5c97c78073f6dec15597043895648c08ddcbcdef2e050f5f6b34e979ac49ec",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 35,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "detail",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "kind": "def",
+          "end_line": 42,
+          "body_sha256": "4888ec8158eb094e6f730a04218a1fc43eca0db45020efe0715523ec681432f8",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 44,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "detail",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "kind": "def",
+          "end_line": 44,
+          "body_sha256": "c48105a3770f3885e46323d814691745bf02e9c4a04bda1fb5eb40f7c4dfc333",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 48,
+          "module": "AiurWeb.StreamdeckCommands",
+          "name": "detail",
+          "path": "src/lib/aiur_web/streamdeck_commands.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "6f41b2fc3666608dac738e93fdab7b15304ecb2cf2ce52c79272cff40cd52a2b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "diagnostics",
+      "assessment": "Diagnostic helpers map, filter, project or expose different evidence.",
+      "constraints": [
+        "GitHubGraph.Result maps bounded-query failures directly, schema failures to provider_schema, selected structural/catalog failures to an empty list and unknown reasons to provider_unavailable.",
+        "ProviderResult filters supplied lists to Diagnostic structs, otherwise returns its default. BuildOrdersCLI emits code fields from diagnostic lists and defaults missing data to [].",
+        "TicketActivity.Projection returns retained diagnostics unchanged. Preserve source reasons and structured evidence; an empty projected diagnostic list does not independently prove validity or availability."
+      ],
+      "clauses": 10,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 70,
+          "module": "Aiur.BuildOrder.GitHubGraph.Result",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "kind": "defp",
+          "end_line": 78,
+          "body_sha256": "043d9e3ad5269d3286c81834d62f6b28bbe5175ad8ce2346bc2e9b594ec88620",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 80,
+          "module": "Aiur.BuildOrder.GitHubGraph.Result",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "kind": "defp",
+          "end_line": 80,
+          "body_sha256": "ad64b1a3994c426b18a5e3f2af42f8aec5c6a8c3b3e4300f2f8990d9f2379cce",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "Aiur.BuildOrder.GitHubGraph.Result",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "kind": "defp",
+          "end_line": 81,
+          "body_sha256": "6e6e4da767a546247f3b9da336e654ee2e159b617ba513b9843fbf93082478df",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 83,
+          "module": "Aiur.BuildOrder.GitHubGraph.Result",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "kind": "defp",
+          "end_line": 84,
+          "body_sha256": "9f36e11bfbc4dcc825ba94bdb74df1d9ccc964e42f6e195b498b13c108939659",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 86,
+          "module": "Aiur.BuildOrder.GitHubGraph.Result",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "kind": "defp",
+          "end_line": 86,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 87,
+          "module": "Aiur.BuildOrder.GitHubGraph.Result",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "kind": "defp",
+          "end_line": 87,
+          "body_sha256": "2b6e400e57a98bc75c5d533cc6bc0137d2552add1b69919266c0508ce90a8dff",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 69,
+          "module": "Aiur.BuildOrder.ProviderResult",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_order/provider_result.ex",
+          "kind": "defp",
+          "end_line": 74,
+          "body_sha256": "6ee337954dc185c393adefe9d40dd48789e32b57463d9f68e382c1b286aad841",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 263,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 263,
+          "body_sha256": "74d18a1046c25bb72ea7dd52ede5efd143e426b50f33c82efebe3b6d67e708c3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 264,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 264,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 228,
+          "module": "Aiur.TicketActivity.Projection",
+          "name": "diagnostics",
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "kind": "def",
+          "end_line": 228,
+          "body_sha256": "352b893df2bc8a46e7c4020d1bf8a12b77488c4ecb67994f3cfb0da45ec83500",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "digest",
+      "assessment": "Two SHA-256 helpers are equivalent while other methods truncate or validate instead.",
+      "constraints": [
+        "TurnProgress and RepoBase both compute SHA-256 and lower-case hexadecimal output, providing a direct mechanics-sharing candidate.",
+        "ExecutorCommandAttention truncates that hexadecimal digest to sixteen bytes for its decision-id input.",
+        "RootSummary accepts a nonnegative integer or returns nil; despite its name it does not hash input. Preserve full versus truncated identity and integer validation; this read does not establish collision incidence or privacy properties."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 212,
+          "module": "Aiur.AgentRunner.TurnProgress",
+          "name": "digest",
+          "path": "src/lib/aiur/agent_runner/turn_progress.ex",
+          "kind": "defp",
+          "end_line": 214,
+          "body_sha256": "c8ebab4aaeb2b5ef7a51c9be5752077fe49c147e1e4f2597b19bac7ec9618681",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 144,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "digest",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "defp",
+          "end_line": 144,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 145,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "digest",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "defp",
+          "end_line": 145,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 147,
+          "module": "Aiur.ExecutorCommandAttention",
+          "name": "digest",
+          "path": "src/lib/aiur/executor_command_attention.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "558e56f9089d4f6a5bfc5674b6c1eda3cb10b57e6f59eb139dd5771ef5b3f354",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1348,
+          "module": "Aiur.RepoBase",
+          "name": "digest",
+          "path": "src/lib/aiur/repo_base.ex",
+          "kind": "defp",
+          "end_line": 1348,
+          "body_sha256": "f179ca1b923f1395bdd0c996a721908be8dc597f3fcf2b42831afd3878a5cc59",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dump",
+      "assessment": "Dump methods serialize different bounded, historical and accounting contracts.",
+      "constraints": [
+        "StringOrMap is an Ecto-style pass-through accepting binary/map values and rejecting others. CurrentRunProjections.Checkpoint selects specific state fields and bounds sources, units and weight facts.",
+        "ControlLifecycle gathers unique history record ids, fetches each record and serializes protocol-versioned records plus daemon events.",
+        "CounterPolicy emits sorted idempotency identities, encoded absolute values with money/token kind and source sequence, stream kinds and coverage bounds/status.",
+        "Shared encoding must retain schema/version, accounting type, replay evidence and bounds. These bodies do not prove privacy sanitization, round-trip compatibility or durable storage."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 23,
+          "module": "Aiur.Config.Schema.StringOrMap",
+          "name": "dump",
+          "path": "src/lib/aiur/config/schema/string_or_map.ex",
+          "kind": "def",
+          "end_line": 23,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "Aiur.Config.Schema.StringOrMap",
+          "name": "dump",
+          "path": "src/lib/aiur/config/schema/string_or_map.ex",
+          "kind": "def",
+          "end_line": 24,
+          "body_sha256": "703fe067863f696dcda9c9e4ca8e19715247f9f3c5f97bfd4931650886c31703",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 41,
+          "module": "Aiur.CurrentRunProjections.Checkpoint",
+          "name": "dump",
+          "path": "src/lib/aiur/current_run_projections/checkpoint.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "4bf904fd8c5245272051fdaa130a7a40d40ef2553744898293358eb3e9f47dec",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 363,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "dump",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "kind": "def",
+          "end_line": 377,
+          "body_sha256": "d3cdc5fe7ba3aa781a458e212d484b1859305790f462df0d1c9551be4c12f989",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 44,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "dump",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "84b612673ed6f92729e214cb1fd6824c19303bb447327ed7ed1f1ee885d62275",
+          "normalized_body_lines": 27,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5320,
-  "limits": "295 selected families and 5320 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5360,
+  "limits": "301 selected families and 5360 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
