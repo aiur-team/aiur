@@ -1,0 +1,103 @@
+{
+  "unit_id": "tests-4",
+  "status": "in_progress",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "planned_files": 100,
+  "files": [
+    {
+      "path": "src/test/aiur/browser_harness/fixtures_test.exs",
+      "sha256": "307f3da6d6d3b58137b59f8ad85371c6ad8ec6d78d014a6cfa779c6aa2b6b28d",
+      "lines": 76,
+      "read": "full",
+      "assessment": "Exact node identities/counts, cycle/self-loop/external and missing endpoints, diagnostics and adapter results constrain synthetic fixtures. Repeated-call equality tests determinism; it is supplemented by independent expectations. These are fixture contracts, not graph UI or runtime dependency semantics."
+    },
+    {
+      "path": "src/test/aiur/claude/account_generation_test.exs",
+      "sha256": "4324d1a0df1b68b54c089567c7012ce62037d8f756cc6a0b092d0ac74ace9db2",
+      "lines": 65,
+      "read": "full",
+      "assessment": "Trusted subscription observations keep the generation; switching to API-key rotates it; unknown invalidates with untrusted_lifecycle; rebound differs from both previous values; stopped clears. Named owner is actually stopped/recreated and same-mode observation gets a new generation. This is owner restart coverage, not full daemon restart."
+    },
+    {
+      "path": "src/test/aiur/claude/account_meters_test.exs",
+      "sha256": "968d1d16cdb5e5004e7ca032b9cc56f26985bac1cb254c98165ce1d746e0888f",
+      "lines": 167,
+      "read": "full",
+      "assessment": "Private owner/store with fixed clock, via support helper. Malformed account-mode/header payload retains same-generation 83% as stale and a valid 42% update recovers. Valid mode change rotates and removes old window facts; unknown classification clears generation/windows. Cross-provider writes leave Claude snapshot unchanged. Injected rejection/failure-recorder errors are surfaced. Exact redacted-message shape excludes correlations; no live provider request."
+    },
+    {
+      "path": "src/test/aiur/claude/coding_agent_limit_test.exs",
+      "sha256": "40c53c1a43a03e2b078151dda036c3f96757527c5a4930a4294ddcace427d8a2",
+      "lines": 91,
+      "read": "full",
+      "assessment": "Actual cat ports and recorded StreamDiagnostics exercise direct turn/failed handling. Structured rate limits and diagnostic session-limit text pause; unrelated diagnostic remains error. Ports have on_exit cleanup in addition to success cleanup. This is handler classification, not scheduler pause/resume or provider execution."
+    },
+    {
+      "path": "src/test/aiur/claude/config_test.exs",
+      "sha256": "184e1baca7d30b7fd95f1506294790002b8c40d77989aa8b7bfe3b63886402ee",
+      "lines": 57,
+      "read": "full",
+      "assessment": "Workflow-backed accessor checks nil model, explicit model, default command, permission defaults, valid acceptEdits and invalid-value fallback to bypassPermissions. Preserve or explicitly reconsider permissive fallback in the package contract; tests characterize configuration, not authorization enforcement."
+    },
+    {
+      "path": "src/test/aiur/claude/display_tailer_test.exs",
+      "sha256": "b1b655c8f4c3e6b2ca6519b9a917d7285284bace166eb96497275d558dd53446",
+      "lines": 324,
+      "read": "full",
+      "assessment": "Synthetic JSONL with real supervised tailer and manual polls tests history backfill, session retargeting, missing-path recovery, killed inner-tailer health with opaque logging, malformed-line skip and explicit backfill/live ingress. Cold-start operator request IDs deduplicate then flush to exact session; unresolved buffer retains newest 32 of 40. Owner process exit is monitored to normal tailer DOWN. Body cap requires truncation marker and <2000 bytes for max_body 1000, not an exact bound. Display callbacks do not prove TUI rendering. First test says in order but assertions only check role/body membership; follow-up candidate retained pending cross-suite context."
+    },
+    {
+      "path": "src/test/aiur/claude/hook_events_test.exs",
+      "sha256": "c7d98ba01d5e061f233a75c213704a621c8c7ec0a12b1b90a755165abe610117",
+      "lines": 83,
+      "read": "full",
+      "assessment": "Lifecycle/unknown normalization, optional fields and nonbinary-to-nil cases, actual subscribed dispatch and per-identifier exclusion. Malformed dispatch returns ok. Does not exercise HTTP ingress or a running Claude hook."
+    },
+    {
+      "path": "src/test/aiur/claude/hook_settings_test.exs",
+      "sha256": "009090f1b197bce32fec78abc0ec4aeb00ec973a424fa51e7c3091378d8e41fd",
+      "lines": 87,
+      "read": "full",
+      "assessment": "Restores injected dashboard URL provider; exact set of four hook names; endpoint sampled from StopFailure. Shell-command substring checks require timeout/silencing/header/exit suffix and normalized slash; does not execute curl or prove wall-clock bound/exit behavior. Write test decodes actual JSON and cleans generated path."
+    },
+    {
+      "path": "src/test/aiur/claude/notification_policy_test.exs",
+      "sha256": "6b5069a8e578d71df346adce369e204610ad963436c6dd4f62b02c24671a4b8c",
+      "lines": 142,
+      "read": "full",
+      "assessment": "Structured and textual limit classifications have negative ordinary-crash/stack-line-429 controls. Prose reset extraction, structured reset priority, timezone-resolved provider refusal, missing reset nil, 404/529 and banner-without-provider-provenance rejection are explicit. These finite fixtures are not exhaustive language parsing or current provider protocol validation."
+    },
+    {
+      "path": "src/test/aiur/claude/rate_limit_adapter_test.exs",
+      "sha256": "b93156c77bf689a33fd89337fad956a915e318939cf3560dfdc0e957a742e5a9",
+      "lines": 118,
+      "read": "full",
+      "assessment": "Pinned fixture normalization carries provider/backend/source/version and reported quota only. Unknown status with quota/reset omitted stays unknown and absent, not zero. Reconciler refresh at reset+1 makes health/window stale. Concrete drift/range/unknown-field and legacy/OTel rejection cases, plus fixture forbidden-substring checks. Test title every non-allowlisted field is broader than finite examples; do not report exhaustive privacy proof."
+    }
+  ],
+  "scope_note": "Source review only; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
+  "findings": [],
+  "preserve": [
+    "Exact node identities/counts, cycle/self-loop/external and missing endpoints, diagnostics and adapter results constrain synthetic fixtures. Repeated-call equality tests determinism; it is supplemented by independent expectations. These are fixture contracts, not graph UI or runtime dependency semantics.",
+    "Trusted subscription observations keep the generation; switching to API-key rotates it; unknown invalidates with untrusted_lifecycle; rebound differs from both previous values; stopped clears. Named owner is actually stopped/recreated and same-mode observation gets a new generation. This is owner restart coverage, not full daemon restart.",
+    "Private owner/store with fixed clock, via support helper. Malformed account-mode/header payload retains same-generation 83% as stale and a valid 42% update recovers. Valid mode change rotates and removes old window facts; unknown classification clears generation/windows. Cross-provider writes leave Claude snapshot unchanged. Injected rejection/failure-recorder errors are surfaced. Exact redacted-message shape excludes correlations; no live provider request.",
+    "Actual cat ports and recorded StreamDiagnostics exercise direct turn/failed handling. Structured rate limits and diagnostic session-limit text pause; unrelated diagnostic remains error. Ports have on_exit cleanup in addition to success cleanup. This is handler classification, not scheduler pause/resume or provider execution.",
+    "Workflow-backed accessor checks nil model, explicit model, default command, permission defaults, valid acceptEdits and invalid-value fallback to bypassPermissions. Preserve or explicitly reconsider permissive fallback in the package contract; tests characterize configuration, not authorization enforcement.",
+    "Synthetic JSONL with real supervised tailer and manual polls tests history backfill, session retargeting, missing-path recovery, killed inner-tailer health with opaque logging, malformed-line skip and explicit backfill/live ingress. Cold-start operator request IDs deduplicate then flush to exact session; unresolved buffer retains newest 32 of 40. Owner process exit is monitored to normal tailer DOWN. Body cap requires truncation marker and <2000 bytes for max_body 1000, not an exact bound. Display callbacks do not prove TUI rendering. First test says in order but assertions only check role/body membership; follow-up candidate retained pending cross-suite context.",
+    "Lifecycle/unknown normalization, optional fields and nonbinary-to-nil cases, actual subscribed dispatch and per-identifier exclusion. Malformed dispatch returns ok. Does not exercise HTTP ingress or a running Claude hook.",
+    "Restores injected dashboard URL provider; exact set of four hook names; endpoint sampled from StopFailure. Shell-command substring checks require timeout/silencing/header/exit suffix and normalized slash; does not execute curl or prove wall-clock bound/exit behavior. Write test decodes actual JSON and cleans generated path.",
+    "Structured and textual limit classifications have negative ordinary-crash/stack-line-429 controls. Prose reset extraction, structured reset priority, timezone-resolved provider refusal, missing reset nil, 404/529 and banner-without-provider-provenance rejection are explicit. These finite fixtures are not exhaustive language parsing or current provider protocol validation.",
+    "Pinned fixture normalization carries provider/backend/source/version and reported quota only. Unknown status with quota/reset omitted stays unknown and absent, not zero. Reconciler refresh at reset+1 makes health/window stale. Concrete drift/range/unknown-field and legacy/OTel rejection cases, plus fixture forbidden-substring checks. Test title every non-allowlisted field is broader than finite examples; do not report exhaustive privacy proof."
+  ],
+  "cross_references": [],
+  "follow_up_candidates": [
+    {
+      "id": "tests-4-candidate-01",
+      "path": "src/test/aiur/claude/display_tailer_test.exs",
+      "lines": "65-101",
+      "hypothesis": "The full-conversation test name claims ordering, but its oracle checks membership only and accepts reordered forwarded events.",
+      "next": "Extract the actual assertions for a bounded permutation probe, check other transcript tests for order coverage, and distinguish a local oracle gap from an end-to-end ordering defect."
+    }
+  ],
+  "next": "Read coding_agent_test.exs and remote_control_test.exs, then the remaining Claude REPL and provider units. 90 files remain; do not count this partial ledger as a completed raw unit."
+}
