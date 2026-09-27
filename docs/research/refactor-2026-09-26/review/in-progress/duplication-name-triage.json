@@ -99575,10 +99575,358 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "cleanup",
+      "assessment": "Owner-monitor cleanup and orderly daemon shutdown have different scope and ordering.",
+      "constraints": [
+        "DecisionDispatchTasks.Owner keeps monitors while Queue reports the owner present; otherwise pops and demonitor-flushes a reference.",
+        "Shutdown sequences workspace-root/stop recording, agent reaping, session deletion, serve reaping, pane/workspace cleanup and tempfile truncation through safely, then returns ok.",
+        "Preserve shutdown dependency order versus per-owner monitor lifetime. No cleanup was executed; best-effort wrappers and an ok return do not prove all resources were removed."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 18,
+          "module": "Aiur.DecisionDispatchTasks.Owner",
+          "name": "cleanup",
+          "path": "src/lib/aiur/decision_dispatch_tasks/owner.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "5dae57edb10e0bddc037447b56087c7fc09c1896025489969ed678c4f11b1dad",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 42,
+          "module": "Aiur.Shutdown",
+          "name": "cleanup",
+          "path": "src/lib/aiur/shutdown.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "cbc48e2db2d88dab3667af6d4904f03bb50b148af4fb8115a8bb4bc6a9d4b5a6",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cleanup_terminal_issue_artifacts",
+      "assessment": "Orchestrator already delegates terminal artifact cleanup.",
+      "constraints": [
+        "Verified WorkspaceCleanup alias; the facade forwards identifier and optional host.",
+        "WorkspaceCleanup calls cleanup_issue_workspace then clear_session_handle for binary identifiers, without locally matching the first result.",
+        "Preserve ordered cleanup ownership and failure propagation semantics; durable deletion and handle clearing are not certified by the sequence alone."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 390,
+          "module": "Aiur.Orchestrator",
+          "name": "cleanup_terminal_issue_artifacts",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 391,
+          "body_sha256": "4dc821867fd9d99504b589e029ebc85562f752b34385cda21bf627fcfcb44ab2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 22,
+          "module": "Aiur.Orchestrator.WorkspaceCleanup",
+          "name": "cleanup_terminal_issue_artifacts",
+          "path": "src/lib/aiur/orchestrator/workspace_cleanup.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 24,
+          "module": "Aiur.Orchestrator.WorkspaceCleanup",
+          "name": "cleanup_terminal_issue_artifacts",
+          "path": "src/lib/aiur/orchestrator/workspace_cleanup.ex",
+          "kind": "def",
+          "end_line": 27,
+          "body_sha256": "7e1f789291b503a97a1c8e8c59e4369b74cb890174e0db3068db14a31fc4bea5",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "clear_auth_mode",
+      "assessment": "Provider context wrappers already share the same deletion primitive.",
+      "constraints": [
+        "Claude and Codex Context both invoke SharedContext.delete(session, auth_mode).",
+        "Verified both SharedContext aliases resolve to Aiur.ProviderAccountGeneration.Context.",
+        "This is an existing common implementation with provider facades, not duplicated state storage; deletion persistence and concurrent ownership remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 30,
+          "module": "Aiur.Claude.AccountGeneration.Context",
+          "name": "clear_auth_mode",
+          "path": "src/lib/aiur/claude/account_generation/context.ex",
+          "kind": "def",
+          "end_line": 31,
+          "body_sha256": "f36201fab3b35194a418b3ed786d9b7ffb97b2a8d5c9b68f090184d703868c4d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 33,
+          "module": "Aiur.Codex.AccountGeneration.Context",
+          "name": "clear_auth_mode",
+          "path": "src/lib/aiur/codex/account_generation/context.ex",
+          "kind": "def",
+          "end_line": 34,
+          "body_sha256": "f36201fab3b35194a418b3ed786d9b7ffb97b2a8d5c9b68f090184d703868c4d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "clear_input",
+      "assessment": "Tmux clearing separates RPC error mapping from terminal command execution.",
+      "constraints": [
+        "Tmux makes a synchronous call and translates noproc/timeout exits to tagged errors.",
+        "Tmux.Input sends C-u to the selected pane via Exec.run_args, translating successful command execution to ok and preserving tagged errors.",
+        "Keep call failure policy and pane-command ownership separate. Command success does not prove the target application's input buffer was cleared."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 267,
+          "module": "Aiur.Tmux",
+          "name": "clear_input",
+          "path": "src/lib/aiur/tmux.ex",
+          "kind": "def",
+          "end_line": 272,
+          "body_sha256": "9714ec8a4974917d31f05278b1d85b7e19195e8d970eb76875356aaee470e930",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 58,
+          "module": "Aiur.Tmux.Input",
+          "name": "clear_input",
+          "path": "src/lib/aiur/tmux/input.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "f236a0d394921495730ecf4549213a7498f5ddba151f6f49a89f23c7102c7069",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "clear_session_handle",
+      "assessment": "Orchestrator and workspace cleanup already delegate to the handle owner.",
+      "constraints": [
+        "WorkspaceCleanup forwards binary identifiers to SessionHandle.clear and returns ok for other inputs.",
+        "Orchestrator forwards to WorkspaceCleanup.",
+        "Preserve invalid-input no-op behavior and handle-store ownership; this read does not certify persistent handle removal."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 394,
+          "module": "Aiur.Orchestrator",
+          "name": "clear_session_handle",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 394,
+          "body_sha256": "30b82a1948da314896bbc86a6ba3016c6383418acbe28efbbfc9328ec1d20156",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 31,
+          "module": "Aiur.Orchestrator.WorkspaceCleanup",
+          "name": "clear_session_handle",
+          "path": "src/lib/aiur/orchestrator/workspace_cleanup.ex",
+          "kind": "def",
+          "end_line": 31,
+          "body_sha256": "d58fbd50dc5b72aaadff1ed1a0cd057a37f318ad583db7126b15262aa29b4a8a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 32,
+          "module": "Aiur.Orchestrator.WorkspaceCleanup",
+          "name": "clear_session_handle",
+          "path": "src/lib/aiur/orchestrator/workspace_cleanup.ex",
+          "kind": "def",
+          "end_line": 32,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "client_module",
+      "assessment": "Tracker client selection shares a mechanism with distinct provider defaults.",
+      "constraints": [
+        "GitHub and Linear trackers use Application.get_env with provider-specific override keys.",
+        "Verified their default Client aliases resolve to Aiur.GitHub.Client and Aiur.Linear.Client respectively.",
+        "Retain provider-specific injection points; a generic accessor offers little beyond Application.get_env and must not erase differing client contracts."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 194,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "client_module",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "defp",
+          "end_line": 196,
+          "body_sha256": "a87d20f6b7c16f2f23318432f3c4d79e0566977a45b92711db09df94997a1ac5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 141,
+          "module": "Aiur.Linear.Tracker",
+          "name": "client_module",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "defp",
+          "end_line": 143,
+          "body_sha256": "5d5af743193d860e8566ae9f694ff935ac9dddee8a89cb06a91c8727c2c3943b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "close_active_chat_streams",
+      "assessment": "Orchestrator delegates stream closure notification to AgentTeardown.",
+      "constraints": [
+        "AgentTeardown enumerates active turn IDs, broadcasts turn-done then marks each closed, returning ok; nonbinary identifiers are no-ops.",
+        "The facade forwards identifier and reason.",
+        "Preserve notification-before-mark ordering and idempotency requirements; subscriber receipt and interruption-free completion are not proved by this loop."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 408,
+          "module": "Aiur.Orchestrator",
+          "name": "close_active_chat_streams",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 409,
+          "body_sha256": "81a11d4d1b3b16c5ca4ac0e3a473e97768d08d02c5dbe43b91f805510dbb6368",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 24,
+          "module": "Aiur.Orchestrator.AgentTeardown",
+          "name": "close_active_chat_streams",
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "kind": "def",
+          "end_line": 31,
+          "body_sha256": "bfd0e1c0a9a6a765e3b4ff3708296096cebfe46fe62a69198575a5238b0b831f",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 33,
+          "module": "Aiur.Orchestrator.AgentTeardown",
+          "name": "close_active_chat_streams",
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "kind": "def",
+          "end_line": 33,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "close_conversation",
+      "assessment": "Pane-manager close requests and browser drawer reset are different lifecycles.",
+      "constraints": [
+        "PaneManager sends a synchronous close request for a binary identifier.",
+        "DashboardLive unsubscribes then clears conversation/drawer/log fields and restores conversation_lifecycle to active.",
+        "Do not conflate resource closure with UI state reset; pane process termination and complete unsubscribe behavior require their respective handlers/helpers."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 103,
+          "module": "Aiur.PaneManager",
+          "name": "close_conversation",
+          "path": "src/lib/aiur/pane_manager.ex",
+          "kind": "def",
+          "end_line": 105,
+          "body_sha256": "f8e4167d576a03b17501b6db1dc0277c39fb9c9ebfa371a7462865d5f669e34c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2103,
+          "module": "AiurWeb.DashboardLive",
+          "name": "close_conversation",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 2115,
+          "body_sha256": "2da798751a83f93730883b86a57b95161279228dd7cfb3bc80af78ebe8343288",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7343,
-  "limits": "733 selected families and 7343 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7362,
+  "limits": "741 selected families and 7362 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

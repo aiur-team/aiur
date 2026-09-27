@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "e9469bf0a5ee372ebb39c9ac4886cefbdab958bb6a7b3e4db13e42b3e6dc1c6d"
+    "name_triage": "16ea53b0be50525390ace3552811f0094be933e393881ad1c119f079b0dbc507"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 733,
-    "remaining_cross_module_names": 947,
-    "remaining_literal_entries": 2925
+    "reviewed_cross_module_names": 741,
+    "remaining_cross_module_names": 939,
+    "remaining_literal_entries": 2906
   },
   "families": [
-    {
-      "name": "cleanup",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 31
-    },
-    {
-      "name": "cleanup_terminal_issue_artifacts",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "clear_auth_mode",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "clear_input",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "clear_session_handle",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 3
-    },
-    {
-      "name": "client_module",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "close_active_chat_streams",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "close_conversation",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
     {
       "name": "coding_agent_run_turn",
       "clauses": 2,
