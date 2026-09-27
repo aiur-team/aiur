@@ -88552,10 +88552,520 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "recover",
+      "assessment": "Account recovery layers preserve scope, continuity and tombstone authority.",
+      "constraints": [
+        "OpenAICompat.AccountGeneration packages binding/authority/topic for ProviderAccountGeneration.recover_binding.",
+        "State checks provider/backend scope before delegating to Registry.",
+        "Registry rejects tombstoned keys, delegates existing entries, or recovers continuity-authorized entries with owner monitoring and retained continuity before returning a recovered event.",
+        "These are layered policy boundaries, not duplicate recovery algorithms. Helper authorization and continuity durability remain unverified here."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 74,
+          "module": "Aiur.OpenAICompat.AccountGeneration",
+          "name": "recover",
+          "path": "src/lib/aiur/open_ai_compat/account_generation.ex",
+          "kind": "defp",
+          "end_line": 80,
+          "body_sha256": "afe5f76b64e6433e40b7d997b1e5b6bc979b5891b7fed8233e72f53ff53156bf",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 7,
+          "line": 18,
+          "module": "Aiur.ProviderAccountGeneration.Registry",
+          "name": "recover",
+          "path": "src/lib/aiur/provider_account_generation/registry.ex",
+          "kind": "def",
+          "end_line": 36,
+          "body_sha256": "ffd0c8a19898d8b419c83f7b01a0aaf39f6230c461e99f960a36c2ecc7fcb852",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 7,
+          "line": 31,
+          "module": "Aiur.ProviderAccountGeneration.State",
+          "name": "recover",
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "041598502b78878f9030b24a74073de9c1b28b7f8188ae458b2f9421ac6543f5",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "refresh_sync",
+      "assessment": "Synchronous refresh wrappers differ in timeout policy.",
+      "constraints": [
+        "AdHocSource and OpenTicketSource issue the same GenServer refresh_sync call using its default timeout.",
+        "BuildOrder.PackStatus explicitly allows 30000 ms.",
+        "Two wrappers match mechanically, but server ownership and timeout differences should remain explicit; synchronous call return is not independently proven complete source reconciliation."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "refresh_sync",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "def",
+          "end_line": 81,
+          "body_sha256": "694be74630b26bee59b32a5dbd4b8c008d4caf816af9e59b8604d31e623346d4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 67,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "refresh_sync",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "b715e6c015ae9bdc5a342f5a03adc163a9c40b29473c20030bb79c422d8c9305",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 100,
+          "module": "Aiur.OpenTicketSource",
+          "name": "refresh_sync",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "def",
+          "end_line": 100,
+          "body_sha256": "694be74630b26bee59b32a5dbd4b8c008d4caf816af9e59b8604d31e623346d4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reject",
+      "assessment": "Rejection means asynchronous accounting, HTTP response or lifecycle transition.",
+      "constraints": [
+        "Claude.Telemetry casts an atom reason to its server.",
+        "Telemetry.Receiver maps authentication/capability to 401, size to 413, concurrency/rate to 429, replay/stale session to 409, otherwise 400, and sends an empty JSON object.",
+        "ControlLifecycle changes only recognized pending requests to rejected, records time/class detail and clears pending identity; other requests/classes are ignored.",
+        "Preserve transport status, asynchronous recording and lifecycle idempotency separately. A rejection response does not prove rejection accounting completed."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 123,
+          "module": "Aiur.Claude.Telemetry",
+          "name": "reject",
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "kind": "def",
+          "end_line": 125,
+          "body_sha256": "182b72556afac4462e28913d565b62f7d4f2303666b9c681a58be4055dca4e18",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 107,
+          "module": "Aiur.Claude.Telemetry.Receiver",
+          "name": "reject",
+          "path": "src/lib/aiur/claude/telemetry/receiver.ex",
+          "kind": "defp",
+          "end_line": 118,
+          "body_sha256": "b09d125a360f47b061bd6577e9e5d915f4a01e5b167ff2adfa773d1a1f8299d4",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 195,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "reject",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "kind": "def",
+          "end_line": 195,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 4,
+          "line": 197,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "reject",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "kind": "def",
+          "end_line": 223,
+          "body_sha256": "60ae54a177ccbea60f9b2a00765df1c5efd2df1c071d35c1af7195b5b5d462d1",
+          "normalized_body_lines": 32,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 225,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "reject",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "kind": "def",
+          "end_line": 225,
+          "body_sha256": "4449eefec02df0e12961f0dae80933c2181681a26ca894e89a2303646e08c859",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "remove",
+      "assessment": "Decision-index removal and workspace deletion have unrelated ownership contracts.",
+      "constraints": [
+        "RetainedIndex removes audit/lifecycle/ticket/search/current indexes and decrements counts for a Decision; other prior values are unchanged.",
+        "Workspace delegates to Remove. Existing local paths are validated before hook and recursive deletion; missing local paths go directly to File.rm_rf.",
+        "Remote removal runs the hook and a shell-assigned workspace deletion command, then maps remote exit/transport errors; this literal path does not call the local path validator.",
+        "No deletion was executed. Remote/caller validation, hook behavior and local path race conditions were not established, so no safety or exploit claim follows from these wrappers."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 126,
+          "module": "Aiur.DecisionStore.RetainedIndex",
+          "name": "remove",
+          "path": "src/lib/aiur/decision_store/retained_index.ex",
+          "kind": "defp",
+          "end_line": 141,
+          "body_sha256": "5f2b46982323dd8e3f230c0dc41efcef1934f59d0bb4a2778e6842d4fd6c0974",
+          "normalized_body_lines": 26,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 143,
+          "module": "Aiur.DecisionStore.RetainedIndex",
+          "name": "remove",
+          "path": "src/lib/aiur/decision_store/retained_index.ex",
+          "kind": "defp",
+          "end_line": 143,
+          "body_sha256": "20751ff1eaf9e1a1c91cc5cb92c303d07386268217884359010c2641e844e669",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 47,
+          "module": "Aiur.Workspace",
+          "name": "remove",
+          "path": "src/lib/aiur/workspace.ex",
+          "kind": "defdelegate",
+          "end_line": 47,
+          "body_sha256": "1127e127aba14bdf83bc06c6356408250448f0eee06b52105a24cabc3e47be08",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 50,
+          "module": "Aiur.Workspace",
+          "name": "remove",
+          "path": "src/lib/aiur/workspace.ex",
+          "kind": "defdelegate",
+          "end_line": 50,
+          "body_sha256": "1127e127aba14bdf83bc06c6356408250448f0eee06b52105a24cabc3e47be08",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 10,
+          "module": "Aiur.Workspace.Remove",
+          "name": "remove",
+          "path": "src/lib/aiur/workspace/remove.ex",
+          "kind": "def",
+          "end_line": 10,
+          "body_sha256": "5f58bb23746e2affa7e67e7ec10d9702065fb275371429b0389901bdbdd464d4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 13,
+          "module": "Aiur.Workspace.Remove",
+          "name": "remove",
+          "path": "src/lib/aiur/workspace/remove.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "39efe233889b79d4ebf112ccb320dc1f2db4086dce619271cb815597f2687977",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 30,
+          "module": "Aiur.Workspace.Remove",
+          "name": "remove",
+          "path": "src/lib/aiur/workspace/remove.ex",
+          "kind": "def",
+          "end_line": 50,
+          "body_sha256": "235cd7bbd47f188f0bce71b90762b5f880df74dafdb7e311e665dcffc5a7c784",
+          "normalized_body_lines": 27,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "replacement_boundary?",
+      "assessment": "Two selectors share an exact boolean check; the source derives the flag from work state.",
+      "constraints": [
+        "UnitsControlPolicy and UnitsPolicy accept only replacement_boundary? equal to true.",
+        "UnitsRow.Fields instead derives the flag from Value.get work_state equal to completed.",
+        "Keep raw-state derivation distinct from consuming an explicit normalized flag. The matching selectors can share mechanics without redefining completed work as full task completion."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 274,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "replacement_boundary?",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "defp",
+          "end_line": 274,
+          "body_sha256": "8d5f93fcc7c7b92f81350737fdd5b3a4816ec5c57f5473a2ace492efe6bff829",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 127,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPolicy",
+          "name": "replacement_boundary?",
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "kind": "defp",
+          "end_line": 127,
+          "body_sha256": "8d5f93fcc7c7b92f81350737fdd5b3a4816ec5c57f5473a2ace492efe6bff829",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 15,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Fields",
+          "name": "replacement_boundary?",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "kind": "def",
+          "end_line": 17,
+          "body_sha256": "944a654cdfd5d592260e8667bb0a1704fff876e43bf6f93b5a75cd2b8ca3f9e2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "repo_name",
+      "assessment": "Repository names serve sanitized storage identity and display extraction.",
+      "constraints": [
+        "Config.Paths takes the final project-identity segment, sanitizes/defaults it and falls back to aiur when identity is absent.",
+        "IssueLog already delegates to Paths.repo_name.",
+        "Layouts only takes the final slash-separated segment from its input.",
+        "Do not substitute display extraction for storage naming. Sanitization collisions, helper behavior and tracker identity scope remain outside this batch."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 242,
+          "module": "Aiur.Config.Paths",
+          "name": "repo_name",
+          "path": "src/lib/aiur/config/paths.ex",
+          "kind": "def",
+          "end_line": 254,
+          "body_sha256": "212c4699bfb34c3238efcf38b91765fe62c78db3cd175b78599fc1b6ab7018b1",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 1047,
+          "module": "Aiur.IssueLog",
+          "name": "repo_name",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 1047,
+          "body_sha256": "ce33d5f95aac61792dc4444691a45a88e378052c522deaa05fd00cb8797b9f9d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 332,
+          "module": "AiurWeb.Layouts",
+          "name": "repo_name",
+          "path": "src/lib/aiur_web/components/layouts.ex",
+          "kind": "defp",
+          "end_line": 332,
+          "body_sha256": "260cb9eacdf5a6b3606f558b79e09695963cde0bfb2d0273954c9181a7fe2467",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "report",
+      "assessment": "Reporting spans operator recovery guidance, discovery diagnostics and cost projection.",
+      "constraints": [
+        "Init.Prewarm.Failure classifies a build failure and prints guidance, a suggested agent prompt and retry wording.",
+        "ModelDiscovery logs counts/rejections, reports unpriced models and warns on provisional-state price drift.",
+        "The cost-report task loads projection/scope, projects grouped usage in USD and renders the chosen format.",
+        "These are distinct reporting boundaries. Printed retry and pricing statements require separate behavioral evidence; the report wrappers do not establish savings or complete coverage."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 19,
+          "module": "Aiur.Init.Prewarm.Failure",
+          "name": "report",
+          "path": "src/lib/aiur/init/prewarm/failure.ex",
+          "kind": "def",
+          "end_line": 31,
+          "body_sha256": "2117bd419881358d5a7a866e5c61d137263d3a53d623e812ea339d295499f4ab",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 669,
+          "module": "Aiur.ModelDiscovery",
+          "name": "report",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "defp",
+          "end_line": 677,
+          "body_sha256": "a1083292a8b752abf1befccdb327180d0dbc199fd0d6d055fa3268c0a06f5abd",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Mix.Tasks.Aiur.CostReport",
+          "name": "report",
+          "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+          "kind": "defp",
+          "end_line": 99,
+          "body_sha256": "0f9617d29930e836c73f0d8f0d1877b332798bfcf7267e195846db95a8641ca1",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "request_control",
+      "assessment": "Control request entry points already delegate to one RPC boundary.",
+      "constraints": [
+        "AgentChat validates binary issue identifier, pause/resume action and positive integer request ID before calling Orchestrator.",
+        "Orchestrator forwards default-server and explicit-server forms to PauseResume.",
+        "PauseResume provides the default server and repeats the input guard before control_api_call.",
+        "Preserve request identity and supported-action constraints. Shared delegation is not proof that a provider accepted or completed the requested transition."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 133,
+          "module": "Aiur.AgentChat",
+          "name": "request_control",
+          "path": "src/lib/aiur/agent_chat.ex",
+          "kind": "def",
+          "end_line": 136,
+          "body_sha256": "a5885ba2b33ac956d86bf822eb7a08c1f50ca12aaeb5d771a2a7b906e7ffe102",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 462,
+          "module": "Aiur.Orchestrator",
+          "name": "request_control",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 462,
+          "body_sha256": "3ce741b4c832cca6d49a8e7fe7a80929529a0e799755b39edd5c94abf64ad28a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 464,
+          "module": "Aiur.Orchestrator",
+          "name": "request_control",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 464,
+          "body_sha256": "53abe5576de3687303c7b4c1d5c08235f79a89f9e99437a3ec8db30270aec346",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 278,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "request_control",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "def",
+          "end_line": 278,
+          "body_sha256": "e97a908480a49b17f7f83d5c036462bacde2fd3aa13fd7d241895ffcba421db8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 281,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "request_control",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "def",
+          "end_line": 284,
+          "body_sha256": "a3f514496a5b15e81441ccb5a2751dc3ce386c9a15a9424aac274be2356428cc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6669,
-  "limits": "541 selected families and 6669 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6701,
+  "limits": "549 selected families and 6701 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

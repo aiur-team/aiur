@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "54e2ae25439c39f4da3f895db24f1e572a8dbc21a86d8e70f7276271ed7d21bd"
+    "name_triage": "c01c76e3b1567b9a1f3c5bd6c06cad3a265b08e5209b627126d16817ac482c82"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 541,
-    "remaining_cross_module_names": 1139,
-    "remaining_literal_entries": 3599
+    "reviewed_cross_module_names": 549,
+    "remaining_cross_module_names": 1131,
+    "remaining_literal_entries": 3567
   },
   "families": [
-    {
-      "name": "recover",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 31
-    },
-    {
-      "name": "refresh_sync",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 3
-    },
-    {
-      "name": "reject",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 44
-    },
-    {
-      "name": "remove",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 57
-    },
-    {
-      "name": "replacement_boundary?",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "repo_name",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 15
-    },
-    {
-      "name": "report",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 30
-    },
-    {
-      "name": "request_control",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 11
-    },
     {
       "name": "request_resource",
       "clauses": 8,

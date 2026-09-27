@@ -1270,3 +1270,7 @@ Read print_rows, priority_rank, process_identity, process_stopped, provider_turn
 ### Name duplication: reconciliation and completion evidence
 
 Read rate_limit_remaining, read_tail, reason, reasons, reconcile_issue, reconciliation_status, record_activity and record_slot_pane: 33 literal entries across eight families. Preserve header/body quota fallback, tail-reader error/descriptor contracts, reason categories, projection-versus-claim reconciliation and sticky/pending completeness states. Pane-recording wrappers match after alias/title-helper inspection; async activity ok is not applied-update evidence. Name triage now 541 families/6669 entries, leaving 1139 cross-module names. Raw findings and skeptic counts are unchanged; no complete reconciliation, registry completion or pane-liveness guarantee is added.
+
+### Name duplication: recovery and removal boundaries
+
+Read recover, refresh_sync, reject, remove, replacement_boundary?, repo_name, report and request_control: 32 literal entries across eight families. Preserve continuity/tombstone authority, refresh timeouts, rejection layers, index-versus-workspace removal and sanitized-versus-display naming. Control requests already delegate; replacement-boundary consumers match while source derivation differs. No deletion or live control was executed. Name triage now 549 families/6701 entries, leaving 1131 cross-module names. Raw findings and skeptic counts are unchanged; no complete recovery, deletion-safety or provider-acceptance guarantee is added.
