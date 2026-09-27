@@ -109,6 +109,16 @@ records through September 17 12:33Z, contradicting the reported absence since
 choose obligation ownership and enforcement placement explicitly in planning.
 No helper or operational state was executed or changed.
 
+## Deployment verification in progress
+
+Meta-08 remains open; both-lens claim coverage remains 50/60. An isolated pure
+classification probe confirms that same-checkout `executor-wait` and `watch`
+can reach `ensure_built`, while common control verbs reuse a complete release.
+The public #2656 incident remains open. The deployment checkpoint distinguishes
+merged source, checkout HEAD, assembled release and running process identity;
+remaining work is the historical episode and build-age surface audit. No live
+launcher or shared release was executed or modified.
+
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.

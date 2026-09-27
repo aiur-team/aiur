@@ -1,0 +1,17 @@
+{
+  "source_sha256": "40b91537c572f8f5820ff7e9e0a73b2b6bc3a17b351918c9e31029806d998918",
+  "method": "Extract and evaluate only pure_control_command and builds_after_stop. Classify the same-checkout dispatch branch. The full launcher, build, daemon and control commands are never executed.",
+  "same_checkout_classification": {
+    "status": "control_surface",
+    "agents": "control_surface",
+    "pause": "control_surface",
+    "resume": "control_surface",
+    "stop": "control_surface",
+    "message": "control_surface",
+    "executor-wait": "ensure_built",
+    "watch": "ensure_built",
+    "restart": "after_stop",
+    "build": "ensure_built"
+  },
+  "limits": "ensure_built checks whether rebuilding is required; classification alone does not say every invocation rebuilds. Divergent-checkout control paths use ensure_control_surface instead. Missing/incomplete releases may trigger repair builds even through ensure_control_surface. AIUR_SKIP_BUILD overrides must be considered separately."
+}

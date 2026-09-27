@@ -323,9 +323,11 @@ notices or replaces it.
 
 ### Rank 7 — D1. Merged fixes do not run until someone rebuilds and restarts
 
-**Definition.** A fix is merged but the daemon still runs an older build. Rebuilding is slow,
-hazardous on a shared release, or needs permission, and every restart has side effects
-(pauses survive, WIP is wiped, retry ladders reset, ports move).
+**Definition.** A merged fix can remain inactive while a daemon runs an older
+release. The dev shim already builds automatically on selected paths; activation
+and shared-artifact safety are separate problems. Preserve intentional durable
+pauses across restart, and investigate reported WIP loss and retry-state changes
+separately. See the [deployment checkpoint](../synthesis/deployment-verification.md).
 
 - **Citations:** ~100 (merged-but-inert ~54, restart friction ~45). **First seen** 2026-08-09.
   **Last seen** 2026-09-26 (khala backup ritual before each of 12 restarts).
