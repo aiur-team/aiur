@@ -68029,10 +68029,475 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "comment_body",
+      "assessment": "Comment extraction differs in key precedence, nesting and validation.",
+      "constraints": [
+        "CommentContext and CommentFilter use the same string-key, atom-key, empty-string fallback expression; CommentContext additionally guards the input as a map.",
+        "PrCommandScanner only accepts a binary string-keyed body and otherwise returns nil. CommentWake unwraps an atom/string-keyed nested comment, then prefers atom-keyed body and has no empty-string default.",
+        "Shared extraction must retain precedence and missing-versus-empty semantics. The permissive fallback expression does not by itself validate that a returned body is binary."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 234,
+          "module": "Aiur.AgentRunner.CommentContext",
+          "name": "comment_body",
+          "path": "src/lib/aiur/agent_runner/comment_context.ex",
+          "kind": "defp",
+          "end_line": 236,
+          "body_sha256": "572f468e0be075c2e9c200f988a0bb91f2de68afbb4dbc3b83c8bbae68c5d6e8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 14,
+          "module": "Aiur.Events.CommentFilter",
+          "name": "comment_body",
+          "path": "src/lib/aiur/events/comment_filter.ex",
+          "kind": "defp",
+          "end_line": 16,
+          "body_sha256": "572f468e0be075c2e9c200f988a0bb91f2de68afbb4dbc3b83c8bbae68c5d6e8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 153,
+          "module": "Aiur.Events.PrCommandScanner",
+          "name": "comment_body",
+          "path": "src/lib/aiur/events/pr_command_scanner.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "9251dd81151e5fe63d385c7959a2c29fccd80dcef0521073de887b5c109c61c9",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1442,
+          "module": "Aiur.Orchestrator.CommentWake",
+          "name": "comment_body",
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "kind": "defp",
+          "end_line": 1448,
+          "body_sha256": "8763a91e7b2f0bb8d65bac7cac35efc7e312e81adef9522075d553f925ecbc51",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "configured_repository",
+      "assessment": "Two configured repository wrappers repeat exception fallback while ticket detail already delegates.",
+      "constraints": [
+        "PackPaths and PlanningSource have identical Config.repo calls rescuing exceptions to nil. They do not locally catch exits or throws.",
+        "TicketDetail delegates to TicketDetail.Repository, which takes an injected configured_repo supplier or GitHub.Config.configured_repo and delegates result interpretation.",
+        "Share identical wrappers only with preserved config alias and failure policy. Injected supplier resolution and result normalization should remain explicit rather than being conflated with direct config access."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 137,
+          "module": "Aiur.BuildOrder.PackPaths",
+          "name": "configured_repository",
+          "path": "src/lib/aiur/build_order/pack_paths.ex",
+          "kind": "defp",
+          "end_line": 141,
+          "body_sha256": "30ecdadac1b0686e52c309801c327e1d9e906f190fcdbb05ce9e6468a8505aa6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 42,
+          "module": "Aiur.BuildOrder.TicketDetail",
+          "name": "configured_repository",
+          "path": "src/lib/aiur/build_order/ticket_detail.ex",
+          "kind": "defdelegate",
+          "end_line": 42,
+          "body_sha256": "b15c878cdf1a0de7536702c2ce308147f942545a68a86faa91740ca7fb9c8837",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 10,
+          "module": "Aiur.BuildOrder.TicketDetail.Repository",
+          "name": "configured_repository",
+          "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+          "kind": "def",
+          "end_line": 14,
+          "body_sha256": "a89ac7c3d23c878c1d2d17317aeefda71f80fa9dc0c12fad45cd83b60c036636",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 919,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "configured_repository",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 923,
+          "body_sha256": "30ecdadac1b0686e52c309801c327e1d9e906f190fcdbb05ce9e6468a8505aa6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "confirm",
+      "assessment": "Confirmation methods establish different evidence and some intentionally return success for invalid handles.",
+      "constraints": [
+        "Webhook.Deposit returns the key when ResourceStore.fetch returns an entry and logs/returns [] on miss. This confirms current presence, not by itself the exact version of a preceding deposit.",
+        "PauseContainment forwards identifier/generation handles to its owner; malformed handles return :ok. ProviderAccountGeneration routes confirmation through its transition boundary.",
+        "ProviderAccountGeneration.State requires valid observation and registry authority before returning a lookup result, otherwise returns unavailable with state unchanged.",
+        "Preserve generation/authority checks and distinguish no-op success from confirmed effect. Complete owner-side containment and deposition semantics are not established by these entry bodies."
+      ],
+      "clauses": 8,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 953,
+          "module": "Aiur.Events.GithubWebhook.Deposit",
+          "name": "confirm",
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "kind": "defp",
+          "end_line": 963,
+          "body_sha256": "257346606ea9ab153998201a8e5bb83a8dc3d8a2cf3035a1020c406fd49013fe",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 73,
+          "module": "Aiur.PauseContainment",
+          "name": "confirm",
+          "path": "src/lib/aiur/pause_containment.ex",
+          "kind": "def",
+          "end_line": 75,
+          "body_sha256": "3420ae13147e0bbb2a821d7bd9bcb154e0aebd643696c06104c8ca247b69792a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 77,
+          "module": "Aiur.PauseContainment",
+          "name": "confirm",
+          "path": "src/lib/aiur/pause_containment.ex",
+          "kind": "def",
+          "end_line": 77,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 80,
+          "module": "Aiur.PauseContainment",
+          "name": "confirm",
+          "path": "src/lib/aiur/pause_containment.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "bdb0809789d5979cafb67afe51b62e80ac21b804f66babb964301bf5d53da27a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 84,
+          "module": "Aiur.PauseContainment",
+          "name": "confirm",
+          "path": "src/lib/aiur/pause_containment.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 78,
+          "module": "Aiur.ProviderAccountGeneration",
+          "name": "confirm",
+          "path": "src/lib/aiur/provider_account_generation.ex",
+          "kind": "def",
+          "end_line": 78,
+          "body_sha256": "c3c1b56439dc0fcffb6af3b113f29c552f5fcad8ab7bc30df0011f92625e6d79",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 81,
+          "module": "Aiur.ProviderAccountGeneration",
+          "name": "confirm",
+          "path": "src/lib/aiur/provider_account_generation.ex",
+          "kind": "def",
+          "end_line": 81,
+          "body_sha256": "1f41d60908c4346c7c5445956149185f2725abe89126fe702f26e77836978450",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 48,
+          "module": "Aiur.ProviderAccountGeneration.State",
+          "name": "confirm",
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "kind": "def",
+          "end_line": 54,
+          "body_sha256": "c415a8a699eea3a07c327c011b0202c7c8dd1ffe49e7ef345a45010797eaafbb",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "correlation",
+      "assessment": "Correlation helpers mix bounded identifiers, identity construction and semantic validation.",
+      "constraints": [
+        "RateLimitAdapter validates only binary byte length 1..160. Telemetry constructs run/ticket/attempt/worker/producer/backend correlation for claude or claude-repl with a binary attempt id.",
+        "UsageAdapter.Validation additionally requires opaque identifiers, tracker identity, positive worker generation, exact claude-repl semantics and a valid session id.",
+        "DecisionAttention validates a bounded slug grammar and constructs legacy source/topic correlation from the issue identifier.",
+        "A shared correlation shape must not weaken producer/session or measurement semantics. Construction of fields is not equivalent to validation of their full authority."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 168,
+          "module": "Aiur.Claude.RateLimitAdapter",
+          "name": "correlation",
+          "path": "src/lib/aiur/claude/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 168,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 169,
+          "module": "Aiur.Claude.RateLimitAdapter",
+          "name": "correlation",
+          "path": "src/lib/aiur/claude/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 169,
+          "body_sha256": "934f092483364aeeeff3074c926c7fa2938947f65a60a7176bc06ac6b9d914e0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 400,
+          "module": "Aiur.Claude.Telemetry",
+          "name": "correlation",
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "kind": "defp",
+          "end_line": 411,
+          "body_sha256": "0a00aafc898c87d011b17ab3b51255ed5710b270b431657e4272c158389e5c45",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 413,
+          "module": "Aiur.Claude.Telemetry",
+          "name": "correlation",
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "kind": "defp",
+          "end_line": 413,
+          "body_sha256": "854127d584cc4be1e42fd1a2ddc99c2f0946b97248498a312a0d6179d357db48",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 43,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter.Validation",
+          "name": "correlation",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter/validation.ex",
+          "kind": "defp",
+          "end_line": 57,
+          "body_sha256": "0404d5b0e8b0103384f8f56847af5da9747af51a98b0d4583f8cd024b7a9422c",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 96,
+          "module": "Aiur.DecisionAttention",
+          "name": "correlation",
+          "path": "src/lib/aiur/decision_attention.ex",
+          "kind": "def",
+          "end_line": 111,
+          "body_sha256": "853ac6381ddc7bd5c24c4eb04b97344e33a3e6da9a20cc64fa9dbe8ce1e4e1c3",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "decision_id",
+      "assessment": "Two index extractors are identical while event extraction and ID generation serve different purposes.",
+      "constraints": [
+        "RetainedSnapshot.LegacyPage and Query both extract decision id from a created-at/id tuple with identical clauses.",
+        "DecisionMetrics.Event delegates field extraction. DecisionValidation derives a prefixed id from a truncated SHA-256 of ticket identifier plus source id or a unique component.",
+        "Do not merge extraction with generation. This body shows the material used for identity, but does not establish collision incidence, repository qualification elsewhere or the unique component's behavior."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 147,
+          "module": "Aiur.DecisionMetrics.Event",
+          "name": "decision_id",
+          "path": "src/lib/aiur/decision_metrics/event.ex",
+          "kind": "defp",
+          "end_line": 147,
+          "body_sha256": "a9392dfb0aa5b95026a3f94c2841b42bf1b21211d01691a2e1a18faf5015e4f0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.LegacyPage",
+          "name": "decision_id",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/legacy_page.ex",
+          "kind": "defp",
+          "end_line": 81,
+          "body_sha256": "4a5eda3c652c009503edc15fe1cd47e74cd2dab9bbc2a3d4a656c4a3362b3a04",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 101,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.Query",
+          "name": "decision_id",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query.ex",
+          "kind": "defp",
+          "end_line": 101,
+          "body_sha256": "4a5eda3c652c009503edc15fe1cd47e74cd2dab9bbc2a3d4a656c4a3362b3a04",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 471,
+          "module": "Aiur.DecisionValidation",
+          "name": "decision_id",
+          "path": "src/lib/aiur/decision_validation.ex",
+          "kind": "defp",
+          "end_line": 482,
+          "body_sha256": "8c68ccdb5a9fa75eeca79212b4c1d939fbfa98f871e059d6e22bfc4d432d7c74",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "delete",
+      "assessment": "Deletion methods have distinct state ownership and unavailable-store contracts.",
+      "constraints": [
+        "TokenRegistry ensures its ETS table, deletes a token and returns :ok. ModeTable delegates normalized repository deletion through with_table with an :ok fallback.",
+        "AccountGeneration.Context deletes from a process-local retained context only for a reference/atom key and existing context, otherwise returning :ok.",
+        "Workspace.Ownership.Store calls its owner and reports exits as store_unavailable rather than swallowing them.",
+        "Preserve credential revocation, repository normalization, process-local lifetime and explicit store failure. A generic delete operation would hide materially different completion guarantees."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 60,
+          "module": "Aiur.Opencode.TokenRegistry",
+          "name": "delete",
+          "path": "src/lib/aiur/opencode/token_registry.ex",
+          "kind": "def",
+          "end_line": 64,
+          "body_sha256": "51a0e86d8e7f9952dd21778c0bdcf74f310bc21cad4b6ed8e9488c29458d108b",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 66,
+          "module": "Aiur.ProviderAccountGeneration.Context",
+          "name": "delete",
+          "path": "src/lib/aiur/provider_account_generation/context.ex",
+          "kind": "def",
+          "end_line": 74,
+          "body_sha256": "91ed37cd774160bb2a988bed8e1569d022bc107f8085e1d5bbee27e4502c8268",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 76,
+          "module": "Aiur.ProviderAccountGeneration.Context",
+          "name": "delete",
+          "path": "src/lib/aiur/provider_account_generation/context.ex",
+          "kind": "def",
+          "end_line": 76,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 79,
+          "module": "Aiur.Webhooks.ModeTable",
+          "name": "delete",
+          "path": "src/lib/aiur/webhooks/mode_table.ex",
+          "kind": "def",
+          "end_line": 81,
+          "body_sha256": "313ef31540c9a0447105581d82605f3811d42827db7b49cd269164a5ef4b3f65",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 77,
+          "module": "Aiur.Workspace.Ownership.Store",
+          "name": "delete",
+          "path": "src/lib/aiur/workspace/ownership/store.ex",
+          "kind": "def",
+          "end_line": 81,
+          "body_sha256": "64ae98044b4c0629d8b3e5367896315b641f045dae30f2f8075cc7a3d55f5e87",
+          "normalized_body_lines": 6,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5289,
-  "limits": "289 selected families and 5289 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5320,
+  "limits": "295 selected families and 5320 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

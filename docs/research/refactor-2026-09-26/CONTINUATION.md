@@ -1843,3 +1843,7 @@ Read advance_cursor, agent_kind, announce, answer, api_key and apply_result: 38 
 ### Name duplication: retry and cleanup contracts
 
 Read backoff_ms, bind, bounded, broadcast_changed, bump and close_port: 35 literal entries across six families. Identify matching unsigned-64 bounds and conditional counters while preserving retry classification/jitter, binding authority, broadcast evidence and port-drain policy. Name triage now 289 families/5289 entries, leaving 1391 cross-module names. Raw findings and skeptic counts are unchanged; no runtime binding, delivery, cleanup or saving is claimed.
+
+### Name duplication: confirmation and identity extraction
+
+Read comment_body, configured_repository, confirm, correlation, decision_id and delete: 31 literal entries across six families. Identify repeated index extraction and repository wrappers while preserving comment precedence, confirmation authority, measurement correlation and deletion failure policy. Name triage now 295 families/5320 entries, leaving 1385 cross-module names. Raw findings and skeptic counts are unchanged; no version-specific deposit, runtime containment or saving is claimed.
