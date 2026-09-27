@@ -44,7 +44,7 @@
       "sha256": "b1b655c8f4c3e6b2ca6519b9a917d7285284bace166eb96497275d558dd53446",
       "lines": 324,
       "read": "full",
-      "assessment": "Synthetic JSONL with real supervised tailer and manual polls tests history backfill, session retargeting, missing-path recovery, killed inner-tailer health with opaque logging, malformed-line skip and explicit backfill/live ingress. Cold-start operator request IDs deduplicate then flush to exact session; unresolved buffer retains newest 32 of 40. Owner process exit is monitored to normal tailer DOWN. Body cap requires truncation marker and <2000 bytes for max_body 1000, not an exact bound. Display callbacks do not prove TUI rendering. First test says in order but assertions only check role/body membership; follow-up candidate retained pending cross-suite context."
+      "assessment": "Synthetic JSONL with real supervised tailer and manual polls tests history backfill, session retargeting, missing-path recovery, killed inner-tailer health with opaque logging, malformed-line skip and explicit backfill/live ingress. Cold-start operator request IDs deduplicate then flush to exact session; unresolved buffer retains newest 32 of 40. Owner process exit is monitored to normal tailer DOWN. Body cap requires truncation marker and <2000 bytes for max_body 1000, not an exact bound. Display callbacks do not prove TUI rendering. First test says in order but assertions only check role/body membership; isolated extracted-assertion probe confirms the local gap in tests-4-cont-01."
     },
     {
       "path": "src/test/aiur/claude/hook_events_test.exs",
@@ -136,17 +136,77 @@
       "lines": 40,
       "read": "full",
       "assessment": "Callback envelope preserves event/session/thread/turn details, DateTime timestamp, and nested transcript without flattening type. Title says merges event/timestamp over details but supplied details contain no colliding event/timestamp; exact overwrite precedence is not constrained by these fixtures."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/reaper_test.exs",
+      "sha256": "06f1b8620c5ca31b2196da101b73fb8954e165dbf55c29f9a97a6a1b127c16e0",
+      "lines": 249,
+      "read": "full",
+      "assessment": "Mock pane lookup plus injected group liveness/cleanup tests cleanup_proven only after group/pane absence, observed disappearance overriding raced signal error, and distinct pane_still_alive/process_group_still_alive errors. Invalid session is a no-op. High fabricated PIDs exercise already-gone path, not real kill. Own-pane test contains another-owner negative control; orphan test alone has only dead owner, supplemented by ReplAgent wrapper live-owner/unrelated-window controls. No actual tmux or provider teardown."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/transcript_turn_test.exs",
+      "sha256": "6d18245a9ecf6e466ca9708be950886b2cced4b4f4ee38089a732dc6c3488f4d",
+      "lines": 269,
+      "read": "full",
+      "assessment": "Mock tmux plus actual temporary JSONL/tailer: missing cold transcript returns no_transcript; warm completion and prompt-record callback correlate turn identity; structured API error versus assistant quota prose remain distinct. Pause without appended terminal record returns pause_confirmation_timeout. Warm-from-end fixture starts empty, so its title alone does not prove historical completion exclusion (TranscriptTailer has separate explicit prehistory test). Pump/drain helpers lack an overall local deadline."
+    },
+    {
+      "path": "src/test/aiur/claude/repl_agent_test.exs",
+      "sha256": "cc2730743fbce3582cd716e2dec95fb47ce59b14c3dbee660ef5e5f8d308f4b4",
+      "lines": 1352,
+      "read": "full",
+      "assessment": "Wrapper integration over mocked tmux, private transcripts and HookEvents. Resume requires file existence and omitted handle stays clean; RC/resume flags and attach text are simulated, not live CLI acceptance. Dead/live/unrelated owner sweep controls supplement Reaper tests. Sequential turns preserve thread and change turn IDs without new-window. Cold-start materialization, missing echo/retype, timeout/gone pane, deliver-now versus checkpoint queue signals, exact control-byte sanitization and single Enter are covered. Transcript pause requires terminal evidence; failed interrupt and no terminal remain errors. Hook path emits control completion but not assistant/tool display events, and never clears/retypes. Many drains use no overall local deadline; some minimal send/interrupt/empty fixtures create transcripts without individual cleanup. Older readiness-failure helper supplies PID5050 without the newer Launcher test's explicit host cleanup stubs: inspect production containment identity before executing this test. No UI verification."
+    },
+    {
+      "path": "src/test/aiur/claude/reset_time_test.exs",
+      "sha256": "6358e4a4be97bb5f864befc80080e21b112dcc6f048417b97a083a0a87828ce2",
+      "lines": 44,
+      "read": "full",
+      "assessment": "Explicit midnight/noon next-day rollover, reset-date DST gap/overlap, timestamp normalization, invalid/zoneless unknown, and repeatedly expired explicit deadlines stay nil. These are deterministic time-policy contracts, not actual provider wake execution."
+    },
+    {
+      "path": "src/test/aiur/claude/transcript_tailer_test.exs",
+      "sha256": "34f4e942d60d6c999ea4cc7dd45c6d2733dd00d93ab90fe64c78b3eb330be019",
+      "lines": 373,
+      "read": "full",
+      "assessment": "Real private file and supervised tailer with manual polls: partial trailing line deferred, skip nonconversation, incremental non-reemit, attach cutoff including initially partial record stays backfill, shorter-file replacement restarts reading. Distinct terminal assistant/API/system/result error callbacks, retryable api_retry and tool_use do not terminate. Explicit from:end prehistory then append test constrains historical exclusion. Replacement fixture only shrinks same path; does not establish same/larger-size inode rotation. Cloud-authored test is identical synthetic local file shape, not phone transport. Selective event then turn_end receives do not prove callback order."
+    },
+    {
+      "path": "src/test/aiur/claude/transcript_test.exs",
+      "sha256": "a0bc61cc2888d314e81fc649f6f2f8274572f5c55cd8c1120829a1dd8e022a5b",
+      "lines": 419,
+      "read": "full",
+      "assessment": "Notification/disk conversion preserves roles, provider/fallback turn IDs, tool output/diff/title, skips progress/control and empty records, passes pre-extracted event unchanged. DeltaRenderer path actually generates expected diff fences and markers, but no terminal rendering. Multi-block disk fixture asserts ordered roles assistant then command; stable record/block identity distinguishes equal bodies and replays same IDs. Queued prompt attachment becomes user row while slash/control records skipped. Lower-level ordered extraction does not constrain DisplayTailer callback forwarding order."
     }
   ],
-  "scope_note": "Source review only; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
-  "findings": [],
+  "scope_note": "Source review with an isolated extracted-assertion order probe; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
+  "findings": [
+    {
+      "id": "tests-4-cont-01",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Display-forwarding order test accepts a reversed conversation",
+      "locations": [
+        {
+          "path": "src/test/aiur/claude/display_tailer_test.exs",
+          "lines": "65-101"
+        }
+      ],
+      "description": "The test promises a full conversation in order, but all ten content assertions check membership in the role or event lists. A reversal retains every member and passes. The poll count lower bound also cannot constrain order.",
+      "evidence": "tooling/display_tailer_order_oracle_probe.exs extracts the ten actual membership assertions from the named test AST. Both ordered and reversed six-event conversations pass; an exact-order control accepts the original and rejects its reversal. Probe exits zero with four explicit results.",
+      "recommendation": "Assert the ordered role/body sequence forwarded by DisplayTailer, then verify reversing the forwarding order makes the guard fail. Keep partial/backfill/live tests separate.",
+      "refactor_hint": "An ordered stream boundary needs ordered output assertions rather than set membership or selective receives.",
+      "limits": "Oracle-only probe with supplied events; no application, provider or production mutation. Transcript.extract_disk_record already has a two-role ordering assertion, but that lower boundary does not prove display forwarding order. No current production reordering defect is alleged. Cross-unit deduplication remains pending."
+    }
+  ],
   "preserve": [
     "Exact node identities/counts, cycle/self-loop/external and missing endpoints, diagnostics and adapter results constrain synthetic fixtures. Repeated-call equality tests determinism; it is supplemented by independent expectations. These are fixture contracts, not graph UI or runtime dependency semantics.",
     "Trusted subscription observations keep the generation; switching to API-key rotates it; unknown invalidates with untrusted_lifecycle; rebound differs from both previous values; stopped clears. Named owner is actually stopped/recreated and same-mode observation gets a new generation. This is owner restart coverage, not full daemon restart.",
     "Private owner/store with fixed clock, via support helper. Malformed account-mode/header payload retains same-generation 83% as stale and a valid 42% update recovers. Valid mode change rotates and removes old window facts; unknown classification clears generation/windows. Cross-provider writes leave Claude snapshot unchanged. Injected rejection/failure-recorder errors are surfaced. Exact redacted-message shape excludes correlations; no live provider request.",
     "Actual cat ports and recorded StreamDiagnostics exercise direct turn/failed handling. Structured rate limits and diagnostic session-limit text pause; unrelated diagnostic remains error. Ports have on_exit cleanup in addition to success cleanup. This is handler classification, not scheduler pause/resume or provider execution.",
     "Workflow-backed accessor checks nil model, explicit model, default command, permission defaults, valid acceptEdits and invalid-value fallback to bypassPermissions. Preserve or explicitly reconsider permissive fallback in the package contract; tests characterize configuration, not authorization enforcement.",
-    "Synthetic JSONL with real supervised tailer and manual polls tests history backfill, session retargeting, missing-path recovery, killed inner-tailer health with opaque logging, malformed-line skip and explicit backfill/live ingress. Cold-start operator request IDs deduplicate then flush to exact session; unresolved buffer retains newest 32 of 40. Owner process exit is monitored to normal tailer DOWN. Body cap requires truncation marker and <2000 bytes for max_body 1000, not an exact bound. Display callbacks do not prove TUI rendering. First test says in order but assertions only check role/body membership; follow-up candidate retained pending cross-suite context.",
+    "Synthetic JSONL with real supervised tailer and manual polls tests history backfill, session retargeting, missing-path recovery, killed inner-tailer health with opaque logging, malformed-line skip and explicit backfill/live ingress. Cold-start operator request IDs deduplicate then flush to exact session; unresolved buffer retains newest 32 of 40. Owner process exit is monitored to normal tailer DOWN. Body cap requires truncation marker and <2000 bytes for max_body 1000, not an exact bound. Display callbacks do not prove TUI rendering. First test says in order but assertions only check role/body membership; isolated extracted-assertion probe confirms the local gap in tests-4-cont-01.",
     "Lifecycle/unknown normalization, optional fields and nonbinary-to-nil cases, actual subscribed dispatch and per-identifier exclusion. Malformed dispatch returns ok. Does not exercise HTTP ingress or a running Claude hook.",
     "Restores injected dashboard URL provider; exact set of four hook names; endpoint sampled from StopFailure. Shell-command substring checks require timeout/silencing/header/exit suffix and normalized slash; does not execute curl or prove wall-clock bound/exit behavior. Write test decodes actual JSON and cleans generated path.",
     "Structured and textual limit classifications have negative ordinary-crash/stack-line-429 controls. Prose reset extraction, structured reset priority, timezone-resolved provider refusal, missing reset nil, 404/529 and banner-without-provider-provenance rejection are explicit. These finite fixtures are not exhaustive language parsing or current provider protocol validation.",
@@ -159,17 +219,21 @@
     "Mock literal send-keys followed by Enter; newline/control sanitization, all-control empty/no send, invalid payload/session, Ctrl+C, immediate success callback and missing-tmux failure callback, noop. A success request ID demonstrates transport command completion, not provider acceptance or persisted delivery. Sanitization sample asserts no newline and matching printable text but does not exhaustively inspect every control byte.",
     "Preserve distinct submission contracts: hook/RC path never clears input and sends Enter best-effort even after echo timeout; transcript path clears/retypes missing echo and returns prompt_not_delivered without Enter on timeout. Mock command response sequencing drives actual function paths; paste chip/prefix are fabricated observations. Drain rejects unexpected clear commands until completion marker; not manual TUI testing.",
     "Mock banner immediate URL and footer-driven /rc, Enter, dialog scrape then Escape. Timeout still dismisses dialog and yields nil; no evidence at zero budget nil. These characterize text/command protocol, not real service availability; fixed captured/fabricated strings may drift independently.",
-    "Callback envelope preserves event/session/thread/turn details, DateTime timestamp, and nested transcript without flattening type. Title says merges event/timestamp over details but supplied details contain no colliding event/timestamp; exact overwrite precedence is not constrained by these fixtures."
+    "Callback envelope preserves event/session/thread/turn details, DateTime timestamp, and nested transcript without flattening type. Title says merges event/timestamp over details but supplied details contain no colliding event/timestamp; exact overwrite precedence is not constrained by these fixtures.",
+    "Mock pane lookup plus injected group liveness/cleanup tests cleanup_proven only after group/pane absence, observed disappearance overriding raced signal error, and distinct pane_still_alive/process_group_still_alive errors. Invalid session is a no-op. High fabricated PIDs exercise already-gone path, not real kill. Own-pane test contains another-owner negative control; orphan test alone has only dead owner, supplemented by ReplAgent wrapper live-owner/unrelated-window controls. No actual tmux or provider teardown.",
+    "Mock tmux plus actual temporary JSONL/tailer: missing cold transcript returns no_transcript; warm completion and prompt-record callback correlate turn identity; structured API error versus assistant quota prose remain distinct. Pause without appended terminal record returns pause_confirmation_timeout. Warm-from-end fixture starts empty, so its title alone does not prove historical completion exclusion (TranscriptTailer has separate explicit prehistory test). Pump/drain helpers lack an overall local deadline.",
+    "Wrapper integration over mocked tmux, private transcripts and HookEvents. Resume requires file existence and omitted handle stays clean; RC/resume flags and attach text are simulated, not live CLI acceptance. Dead/live/unrelated owner sweep controls supplement Reaper tests. Sequential turns preserve thread and change turn IDs without new-window. Cold-start materialization, missing echo/retype, timeout/gone pane, deliver-now versus checkpoint queue signals, exact control-byte sanitization and single Enter are covered. Transcript pause requires terminal evidence; failed interrupt and no terminal remain errors. Hook path emits control completion but not assistant/tool display events, and never clears/retypes. Many drains use no overall local deadline; some minimal send/interrupt/empty fixtures create transcripts without individual cleanup. Older readiness-failure helper supplies PID5050 without the newer Launcher test's explicit host cleanup stubs: inspect production containment identity before executing this test. No UI verification.",
+    "Explicit midnight/noon next-day rollover, reset-date DST gap/overlap, timestamp normalization, invalid/zoneless unknown, and repeatedly expired explicit deadlines stay nil. These are deterministic time-policy contracts, not actual provider wake execution.",
+    "Real private file and supervised tailer with manual polls: partial trailing line deferred, skip nonconversation, incremental non-reemit, attach cutoff including initially partial record stays backfill, shorter-file replacement restarts reading. Distinct terminal assistant/API/system/result error callbacks, retryable api_retry and tool_use do not terminate. Explicit from:end prehistory then append test constrains historical exclusion. Replacement fixture only shrinks same path; does not establish same/larger-size inode rotation. Cloud-authored test is identical synthetic local file shape, not phone transport. Selective event then turn_end receives do not prove callback order.",
+    "Notification/disk conversion preserves roles, provider/fallback turn IDs, tool output/diff/title, skips progress/control and empty records, passes pre-extracted event unchanged. DeltaRenderer path actually generates expected diff fences and markers, but no terminal rendering. Multi-block disk fixture asserts ordered roles assistant then command; stable record/block identity distinguishes equal bodies and replays same IDs. Queued prompt attachment becomes user row while slash/control records skipped. Lower-level ordered extraction does not constrain DisplayTailer callback forwarding order."
   ],
-  "cross_references": [],
-  "follow_up_candidates": [
+  "cross_references": [
     {
-      "id": "tests-4-candidate-01",
-      "path": "src/test/aiur/claude/display_tailer_test.exs",
-      "lines": "65-101",
-      "hypothesis": "The full-conversation test name claims ordering, but its oracle checks membership only and accepts reordered forwarded events.",
-      "next": "Extract the actual assertions for a bounded permutation probe, check other transcript tests for order coverage, and distinguish a local oracle gap from an end-to-end ordering defect."
-    },
+      "path": "src/test/aiur/claude/transcript_test.exs",
+      "note": "Ordered multi-block role assertion narrows tests-4-cont-01 to display forwarding; it is not a suite-wide absence-of-ordering claim."
+    }
+  ],
+  "follow_up_candidates": [
     {
       "id": "tests-4-candidate-02",
       "path": "src/test/aiur/claude/remote_control_test.exs",
@@ -178,5 +242,5 @@
       "next": "Check enclosing cleanup and demonstrate only with isolated owned children before promoting; do not run live workspace sweeps."
     }
   ],
-  "next": "19/100 full files, 3823/40603 lines. Continue repl/reaper_test.exs and repl/transcript_turn_test.exs, then repl_agent_test.exs and remaining Claude telemetry/transcript tests; 81 files remain."
+  "next": "25/100 full files, 6529/40603 lines. Continue Claude telemetry/usage_adapter_test.exs, telemetry_test.exs and usage_api_test.exs, then Codex manifest. One P2 finding remains in this partial ledger, not yet counted as raw-unit completion; 75 files remain."
 }
