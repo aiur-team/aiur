@@ -746,3 +746,7 @@ Read eleven complete browser/Xcode/work markdown files; coverage 244/250 files, 
 ### Skills/prompts: full manifest read coverage
 
 Finished final six markdown files, including complete tracker-defer diff against reviewed counterpart. All250 planned paths /36,169 lines now covered; exact manifest-set equality, unique paths, hashes and line counts verified. Added release-receipt and LFG-completion contract questions; narrowed recording privacy candidate for explicitly guarded sensitive sweep path. Review unit stays open: 42 candidates and19 provisional findings require reconciliation/dedup. No release, build, design import, worktree or production action. Overall raw units remain28/32; next candidate reconciliation.
+
+### Skills/prompts: release candidate verification
+
+Candidate45 partly promoted: release procedure omits npm manifest synchronization required by CI and verifies a different executable than escript.build produces. Extracted actual version gate tested with copied frozen resolver/manifests: matching baseline passes, mix-only bump fails, synchronized control passes. Repro stored in tooling/release_version_gate_probe.py. Publication-receipt and repository-target questions remain open. Source-specific raw finding search returned no matching locations; semantic dedup remains. All250 read coverage unchanged;21 provisional findings (16P2/5P3). No production build, tag, registry call or release.

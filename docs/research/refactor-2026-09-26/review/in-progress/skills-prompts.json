@@ -2204,6 +2204,48 @@
       "recommendation": "Define one capability-specific contract: either workers commit and return an immutable commit for integration, or the orchestrator transfers/verifies uncommitted diffs before committing. Make dispatch, integration and cleanup follow that same contract.",
       "refactor_hint": "Represent workspace isolation, change-transfer method and commit owner as explicit worker capabilities rather than duplicated prose.",
       "limits": "Source-level contradiction only; no worker worktree created or changes lost in this research. Actual harness capabilities must be probed; historical Codex isolation is not inferred from this session. Cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-20",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Release version bump omits npm synchronization required by publishing",
+      "locations": [
+        {
+          "path": ".claude/skills/release/SKILL.md",
+          "lines": "35-45"
+        },
+        {
+          "path": ".github/workflows/release-npm.yml",
+          "lines": "66-77"
+        }
+      ],
+      "description": "The release procedure edits src/mix.exs only and commits before tagging. The publishing setup requires the checked-in launcher package version to equal mix.exs and exits1 otherwise, before any publish job can run.",
+      "evidence": "Exact frozen workflow version-gate shell block exercised with copied source resolver and manifests in a temporary fixture: baseline0.0.5/0.0.5 exit0; mix-only bump0.0.6/0.0.5 exit1; synchronized0.0.6/0.0.6 exit0. tooling/release_version_gate_probe.py reproduces it without network.",
+      "recommendation": "Run the canonical version-stamping operation, include all changed manifests/pins in the release commit, and execute the version-consistency check before creating a tag.",
+      "refactor_hint": "Use the same release preparation and receipt contract for agent instructions and CI.",
+      "limits": "Frozen source and synthetic local evidence only; no real build, tag, release or npm request. No matching locations found in current raw reports; final semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-21",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Release verification runs a different executable from the one built",
+      "locations": [
+        {
+          "path": ".claude/skills/release/SKILL.md",
+          "lines": "39-43"
+        },
+        {
+          "path": "src/mix.exs",
+          "lines": "190-212"
+        }
+      ],
+      "description": "The recipe runs mix escript.build then ./bin/aiur --version, while escript output is explicitly bin/aiur.escript. bin/aiur is an OTP-release wrapper produced by a different assembly path; if present it can refer to an older build, and on a clean checkout it need not exist.",
+      "evidence": "Direct frozen mix.exs release/escript definitions distinguish outputs. No build executed, so actual clean-checkout error or stale version output is not claimed as observed.",
+      "recommendation": "Build through the supported release entry point and verify that produced artifact, or explicitly verify the escript just built when testing the fallback path.",
+      "refactor_hint": "Use the same release preparation and receipt contract for agent instructions and CI.",
+      "limits": "Frozen source and synthetic local evidence only; no real build, tag, release or npm request. No matching locations found in current raw reports; final semantic dedup pending."
     }
   ],
   "preserve": [
@@ -2629,7 +2671,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 manifest markdown files /36169 lines covered and hashes verified. Reconcile 42 follow-up candidates, validate/deduplicate 19 provisional findings (14P2/5P3), then close the raw unit only after those checks. Overall raw units remain28/32.",
+  "next": "All250 files covered. Candidate45 partly resolved into findings20/21 using frozen CI and isolated version-gate probe; release receipt/target questions remain. Continue other candidate reconciliation and cross-unit dedup; raw unit stays open. Provisional findings21 (16P2/5P3).",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -2678,6 +2720,16 @@
       "status": "narrowed",
       "reason": "Sweep media-analyzer explicitly always disables transcription for sensitive items. Standalone recording skill ambiguity remains open; no blanket all-callers disclosure claim.",
       "validation": "Complete sweep analyzer/template and standalone recording instructions plus targeted transcription function reads."
+    },
+    {
+      "id": "skills-prompts-candidate-45",
+      "status": "partially_promoted",
+      "findings": [
+        "skills-prompts-cont-20",
+        "skills-prompts-cont-21"
+      ],
+      "reason": "Frozen CI and Mix output definitions establish two concrete defects. Actual workflow version gate reproduced with failing mix-only bump and passing controls.",
+      "remaining": "Publication-success wording still lacks waiting for registry-verification receipt; fork origin versus canonical-release target and remote-tag existence remain to reconcile. No external API claims verified."
     }
   ],
   "coverage_validation": {
