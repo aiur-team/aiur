@@ -1643,3 +1643,7 @@ Read all 35 present definitions/declarations in 16 modules. Preserve retained da
 ### Name duplication: builders and deferred effects
 
 Read all 46 build definitions/declarations in 29 modules. Separate pure assembly, validated records, live reads, observation recording and closures that later publish or mutate. Preserve callback identity, source health, accounting evidence, query limits and PR workspace naming. Name triage now 39 families/1246 literal entries. Remaining sweep and transitive verification stay open; no new defect or savings count.
+
+### Name duplication: execution ownership and completion
+
+Read all 44 run definitions/declarations in 40 modules. Preserve provider-specific lifecycle cleanup, indeterminate coordination timeouts, host-retry ownership, sandbox/budget requirements and workspace staging. CLI print/exit repetition is a narrower candidate than shared execution; deletion-attempt counts need failure review before success claims. Name triage now 40 families/1290 literal entries. Remaining callbacks, rendering and broader sweeps remain open; no new defect or savings count.
