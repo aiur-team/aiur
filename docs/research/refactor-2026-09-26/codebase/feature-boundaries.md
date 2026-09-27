@@ -12,8 +12,9 @@ survey methods and revision; do not combine their counts with the later review.
 The [architecture verification checkpoint](../synthesis/architecture-verification.md)
 is authoritative for the checked corrections to claims codebase-02 through -06
 and -08 through -10. The original graph's reference totals are method-dependent,
-not a proven lower bound on runtime coupling. Attention-routing claim -07 remains
-under review. Full methods and corrected wording are in `../synthesis/verdicts/`.
+not a proven lower bound on runtime coupling. Attention-routing claim -07 is corrected by the
+[executable routing audit](../synthesis/attention-routing-audit.json); topic
+membership is not proof of condition-level delivery or operational incidence. Full methods and corrected wording are in `../synthesis/verdicts/`.
 
 ## Summary
 
@@ -54,16 +55,14 @@ under review. Full methods and corrected wording are in `../synthesis/verdicts/`
   process drives the comment poll, the firehose and the CI poller (the comment
   poll runs in a task, but the orchestrator starts it and folds the result in),
   and their cursors live in `Orchestrator.State`.
-- **Executor attention is scattered and pull-based.** Attention signals leave
-  the daemon by at least five paths. The daemon routes wakes by a hard-coded
-  topic allowlist and ignores the `needs_attention` flag that alerts carry (57
-  files emit alerts). About 50 emitted topics never reach the wake inbox, among them
-  `system.pr_health.stale_unreviewed`, `ticket.*.agent.stalled`,
-  `ticket.*.agent.usage_limit_exhausted`, and `system.executor_takeover.*`.
-  The fleet-capacity starvation predicate excludes globally paused fleets and
-  fleets without ready work; other PR, CI and pause-attention wakes can still fire.
-  The daemon computes "Executor stalled" only when
-  a CLI asks for it. §6 has the evidence.
+- **Executor attention has distinct routing and consumption layers.** The
+  daemon has 26 default topic bindings; routing does not use attention metadata.
+  The executable 14-topic sample confirms unbound topics, alternate bound
+  pause-attention topics, and an unbound appended pause-resolution topic.
+  This is a concrete lifecycle mismatch, not proof that every condition named
+  by an unbound topic is invisible. Skill text says 24 bindings, its example
+  relay has eight filter alternatives, and workspace watching has a documented
+  central-alert backstop. Full topic counts and operational loss remain unverified.
 
 ## Method
 
@@ -1440,8 +1439,8 @@ modules. Churn = commits since 2026-06-01 that touched the file.
 
 ## 6. What the structure does to Executor focus and idle gaps
 
-These are structural findings from the code. The `gaps/` study measures how
-often each one happens.
+These are structural findings from the code. The `gaps/` study provides
+related observations, not an incidence measurement for every finding.
 
 1. **Nothing is pushed to the Executor's harness. It must poll or tail a
    file.** The daemon subscribes to the bus and projects wakes into
@@ -1453,24 +1452,23 @@ often each one happens.
    `alerts.ndjson`, (d) `aiur watch --full` / `aiur alerts` on a timer, and
    (e) ten-minute capacity and hourly meta timers. The `aiur-run` skill says
    it directly: "Nothing pushes."
-2. **Routing is defined in three places and they disagree.**
-   `ExecutorBindings` has 26 patterns (the skill text says 24). The skill's
-   `jq` filter matches 8 topic classes and omits `pr.merged`, `ci.passed`,
-   `agent.paused`, `pr.parked_ready` and every `system.*capacity*` wake.
-   `watch-alerts.sh` covers only per-workspace alerts.
-3. **The `needs_attention` flag does not route.** `Alerts` sets
-   `needs_attention` and severity on every alert, and 57 files emit alerts.
-   `ExecutorListener` routes only by topic allowlist. Of about 81 topic
-   literals emitted in `src/lib`, about 50 match no binding. These never wake
-   the Executor, and several of them are raised as needs-attention alerts:
-   `system.pr_health.stale_unreviewed`, `system.pr_health.unmergeable_author`,
-   `ticket.*.agent.stalled`, `ticket.*.agent.thrash_circuit_open`,
-   `ticket.*.agent.usage_limit_exhausted`, `ticket.*.agent.model_fallback_waiting`,
-   `system.executor_takeover.*` (the convergence-age advisory built to tell
-   the Executor to take over), `system.supervision.degraded`,
-   `system.build_gate.hold_timeout`, `system.ci_readiness.not_ready`,
-   `system.dispatch.decision_store_unavailable`,
-   `system.github.budget_broker_degraded`, `system.github_app_token.*`.
+2. **Daemon binding and downstream relay policies differ.**
+   `ExecutorBindings` has 26 default patterns; the skill text still says 24.
+   The skill's example `jq` relay selects eight alternatives and omits some
+   bound events. That is a downstream consumption filter, not another daemon
+   subscription policy. Workspace `watch-alerts.sh` explicitly excludes
+   remote/workspace-less central alerts and names server-side watch as backstop.
+3. **Attention metadata does not determine binding membership.**
+   `ExecutorListener` matches topics and integer identities; its default
+   patterns can be overridden through options. `needs_attention` survives
+   projection, while severity does not. The actual frozen matcher reproduces
+   eleven unbound sample shapes, including PR-health, stalled, usage-limit,
+   takeover and infrastructure alerts. But the generic pause transition emits
+   a bound `ticket.<id>.agent.attention.paused-<cause>` topic. Its appended
+   `.resolved` topic fails the one-segment wildcard, as does `agent.unpaused`.
+   This lifecycle mismatch is verified; complete condition reachability is not.
+   The inherited 81/~50 literal-topic and 57-emitter counts are withdrawn as
+   authoritative evidence pending a complete census. See the routing audit.
 4. **The starvation signal does not cover every actionable idle state.**
    `IssueSync.fleet_capacity_starved?/1` requires `not globally_paused and
    ready_count > 0`. That specific signal cannot represent a fleet awaiting
@@ -1516,13 +1514,15 @@ often each one happens.
    `TakeoverAlert`, `PRHealthScanner`, `RuntimeWatchdog`, `BuildGateHoldMonitor`,
    `BrokerTimeout` and two skill scripts.
 
-**What the boundaries should make easy.** With 11 (signal port) and 26
-(Executor attention) in place, one policy module can decide: every signal with
-`needs_attention` wakes the Executor; "fleet idle with Executor-owned work"
-(no ready tickets but PRs awaiting review or merge, or global pause on) is a
-first-class wake; "wakes pending and owner not acknowledging" escalates to the
-human channels. The harness then needs one push path (`executor-wait`, or a
-server-sent stream of the same records), not five.
+**What the boundaries should make easy.** A shared attention policy should
+specify which conditions need action, how they resolve, and which successful
+control events remain useful. Routing only `needs_attention=true` would drop
+resolution records and useful PR/CI success events. A lifecycle contract needs
+identity, deduplication, resolution, acknowledgement and escalation, with tests
+across the listener and each supported consumer. Deliberate pause must remain
+distinct from intervention-required idle work. Package boundaries can clarify
+ownership, but a binding repair does not require package extraction and no
+idle-time saving has yet been measured.
 
 ## 7. Suggested carve order
 
@@ -1534,11 +1534,12 @@ keeps behaviour.
    `Signal.emit` and `:telemetry` events; turn `Alerts`, `RunTelemetry` and
    `ObservabilityPubSub` into consumers. This removes the most upward edges
    per line changed and is the enabler for the Executor fix.
-2. **Executor attention (26), with the routing fix.** Route by
-   `needs_attention`, add idle-fleet and global-pause wakes, add the
-   daemon-side stall escalation. This is the direct attack on idle gaps. It
-   needs step 1 plus three small new signals from the orchestrator (fleet idle
-   with Executor-owned work; global pause on; global pause off).
+2. **Executor attention (26), with lifecycle coverage.** Repair verified
+   binding and resolution mismatches, align downstream relay contracts, and
+   measure delivery before expanding the signal set. Evaluate idle-state and
+   escalation requirements separately from intentional pauses. These are
+   candidate changes with distinct correctness tests, not a measured idle-gap
+   reduction or work that inherently depends on step 1.
 3. **Tracker contract (3) and adapter/backend registration (3, 20).** Split
    IssueTracker and CodeHost ports; replace the `case` lookups. Then
    **Linear (4)** and **OpenAI-compat (23)** become packages with almost no

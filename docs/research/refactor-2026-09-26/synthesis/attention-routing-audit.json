@@ -64,5 +64,80 @@
       "matching_defaults": []
     }
   ],
-  "limits": "Not a census of all emitted topics. The original 81/~50 counts are withdrawn from authoritative conclusions pending a complete AST emit-site census, including dynamic helpers. No runtime experiment was run."
+  "limits": "The original 81/~50 literals and 57 emitter-file counts remain unverified; dynamic helpers and alternate condition paths prevent treating a topic grep as a reachability census. The 14-sample matcher/projection probe ran against pure frozen modules; no listener integration, actual alert incidence or operator action delivery was tested.",
+  "executable_probe": {
+    "command": "elixir scratch/attention-routing-probe.exs",
+    "result": "All 14 membership samples reproduced using actual frozen Topic and ExecutorBindings modules. Both true and false needs_attention values projected unchanged; severity absent from projected wake record.",
+    "warning": "Isolated compile warns ExecutorEvents.reconcile_subscriptions/1 is unavailable; reconcile was not called. No daemon or production application was launched.",
+    "scope": "Pure module execution only, not listener delivery, live UI or operational incidence."
+  },
+  "source_contracts": [
+    {
+      "path": "src/lib/aiur/executor_listener.ex",
+      "lines": [
+        49,
+        169,
+        180
+      ],
+      "finding": "Default patterns come from ExecutorBindings; options can override patterns. matching_fresh_event? checks topic membership and integer identity, plus executor-topic watermark, not needs_attention or severity. Non-executor matches project then enqueue."
+    },
+    {
+      "path": "src/lib/aiur/executor_wake_projection.ex",
+      "lines": [
+        10,
+        30
+      ],
+      "finding": "needs_attention is preserved as strict boolean metadata; severity is not included. Metadata presence is distinct from routing eligibility."
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+      "lines": [
+        861,
+        878,
+        896,
+        911,
+        938
+      ],
+      "finding": "CI and GitHub budget pauses emit separate non-attention wait topics. Other working-to-paused transitions emit ticket.<id>.agent.attention.paused-<cause>, needs_attention true. Resuming emits agent.unpaused and the previous pause attention topic with .resolved appended; neither matches current default patterns."
+    },
+    {
+      "path": ".claude/skills/aiur-run/SKILL.md",
+      "lines": [
+        267,
+        282,
+        306
+      ],
+      "finding": "Text still says 24 bindings while module has 26. Example relay jq expression selects eight alternatives. This downstream relay filter is not a second daemon event-bus routing implementation."
+    },
+    {
+      "path": ".claude/skills/aiur-monitor/scripts/watch-alerts.sh",
+      "lines": [
+        20,
+        23
+      ],
+      "finding": "Workspace alert relay explicitly excludes remote-worker/workspace-less central alerts and names recurring server-side watch as its backstop. Its limited scope is documented, not proof that central alerts have no surface."
+    }
+  ],
+  "source_hashes": [
+    {
+      "path": "src/lib/aiur/executor_listener.ex",
+      "sha256": "db0b17ba7d1eb4870728f2e813a13bc1d19f62752812a9525828f38501f07205"
+    },
+    {
+      "path": "src/lib/aiur/executor_wake_projection.ex",
+      "sha256": "54f30fd66c776319cbaccf5cec92bb739c43ddb7988a81cd96fb84ce370ba4fd"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+      "sha256": "f8093d4e946d394a651e9c29dee40c9dc6ef97970f6f9494e860d60564ae09e3"
+    },
+    {
+      "path": ".claude/skills/aiur-run/SKILL.md",
+      "sha256": "cb4f8656ba216c1aeb2a3c4fb9bc22a0ff4849145b5366609a28aec96616a8f6"
+    },
+    {
+      "path": ".claude/skills/aiur-monitor/scripts/watch-alerts.sh",
+      "sha256": "46aa74e2fe015f68be5473dea9d1860d24755bf389d04c3e9c1c0670781a2977"
+    }
+  ]
 }

@@ -1,0 +1,24 @@
+{
+  "verdicts": [
+    {
+      "id": "codebase-07",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "High for default bindings, pure matcher/projection results and inspected routing/relay contracts; unresolved for full emit-site coverage and operational delivery impact.",
+      "corrected_claim": "ExecutorBindings has 26 default patterns. Listener matching uses topic and identity, not needs_attention or severity; options can override patterns. needs_attention is retained in projected wake metadata while severity is omitted. Eleven sampled topic shapes do not match defaults; two alternate pause-attention topics do, but the appended .resolved topic does not. Unbound topic membership does not establish that its underlying condition never reaches the Executor, since pause transitions can emit a bound attention topic. Skill text says 24 bindings, and the eight-alternative jq relay is a downstream filter. Workspace watch explicitly documents its central-alert exclusion and server-side backstop. The inherited 81/~50-topic and 57-emitter counts are not verified reachability measurements.",
+      "method": "Read frozen binding/listener/alert/projection/transition contracts and skill relay paths; execute actual Topic, ExecutorBindings and ExecutorWakeProjection modules in isolation for 14 topic samples and true/false metadata.",
+      "note": "Preserve a single explicit attention lifecycle policy, including resolution delivery and downstream consumption, rather than inferring a rewrite from grep counts. Routing only needs_attention=true would omit needs_attention=false resolution records and successful PR/CI control events. Current wiring gaps do not measure lost productive time, and package extraction is not required to repair a binding.",
+      "unresolved": [
+        "Complete AST emit-site and dynamic-helper census, including alternate condition paths",
+        "Runtime listener/enqueue/consumer delivery and actual incidence of the resolution mismatch",
+        "Which optional relay filters are used by each operational Executor",
+        "Measured effect of routing changes on operator action and idle intervals"
+      ],
+      "evidence_artifacts": [
+        "synthesis/attention-routing-audit.json"
+      ],
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

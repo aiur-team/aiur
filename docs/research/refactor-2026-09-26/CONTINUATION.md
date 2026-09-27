@@ -1106,3 +1106,13 @@ Restart timing uses explicit daemon_restart.attributes.daemon_started_at, not mi
 ### gaps-07 verified with corrections
 
 Added both-lens verdict and corrected downtime report. Six identified Khala runs plus three brief telemetry-only streams after boot through original cutoff; no identifiable Aiur restart, not exhaustive nonexistence. 51.0999 h last telemetry to explicit restart; 77.2216 min first host journal to restart. Journal endpoint is not exact crash time. Existing launcher watchdog records/reaps without restarting. Historical configuration, external delivery and operator awareness remain unresolved. Remaining claims codebase-07 and meta-07.
+
+
+### codebase-07 routing probe continuation
+
+Updated canonical attention-routing-audit.json with actual frozen Elixir matcher/projection execution: 14 membership samples reproduced; pause-attention matches, appended .resolved does not. needs_attention true/false survives projection but does not route; severity omitted from wake record. Listener default options can be overridden. Skill 24-vs-26 text drift confirmed; eight-alternative jq is downstream relay filtering, not another daemon binding policy. Workspace watch explicitly documents central-alert exclusion/backstop. No full emit-site or alternate-path census yet; next finish bounded claim verdict/report correction rather than treating grep counts as condition reachability. Scratch probe requires only three pure modules, not application startup.
+
+
+### codebase-07 verified with bounded corrections
+
+Added both-lens verdict and corrected report summary, routing section and carve-order recommendation. Actual 14-topic matcher/projection probe confirms pause-resolution mismatch. Reject condition invisibility inferred from unbound topic; generic pause alert can route. Do not route only needs_attention=true: false resolution and successful control events matter. Full emit-site/alternate-path census and operational incidence explicitly unresolved. Remaining claim meta-07; reviews/features/synthesis/planning still incomplete.
