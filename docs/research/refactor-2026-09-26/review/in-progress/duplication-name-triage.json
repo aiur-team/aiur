@@ -114803,10 +114803,578 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "issue_url",
+      "assessment": "GitHub issue URL construction shares a template with different adapters.",
+      "constraints": [
+        "Links interpolates repository string and ID; planning source destructures TrackerIdentity owner, repository and identifier.",
+        "Neither site performs URL escaping or identity-kind validation. Preserve upstream identity contracts; no unsafe reachable input is established by these sites alone."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 43,
+          "module": "Aiur.AgentList.Renderer.Links",
+          "name": "issue_url",
+          "path": "src/lib/aiur/agent_list/renderer/links.ex",
+          "kind": "def",
+          "end_line": 43,
+          "body_sha256": "befd853c39bbd721eee90819bf3d2e2daff5301007215f5b0eba9f430aa46a81",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 228,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "issue_url",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 229,
+          "body_sha256": "828c837545fe7ab5f89632d231f08044171fec4868caad3d48d9d1d16592cca5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "issue_version",
+      "assessment": "Issue version extraction shares nonempty-string validation within different accepted input domains.",
+      "constraints": [
+        "Issues requires a map and reads updated_at; WriteThrough pattern matches a map field and returns nil for every other input.",
+        "The value is an opaque nonempty string here, not a parsed date or proof of freshness. Preserve map-only versus total fallback behavior."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 349,
+          "module": "Aiur.GitHub.Issues",
+          "name": "issue_version",
+          "path": "src/lib/aiur/github/issues.ex",
+          "kind": "defp",
+          "end_line": 354,
+          "body_sha256": "85b77270810283565c9c6999216a36c41e74ab76c7008a4544fe2d6266217b4d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 306,
+          "module": "Aiur.GitHub.WriteThrough",
+          "name": "issue_version",
+          "path": "src/lib/aiur/github/write_through.ex",
+          "kind": "defp",
+          "end_line": 306,
+          "body_sha256": "d725760f2fc4ba96baa8eb3d87e0eb219df0e32b82376ed9b5ec3a534c553c15",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 307,
+          "module": "Aiur.GitHub.WriteThrough",
+          "name": "issue_version",
+          "path": "src/lib/aiur/github/write_through.ex",
+          "kind": "defp",
+          "end_line": 307,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "item_id",
+      "assessment": "Transcript item ID extraction is an exact shared-mechanics candidate.",
+      "constraints": [
+        "Both require a nonempty binary ID and otherwise nil.",
+        "Read both get helpers and verified aliases: each delegates to Aiur.Protocol.MapAccess. Provider transcript assembly and identity scope remain separate."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 171,
+          "module": "Aiur.Claude.Transcript",
+          "name": "item_id",
+          "path": "src/lib/aiur/claude/transcript.ex",
+          "kind": "defp",
+          "end_line": 176,
+          "body_sha256": "32a81bdacd6e03ae1ba955c5aeef582971128fda5ccb781920ef95d2ed098b04",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 121,
+          "module": "Aiur.Codex.Transcript",
+          "name": "item_id",
+          "path": "src/lib/aiur/codex/transcript.ex",
+          "kind": "defp",
+          "end_line": 126,
+          "body_sha256": "32a81bdacd6e03ae1ba955c5aeef582971128fda5ccb781920ef95d2ed098b04",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "jitter_ms",
+      "assessment": "A random-delay bound and deterministic identifier spread are different policies.",
+      "constraints": [
+        "LocalHold exposes its fixed 500 ms jitter bound; inspected uses draw random offsets inclusively from zero through that bound.",
+        "Budget pause hashes an identifier below a positive configured maximum or returns zero; read maximum helper and verified default 5000 ms.",
+        "Preserve random versus deterministic spread and inclusive versus exclusive upper bounds; no measured wake-distribution saving claimed."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 84,
+          "module": "Aiur.GitHub.LocalHold",
+          "name": "jitter_ms",
+          "path": "src/lib/aiur/github/local_hold.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "f67b11437da22f01452d4d1bf699753015cbc0d939fb78691bd10ba55bfc4223",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.Orchestrator.GithubBudgetPause",
+          "name": "jitter_ms",
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "kind": "def",
+          "end_line": 122,
+          "body_sha256": "be28012ec451cece1f68fc1192a1133bf2d4c27d6cd6d779c644bc04ddc6e9e8",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "join_pane",
+      "assessment": "Tmux request and layout execution are different layers.",
+      "constraints": [
+        "Public API calls the server with a 10000 ms timeout and maps noproc and timeout exits.",
+        "Layout invokes join-pane with source, target and horizontal split arguments and maps success to ok. Preserve server ownership and caller-side reflow; no rendered pane test was run."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 157,
+          "module": "Aiur.Tmux",
+          "name": "join_pane",
+          "path": "src/lib/aiur/tmux.ex",
+          "kind": "def",
+          "end_line": 163,
+          "body_sha256": "d1ac2332ed0d99164ad20519a0dff7ed08846fa766bad91ec89ba3d62693b12a",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 101,
+          "module": "Aiur.Tmux.Layout",
+          "name": "join_pane",
+          "path": "src/lib/aiur/tmux/layout.ex",
+          "kind": "def",
+          "end_line": 108,
+          "body_sha256": "5f20f4da565ae95b15dd828c335e438bbe4b25495643366eaa8797210b29ac29",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "journal_base_repair",
+      "assessment": "Poller journal result normalization already wraps the approval-store operation.",
+      "constraints": [
+        "Store serializes by module/path, normalizes invalidation, strictly loads persisted state and writes approvals, failures and updated invalidation map; exceptions and catches become journal errors.",
+        "Poller supports an injected writer, converts target to string and accepts only ok or error results, wrapping unexpected values and exceptions.",
+        "Preserve persistence ownership and result validation; these sites alone do not establish atomic durable storage or lock correctness."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 101,
+          "module": "Aiur.CIApprovalStore",
+          "name": "journal_base_repair",
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 103,
+          "module": "Aiur.CIApprovalStore",
+          "name": "journal_base_repair",
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "kind": "def",
+          "end_line": 128,
+          "body_sha256": "60a1a513101ba8f8e483710cee3b5a250c9e2e546a9a1f78bc5d45ccf7b890a8",
+          "normalized_body_lines": 30,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 130,
+          "module": "Aiur.CIApprovalStore",
+          "name": "journal_base_repair",
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "kind": "def",
+          "end_line": 131,
+          "body_sha256": "b01a84ddf7ea336f15daa1e8b6f5d83bfce947d25413b285550c55b30b3ee9d2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 687,
+          "module": "Aiur.Events.GithubCIPoller",
+          "name": "journal_base_repair",
+          "path": "src/lib/aiur/events/github_ci_poller.ex",
+          "kind": "defp",
+          "end_line": 704,
+          "body_sha256": "bfa2b7e563ea3ccbc969617f8dd3480d4fe340300a852dc4e9902e01addb029e",
+          "normalized_body_lines": 23,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "json",
+      "assessment": "Progress projection and HTTP response serialization serve different interfaces.",
+      "constraints": [
+        "ProgressRenderer returns a map containing progress, resolution and resolved count, adding stale count/timestamp only when present.",
+        "SSE helper sets JSON content type and sends an encoded HTTP response at the supplied status. Preserve map projection versus connection side effects."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 64,
+          "module": "Aiur.BuildOrder.ProgressRenderer",
+          "name": "json",
+          "path": "src/lib/aiur/build_order/progress_renderer.ex",
+          "kind": "def",
+          "end_line": 83,
+          "body_sha256": "411d87f1972d0e9774b38bba0d029b52cfd7f03231ef955eac886a9a73fa14d3",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 78,
+          "module": "Aiur.Opencode.ChatCompletions.Sse",
+          "name": "json",
+          "path": "src/lib/aiur/opencode/chat_completions/sse.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "529794a1cd607f6aeb5e6c8a2ba615d142e14d8a1892654ef6d83110b7eab99a",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "kill_pane",
+      "assessment": "Tmux teardown API and command execution preserve explicit error handling.",
+      "constraints": [
+        "API calls server with 5000 ms timeout and translates noproc/timeout exits.",
+        "Layout treats command success and any binary error-list member containing can't find pane as successful teardown, while propagating other errors.",
+        "Preserve already-absent semantics and error visibility; substring recognition is not proof that every such failure is harmless."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 318,
+          "module": "Aiur.Tmux",
+          "name": "kill_pane",
+          "path": "src/lib/aiur/tmux.ex",
+          "kind": "def",
+          "end_line": 323,
+          "body_sha256": "92dae007e0e3e09a0c85c575a38588148bae2ecc5c2c0351890f679522a9beb4",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 129,
+          "module": "Aiur.Tmux.Layout",
+          "name": "kill_pane",
+          "path": "src/lib/aiur/tmux/layout.ex",
+          "kind": "def",
+          "end_line": 143,
+          "body_sha256": "2081ad6671f8cade4fc2397b5a4580dfdd42d904debbbd503821836c54603599",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "kill_repl_session",
+      "assessment": "Orchestrator already delegates REPL teardown.",
+      "constraints": [
+        "AgentTeardown optionally kills a binary pane ID, then invokes graceful subtree kill for REPL OS PID and headless OS PID, returning ok.",
+        "Pane result is ignored here. Preserve both process-tree targets and do not confuse an ok wrapper return with observed complete cleanup; subprocess behavior was not exercised."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 406,
+          "module": "Aiur.Orchestrator",
+          "name": "kill_repl_session",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 406,
+          "body_sha256": "6cd3f982a950b53f1f14cb195ba0b6f82f9f21750e2ceb1a55d62dc85cff98b1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 190,
+          "module": "Aiur.Orchestrator.AgentTeardown",
+          "name": "kill_repl_session",
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "kind": "def",
+          "end_line": 205,
+          "body_sha256": "8dcbdb8a8a9cd0ec003f55c3f77d621a3fd63640516d4575f3587343ec532e36",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "kind_label",
+      "assessment": "Credential identity kind and provider meter kind use separate vocabularies.",
+      "constraints": [
+        "GitHub cache labels app installation, machine user and human, with credential fallback.",
+        "Provider presenter labels rate limit, credit and spend control, with Meter fallback. Preserve cause-neutral domain-specific unknown labels."
+      ],
+      "clauses": 8,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1202,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "kind_label",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1202,
+          "body_sha256": "91d54b31ba6e2ac28a125fb92088c1b36bcf0c30fb82d2409d66bd2dcdd3744a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1203,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "kind_label",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1203,
+          "body_sha256": "0e4ab83c96427c8c206ccddf7713f64b928f29fa24d00753ffede343e465b5e6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1204,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "kind_label",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1204,
+          "body_sha256": "338c3802620b5b79b320ba03f4b32526bb86175dfd4f3eb847bd8d02fd2954b2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1205,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "kind_label",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1205,
+          "body_sha256": "7a32ca59ae8a06af47e3b33090a3738f50db8d094d065ac3f3bfac5df7d38f5f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 387,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "kind_label",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 387,
+          "body_sha256": "6282623e317a3179eb5a331362d2e13130c0d515ab1be303dbe4ac10399dd431",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 388,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "kind_label",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 388,
+          "body_sha256": "a01f046d37207ab3be8f1f85c7effbaccc9dc83d3c365ff2ebfca5ac1a18b01b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 389,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "kind_label",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 389,
+          "body_sha256": "a9094d7d819e129fea8d0c2f055b0eca7960c2ade833ca83af639920f60f912f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 390,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "kind_label",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 390,
+          "body_sha256": "8cd07fcb6dd4f07700dcc4ff3dbbf3730b2a92f57a269d391f6afdca2ffa4d0a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "known_agent_kinds",
+      "assessment": "Initialization backend enumeration already delegates.",
+      "constraints": [
+        "Init forwards to Questions, which calls CodingAgent.known_backends.",
+        "Keep the backend registry authoritative; no duplicate hardcoded registry appears in these sites."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 356,
+          "module": "Aiur.Init",
+          "name": "known_agent_kinds",
+          "path": "src/lib/aiur/init.ex",
+          "kind": "defdelegate",
+          "end_line": 356,
+          "body_sha256": "21de4c5df8780dbcb891ed8ae4f84514f739a9d56bbf680bdc4d29e1750fc846",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 215,
+          "module": "Aiur.Init.Questions",
+          "name": "known_agent_kinds",
+          "path": "src/lib/aiur/init/questions.ex",
+          "kind": "def",
+          "end_line": 215,
+          "body_sha256": "0527e703a35f46d770127dee88bb7437da28d3fd200cbff39ebc805ff6c20edf",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "known_branch",
+      "assessment": "CI and comment batch branch selection share exact mechanics.",
+      "constraints": [
+        "Both prefer truthy explicit branch_names_by_target over the open PR head ref, then accept a nonempty binary only.",
+        "Read both open_pull_request_head_ref helpers: matching map lookup and head.ref access with nil fallbacks.",
+        "An empty or nonbinary truthy explicit value masks PR fallback before validation. Preserve selection semantics or change deliberately with caller evidence; branch existence is not established."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 177,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "known_branch",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 183,
+          "body_sha256": "2ea63889e51ad18585471a0f851cb5838978da8bd8a83f22ff64442e85f32dc4",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 214,
+          "module": "Aiur.GitHub.CommentPollBatch",
+          "name": "known_branch",
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 220,
+          "body_sha256": "2ea63889e51ad18585471a0f851cb5838978da8bd8a83f22ff64442e85f32dc4",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 8258,
-  "limits": "1017 selected families and 8258 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 8291,
+  "limits": "1029 selected families and 8291 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

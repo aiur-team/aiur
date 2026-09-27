@@ -4,89 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "109d5f4392812ab68836cca408e3485049965c255e7289bcd340cbeb97c517a0"
+    "name_triage": "dfd600b4c5a4fee2517804d6991f33062b13e09cf75e32fbf04ddb973bc375ce"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 1017,
-    "remaining_cross_module_names": 663,
-    "remaining_literal_entries": 2010
+    "reviewed_cross_module_names": 1029,
+    "remaining_cross_module_names": 651,
+    "remaining_literal_entries": 1977
   },
   "families": [
-    {
-      "name": "issue_url",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 3
-    },
-    {
-      "name": "issue_version",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "item_id",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "jitter_ms",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "join_pane",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 15
-    },
-    {
-      "name": "journal_base_repair",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 47
-    },
-    {
-      "name": "json",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 25
-    },
-    {
-      "name": "kill_pane",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "kill_repl_session",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "kind_label",
-      "clauses": 8,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "known_agent_kinds",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "known_branch",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
     {
       "name": "known_model?",
       "clauses": 5,
