@@ -1194,3 +1194,7 @@ Read acquire_lock, activity, advance, age, age_seconds, agent_family, agent_labe
 ### Name duplication: liveness and access gates
 
 Read alive?, append_diagnostics, append_line, apply_corruption, attention_key, attribution, authorized_context and back: 41 literal entries across eight families. Verify three equivalent financial-context gates and diagnostic append mechanics; preserve liveness probe interpretation, append durability, corruption consequences, attention namespaces and strict attribution validation. Name triage now 393 families/5896 entries, leaving 1287 cross-module names. Raw findings and skeptic counts are unchanged; no process ownership, durable append or complete authorization guarantee is claimed.
+
+### Name duplication: bounds and checkpoint contracts
+
+Read base_url, bin_dir, boolean, bound, build_request, cache_write_duration, changed? and checkpoint: 36 literal entries across eight families. Preserve endpoint provenance, typed versus textual booleans, byte/text/population bounds, cache-duration uncertainty and checkpoint operation roles. Name triage now 401 families/5932 entries, leaving 1279 cross-module names. Raw findings and skeptic counts are unchanged; no atom-exhaustion finding, production bound violation, pricing impact or crash-safety guarantee is claimed.

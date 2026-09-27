@@ -76955,10 +76955,568 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "base_url",
+      "assessment": "Base URLs come from static transport configuration, a bound listener or authenticated slot routing.",
+      "constraints": [
+        "GitHub.Transport exposes a module constant. HttpServer requires a positive bound port, formats the configured host and returns nil on unavailable binding, exceptions or exits.",
+        "ChatCompletions.Caller requires exactly one Bearer header, resolves its token to a slot and reads a binary base URL from that slot snapshot.",
+        "Preserve endpoint provenance and token-scoped routing. These are not interchangeable URL suppliers, and a binary URL alone does not establish listener health or endpoint trust."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 52,
+          "module": "Aiur.GitHub.Transport",
+          "name": "base_url",
+          "path": "src/lib/aiur/github/transport.ex",
+          "kind": "def",
+          "end_line": 52,
+          "body_sha256": "9d794df69bd81b776beef0fa47186d16640791b0e05fb6484946e82bc090900e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 143,
+          "module": "Aiur.HttpServer",
+          "name": "base_url",
+          "path": "src/lib/aiur/http_server.ex",
+          "kind": "def",
+          "end_line": 156,
+          "body_sha256": "7b0a6d4f5d73217062d816d742d4458458e50c66c57fcd2292bfa62d4005c30d",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 45,
+          "module": "Aiur.Opencode.ChatCompletions.Caller",
+          "name": "base_url",
+          "path": "src/lib/aiur/opencode/chat_completions/caller.ex",
+          "kind": "def",
+          "end_line": 54,
+          "body_sha256": "5613297e96d7bd793635bf55095833dcc9a5f5466f26c7ffe9018949513f863c",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bin_dir",
+      "assessment": "Guard binary directories already delegate to one path constructor.",
+      "constraints": [
+        "AgentBuildGuard and AgentGitHubGuard pass their relative-directory attributes to AgentCommandInstaller.bin_dir.",
+        "The shared implementation uses Path.join. These wrappers are domain defaults around an existing primitive, not duplicated installation logic.",
+        "Path joining alone is not containment or symlink validation; installation checks must remain at the appropriate boundary."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 21,
+          "module": "Aiur.AgentBuildGuard",
+          "name": "bin_dir",
+          "path": "src/lib/aiur/agent_build_guard.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "aa9e26501b4c49c79b4d0a7153a03dbb62133a0c8651f9a0070ebda909f46949",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 10,
+          "module": "Aiur.AgentCommandInstaller",
+          "name": "bin_dir",
+          "path": "src/lib/aiur/agent_command_installer.ex",
+          "kind": "def",
+          "end_line": 10,
+          "body_sha256": "b016b528bad1e5954c16783dfc346153a8a6a92525a90a86d5a72f617873c8f6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 59,
+          "module": "Aiur.AgentGitHubGuard",
+          "name": "bin_dir",
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "kind": "def",
+          "end_line": 59,
+          "body_sha256": "aa9e26501b4c49c79b4d0a7153a03dbb62133a0c8651f9a0070ebda909f46949",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "boolean",
+      "assessment": "Boolean parsing separates typed payloads from operator text.",
+      "constraints": [
+        "DynamicTool.Args checks a string key before an atom-key fallback and requires a boolean value, returning the supplied error otherwise. Its fallback calls String.to_atom on the key.",
+        "Env.Types trims and lowercases textual 1/true/yes and 0/false/no, rejecting other terms with a descriptive error.",
+        "RecentMerge accepts booleans only and returns a field-specific invalid_type error.",
+        "Do not broaden typed payload acceptance to environment syntax accidentally. Dynamic key provenance was not inspected, so atom creation is recorded as a mechanism rather than a proven exhaustion path."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 50,
+          "module": "Aiur.Codex.DynamicTool.Args",
+          "name": "boolean",
+          "path": "src/lib/aiur/codex/dynamic_tool/args.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "260f8538006e6897d83aaae1e8d2466385e10d95dbcd842aae850f3896b9cd3c",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 42,
+          "module": "Aiur.Env.Types",
+          "name": "boolean",
+          "path": "src/lib/aiur/env/types.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "d1872beaa2bf6fec7a3ad1dc7e38acaab8a4a6cb0b97a02a464510936459b020",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 50,
+          "module": "Aiur.Env.Types",
+          "name": "boolean",
+          "path": "src/lib/aiur/env/types.ex",
+          "kind": "def",
+          "end_line": 50,
+          "body_sha256": "bb9427e7d4ea3157ca001f768135255811fe42bd1cb4a69d3176797187aed305",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 549,
+          "module": "Aiur.RecentMerge",
+          "name": "boolean",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "defp",
+          "end_line": 549,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 550,
+          "module": "Aiur.RecentMerge",
+          "name": "boolean",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "defp",
+          "end_line": 550,
+          "body_sha256": "13fcc70d560c80ff7d32719bbe73f3e3ddc5656bd2d592e5d98e50d0f4a18d8f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bound",
+      "assessment": "Bounds refer to text size, retained samples and hashed keys, with different units.",
+      "constraints": [
+        "DecisionDispatch tests byte_size against the limit, but its oversized path uses String.slice with that limit. This does not establish a byte cap for multibyte text.",
+        "DecisionMetrics.Collector retains recent samples then filters the attention index to retained decision IDs.",
+        "DeliveryLog keeps short keys unchanged; oversized keys retain a max_key_bytes prefix plus a SHA-256 suffix, so total output intentionally exceeds the prefix bound.",
+        "Specify bytes, text units, retained population and collision policy before sharing bounding mechanics. No caller limit violation or production incidence is claimed by this static comparison."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 90,
+          "module": "Aiur.DecisionDispatch",
+          "name": "bound",
+          "path": "src/lib/aiur/decision_dispatch.ex",
+          "kind": "defp",
+          "end_line": 90,
+          "body_sha256": "dcd360067a9df6cadfef42c7b6bf82b183f0d4971c089f3daeba22fe79a6a2a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 91,
+          "module": "Aiur.DecisionDispatch",
+          "name": "bound",
+          "path": "src/lib/aiur/decision_dispatch.ex",
+          "kind": "defp",
+          "end_line": 91,
+          "body_sha256": "1f21667e58d6271b6308de445365e970b36f825f127b1f30ae82a6c844bb9957",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 41,
+          "module": "Aiur.DecisionMetrics.Collector",
+          "name": "bound",
+          "path": "src/lib/aiur/decision_metrics/collector.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "418d63f955ae6f8dc5a69a27d11f43b2c9c2d92bf3770fbe7f84d998e2c07064",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 164,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "bound",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 164,
+          "body_sha256": "097015b21a05e1dac2aa99041f913c728dcc2fd8b2fb93186854666f6d884bb1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 166,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "bound",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 169,
+          "body_sha256": "d9b1c2ae3301786d32a798c0a29f859db6b5b99b737f0a64ef10760327715b7f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "build_request",
+      "assessment": "Request builders encode unrelated domain and transport contracts.",
+      "constraints": [
+        "AnalyticsCLI resolves scope and returns an unavailable envelope when build-order scope cannot be obtained.",
+        "OpenAICompat.Transport chooses chat-completions or responses endpoints and payload shapes; chat includes tool_choice and optional provider routing through its helper.",
+        "ControlLifecycle creates a requested-state record with tracker identity, generation, expected status/version, requester and initially absent lifecycle outcomes.",
+        "Preserve control preconditions and provider wire formats. Similar map construction is not evidence for one generic request model."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 74,
+          "module": "Aiur.AnalyticsCLI",
+          "name": "build_request",
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "kind": "defp",
+          "end_line": 79,
+          "body_sha256": "8b8f477b013f5233e5963fc2cca32117a8d28f047826e8c6aa10828443fb0f77",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 30,
+          "module": "Aiur.OpenAICompat.Transport",
+          "name": "build_request",
+          "path": "src/lib/aiur/open_ai_compat/transport.ex",
+          "kind": "defp",
+          "end_line": 41,
+          "body_sha256": "3af8bbf07ba40135f4040a8d315b0ca5c78c1b5bc383a7819630be2c0e94e2d9",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 43,
+          "module": "Aiur.OpenAICompat.Transport",
+          "name": "build_request",
+          "path": "src/lib/aiur/open_ai_compat/transport.ex",
+          "kind": "defp",
+          "end_line": 50,
+          "body_sha256": "187829ca6750cd88732ae7e425ea6e98318248a2f30487b8fe387f14adee9197",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 540,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "build_request",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "kind": "defp",
+          "end_line": 559,
+          "body_sha256": "b1d416a3f315aa1cd4373947bd80d34354989fdc7866e291a1c25e7bbbdea32e",
+          "normalized_body_lines": 22,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cache_write_duration",
+      "assessment": "Cache duration classification differs by available source evidence.",
+      "constraints": [
+        "Claude.Telemetry.UsageAdapter assigns five_minutes to positive integer cache-write tokens, otherwise not_applicable.",
+        "Headless.Claude.RequestUsage distinguishes five-minute-only and one-hour-only counters, maps both absent/zero to not_applicable, and returns nil for mixed or unsupported combinations.",
+        "UsageEnvelope accepts nil or delegates provider-specific dimension validation.",
+        "Do not erase unknown mixed duration by reusing the telemetry default. Upstream source guarantees and pricing impact remain unverified in this family."
+      ],
+      "clauses": 8,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 152,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter",
+          "name": "cache_write_duration",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "d46791150db05784555e401e9631c87d60331d75e86b59b5ae8b6edc418f617a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 153,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter",
+          "name": "cache_write_duration",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "kind": "defp",
+          "end_line": 153,
+          "body_sha256": "e098f9f31fc27a58e185b4d4d3560aca78282379ae10d37e42f5e69d3c373de3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 126,
+          "module": "Aiur.Usage.Headless.Claude.RequestUsage",
+          "name": "cache_write_duration",
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "kind": "defp",
+          "end_line": 127,
+          "body_sha256": "d46791150db05784555e401e9631c87d60331d75e86b59b5ae8b6edc418f617a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 129,
+          "module": "Aiur.Usage.Headless.Claude.RequestUsage",
+          "name": "cache_write_duration",
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "kind": "defp",
+          "end_line": 130,
+          "body_sha256": "673e246394fa48d54e4c8379bc2cc2c634bc8d2a0a061c4ab7bc73bc2f884b5a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 132,
+          "module": "Aiur.Usage.Headless.Claude.RequestUsage",
+          "name": "cache_write_duration",
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "kind": "defp",
+          "end_line": 133,
+          "body_sha256": "e098f9f31fc27a58e185b4d4d3560aca78282379ae10d37e42f5e69d3c373de3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 138,
+          "module": "Aiur.Usage.Headless.Claude.RequestUsage",
+          "name": "cache_write_duration",
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "kind": "defp",
+          "end_line": 138,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 458,
+          "module": "Aiur.UsageEnvelope",
+          "name": "cache_write_duration",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 458,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 459,
+          "module": "Aiur.UsageEnvelope",
+          "name": "cache_write_duration",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 459,
+          "body_sha256": "d1df5a5ec63351e00cb736be22f93ae899dfa6ffc0d22f375f0b595eaf3f7b82",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "changed?",
+      "assessment": "Change predicates compare different observation signatures.",
+      "constraints": [
+        "LsRemoteTicker compares a known ref value with a supplied SHA; a missing ref and nil SHA compare equal in the literal body.",
+        "GroupedScopes treats an absent previous snapshot as changed and otherwise compares signatures.",
+        "UsageAggregate.Store compares its published key with the current publication_key.",
+        "These predicates depend on domain signature contents and input validity; no common equality helper establishes correct notification coverage. Helpers and missing-SHA reachability were not reviewed here."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 162,
+          "module": "Aiur.Events.LsRemoteTicker",
+          "name": "changed?",
+          "path": "src/lib/aiur/events/ls_remote_ticker.ex",
+          "kind": "defp",
+          "end_line": 167,
+          "body_sha256": "73ee0f64760512474c24bc5d0a84b50d31c93b768e9fb5e80e1c76e5e4d0c4a0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 529,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "changed?",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "def",
+          "end_line": 529,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 530,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "changed?",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "def",
+          "end_line": 530,
+          "body_sha256": "5281a37992bcf40fb46bca453dc2d0fabd6bb68b265ce7dcac6a2468f4f21939",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 265,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "changed?",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "defp",
+          "end_line": 265,
+          "body_sha256": "4513df57d4de022459f8c16ef71470def0b6f07a388abe25562a515838023d79",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "checkpoint",
+      "assessment": "Checkpoint functions serialize, persist or load state and must retain those distinctions.",
+      "constraints": [
+        "CurrentRunMembership.Projection produces a run/generation/member document with first observation time and serialized last event.",
+        "ResourceStore treats a nil path as a successful no-op; otherwise it serializes ETS, skips an unchanged document and updates last_written only after successful write.",
+        "UsageLedger.Recovery loads with a byte bound and distinguishes missing, healthy and corrupt while returning nil checkpoint for missing/corrupt.",
+        "Do not conflate generated documents, successful no-op and durable write. Crash safety, concurrent ETS consistency and recovery sufficiency are not certified by these entry points."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 85,
+          "module": "Aiur.CurrentRunMembership.Projection",
+          "name": "checkpoint",
+          "path": "src/lib/aiur/current_run_membership/projection.ex",
+          "kind": "def",
+          "end_line": 97,
+          "body_sha256": "6f357e38709e83c49bf64e53471e532ea7913de09a8489bf930bb4c74b0e9bdb",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1919,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "checkpoint",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 1919,
+          "body_sha256": "0af0185f6543417b0c29294d9bb2b631471ef88abd07dd876730f0816989fd17",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1921,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "checkpoint",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 1936,
+          "body_sha256": "3e2504f7685681c3f83c9209c5c7f30cc7ce72401a7f5d0965fc4efe2f545bed",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 135,
+          "module": "Aiur.UsageLedger.Recovery",
+          "name": "checkpoint",
+          "path": "src/lib/aiur/usage_ledger/recovery.ex",
+          "kind": "defp",
+          "end_line": 141,
+          "body_sha256": "ce6cc9da439092c1306e06725cf97453e38e20bc352b2aca11ff6207b402e560",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5896,
-  "limits": "393 selected families and 5896 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5932,
+  "limits": "401 selected families and 5932 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
