@@ -930,3 +930,7 @@ Read all 46 new definitions/declarations in 35 modules. Separate empty structs, 
 ### Name duplication: presentation scope and current status
 
 Read all 35 present definitions/declarations in 16 modules. Preserve retained data versus current health, ticket identity matching, capability-gated cards, accounting distinctions and unavailable/error shapes. Two trimmed-string helpers are a narrow sharing candidate; matching presentation names do not imply one view contract. Name triage now 38 families/1200 literal entries. Rendered output, transitive privacy and remaining sweeps remain unverified by this pass.
+
+### Name duplication: builders and deferred effects
+
+Read all 46 build definitions/declarations in 29 modules. Separate pure assembly, validated records, live reads, observation recording and closures that later publish or mutate. Preserve callback identity, source health, accounting evidence, query limits and PR workspace naming. Name triage now 39 families/1246 literal entries. Remaining sweep and transitive verification stay open; no new defect or savings count.
