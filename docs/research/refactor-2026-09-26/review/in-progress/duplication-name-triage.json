@@ -104039,10 +104039,430 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "degraded?",
+      "assessment": "Webhook repository mode and broker timeout pressure are distinct degradation signals.",
+      "constraints": [
+        "GraphProjection reads Webhooks.mode for the active repository and checks degraded; absent repository returns false.",
+        "BrokerTimeout compares event-list length to threshold().",
+        "Preserve source-specific diagnostics; false with no repository is not evidence of healthy webhook delivery, and event-count validity depends on retention upstream."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1790,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "degraded?",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "defp",
+          "end_line": 1800,
+          "body_sha256": "fa67668189a9583d70244309d5166a6da0b8cb776de141511f35b4a061f85628",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 224,
+          "module": "Aiur.GitHub.BrokerTimeout",
+          "name": "degraded?",
+          "path": "src/lib/aiur/github/broker_timeout.ex",
+          "kind": "defp",
+          "end_line": 224,
+          "body_sha256": "7c134e19405a2bb3c93adadc53946f4a660f0feb73f529a05c10978be4e96b05",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "deliver_pending_answers",
+      "assessment": "Dispatcher scheduling and store ingress are different asynchronous stages.",
+      "constraints": [
+        "Dispatcher sends itself an identifier/store message and returns ok, with a no-op fallback for unsupported issues.",
+        "DecisionStore casts a deliver_pending_answers request for a binary ticket identifier.",
+        "Preserve scheduling and receiving-owner boundaries. Neither send nor cast confirms delivery, and no answers were sent during research."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 342,
+          "module": "Aiur.DecisionStore",
+          "name": "deliver_pending_answers",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "def",
+          "end_line": 344,
+          "body_sha256": "d83008e1bbf8341110083240cda1be0b79dcce53ba3a32c441680cf70eb9bc36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 2591,
+          "module": "Aiur.Orchestrator.Dispatcher",
+          "name": "deliver_pending_answers",
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "kind": "defp",
+          "end_line": 2594,
+          "body_sha256": "16050f0c49adbede160616b81d8ee9919b8d0c13421d7f189df8a45bfc68c748",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 2596,
+          "module": "Aiur.Orchestrator.Dispatcher",
+          "name": "deliver_pending_answers",
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "kind": "defp",
+          "end_line": 2596,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "delivered?",
+      "assessment": "Decision delivery evidence and webhook provenance are different predicates.",
+      "constraints": [
+        "Decision treats acknowledged/resolved status as delivered, otherwise checks nonempty acknowledgements or any attempt with nonnil delivered_at.",
+        "DeliveredPullRequest accepts only entries whose source is webhook.",
+        "Do not unify semantic delivery with provenance classification; predicates do not establish downstream receipt or timestamp validity independently."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 235,
+          "module": "Aiur.Decision",
+          "name": "delivered?",
+          "path": "src/lib/aiur/decision.ex",
+          "kind": "def",
+          "end_line": 235,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 237,
+          "module": "Aiur.Decision",
+          "name": "delivered?",
+          "path": "src/lib/aiur/decision.ex",
+          "kind": "def",
+          "end_line": 240,
+          "body_sha256": "9f1f83d460bb07c96b060c67b5a5af9bd5541e46893752a922a4b57c9db1b9bb",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 110,
+          "module": "Aiur.GitHub.DeliveredPullRequest",
+          "name": "delivered?",
+          "path": "src/lib/aiur/github/delivered_pull_request.ex",
+          "kind": "defp",
+          "end_line": 110,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.GitHub.DeliveredPullRequest",
+          "name": "delivered?",
+          "path": "src/lib/aiur/github/delivered_pull_request.ex",
+          "kind": "defp",
+          "end_line": 111,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "delivery_item_ids",
+      "assessment": "Coalesced item extraction matches for maps with delivery metadata, but required shape differs.",
+      "constraints": [
+        "QueueDrain defaults a missing delivery key to an empty map, then defaults missing coalesced_item_ids to the item's ID.",
+        "DigestCoalescer requires the delivery field in its input pattern and uses the same item-ID fallback.",
+        "A shared extractor must preserve required-versus-optional delivery shape; explicit nil values do not receive Map.get absent-key defaults, and list validity remains caller-owned."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 319,
+          "module": "Aiur.AgentRunner.QueueDrain",
+          "name": "delivery_item_ids",
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "kind": "defp",
+          "end_line": 322,
+          "body_sha256": "cab974a9ef97c49667b93419a03694d15041997c94bb7f00ba0bbf96cf591b77",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 68,
+          "module": "Aiur.Orchestrator.DigestCoalescer",
+          "name": "delivery_item_ids",
+          "path": "src/lib/aiur/orchestrator/digest_coalescer.ex",
+          "kind": "defp",
+          "end_line": 70,
+          "body_sha256": "eb8ef80fb8b91e28aa0d36ca33e59e5359d99caefe4beac62185a537e4bbd45b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "delivery_status",
+      "assessment": "Operator status lookup and decision-event normalization are different stages.",
+      "constraints": [
+        "AgentChat delegates an integer request ID to Orchestrator.operator_message_status with a default 5000 millisecond timeout.",
+        "DecisionProjection maps delivered/restored/consumed/failed to delivered/queued/consumed/failed without a generic fallback.",
+        "Preserve lookup versus state normalization and restored-to-queued recovery semantics; no status return alone proves rendered or durable delivery."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 77,
+          "module": "Aiur.AgentChat",
+          "name": "delivery_status",
+          "path": "src/lib/aiur/agent_chat.ex",
+          "kind": "def",
+          "end_line": 79,
+          "body_sha256": "d224e2463403dfd1731d28499ea61c23ba09035fe226decbaf5fa153e9638235",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 818,
+          "module": "Aiur.DecisionProjection",
+          "name": "delivery_status",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 818,
+          "body_sha256": "37d6eee3ea7063a74cbb5923f955d650b0ecb778982b4eacac57fbcd874daa36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 819,
+          "module": "Aiur.DecisionProjection",
+          "name": "delivery_status",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 819,
+          "body_sha256": "2a43fdf31b53cd2c12cdf2cd8dc12e9939c00f69db35dd8a82d8de56ffed14ab",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 820,
+          "module": "Aiur.DecisionProjection",
+          "name": "delivery_status",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 820,
+          "body_sha256": "4123dd7418887a4ab9068b249cab38be07f8e03d55e59c3b0c82aeb00736c3a4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 821,
+          "module": "Aiur.DecisionProjection",
+          "name": "delivery_status",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 821,
+          "body_sha256": "36e2d72c6cfc836ce86f569ebe342b115d07ae7ae1831706b0ad4265c7c56216",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "demanded?",
+      "assessment": "Always-demanded pack status differs from explicit observer demand.",
+      "constraints": [
+        "PackStatus returns true regardless of the optional server argument.",
+        "ViewStateDemand checks whether its demanders MapSet is nonempty.",
+        "Preserve unconditional service demand versus observer-driven activation; common naming does not justify replacing either policy or claiming polling savings."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 91,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "demanded?",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "def",
+          "end_line": 91,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Aiur.GitHub.ViewStateDemand",
+          "name": "demanded?",
+          "path": "src/lib/aiur/github/view_state_demand.ex",
+          "kind": "def",
+          "end_line": 92,
+          "body_sha256": "bfefad3a9b99ce7071a31b5137b107b882e97b5a7056f732c5405246dcc271f4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "demonitor_owner",
+      "assessment": "Monitor cleanup shares mechanics after adapting the input shape.",
+      "constraints": [
+        "Claude.Telemetry accepts a reference directly; CommentPolling extracts owner_monitor_ref from a map.",
+        "Both demonitor with flush for valid references and return ok for unsupported inputs.",
+        "A shared reference-level primitive is possible, while field extraction stays local; demonitoring does not terminate the owner process or certify resource cleanup."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 569,
+          "module": "Aiur.Claude.Telemetry",
+          "name": "demonitor_owner",
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "kind": "defp",
+          "end_line": 569,
+          "body_sha256": "6848678c88c76578de99f83f257290d6ed0b801e076f975b11e60224023bace5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 570,
+          "module": "Aiur.Claude.Telemetry",
+          "name": "demonitor_owner",
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "kind": "defp",
+          "end_line": 570,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 788,
+          "module": "Aiur.Orchestrator.CommentPolling",
+          "name": "demonitor_owner",
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "kind": "defp",
+          "end_line": 790,
+          "body_sha256": "3860505dec475940fcf5b0ff06d08f5c65fb0134ad1294e3b8b04bfd1c53e26a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 792,
+          "module": "Aiur.Orchestrator.CommentPolling",
+          "name": "demonitor_owner",
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "kind": "defp",
+          "end_line": 792,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "denominator_signature",
+      "assessment": "Summary projection already delegates denominator identity construction to Facts.",
+      "constraints": [
+        "Facts filters map rows, derives identity/weight/non-work-terminal tuples, sorts and deterministically serializes them before SHA256 hex encoding.",
+        "Nonlist input uses the empty-list signature; Projection exposes a delegate.",
+        "Preserve population, weight and terminal-class semantics. Equal signatures do not independently establish complete membership or correct weights, and invalid outer input is not evidence of an empty run."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 79,
+          "module": "Aiur.CurrentRunSummary.Facts",
+          "name": "denominator_signature",
+          "path": "src/lib/aiur/current_run_summary/facts.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "caeb8eba6a42882553ef19072d27a17db4a51f537a2985548d90bcb000df791a",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Aiur.CurrentRunSummary.Facts",
+          "name": "denominator_signature",
+          "path": "src/lib/aiur/current_run_summary/facts.ex",
+          "kind": "def",
+          "end_line": 92,
+          "body_sha256": "807c2ae5c634ee36b5dd8416e642e79e7a70ae8ea8413333c80a433a71bbf9ab",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 49,
+          "module": "Aiur.CurrentRunSummary.Projection",
+          "name": "denominator_signature",
+          "path": "src/lib/aiur/current_run_summary/projection.ex",
+          "kind": "defdelegate",
+          "end_line": 49,
+          "body_sha256": "118426a4c65301a78521dd96883c0b94167dccd8dcf493bc523fbb10a49c563b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7605,
-  "limits": "821 selected families and 7605 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7630,
+  "limits": "829 selected families and 7630 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
