@@ -1314,3 +1314,7 @@ Read actionable_review?, active_attention?, active_by_ref, active_issue_state?, 
 ### Name duplication: addition and mutation boundaries
 
 Read add_buckets, add_candidate, add_cell, add_change, add_dependency, add_issue_label, add_subscription and add_value: 21 literal entries across eight families. Numeric addition and account-change accumulation match. Preserve offset/cursor scan evidence, sample presence counts, dependency identity types, remote-versus-local labels and subscription provenance policy. Name triage now 629 families/7023 entries, leaving 1051 cross-module names. Raw findings and skeptic counts are unchanged; no complete remote mutation, subscription delivery or compaction-conservation guarantee is added.
+
+### Name duplication: admission and age semantics
+
+Read adjacency, admissions, admit?, age_ms, age_suffix, agent_class, aiurhooks_template and alert: 23 literal entries across eight families. Preserve graph node populations, unavailable-ledger versus zero-limit aggregation, read-only capacity checks versus atomic reservations, age input contracts and display units, provider class policy and emission-versus-projection ownership. Verified the existing Init template delegation. Name triage now 637 families/7046 entries, leaving 1043 cross-module names. Raw findings and skeptic counts are unchanged; no complete concurrency, age-rendering, alert-delivery or privacy guarantee is added.

@@ -94175,10 +94175,406 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "adjacency",
+      "assessment": "Graph constructors differ in their node population and validation contracts.",
+      "constraints": [
+        "Graph derives nodes from valid edge tuples, inserts both endpoints and ignores malformed edges.",
+        "GraphAnalysis initializes supplied nodes, requires each edge source to exist via Map.update!, retains supplied isolated nodes and deduplicates/sorts neighbors.",
+        "Preserve supplied-versus-derived nodes, malformed-input behavior and neighbor ordering before sharing graph construction."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 20,
+          "module": "Aiur.BuildOrder.Graph",
+          "name": "adjacency",
+          "path": "src/lib/aiur/build_order/graph.ex",
+          "kind": "defp",
+          "end_line": 31,
+          "body_sha256": "fb26c9364936f871088eaeef66bbb188e918dae1bd567244781dee357bcaa980",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 112,
+          "module": "Aiur.BuildOrder.GraphAnalysis",
+          "name": "adjacency",
+          "path": "src/lib/aiur/build_order/graph_analysis.ex",
+          "kind": "defp",
+          "end_line": 118,
+          "body_sha256": "c90e5e171772818a622f87b3112b5ab8e8083606c5814e177bc522058551db3d",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "admissions",
+      "assessment": "Ledger acquisition and credential aggregation share a name, not a contract.",
+      "constraints": [
+        "BudgetMap invokes the injectable ledger snapshot callback and maps exceptions/exits to BudgetLedger.unavailable().",
+        "CredentialUsage sums actor resource usage, defaults missing figures to zero and makes the aggregate limit zero if any actor limit is zero; resource conversion requires an existing atom.",
+        "Keep unavailable acquisition distinct from aggregate zero policy; caller interpretation and completeness of the actor population are not established here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 230,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "admissions",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "def",
+          "end_line": 237,
+          "body_sha256": "1f73a699a97aa3a033350c1b9d97cf3513f5076f6a5aa212123a89c1b9eda002",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 85,
+          "module": "Aiur.GitHub.CredentialUsage",
+          "name": "admissions",
+          "path": "src/lib/aiur/github/credential_usage.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "7a438fafdea9fb37315109295cda575a7fbf73bb9b0728e3ec55da510289a5fa",
+          "normalized_body_lines": 20,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "admit?",
+      "assessment": "One predicate reads capacity; the other reserves it atomically.",
+      "constraints": [
+        "DecisionDispatchTasks.Queue compares total and per-ticket pending counts against their limits.",
+        "RunTelemetry.Writer reads the atomic pending counter, increments it with compare_exchange on admission and retries on contention.",
+        "Do not extract a pure shared predicate that drops reservation. Release accounting and concurrency correctness require separate caller review."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 8,
+          "module": "Aiur.DecisionDispatchTasks.Queue",
+          "name": "admit?",
+          "path": "src/lib/aiur/decision_dispatch_tasks/queue.ex",
+          "kind": "def",
+          "end_line": 11,
+          "body_sha256": "f7a8bf9bca5be6e2d56eccbc2ffc0f4aef3c84caecb4e6847c26c1d8b469ab03",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 276,
+          "module": "Aiur.RunTelemetry.Writer",
+          "name": "admit?",
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "kind": "defp",
+          "end_line": 284,
+          "body_sha256": "92d951475c7b68f061d7187954bdb7ee075fe25e92d9c59fb4fc7bc5b4c7a0b0",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "age_ms",
+      "assessment": "Valid DateTime arithmetic matches, but malformed observation behavior differs.",
+      "constraints": [
+        "Both clamp millisecond differences at zero and return nil for unsupported capture inputs.",
+        "BuildOrdersCLI requires DateTime structs on both arguments; UnitsCLI explicitly accepts nil observations but otherwise passes any observation to DateTime.diff when capture is a DateTime.",
+        "Share the arithmetic only with an explicit input contract. This read does not establish that computed ages are rendered."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 256,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "age_ms",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 256,
+          "body_sha256": "f9e3d7f2d91785317f7b62d94b80273c14a91dd1ed1bc82ecec7b2ebfb4e1812",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 257,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "age_ms",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 257,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 191,
+          "module": "Aiur.UnitsCLI",
+          "name": "age_ms",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 191,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 193,
+          "module": "Aiur.UnitsCLI",
+          "name": "age_ms",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 194,
+          "body_sha256": "f9e3d7f2d91785317f7b62d94b80273c14a91dd1ed1bc82ecec7b2ebfb4e1812",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 196,
+          "module": "Aiur.UnitsCLI",
+          "name": "age_ms",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 196,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "age_suffix",
+      "assessment": "Presentation differs in units and unavailable-age visibility.",
+      "constraints": [
+        "AgentList Chrome receives seconds, displays nil as '(age n/a)' and uses second/minute/hour branches.",
+        "Analytics Presenter receives milliseconds and emits a suffix only for integers at least 1000; other values render an empty suffix.",
+        "Preserve units, missing/subsecond visibility and validation at the presentation boundary; transitive humanization and caller input ranges remain unverified."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 172,
+          "module": "Aiur.AgentList.Renderer.Chrome",
+          "name": "age_suffix",
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "kind": "defp",
+          "end_line": 172,
+          "body_sha256": "de54d5adadc24031e79740173493cb71a60ca080304a2a903a3fa47346e15f5d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 173,
+          "module": "Aiur.AgentList.Renderer.Chrome",
+          "name": "age_suffix",
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "kind": "defp",
+          "end_line": 173,
+          "body_sha256": "1cb666a96dc588597fe63b2315e995a6ef178db3052d16509cf80c847b3ab3a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 174,
+          "module": "Aiur.AgentList.Renderer.Chrome",
+          "name": "age_suffix",
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "kind": "defp",
+          "end_line": 174,
+          "body_sha256": "3fab5c0b7d36faae66d7f7e4246ebdd8a74a66c64861d1dbad2d6456ec01501e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 175,
+          "module": "Aiur.AgentList.Renderer.Chrome",
+          "name": "age_suffix",
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "kind": "defp",
+          "end_line": 175,
+          "body_sha256": "50155d5c274665946204e9d545331959ce1f01bac71f71e9aaa4022dad629734",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 385,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Presenter",
+          "name": "age_suffix",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "kind": "defp",
+          "end_line": 385,
+          "body_sha256": "16c6e7253e595ae50b631500aa7963a13d8bc278edd76dee3f413d1a6dd2cad0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 386,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Presenter",
+          "name": "age_suffix",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "kind": "defp",
+          "end_line": 386,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "agent_class",
+      "assessment": "Derived CSS identifiers and provider descriptor metadata are distinct policies.",
+      "constraints": [
+        "DecisionCard derives a class from agent_family, lowercasing and replacing non-alphanumeric runs with hyphens; nonbinary family falls back to is-generic.",
+        "UnitsTable uses CodingAgent.provider_descriptor css_class metadata or is-generic.",
+        "Centralization requires choosing a canonical provider identity/descriptor policy; equivalence for actual families is not established by this literal read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 157,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCard",
+          "name": "agent_class",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "kind": "defp",
+          "end_line": 165,
+          "body_sha256": "1281df4191770a5c38b2a0c7ddb356ab5cd9874037ddd0ad7622e12a6956e95a",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 344,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "agent_class",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 349,
+          "body_sha256": "950b69bbf6f813d63aa95080a4ebc4ae833bac442d5175d34a671d1bdd55b0dd",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "aiurhooks_template",
+      "assessment": "The public facade already delegates to the template owner.",
+      "constraints": [
+        "Init delegates to Templates; the alias is verified as Aiur.Init.Templates.",
+        "Templates returns its compile-time aiurhooks example attribute, initialized through File.read!.",
+        "This is an existing ownership boundary, not duplicate template construction; file packaging and generated content were not revalidated."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 296,
+          "module": "Aiur.Init",
+          "name": "aiurhooks_template",
+          "path": "src/lib/aiur/init.ex",
+          "kind": "defdelegate",
+          "end_line": 296,
+          "body_sha256": "986b3c70e36ce6642541f74ace1b95ece5b080cce97fd53753a54f4f1bcd85ce",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 61,
+          "module": "Aiur.Init.Templates",
+          "name": "aiurhooks_template",
+          "path": "src/lib/aiur/init/templates.ex",
+          "kind": "def",
+          "end_line": 61,
+          "body_sha256": "ce45249c2bfc1b5f27f9d5a5d0a6c0a5a520a0643a77c5e7d02865d5fae89a7a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "alert",
+      "assessment": "Route failure emission and Stream Deck projection are different stages.",
+      "constraints": [
+        "RouteFailure classifies a reason, invokes emit and returns the classification, not a delivery receipt.",
+        "StreamdeckProjection selects identifier/name/message/severity/needs_attention/timestamp fields, drops nil fields and applies external_value.",
+        "Retain emission versus presentation ownership; this read does not certify delivery, external-value conversion or privacy filtering."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 81,
+          "module": "Aiur.CodingAgent.RouteFailure",
+          "name": "alert",
+          "path": "src/lib/aiur/coding_agent/route_failure.ex",
+          "kind": "def",
+          "end_line": 85,
+          "body_sha256": "085b6bc74620058e6f329bcaf133ed5d2223800f4eff2f645b34f09fccc960fd",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 166,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "alert",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "def",
+          "end_line": 178,
+          "body_sha256": "4a7437d32d7aff20ecf113d16ca8f5ebf78c21b860129e98c8ee926ca8645972",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7023,
-  "limits": "629 selected families and 7023 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7046,
+  "limits": "637 selected families and 7046 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
