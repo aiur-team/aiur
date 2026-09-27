@@ -852,3 +852,19 @@ Keep retry exhaustion, one-time escalation and correlation IDs separate. Existin
 DecisionStore timeout ownership, Normalizer history-limit accessors and cadence
 derivation narrow extraction proposals. Hashes and targeted publication checks
 passed; no production changes or runtime incident claims.
+
+## Version and small-count contract checkpoint
+
+158 of 162 attribute groups assessed; four numeric groups remain (indices 0, 1,
+2 and 4). The one/two groups retain all 73 listed sites. Most format versions
+are independent, but membership Event/Codec share a wire version. Dashboard
+FinancialDataAccess and StreamdeckAuth also share an access-version contract:
+Proof includes version in the configuration fingerprint, and the singleton
+Generation owner rotates when that fingerprint changes. Preserve this alignment
+during extraction; no current version mismatch or runtime incident is claimed.
+
+Two-result branch-PR query bounds and schema/Budget endpoint defaults are
+specific shared policies. Freshness intervals, observed-gap multipliers,
+failure streaks, request IDs, display rounding and storage versions remain
+distinct. Existing PollCadence ownership narrows extraction proposals. Source
+hashes checked; no production changes.
