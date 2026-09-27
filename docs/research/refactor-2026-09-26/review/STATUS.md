@@ -998,3 +998,7 @@ Read classify, current, emit and enum: 69 literal entries across four families. 
 ### Name duplication: fields, durable records and state normalization
 
 Read field, from_record, history and normalize_state: 60 literal entries across four families. Field-access duplicates must preserve explicit nil/false and key precedence. Durable readers retain separate authentication/restoration rules; history carries distinct completeness and pagination contracts. Tracker normalization differs from lifecycle/health enums and agent mutation authorization. Name triage now 104 families/3459 entries, leaving 1576 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
+
+### Name duplication: notification, provenance and release ownership
+
+Read notify, provenance, provider and release: 52 literal entries across four families. History and ticket-context provenance projection is an equivalent sharing candidate, including inspected opaque-ID helpers. Preserve notification failure isolation, source-health dimensions and generation/owner fences when releasing resources. Name triage now 108 families/3511 entries, leaving 1572 cross-module names. Raw findings and skeptic counts are unchanged; successful wrapper returns do not certify downstream delivery or durable release.

@@ -4,41 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "b6615c59975ec02b7bc56ad7ee2af2faa5ee6fb779788614d8291e5bf82cff4d"
+    "name_triage": "b83c40ebd4a990afdc8fc185c585574133ad83c153a97a431b60bbd3ff141b5b"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 104,
-    "remaining_cross_module_names": 1576,
-    "remaining_literal_entries": 6809
+    "reviewed_cross_module_names": 108,
+    "remaining_cross_module_names": 1572,
+    "remaining_literal_entries": 6757
   },
   "families": [
-    {
-      "name": "notify",
-      "clauses": 10,
-      "modules": 9,
-      "summed_source_span_lines": 77
-    },
-    {
-      "name": "provenance",
-      "clauses": 16,
-      "modules": 9,
-      "summed_source_span_lines": 97
-    },
-    {
-      "name": "provider",
-      "clauses": 9,
-      "modules": 9,
-      "summed_source_span_lines": 30
-    },
-    {
-      "name": "release",
-      "clauses": 17,
-      "modules": 9,
-      "summed_source_span_lines": 37
-    },
     {
       "name": "unsafe_control_chars?",
       "clauses": 9,
