@@ -403,6 +403,69 @@
       "lines": 67,
       "read": "full",
       "assessment": "All67 lines read. Eight proposed behavioral cases cover activation, fixed-route recipient disclosure, host-family evidence, bounded adaptation, failure coverage and no automatic apply. Case7 asks polling while other reviewers continue, contradicting current no-polling-during-wave/single-collection contract; case1 also retains Stage4-start wording while entrypoint binds route before local dispatch. This is an eval specification, not a passing eval result; no harness runs or quality/cost measurement claimed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/adversarial-reviewer.md",
+      "sha256": "0b39270f6c585430f1bcce4154b7b54664ee6dbcbb37396536dfbcb8cbb16820",
+      "lines": 108,
+      "read": "full",
+      "assessment": "All108 lines read. Concrete assumption, composition, cascade and abuse scenarios require traceable steps; speculative conditions lower evidence confidence. Silent-pass harness changes force fidelity analysis regardless of size, while ordinary assertion coverage remains a testing concern. Domain ownership avoids duplicate lenses but does not erase cross-boundary defects. Advisory default does not override synthesis requirement to route concrete fixable blockers to downstream resolver. No adversarial agent or runtime attack executed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/agent-native-reviewer.md",
+      "sha256": "41548eb73a661d6491cf968e6401d9d4608d26f4137b10c3169ce55a0e81740d",
+      "lines": 173,
+      "read": "full",
+      "assessment": "All173 lines read. Incremental parity review scopes outward only from shared-infrastructure changes; distinguishes action/context discoverability and user-visible artifact access. Safety-critical atomic workflows and intentional human-only/auth/platform gates are explicit exceptions, so primitives-first guidance does not prove Decision or governed-action tools should be removed. Shared data-space preference is not authority to remove isolation. Output is an unstructured capability map/advisory asset under parent dispatch exception, not a malformed structured finding by itself. No application parity census or agent tool invocation performed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/api-contract-reviewer.md",
+      "sha256": "349f6cccb866f6e8e3a32c51c5e3e5298f06a01fa25adbf16e39ebe070bb4feb",
+      "lines": 44,
+      "read": "full",
+      "assessment": "All44 lines read. Public consumer evidence matters: narrowed inputs, widened nullable returns, sentinel overload and changed meaning need visible caller tracing rather than compile success. Internal exports alone are not public API obligations; additive optional behavior is ordinarily excluded. Mechanical signature differences must still be interpreted with supported-consumer and compatibility scope. No external API contract verified."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/correctness-reviewer.md",
+      "sha256": "36a5e5378753345688741a20faa3c19878a6a64e2b4d41c2c06695c15d6eaa81",
+      "lines": 47,
+      "read": "full",
+      "assessment": "All47 lines read. Trace concrete inputs through state/ordering/error paths and visible sentinel consumers. Provisioning/CI review includes environment, child inheritance, generated quoting and stand-in fidelity. React cleanup analysis covers every early exit, not just common path. Harmless duplication and impossible null cases are excluded; severity must follow concrete behavior rather than aesthetic preference. No production code or tests executed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/data-migration-reviewer.md",
+      "sha256": "be7dc853a91d5c404638ab2eea1018513b81d9579857bcb7c7aac616f929152e",
+      "lines": 111,
+      "read": "full",
+      "assessment": "All111 lines read. Preserves migration-versus-dump drift, production mapping evidence, old/new deployment compatibility, partial backfill rollback, and concrete read-only verification. Suggested restore/migrate commands are proposals, not reviewer execution authority. One-ended git diff examples compare base against ambient working tree and require remote-scope adaptation; parent dispatch calls BASE marker a review-base despite separately resolved PR_BASE_REF. Retained as a scope-transfer question; no database operation or new runtime defect claimed. Fixtures alone do not prove real population shape."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/deployment-verification-agent.md",
+      "sha256": "dd64541bd5edeb11d446c7180ff4348c7834dc82a877cdbdd4fea995d4c17a6d",
+      "lines": 157,
+      "read": "full",
+      "assessment": "All157 lines read. Produces operational go/no-go notes, not a deployment execution. Invariants, pre/post baselines, expected tolerances, rollback limitations and observable signals carry the contract. Illustrative SQL, row counts, timing and alert thresholds are placeholders requiring actual system grounding, not measured Aiur values. Parent migration-artifact gate remains narrower than generic closing use cases. No SQL, deploy, backup restore, monitoring or issue closure performed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/julik-frontend-races-reviewer.md",
+      "sha256": "915289507bb863444d3ccb155a75c1a099121b6807dea3e451908d0a51ec48e0",
+      "lines": 45,
+      "read": "full",
+      "assessment": "All45 lines read. Focuses lifecycle ownership, effect early-exit cleanup, stale work and overlapping interactions rather than framework or animation taste. A timer or missing debounce alone still requires reachable wrong outcome under shared evidence standard; proposed state representations remain suggestions. Dependency minimization is subordinate to demonstrated race behavior. No browser interaction or runtime timing verification."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/maintainability-reviewer.md",
+      "sha256": "3722f8345d08bc9c7e36a9025d0ccd696a3e558064c7e0b0cef2c43cda71ec1e",
+      "lines": 71,
+      "read": "full",
+      "assessment": "All71 lines read. Preserves deletion of concepts rather than relocation, canonical-helper reuse, concrete boundary violations and justified domain complexity. However mandatory P1 when crossing1000 lines and anchor100 from line count conflict with shared suppression absent project standard. Also claims P1 at anchor50 surfaces despite shared primary gate allowing only P0 at50; retained in assessment as calibration drift. These instructions are not evidence that all large Aiur files should split or that estimated removed lines are measured savings."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/subagent-template.md",
+      "sha256": "0314d4e83dd04a8db3c201d074deaafcd1f964b89479cec3df1d354e4d5a9a35",
+      "lines": 201,
+      "read": "full",
+      "assessment": "All201 lines read in bounded ranges after an initial truncated read was discarded. Full artifact versus compact return includes first-evidence exception and required impact detail, with source-history checks only when claims depend on history. Quote generated definitions instead of mistaking failed literal search for absence. Distinguishes secondary interaction defects, ungrounded speculation and advisory value, although pre-existing suppression wording versus separate report partition remains to reconcile. File-size/style concerns absent project rules must be suppressed, conflicting with maintainability persona threshold. Reviewer remains operationally read-only; suggested fix and confidence do not grant apply authority. No agents spawned or review artifacts generated."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -606,6 +669,27 @@
       "recommendation": "Update eval timing to require peer start before local dispatch and one post-queue collection; explicitly test that no intermediate peer polling occurs.",
       "refactor_hint": "Version the orchestration contract and its behavioral eval together, preserving route, receipt and lifecycle distinctions.",
       "limits": "Source-only inconsistency. No eval harness, model dispatch or latency comparison run; no assertion that existing automated tests fail."
+    },
+    {
+      "id": "skills-prompts-cont-09",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Maintainability line-count rule conflicts with shared false-positive suppression",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-code-review/references/personas/maintainability-reviewer.md",
+          "lines": "12-43"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/subagent-template.md",
+          "lines": "127-141"
+        }
+      ],
+      "description": "The persona requires a P1 finding when a changed file crosses1000 lines and treats that count as anchor100 evidence. The shared template forbids emitting file-length concerns without a project-standard rule, even as advisory. Both instructions are placed in the same reviewer prompt, leaving inconsistent requirements for repositories without a line-count standard.",
+      "evidence": "Complete persona and template reads. The persona threshold is unconditional; shared suppression expressly uses missing project standard as the exclusion.",
+      "recommendation": "Choose one policy and make both sources agree. Separate measurable current defects or explicit standards from architectural preferences; file size alone must not masquerade as impact evidence.",
+      "refactor_hint": "Centralize severity and evidence gates; keep persona files focused on domain-specific failure modes rather than duplicating admission policy.",
+      "limits": "Source consistency finding only. No reviewer run or historical false-positive rate measured. Does not prove any Aiur module should be split, or justify a deletion target."
     }
   ],
   "preserve": [
@@ -665,7 +749,16 @@
     "All109 lines read. Preliminary self-review is confidence-capped and cannot manufacture independent corroboration or seed reviewers. Shared evidence is staged by path but full schemas and source-detail artifacts remain required. Deterministic foreground queue has explicit capacity degradation; route already bound and only detached peer overlaps. Remote reviewers use supplied ref for source and history, retaining the entrypoint identity risk. Compact versus full findings and CE unstructured advisory outputs remain distinct. No agents spawned; frozen instructions did not authorize delegation.",
     "All191 lines read. Mechanical schema/dedup/gating differs from semantic equivalence and settlement judgment; reruns preserve original detail keys and independent identities. Actual defects override preference provenance; high-severity findings cannot disappear into residual buckets without grounds. Retained findings require verified impact/evidence hydration; validation failure preserves degraded blockers rather than pretending clean. Explicit local apply requires reviewed-tree identity, targeted verification and user-work preservation. Requirements completeness, actionable queue, stable numbering and coverage must remain consistent; metadata using ambient HEAD in remote scope and Stage6 completeness additions warrant further template reconciliation. No mechanics helper, validator, apply or final-review artifact executed.",
     "All111 lines read. Keep requested target, intermediary, serving family and actual model receipt separate; unknown family is not independence and no receipt means unverified. Fixed disclosed route prohibits silent recipient change; started, failed, empty and never-started outcomes remain distinct. Single bounded collection follows local queue, no polling during it; deadline reap and private scratch cleanup are explicit. Peer remains read-only with code egress, and independence permits corroboration but never apply authority. These are source contracts; no external model, runner, credential probe or egress performed.",
-    "All67 lines read. Eight proposed behavioral cases cover activation, fixed-route recipient disclosure, host-family evidence, bounded adaptation, failure coverage and no automatic apply. Case7 asks polling while other reviewers continue, contradicting current no-polling-during-wave/single-collection contract; case1 also retains Stage4-start wording while entrypoint binds route before local dispatch. This is an eval specification, not a passing eval result; no harness runs or quality/cost measurement claimed."
+    "All67 lines read. Eight proposed behavioral cases cover activation, fixed-route recipient disclosure, host-family evidence, bounded adaptation, failure coverage and no automatic apply. Case7 asks polling while other reviewers continue, contradicting current no-polling-during-wave/single-collection contract; case1 also retains Stage4-start wording while entrypoint binds route before local dispatch. This is an eval specification, not a passing eval result; no harness runs or quality/cost measurement claimed.",
+    "All108 lines read. Concrete assumption, composition, cascade and abuse scenarios require traceable steps; speculative conditions lower evidence confidence. Silent-pass harness changes force fidelity analysis regardless of size, while ordinary assertion coverage remains a testing concern. Domain ownership avoids duplicate lenses but does not erase cross-boundary defects. Advisory default does not override synthesis requirement to route concrete fixable blockers to downstream resolver. No adversarial agent or runtime attack executed.",
+    "All173 lines read. Incremental parity review scopes outward only from shared-infrastructure changes; distinguishes action/context discoverability and user-visible artifact access. Safety-critical atomic workflows and intentional human-only/auth/platform gates are explicit exceptions, so primitives-first guidance does not prove Decision or governed-action tools should be removed. Shared data-space preference is not authority to remove isolation. Output is an unstructured capability map/advisory asset under parent dispatch exception, not a malformed structured finding by itself. No application parity census or agent tool invocation performed.",
+    "All44 lines read. Public consumer evidence matters: narrowed inputs, widened nullable returns, sentinel overload and changed meaning need visible caller tracing rather than compile success. Internal exports alone are not public API obligations; additive optional behavior is ordinarily excluded. Mechanical signature differences must still be interpreted with supported-consumer and compatibility scope. No external API contract verified.",
+    "All47 lines read. Trace concrete inputs through state/ordering/error paths and visible sentinel consumers. Provisioning/CI review includes environment, child inheritance, generated quoting and stand-in fidelity. React cleanup analysis covers every early exit, not just common path. Harmless duplication and impossible null cases are excluded; severity must follow concrete behavior rather than aesthetic preference. No production code or tests executed.",
+    "All111 lines read. Preserves migration-versus-dump drift, production mapping evidence, old/new deployment compatibility, partial backfill rollback, and concrete read-only verification. Suggested restore/migrate commands are proposals, not reviewer execution authority. One-ended git diff examples compare base against ambient working tree and require remote-scope adaptation; parent dispatch calls BASE marker a review-base despite separately resolved PR_BASE_REF. Retained as a scope-transfer question; no database operation or new runtime defect claimed. Fixtures alone do not prove real population shape.",
+    "All157 lines read. Produces operational go/no-go notes, not a deployment execution. Invariants, pre/post baselines, expected tolerances, rollback limitations and observable signals carry the contract. Illustrative SQL, row counts, timing and alert thresholds are placeholders requiring actual system grounding, not measured Aiur values. Parent migration-artifact gate remains narrower than generic closing use cases. No SQL, deploy, backup restore, monitoring or issue closure performed.",
+    "All45 lines read. Focuses lifecycle ownership, effect early-exit cleanup, stale work and overlapping interactions rather than framework or animation taste. A timer or missing debounce alone still requires reachable wrong outcome under shared evidence standard; proposed state representations remain suggestions. Dependency minimization is subordinate to demonstrated race behavior. No browser interaction or runtime timing verification.",
+    "All71 lines read. Preserves deletion of concepts rather than relocation, canonical-helper reuse, concrete boundary violations and justified domain complexity. However mandatory P1 when crossing1000 lines and anchor100 from line count conflict with shared suppression absent project standard. Also claims P1 at anchor50 surfaces despite shared primary gate allowing only P0 at50; retained in assessment as calibration drift. These instructions are not evidence that all large Aiur files should split or that estimated removed lines are measured savings.",
+    "All201 lines read in bounded ranges after an initial truncated read was discarded. Full artifact versus compact return includes first-evidence exception and required impact detail, with source-history checks only when claims depend on history. Quote generated definitions instead of mistaking failed literal search for absence. Distinguishes secondary interaction defects, ungrounded speculation and advisory value, although pre-existing suppression wording versus separate report partition remains to reconcile. File-size/style concerns absent project rules must be suppressed, conflicting with maintainability persona threshold. Reviewer remains operationally read-only; suggested fix and confidence do not grant apply authority. No agents spawned or review artifacts generated."
   ],
   "follow_up_candidates": [
     {
@@ -707,9 +800,13 @@
     {
       "id": "skills-prompts-candidate-11",
       "question": "Reconcile remote review plan/standards discovery and ambient HEAD report metadata with reviewed-ref scope; check requirements-completeness findings introduced during Stage6 against earlier numbering/validation mechanics before promoting distinct defects."
+    },
+    {
+      "id": "skills-prompts-candidate-12",
+      "question": "Trace data-migration review-base transfer: dispatch names BASE marker while PR-remote has separate PR_BASE_REF, and persona git diff commands omit reviewed head. Determine explicit remote adaptation and duplicate scope finding boundaries before promotion."
     }
   ],
-  "next": "Continue ce-code-review persona assets and remaining templates; 57/250 full files, 10545/36169 lines. Six provisional P2 and two P3 findings; ten follow-up candidates. Frozen workflows remain research data, not invoked skills.",
+  "next": "Continue unread ce-code-review personas starting learnings-researcher and remaining report/validator templates; 66/250 full files, 11502/36169 lines. Six provisional P2 and three P3 findings; eleven follow-up candidates.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
