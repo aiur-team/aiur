@@ -100331,10 +100331,430 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "compact_log",
+      "assessment": "Log rewrite mechanics match with domain-specific record conversion.",
+      "constraints": [
+        "Both require a regular log, serialize newline-delimited JSON and call Aiur.Fs.atomic_write with fsync true and mode 0600; aliases verified.",
+        "Read regular_log? in both: identical lstat checks reject symlinks/nonfiles and preserve stat errors. RecentMerge converts each merge to_record; DeliveryLog encodes supplied records.",
+        "A shared guarded rewrite primitive is possible with explicit serialization; these checks do not independently certify race-free path ownership, complete retention or directory-entry durability."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 343,
+          "module": "Aiur.RecentMergeStore",
+          "name": "compact_log",
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "kind": "defp",
+          "end_line": 348,
+          "body_sha256": "f5aafa198f3f9e3dcdf5b45c1ea6b83d3746a3bfe798afbb454d51d44c910fa8",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 474,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "compact_log",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 479,
+          "body_sha256": "8f242eced2800afc80bf630a3892bbe6a3a7d92ec61c2fb0c3a90721e5bd1ae0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "compare",
+      "assessment": "Version precedence and accounting scalar comparison are distinct.",
+      "constraints": [
+        "Upgrade.Version parses both inputs then compares major/minor/patch/prerelease; parse failures return incomparable.",
+        "CounterPolicy uses Decimal.compare for Decimal pairs, otherwise greater-than/equality checks and a final less-than fallback.",
+        "Preserve semantic-version parsing versus numeric-type contracts. Generic term comparison is not evidence of valid accounting types; deeper parsers and mixed-type incidence remain unverified."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 67,
+          "module": "Aiur.Upgrade.Version",
+          "name": "compare",
+          "path": "src/lib/aiur/upgrade/version.ex",
+          "kind": "def",
+          "end_line": 79,
+          "body_sha256": "926fa0a273c8ff6d3d8988bcb8a57e4ce669c3f0c9a08f7552dd3868d251b493",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 233,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "compare",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 233,
+          "body_sha256": "dd8b173555263b3bdbd4ad7aed3933d3775d6309d0e0575d963b95d2a87dd5a9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 234,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "compare",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 234,
+          "body_sha256": "7215aab38e34c407e04b348b8414693c1234bbcf3bc033a8d06c844768dbbb7b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 235,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "compare",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 235,
+          "body_sha256": "a72ebb9e350a6787de05e9fb83e7f68556b1be20ccba5bbec4e2e12ef8cd57fc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 236,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "compare",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 236,
+          "body_sha256": "7897248ecd05ee174e50a7f49a0dc43ba5f2aec827fc27539eb3e2ba9eb33de4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "compare_persisted",
+      "assessment": "Answer and revision persisted-value equality helpers are identical.",
+      "constraints": [
+        "Both return ok when two arguments match the same value, otherwise the supplied tagged error reason.",
+        "The error reason remains caller-owned.",
+        "A concrete shared invariant helper is possible; comparing values does not prove that the persisted source is authentic, current or durably written."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 274,
+          "module": "Aiur.DecisionAnswer",
+          "name": "compare_persisted",
+          "path": "src/lib/aiur/decision_answer.ex",
+          "kind": "defp",
+          "end_line": 274,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 275,
+          "module": "Aiur.DecisionAnswer",
+          "name": "compare_persisted",
+          "path": "src/lib/aiur/decision_answer.ex",
+          "kind": "defp",
+          "end_line": 275,
+          "body_sha256": "06eb3e38537a76ac0a1152ddc19067f95555e8a1be6efe078e28bb693ee4e396",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 363,
+          "module": "Aiur.DecisionRevision",
+          "name": "compare_persisted",
+          "path": "src/lib/aiur/decision_revision.ex",
+          "kind": "defp",
+          "end_line": 363,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 364,
+          "module": "Aiur.DecisionRevision",
+          "name": "compare_persisted",
+          "path": "src/lib/aiur/decision_revision.ex",
+          "kind": "defp",
+          "end_line": 364,
+          "body_sha256": "06eb3e38537a76ac0a1152ddc19067f95555e8a1be6efe078e28bb693ee4e396",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "complexity_breakdown",
+      "assessment": "Complexity aggregation and chart rendering are separate layers.",
+      "constraints": [
+        "Presenter selects complexity integers 1..5, counts all tickets in each tier and averages only integer durations; read average_integer returns nil for no durations.",
+        "Charts scales bars by tier count and renders count/average labels, using a dash for zero count or missing average.",
+        "Preserve total-ticket versus measured-duration populations and nil averages. Full chart markup was read; label meaning, duration validity and rendered behavior are not independently certified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 348,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "complexity_breakdown",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "def",
+          "end_line": 380,
+          "body_sha256": "652a12516afe8dae92a6806675b8bd154006a60184af378d26062af285449b11",
+          "normalized_body_lines": 52,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 783,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Presenter",
+          "name": "complexity_breakdown",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "kind": "defp",
+          "end_line": 799,
+          "body_sha256": "8d2656ba21d77fcff8802c592141db72935d37be35216e5e7c5fa36091dba1ba",
+          "normalized_body_lines": 28,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "complexity_label",
+      "assessment": "CLI presentation and routing labels have different validation and syntax.",
+      "constraints": [
+        "UnitsCLI formats any integer as Cx:value, otherwise nil.",
+        "AgentRoutingPreview formats only integers in the verified range 1..5 as complexity:value, otherwise nil.",
+        "Preserve display label versus routing vocabulary and accepted domain; generic integer formatting cannot substitute for the routing validator."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 316,
+          "module": "Aiur.UnitsCLI",
+          "name": "complexity_label",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 316,
+          "body_sha256": "f2700a2362c97d7e8b590fa9f6617aa55d04a65fd93ab877305bf392a2a6983f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 317,
+          "module": "Aiur.UnitsCLI",
+          "name": "complexity_label",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 317,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 224,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "complexity_label",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 225,
+          "body_sha256": "170f29ffb1d59fb15d54ef2e7b60652d8564c49a5a2b6fcf9fc63e60c18cc81b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 227,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "complexity_label",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 227,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "component",
+      "assessment": "Graph component traversal and priced-token remainder calculation share only a name.",
+      "constraints": [
+        "Graph walks reverse neighbors with a visited set, accumulating members and skipping visited nodes.",
+        "Pricing.Components subtracts direct-child token totals from the parent and rejects negative remainder before producing metadata.",
+        "Keep graph reachability separate from accounting decomposition; complete SCC construction and relationship conservation remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 62,
+          "module": "Aiur.BuildOrder.Graph",
+          "name": "component",
+          "path": "src/lib/aiur/build_order/graph.ex",
+          "kind": "defp",
+          "end_line": 73,
+          "body_sha256": "c8c514b6384391193c4dcc20152ebc31efb417aed184c47eb6d896d923d3429f",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 123,
+          "module": "Aiur.Usage.Pricing.Components",
+          "name": "component",
+          "path": "src/lib/aiur/usage/pricing/components.ex",
+          "kind": "defp",
+          "end_line": 132,
+          "body_sha256": "9654bd60389c44803f72c6650591c33f083ce159ba2321c429157aa075c30686",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "component_dimensions",
+      "assessment": "Provider dimension lookup differs in validation and result shape.",
+      "constraints": [
+        "PriceTable.ProviderDimensions selects token-specific or default provider dimensions and requires context_tier/cache_write_duration keys, returning tagged success or invalid_price_context_tier.",
+        "Pricing.Dimensions performs the same lookup but returns the selected value directly or nil for absent provider metadata.",
+        "Preserve validation ownership and tagged versus raw results; mere key presence does not prove valid dimension values."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 19,
+          "module": "Aiur.Usage.PriceTable.ProviderDimensions",
+          "name": "component_dimensions",
+          "path": "src/lib/aiur/usage/price_table/provider_dimensions.ex",
+          "kind": "defp",
+          "end_line": 30,
+          "body_sha256": "0d1186bcd638cf4f6ae2b207320b8e26eaa9a32615a085cb1e84d08c54ff5fba",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 48,
+          "module": "Aiur.Usage.Pricing.Dimensions",
+          "name": "component_dimensions",
+          "path": "src/lib/aiur/usage/pricing/dimensions.ex",
+          "kind": "defp",
+          "end_line": 56,
+          "body_sha256": "aa43325d3fca6d441bbe9a2fe5f72c8552f594a558ca75a4f2593a86e66cc1c3",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "compose",
+      "assessment": "Selected-ticket context binding and control-center overview composition have different trust boundaries.",
+      "constraints": [
+        "TicketContextAdapter checks exact selected node, selected repository and base identity before binding capabilities and relationship rows; other states return unavailable.",
+        "ControlCenterPresenter normalizes fleet/decisions/history/recent outcomes and exposes their combined overview/health fields, including literal ok states for several providers.",
+        "Preserve identity-checked selection versus multi-source presentation. Literal provider-health fields do not independently prove healthy sources; helper correctness and upstream health contracts remain unverified."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 101,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "compose",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 128,
+          "body_sha256": "69098b0703c785973fd40466a10a9503f2c093da46abaa4c824bd75ea539eaeb",
+          "normalized_body_lines": 34,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 130,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "compose",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 130,
+          "body_sha256": "bdb41607fdb4ff45aa800fd058f15ca2fdf8e1cba65e3c66dcaadd3315b6dab7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 57,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "compose",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "kind": "def",
+          "end_line": 57,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 6,
+          "line": 59,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "compose",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "da2b8aad3cf7e4e9c21cd247d0a949ceb43ecf78c8e60ca591f612aa68d1bcef",
+          "normalized_body_lines": 34,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7386,
-  "limits": "749 selected families and 7386 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7411,
+  "limits": "757 selected families and 7411 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

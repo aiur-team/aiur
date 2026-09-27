@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "68a3de5e54ac89f4d1f9ffced10333fb401bfcb2790ad10f60625a3585724247"
+    "name_triage": "bfa5b587f2d8275cfb6a6ed438cacbc76dbb1b38cdbe92b01db9f904ee6203ae"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 749,
-    "remaining_cross_module_names": 931,
-    "remaining_literal_entries": 2882
+    "reviewed_cross_module_names": 757,
+    "remaining_cross_module_names": 923,
+    "remaining_literal_entries": 2857
   },
   "families": [
-    {
-      "name": "compact_log",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "compare",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "compare_persisted",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "complexity_breakdown",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 50
-    },
-    {
-      "name": "complexity_label",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "component",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "component_dimensions",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "compose",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 56
-    },
     {
       "name": "condition_state",
       "clauses": 2,
