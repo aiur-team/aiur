@@ -868,3 +868,18 @@ specific shared policies. Freshness intervals, observed-gap multipliers,
 failure streaks, request IDs, display rounding and storage versions remain
 distinct. Existing PollCadence ownership narrows extraction proposals. Source
 hashes checked; no production changes.
+
+## Attribute candidate assessment complete
+
+All 162 cross-module attribute candidate groups now have source-level assessments
+(80 numeric, 82 symbolic); the four final groups retain all 175 listed sites.
+This completes candidate triage, not the broader duplication-by-constant review:
+inline strings/keys, remaining semantic sweeps and synthesis remain open.
+
+DecisionMetrics collector/writer defaults and telemetry sampler/gap-analysis
+cadence are specific shared contracts. Preserve independently supplied options.
+RPC diagnostic truncation uses String.slice despite a max_log_bytes name;
+byte-prefix logging and character truncation must not be conflated. Root/member/
+connection bounds and cache-age/operation-timeout policies remain distinct.
+Hashes and targeted publication scans passed. No production edits, live-system
+claims or savings estimates were introduced.
