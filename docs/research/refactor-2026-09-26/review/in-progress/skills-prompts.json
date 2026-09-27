@@ -1236,6 +1236,90 @@
       "lines": 121,
       "read": "full",
       "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-ideate/references/agents/web-researcher.md plus complete 9-line unified diff. Planning invocation prioritizes authoritative implementation/version/sequence evidence; market signals secondary unless decision-changing. No external research run."
+    },
+    {
+      "path": ".claude/skills/ce-polish/SKILL.md",
+      "sha256": "67314c3ae34d1f6478338968e52791deffe0296f5749ec9921eeccc7657a7760",
+      "lines": 111,
+      "read": "full",
+      "assessment": "Full111 lines read. Explicit branch/current-branch routing, launch config precedence, bounded HTTP readiness probe and user-driven iteration. HTTP response alone does not prove the requested checkout/process is served; extends candidate21. No port-reclamation step appears in entry workflow despite recipe claims. No server or browser launched."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-detection.md",
+      "sha256": "d6ef6342eec28c02d4b4c73594361dc070593636c0e46bca131f6fe3c14470ff",
+      "lines": 40,
+      "read": "full",
+      "assessment": "Full40 lines read. Conservative literal parsing, type-specific defaults and no broad instruction-file grep are intentional. Claimed dev/start script restriction is not implemented by package-json helper probe; synthetic local evidence recorded in candidate31. No real dotenv read."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/ide-detection.md",
+      "sha256": "668f02227e6e53101baa51c3c29c084cbaf10cf22a98910b024a438f6dec29e7",
+      "lines": 47,
+      "read": "full",
+      "assessment": "Full47 lines read. Best-effort host hints must fall back to URL, not block. Host variable/scheme claims remain snapshot documentation, not externally verified current capabilities. No IDE opened."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/launch-json-schema.md",
+      "sha256": "0200124e5c5c7cbf4f999b8b4cba0211fafc897fb860e4b39e981eedcf226f88",
+      "lines": 177,
+      "read": "full",
+      "assessment": "Full177 lines read. Separate argv/cwd/env configuration, explicit multi-config choice and HTTP-only endpoint contract. User-authored repository config is an input, not proof that running it is safe or that port belongs to this checkout. No config written."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-astro.md",
+      "sha256": "db9d8648577b00e58d7e5c2c2fb704998a979b5fe9433a6b9d1f68aeca26ec2c",
+      "lines": 58,
+      "read": "full",
+      "assessment": "Full58 lines read. Package scripts/lockfile and Astro-over-Vite precedence shape detection; default port and SSR/toolbar statements are source assertions, not runtime checks."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-next.md",
+      "sha256": "243c6bd874ed64a31cdecbf01b333afd7ce5b73cd8376d0b47fa8e36ecbb8c62",
+      "lines": 61,
+      "read": "full",
+      "assessment": "Full61 lines read. Preserve existing script flags and explicit monorepo cwd. Version-specific Turbopack default and port behavior statements require official-version verification before adoption; no external fact asserted from this recipe."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-nuxt.md",
+      "sha256": "c9139317f1c7e86ae8cf86f484dd9098c1100025948365082730cd32a889e20b",
+      "lines": 58,
+      "read": "full",
+      "assessment": "Full58 lines read. Public versus internal server port distinction is useful. Claimed kill-by-port step absent from parent; do not infer permission to terminate an existing listener. Version and auto-increment claims not runtime verified."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-procfile.md",
+      "sha256": "97a21464364a4cdbd316bea61c5af144f81fe0d4671eb3e0e9aa8e9c6ff87919",
+      "lines": 59,
+      "read": "full",
+      "assessment": "Full59 lines read. Prefer project manager and dev Procfile; recipe signature permits bare Procfile but command always selects Procfile.dev. Socket ownership and missing reclamation step need helper-contract reconciliation. No process or socket changed."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-rails.md",
+      "sha256": "7a6a0fe943998f5a223b80c01b1e4d98c3d468b5cbb57a6734090967ad52d469",
+      "lines": 50,
+      "read": "full",
+      "assessment": "Full50 lines read. Project bin/dev command and dependencies precede generic recipes; HTTP-only probe limitation explicitly documented. Local port precedence wording differs from shared cascade; helper is authoritative evidence, not recipe inference."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-remix.md",
+      "sha256": "4208c1b37881752799576d1188070b208357009b12d980a4184bb276f1be7ab0",
+      "lines": 58,
+      "read": "full",
+      "assessment": "Full58 lines read. Classic versus Vite detection affects endpoint selection. Watcher-versus-server and version/default-port statements require actual installed-project verification; no browser success claimed."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-sveltekit.md",
+      "sha256": "b4bee3d7e69660021aea8ed6716f70a6e2132ea298db568512f2891691db46d7",
+      "lines": 58,
+      "read": "full",
+      "assessment": "Full58 lines read. Specific framework identity ahead of generic Vite and explicit app cwd matter; adapter/default behavior remains unverified recipe assertion."
+    },
+    {
+      "path": ".claude/skills/ce-polish/references/dev-server-vite.md",
+      "sha256": "31dc15f95e73a92914bb5bbd2a12f5fb3882644437809f2b139841958548f008",
+      "lines": 48,
+      "read": "full",
+      "assessment": "Full48 lines read. HMR and dev HTTP endpoint differ; printed port must match actual binding. Recipe assumes undefined kill-by-port step and environment semantics; no process reclaimed or network endpoint tested."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1763,7 +1847,19 @@
     "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/security-sentinel.md plus complete 9-line unified diff. Planning invocation converts threat and boundary analysis into controls/tests; no independent security execution or live probing authorized here.",
     "Full-content coverage via previously reviewed .claude/skills/ce-brainstorm/references/agents/slack-researcher.md plus complete 9-line unified diff. Planning invocation focuses on decisions, ownership, rollout and gaps from earlier context; authenticated access is not permission to publish private material.",
     "Full80 lines read. Ground flows in real code, distinguish terminal success/error/cancel/timeout, and derive specific gaps rather than generic checklists. Existing middleware only resolves a concern if the relevant path uses it correctly. Categorical CLI accessibility/admin offline examples need context and are not blanket exclusions for Aiur.",
-    "Full-content coverage via previously reviewed .claude/skills/ce-ideate/references/agents/web-researcher.md plus complete 9-line unified diff. Planning invocation prioritizes authoritative implementation/version/sequence evidence; market signals secondary unless decision-changing. No external research run."
+    "Full-content coverage via previously reviewed .claude/skills/ce-ideate/references/agents/web-researcher.md plus complete 9-line unified diff. Planning invocation prioritizes authoritative implementation/version/sequence evidence; market signals secondary unless decision-changing. No external research run.",
+    "Full111 lines read. Explicit branch/current-branch routing, launch config precedence, bounded HTTP readiness probe and user-driven iteration. HTTP response alone does not prove the requested checkout/process is served; extends candidate21. No port-reclamation step appears in entry workflow despite recipe claims. No server or browser launched.",
+    "Full40 lines read. Conservative literal parsing, type-specific defaults and no broad instruction-file grep are intentional. Claimed dev/start script restriction is not implemented by package-json helper probe; synthetic local evidence recorded in candidate31. No real dotenv read.",
+    "Full47 lines read. Best-effort host hints must fall back to URL, not block. Host variable/scheme claims remain snapshot documentation, not externally verified current capabilities. No IDE opened.",
+    "Full177 lines read. Separate argv/cwd/env configuration, explicit multi-config choice and HTTP-only endpoint contract. User-authored repository config is an input, not proof that running it is safe or that port belongs to this checkout. No config written.",
+    "Full58 lines read. Package scripts/lockfile and Astro-over-Vite precedence shape detection; default port and SSR/toolbar statements are source assertions, not runtime checks.",
+    "Full61 lines read. Preserve existing script flags and explicit monorepo cwd. Version-specific Turbopack default and port behavior statements require official-version verification before adoption; no external fact asserted from this recipe.",
+    "Full58 lines read. Public versus internal server port distinction is useful. Claimed kill-by-port step absent from parent; do not infer permission to terminate an existing listener. Version and auto-increment claims not runtime verified.",
+    "Full59 lines read. Prefer project manager and dev Procfile; recipe signature permits bare Procfile but command always selects Procfile.dev. Socket ownership and missing reclamation step need helper-contract reconciliation. No process or socket changed.",
+    "Full50 lines read. Project bin/dev command and dependencies precede generic recipes; HTTP-only probe limitation explicitly documented. Local port precedence wording differs from shared cascade; helper is authoritative evidence, not recipe inference.",
+    "Full58 lines read. Classic versus Vite detection affects endpoint selection. Watcher-versus-server and version/default-port statements require actual installed-project verification; no browser success claimed.",
+    "Full58 lines read. Specific framework identity ahead of generic Vite and explicit app cwd matter; adapter/default behavior remains unverified recipe assertion.",
+    "Full48 lines read. HMR and dev HTTP endpoint differ; printed port must match actual binding. Recipe assumes undefined kill-by-port step and environment semantics; no process reclaimed or network endpoint tested."
   ],
   "follow_up_candidates": [
     {
@@ -1836,7 +1932,7 @@
     },
     {
       "id": "skills-prompts-candidate-21",
-      "question": "Reconcile dogfood PR-specific base versus trunk diff, reused dev-server checkout/build identity, and resumed result freshness against existing provenance findings. A PR checkout alone does not prove the browser serves that head; old branch-slug reports may outlive changed commits. Inspect related worktree/browser contracts before promotion or dedup."
+      "question": "Reconcile dogfood PR-specific base versus trunk diff, reused dev-server checkout/build identity, and resumed result freshness against existing provenance findings. A PR checkout alone does not prove the browser serves that head; old branch-slug reports may outlive changed commits. Inspect related worktree/browser contracts before promotion or dedup. Polish likewise probes localhost HTTP without checking listener/process checkout identity; no existing listener was touched."
     },
     {
       "id": "skills-prompts-candidate-23",
@@ -1869,9 +1965,14 @@
     {
       "id": "skills-prompts-candidate-30",
       "question": "Reconcile remaining plan-contract drift: unit headings versus bullet-prefix rule, conventional-prefix title versus suffix-only metadata, atomic skip to implementation versus explicit always-plan/no-code request, and universal software-only ce-work claim versus knowledge-work carve-out. Inspect downstream ce-work routing and document precedence before promotion. Specialist migration/deployment outputs request concrete SQL/shell examples despite parent no-code/no-shell output rule; translate or clarify exception rather than execute samples."
+    },
+    {
+      "id": "skills-prompts-candidate-31",
+      "question": "Reconcile polish startup recipes/helper behavior and dedup against scripts raw review: undefined kill-by-port references, bare Procfile detection versus Procfile.dev command, probe port versus actual child binding. Actual frozen resolve-port.sh package-json path reproduced wrong port from unrelated test script; full helper audit pending.",
+      "evidence": "Synthetic temporary package.json, scripts ordered test: test-tool --port 9123 then dev: vite --port 5174; bash resolve-port.sh <temp> --type vite exited0 and returned9123. Reordering same two entries dev-first returned5174, exit0. Actual helper lines259-263 grep whole file. Temporary fixtures removed automatically; no server, real config, dotenv or network used."
     }
   ],
-  "next": "Continue manifest markdown after ce-plan. Coverage 176/250 full files, 28875/36169 lines. Nine provisional P2 and five P3 findings; twenty-six follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-pov markdown. Coverage 188/250 full files, 29700/36169 lines. Nine provisional P2 and five P3 findings; twenty-seven follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",

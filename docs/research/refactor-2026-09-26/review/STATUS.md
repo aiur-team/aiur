@@ -714,3 +714,7 @@ Read four complete planning support references; coverage 160/250 files, 27,105/3
 ### Skills/prompts: planning specialist evidence
 
 Covered all16 planning agent prompts: five full direct reads and eleven complete bounded diffs against previously reviewed copies. Coverage 176/250 files, 28,875/36,169 lines. Preserve selective agent parity, human-only boundaries, grounded flow gaps, migration population/rollback evidence, exact-version research and measured-performance discipline. Extended existing one-ended diff and parent/specialist output-contract questions; no duplicate finding added. Generic architecture principles and historical commit patterns are not defect proof. All 176 hashes/line counts verified. No agent dispatch, external research, migration execution or production change. Raw units remain28/32; next remaining skills.
+
+### Skills/prompts: development-server evidence
+
+Read all12 polish markdown files; coverage 188/250 files, 29,700/36,169 lines. Preserve explicit launch configuration and bounded readiness checks without equating HTTP availability with correct checkout identity. Synthetic actual-helper probe returned unrelated test-script port9123 instead of dev5174; reordering unchanged entries returned5174. Added candidate31 for helper/recipe reconciliation and cross-unit dedup, not a new finding yet. No server, browser, live config, dotenv or external request used; temporary fixtures removed. All 188 hashes/line counts verified. Raw units remain28/32; next ce-pov.
