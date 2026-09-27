@@ -1,0 +1,238 @@
+{
+  "unit_id": "tests-1b",
+  "status": "partial",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "files": [
+    {
+      "path": "src/test/aiur/executor_bindings_test.exs",
+      "sha256": "c47441619d78a3bc0ed08341d3f5c9f02f7a3a092dfe2ab443ad5f59a3297d10",
+      "lines": 48,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/executor_listener_test.exs",
+      "sha256": "154c64bcccd2dccd96f51bd2fc7609838227760b04ab3f5862c301fe66c97300",
+      "lines": 318,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/executor_wake_projection_test.exs",
+      "sha256": "675dfc57565da19544247052d3f6dd30a164a6cd09aba744fe89bec39773ae70",
+      "lines": 154,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/executor_command_attention_test.exs",
+      "sha256": "7a029d85b0b85efcba4648445c27a34b39ae47f62bb2488801ea89032d557f0f",
+      "lines": 81,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/executor_command_cli_test.exs",
+      "sha256": "69d70bd751dafa5bf2569bc7c4c27431f56ef409aa4a36c5ef75d4a9da9486c1",
+      "lines": 428,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/current_run_membership_event_test.exs",
+      "sha256": "a8ac615022cd0fd5ec167e43922bf65d7593b3b1820734d230f204c22b634b7c",
+      "lines": 40,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/current_run_membership_projection_test.exs",
+      "sha256": "e512999853f6b3a51a9aab0123e50f40428a70b91f105de668e453d0282da164",
+      "lines": 106,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_authority_test.exs",
+      "sha256": "b8e5d96dda347fef08ba6b84f61d6d31963cb836b07eb02cbeca4981ded30d07",
+      "lines": 101,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_delegation_test.exs",
+      "sha256": "f81c245f38b3cfe21d080c32757d846ddd4a99f14a6a641386aa90f82a5d63f0",
+      "lines": 158,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_dispatch_saturation_test.exs",
+      "sha256": "ffa326bbbf3d8263cc57441fca220fa160402bf1ff971fb305306ebe4c78d1a5",
+      "lines": 50,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_dispatch_tasks_test.exs",
+      "sha256": "25f25d5db740f22878b09773acb6b4ac088a1182fb10f29663fed55d5495b986",
+      "lines": 121,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_pubsub_test.exs",
+      "sha256": "e8f28b07d66617f44c2847f3adb6bc2cc682c13dcef11f78b498afa8d7d4dc24",
+      "lines": 21,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/global_log_isolation_test.exs",
+      "sha256": "4aa4c2a2f0db943e118eb8d784a0e953c8cfc41e45879bad27c57cd8e5000456",
+      "lines": 41,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/json_store_test.exs",
+      "sha256": "3a34409233e7ea96e627dd5988bbc83230e8774fa6572244683d8838e4107c3c",
+      "lines": 92,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/path_safety_test.exs",
+      "sha256": "6a5b51905b227baf7607a1f58c56bf8f2fec5467336505558b9578710349ca49",
+      "lines": 100,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/operator_wait_log_test.exs",
+      "sha256": "5c445aac1a32db9e5ba27923136048fd34fb3ba8905d1a1f1524fd52c62bf537",
+      "lines": 91,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/env_inventory_test.exs",
+      "sha256": "d12be906c537448d07601b42bbf4ec2bfa47ed72c25144acf3206c56c2901e48",
+      "lines": 93,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/config_test.exs",
+      "sha256": "4389ec2086239288175f42a9ab888da86acf1e829b3d11c51640fbe76aef6048",
+      "lines": 61,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/repo_prewarm_test.exs",
+      "sha256": "b9f36592c3ffef25214098b005667f73c961376db44f9fa35d7a284e39c56971",
+      "lines": 10,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_prewarm_gate_test.exs",
+      "sha256": "9705910ab1e47ef95e3eb05491f30a0cb3aac727b8b25ea8d9e9a4dbf086a57f",
+      "lines": 27,
+      "read": "full"
+    }
+  ],
+  "scope_note": "20 complete file reads, 2141 lines; remaining paths unreviewed. Targeted excerpts recorded separately. Source-oracle probe ran; no full suite or live runtime launched.",
+  "findings": [
+    {
+      "id": "tests-1b-cont-01",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Attention open/resolve tests stop before listener binding and inbox delivery",
+      "locations": [
+        {
+          "file": "src/test/aiur/executor_command_attention_test.exs",
+          "lines": "17-65"
+        },
+        {
+          "file": "src/test/aiur/executor_listener_test.exs",
+          "lines": "204-242"
+        },
+        {
+          "file": "src/test/aiur/executor_bindings_test.exs",
+          "lines": "9-28"
+        }
+      ],
+      "description": "Command attention tests replace alert publication with a callback and assert the resolved suffix and needs_attention=false. Listener non-executor integration covers PR opened and capacity-starved only. Default binding tests validate listed patterns against their own allowlist and reconciliation. None of these four modules checks attention open plus resolved delivery through the default listener into the wake inbox. The frozen matcher rejects the appended resolved segment, established independently by the research routing probe.",
+      "evidence": "The alert callback receives resolution correctly while ticket.*.agent.attention.* matches only the single attention-key segment. An additional .resolved segment has no default binding. Source-isolated matcher probe reproduced the mismatch; existing suite execution was not performed.",
+      "recommendation": "Add a composed attention lifecycle contract that sends open and resolve through real publisher/listener/inbox boundaries, asserting correlation and needs_attention values. Keep unit callback tests for retry/persistence behavior; they serve a different boundary.",
+      "refactor_hint": "Keep typed lifecycle policy shared between producer and consumer so extracting attention ownership cannot silently sever resolution delivery.",
+      "limits": "This identifies a gap in the four inspected modules, not proof no test elsewhere covers the lifecycle; global cross-reference and final deduplication remain pending."
+    },
+    {
+      "id": "tests-1b-cont-02",
+      "severity": "P2",
+      "category": "testing",
+      "title": "JSON-store concurrency assertion silently skips read errors",
+      "locations": [
+        {
+          "file": "src/test/aiur/json_store_test.exs",
+          "lines": "69-90"
+        }
+      ],
+      "description": "The test collects ten task results but iterates only successful tuples using for {:ok, value} <- results. Error tuples are discarded by the generator; no assertion constrains their absence or total successful reads.",
+      "evidence": "tooling/json_store_oracle_probe.exs extracts and evaluates the actual final assertion loop. Ten error results and mixed success/error results pass. A successful tuple with a noninteger v fails, while valid results pass. This verifies a test oracle hole, not production error incidence.",
+      "recommendation": "Assert every task result is an ok tuple with the expected value domain and assert the expected result count; use a controlled write/read overlap if atomic visibility is the intended guarantee.",
+      "refactor_hint": "Keep persistence tests asserting externally observable all-or-error behavior when extracting the journal/filesystem primitive.",
+      "limits": "Only the assertion block executed with supplied results; no production mutation or full ExUnit suite was run."
+    }
+  ],
+  "preserve": [
+    "Listener tests use explicit mailbox barriers for resubscription and durable watermark observations rather than sleep-only ordering.",
+    "Command-attention tests cover pending state retained across publication failure and successful retry.",
+    "Wake projection tests check trust provenance, extra-key removal, typed values and identifier extraction.",
+    "ExecutorCommandCLI tests validate exact store payload/attribution and prohibit wrong API calls for supersede and invalid choices; adapter-unit scope is explicit.",
+    "DecisionAuthority and DecisionDelegation tests cover human-required refusal, reversibility gates, malformed policy, forbidden actor claims and correlated revisions.",
+    "Membership projection keeps repository-qualified identities distinct, retains terminal state and rejects stale replay; generation changes are explicitly asserted.",
+    "Dispatch task tests use private coordinators and blocking jobs to exercise fair admission, pending limits and recovery.",
+    "PathSafety tests use real symlinks, exercise escape/cycle rejection and both sides of the traversal cap.",
+    "GlobalLogIsolation checks boot-time event-id persistence beneath the temporary runtime root.",
+    "OperatorWaitLog tests exercise composite request identity and mismatched-delivery preservation."
+  ],
+  "next": [
+    "Continue remaining tests-1b paths; audit test support and shared-state restoration.",
+    "Validate concurrency test hypothesis with a meaningful mutation before promoting.",
+    "Keep routing finding scoped to default-listener lifecycle boundary; do not claim no resolution tests exist elsewhere."
+  ],
+  "cross_references": [
+    {
+      "path": "src/test/aiur/decision_store_test.exs",
+      "lines": [
+        3570,
+        3635
+      ],
+      "scope": "excerpt",
+      "finding": "Resolution is asserted through AlertFeed and restarted DecisionStore, not ExecutorListener/inbox."
+    },
+    {
+      "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+      "lines": [
+        1300,
+        1335
+      ],
+      "scope": "excerpt",
+      "finding": "Direct subscription to ticket.<id>.agent.attention.resolved tests a different shape; it does not exercise keyed attention.<slug>.resolved through default listener patterns."
+    }
+  ],
+  "follow_up_candidates": [
+    {
+      "path": "src/test/aiur/decision_dispatch_tasks_test.exs",
+      "lines": [
+        67,
+        94
+      ],
+      "question": "The hard-ceiling assertion uses refute_receive with zero timeout after two task starts. Check whether an oversubscribed third task can remain unscheduled until after the assertion; use a source mutation and deterministic barrier before promoting a flaky-coverage finding.",
+      "status": "unverified hypothesis"
+    },
+    {
+      "path": "src/test/aiur/executor_wake_projection_test.exs",
+      "lines": [
+        128,
+        152
+      ],
+      "question": "Check global CodeOwners restoration against refresh timer races and TestSupport before alleging cross-test contamination.",
+      "status": "unverified hypothesis"
+    },
+    {
+      "path": "src/test/aiur/env_inventory_test.exs",
+      "lines": [
+        25,
+        33
+      ],
+      "question": "Regex inventories literal get_env/fetch_env and attribute strings but may omit fetch_env! or dynamic names; verify actual omissions before calling this a coverage defect.",
+      "status": "unverified hypothesis"
+    }
+  ]
+}

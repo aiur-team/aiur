@@ -1128,3 +1128,18 @@ Canonical dispatch-state-evidence.json records #165 bundle: resume returns expli
 ### meta-07 verification checkpoint; all60 claims have verdicts
 
 Added bounded final claim verdict and corrected report/timeline. Later operator-ended CI-wait intervals: #367 2h1m50s, #350 3h33m8s, #232 5h2m25s; green-current-head/timer/deployed-runtime causality remains unproved. Historical CI lifecycle equals frozen source and has recovery paths. Citation/fix totals remain reported, not independent recurrence counts. 60/60 verdict coverage is NOT research completion:25/32 review units, high-priority skeptic pass, duplication, feature challenges, report-wide reconciliation, synthesis and CE planning remain.
+
+
+### Test-review continuation started
+
+review/in-progress/tests-1b.json records four full reads (bindings48, listener318, projection154, command-attention81 lines) with hashes. One provisional P2: attention open/resolve callback tests and listener PR/capacity tests do not compose resolution into inbox, so actual default wildcard mismatch escapes this group. Need broad suite cross-reference before promoting. Preserve existing replay/barrier/persistence/trust tests. No suite run or production changes. Remaining units unchanged25/32. ce-code-review inspected for applicability; this is the inherited whole-snapshot research audit, not a new diff review pipeline.
+
+
+### tests-1b twelve-file checkpoint
+
+Twelve full reads now recorded with hashes: added ExecutorCommandCLI and membership event/projection, DecisionAuthority/Delegation/dispatch saturation/tasks/PubSub. Broader resolution cross-check found AlertFeed/DecisionStore and direct Exchange tests, not proof of keyed resolution delivery through default ExecutorListener. Preserve strong payload, authority, identity, replay and dispatch-ordering contracts. Zero-timeout concurrency ceiling assertion is only a hypothesis pending deterministic mutation; do not promote as proven. No runtime test execution.
+
+
+### tests-1b twenty-file checkpoint
+
+20 full reads with hashes. Added concrete P2 oracle defect: JsonStore concurrent-read test filters away error tuples. Actual extracted assertion probe passes all10 errors and mixed errors, fails malformed success as control. tooling/json_store_oracle_probe.exs runs with frozen snapshot argument; no production mutation or suite run. Preserve symlink boundary and boot-log isolation checks. Pending env-inventory dynamic/bang-read hypothesis is unverified. Raw-unit count remains25/32.
