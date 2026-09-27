@@ -106151,10 +106151,478 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "effort_labels",
+      "assessment": "Both entry points already delegate effort labels to the backend registry.",
+      "constraints": [
+        "GitHub.Labels calls CodingAgent.override_effort_labels directly; RoutingPreview wraps the same call in safe with an empty-list fallback.",
+        "Verified the GitHub CodingAgent alias; the preview safe helper was read in the preceding dispatchable_backends batch and rescues/catches to fallback.",
+        "Keep registry ownership and distinguish unavailable preview from an authoritative empty label vocabulary."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 116,
+          "module": "Aiur.GitHub.Labels",
+          "name": "effort_labels",
+          "path": "src/lib/aiur/github/labels.ex",
+          "kind": "def",
+          "end_line": 116,
+          "body_sha256": "cb358c6cc834aca55d8dfcce48db62b830b761db3feaa4250df9c35455fae4ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 195,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "effort_labels",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 195,
+          "body_sha256": "39d373b2f301036592cf66582c08421552750c027104600cbbe5dc5f5b49281f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "elapsed",
+      "assessment": "CLI and chart elapsed-time display differ at rounding and input boundaries.",
+      "constraints": [
+        "AnalyticsCLI preserves nil, emits zero minutes for nonpositive input and rounds milliseconds to whole seconds before dividing into minutes; other nonnumeric values fall back to nil.",
+        "Charts clamps at zero and divides integer milliseconds directly by 60000; it has no nil or malformed-input fallback in this function.",
+        "For 59500 ms the literal CLI arithmetic reaches one minute while the chart arithmetic remains zero. Preserve or explicitly reconcile display rounding and unknown handling; caller incidence and rendered equivalence are unverified."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 275,
+          "module": "Aiur.AnalyticsCLI",
+          "name": "elapsed",
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "kind": "defp",
+          "end_line": 275,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 276,
+          "module": "Aiur.AnalyticsCLI",
+          "name": "elapsed",
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "kind": "defp",
+          "end_line": 276,
+          "body_sha256": "ea364b420b3013719101ec8b99e54cbff66b7e912334b793d0fe99e36cedd893",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 278,
+          "module": "Aiur.AnalyticsCLI",
+          "name": "elapsed",
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "kind": "defp",
+          "end_line": 288,
+          "body_sha256": "40eeb018e25afda756b83829c12be8ac17aa245304253380ba0a7b2a62fe1f45",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 290,
+          "module": "Aiur.AnalyticsCLI",
+          "name": "elapsed",
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "kind": "defp",
+          "end_line": 290,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 599,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "elapsed",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 609,
+          "body_sha256": "81f71edeaff96318e6e892339c565a094b2e68c7bd23c946d3a42bae7d3b349f",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "emit_system",
+      "assessment": "RouteFailure constructs domain alerts through the shared system emitter.",
+      "constraints": [
+        "Alerts marks event_source as system and delegates to do_emit, accepting a binary name.",
+        "RouteFailure supplies ticket-scoped route topic, issue/workspace/worker context, reason, warning severity and needs_attention, then returns ok regardless of the emitter return value.",
+        "Keep alert policy with routing and transport with Alerts; ok from this wrapper is not independent delivery or persistence evidence."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 104,
+          "module": "Aiur.Alerts",
+          "name": "emit_system",
+          "path": "src/lib/aiur/alerts.ex",
+          "kind": "def",
+          "end_line": 106,
+          "body_sha256": "a5bd4b12af8861a567db2ad0e1bacfa417d099852fc70ca56172a4054b6736c8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 111,
+          "module": "Aiur.CodingAgent.RouteFailure",
+          "name": "emit_system",
+          "path": "src/lib/aiur/coding_agent/route_failure.ex",
+          "kind": "defp",
+          "end_line": 123,
+          "body_sha256": "40344238549dcb7e347e42bca05fea5bd5c97f71ed6e35d9070d0e7344a0bf98",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "empty?",
+      "assessment": "Transport-update emptiness and build-order collection emptiness are different predicates.",
+      "constraints": [
+        "CodexUpdateRelay treats nil and zero-size maps as empty and all other terms as nonempty.",
+        "BuildOrdersCLI treats an empty Catalog entries list or a members-empty map as empty; other terms return false.",
+        "Do not promote a broad generic emptiness helper that turns unavailable updates into a known empty build order or changes supported input shapes."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 170,
+          "module": "Aiur.AgentRunner.CodexUpdateRelay",
+          "name": "empty?",
+          "path": "src/lib/aiur/agent_runner/codex_update_relay.ex",
+          "kind": "defp",
+          "end_line": 170,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 171,
+          "module": "Aiur.AgentRunner.CodexUpdateRelay",
+          "name": "empty?",
+          "path": "src/lib/aiur/agent_runner/codex_update_relay.ex",
+          "kind": "defp",
+          "end_line": 171,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 172,
+          "module": "Aiur.AgentRunner.CodexUpdateRelay",
+          "name": "empty?",
+          "path": "src/lib/aiur/agent_runner/codex_update_relay.ex",
+          "kind": "defp",
+          "end_line": 172,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 259,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "empty?",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 259,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 260,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "empty?",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 260,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 261,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "empty?",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 261,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "empty_message",
+      "assessment": "Conversation evidence and decision-filter emptiness require different prose.",
+      "constraints": [
+        "ConversationDrawer distinguishes known_empty, unavailable, restart_unknown and a generic no-display fallback.",
+        "DecisionInbox distinguishes resolved-history guidance from no matches for the current filter.",
+        "Keep evidence states explicit in the view model; similar empty-state rendering does not justify collapsing missing retained history into no messages ever recorded."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 265,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer",
+          "name": "empty_message",
+          "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+          "kind": "defp",
+          "end_line": 265,
+          "body_sha256": "7acaa985fe7dc4358b47e0e8a368529f0992b1f1d9f428b3d0d78bc1f16d30f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 266,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer",
+          "name": "empty_message",
+          "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+          "kind": "defp",
+          "end_line": 266,
+          "body_sha256": "94998af144dfdd8684b83785cd8012590da0f6595d7cfb66b71b4e714e3a8178",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 267,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer",
+          "name": "empty_message",
+          "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+          "kind": "defp",
+          "end_line": 267,
+          "body_sha256": "20a5d43d33bb34d966410b8ea58a8cb5e403a0578e324f05e3e83eea8dc9c0a8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 268,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer",
+          "name": "empty_message",
+          "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+          "kind": "defp",
+          "end_line": 268,
+          "body_sha256": "c259a112ef917b7f35aea582fe1439a38935d4e34593763a6e654bd71b4fe1de",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 132,
+          "module": "AiurWeb.OperatorControlCenter.DecisionInbox",
+          "name": "empty_message",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_inbox.ex",
+          "kind": "defp",
+          "end_line": 132,
+          "body_sha256": "dfe2d697a3b152c8287a50f6bfdcde4cf21cb1707b7564779e4becd20f44cd7d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 133,
+          "module": "AiurWeb.OperatorControlCenter.DecisionInbox",
+          "name": "empty_message",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_inbox.ex",
+          "kind": "defp",
+          "end_line": 133,
+          "body_sha256": "56471b41af1ad0174a193f0c42ea5c82974374596791ba3b5ffd94a3ece0c29c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "empty_snapshot",
+      "assessment": "Empty accumulators encode distinct offset and bounded-cursor scan protocols.",
+      "constraints": [
+        "LegacyPage initializes skipped count and last returned key; Query initializes last_scanned_key and capped flag instead.",
+        "Read both full modules: legacy skips matching rows to an offset; Query bounds candidate reads, resumes after cursor and exposes partial scan status with last-scanned continuation.",
+        "Both start exhausted? false; empty initial page is not proof of exhausted results. Sharing defaults must preserve algorithm-specific fields, partial results and unknown totals."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 64,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.LegacyPage",
+          "name": "empty_snapshot",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/legacy_page.ex",
+          "kind": "defp",
+          "end_line": 74,
+          "body_sha256": "c3a3479803a18bfe58ebc8d7b545838bc3bef73e49278fe0eda893a00bc2261b",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 69,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.Query",
+          "name": "empty_snapshot",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query.ex",
+          "kind": "defp",
+          "end_line": 80,
+          "body_sha256": "815a9a339cfbd07e95a350f03e5d58b705038d409d1b72c598df2f844914cfe0",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "empty_state",
+      "assessment": "Approval evidence and model-discovery cache have unrelated schemas.",
+      "constraints": [
+        "CiApprovalStore initializes separate approved-head, test-failure-head and base-repair-invalidation maps.",
+        "ModelDiscovery initializes versioned backend cache; verified cache version is 1.",
+        "Preserve approval/recovery authority versus reconstructible discovery cache. These constructors alone establish neither valid durable recovery nor absence of prior observations."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 347,
+          "module": "Aiur.CIApprovalStore",
+          "name": "empty_state",
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "kind": "defp",
+          "end_line": 348,
+          "body_sha256": "76ea96612d24d268b36f815f1fd8047ce419a6d31c43b4f783b324fc97d86db7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 826,
+          "module": "Aiur.ModelDiscovery",
+          "name": "empty_state",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "defp",
+          "end_line": 826,
+          "body_sha256": "1902810d7bac437f46a4794acf8283979ad7f04615f7b4021c1c5905b52edc65",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "empty_to_nil",
+      "assessment": "Environment-reference coercion and merge-value normalization differ on nonstrings.",
+      "constraints": [
+        "EnvRef preserves nonempty binaries including whitespace, maps empty binary to nil and maps all nonbinary inputs to nil.",
+        "RecentMerge maps only the empty binary to nil and passes every other value through.",
+        "Only the empty-string case agrees. A shared coercer must not silently discard values accepted by merge normalization or admit nonbinary environment references."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 77,
+          "module": "Aiur.Config.EnvRef",
+          "name": "empty_to_nil",
+          "path": "src/lib/aiur/config/env_ref.ex",
+          "kind": "defp",
+          "end_line": 79,
+          "body_sha256": "fdb58209dee6ae69ccf7e15bf7fc37713b7bbf41ea2392c55c90e6e0ce7ce8d5",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "Aiur.Config.EnvRef",
+          "name": "empty_to_nil",
+          "path": "src/lib/aiur/config/env_ref.ex",
+          "kind": "defp",
+          "end_line": 81,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 516,
+          "module": "Aiur.RecentMerge",
+          "name": "empty_to_nil",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "defp",
+          "end_line": 516,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 517,
+          "module": "Aiur.RecentMerge",
+          "name": "empty_to_nil",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "defp",
+          "end_line": 517,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7731,
-  "limits": "861 selected families and 7731 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7760,
+  "limits": "869 selected families and 7760 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
