@@ -1098,3 +1098,7 @@ Read ensure_table, expire, format_duration and format_error: 53 literal entries 
 ### Name duplication: freshness and interaction policies
 
 Read fresh?, handle_event, health_label and icon: 157 literal entries across four families. Identify identical navigation adapters, two health-label maps and bounded icon validators while preserving clock/generation freshness, writable control boundaries and unknown-state meanings. Name triage now 238 families/4939 entries, leaving 1442 cross-module names. The stale-to-Healthy mapping overlaps earlier review; raw findings and skeptic counts are unchanged. No complete authorization or runtime behavior claim is made.
+
+### Name duplication: identity and label evidence
+
+Read identifier, identity_label, install, label, label_names and labels: 50 literal entries across six families. Identify repeated ticket display, source extraction and string-list validation while preserving installation error policy, normalization, missing labels and connection completeness. PlanningSource live/pack helpers expose a fallback whose output alone does not establish live label authority. Name triage now 244 families/4989 entries, leaving 1436 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.

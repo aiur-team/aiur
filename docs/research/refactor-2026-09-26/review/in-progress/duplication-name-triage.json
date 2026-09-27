@@ -63042,10 +63042,702 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "identifier",
+      "assessment": "Identifier extraction mixes event recovery, typed identity access and display fallback.",
+      "constraints": [
+        "DecisionMetrics.Event.Fields prefers nested ticket identifier then top-level identifier/source_ticket_id, accepts nonempty binaries or stringifies integers, and otherwise recovers from the topic.",
+        "TicketContextPresenter and UnitsControlPolicy extract binary identifiers from TrackerIdentity at different nesting levels and return nil otherwise. Their guards permit empty binaries.",
+        "BuildOrderGridModel requires a nonempty binary and otherwise displays Unknown ticket; UnitsCLI reads string-keyed nested data and defaults false/nil to unknown. Preserve source precedence, accepted types and data-versus-display fallback when sharing."
+      ],
+      "clauses": 8,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 22,
+          "module": "Aiur.DecisionMetrics.Event.Fields",
+          "name": "identifier",
+          "path": "src/lib/aiur/decision_metrics/event/fields.ex",
+          "kind": "def",
+          "end_line": 31,
+          "body_sha256": "98f8655db6249128f39b3050cd80c5887bc8c84d6ca5c1b4d6ef480aee7f57d5",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 306,
+          "module": "Aiur.UnitsCLI",
+          "name": "identifier",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 306,
+          "body_sha256": "02790b7470281916dfaefd4f97241a2df20b52bfad62511ea29c98f13897ed7f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 668,
+          "module": "AiurWeb.BuildOrder.TicketContextPresenter",
+          "name": "identifier",
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "kind": "defp",
+          "end_line": 668,
+          "body_sha256": "dd5d12fb52f7d9f44f6c6643e811eb70a12629f3b4c7f06203e8bd93a70325c4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 669,
+          "module": "AiurWeb.BuildOrder.TicketContextPresenter",
+          "name": "identifier",
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "kind": "defp",
+          "end_line": 669,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 430,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderGridModel",
+          "name": "identifier",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_grid_model.ex",
+          "kind": "defp",
+          "end_line": 431,
+          "body_sha256": "dd5d12fb52f7d9f44f6c6643e811eb70a12629f3b4c7f06203e8bd93a70325c4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 433,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderGridModel",
+          "name": "identifier",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_grid_model.ex",
+          "kind": "defp",
+          "end_line": 433,
+          "body_sha256": "c71442be7357d3ef4fcc753dc0510f5919d8e754211e79a6ae16fab4b7ca2698",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 268,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "identifier",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "def",
+          "end_line": 269,
+          "body_sha256": "dd5d12fb52f7d9f44f6c6643e811eb70a12629f3b4c7f06203e8bd93a70325c4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 271,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "identifier",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "def",
+          "end_line": 271,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "identity_label",
+      "assessment": "Two ticket identity display helpers are identical, while other contexts need different fallback or bounds.",
+      "constraints": [
+        "UnitsTable and ConversationDrawer.Presenter format binary owner/repository/identifier as owner/repository #identifier and otherwise Unknown ticket, with identical clauses.",
+        "BuildOrderPresenter omits the space before # and takes an explicit fallback. CurrentRunOutcomesPresenter bounds the spaced label and otherwise returns nil.",
+        "GithubCacheLive labels a credential identity rather than a ticket; missing identity displays its credential id with an identity-unknown marker. Shared ticket formatting must not replace credential semantics or remove presentation bounds."
+      ],
+      "clauses": 9,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 376,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 378,
+          "body_sha256": "4204972832a32208f9b6feb328254c79b3cfa2549876c0afa5dec071b2db6ef6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 380,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 380,
+          "body_sha256": "5eee631634ce0a65650e713d7df0ef77ad33491494e2da61441f310eaae47f42",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 267,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 269,
+          "body_sha256": "a704c562387248cc1e361013fb017fad653319ae18b849faad1ba529d8b315f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 271,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 271,
+          "body_sha256": "c71442be7357d3ef4fcc753dc0510f5919d8e754211e79a6ae16fab4b7ca2698",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1184,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1189,
+          "body_sha256": "3e01e51875081c81e5e4fdaed732789fe9ea377735157cd6cef12fccc3373e7b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 182,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+          "kind": "defp",
+          "end_line": 184,
+          "body_sha256": "a704c562387248cc1e361013fb017fad653319ae18b849faad1ba529d8b315f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 186,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+          "kind": "defp",
+          "end_line": 186,
+          "body_sha256": "c71442be7357d3ef4fcc753dc0510f5919d8e754211e79a6ae16fab4b7ca2698",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 239,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "kind": "defp",
+          "end_line": 242,
+          "body_sha256": "b70943f7f781f7800489481af2317f2eca7cd0451f2f43d283ee825ac0003806",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 244,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter",
+          "name": "identity_label",
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "kind": "defp",
+          "end_line": 244,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "install",
+      "assessment": "Installation already shares command mechanics but retains distinct error and setup policies.",
+      "constraints": [
+        "AgentBuildGuard and AgentGitHubGuard delegate script installation to AgentCommandInstaller. The common installer creates runtime/bin directories before installing commands; GitHub guard also checks stale broker state, stops on the first script error and provisions configuration/quota directories.",
+        "Build guard and GitHub guard log and return their installation errors. AgentScratch only creates scratch storage when the workspace directory exists and returns directory errors after logging.",
+        "AgentSkills validates all install locations, installs skills/support files and ignores generated paths, but rescues ArgumentError, ErlangError and File.Error to log and return :ok. All four workspace-facing wrappers return :ok for nonbinary input.",
+        "Keep command installation reuse separate from per-domain failure propagation and prerequisites. These entry bodies do not prove atomic installation, helper path safety or complete cleanup after partial failure."
+      ],
+      "clauses": 9,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "Aiur.AgentBuildGuard",
+          "name": "install",
+          "path": "src/lib/aiur/agent_build_guard.ex",
+          "kind": "def",
+          "end_line": 33,
+          "body_sha256": "586226e73481cfc13b2eae29e9856139c451ddda6bb04d0a2e4b571acf3310a5",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 35,
+          "module": "Aiur.AgentBuildGuard",
+          "name": "install",
+          "path": "src/lib/aiur/agent_build_guard.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 13,
+          "module": "Aiur.AgentCommandInstaller",
+          "name": "install",
+          "path": "src/lib/aiur/agent_command_installer.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "f993268194fecb84845fe35de82f52f002c3e151fe06c5a0e247b70aae394eb1",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 339,
+          "module": "Aiur.AgentGitHubGuard",
+          "name": "install",
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "kind": "def",
+          "end_line": 358,
+          "body_sha256": "79675bfe33d5adb7e75477ef1b7e46176521099cc47064d7de0ae66405e8d77e",
+          "normalized_body_lines": 36,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 360,
+          "module": "Aiur.AgentGitHubGuard",
+          "name": "install",
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "kind": "def",
+          "end_line": 360,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 35,
+          "module": "Aiur.AgentScratch",
+          "name": "install",
+          "path": "src/lib/aiur/agent_scratch.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "cf29af16d71e95b9c6b9b4c4c5f24c3a400b4c5f1f09719342470cca45163113",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 50,
+          "module": "Aiur.AgentScratch",
+          "name": "install",
+          "path": "src/lib/aiur/agent_scratch.ex",
+          "kind": "def",
+          "end_line": 50,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 120,
+          "module": "Aiur.AgentSkills",
+          "name": "install",
+          "path": "src/lib/aiur/agent_skills.ex",
+          "kind": "def",
+          "end_line": 131,
+          "body_sha256": "e35fefef736c1820e0c8e0682cfd15c3d1f578b1faccc231489c64ef08447772",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 133,
+          "module": "Aiur.AgentSkills",
+          "name": "install",
+          "path": "src/lib/aiur/agent_skills.ex",
+          "kind": "def",
+          "end_line": 133,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "label",
+      "assessment": "Label generation is domain presentation with different normalization and fallback rules.",
+      "constraints": [
+        "CodingAgent.Models trims/downcases, rejects blank values, strips vendor/date syntax and delegates model naming. BuildOrderEpicIcon uses a lane lookup followed by hyphen humanization and Unassigned for nonbinary input.",
+        "CacheInspector title-cases each underscore-separated word; UnitsFilters replaces underscores then capitalizes the entire string. These casing operations are not equivalent.",
+        "LifecycleComponents normalizes for a label lookup with humanize fallback. Preserve domain vocabulary and fallback behavior; a same-name helper does not imply a shared normalization policy."
+      ],
+      "clauses": 7,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 152,
+          "module": "Aiur.CodingAgent.Models",
+          "name": "label",
+          "path": "src/lib/aiur/coding_agent/models.ex",
+          "kind": "def",
+          "end_line": 157,
+          "body_sha256": "18f8838313d717d0bac5e84ece7e929fe18bb6a685be2063293656796751989a",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 159,
+          "module": "Aiur.CodingAgent.Models",
+          "name": "label",
+          "path": "src/lib/aiur/coding_agent/models.ex",
+          "kind": "def",
+          "end_line": 159,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 334,
+          "module": "Aiur.GitHub.CacheInspector",
+          "name": "label",
+          "path": "src/lib/aiur/github/cache_inspector.ex",
+          "kind": "defp",
+          "end_line": 340,
+          "body_sha256": "11bbaaf011bc6e051f1a157d9f8569e72683480adf9cdc8b08c7926ea518924c",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 107,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderEpicIcon",
+          "name": "label",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_epic_icon.ex",
+          "kind": "def",
+          "end_line": 109,
+          "body_sha256": "b4ac8f650259e63d0a2cb5e373af8894eef25e28f7a3f278b07bbfc0bfc6e556",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderEpicIcon",
+          "name": "label",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_epic_icon.ex",
+          "kind": "def",
+          "end_line": 111,
+          "body_sha256": "1c1becf5a113d420f3d14f4213c081cfbba2f2fe7f2743f27a098b0e6681f44d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 60,
+          "module": "AiurWeb.OperatorControlCenter.LifecycleComponents",
+          "name": "label",
+          "path": "src/lib/aiur_web/components/operator_control_center/lifecycle_components.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "9d265f3cfd6323f3977cb73b94ecc1dd0e87cbb24bfb6e4b6f88a013f73b1353",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 77,
+          "module": "AiurWeb.OperatorControlCenter.UnitsFilters",
+          "name": "label",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_filters.ex",
+          "kind": "defp",
+          "end_line": 77,
+          "body_sha256": "add721181895f6a0f14ce3485132ba98763ba41fd75b6a2bc9d68fdf9b12be4d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "label_names",
+      "assessment": "Two source label extractors are identical but missing-data and canonicalization policies differ elsewhere.",
+      "constraints": [
+        "AdHocSource and OpenTicketSource identically map list entries through string-keyed name lookup, default missing/false names to an empty string and lowercase, with [] for nonlists. This is a direct sharing candidate with the same input assumptions.",
+        "CatalogStore preserves case and rejects only nil names; Issue returns its labels field directly. Neither body establishes a universally validated string list.",
+        "Webhooks.LabelState accepts string names or name-bearing maps, removes invalid entries, deduplicates and sorts, but returns nil when the labels field is not a list. Preserve missing-versus-empty evidence and case policy before sharing parsing."
+      ],
+      "clauses": 9,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 225,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "label_names",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 227,
+          "body_sha256": "5545e0e8e0dcf19434eced540bef3e080f3a84703d033e47c5a5e9ba39d1ea78",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 229,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "label_names",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 229,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 260,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "label_names",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 260,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 261,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "label_names",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 261,
+          "body_sha256": "9bec1b7b7782b5d1c4a09084719576e60a0222879dc0a159cc4e2c37b2945407",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 262,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "label_names",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 262,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "Aiur.Issue",
+          "name": "label_names",
+          "path": "src/lib/aiur/issue.ex",
+          "kind": "def",
+          "end_line": 86,
+          "body_sha256": "71e5c6f5a1dafcc0fa2d9859da24b144bdfa6ece63e77e8c2afd371412b13040",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 246,
+          "module": "Aiur.OpenTicketSource",
+          "name": "label_names",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 248,
+          "body_sha256": "5545e0e8e0dcf19434eced540bef3e080f3a84703d033e47c5a5e9ba39d1ea78",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 250,
+          "module": "Aiur.OpenTicketSource",
+          "name": "label_names",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 250,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 72,
+          "module": "Aiur.Webhooks.LabelState",
+          "name": "label_names",
+          "path": "src/lib/aiur/webhooks/label_state.ex",
+          "kind": "defp",
+          "end_line": 88,
+          "body_sha256": "a1e5d19806bd01cb0277097b34ed5e70dbd906adf580fce4651c9307e39e2e40",
+          "normalized_body_lines": 20,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "labels",
+      "assessment": "Two string-list validators are identical; other label methods carry completeness, fallback or mutation semantics.",
+      "constraints": [
+        "BuildOrder.Member and RootSummary identically filter list values to binaries and return [] for nonlists, providing a direct sharing candidate.",
+        "GitHubGraph.Normalizer instead validates connection completeness and names, returning labels plus diagnostics for overflow, incomplete or invalid connections. A simple list filter cannot replace that authority boundary.",
+        "PlanningSource uses pack labels for an unnumbered ticket or when live_labels returns []. Read live_labels and pack_labels: live data tries membership labels then labels_by_identity, with empty results falling back to pack lane/phase/optional complexity. This preserves configured display context but the returned list alone cannot distinguish no live labels from unavailable live data.",
+        "AddAgentSubmission applies removed/added deltas to result labels or an original fallback and deduplicates. Preserve mutation ordering and diagnostic evidence; this read does not establish upstream reconciliation or rendered stale-label incidence."
+      ],
+      "clauses": 8,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 89,
+          "module": "Aiur.BuildOrder.GitHubGraph.Normalizer",
+          "name": "labels",
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "e41a555879265580e48de75486ccccbf0c602c0fec534011b7a4ccd9d35c6bd5",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 209,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "labels",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 209,
+          "body_sha256": "f765369e4196272dda19f9e036fa9247d1dc52d1b28acbeadf63593956322b04",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 210,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "labels",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 210,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 152,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "labels",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "f765369e4196272dda19f9e036fa9247d1dc52d1b28acbeadf63593956322b04",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 153,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "labels",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "defp",
+          "end_line": 153,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 234,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "labels",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 234,
+          "body_sha256": "1692f3b2aa937b3739edd337d2aa7d0292faf1af2846c001ffe0ed8c5b05b6f4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 236,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "labels",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 241,
+          "body_sha256": "a228952b060e282689779133b044ba32e75a1e037bdccdf95368932ef19793e0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 26,
+          "module": "AiurWeb.OperatorControlCenter.AddAgentSubmission",
+          "name": "labels",
+          "path": "src/lib/aiur_web/operator_control_center/add_agent_submission.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "32b1853b327ef155b1885ca28b2c30a5d883aa1f9d2e06308760ed8a11fdf471",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 4939,
-  "limits": "238 selected families and 4939 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 4989,
+  "limits": "244 selected families and 4989 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
