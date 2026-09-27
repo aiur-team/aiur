@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "a5fb1634b6f7e68c9edbe29b674ea8dd1d98e1e11e25047229cba10a7e98a711"
+    "name_triage": "3bfafb48daec31d8f80fd69651b3591b666a273813d3b3e86f3de56f140071d9"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 853,
-    "remaining_cross_module_names": 827,
-    "remaining_literal_entries": 2561
+    "reviewed_cross_module_names": 861,
+    "remaining_cross_module_names": 819,
+    "remaining_literal_entries": 2537
   },
   "families": [
-    {
-      "name": "durable_decision_topic?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "durable_observation",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "durable_percent_entry",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "duration",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "earliest",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "edge_state",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "edges",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "effective_interval_ms",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
     {
       "name": "effort_labels",
       "clauses": 2,
