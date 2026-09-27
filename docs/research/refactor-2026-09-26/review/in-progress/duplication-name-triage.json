@@ -80575,10 +80575,593 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "elapsed_seconds",
+      "assessment": "Elapsed-time helpers convert, bound or format different quantities.",
+      "constraints": [
+        "CurrentRunSummary.Facts converts nonnegative integer milliseconds to integer seconds, otherwise nil.",
+        "Quota computes elapsed seconds from a resource window start, clamping between zero and a configured quota-window constant.",
+        "AnalyticsLive formats supplied seconds into second/minute/hour/day strings; it is not a timestamp subtraction or missing-value validator.",
+        "Preserve input units, observation window and presentation roles. A common name does not establish interchangeable time semantics."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 176,
+          "module": "Aiur.CurrentRunSummary.Facts",
+          "name": "elapsed_seconds",
+          "path": "src/lib/aiur/current_run_summary/facts.ex",
+          "kind": "defp",
+          "end_line": 176,
+          "body_sha256": "391a9420d44268efaf5d81552b7bd86e14f31c533c4cc7f7fc664a8616a5fa87",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 177,
+          "module": "Aiur.CurrentRunSummary.Facts",
+          "name": "elapsed_seconds",
+          "path": "src/lib/aiur/current_run_summary/facts.ex",
+          "kind": "defp",
+          "end_line": 177,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 818,
+          "module": "Aiur.GitHub.Quota",
+          "name": "elapsed_seconds",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 821,
+          "body_sha256": "21e7cf3544842d1c8b05d45f5e67b8e57811e3a8ac920198caccbaac9e1b04b4",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 619,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "elapsed_seconds",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 619,
+          "body_sha256": "b608c7651c68824dfac1e9fc75a68d1e5128c1cd60bd0c6c06dfca45d19197a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 620,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "elapsed_seconds",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 620,
+          "body_sha256": "8fcdf5d5be0075bbacec8a0e6ddb22a409300402c416642507711ad2e0b6c536",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 621,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "elapsed_seconds",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 621,
+          "body_sha256": "cc3f03832fc420dcf4483df18b5f06f1ff489cc24ada7a5c0d33d4a7239f0098",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 622,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "elapsed_seconds",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 622,
+          "body_sha256": "35ebd1e9b4581797ce1a258b8a72fa5cd4c8d523bc9c5a4fea2cc6d88a982000",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "emit_resolution",
+      "assessment": "Resolution emitters share alert conventions but resolve different conditions.",
+      "constraints": [
+        "BuildGateHoldMonitor emits a slot-specific resolved topic for released excessive holds. TakeoverAlert.Monitor emits an advisory resolution for terminal or out-of-scope issues.",
+        "ExecutorCommandAttention emits escalation resolution for a decided command, with an injected alert function option.",
+        "All mark needs_attention false and severity info, but topic identity, issue representation and resolution cause differ.",
+        "Share alert-envelope conventions without equating condition resolution, decision completion and message acknowledgement. Subscriber receipt is not verified here."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 153,
+          "module": "Aiur.BuildGateHoldMonitor",
+          "name": "emit_resolution",
+          "path": "src/lib/aiur/build_gate_hold_monitor.ex",
+          "kind": "defp",
+          "end_line": 160,
+          "body_sha256": "0b692eaa45ad8387c95bf17f8257457aec80dc2e7934213e7c593d61081501c5",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 278,
+          "module": "Aiur.Executor.TakeoverAlert.Monitor",
+          "name": "emit_resolution",
+          "path": "src/lib/aiur/executor/takeover_alert/monitor.ex",
+          "kind": "defp",
+          "end_line": 286,
+          "body_sha256": "fe8318f3447127f606705fd3d9cee9b890f4e5239217e947331b39de7f28ed84",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 101,
+          "module": "Aiur.ExecutorCommandAttention",
+          "name": "emit_resolution",
+          "path": "src/lib/aiur/executor_command_attention.ex",
+          "kind": "defp",
+          "end_line": 111,
+          "body_sha256": "3897d72e0615a23d48cc805f8e2c5f3c49b5ae1703da3361955aa52fe3bd6a82",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "encode_datetime",
+      "assessment": "Two nullable timestamp encoders are equivalent; one rejects unsupported values by missing clause.",
+      "constraints": [
+        "TakeoverAlert.Store and GlobalPauseStore serialize DateTime values to ISO8601 and return nil for every other input; TakeoverAlert has an explicit nil clause.",
+        "ProgressRetention handles nil and DateTime only, with no unsupported-value fallback.",
+        "A shared encoder must preserve or intentionally revise this validation boundary. Matching encoding does not imply matching decoding: the previously reviewed decoders differ in offset policy."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 331,
+          "module": "Aiur.Executor.TakeoverAlert.Store",
+          "name": "encode_datetime",
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "kind": "defp",
+          "end_line": 331,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 332,
+          "module": "Aiur.Executor.TakeoverAlert.Store",
+          "name": "encode_datetime",
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "kind": "defp",
+          "end_line": 332,
+          "body_sha256": "31b6a947bf49bd7098db40ff6197d3ade5f38e9664656e872d9519b9c7ea1481",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 333,
+          "module": "Aiur.Executor.TakeoverAlert.Store",
+          "name": "encode_datetime",
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "kind": "defp",
+          "end_line": 333,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 108,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "encode_datetime",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 108,
+          "body_sha256": "6444c08becce56613845e01d5aabd6f64c8b795a692edf1b20cd650915793cd3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 109,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "encode_datetime",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 109,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 303,
+          "module": "Aiur.ProgressRetention",
+          "name": "encode_datetime",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 303,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 304,
+          "module": "Aiur.ProgressRetention",
+          "name": "encode_datetime",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 304,
+          "body_sha256": "72556e8cf82a13e4cdcdb1f385d4b9ef6edf393b36dca684ed734fb94abd12c0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "encode_value",
+      "assessment": "Decimal encoding is shared but recursive and fallback contracts differ.",
+      "constraints": [
+        "All three modules encode Decimal through normal decimal strings.",
+        "ModelDiscovery additionally recurses through maps and stringifies keys, while leaving other values, including lists, unchanged in the literal fallback.",
+        "UsageAggregate.Key accepts only Decimal or integer clauses. CounterPolicy preserves every non-Decimal value.",
+        "Share the numeric encoder with explicit accepted types; do not import recursive key conversion into accounting keys or broaden strict input acceptance."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 511,
+          "module": "Aiur.ModelDiscovery",
+          "name": "encode_value",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "defp",
+          "end_line": 511,
+          "body_sha256": "a3578d7175232bc7b6d3ca3a407af3551be34a482c7f884c3084888d59d1f73b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 512,
+          "module": "Aiur.ModelDiscovery",
+          "name": "encode_value",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "defp",
+          "end_line": 512,
+          "body_sha256": "9a341582c61ea5834457b6d529776abfa8ad1d9359560077507c01b4c1ee6885",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 513,
+          "module": "Aiur.ModelDiscovery",
+          "name": "encode_value",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "defp",
+          "end_line": 513,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 154,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "encode_value",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 154,
+          "body_sha256": "a3578d7175232bc7b6d3ca3a407af3551be34a482c7f884c3084888d59d1f73b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 155,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "encode_value",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 155,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 299,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "encode_value",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 299,
+          "body_sha256": "a3578d7175232bc7b6d3ca3a407af3551be34a482c7f884c3084888d59d1f73b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 300,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "encode_value",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 300,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "endpoint",
+      "assessment": "Endpoint names refer to configured URLs, URL concatenation and graph direction.",
+      "constraints": [
+        "Linear.Config chooses a nonempty configured binary or a default endpoint.",
+        "OpenAICompat.Transport trims trailing slashes from the base before concatenating a suffix.",
+        "TicketContextAdapter selects source for blocked_by and target for blocking edges.",
+        "These are distinct operations. URL concatenation does not validate URL trust, and graph endpoint selection is not a network concept."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 13,
+          "module": "Aiur.Linear.Config",
+          "name": "endpoint",
+          "path": "src/lib/aiur/linear/config.ex",
+          "kind": "def",
+          "end_line": 18,
+          "body_sha256": "7ad7f0dbadf4221100ca58b7308e0ac1542e3337f7b8fffad0cabfe22d203561",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 77,
+          "module": "Aiur.OpenAICompat.Transport",
+          "name": "endpoint",
+          "path": "src/lib/aiur/open_ai_compat/transport.ex",
+          "kind": "defp",
+          "end_line": 77,
+          "body_sha256": "40abeaa715b1ef60567a516d37ad66252fcc886dff80ccc55e4334be919c829b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 157,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "endpoint",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "de0287b09118b202a32eb4aaf9c7505290a1cbe1e771365e1b3e199bdb47edf0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 158,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "endpoint",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "dbb05e497cd0c1858c948ec231fb48cb7045c754ad5a52c8e5bb453e03e73770",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "endpoint_config",
+      "assessment": "Two endpoint configuration readers are equivalent, with a different controller failure policy.",
+      "constraints": [
+        "StreamdeckLive and StreamdeckProjection use the same endpoint/application-config expression and rescue fallback. Their Endpoint aliases were checked and both resolve to AiurWeb.Endpoint.",
+        "DecisionApiController reads Endpoint.config directly, rescuing exceptions and catching exits to nil.",
+        "The Stream Deck pair does not explicitly catch exits in these literal bodies. Preserve false/nil fallback and exception scope when sharing.",
+        "Expression equality is established; effective configuration precedence for every runtime shape was not executed or certified here."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 186,
+          "module": "AiurWeb.DecisionApiController",
+          "name": "endpoint_config",
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "kind": "defp",
+          "end_line": 192,
+          "body_sha256": "1a0954cc6e600a2141ced1887caf85545450e5a7b01e45e51d7d3afd046da33c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1707,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "endpoint_config",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1711,
+          "body_sha256": "f890eb695b6583c307da445995a205f37002e335b48a4e21c57cfbd0897a0a6f",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 535,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "endpoint_config",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "defp",
+          "end_line": 539,
+          "body_sha256": "b727fb38df471f4bebb899537ce0f430277925b9d2308cba328b500ea2c8b024",
+          "normalized_body_lines": 6,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ensure_regular_file",
+      "assessment": "Regular-file checks distinguish post-write visibility, permitted absence and required source files.",
+      "constraints": [
+        "Membership FileOps accepts only an existing regular file and otherwise returns atomic_write_not_visible.",
+        "ProgressRetention accepts regular files or absence, rejects symlinks separately and preserves other filesystem errors.",
+        "RepoBase requires an existing regular file, gives other file types a source-invalid error and preserves filesystem errors.",
+        "These predicates have different phase contracts. Do not replace pre-write absence allowance with post-write verification, or infer race-free path safety from lstat alone."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 39,
+          "module": "Aiur.CurrentRunMembership.Store.FileOps",
+          "name": "ensure_regular_file",
+          "path": "src/lib/aiur/current_run_membership/store/file_ops.ex",
+          "kind": "def",
+          "end_line": 41,
+          "body_sha256": "8bc9d76c7b759be3a7d3489490b490c9510de6ceedc0e8d09ae46d9bb148efef",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 497,
+          "module": "Aiur.ProgressRetention",
+          "name": "ensure_regular_file",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 505,
+          "body_sha256": "022351fa1ff0863539a429707ad1f5810efde0644c9be05eeb20b771e1b3c31f",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1340,
+          "module": "Aiur.RepoBase",
+          "name": "ensure_regular_file",
+          "path": "src/lib/aiur/repo_base.ex",
+          "kind": "defp",
+          "end_line": 1346,
+          "body_sha256": "c323402649e71e7406c88f04e079e03d40d1eb96114ee0e10dfe32a39bb08e12",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "escape",
+      "assessment": "Escaping is context-specific; shell arguments and HTML text cannot share one codec.",
+      "constraints": [
+        "Shell.escape quotes a whole binary argument and handles embedded single quotes. Its optional fast path uses a checked character regex instead.",
+        "The fast-path regex attribute was read; its dollar end anchor is not separately proven here to enforce strict end-of-input for all strings. Caller use and malformed input reachability remain unverified.",
+        "Markdown performs ordered HTML entity replacements. GithubCache.Charts stringifies then delegates to Phoenix HTML escaping and converts safe output to a string.",
+        "Preserve output-context and input-type contracts. No blanket injection-safety claim follows from a function named escape."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "Aiur.Shell",
+          "name": "escape",
+          "path": "src/lib/aiur/shell.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "49c4309573c4538710d030fe33c66dc31071ab729fc73b9cd1d4cf622caf42b3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 29,
+          "module": "Aiur.Shell",
+          "name": "escape",
+          "path": "src/lib/aiur/shell.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "3219922e67334480bd5f4878c8101b8865e1b2fbabe20420a05d77cda8fdde94",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 168,
+          "module": "AiurWeb.Markdown",
+          "name": "escape",
+          "path": "src/lib/aiur_web/markdown.ex",
+          "kind": "defp",
+          "end_line": 175,
+          "body_sha256": "e23f51a796950f29a351db28b99440a214bea12d052351c39da7fd2d4dd4ae9a",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 275,
+          "module": "AiurWeb.OperatorControlCenter.GithubCache.Charts",
+          "name": "escape",
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "kind": "defp",
+          "end_line": 277,
+          "body_sha256": "eb180d8952df9141d19b55b2edbcd36c5be8a3d51ec7b2a734ef690cffbbffa1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6135,
-  "limits": "441 selected families and 6135 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6173,
+  "limits": "449 selected families and 6173 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

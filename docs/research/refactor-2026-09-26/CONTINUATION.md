@@ -1927,3 +1927,7 @@ Read decisions, decode_datetime, decode_entry, decode_records, default, default_
 ### Name duplication: deferral and transport effects
 
 Read default_request_fun, defer, delta, detach, diff_lines, dig, dim and do_broadcast: 33 literal entries across eight families. Preserve credential setup, staged messages versus decision deferral, accounting identity, conditional visibility reset, traversal input contracts and broadcast fanout. Name triage now 441 families/6135 entries, leaving 1239 cross-module names. Raw findings and skeptic counts are unchanged; no final credential precedence, timer cancellation, durable deferral or subscriber receipt is claimed.
+
+### Name duplication: encoding and filesystem phases
+
+Read elapsed_seconds, emit_resolution, encode_datetime, encode_value, endpoint, endpoint_config, ensure_regular_file and escape: 38 literal entries across eight families. Verify shared nullable timestamp encoders and endpoint configuration expressions; preserve numeric input contracts, resolution causes, filesystem check phases and shell versus HTML escaping. Name triage now 449 families/6173 entries, leaving 1231 cross-module names. Raw findings and skeptic counts are unchanged; no configuration precedence proof, race-free path safety or blanket escaping guarantee is claimed.
