@@ -1,0 +1,204 @@
+{
+  "unit_id": "skills-prompts",
+  "status": "in_progress",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "planned_files": 250,
+  "planned_lines": 36169,
+  "files": [
+    {
+      "path": ".claude/skills/aiur-agent/SKILL.md",
+      "sha256": "26d03b4dbc288f0b2253a63260e5b5e4e0590d318bce0d408d8165158d20ccfa",
+      "lines": 86,
+      "read": "full",
+      "assessment": "Entrypoint delegates ten references, makes state transitions daemon-owned, preserves checked-out branch identity, draft/CI/review handoff, docs with behavior changes, bounded structured Decisions and narrow manual subscription scope. It explicitly requires Decisions before attention/pause, which conflicts with older examples elsewhere. Review artifact only: these instructions were not invoked to operate a ticket."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/attention-and-resolve.md",
+      "sha256": "4a29962e04e1645055cb9647036576d12029e604bcde4a036c5019bfe1a6778f",
+      "lines": 57,
+      "read": "full",
+      "assessment": "Legacy attention lifecycle has owned-slug resolution and system-authored attention distinction. Example requests an operator choice through attention alone and suggests PR-comment reply; reconcile with structured Decision-first entrypoint before treating this as current operator-question guidance. Enter-key UI description not manually verified."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/complexity-routing.md",
+      "sha256": "c30e738bd5f67470f0ab0b1d751dfe0e46ee12ef6ac92e2a8d7f4a09333d9ce9",
+      "lines": 84,
+      "read": "full",
+      "assessment": "Complexity labels are hypotheses, unlabelled defaults to3, and suggested skill depth scales with risk. Model preferences are authored policy, not measured superiority or actual runtime routing. Suggested persona names need catalog resolution; no model switched or agent spawned during review."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/conventions.md",
+      "sha256": "75d91f8a3f68d13eef0ef5916381677bb5f6b32ba59ef9485c2f3cd638761f4b",
+      "lines": 84,
+      "read": "full",
+      "assessment": "CODEOWNERS last-match authority, no-owner fallback, self-comment nonauthority, atomic issue disposition, parked out-of-scope work and governed creation are explicit. Preserves workspace toolchain paths and bounded load. Presence of a command guard claim is not a fresh runtime verification; out-of-scope issue filing is source material, not authorization for this research to publish issues."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/dev-loop.md",
+      "sha256": "814416889cf26990ece183b758a976c57a8866ffdc158bc2177a5a71b130821c",
+      "lines": 405,
+      "read": "full",
+      "assessment": "All405 lines read. Preserves exact workspace/base/head identity, foreign-worktree refusal, clean mutation isolation, scoped verification, credential-file fail-closed behavior, exact-head CI and no self-merge. Internal local-Credo prohibition conflicts with later scoped-Credo requirement. Unconditional integration-base creation/retarget conflicts with stacked-blocker-base instructions. Index-lock removal guidance does not first establish owner death; retain as candidate rather than infer an observed collision. Manual CLI instruction must be read with shared prompt's agent-workspace reset guard, not used to bypass it. Author identity details omitted from public evidence."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/dictated-input.md",
+      "sha256": "e6ff102f979c0a098d8b5a29d8eceef7699bbf9933b94555534d5f48e789fb3a",
+      "lines": 6,
+      "read": "full",
+      "assessment": "Dictation variants are contextual possibilities, explicitly not authority to silently replace real words or acronyms."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/emit-and-subscribe.md",
+      "sha256": "d42965bce8e2341757ab1e818378dea7bf7a52075232aa20570f8bb58523db32",
+      "lines": 368,
+      "read": "full",
+      "assessment": "All368 lines read. Separates pending event admission from terminal durable Decision requests and acknowledges daemon-owned failure evidence. Cold-reader options, authority/reversibility defaults, exact decision/action/version acknowledgements and replay idempotency preserved. Legacy attention-then-enrich paragraph coexists with Decision-before-attention instruction. Manual subscription limited to one literal ticket; internal automatic bindings separate, reason-scoped removal preserves manual binding. force-push auto-bound but no publisher explicitly documented; PR merge also drain-eligible, unlike strict unblocked-only shorthand elsewhere. Dismissed-decision resolution correlation needs runtime reconciliation; no lifecycle success inferred from prose."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/event-taxonomy.md",
+      "sha256": "3f40c68ded539910aab5eccff80c2aaf6fbfa7df2e5c69f6ef545beff849536d",
+      "lines": 83,
+      "read": "full",
+      "assessment": "AMQP star/hash arity, agent vocabulary versus system topics, reserved Decision lifecycle and bare-progress-only quota stated. Attention question row remains legacy relative to Decision-first guidance. Ordinary architectural decision broadcasts distinct from durable acknowledgement/resolution."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/overview.md",
+      "sha256": "e3c18570c4500f115b19df05f89a2a00ad1da789aafbaacb31cfbb8e21a3008e",
+      "lines": 53,
+      "read": "full",
+      "assessment": "Exchange overview separates manual ticket scope, replay/digest deduplication and mid-turn blocker allowlist. At-least-once delivery is documented contract, not independently re-proven here. Legacy operator-choice attention example and narrow readiness shorthand need reconciliation with newer Decision/merge pathways."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/stub-then-fetch.md",
+      "sha256": "76c58b9b7ef732a33f312d1b414dec69e2f1e29fed7f7fc00a9ffab2b49c7cd8",
+      "lines": 87,
+      "read": "full",
+      "assessment": "Stub readiness temporary versus final ref/SHA corroboration, local-only placeholders, publish-before-ready and generation-scoped dependency pauses preserved. Explicit stack-on-unmerged-blocker PR base conflicts with mandatory integration-base retarget in dev-loop. A dependency marker is not a reason to abandon independent work; pause versus remaining prep is instruction wording, not proof of scheduler behavior."
+    },
+    {
+      "path": ".claude/skills/aiur-agent/turn-workflow.md",
+      "sha256": "40b58194e779d24ed80cef0cdcdaa21d101e2f1ca0de343cdceefebc7a782651",
+      "lines": 192,
+      "read": "full",
+      "assessment": "State tool owns sole lifecycle state, refuses Executor dispositions; mutable labels not reconstructed from stale reads. One durable workpad, exact-head CI, no empty liveness pushes, actual feedback intent, reply verification and constrained thread resolution preserved. Phase-review example names ce-review while active flow elsewhere names ce-code-review; resolve alias/catalog before promoting. Workpad template includes machine identity/path; public research does not reproduce actual machine data."
+    },
+    {
+      "path": "src/prompts/shared-agent-instructions.md",
+      "sha256": "8f8cdbddcca40806a35b723eeadbd17871d4a134eac47605b778c6aa9f8102aa",
+      "lines": 259,
+      "read": "full",
+      "assessment": "All shared prompt lines read. Preserves external-content trust boundary, sole-state tool, provisional readiness exclusion, phase progress with cleanup tail, bounded checkins, no generic temporary files and exact-body reread after comment writes. GITHUB_TOKEN claim conflicts with credential-file skill and scrub source. Stacked PR base conflicts with dev-loop. Operator-decision reflex allows attention/pause question instead of structured Decision, conflicting with newer skill requirement. Manual --test guard is explicit and defeats any interpretation that worker must bypass it; planning auto-transition concerns active implementation tickets, not this research-only task."
+    }
+  ],
+  "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
+  "findings": [
+    {
+      "id": "skills-prompts-cont-01",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Agent dev loop both forbids and requires local Credo",
+      "locations": [
+        {
+          "path": ".claude/skills/aiur-agent/dev-loop.md",
+          "lines": "143-152"
+        },
+        {
+          "path": ".claude/skills/aiur-agent/dev-loop.md",
+          "lines": "369-378"
+        }
+      ],
+      "description": "The scoped pre-PR gate says not to run Credo locally and assigns full lint to CI. The manual verification section later makes scoped credo strict a prerequisite for human review. A worker cannot satisfy both literal requirements.",
+      "evidence": "Both statements occur in the same fully read frozen reference; no runtime inference is needed to establish the contradiction.",
+      "recommendation": "Keep one canonical local gate and reference it from manual verification; specify whether scoped Credo belongs to that gate and keep CI ownership explicit.",
+      "refactor_hint": "Represent validation policy once instead of repeating independently edited checklists.",
+      "limits": "Instruction consistency finding only; no observed wasted runtime or CI failure attributed to it. Deduplicate with inherited prompt findings before final counting."
+    },
+    {
+      "id": "skills-prompts-cont-02",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Stacked-PR guidance conflicts with unconditional integration-base retargeting",
+      "locations": [
+        {
+          "path": ".claude/skills/aiur-agent/stub-then-fetch.md",
+          "lines": "35-40"
+        },
+        {
+          "path": "src/prompts/shared-agent-instructions.md",
+          "lines": "87-96"
+        },
+        {
+          "path": ".claude/skills/aiur-agent/dev-loop.md",
+          "lines": "303-310"
+        }
+      ],
+      "description": "Dependency instructions direct consumers to open against an unmerged blocker branch. The dev loop requires every PR creation to use AIUR_BASE_BRANCH and directs workers to PATCH any differing existing base. No stacked-PR exception reconciles the two.",
+      "evidence": "Read both full references and the shared prompt; the same dependent PR is assigned two incompatible base refs until the blocker merges.",
+      "recommendation": "Define integration-base versus review-base roles and an explicit approved stacking policy, including when retargeting is required. Make both paths consume that policy.",
+      "refactor_hint": "Branch authority should be a typed workflow contract shared by prompt generation, guard and reviewer rather than contradictory prose.",
+      "limits": "No PR was retargeted and no historical regression is attributed to this conflict. Runtime enforcement and alternative stacking intent still need synthesis."
+    },
+    {
+      "id": "skills-prompts-cont-03",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Shared prompt names a credential environment variable that agents must not inherit",
+      "locations": [
+        {
+          "path": "src/prompts/shared-agent-instructions.md",
+          "lines": "30-34"
+        },
+        {
+          "path": ".claude/skills/aiur-agent/dev-loop.md",
+          "lines": "200-209"
+        },
+        {
+          "path": "src/lib/aiur/agent_environment.ex",
+          "lines": "44-56"
+        },
+        {
+          "path": "src/lib/aiur/agent_environment.ex",
+          "lines": "308-312"
+        }
+      ],
+      "description": "Shared instructions say the worker's GitHub credential comes from GITHUB_TOKEN. The dev loop explicitly says agents do not inherit GITHUB_TOKEN/GH_TOKEN, and AgentEnvironment lists those names for scrubbing while supplying AIUR_GITHUB_CREDENTIAL_FILE for governed calls.",
+      "evidence": "Full prompt and dev-loop source plus supporting environment excerpts confirm the mismatch. No credential values read or copied.",
+      "recommendation": "Replace the obsolete inherited-token description with a reference to the governed credential-file contract; preserve no-login, no-merge and no-operator-keyring fallback rules.",
+      "refactor_hint": "Generate or reference security-sensitive environment contracts from one maintained surface.",
+      "limits": "Source-level instruction mismatch only, not a reproduced credential exposure or provider failure. Daemon-owned non-agent prewarm has an explicit scrub opt-out and is not the scope of this claim."
+    }
+  ],
+  "preserve": [
+    "Entrypoint delegates ten references, makes state transitions daemon-owned, preserves checked-out branch identity, draft/CI/review handoff, docs with behavior changes, bounded structured Decisions and narrow manual subscription scope. It explicitly requires Decisions before attention/pause, which conflicts with older examples elsewhere. Review artifact only: these instructions were not invoked to operate a ticket.",
+    "Legacy attention lifecycle has owned-slug resolution and system-authored attention distinction. Example requests an operator choice through attention alone and suggests PR-comment reply; reconcile with structured Decision-first entrypoint before treating this as current operator-question guidance. Enter-key UI description not manually verified.",
+    "Complexity labels are hypotheses, unlabelled defaults to3, and suggested skill depth scales with risk. Model preferences are authored policy, not measured superiority or actual runtime routing. Suggested persona names need catalog resolution; no model switched or agent spawned during review.",
+    "CODEOWNERS last-match authority, no-owner fallback, self-comment nonauthority, atomic issue disposition, parked out-of-scope work and governed creation are explicit. Preserves workspace toolchain paths and bounded load. Presence of a command guard claim is not a fresh runtime verification; out-of-scope issue filing is source material, not authorization for this research to publish issues.",
+    "All405 lines read. Preserves exact workspace/base/head identity, foreign-worktree refusal, clean mutation isolation, scoped verification, credential-file fail-closed behavior, exact-head CI and no self-merge. Internal local-Credo prohibition conflicts with later scoped-Credo requirement. Unconditional integration-base creation/retarget conflicts with stacked-blocker-base instructions. Index-lock removal guidance does not first establish owner death; retain as candidate rather than infer an observed collision. Manual CLI instruction must be read with shared prompt's agent-workspace reset guard, not used to bypass it. Author identity details omitted from public evidence.",
+    "Dictation variants are contextual possibilities, explicitly not authority to silently replace real words or acronyms.",
+    "All368 lines read. Separates pending event admission from terminal durable Decision requests and acknowledges daemon-owned failure evidence. Cold-reader options, authority/reversibility defaults, exact decision/action/version acknowledgements and replay idempotency preserved. Legacy attention-then-enrich paragraph coexists with Decision-before-attention instruction. Manual subscription limited to one literal ticket; internal automatic bindings separate, reason-scoped removal preserves manual binding. force-push auto-bound but no publisher explicitly documented; PR merge also drain-eligible, unlike strict unblocked-only shorthand elsewhere. Dismissed-decision resolution correlation needs runtime reconciliation; no lifecycle success inferred from prose.",
+    "AMQP star/hash arity, agent vocabulary versus system topics, reserved Decision lifecycle and bare-progress-only quota stated. Attention question row remains legacy relative to Decision-first guidance. Ordinary architectural decision broadcasts distinct from durable acknowledgement/resolution.",
+    "Exchange overview separates manual ticket scope, replay/digest deduplication and mid-turn blocker allowlist. At-least-once delivery is documented contract, not independently re-proven here. Legacy operator-choice attention example and narrow readiness shorthand need reconciliation with newer Decision/merge pathways.",
+    "Stub readiness temporary versus final ref/SHA corroboration, local-only placeholders, publish-before-ready and generation-scoped dependency pauses preserved. Explicit stack-on-unmerged-blocker PR base conflicts with mandatory integration-base retarget in dev-loop. A dependency marker is not a reason to abandon independent work; pause versus remaining prep is instruction wording, not proof of scheduler behavior.",
+    "State tool owns sole lifecycle state, refuses Executor dispositions; mutable labels not reconstructed from stale reads. One durable workpad, exact-head CI, no empty liveness pushes, actual feedback intent, reply verification and constrained thread resolution preserved. Phase-review example names ce-review while active flow elsewhere names ce-code-review; resolve alias/catalog before promoting. Workpad template includes machine identity/path; public research does not reproduce actual machine data.",
+    "All shared prompt lines read. Preserves external-content trust boundary, sole-state tool, provisional readiness exclusion, phase progress with cleanup tail, bounded checkins, no generic temporary files and exact-body reread after comment writes. GITHUB_TOKEN claim conflicts with credential-file skill and scrub source. Stacked PR base conflicts with dev-loop. Operator-decision reflex allows attention/pause question instead of structured Decision, conflicting with newer skill requirement. Manual --test guard is explicit and defeats any interpretation that worker must bypass it; planning auto-transition concerns active implementation tickets, not this research-only task."
+  ],
+  "follow_up_candidates": [
+    {
+      "id": "skills-prompts-candidate-01",
+      "question": "Reconcile shared prompt attention/pause alternatives and legacy attention examples with structured Decision-first requirement. Trace projection/default options before distinguishing transitional compatibility from harmful guidance."
+    },
+    {
+      "id": "skills-prompts-candidate-02",
+      "question": "Check index-lock owner/liveness guards before promoting unconditional lock deletion guidance as a safety finding."
+    },
+    {
+      "id": "skills-prompts-candidate-03",
+      "question": "Resolve ce-review and named persona aliases against the full skill catalog before alleging broken references."
+    },
+    {
+      "id": "skills-prompts-candidate-04",
+      "question": "Reconcile unblocked-only shorthand with merge-readiness delivery and dismissed-decision resolution correlation against runtime."
+    }
+  ],
+  "next": "Read aiur-build/SKILL.md and its reference pack next;12/250 full files. Three P2 source contradictions provisional until cross-unit deduplication."
+}
