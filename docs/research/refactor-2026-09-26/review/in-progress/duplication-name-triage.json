@@ -111791,10 +111791,454 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "github_tracker?",
+      "assessment": "Startup settings classification and open-ticket source eligibility choose opposite unknown defaults.",
+      "constraints": [
+        "Aiur matches successful tracker settings and compares kind to github, otherwise defaults true.",
+        "OpenTicketSource reads Config.tracker_kind and rescues/catches failures to false.",
+        "Preserve caller-specific conservative policy rather than introducing one generic tracker predicate. Neither unknown fallback proves the configured tracker kind."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 153,
+          "module": "Aiur.Application",
+          "name": "github_tracker?",
+          "path": "src/lib/aiur.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "54f0ca8850d011fb084bcd408f2669056f6ecd41188dbb198b766a51d079810f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 494,
+          "module": "Aiur.OpenTicketSource",
+          "name": "github_tracker?",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 500,
+          "body_sha256": "f4c2e73f24fa0fae2c451945b02fa1b34232bef1cc10b2c8154e9a896551bbf1",
+          "normalized_body_lines": 7,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "global_pause_status",
+      "assessment": "Orchestrator already delegates pause status to GlobalPause.",
+      "constraints": [
+        "GlobalPause supports direct State projection and server calls, defaults server timeout to 5000 ms and distinguishes timeout from orchestrator_unavailable.",
+        "Read state projection: exposes globally_paused, paused_at and source metadata; direct State result is a map while remote success is wrapped in ok.",
+        "Preserve metadata and return shape. Querying current state does not establish durable pause persistence or enforcement across every worker."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 557,
+          "module": "Aiur.Orchestrator",
+          "name": "global_pause_status",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 557,
+          "body_sha256": "d30d3e66da6fd250d67bb28194c9d81fec3572e90060f21dbe7449caad4618cc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 561,
+          "module": "Aiur.Orchestrator",
+          "name": "global_pause_status",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 561,
+          "body_sha256": "50b4686bed3d5e8d4cc19198fa29a39e8636c38ecddde87a0874ac0ec04b8624",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 36,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "global_pause_status",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 36,
+          "body_sha256": "ccd9da0826470e076eb8b22d5ff82edfe20c94ef3a9464054c4c72411de92e87",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 40,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "global_pause_status",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 40,
+          "body_sha256": "2f5ae9d07432cd021490a8594f314f4d9d77b54729f546bce98bae513bae1cbd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 41,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "global_pause_status",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 41,
+          "body_sha256": "b47d0c390636b83bbc4d31252ca499c605bf2911070d890f12f3a0212ac06899",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 45,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "global_pause_status",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 54,
+          "body_sha256": "e87cab3705a6690d90c74e1b4d82ef81c33e25b1ffa6d69f246bde74497e30b8",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "globally_paused?",
+      "assessment": "Pause boolean query already has a single control owner.",
+      "constraints": [
+        "Orchestrator delegates; GlobalPause queries the chosen server and returns ok with result or orchestrator_unavailable.",
+        "All call exits, including timeout, collapse to unavailable here unlike the richer global_pause_status API.",
+        "Keep uncertainty explicit and avoid converting this result tuple to a plain truthiness test. Runtime call correctness remains transitive."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 554,
+          "module": "Aiur.Orchestrator",
+          "name": "globally_paused?",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 554,
+          "body_sha256": "eb0495d9708e989dd1c3ea957461890a6249e161dace0c06d5ec12633a4e5f12",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 21,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "globally_paused?",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "f9706a190fc84335b3ccf31c6f88e28fe42b502ff3c29090edb45a7dab3f78ce",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "globally_paused?",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 32,
+          "body_sha256": "00680ae88588838ac78280f83838c039fd00806467d80783acff5e1e5b1ce65c",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "graphql_error",
+      "assessment": "GitHub error facade already delegates GraphQL classification.",
+      "constraints": [
+        "GraphQLErrors returns graphql_partial when classification is nil, otherwise constructs classified provider error.",
+        "Verified Errors alias resolves to that owner.",
+        "Keep provider classification centralized; the fallback is a policy tag, not proof of complete or safe partial response data."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 144,
+          "module": "Aiur.GitHub.Errors",
+          "name": "graphql_error",
+          "path": "src/lib/aiur/github/errors.ex",
+          "kind": "defdelegate",
+          "end_line": 144,
+          "body_sha256": "964499f435d9279691d4f000901a711770ea62aadbc4fa1281ee0d84c33622db",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 7,
+          "module": "Aiur.GitHub.GraphQLErrors",
+          "name": "graphql_error",
+          "path": "src/lib/aiur/github/graphql_errors.ex",
+          "kind": "def",
+          "end_line": 12,
+          "body_sha256": "2e413afe2784d585b1c00a698b834a7b597d65979fcd6ebde2d5f845d1d4de53",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "group",
+      "assessment": "Cache metric aggregation and build-order grouping produce unrelated result schemas.",
+      "constraints": [
+        "ReadCache.Metrics filters a scope, groups by name and overlays event counts on empty_totals; Map.new on repeated event keys keeps one value rather than summing.",
+        "BuildOrderPresenter emits Group with dimension, key, label, sorted node keys and count.",
+        "Preserve metric input uniqueness assumptions versus graph membership presentation; neither grouped output independently proves complete population."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 271,
+          "module": "Aiur.GitHub.ReadCache.Metrics",
+          "name": "group",
+          "path": "src/lib/aiur/github/read_cache/metrics.ex",
+          "kind": "defp",
+          "end_line": 278,
+          "body_sha256": "1762c763f693c436e198cc0a75c3a72fc76b59391d943e62e11532b7620672d8",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 783,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "group",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 793,
+          "body_sha256": "b8b77d4e4b8d1bae332746cf1cbc9060bfb0e190524d65ddad127e99a596a222",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "guarded",
+      "assessment": "CLI fault reporting and optional write-through protection deliberately differ.",
+      "constraints": [
+        "AgentControlCLI reports rescued exceptions, distinguishes shaped GenServer timeout exits and routes other exits/throws through crash reporting.",
+        "WriteThrough discards normal return values, logs exceptions/caught terms at debug level and always returns ok.",
+        "Keep fail-visible control behavior separate from best-effort cache maintenance. Shared exception plumbing must not suppress command failures or turn cache failure into user-command failure."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 3103,
+          "module": "Aiur.AgentControlCLI",
+          "name": "guarded",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 3118,
+          "body_sha256": "a5d52cd31dd06d6ce56d7d954b8956deed3fca9dec6ed562f386bb91c1f64962",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 373,
+          "module": "Aiur.GitHub.WriteThrough",
+          "name": "guarded",
+          "path": "src/lib/aiur/github/write_through.ex",
+          "kind": "defp",
+          "end_line": 384,
+          "body_sha256": "8a4137f631a8850d157d127af710f63351f12a8ddc67b4209bffd5f5cfb48f63",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "guessed_branches",
+      "assessment": "CI and comment polling branch guesses match exactly.",
+      "constraints": [
+        "Both look up target title, compute generated and legacy branch names and emit legacy only when equal, otherwise generated then legacy.",
+        "Verified both TicketBranch aliases resolve to Aiur.TicketBranch.",
+        "Sharing is concrete; retain ordering and duplicate suppression. These remain guesses, not delivered PR identity or proof that either branch exists."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 167,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "guessed_branches",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 175,
+          "body_sha256": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 204,
+          "module": "Aiur.GitHub.CommentPollBatch",
+          "name": "guessed_branches",
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 212,
+          "body_sha256": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "handle_async",
+      "assessment": "LiveView callback names route independent async workflows.",
+      "constraints": [
+        "BuildOrderLive dispatches source, context and analytics completions/failures to dedicated runtimes with tokens/keys; successful analytics additionally reconciles time domain.",
+        "DashboardLive completes add-agent submissions; exit builds empty added/removed lists, submission_exit error and unknown authorization.",
+        "Keep token correlation and domain-specific failure payloads with their runtimes. Callback-name equality is not duplication and does not independently certify stale-result rejection or successful submission."
+      ],
+      "clauses": 8,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 150,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "handle_async",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "def",
+          "end_line": 152,
+          "body_sha256": "a13a9bf64b96250a5362ded7bf83986d0c5012d075f8deb48700549484127944",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 154,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "handle_async",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "def",
+          "end_line": 156,
+          "body_sha256": "ece548f6816bf0e86453e8f4727de298ad56380c7c4448abf5f92794703860f5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 158,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "handle_async",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "def",
+          "end_line": 160,
+          "body_sha256": "bbdf931d423ee5eeb6368a4c8a0ebf443ebf57ce5dd9d98350243d47692fb898",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 162,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "handle_async",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "def",
+          "end_line": 163,
+          "body_sha256": "b4145d85af8acfe525af0a8054222369edd329bfb8d5fa2249fa3180588306bb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 165,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "handle_async",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "def",
+          "end_line": 167,
+          "body_sha256": "82b95cb42aee6b2a70f73f7b0f272ac4ede103551fecbd8f6aaab60604801f72",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 169,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "handle_async",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "def",
+          "end_line": 171,
+          "body_sha256": "f6e3eef8f381e7de51bd2da86ddb83bcb8a557d0af612e551fba18e2ff375fa2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 669,
+          "module": "AiurWeb.DashboardLive",
+          "name": "handle_async",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "def",
+          "end_line": 670,
+          "body_sha256": "9819a92750543412f076ff8a8d99de081521e3f9168783817aadb082855dd1a0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 672,
+          "module": "AiurWeb.DashboardLive",
+          "name": "handle_async",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "def",
+          "end_line": 679,
+          "body_sha256": "a18f02a4eb23565d0d881ac004832dc2dca8f9ef4c86ad12cb6dfebff9c48e66",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 8061,
-  "limits": "973 selected families and 8061 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 8088,
+  "limits": "981 selected families and 8088 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
