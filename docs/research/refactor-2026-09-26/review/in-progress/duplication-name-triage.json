@@ -71192,10 +71192,584 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "new_state",
+      "assessment": "State construction repeats dependency injection but preserves distinct ownership and health models.",
+      "constraints": [
+        "AgentProcessLog injects process/root/cwd/clock readers and stores its path, interval and process map. Tmux.Protocol simply constructs its protocol struct.",
+        "UsageAggregate.Store initializes projection, writable/base availability, health/freshness and recovery/checkpoint state with ledger/compaction/persistence dependencies.",
+        "UsageCompaction.Coordinator initializes policy and manifest with separate scan/generation/retire functions, persistence and cycle state; its default raw-bytes function returns zero.",
+        "Do not replace these constructors with one state map merely because injection syntax repeats. Defaults are not observations, and constructor bodies do not prove recovery or monitoring completeness."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 136,
+          "module": "Aiur.AgentProcessLog",
+          "name": "new_state",
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "kind": "defp",
+          "end_line": 146,
+          "body_sha256": "d4ed8d910f7d0a9765b170742c2312ca064c0db3b828c90302b8721beaf6bc10",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 48,
+          "module": "Aiur.Tmux.Protocol",
+          "name": "new_state",
+          "path": "src/lib/aiur/tmux/protocol.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "bbe470570e49267d490185b982e7988ccf0cc6962b452b9f2b97ad7e6219e4fd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 84,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "new_state",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "defp",
+          "end_line": 107,
+          "body_sha256": "e9124a4f4ffd3f3868433e9c800d8a85b748e82fd2c1105569f2acdf395429b8",
+          "normalized_body_lines": 28,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 90,
+          "module": "Aiur.UsageCompaction.Coordinator",
+          "name": "new_state",
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "kind": "defp",
+          "end_line": 104,
+          "body_sha256": "2a8d98f0a44ed71291196437c68cfff8cf60edf59cce797dbfb0b7a7e44111df",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "next_generation",
+      "assessment": "Generation advancement has four distinct monotonicity and reset policies.",
+      "constraints": [
+        "PackStatus ignores the prior value and uses a positive monotonic unique integer. Finalizer increments only on semantic change and otherwise retains generation.",
+        "GithubBudgetPause increments within its consecutive-pause window and resets to one outside it or without a timestamp. LifecycleFence increments an existing integer or starts at one.",
+        "Preserve counter domain, reset condition and unchanged-state behavior. Shared arithmetic must not imply cross-restart uniqueness, durable monotonicity or equivalent authority epochs."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 208,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "next_generation",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "defp",
+          "end_line": 208,
+          "body_sha256": "f8fbbdc23dcde9416b21ddd77262693134b6e0d344ee38f2af9379c341daa235",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 36,
+          "module": "Aiur.CurrentRunProjections.Finalizer",
+          "name": "next_generation",
+          "path": "src/lib/aiur/current_run_projections/finalizer.ex",
+          "kind": "defp",
+          "end_line": 36,
+          "body_sha256": "b5cad12b37de8d34e064392d10cc9b97c29e6951f3c702f06b157307a22c7c41",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 37,
+          "module": "Aiur.CurrentRunProjections.Finalizer",
+          "name": "next_generation",
+          "path": "src/lib/aiur/current_run_projections/finalizer.ex",
+          "kind": "defp",
+          "end_line": 37,
+          "body_sha256": "6299a9ed8ea3df05ee9efda8a090c7d438331f7f8719030728751a8dbdfb2a6b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 49,
+          "module": "Aiur.Orchestrator.GithubBudgetPause",
+          "name": "next_generation",
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "kind": "def",
+          "end_line": 61,
+          "body_sha256": "8b270954f629e95c736550568937ac7a742d5fcc817c06d5aa813b74e784f2cb",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 212,
+          "module": "Aiur.Orchestrator.LifecycleFence",
+          "name": "next_generation",
+          "path": "src/lib/aiur/orchestrator/lifecycle_fence.ex",
+          "kind": "defp",
+          "end_line": 212,
+          "body_sha256": "b5cad12b37de8d34e064392d10cc9b97c29e6951f3c702f06b157307a22c7c41",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 213,
+          "module": "Aiur.Orchestrator.LifecycleFence",
+          "name": "next_generation",
+          "path": "src/lib/aiur/orchestrator/lifecycle_fence.ex",
+          "kind": "defp",
+          "end_line": 213,
+          "body_sha256": "793cd2bfe8447ca48061e6e48ff7a7c016304393e3c5a25ec6ec1f3ea9f7b96b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "normalize_keys",
+      "assessment": "Decision delegation and enrichment share exact key normalization including duplicate checks.",
+      "constraints": [
+        "Read normalize_key and accumulate_key in both DecisionDelegation and DecisionEnrichment: both accept binary keys, stringify atoms, reject other keys, and halt on normalized duplicates with the same errors. Their normalize_keys bodies are also identical.",
+        "Config.Attrs recursively converts maps and lists through its key helper and Map.put; this shape does not explicitly reject collisions.",
+        "DecisionProvenance explicitly rejects duplicate normalized keys with provenance-specific errors. Sharing the verified decision pair is a direct candidate while recursive conversion and error provenance remain distinct contracts."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 5,
+          "module": "Aiur.Config.Schema.Attrs",
+          "name": "normalize_keys",
+          "path": "src/lib/aiur/config/schema/attrs.ex",
+          "kind": "def",
+          "end_line": 9,
+          "body_sha256": "a66f8875e0ec8352412f929a44ea06dc9a20969c35df803cb78d8478aa2ab74c",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 11,
+          "module": "Aiur.Config.Schema.Attrs",
+          "name": "normalize_keys",
+          "path": "src/lib/aiur/config/schema/attrs.ex",
+          "kind": "def",
+          "end_line": 11,
+          "body_sha256": "8df0f84cace7ef080e2d91409f0f2ebd00b2e6f64e6cefb1d6aa61813b91bfde",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 12,
+          "module": "Aiur.Config.Schema.Attrs",
+          "name": "normalize_keys",
+          "path": "src/lib/aiur/config/schema/attrs.ex",
+          "kind": "def",
+          "end_line": 12,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 298,
+          "module": "Aiur.DecisionDelegation",
+          "name": "normalize_keys",
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "kind": "defp",
+          "end_line": 305,
+          "body_sha256": "21e1352d2a6a4f0dfc7e68413b19e23c719e044e5f56ba030af039d45d33382b",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 178,
+          "module": "Aiur.DecisionEnrichment",
+          "name": "normalize_keys",
+          "path": "src/lib/aiur/decision_enrichment.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "21e1352d2a6a4f0dfc7e68413b19e23c719e044e5f56ba030af039d45d33382b",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 170,
+          "module": "Aiur.DecisionProvenance",
+          "name": "normalize_keys",
+          "path": "src/lib/aiur/decision_provenance.ex",
+          "kind": "defp",
+          "end_line": 180,
+          "body_sha256": "5fc7d9de4740169972551f488534af1dc58c4ff86407e5ec5ed269204931645a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "normalize_repository",
+      "assessment": "Repository normalization differs in shape, trimming, case and validation.",
+      "constraints": [
+        "OutcomeSnapshot.SourceState unwraps ok tuples, trims owner/repository parts, rejects blanks or slashes within either part, preserves case and propagates error tuples.",
+        "ReadCache.Identity accepts nonempty binary parts and lowercases them without trimming in these bodies. RecentMerge accepts a trimmed bounded owner/repository string constrained by a character regex.",
+        "TrackerIdentity validates each tuple part through repository_part and maps any failure to a caller-supplied reason.",
+        "Retain canonical identity policy separately from input parsing. A universal normalizer would change accepted inputs and errors; the transitive part validator and real invalid-input population are not certified here."
+      ],
+      "clauses": 10,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 33,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.SourceState",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/source_state.ex",
+          "kind": "def",
+          "end_line": 33,
+          "body_sha256": "62f8873711454546aba6801be25aac326a53d811e04090a5dfe0c61e5ad132a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 35,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.SourceState",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/source_state.ex",
+          "kind": "def",
+          "end_line": 45,
+          "body_sha256": "c7ecb54bc963731b3b1817cb70677b033709f3cdca37db7a097e680a9c4c49b5",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 47,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.SourceState",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/source_state.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "06eb3e38537a76ac0a1152ddc19067f95555e8a1be6efe078e28bb693ee4e396",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 48,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.SourceState",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/source_state.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "8425b274e7e383cf7d81ed11cfea84c2acaa28301d21e4a47adbfceb9392176f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 217,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "kind": "defp",
+          "end_line": 219,
+          "body_sha256": "e40954a8cc095e16c6efc987bb83d323f9b7b95cea20460e85d57f4771459b48",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 221,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "kind": "defp",
+          "end_line": 221,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 340,
+          "module": "Aiur.RecentMerge",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "defp",
+          "end_line": 349,
+          "body_sha256": "2c37a0413f301a55039ee8743dd58997bc89cbcea6319dba8bbd0c89d5f7af27",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 351,
+          "module": "Aiur.RecentMerge",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "defp",
+          "end_line": 351,
+          "body_sha256": "a5968fee50a96490f511269edfab0652a6fe26ba01cb1bbcaefaf16590bbd90c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 150,
+          "module": "Aiur.TrackerIdentity",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/tracker_identity.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "37a38e50f86f3fb497488ca7723d39af83ca48a453b910f90838d157491c7c17",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 159,
+          "module": "Aiur.TrackerIdentity",
+          "name": "normalize_repository",
+          "path": "src/lib/aiur/tracker_identity.ex",
+          "kind": "defp",
+          "end_line": 159,
+          "body_sha256": "06eb3e38537a76ac0a1152ddc19067f95555e8a1be6efe078e28bb693ee4e396",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "normalize_source",
+      "assessment": "Source normalization ranges from provenance extraction to display and persisted validation.",
+      "constraints": [
+        "DecisionValidation extracts agent/session/event identifiers. GlobalPause preserves nonempty binaries, stringifies atoms and otherwise uses unknown; nil reaches the atom clause.",
+        "GlobalPauseStore explicitly accepts nil or a nonempty binary and rejects other persisted values, so runtime and storage normalization are different contracts.",
+        "TicketObservation limits event/alert names to recognized categories or cause-neutral fallback names, defaulting other sources to legacy/unclassified.",
+        "Preserve provenance and unknown-versus-absent semantics. Shared string normalization must not falsely turn missing evidence into a known source."
+      ],
+      "clauses": 10,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 458,
+          "module": "Aiur.DecisionValidation",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/decision_validation.ex",
+          "kind": "defp",
+          "end_line": 464,
+          "body_sha256": "bed27250140727777084a900df7e4262cb4a6dc661a8278c3ffe5578cdc69610",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 169,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "defp",
+          "end_line": 169,
+          "body_sha256": "de0287b09118b202a32eb4aaf9c7505290a1cbe1e771365e1b3e199bdb47edf0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 170,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "defp",
+          "end_line": 170,
+          "body_sha256": "6a50dd91ed7021646f1a2bf8db3310e9e8efbc7c9d12163cde607ea8fd75f7e0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 171,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "defp",
+          "end_line": 171,
+          "body_sha256": "b42c4df1672e649c924d484b5ffbb0db794f4d5cd369bf3b4df6304c8da1fbc8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 147,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 147,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 148,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 148,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 149,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 149,
+          "body_sha256": "9e312653be4d89fd7b63b5dfd277c1877616d671dca2a81146373ffc8d714358",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 125,
+          "module": "Aiur.TicketObservation",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "kind": "defp",
+          "end_line": 127,
+          "body_sha256": "6022c82e5c1737c05a321498c93553f78658cfdd6bb8554315dc64cc6a7561dc",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 129,
+          "module": "Aiur.TicketObservation",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "kind": "defp",
+          "end_line": 134,
+          "body_sha256": "c290077f8ab2f252b3e058ddd449144224da0e36e1d971b06df3deb81be76020",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 136,
+          "module": "Aiur.TicketObservation",
+          "name": "normalize_source",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "kind": "defp",
+          "end_line": 136,
+          "body_sha256": "14a1141055875fe9e8befd59be4e41b580fc2a6b795906c69b7707f3c37dd107",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "options",
+      "assessment": "Recovery options share injected filesystem mechanics but configure different durable operations.",
+      "constraints": [
+        "Membership recovery configures append/checkpoint/journal clearing, sync, markers, quarantine, clock and obsolete-run cleanup. Aggregate recovery configures sync/quarantine/degraded marker/checkpoint loading and a byte bound.",
+        "Ledger recovery supplies sync/quarantine/marker/segment rewrite/checkpoint write and merged limits. Similar option names reference domain-specific functions and arities.",
+        "AgentRoutingPreview instead selects a dispatchable backend and returns available model/effort/complexity choices, with model lookup fallback.",
+        "Share injected filesystem primitives only with explicit domain contracts; these maps neither prove equivalent recovery sequences nor authorize replacing unavailable model data with an observed empty catalogue."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 11,
+          "module": "Aiur.CurrentRunMembership.Store.Recovery",
+          "name": "options",
+          "path": "src/lib/aiur/current_run_membership/store/recovery.ex",
+          "kind": "def",
+          "end_line": 24,
+          "body_sha256": "55b37a23ebbe249fedfde705e4fb3d4dcc6b03e3a8ab18c7c6160685f1d07fe6",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 16,
+          "module": "Aiur.UsageAggregate.Recovery",
+          "name": "options",
+          "path": "src/lib/aiur/usage_aggregate/recovery.ex",
+          "kind": "def",
+          "end_line": 24,
+          "body_sha256": "19ba6d314580554292b42a19db24526a5c73ff91a314ee9461d579126875bdb1",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 15,
+          "module": "Aiur.UsageLedger.Recovery",
+          "name": "options",
+          "path": "src/lib/aiur/usage_ledger/recovery.ex",
+          "kind": "def",
+          "end_line": 24,
+          "body_sha256": "7a9b4fd440c6b6b8a2fcb3a193a7cfe1da754c74e99809e38bde9e360f2373ed",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 83,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "options",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "def",
+          "end_line": 93,
+          "body_sha256": "77499e81764f84a328c42b2a8f7bf7e01113432d746ec30deac7fb9a455ecfae",
+          "normalized_body_lines": 22,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5506,
-  "limits": "325 selected families and 5506 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5546,
+  "limits": "331 selected families and 5546 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

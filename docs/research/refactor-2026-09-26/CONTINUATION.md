@@ -1867,3 +1867,7 @@ Read handle_notification, handle_params, hostname, initial_state, integer and is
 ### Name duplication: live authority and merge policy
 
 Read kind, live?, mark_reconciled, max_concurrent_agents, member? and merge: 32 literal entries across six families. Preserve supplier failure scope, lease/process/UI liveness distinctions, reconciliation notification policy, live capacity authority, opposite unavailable-ETS membership defaults and domain merge ordering. Name triage now 325 families/5506 entries, leaving 1355 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect, complete reconciliation or saving is claimed.
+
+### Name duplication: key normalization and recovery options
+
+Read new_state, next_generation, normalize_keys, normalize_repository, normalize_source and options: 40 literal entries across six families. Verify the delegation/enrichment key-normalization pair including its helpers; preserve generation reset policies, repository/source identity and domain recovery operations. Name triage now 331 families/5546 entries, leaving 1349 cross-module names. Raw findings and skeptic counts are unchanged; no durable epoch, recovery correctness or saving is claimed.

@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "663ea31c12f859a15722026082b62584ac2ecf508e505c45be0ae6496c127da1"
+    "name_triage": "6977d02c2c20e5326ac6c602a4a11f39197af5974ff34292ef2ba1fb1c12f1e1"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 325,
-    "remaining_cross_module_names": 1355,
-    "remaining_literal_entries": 4762
+    "reviewed_cross_module_names": 331,
+    "remaining_cross_module_names": 1349,
+    "remaining_literal_entries": 4722
   },
   "families": [
-    {
-      "name": "new_state",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 51
-    },
-    {
-      "name": "next_generation",
-      "clauses": 6,
-      "modules": 4,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "normalize_keys",
-      "clauses": 6,
-      "modules": 4,
-      "summed_source_span_lines": 34
-    },
-    {
-      "name": "normalize_repository",
-      "clauses": 10,
-      "modules": 4,
-      "summed_source_span_lines": 38
-    },
-    {
-      "name": "normalize_source",
-      "clauses": 10,
-      "modules": 4,
-      "summed_source_span_lines": 23
-    },
-    {
-      "name": "options",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 44
-    },
     {
       "name": "os_pid",
       "clauses": 4,
