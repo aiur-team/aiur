@@ -86913,10 +86913,580 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "payload_value",
+      "assessment": "Map access helpers differ in key direction and falsey-value handling.",
+      "constraints": [
+        "DecisionStore prefers the supplied atom key and falls back to its string form only when absent, preserving present nil/false.",
+        "TokenAccounting accepts a map and uses truthy atom-to-string fallback, returning nil for nonmaps.",
+        "TicketObservation starts with a string key and uses String.to_atom for its fallback key.",
+        "Preserve precedence and missing-versus-falsey semantics. String-to-atom caller key population was not established, so no unbounded-atom defect is claimed."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 2697,
+          "module": "Aiur.DecisionStore",
+          "name": "payload_value",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 2697,
+          "body_sha256": "ade4fa335fbc89781c8b1164e94b8979c26438de816dd76ac8cde24e42eebd35",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 123,
+          "module": "Aiur.Orchestrator.TokenAccounting",
+          "name": "payload_value",
+          "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+          "kind": "defp",
+          "end_line": 123,
+          "body_sha256": "11cc936ec3b9f1bb895ff1736c4c944e9d6f968276569576c8b45b7563ff240c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 124,
+          "module": "Aiur.Orchestrator.TokenAccounting",
+          "name": "payload_value",
+          "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+          "kind": "defp",
+          "end_line": 124,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 176,
+          "module": "Aiur.TicketObservation",
+          "name": "payload_value",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "kind": "defp",
+          "end_line": 176,
+          "body_sha256": "ddb0576ae300be7060cc67ae994f3b0eeacc9f2086dc0113d6b3b3c30d4d8f4e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "plan",
+      "assessment": "Subscription plan normalization, routing edits and display projection are unrelated plan operations.",
+      "constraints": [
+        "Codex.RateLimitAdapter collects tiers across legacy and limit-set sources, accepts no tier or one unique tier, and rejects conflicts as malformed.",
+        "AgentRoutingPreview computes label additions/removals from normalized existing labels and a selection, returning empty edits for nonmaps.",
+        "ProviderMetersPresenter emits known plan metadata only for a plan map, true known flag and binary account generation; otherwise state none.",
+        "Retain conflicting-provider evidence, routing edit policy and account-bound display conditions separately. These helpers do not establish plan freshness or authorized label writes."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 381,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "name": "plan",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 391,
+          "body_sha256": "33be4507728046f8b1efa8beb9470399e1ee5cfe385587d55d00e4e0f2830978",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 162,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "plan",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "def",
+          "end_line": 162,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 164,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "plan",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "def",
+          "end_line": 178,
+          "body_sha256": "990cb316710f8c274fb1f2b3fbe3a61b4e726ab828c1b3278cd8cfb4c0cd63fd",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 180,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "plan",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "def",
+          "end_line": 180,
+          "body_sha256": "5bfd8ce03bc852efb40d3774b8f7c58a701e9972dc967bb0ebdaab076b45f5d9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 178,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "plan",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 191,
+          "body_sha256": "b4444a687d83a47c973500f1ac21a627cf50774e8a4c92a9690e2c8bb6b4d0e0",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 193,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "plan",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 193,
+          "body_sha256": "3c5f9e6984054f4db6b287a7d24e85822fcf65cafc8bbb60c5c1181b39397a5d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "pop",
+      "assessment": "Removal operations carry different scheduling and monitor-cleanup invariants.",
+      "constraints": [
+        "DecisionDispatchTasks.Queue removes a ticket from its queue and membership set, skips nonrunnable tickets recursively and delegates entry extraction.",
+        "PaneManager.OpenQueue performs a plain queue pop with empty or entry/rest results.",
+        "FinancialData.Cache.Pending removes the pending record plus load/monitor indexes and demonitor-flushes its process monitor.",
+        "Do not extract generic removal without retaining runnable selection and index/monitor lifecycle; pop is not successful task completion."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "Aiur.DecisionDispatchTasks.Queue",
+          "name": "pop",
+          "path": "src/lib/aiur/decision_dispatch_tasks/queue.ex",
+          "kind": "def",
+          "end_line": 38,
+          "body_sha256": "4291266266a7eaa17f2feb3066b0e19f253591987734ca3ccdea4e0519c0968f",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 26,
+          "module": "Aiur.PaneManager.OpenQueue",
+          "name": "pop",
+          "path": "src/lib/aiur/pane_manager/open_queue.ex",
+          "kind": "def",
+          "end_line": 31,
+          "body_sha256": "28a1a46e2acc0b4b80fe283f3233b10834b618d7e58f9a12682b36babf5e5640",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 150,
+          "module": "AiurWeb.FinancialData.Cache.Pending",
+          "name": "pop",
+          "path": "src/lib/aiur_web/financial_data/cache/pending.ex",
+          "kind": "defp",
+          "end_line": 167,
+          "body_sha256": "3b087911ae77ed683a75ee35fb50e2ee259ef3d0f735feed085391fc9a71797b",
+          "normalized_body_lines": 21,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "pr_title",
+      "assessment": "Two PR title selectors match; event rendering additionally trims nested text.",
+      "constraints": [
+        "PrHealthScanner and ReworkRequeue select a nonempty binary title from a string-key map, otherwise untitled.",
+        "EventPhrases reads nested PR title candidates from atom/string outer keys, trims nonblank binaries and otherwise returns nil.",
+        "One shared direct-title selector is possible while preserving nested extraction, whitespace policy and fallback differences."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 164,
+          "module": "Aiur.AgentList.Renderer.EventPhrases",
+          "name": "pr_title",
+          "path": "src/lib/aiur/agent_list/renderer/event_phrases.ex",
+          "kind": "def",
+          "end_line": 170,
+          "body_sha256": "11846ff054a53d5135f5754261703d5924f217c53e4ea033c0a3fc91fca6400f",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 172,
+          "module": "Aiur.AgentList.Renderer.EventPhrases",
+          "name": "pr_title",
+          "path": "src/lib/aiur/agent_list/renderer/event_phrases.ex",
+          "kind": "def",
+          "end_line": 172,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 344,
+          "module": "Aiur.Orchestrator.PRHealthScanner",
+          "name": "pr_title",
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "kind": "defp",
+          "end_line": 349,
+          "body_sha256": "17139c5b7f9db67e63bcd48181aea583cee953a5dfa4aa3c920c60e10cf73c0c",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 453,
+          "module": "Aiur.Orchestrator.ReworkRequeue",
+          "name": "pr_title",
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "kind": "defp",
+          "end_line": 458,
+          "body_sha256": "17139c5b7f9db67e63bcd48181aea583cee953a5dfa4aa3c920c60e10cf73c0c",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "present_freshness",
+      "assessment": "Two map presenters match, while usage accepts a broader fallback and an extra status.",
+      "constraints": [
+        "CurrentRunOutcomesPresenter and RunSummaryPresenter select map status defaulting unknown and attach a label; their label helpers were read and match.",
+        "UsageSummaryPresenter matches a status map or returns unknown for other inputs, and additionally labels empty as Empty.",
+        "All three label helpers map stale to Healthy at the frozen snapshot. This overlaps the previously recorded stale-label finding and is not counted again.",
+        "Keep state truth distinct from presentation wording; shared formatting must not institutionalize the misleading stale label."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 258,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter",
+          "name": "present_freshness",
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "kind": "defp",
+          "end_line": 261,
+          "body_sha256": "81c9eff59fbb82eaa22a72cee564908224a09ff9f7bd8f4e0451fcfe1117bd7d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 323,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryPresenter",
+          "name": "present_freshness",
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 326,
+          "body_sha256": "81c9eff59fbb82eaa22a72cee564908224a09ff9f7bd8f4e0451fcfe1117bd7d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 582,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "present_freshness",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 582,
+          "body_sha256": "67966e1b02e8f1359aade604f79f620d14114d60976e7557982030945020af1c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 583,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "present_freshness",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 583,
+          "body_sha256": "d8f95bf7ef074d726109eab910cb5b06da0d2cbc68bf0cfc60edf43dd18c021f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "present_health",
+      "assessment": "Outcome/summary map health projections match; usage health uses a different sum type.",
+      "constraints": [
+        "CurrentRunOutcomesPresenter and RunSummaryPresenter return status, reasons list and label from maps with unavailable/empty defaults; their label helpers were read and match.",
+        "UsageSummaryPresenter accepts healthy or degraded/unavailable tuples with one reason, otherwise unknown.",
+        "Preserve partial versus degraded vocabulary, plural reasons versus singular reason and malformed-input handling before sharing display mechanics."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 248,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter",
+          "name": "present_health",
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "kind": "defp",
+          "end_line": 251,
+          "body_sha256": "ee084474bacb180cf9f85f4dd76c450ca395743c7b2079c2ff4fff15dda6c21b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 313,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryPresenter",
+          "name": "present_health",
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 316,
+          "body_sha256": "ee084474bacb180cf9f85f4dd76c450ca395743c7b2079c2ff4fff15dda6c21b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 577,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "present_health",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 577,
+          "body_sha256": "f4d13ee6392378dbb50447a55d64c4c4c93a9c63bf9a667e6e5df6b5c9dbe2b0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 578,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "present_health",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 578,
+          "body_sha256": "9e468e0811278946f4e067291bda957862f5a1ceac57f9c78a10a07f00e534c0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 579,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "present_health",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 579,
+          "body_sha256": "2bdeb38cbc1bfbe2d2d0681b07054e885ed8412bb2eadf5492c44edd1d47a769",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 580,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "present_health",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 580,
+          "body_sha256": "2edc015e7884aa75eb987811c6ca31f70a26f1467c7bfd70a0bfe511854b6624",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "preview",
+      "assessment": "Preview functions mean byte truncation, sampling or evaluated routing.",
+      "constraints": [
+        "AgentChat keeps at most the first 500 bytes before appending an ellipsis; binary_part can split a multibyte character.",
+        "ModelDiscovery takes five identifiers and joins them.",
+        "AgentRoutingPreview computes backend/model/effort/remote fields from labels, rescues/catches failures into unavailable and treats nonlist input as an empty label list.",
+        "Preserve diagnostic excerpt limits, sampling and routing-unavailable evidence separately. UTF-8 input incidence and downstream consequences were not verified here."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 63,
+          "module": "Aiur.AgentChat",
+          "name": "preview",
+          "path": "src/lib/aiur/agent_chat.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "064e0b82998c7d36e4033390a32247e65368d531bf533099d565d27a970c9b8b",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 718,
+          "module": "Aiur.ModelDiscovery",
+          "name": "preview",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "defp",
+          "end_line": 718,
+          "body_sha256": "2413f057bbc84d15906de83bdc8e6ebfcf9ab035aafb945f3b86995e42483fbd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 43,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "preview",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "def",
+          "end_line": 65,
+          "body_sha256": "a821d6c664e934d03585e019c4e97fbfda3b72b55c450e47fa22a4e17ec1303a",
+          "normalized_body_lines": 26,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 67,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "preview",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "e5f30522623d4e4d702c771596a8e4dbe546012589d7fb572b1d913656a0750c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "price",
+      "assessment": "Pricing layers distinguish exclusion, unknown valuation and strict input representation.",
+      "constraints": [
+        "GroupedScopes excludes dimensions not selected for pricing and delegates eligible dimensions.",
+        "PriceAdapter explicitly rejects provider-reported total as not priced; otherwise derives partition/remainder/query, looks up an entry and computes Decimal amount with revision/currency, mapping errors to unknown.",
+        "PriceTable.Validator rejects floats and accepts bounded valid-UTF8 strings matching its decimal regex before Decimal.new; its literal regex was read.",
+        "Keep excluded versus unknown distinct, preserve exact arithmetic and price provenance, and do not claim regex or transitive pricing correctness without further verification."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 6,
+          "line": 176,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "price",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 182,
+          "body_sha256": "9ec23576df32802c9316b5b541407ef1ee8f4c926c6466ebe0f156b7dec03a9d",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 59,
+          "module": "Aiur.Usage.GroupedScopes.PriceAdapter",
+          "name": "price",
+          "path": "src/lib/aiur/usage/grouped_scopes/price_adapter.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "2de45f21e4191718367ca6dd9afc025ce4dbf96331d1f943d52692b2287dd2f5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 62,
+          "module": "Aiur.Usage.GroupedScopes.PriceAdapter",
+          "name": "price",
+          "path": "src/lib/aiur/usage/grouped_scopes/price_adapter.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "9b878b1b33f6c46dfc9dbb5e05a5564b6f6061ced8a8ce17ee30c08b7cdb5e77",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 144,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "price",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "kind": "defp",
+          "end_line": 144,
+          "body_sha256": "b129e804d4143ac0df62ea1bcf20e7167e675529eabd11bfe236ed028d3032b8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 146,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "price",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "kind": "defp",
+          "end_line": 150,
+          "body_sha256": "99c5a4c34c83eae00c3af3a2b055a4742b7032694903162f322d5407e110b9d8",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 152,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "price",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "af2253f03f4e9af1887c438f3ad2ab2e68b7466287001bf6d247ed4998a7c40e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6564,
-  "limits": "517 selected families and 6564 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6601,
+  "limits": "525 selected families and 6601 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

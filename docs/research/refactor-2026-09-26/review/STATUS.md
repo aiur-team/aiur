@@ -1258,3 +1258,7 @@ Read normalize_snapshot, notification_item, notification_method, number, observe
 ### Name duplication: ownership and parser boundaries
 
 Read owner, page_size, page_title, pane_pid, parent_identity, parse_cursor, parse_number and pause: 42 literal entries across eight families. Two cursor and two positive-number parsers match, with separate tagged-text/list adapters elsewhere. Preserve ownership domain, page-budget preconditions, pane-query errors, missing-parent diagnostics and control entry-point contracts. Name triage now 517 families/6564 entries, leaving 1163 cross-module names. Raw findings and skeptic counts are unchanged; no complete ownership, cursor-scope or pause guarantee is added.
+
+### Name duplication: presentation and valuation evidence
+
+Read payload_value, plan, pop, pr_title, present_freshness, present_health, preview and price: 37 literal entries across eight families. Preserve key precedence/falsey semantics, queue/monitor cleanup, missing title policies, plural versus singular health reasons and excluded versus unknown valuation. Read health/freshness labels and price regex; stale-to-Healthy labels overlap the existing finding and are not counted again. Name triage now 525 families/6601 entries, leaving 1155 cross-module names. Raw findings and skeptic counts are unchanged; no complete pricing, parser or task-completion guarantee is added.
