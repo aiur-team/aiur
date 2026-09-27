@@ -770,3 +770,7 @@ Candidates28/30 reconciled: HTML issue handoff lacks format adaptation; atomic-w
 ### Skills/prompts: review endpoint verification
 
 Candidate12 resolved into two P2 findings: migration dispatch passes a logical base marker and one-ended commands inspect the ambient tree; simplification can choose the feature tracking upstream and omit uncommitted edits. Disposable Git probe reproduces all three scope errors with explicit endpoint/base/working-tree controls; invalid logical marker exits128. Probe saved as tooling/review_diff_scope_probe.py. No real PR or production mutation. Findings35 (20P2/15P3); raw unit remains open. Candidate11 remains unresolved.
+
+### Skills/prompts: review identity and finding lifecycle
+
+Candidate11 reconciled into three findings: ambient checkout identity in remote-review metadata, absent PR-head binding before feedback mutation/push, and requirements findings introduced after numbering/validation. Explicit remote-source rule limits the plan-discovery claim; active standards need not be PR-authored, so no separate finding for those. URL fallback targeting remains candidate13. Findings38 (22P2/16P3); raw unit stays open. No real PR, reply or mutation performed by these reviewed workflows.

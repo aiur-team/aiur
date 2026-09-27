@@ -2576,6 +2576,89 @@
       "recommendation": "Resolve the integration base independently of the tracking upstream and state whether dirty edits are included; use endpoints that match the caller scope.",
       "refactor_hint": "Represent review scope as a typed pair of concrete endpoints plus working-tree policy, shared by all review consumers.",
       "limits": "Actual Git command semantics reproduced only in a synthetic disposable repository. No real PR review, migration, simplification or production mutation. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-36",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Remote-review metadata records the ambient checkout identity",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-code-review/SKILL.md",
+          "lines": "224-268"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/SKILL.md",
+          "lines": "505-517"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/finish-review.md",
+          "lines": "148-149"
+        }
+      ],
+      "description": "Remote review deliberately avoids checking out the requested PR, but persisted metadata and agent-mode output identify the review with current branch and git rev-parse HEAD. Those values can belong to an unrelated checkout rather than the reviewed revision, weakening the evidence attached to the verdict.",
+      "evidence": "Frozen scope and metadata contracts directly disagree about revision identity. No generated report or downstream stale-review acceptance observed.",
+      "recommendation": "Persist reviewed repository/base/head identity and scope mode separately from the local execution checkout identity.",
+      "refactor_hint": "Carry target revision and finding lifecycle explicitly across review, fixing and reporting boundaries.",
+      "limits": "Frozen-source contract analysis only; no real PR, commit, push, reply or thread-resolution action performed by the reviewed workflows. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-37",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Feedback resolution does not bind mutation and push to the requested PR head",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/SKILL.md",
+          "lines": "16-16"
+        },
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/references/full-mode.md",
+          "lines": "7-29"
+        },
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/references/full-mode.md",
+          "lines": "136-154"
+        },
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/references/targeted-mode.md",
+          "lines": "28-38"
+        },
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/references/agents/pr-comment-resolver.md",
+          "lines": "7-21"
+        }
+      ],
+      "description": "Explicit PR URLs bind comment fetching and replying to the target repository, but the flow supplies no corresponding check that the local checkout and push destination match that PR head. Fixers edit local paths; the parent stages reported files and runs bare git push, then resolves target threads after push succeeds. On an unrelated checkout, that success does not demonstrate that the requested PR received the fixes. Existing staged edits also have no ownership check.",
+      "evidence": "Reread entrypoint authority, both routing modes, fixer input/workflow and commit/push sequence; scoped search found no headRef, checkout, dirty-tree or upstream binding in the resolver references or feedback fetch script. Source-level missing precondition, not an observed mis-push. Caller-provided aligned workspaces can satisfy the condition externally.",
+      "recommendation": "Resolve and verify the target head repository/ref, checkout identity and dirty/staged ownership before editing; verify the pushed revision belongs to that PR before resolving its threads.",
+      "refactor_hint": "Carry target revision and finding lifecycle explicitly across review, fixing and reporting boundaries.",
+      "limits": "Frozen-source contract analysis only; no real PR, commit, push, reply or thread-resolution action performed by the reviewed workflows. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-38",
+      "severity": "P3",
+      "category": "correctness",
+      "title": "Requirements findings enter after review validation and numbering",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-code-review/references/finish-review.md",
+          "lines": "16-22"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/finish-review.md",
+          "lines": "44-52"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/finish-review.md",
+          "lines": "108-118"
+        }
+      ],
+      "description": "Stage5 establishes stable numbering and validates every remaining actionable finding, but Stage6 requirements completeness introduces new P1 downstream-resolver findings for explicit plans. No route back through the helper or validator is stated for these late findings, even though the report must reuse Stage5 numbers and include all actionable findings.",
+      "evidence": "Read validation selection and final requirements routing together. The final report completion gate requires stable identifiers but does not specify how late requirements findings obtain Stage5 validation. No emitted malformed report or incorrect P1 demonstrated.",
+      "recommendation": "Generate requirements candidates before Stage5, or explicitly rerun mechanics and required validation after adding them.",
+      "refactor_hint": "Carry target revision and finding lifecycle explicitly across review, fixing and reporting boundaries.",
+      "limits": "Frozen-source contract analysis only; no real PR, commit, push, reply or thread-resolution action performed by the reviewed workflows. Cross-unit semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3001,7 +3084,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files remain read. Candidate12 reconciled into findings34-35 with disposable Git probe. Continue candidate11 and remaining unresolved candidates, then semantic dedup/raw closure.",
+  "next": "All250 files read. Candidate11 reconciled into findings36-38; continue remaining candidates and semantic dedup before raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3154,6 +3237,17 @@
         "skills-prompts-cont-35"
       ],
       "reason": "Verified frozen caller/persona contracts and reproduced endpoint/upstream/dirty-tree behavior with passing controls in tooling/review_diff_scope_probe.py. Planning persona shares the endpoint issue; no additional finding for that duplicate."
+    },
+    {
+      "id": "skills-prompts-candidate-11",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-36",
+        "skills-prompts-cont-37",
+        "skills-prompts-cont-38"
+      ],
+      "reason": "Resolved target identity, mutation scope and late finding lifecycle as distinct contracts.",
+      "subconcerns": "Plan discovery names local disk, but Stage2c373 expressly requires remote-head inspection for current source/probes; do not claim an inevitable workspace plan read. Active local standards can legitimately govern review, so their checkout origin alone is not an independent defect. URL fallback targeting remains candidate13."
     }
   ],
   "coverage_validation": {
