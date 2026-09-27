@@ -347,6 +347,62 @@
       "lines": 158,
       "read": "full",
       "assessment": "All158 lines read. User selects text or a disposable sketch per decision; sketches are supporting evidence, not production design or an input channel. Helper is skill-relative with owned private scratch, detached/foreground capability fallback, version polling excluded from activity, and idle/liveness cleanup claimed. Remote host exposure and helper path semantics require implementation checks before a runtime safety conclusion. No tracking/forms/event ingestion; feedback remains in chat and text fallback is first-class. No server launched, process lifecycle tested or visual artifact generated."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/SKILL.md",
+      "sha256": "15ca4799982e17e2b44f55db2f7dc286faa4a364e15037631f6ca4e8f634eeb4",
+      "lines": 541,
+      "read": "full",
+      "assessment": "All541 lines read as frozen research data, not an invoked review. Review defaults report-only; scope selector is not checkout/apply authority, and agent mode never applies. Preserves tracked working-tree changes, remote-ref inspection, explicit versus inferred requirements, requirements-only readiness, fail-closed lite selection and content-based risk gates. However PR-remote fetch uses origin plus headRefName without verifying headRefOid, allowing same-named base-repository branch to substitute fork content; reproduced with disposable local Git repositories. Plan extraction, standards discovery and report scope metadata need reviewed-ref reconciliation before broader scope claims. Route selection precedes one-at-a-time local queue; started peer replaces local adversarial even if it later fails, with coverage degradation disclosed. No full review, model dispatch, remote API or production mutation performed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/action-class-rubric.md",
+      "sha256": "f68591b2933adc5b643b401fc24acbcc82eecca14ec695e838f860048642c32b",
+      "lines": 26,
+      "read": "full",
+      "assessment": "All26 lines read. Urgency, follow-up shape, ownership and apply authority are separate dimensions. A concrete suggested fix does not grant permission; advisory information stays report-only and obsolete automatic-owner values must not leak into action routing. No automated fix applied."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/diff-scope.md",
+      "sha256": "93d32c8dd8002783540cb5dab766d4664bd9ac40c10dae05baf85b3f547bc0aa",
+      "lines": 41,
+      "read": "full",
+      "assessment": "All41 lines read. Caller scope wins; remote scopes use supplied ref rather than ambient workspace and absent ref limits findings to diff hunks. Direct-dependency and interaction defects can be newly relevant despite unchanged source, while unrelated pre-existing issues stay outside verdict. The supplied remote ref is trusted without independently checking recorded PR head identity, so this reference does not repair the entrypoint fetch mismatch."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/persona-catalog.md",
+      "sha256": "bfee5a0ae04bf441274ddeb415edbb836c1d0d7e5419589eff69da48335c0d53",
+      "lines": 66,
+      "read": "full",
+      "assessment": "All66 lines read. Correctness is core; standards absence differs from discovery failure. Testing, maintainability, agent-facing and historical-learnings lenses require concrete applicable surface; performance and API contract do not follow async/export syntax alone. Migration artifact gate prevents unrelated model changes spawning deployment review. Cross-model and local adversarial are exclusive, and silent-pass guards trigger regardless of line count. Criteria are authored review policy, not proof of reviewer quality or actual invocation coverage."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/dispatch-reviewers.md",
+      "sha256": "02c221880f47b9aba9d15bffbde05b20f71fcc4d48940b6097e785f2d6412a97",
+      "lines": 109,
+      "read": "full",
+      "assessment": "All109 lines read. Preliminary self-review is confidence-capped and cannot manufacture independent corroboration or seed reviewers. Shared evidence is staged by path but full schemas and source-detail artifacts remain required. Deterministic foreground queue has explicit capacity degradation; route already bound and only detached peer overlaps. Remote reviewers use supplied ref for source and history, retaining the entrypoint identity risk. Compact versus full findings and CE unstructured advisory outputs remain distinct. No agents spawned; frozen instructions did not authorize delegation."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/finish-review.md",
+      "sha256": "edd07e1decd26a6b9c35bf2f02f3aa20db5a95b9c7a4c70ad56a29917b8b3164",
+      "lines": 191,
+      "read": "full",
+      "assessment": "All191 lines read. Mechanical schema/dedup/gating differs from semantic equivalence and settlement judgment; reruns preserve original detail keys and independent identities. Actual defects override preference provenance; high-severity findings cannot disappear into residual buckets without grounds. Retained findings require verified impact/evidence hydration; validation failure preserves degraded blockers rather than pretending clean. Explicit local apply requires reviewed-tree identity, targeted verification and user-work preservation. Requirements completeness, actionable queue, stable numbering and coverage must remain consistent; metadata using ambient HEAD in remote scope and Stage6 completeness additions warrant further template reconciliation. No mechanics helper, validator, apply or final-review artifact executed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/cross-model-review.md",
+      "sha256": "99e7a4c28981c1ae0dbe6017abd1420767eaecacbb1c285f1c09a8b7cb6aa373",
+      "lines": 111,
+      "read": "full",
+      "assessment": "All111 lines read. Keep requested target, intermediary, serving family and actual model receipt separate; unknown family is not independence and no receipt means unverified. Fixed disclosed route prohibits silent recipient change; started, failed, empty and never-started outcomes remain distinct. Single bounded collection follows local queue, no polling during it; deadline reap and private scratch cleanup are explicit. Peer remains read-only with code egress, and independence permits corroboration but never apply authority. These are source contracts; no external model, runner, credential probe or egress performed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/cross-model-eval.md",
+      "sha256": "2cb98b794a086b70c4ff51a2269da8b3d2a471bb1defc8f9f7df8e3d4b6a7599",
+      "lines": 67,
+      "read": "full",
+      "assessment": "All67 lines read. Eight proposed behavioral cases cover activation, fixed-route recipient disclosure, host-family evidence, bounded adaptation, failure coverage and no automatic apply. Case7 asks polling while other reviewers continue, contradicting current no-polling-during-wave/single-collection contract; case1 also retains Stage4-start wording while entrypoint binds route before local dispatch. This is an eval specification, not a passing eval result; no harness runs or quality/cost measurement claimed."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -504,6 +560,52 @@
       "recommendation": "State the automatic identity-change rule consistently and retain explicit reopen for other judged material changes. Distinguish automatic attention reactivation from acceptance of a human decision.",
       "refactor_hint": "Keep one disposition transition contract and derive operational instructions from it rather than duplicating state rules in narrative sections.",
       "limits": "Documentation inconsistency, not a proven lost reply or production incident. The isolated probe does not verify API fetching, human-versus-bot attribution, watcher wake delivery, concurrency or crash recovery. Cross-unit dedup remains pending."
+    },
+    {
+      "id": "skills-prompts-cont-07",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Remote PR review can fetch a same-named branch from the wrong repository",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-code-review/SKILL.md",
+          "lines": "258-275"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/diff-scope.md",
+          "lines": "15-24"
+        }
+      ],
+      "description": "Fork PRs correctly fail local alignment, but the remote path fetches origin headRefName into PR_HEAD_REF and trusts a successful fetch without checking headRefOid. If origin has a different same-named branch, source inspection and scope signals use that branch while the supplied PR diff describes the fork. This defeats the instruction to keep review evidence on one reviewed tree.",
+      "evidence": "tooling/review_remote_head_probe.py extracts the literal documented fetch and runs it in disposable local repositories. A fork and base repository have distinct feature heads. The documented command succeeds with the base repository head, which differs from the expected fork PR head; fetching the correct repository is a matching positive control. Source dispatch/diff rules then prefer the supplied ref without head equality verification.",
+      "recommendation": "Resolve the head from the PR's actual repository or PR ref, pin the expected head OID, and verify the fetched commit before assigning PR_HEAD_REF. On mismatch retain diff-only coverage or stop rather than using unrelated source.",
+      "refactor_hint": "Represent reviewed scope as immutable repository/head/base identities shared by source readers, scope classifiers, validators and report metadata.",
+      "limits": "Local Git reproduction of the documented command only; no GitHub API, live PR or agent review executed. Does not establish historical false findings. Initial probe file had a quoting syntax error, corrected before the successful run. Cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-08",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Cross-model eval specifies polling forbidden by the review workflow",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-code-review/references/cross-model-eval.md",
+          "lines": "51-54"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/cross-model-review.md",
+          "lines": "77-93"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/dispatch-reviewers.md",
+          "lines": "101-109"
+        }
+      ],
+      "description": "Eval case7 calls for bounded peer polling while other review work continues. The current workflow forbids polling during the local-review wave and requires a single bounded collection afterward. An evaluator following the older positive criterion could penalize the intended orchestration or accept the prohibited one.",
+      "evidence": "Full entrypoint, dispatch, cross-model contract and eval-spec reads. Contradiction is in authored positive behavior, not an observed harness result.",
+      "recommendation": "Update eval timing to require peer start before local dispatch and one post-queue collection; explicitly test that no intermediate peer polling occurs.",
+      "refactor_hint": "Version the orchestration contract and its behavioral eval together, preserving route, receipt and lifecycle distinctions.",
+      "limits": "Source-only inconsistency. No eval harness, model dispatch or latency comparison run; no assertion that existing automated tests fail."
     }
   ],
   "preserve": [
@@ -555,7 +657,15 @@
     "All282 lines read. Internal stated/inferred/excluded buckets feed a concise user-facing synthesis rather than being pasted into final requirements. Path A is only lightweight with no blocking questions; other tiers have confirmation even with rich input. Distinguish settled provenance from agent bets, preserve all requirements despite presentation compression, and use decision identity rather than phrasing for circularity. User revision requires revised confirmation within this authored workflow. Explicitly denies noninteractive brainstorming while entrypoint and other references discuss pipeline mode; retained for caller reconciliation. Scope-only chat presentation need not remove architecture decisions from an architecture-subject artifact under section contract exception. No confirmation or plan execution performed.",
     "All73 lines read. Non-software route does not pretend to produce an implementation-ready code artifact; it keeps scope-scaled dialogue, group preferences, optional domain mapping and explicit summary assumptions. Question tool exceptions cover diagnostic/narrative cases; option counts remain subject to harness limits. Optional downstream plan, local summary or publishing are separate choices. No personal or organizational content researched or published.",
     "All26 lines read. External adoption verdict requires named candidate, commitment intent and project-relative judgment; open-ended option discovery stays brainstorming. Offer is explicit and once per framing, decline resumes normal flow, and accepted verdict independently verifies session hypotheses instead of treating prior advocacy as evidence. Routing does not confer implementation or publication authority. No handoff invoked.",
-    "All158 lines read. User selects text or a disposable sketch per decision; sketches are supporting evidence, not production design or an input channel. Helper is skill-relative with owned private scratch, detached/foreground capability fallback, version polling excluded from activity, and idle/liveness cleanup claimed. Remote host exposure and helper path semantics require implementation checks before a runtime safety conclusion. No tracking/forms/event ingestion; feedback remains in chat and text fallback is first-class. No server launched, process lifecycle tested or visual artifact generated."
+    "All158 lines read. User selects text or a disposable sketch per decision; sketches are supporting evidence, not production design or an input channel. Helper is skill-relative with owned private scratch, detached/foreground capability fallback, version polling excluded from activity, and idle/liveness cleanup claimed. Remote host exposure and helper path semantics require implementation checks before a runtime safety conclusion. No tracking/forms/event ingestion; feedback remains in chat and text fallback is first-class. No server launched, process lifecycle tested or visual artifact generated.",
+    "All541 lines read as frozen research data, not an invoked review. Review defaults report-only; scope selector is not checkout/apply authority, and agent mode never applies. Preserves tracked working-tree changes, remote-ref inspection, explicit versus inferred requirements, requirements-only readiness, fail-closed lite selection and content-based risk gates. However PR-remote fetch uses origin plus headRefName without verifying headRefOid, allowing same-named base-repository branch to substitute fork content; reproduced with disposable local Git repositories. Plan extraction, standards discovery and report scope metadata need reviewed-ref reconciliation before broader scope claims. Route selection precedes one-at-a-time local queue; started peer replaces local adversarial even if it later fails, with coverage degradation disclosed. No full review, model dispatch, remote API or production mutation performed.",
+    "All26 lines read. Urgency, follow-up shape, ownership and apply authority are separate dimensions. A concrete suggested fix does not grant permission; advisory information stays report-only and obsolete automatic-owner values must not leak into action routing. No automated fix applied.",
+    "All41 lines read. Caller scope wins; remote scopes use supplied ref rather than ambient workspace and absent ref limits findings to diff hunks. Direct-dependency and interaction defects can be newly relevant despite unchanged source, while unrelated pre-existing issues stay outside verdict. The supplied remote ref is trusted without independently checking recorded PR head identity, so this reference does not repair the entrypoint fetch mismatch.",
+    "All66 lines read. Correctness is core; standards absence differs from discovery failure. Testing, maintainability, agent-facing and historical-learnings lenses require concrete applicable surface; performance and API contract do not follow async/export syntax alone. Migration artifact gate prevents unrelated model changes spawning deployment review. Cross-model and local adversarial are exclusive, and silent-pass guards trigger regardless of line count. Criteria are authored review policy, not proof of reviewer quality or actual invocation coverage.",
+    "All109 lines read. Preliminary self-review is confidence-capped and cannot manufacture independent corroboration or seed reviewers. Shared evidence is staged by path but full schemas and source-detail artifacts remain required. Deterministic foreground queue has explicit capacity degradation; route already bound and only detached peer overlaps. Remote reviewers use supplied ref for source and history, retaining the entrypoint identity risk. Compact versus full findings and CE unstructured advisory outputs remain distinct. No agents spawned; frozen instructions did not authorize delegation.",
+    "All191 lines read. Mechanical schema/dedup/gating differs from semantic equivalence and settlement judgment; reruns preserve original detail keys and independent identities. Actual defects override preference provenance; high-severity findings cannot disappear into residual buckets without grounds. Retained findings require verified impact/evidence hydration; validation failure preserves degraded blockers rather than pretending clean. Explicit local apply requires reviewed-tree identity, targeted verification and user-work preservation. Requirements completeness, actionable queue, stable numbering and coverage must remain consistent; metadata using ambient HEAD in remote scope and Stage6 completeness additions warrant further template reconciliation. No mechanics helper, validator, apply or final-review artifact executed.",
+    "All111 lines read. Keep requested target, intermediary, serving family and actual model receipt separate; unknown family is not independence and no receipt means unverified. Fixed disclosed route prohibits silent recipient change; started, failed, empty and never-started outcomes remain distinct. Single bounded collection follows local queue, no polling during it; deadline reap and private scratch cleanup are explicit. Peer remains read-only with code egress, and independence permits corroboration but never apply authority. These are source contracts; no external model, runner, credential probe or egress performed.",
+    "All67 lines read. Eight proposed behavioral cases cover activation, fixed-route recipient disclosure, host-family evidence, bounded adaptation, failure coverage and no automatic apply. Case7 asks polling while other reviewers continue, contradicting current no-polling-during-wave/single-collection contract; case1 also retains Stage4-start wording while entrypoint binds route before local dispatch. This is an eval specification, not a passing eval result; no harness runs or quality/cost measurement claimed."
   ],
   "follow_up_candidates": [
     {
@@ -593,9 +703,13 @@
     {
       "id": "skills-prompts-candidate-10",
       "question": "Check HTML reference-index blob/main mapping against selected source revision and default-branch requirements; inspect duplicated rendering references and existing provenance findings before promoting or deduplicating."
+    },
+    {
+      "id": "skills-prompts-candidate-11",
+      "question": "Reconcile remote review plan/standards discovery and ambient HEAD report metadata with reviewed-ref scope; check requirements-completeness findings introduced during Stage6 against earlier numbering/validation mechanics before promoting distinct defects."
     }
   ],
-  "next": "Read next manifest skill after ce-brainstorm; 49/250 full files, 9393/36169 lines. Five provisional P2 findings and one P3 finding; nine follow-up candidates. All brainstorm markdown references reviewed as data, workflow not yet applied.",
+  "next": "Continue ce-code-review persona assets and remaining templates; 57/250 full files, 10545/36169 lines. Six provisional P2 and two P3 findings; ten follow-up candidates. Frozen workflows remain research data, not invoked skills.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
