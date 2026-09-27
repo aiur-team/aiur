@@ -3000,6 +3000,35 @@
       "recommendation": "Offer only supported preferences or add an explicit durable representation and consumer for them; distinguish external schedule state from local reminder/opt-out preference.",
       "refactor_hint": "Derive interview choices, saved settings and report behavior from one configuration contract.",
       "limits": "Frozen-source inconsistency only; no observed lost setting, repeated prompt or user-facing report failure. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-52",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Local-only shipping fallback stages unrelated working-tree changes",
+      "locations": [
+        {
+          "path": ".claude/skills/lfg/SKILL.md",
+          "lines": "41-41"
+        },
+        {
+          "path": ".claude/skills/lfg/SKILL.md",
+          "lines": "67-67"
+        },
+        {
+          "path": ".claude/skills/lfg/references/review-followup.md",
+          "lines": "40-40"
+        },
+        {
+          "path": ".claude/skills/ce-work/SKILL.md",
+          "lines": "289-290"
+        }
+      ],
+      "description": "When no remote exists, LFG bypasses the shipping skill and prescribes git add -A followed by commit for remaining changes. Unlike ordinary unit/review steps that select related files, this path has no explicit ownership check or task-file selection. A local-only checkout containing unrelated modifications or untracked files can include them in the shipping commit.",
+      "evidence": "Read fallback, shipping precondition, complete review-followup and ce-work environment/commit rules. Existing-feature-branch continuation is supported, so an isolated clean worktree is not universal. No unrelated user file was staged or committed during this research.",
+      "recommendation": "Retain the same task-owned staging policy in the local-only fallback, checking staged and unstaged ownership before commit.",
+      "refactor_hint": "Separate publication availability from commit ownership so offline paths reuse the normal selective-commit contract.",
+      "limits": "Frozen-source command scope review only; no LFG execution or observed accidental commit. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3425,7 +3454,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidate33 reconciled.14 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidate46 reconciled.13 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3675,6 +3704,13 @@
       "finding": "skills-prompts-cont-51",
       "reason": "Explicit accept-and-record rules conflict with explicit non-configurable/persistence exclusions.",
       "subconcerns": "Scoring notes and needs-review flags could be encoded alongside free-text values, so absent dedicated keys alone not promoted. Minute-resolution report path can collide, but no append-only history or overwrite behavior was demonstrated; preserve unique-run identity/retention as a rewrite question rather than an observed loss finding. Existing revenue-default finding15 remains separate."
+    },
+    {
+      "id": "skills-prompts-candidate-46",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-52",
+      "reason": "Local-only broad staging is a concrete scope gap.",
+      "subconcerns": "CI-decided with durable residuals and no-remote local completion are explicit policy exceptions, not evidence that CI is falsely reported green. Changed-file gate may refer to already implemented branch changes; step27 expressly permits evidence-only idempotent retry, so no forced reimplementation proven. Step6 opening-PR reference is stale but checks actual PR existence; no independent wrong-PR behavior established. Preserve richer completion states as a rewrite requirement."
     }
   ],
   "coverage_validation": {
@@ -3687,8 +3723,8 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 28,
-    "unresolved_candidates": 14,
+    "terminal_dispositions": 29,
+    "unresolved_candidates": 13,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
@@ -3702,8 +3738,7 @@
       "skills-prompts-candidate-40",
       "skills-prompts-candidate-41",
       "skills-prompts-candidate-43",
-      "skills-prompts-candidate-44",
-      "skills-prompts-candidate-46"
+      "skills-prompts-candidate-44"
     ],
     "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."
   }

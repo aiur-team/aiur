@@ -1515,3 +1515,7 @@ Candidates25/27 resolved: integration/cleanup precedes final outcome logging wit
 ### Skills/prompts: pulse preference persistence
 
 Candidate33 resolved: interview accepts error/latency preferences expressly unsupported by final config/report rules, and promises scheduling preferences without their persistence contract. Scoring-note encoding and same-minute report retention remain design questions, not independently proven incidents. Findings51 (31P2/20P3);14 listed candidates unresolved. No config, report, schedule or production changes.
+
+### Skills/prompts: local-only shipping ownership
+
+Candidate46 resolved: no-remote fallback uses git add -A instead of task-owned staging. CI residual and local-only DONE paths are explicit exceptions, not false green claims; evidence-only idempotent retry is explicitly supported. Findings52 (32P2/20P3);13 listed candidates unresolved. No LFG execution or production mutation.
