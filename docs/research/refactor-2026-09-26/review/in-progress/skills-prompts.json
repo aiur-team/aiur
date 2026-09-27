@@ -2484,6 +2484,52 @@
       "recommendation": "State one authoritative recording rule and let both command forms satisfy it; consider an explicit wake identity if duplicate recording must be rejected.",
       "refactor_hint": "Make recovery authority and monitoring-event ownership explicit, with one consistent contract across operating instructions.",
       "limits": "Frozen-source review only; no production mutation or historical causal claim. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-32",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "HTML issue handoff lacks an output-format adapter",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-plan/references/plan-handoff.md",
+          "lines": "68-76"
+        },
+        {
+          "path": ".claude/skills/ce-plan/references/plan-handoff.md",
+          "lines": "130-137"
+        },
+        {
+          "path": ".claude/skills/ce-plan/references/html-rendering.md",
+          "lines": "11-25"
+        }
+      ],
+      "description": "HTML is the sole plan artifact for an HTML run, and Create Issue remains offered without a format gate. Issue creation tells the agent to send the plan body as Markdown/description and gives gh issue create --body-file <plan_path>, without converting or linking the HTML artifact. This does not establish that the destination receives the same readable plan representation.",
+      "evidence": "Re-read format exclusivity, menu gating and complete issue creation path. No tracker request or rendering experiment performed; no specific server sanitization, lost text or current API behavior claimed.",
+      "recommendation": "Adapt the selected artifact to the tracker body format, or publish an accessible artifact link with a readable issue summary.",
+      "refactor_hint": "Use explicit artifact format and execution-authority contracts at workflow handoffs.",
+      "limits": "Frozen-source instruction review only; no issue created, rendered tracker output verified, or implementation started. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-33",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Atomic-work shortcut bypasses the planning-only boundary",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-plan/SKILL.md",
+          "lines": "15-23"
+        },
+        {
+          "path": ".claude/skills/ce-plan/references/plan-sections.md",
+          "lines": "113-161"
+        }
+      ],
+      "description": "The entrypoint defines planning as a durable artifact workflow that does not implement code. The section contract instead permits skipping the artifact for atomic work and directs that work immediately to ce-work or implementation, without a separate execution-authority condition. A planning-only request can therefore encounter incompatible terminal directions.",
+      "evidence": "Re-read all four atomic-skip conditions and its terminal direction. User instructions remain higher priority, so this is contradictory skill routing rather than evidence of an actual unauthorized implementation.",
+      "recommendation": "Keep a lightweight planning response for atomic requests; route to implementation only when the caller has authorized execution.",
+      "refactor_hint": "Use explicit artifact format and execution-authority contracts at workflow handoffs.",
+      "limits": "Frozen-source instruction review only; no issue created, rendered tracker output verified, or implementation started. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -2909,7 +2955,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 planned files remain read. Candidates02/06/08 reconciled into findings29-31. Continue unresolved candidate reconciliation and semantic dedup before raw-unit closure.",
+  "next": "All250 planned files remain read. Candidates28/30 reconciled into findings32-33 with subconcern dispositions. Continue unresolved review-scope and remaining candidate reconciliation, then semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3040,6 +3086,19 @@
       "status": "promoted",
       "finding": "skills-prompts-cont-31",
       "reason": "Read complete observe and plan_wait event-writing portions: observe appends at402 and plan_wait at451, with no shared wake identity check in either path. No live retrospective was modified and no historical denominator inflation is claimed."
+    },
+    {
+      "id": "skills-prompts-candidate-28",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-32",
+      "reason": "Re-read format exclusivity, menu gating and complete issue creation path. No tracker request or rendering experiment performed; no specific server sanitization, lost text or current API behavior claimed."
+    },
+    {
+      "id": "skills-prompts-candidate-30",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-33",
+      "reason": "Re-read all four atomic-skip conditions and its terminal direction. User instructions remain higher priority, so this is contradictory skill routing rather than evidence of an actual unauthorized implementation.",
+      "subconcerns": "Unit-heading concern ruled out by markdown-rendering48-59, which permits bullet or heading and explicitly shows U1 heading. Title prefix is a draft instruction followed by a specific final metadata rule (plan-sections333-341); no separate defect promoted. Universal-planning11 gives a stale software-only explanation, but the pipeline restriction can still apply while explicit ce-work knowledge-work routing exists (ce-work32-34 and non-code-execution1-23); no wrong execution proven. Specialist SQL/shell research output need not be copied verbatim into the final plan; parent44,542,554-562 governs final synthesis, so no independent output defect established."
     }
   ],
   "coverage_validation": {

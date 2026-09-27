@@ -1471,3 +1471,7 @@ Reconciled four candidates using caller/child contracts: brainstorm pipeline-mod
 ### Skills/prompts: operational recovery and monitoring reconciliation
 
 Reconciled candidates02/06/08: unchecked index-lock deletion, global-resume recovery versus binding existing pauses, and mandatory observe versus exactly-one recording rule. Both retrospective functions independently append monitoring outcomes; no live log was changed. Per-ticket handler returns globally_paused explicitly, but complete CLI exit behavior remains unverified and is not claimed. Findings31 (18P2/13P3); raw unit remains open. All250-file coverage unchanged. No lock removal, runtime resume or production change.
+
+### Skills/prompts: artifact handoff and planning boundary
+
+Candidates28/30 reconciled: HTML issue handoff lacks format adaptation; atomic-work shortcut bypasses planning-only direction. Unit headings explicitly supported, draft title normalized by final metadata contract, and internal specialist examples do not require verbatim final output. Knowledge-work carve-out disproves the universal explanation but not its pipeline restriction. Findings33 (18P2/15P3); coverage remains250/250 and raw unit stays open. No issue creation, tracker rendering claim or implementation.
