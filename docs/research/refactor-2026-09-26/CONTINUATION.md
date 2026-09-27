@@ -782,3 +782,18 @@ Display/history bounds and chart geometry may share local policy while retaining
 redaction, eviction bookkeeping and layout semantics. Equal delays, counts and
 retention durations alone do not support extraction. Source hashes and targeted
 publication checks passed. No production changes or runtime verification.
+
+## Numeric payload and timing policy checkpoint
+
+121 of 162 attribute groups assessed; 41 numeric groups remain. Twenty-two
+additional groups cover payload/storage limits, display counts and timing defaults.
+Aggregate checkpoint write/load/recovery defaults form a shared 32 MiB contract;
+compaction blocks are a separate format. Membership storage already consumes Codec
+limit accessors. Issue-list response limits and Executor-message admission bounds
+each contain a related subset among otherwise unrelated equal values.
+
+Keep bytes, text lengths, sample rates, ticks and durations distinct. A post-return
+System.cmd output-size check does not establish bounded capture allocation. The
+OpenAICompat counter-array slot count is not a concurrency cap. No live performance,
+filesystem atomicity or external-service guarantees were inferred from source
+comments. Hash checks passed; no production changes. Broader sweeps remain open.
