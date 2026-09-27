@@ -98327,10 +98327,490 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "cancel_ci_wait_rewake",
+      "assessment": "Orchestrator already delegates CI rewake cancellation to its lifecycle owner.",
+      "constraints": [
+        "CiLifecycle pops the issue entry, cancels a reference timer when present and stores the remaining map; absent or nonbinary issue IDs retain state.",
+        "Orchestrator forwards the state and issue ID.",
+        "Preserve map removal and timer ownership. Process.cancel_timer alone does not establish removal of an already-delivered mailbox message; no timer was cancelled during research."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 384,
+          "module": "Aiur.Orchestrator",
+          "name": "cancel_ci_wait_rewake",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 384,
+          "body_sha256": "e316f4f634bf55131e223f1b263b28f51a2b7503cfe2d292d090429e725e8f24",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 274,
+          "module": "Aiur.Orchestrator.CiLifecycle",
+          "name": "cancel_ci_wait_rewake",
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "kind": "def",
+          "end_line": 283,
+          "body_sha256": "7e4c6e8a9fd45b6bfdaa978cb1d1a6c253fec6cead5f3941e95bebc3993b9521",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 285,
+          "module": "Aiur.Orchestrator.CiLifecycle",
+          "name": "cancel_ci_wait_rewake",
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "kind": "def",
+          "end_line": 285,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cancel_provider_expectation",
+      "assessment": "Workspace client ingress and guardian generation checks are distinct layers.",
+      "constraints": [
+        "Ownership routes a lease containing a guardian PID and generation to call, otherwise returns workspace_ownership_lost.",
+        "Guardian persists provider_expected? false and cleanup not_started only for the matching lease generation with provider nil; all other cases return an ownership-lost error with unchanged state.",
+        "Keep generation and no-provider preconditions at the state owner; persistence success and call failure mapping remain transitive."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 86,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "cancel_provider_expectation",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 87,
+          "body_sha256": "591013af2ee35bce312bee95a0a5140dfc6d39783463a3c4cfb1047541568555",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 89,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "cancel_provider_expectation",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 89,
+          "body_sha256": "fbd6f1181511f6f700273f357a0b98b2d49f3f30f15036c996e86c47136f83ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 256,
+          "module": "Aiur.Workspace.Ownership.Guardian",
+          "name": "cancel_provider_expectation",
+          "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+          "kind": "defp",
+          "end_line": 257,
+          "body_sha256": "7f5849426a0be62cae95519432ab807acdd4b5f82ee431a6b2fcfed1eb66fcc3",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 259,
+          "module": "Aiur.Workspace.Ownership.Guardian",
+          "name": "cancel_provider_expectation",
+          "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+          "kind": "defp",
+          "end_line": 259,
+          "body_sha256": "c24dcece51db5264a25e2a3531f7a0a662ce859273c8ecacb6b960265652cf06",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "candidate",
+      "assessment": "Checkpoint serialization selection and indexed query candidate selection are different domains.",
+      "constraints": [
+        "Checkpoint stamps checkpoint_generation and takes canonical fields.",
+        "RetainedSnapshot.QueryPlan prioritizes ticket, then search, then lifecycle subsets/unions, then all indexed records with query ordering.",
+        "Preserve canonical checkpoint field policy versus candidate-source precedence; candidate selection alone does not establish final filtering, pagination or recovery completeness."
+      ],
+      "clauses": 9,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 50,
+          "module": "Aiur.CurrentRunProjections.Checkpoint",
+          "name": "candidate",
+          "path": "src/lib/aiur/current_run_projections/checkpoint.ex",
+          "kind": "def",
+          "end_line": 54,
+          "body_sha256": "65b347fe3691d69d13c76fcaeec54fd3f75848e8a2ae3b0eb0fb0ba4e6c22c2d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 39,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "kind": "defp",
+          "end_line": 40,
+          "body_sha256": "f399271581d70df32e1a14a2e427cfe2042a84ab7e995e1972cc52d35bd57e79",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 42,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "kind": "defp",
+          "end_line": 43,
+          "body_sha256": "9e13dc312b6f851a117bde5be905e8a3dd655e1c643b9cf9ccd7844700985c8e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 45,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "kind": "defp",
+          "end_line": 45,
+          "body_sha256": "b4a45151f60ee720d7adff2630a8d547e11b5bf335b50d5cdd3265cfea450daa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 46,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "kind": "defp",
+          "end_line": 46,
+          "body_sha256": "221c9ec6107cb4351c3a8a7c24f38324c76b1389c0f748004d7ada5c0d4107dc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 48,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "kind": "defp",
+          "end_line": 49,
+          "body_sha256": "5eab3351662e522b6ace35c1bd9fc2cc09a49294df4e79bd425148674b028c2b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 51,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "kind": "defp",
+          "end_line": 51,
+          "body_sha256": "c91423ef38f176b78dd6dfc7f2b2084613ff9ee81a8f56d13e134e0caf3fb083",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 52,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "kind": "defp",
+          "end_line": 52,
+          "body_sha256": "d5b67eff5f9961b359b97ec252451af0027311d822602541b8ce549c7d0f6452",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 54,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "kind": "defp",
+          "end_line": 54,
+          "body_sha256": "4294fb62850d4990bbb341f3096e8905a083a94c7fe2a12885b6d6aa45e6763c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "canonical",
+      "assessment": "Live conversation source identity differs from token-usage compatibility normalization.",
+      "constraints": [
+        "LiveConversation.Source validates outer source fields, resolves GitHub identity and run/session data, returning a raw identity tuple plus a selected public map with opaque session ID.",
+        "Usage.Headless.Compatibility delegates directly to TokenUsage.canonicalize.",
+        "Read opaque_session_id entry: nil remains nil and other values delegate to opaque_id. Keep private correlation identity separate from public projection; validation/redaction completeness is not certified here."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 33,
+          "module": "Aiur.LiveConversation.Source",
+          "name": "canonical",
+          "path": "src/lib/aiur/live_conversation/source.ex",
+          "kind": "def",
+          "end_line": 66,
+          "body_sha256": "4a27357647e6e7e49e014fa4209baeb54ed9a4dcbae0cfba8eb7c0b5f6a2c6fb",
+          "normalized_body_lines": 28,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 68,
+          "module": "Aiur.LiveConversation.Source",
+          "name": "canonical",
+          "path": "src/lib/aiur/live_conversation/source.ex",
+          "kind": "def",
+          "end_line": 68,
+          "body_sha256": "9e312653be4d89fd7b63b5dfd277c1877616d671dca2a81146373ffc8d714358",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 21,
+          "module": "Aiur.Usage.Headless.Compatibility",
+          "name": "canonical",
+          "path": "src/lib/aiur/usage/headless/compatibility.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "490190add30ee8422311c60da513c4c1b43560fd1affba90e289c6d6efd3205a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "canonicalize",
+      "assessment": "Filesystem resolution and provider token normalization are unrelated contracts.",
+      "constraints": [
+        "PathSafety expands a binary path, resolves segments and wraps resolver errors with the expanded path.",
+        "TokenUsage searches input/output/total aliases in maps; if any parsed value exists, it fills missing dimensions with zero, while nil/nonmaps return nil.",
+        "Read token_value: ordered aliases use the first truthy parsed value. Path resolution and token parser internals remain transitive; zero defaults are not independently observed counts."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 7,
+          "module": "Aiur.PathSafety",
+          "name": "canonicalize",
+          "path": "src/lib/aiur/path_safety.ex",
+          "kind": "def",
+          "end_line": 18,
+          "body_sha256": "bea39ba203d7c3fa1ebf59a10d981fe647d5ce10aa49865a67f2e0b85c5ebdf9",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 15,
+          "module": "Aiur.TokenUsage",
+          "name": "canonicalize",
+          "path": "src/lib/aiur/token_usage.ex",
+          "kind": "def",
+          "end_line": 15,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 17,
+          "module": "Aiur.TokenUsage",
+          "name": "canonicalize",
+          "path": "src/lib/aiur/token_usage.ex",
+          "kind": "def",
+          "end_line": 37,
+          "body_sha256": "52bc36486a14b48901e231919db143f55182cff421ec6704d1bc2f76e6336110",
+          "normalized_body_lines": 30,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 39,
+          "module": "Aiur.TokenUsage",
+          "name": "canonicalize",
+          "path": "src/lib/aiur/token_usage.ex",
+          "kind": "def",
+          "end_line": 39,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "capacity_hold_payload",
+      "assessment": "Producer timing and web projection share a schema but different responsibilities.",
+      "constraints": [
+        "StatusReport emits held state with signal/measurement/threshold, computes nonnegative hold duration and obtains separate sample age from CapacityBinding; absent hold yields explicit nil measurement fields.",
+        "Presenter forwards the fields and validates both durations through non_negative_integer; read helper preserves nonnegative integers and returns nil otherwise.",
+        "Preserve hold duration versus measurement age and nil unknowns. Forwarding computed age does not prove rendering on every consumer."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 427,
+          "module": "Aiur.Orchestrator.StatusReport",
+          "name": "capacity_hold_payload",
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "kind": "defp",
+          "end_line": 446,
+          "body_sha256": "4de8247b455d0469da88c86d88b4aadb75a8967c8ec0221ed71056c803603979",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 490,
+          "module": "AiurWeb.Presenter",
+          "name": "capacity_hold_payload",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "kind": "defp",
+          "end_line": 503,
+          "body_sha256": "37588b6bacf6b693a3ac0c25c1c4953e613fdf86eb762863de26b21f38f5adeb",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 505,
+          "module": "AiurWeb.Presenter",
+          "name": "capacity_hold_payload",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "kind": "defp",
+          "end_line": 506,
+          "body_sha256": "beac8de3b2367c9783a2772c92081d713619e3a0a2723e08800e1b54e36b5370",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "capture_pane",
+      "assessment": "Tmux client RPC and command execution are already separated.",
+      "constraints": [
+        "Tmux uses a 5000 millisecond GenServer call, translating noproc and timeout exits to tagged errors.",
+        "Tmux.Query executes capture-pane -p -t with the pane ID through Exec.run_args.",
+        "Keep caller timeout/error translation separate from tmux command execution; no pane was captured and rendered UX is not certified by this source read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 306,
+          "module": "Aiur.Tmux",
+          "name": "capture_pane",
+          "path": "src/lib/aiur/tmux.ex",
+          "kind": "def",
+          "end_line": 311,
+          "body_sha256": "b32423058cb730356da01eec2b45e51af37ae7f9d835d526e3b71ee0e9bb88ab",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 10,
+          "module": "Aiur.Tmux.Query",
+          "name": "capture_pane",
+          "path": "src/lib/aiur/tmux/query.ex",
+          "kind": "def",
+          "end_line": 12,
+          "body_sha256": "1a07b0bce957eff5e1fd1e1c7c027e619e0cb05a77b6c79a8e6a98d2ddd5de5c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "captures",
+      "assessment": "Regex capture flattening matches with opposite argument order.",
+      "constraints": [
+        "AffectedTests accepts text then regex; OpenAICompat.ToolCallParser accepts regex then text.",
+        "Both call Regex.scan with all_but_first capture and flatten the resulting lists.",
+        "A shared primitive must standardize argument order explicitly; this does not establish equivalence of the callers' patterns or parsing correctness."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 145,
+          "module": "Aiur.AffectedTests",
+          "name": "captures",
+          "path": "src/lib/aiur/affected_tests.ex",
+          "kind": "defp",
+          "end_line": 145,
+          "body_sha256": "1ac003791b849529fce0699253ec7fd11a5b63fa6aaba53542da03426adde02d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 17,
+          "module": "Aiur.OpenAICompat.ToolCallParser",
+          "name": "captures",
+          "path": "src/lib/aiur/open_ai_compat/tool_call_parser.ex",
+          "kind": "defp",
+          "end_line": 17,
+          "body_sha256": "1ac003791b849529fce0699253ec7fd11a5b63fa6aaba53542da03426adde02d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7269,
-  "limits": "709 selected families and 7269 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7299,
+  "limits": "717 selected families and 7299 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
