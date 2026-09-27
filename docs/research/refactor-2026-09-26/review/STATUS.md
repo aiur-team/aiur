@@ -766,3 +766,7 @@ Reconciled candidates02/06/08: unchecked index-lock deletion, global-resume reco
 ### Skills/prompts: artifact handoff and planning boundary
 
 Candidates28/30 reconciled: HTML issue handoff lacks format adaptation; atomic-work shortcut bypasses planning-only direction. Unit headings explicitly supported, draft title normalized by final metadata contract, and internal specialist examples do not require verbatim final output. Knowledge-work carve-out disproves the universal explanation but not its pipeline restriction. Findings33 (18P2/15P3); coverage remains250/250 and raw unit stays open. No issue creation, tracker rendering claim or implementation.
+
+### Skills/prompts: review endpoint verification
+
+Candidate12 resolved into two P2 findings: migration dispatch passes a logical base marker and one-ended commands inspect the ambient tree; simplification can choose the feature tracking upstream and omit uncommitted edits. Disposable Git probe reproduces all three scope errors with explicit endpoint/base/working-tree controls; invalid logical marker exits128. Probe saved as tooling/review_diff_scope_probe.py. No real PR or production mutation. Findings35 (20P2/15P3); raw unit remains open. Candidate11 remains unresolved.

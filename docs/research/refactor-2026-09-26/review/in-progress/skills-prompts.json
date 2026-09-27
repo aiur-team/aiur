@@ -2530,6 +2530,52 @@
       "recommendation": "Keep a lightweight planning response for atomic requests; route to implementation only when the caller has authorized execution.",
       "refactor_hint": "Use explicit artifact format and execution-authority contracts at workflow handoffs.",
       "limits": "Frozen-source instruction review only; no issue created, rendered tracker output verified, or implementation started. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-34",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Migration review commands do not preserve remote review endpoints",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-code-review/SKILL.md",
+          "lines": "245-268"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/dispatch-reviewers.md",
+          "lines": "61-68"
+        },
+        {
+          "path": ".claude/skills/ce-code-review/references/personas/data-migration-reviewer.md",
+          "lines": "13-29"
+        },
+        {
+          "path": ".claude/skills/ce-plan/references/agents/data-migration-reviewer.md",
+          "lines": "17-37"
+        }
+      ],
+      "description": "Remote PR scope defines BASE as a logical pr marker and separately resolves PR_BASE_REF, but the migration dispatch slot requests the BASE marker as its diffable review base. Even with the real base substituted, the persona commands omit the reviewed head and inspect the ambient working tree. The planning counterpart shares the one-ended command and must bind it to the supplied diff scope. General remote inspection rules narrow expected behavior but conflict with these explicit commands.",
+      "evidence": "Disposable Git fixture: pr:123 diff rejects with exit128; real-base one-ended diff shows ambient_column and misses requested_column; explicit base/head control shows only requested_column. Distinct from finding07: this probe supplies the correct head and demonstrates endpoint loss after ref resolution.",
+      "recommendation": "Pass concrete base and head endpoints plus scope mode into specialist prompts; reserve one-ended diffs for intentionally reviewed working trees.",
+      "refactor_hint": "Represent review scope as a typed pair of concrete endpoints plus working-tree policy, shared by all review consumers.",
+      "limits": "Actual Git command semantics reproduced only in a synthetic disposable repository. No real PR review, migration, simplification or production mutation. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-35",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Simplification default can use the feature upstream and omit dirty edits",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-simplify-code/SKILL.md",
+          "lines": "9-18"
+        }
+      ],
+      "description": "Default scope permits configured upstream as the branch base, although it can be the same published feature branch. Its triple-dot example also excludes uncommitted edits whenever a base exists. The fallback to staged and unstaged changes applies only when no upstream/base exists, so substantive current work can yield an empty or incomplete default scope.",
+      "evidence": "Disposable Git fixture: matching origin/feature triple-dot diff is empty while integration-base diff contains the feature change. An uncommitted schema edit is absent from the integration-base triple-dot diff and present in the one-ended working-tree control. Explicit user scope still wins and limits affected invocations.",
+      "recommendation": "Resolve the integration base independently of the tracking upstream and state whether dirty edits are included; use endpoints that match the caller scope.",
+      "refactor_hint": "Represent review scope as a typed pair of concrete endpoints plus working-tree policy, shared by all review consumers.",
+      "limits": "Actual Git command semantics reproduced only in a synthetic disposable repository. No real PR review, migration, simplification or production mutation. Cross-unit semantic dedup pending."
     }
   ],
   "preserve": [
@@ -2955,7 +3001,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 planned files remain read. Candidates28/30 reconciled into findings32-33 with subconcern dispositions. Continue unresolved review-scope and remaining candidate reconciliation, then semantic dedup and raw-unit closure.",
+  "next": "All250 files remain read. Candidate12 reconciled into findings34-35 with disposable Git probe. Continue candidate11 and remaining unresolved candidates, then semantic dedup/raw closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3099,6 +3145,15 @@
       "finding": "skills-prompts-cont-33",
       "reason": "Re-read all four atomic-skip conditions and its terminal direction. User instructions remain higher priority, so this is contradictory skill routing rather than evidence of an actual unauthorized implementation.",
       "subconcerns": "Unit-heading concern ruled out by markdown-rendering48-59, which permits bullet or heading and explicitly shows U1 heading. Title prefix is a draft instruction followed by a specific final metadata rule (plan-sections333-341); no separate defect promoted. Universal-planning11 gives a stale software-only explanation, but the pipeline restriction can still apply while explicit ce-work knowledge-work routing exists (ce-work32-34 and non-code-execution1-23); no wrong execution proven. Specialist SQL/shell research output need not be copied verbatim into the final plan; parent44,542,554-562 governs final synthesis, so no independent output defect established."
+    },
+    {
+      "id": "skills-prompts-candidate-12",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-34",
+        "skills-prompts-cont-35"
+      ],
+      "reason": "Verified frozen caller/persona contracts and reproduced endpoint/upstream/dirty-tree behavior with passing controls in tooling/review_diff_scope_probe.py. Planning persona shares the endpoint issue; no additional finding for that duplicate."
     }
   ],
   "coverage_validation": {
