@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "0ab2d059af155c5ee56c6c01da5845bdbe960303b9d0c14fa3c4694c2e36a1e1"
+    "name_triage": "5b9f42a0dce0a2453227826277db294beb8996da79fd31565ea44a1c3e4eb811"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 557,
-    "remaining_cross_module_names": 1123,
-    "remaining_literal_entries": 3516
+    "reviewed_cross_module_names": 565,
+    "remaining_cross_module_names": 1115,
+    "remaining_literal_entries": 3484
   },
   "families": [
-    {
-      "name": "root",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 331
-    },
-    {
-      "name": "rotate",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 40
-    },
-    {
-      "name": "route",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "routing_backend",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "runtime",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "runtime_deps",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 47
-    },
-    {
-      "name": "safe_atom",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "safe_snapshot",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 24
-    },
     {
       "name": "safe_subscribe",
       "clauses": 3,

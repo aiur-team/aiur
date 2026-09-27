@@ -89798,10 +89798,521 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "root",
+      "assessment": "Root denotes graph normalization, cache location and the document shell.",
+      "constraints": [
+        "GitHubGraph.Normalizer builds a RootSummary with identity/parent/labels/timestamps/metrics, appends diagnostics and validates the root label.",
+        "AgentCache derives a relative cache root only from a nonempty state directory.",
+        "Layouts builds the HTML shell, CSRF/title assigns, theme restoration, script loading and LiveView hooks for logs, navigation, usage watching, theme and clipboard.",
+        "These belong to separate package domains. The entire literal shell body was read, but browser lifecycle, security and imported-hook behavior were not exercised."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 11,
+          "module": "Aiur.BuildOrder.GitHubGraph.Normalizer",
+          "name": "root",
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "kind": "def",
+          "end_line": 46,
+          "body_sha256": "25329b00e2fb1c7c5066448e22095b6a76347c957e5a94f1937e337b989d08da",
+          "normalized_body_lines": 41,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 68,
+          "module": "Aiur.GitHub.AgentCache",
+          "name": "root",
+          "path": "src/lib/aiur/github/agent_cache.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "0914e39e551a00deb63db5135ba98e9d75b23a0f31814ffb316238e84e32d9f7",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 9,
+          "module": "AiurWeb.Layouts",
+          "name": "root",
+          "path": "src/lib/aiur_web/components/layouts.ex",
+          "kind": "def",
+          "end_line": 297,
+          "body_sha256": "8f282827ccdf7c7f39586df981b462fdc4678a834dd44872898c9819aed1e86d",
+          "normalized_body_lines": 293,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "rotate",
+      "assessment": "Two file-rotation implementations match; pack rotation is unrelated scheduling.",
+      "constraints": [
+        "AgentProcessLog and GitHub.RequestLog shift numbered generations, remove the first destination, rename the active file, and rescue exceptions to ok.",
+        "Intermediate rename results are not required to succeed; RequestLog adds a public wrapper using its configured generation count.",
+        "PackStatus rotates a list by offset modulo length and handles the empty list separately.",
+        "Shared file mechanics must preserve or deliberately revisit best-effort failure semantics. Returned ok is not evidence every log generation was retained."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 413,
+          "module": "Aiur.AgentProcessLog",
+          "name": "rotate",
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "kind": "defp",
+          "end_line": 413,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 415,
+          "module": "Aiur.AgentProcessLog",
+          "name": "rotate",
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "kind": "defp",
+          "end_line": 430,
+          "body_sha256": "f276e43e5bd1a1ee305221c2918ff48f59ae2bfc20fdcb6b061fc015b3c0828f",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 332,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "rotate",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "defp",
+          "end_line": 332,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 334,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "rotate",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "defp",
+          "end_line": 337,
+          "body_sha256": "537a911cae8fcb889c6f0d31e086111761190de1007766a3ba52d7a7061acc64",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 158,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "rotate",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "def",
+          "end_line": 158,
+          "body_sha256": "82f9224ee36750d9bd7da9c10136c3e2cb6ae0c0f94c29eb183cb637f9811412",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 237,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "rotate",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 237,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 239,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "rotate",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 254,
+          "body_sha256": "f276e43e5bd1a1ee305221c2918ff48f59ae2bfc20fdcb6b061fc015b3c0828f",
+          "normalized_body_lines": 24,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "route",
+      "assessment": "Event routing, route-state extraction and registry lookup are separate operations.",
+      "constraints": [
+        "Orchestrator.EventTopics classifies a binary topic and dispatches the event.",
+        "BuildOrder.RouteState returns the stored route field.",
+        "RouteRegistry searches routes derived from analytics for an atom ID and returns tagged success or error.",
+        "Do not merge these on naming alone; dispatch policy, selected navigation state and registry availability have different contracts."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 9,
+          "module": "Aiur.Orchestrator.EventTopics",
+          "name": "route",
+          "path": "src/lib/aiur/orchestrator/event_topics.ex",
+          "kind": "def",
+          "end_line": 11,
+          "body_sha256": "d4faca525be241a1f57ba4e819f26ff2ff3a544fb9016d0bce6a125a9f73343f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 155,
+          "module": "AiurWeb.BuildOrder.RouteState",
+          "name": "route",
+          "path": "src/lib/aiur_web/build_order/route_state.ex",
+          "kind": "def",
+          "end_line": 155,
+          "body_sha256": "779b8c40d7a43dc150b712ff2cdc2e346cb09586bfa01c44be458685c2cde25a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 79,
+          "module": "AiurWeb.OperatorControlCenter.RouteRegistry",
+          "name": "route",
+          "path": "src/lib/aiur_web/operator_control_center/route_registry.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "a05db5be08fa81eef99d0fb7b15b4013f08142ce23cdfa3ac6515952fc3dfc46",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "routing_backend",
+      "assessment": "Backend extraction overlaps but initialization uses a simpler parser.",
+      "constraints": [
+        "CodingAgent derives an issue routing value and uses RoutingValue.split_routing_value; RoutingValue.routing_backend does the same for binary input and returns nil otherwise.",
+        "The split helper was read: it strips the remote flag, splits into at most three colon parts and handles an absent/empty model.",
+        "Init.Resume stringifies input and selects the first colon-separated segment without using that helper.",
+        "Preserve suffix handling and input coercion differences before sharing parsing; the remote-flag helper and actual init input population were not reverified in this batch."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1107,
+          "module": "Aiur.CodingAgent",
+          "name": "routing_backend",
+          "path": "src/lib/aiur/coding_agent.ex",
+          "kind": "def",
+          "end_line": 1112,
+          "body_sha256": "df134ce50df207c70379784ac724ff1906931ec34db4676cd3d1c21637dd5a97",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 51,
+          "module": "Aiur.Config.RoutingValue",
+          "name": "routing_backend",
+          "path": "src/lib/aiur/config/routing_value.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "da0f9f3645e71530861f4d8f4e8dbb8b69b3b0373b20f81e15ad6af91a496498",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 52,
+          "module": "Aiur.Config.RoutingValue",
+          "name": "routing_backend",
+          "path": "src/lib/aiur/config/routing_value.ex",
+          "kind": "def",
+          "end_line": 52,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 124,
+          "module": "Aiur.Init.Resume",
+          "name": "routing_backend",
+          "path": "src/lib/aiur/init/resume.ex",
+          "kind": "def",
+          "end_line": 124,
+          "body_sha256": "f191e8bca9c3b4e2e70e7b355057db7a6b77b592cbf9c3d99b4c54cfe8087121",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "runtime",
+      "assessment": "Runtime presentation differs in data shape and unavailable behavior.",
+      "constraints": [
+        "FleetTable accepts integer runtime_seconds without a nonnegative guard, or computes a clamped duration from a top-level started_at string; unavailable output is an em dash.",
+        "UnitsTable delegates to UnitsPresentation.runtime_label. That helper was read: it uses nested runtime/timestamps fields, requires nonnegative seconds and renders Unavailable.",
+        "UnitsRow.Fields builds a runtime map carrying bucket/work state/wait reason/pause flag/runtime/staleness and membership lifecycle.",
+        "Keep raw projection separate from formatting and preserve missing-time evidence. No rendered end-to-end equivalence is claimed."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 138,
+          "module": "AiurWeb.OperatorControlCenter.FleetTable",
+          "name": "runtime",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "kind": "defp",
+          "end_line": 138,
+          "body_sha256": "75ecaf82691ef2781e921271d32f1c1a5f1b540e52abcf4c177fff5a9fc531c5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 140,
+          "module": "AiurWeb.OperatorControlCenter.FleetTable",
+          "name": "runtime",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "kind": "defp",
+          "end_line": 145,
+          "body_sha256": "009f01c6171b19c121274ab09859d90af33158e77f775b48515455c23b2b2bcf",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 147,
+          "module": "AiurWeb.OperatorControlCenter.FleetTable",
+          "name": "runtime",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "kind": "defp",
+          "end_line": 147,
+          "body_sha256": "6d7eacbd756238437d4ee8a9ff875484bb6c02b1e8112085acd2ef544c8a3b7e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 276,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "runtime",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 276,
+          "body_sha256": "17d7b8cc3015960eda480e733356dc62200f9d0b0c1af3b4ada0c90de4a8824f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 54,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Fields",
+          "name": "runtime",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "kind": "def",
+          "end_line": 64,
+          "body_sha256": "a4ffba569aff3b664ff8b8769d527b24462dd30f71a619611ad4c62b9b720b16",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "runtime_deps",
+      "assessment": "Dependency maps already express distinct startup and initialization boundaries.",
+      "constraints": [
+        "CLI supplies file/config/log/server override callbacks and application startup/max-agent access.",
+        "Init delegates to Runtime.runtime_deps, which supplies scaffolding, repo/toolchain/auth discovery, prewarm, file writes, model discovery and GitHub setup callbacks.",
+        "These are injectable domain interfaces, not duplicated implementations. Preserve callback ownership and side-effect boundaries rather than centralizing all startup dependencies."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 382,
+          "module": "Aiur.CLI",
+          "name": "runtime_deps",
+          "path": "src/lib/aiur/cli.ex",
+          "kind": "defp",
+          "end_line": 392,
+          "body_sha256": "9d25d55e2f2044cd45ce14e2247e13c8151eef72f60dd4306122a296ab220a5d",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 292,
+          "module": "Aiur.Init",
+          "name": "runtime_deps",
+          "path": "src/lib/aiur/init.ex",
+          "kind": "def",
+          "end_line": 292,
+          "body_sha256": "4c511e0f05d623bbecdbf01a55e155e43467a1c233058745ac8a7697fc23a2fd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 81,
+          "module": "Aiur.Init.Runtime",
+          "name": "runtime_deps",
+          "path": "src/lib/aiur/init/runtime.ex",
+          "kind": "def",
+          "end_line": 115,
+          "body_sha256": "e454c78ab851d05f7636e18fc5bcc5339e3591c7d744c1151d31a41dffef9e98",
+          "normalized_body_lines": 37,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "safe_atom",
+      "assessment": "Atom safety means existing-atom lookup, domain lookup or accepting an atom input.",
+      "constraints": [
+        "CacheInspector.Entry calls String.to_existing_atom and maps ArgumentError to other.",
+        "ResourceStore delegates to resource-type or known-source atom lookup.",
+        "BuildOrderPresenter accepts any nonnil atom, otherwise unknown.",
+        "These are not interchangeable allowlists. Existing atoms can exceed a domain vocabulary, and accepting an atom does not validate its meaning; input populations and helper vocabularies remain unverified."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 188,
+          "module": "Aiur.GitHub.CacheInspector.Entry",
+          "name": "safe_atom",
+          "path": "src/lib/aiur/github/cache_inspector/entry.ex",
+          "kind": "defp",
+          "end_line": 192,
+          "body_sha256": "b407ee5889842e1498bb641402ccd777badcf3428cb2b16663c50779e578f266",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2108,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "safe_atom",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 2110,
+          "body_sha256": "1103d927b6ddd9f573b5180f905d77f0a86761cc3e6cf8dc08d05b473eddae73",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1027,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "safe_atom",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 1027,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1028,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "safe_atom",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 1028,
+          "body_sha256": "0923e42f28e53b351b6f64ffdf39e6e837a414f6e0975a624751da1308c285d5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "safe_snapshot",
+      "assessment": "Snapshot guards use different fallback evidence and exception coverage.",
+      "constraints": [
+        "Membership.Reconciler returns the callback result directly and maps rescued exceptions or any caught kind to unavailable.",
+        "UnitsBuilder requires a map result and otherwise builds empty(membership), including on rescue/catch.",
+        "QuotaHistory returns its callback result, mapping rescued exceptions and exits to an empty map but not explicitly catching every thrown kind.",
+        "Preserve unavailable versus empty projection and result-shape validation. Fallback safety depends on downstream interpretation and cannot be inferred from the helper name."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 136,
+          "module": "Aiur.CurrentRunMembership.Reconciler",
+          "name": "safe_snapshot",
+          "path": "src/lib/aiur/current_run_membership/reconciler.ex",
+          "kind": "defp",
+          "end_line": 142,
+          "body_sha256": "d99f1190546cce7f9ab5a3b086c4908b266332cca4753c2b5678eebb426a539a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 56,
+          "module": "Aiur.CurrentRunProjections.UnitsBuilder",
+          "name": "safe_snapshot",
+          "path": "src/lib/aiur/current_run_projections/units_builder.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "1117015f25fb8ff131a98fd9c1c0e60f0b91b9819912ab9cb90b964287975392",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 165,
+          "module": "Aiur.GitHub.QuotaHistory",
+          "name": "safe_snapshot",
+          "path": "src/lib/aiur/github/quota_history.ex",
+          "kind": "defp",
+          "end_line": 171,
+          "body_sha256": "59337afc6149e696c0da6e4d99c577df1a99cbd72df40d1a66da41b4d1c9b428",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6752,
-  "limits": "557 selected families and 6752 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6784,
+  "limits": "565 selected families and 6784 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
