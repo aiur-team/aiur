@@ -4,52 +4,22 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "95d4e71effad8153ea0198c8eb96f9ec1dff9b2edd16903ffd2425237f38589a"
+    "name_triage": "6ed616d6e4f0bbd2962387405d847d35422cfb904e64a290cad09eff693ebfb9"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 49,
-    "remaining_cross_module_names": 1631,
-    "remaining_literal_entries": 7724
+    "reviewed_cross_module_names": 54,
+    "remaining_cross_module_names": 1626,
+    "remaining_literal_entries": 7612
   },
   "families": [
-    {
-      "name": "encode",
-      "clauses": 14,
-      "modules": 14,
-      "summed_source_span_lines": 123
-    },
     {
       "name": "list",
       "clauses": 23,
       "modules": 14,
       "summed_source_span_lines": 126
-    },
-    {
-      "name": "read",
-      "clauses": 21,
-      "modules": 14,
-      "summed_source_span_lines": 163
-    },
-    {
-      "name": "value",
-      "clauses": 24,
-      "modules": 14,
-      "summed_source_span_lines": 56
-    },
-    {
-      "name": "datetime",
-      "clauses": 30,
-      "modules": 13,
-      "summed_source_span_lines": 60
-    },
-    {
-      "name": "decode",
-      "clauses": 23,
-      "modules": 13,
-      "summed_source_span_lines": 235
     },
     {
       "name": "publish",

@@ -962,3 +962,7 @@ Read all 501 literal handle_info clauses in 96 modules, including LiveViews/chan
 ### Name duplication: residual census and domain contracts
 
 The complete literal census contains 13,748 distinct names, including 1,680 used in multiple modules. Read project (24 clauses/15 modules), status (32/15), identity (32/14) and persist (15/14), bringing reviewed families to 49/2544 literal entries. Preserve projection provenance, status failure envelopes, identity authority and persistence acceptance policies; identical joinability helpers are a narrow sharing candidate. A reproducible residual-name index records 1,631 unreviewed cross-module families without claiming they are defects or treating single-module names as code-reviewed. Raw duplication units, transitive checks and final synthesis remain open.
+
+### Name duplication: codecs and value domains
+
+Read encode (14 clauses/14 modules), decode (23/13), read (21/14), value (24/14) and datetime (30/13). Preserve public/durable schema distinctions, unsupported-version versus corruption handling, read failure envelopes, presence versus truthiness and accepted timestamp domains. Narrow sharing candidates include presence-based map access and DateTime-only helpers; existing timestamp/get work overlaps. Name triage now 54 families/2656 literal entries, leaving 1626 cross-module names in the regenerated residual index. No additional raw defect or savings claim is counted; helpers, incidence and remaining sweeps stay open.
