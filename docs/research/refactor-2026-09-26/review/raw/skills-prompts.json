@@ -1,6 +1,6 @@
 {
   "unit_id": "skills-prompts",
-  "status": "superseded_by_raw",
+  "status": "reviewed_pending_synthesis",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 250,
   "planned_lines": 36169,
@@ -1756,7 +1756,7 @@
       "assessment": "Full read. Preserve dirty-tree block, version validation, canonical release repository and explicit off-main confirmation. Origin tag push can differ from canonical release repo; tag-existence check is local only. Summary claims npm published without workflow/registry receipt. Escript build path conflicts with documented aiurdev release entry; verify frozen launcher/workflow before promotion. No tag, release, build or registry mutation."
     }
   ],
-  "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
+  "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification. All 250 manifest paths, hashes and line counts revalidated at closure. All 42 candidate dispositions are terminal. Retain 73 raw observations (48P2/25P3); related families are mapped in the closure audit, while cross-unit semantic dedup and final synthesis remain pending. No production implementation changes.",
   "findings": [
     {
       "id": "skills-prompts-cont-01",
@@ -3788,178 +3788,7 @@
     "Complete bounded unified diff against previously fully reviewed ce-work tracker-defer: only introduction and interactive-mode attribution differ. Entire149-line counterpart covered by identical body plus inspected changes. Stale ce-code-review interactive-defer attribution conflicts with report-only current ownership; shared retry/idempotency candidate applies. No tracker invoked.",
     "Full read. Preserve dirty-tree block, version validation, canonical release repository and explicit off-main confirmation. Origin tag push can differ from canonical release repo; tag-existence check is local only. Summary claims npm published without workflow/registry receipt. Escript build path conflicts with documented aiurdev release entry; verify frozen launcher/workflow before promotion. No tag, release, build or registry mutation."
   ],
-  "follow_up_candidates": [
-    {
-      "id": "skills-prompts-candidate-01",
-      "question": "Reconcile shared prompt attention/pause alternatives and legacy attention examples with structured Decision-first requirement. Trace projection/default options before distinguishing transitional compatibility from harmful guidance."
-    },
-    {
-      "id": "skills-prompts-candidate-02",
-      "question": "Check index-lock owner/liveness guards before promoting unconditional lock deletion guidance as a safety finding."
-    },
-    {
-      "id": "skills-prompts-candidate-03",
-      "question": "Resolve ce-review and named persona aliases against the full skill catalog before alleging broken references."
-    },
-    {
-      "id": "skills-prompts-candidate-04",
-      "question": "Reconcile unblocked-only shorthand with merge-readiness delivery and dismissed-decision resolution correlation against runtime."
-    },
-    {
-      "id": "skills-prompts-candidate-06",
-      "question": "Reconcile unconditional resume-first quiet-fleet instructions with explicit pause preservation and read-only-first diagnosis; inspect actual global pause/resume semantics before promoting."
-    },
-    {
-      "id": "skills-prompts-candidate-07",
-      "question": "Verify claimed config max-agent precedence, scheduler/load arithmetic, and24 listener binding count against frozen source and existing claim reconciliation; avoid duplicate findings."
-    },
-    {
-      "id": "skills-prompts-candidate-08",
-      "question": "Reconcile exactly-one plan-wait-or-observe monitoring record with later every-audit observe instruction; determine whether both wording paths cause an ambiguous denominator requirement."
-    },
-    {
-      "id": "skills-prompts-candidate-09",
-      "question": "Reconcile brainstorm entrypoint pipeline overrides and blindspot headless degradation with synthesis-summary explicit interactive-only/no-noninteractive contract. Inspect ce-plan/lfg caller routing before attributing blocked automated planning."
-    },
-    {
-      "id": "skills-prompts-candidate-10",
-      "question": "Check HTML reference-index blob/main mapping against selected source revision and default-branch requirements; inspect duplicated rendering references and existing provenance findings before promoting or deduplicating."
-    },
-    {
-      "id": "skills-prompts-candidate-11",
-      "question": "Reconcile remote review plan/standards discovery and ambient HEAD report metadata with reviewed-ref scope; check requirements-completeness findings introduced during Stage6 against earlier numbering/validation mechanics before promoting distinct defects. Resolve-feedback full mode also edits/stages/pushes ambient checkout without binding requested PR head/dirty ownership; targeted fallback identity needs the same audit."
-    },
-    {
-      "id": "skills-prompts-candidate-12",
-      "question": "Trace data-migration review-base transfer: dispatch names BASE marker while PR-remote has separate PR_BASE_REF, and persona git diff commands omit reviewed head. Determine explicit remote adaptation and duplicate scope finding boundaries before promotion. Planning data-migration prompt also uses one-ended git diff <review-base>, including ambient working-tree edits; caller supplies base but not explicit head/worktree cleanliness. Simplify scope also permits configured upstream as base (possibly the same feature branch) and its branch-only diff excludes uncommitted edits; bind baseline and working-tree scope explicitly."
-    },
-    {
-      "id": "skills-prompts-candidate-13",
-      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete. Also check ce-debug Phase0 org/repo#N parsing followed by number-only gh issue view; URL path explicitly preserves target. Plan supports cross-repo target investigation/output but issue-creation gh example omits --repo; confirm caller cwd binding before promotion. Sweep GitHub connector also seeds owner/repo but its label-edit example omits explicit repository selection."
-    },
-    {
-      "id": "skills-prompts-candidate-15",
-      "question": "Reconcile ce-compound Phase2.5 direct narrow refresh invocation and multi-candidate question with its end-summary prohibition on auto-applied cross-doc maintenance and only-discoverability-prompt claim; inspect supporting contracts before promoting scope or interaction drift."
-    },
-    {
-      "id": "skills-prompts-candidate-16",
-      "question": "Reconcile session-historian never-write/text-only output with parent confirmed scratch-artifact requirement. Parent inline fallback reduces failure impact; inspect dispatch contract and duplicate artifact reliability findings before promotion."
-    },
-    {
-      "id": "skills-prompts-candidate-17",
-      "question": "Assess whether retaining unverifiable merge-state claims with an as-of qualifier preserves durable uncertainty when degraded status appears only in the run report; distinguish previously verified historical assertions from newly unsupported landed claims."
-    },
-    {
-      "id": "skills-prompts-candidate-19",
-      "question": "Resolve residual channel admission: shared template suppresses unverifiable concerns entirely, output template permits below-gate residuals, and verified-resolution observations also use residual_risks. Physical R29/R30 placement is not promoted: both explicitly execute at synthesis, before apply."
-    },
-    {
-      "id": "skills-prompts-candidate-20",
-      "question": "Inspect peer adapter read/egress scope and existing security findings before accepting cross-model reference claim that outside-scratch reads add no material exposure merely because host could read them; distinguish accepted operational risk from authorization and verified containment. POV panel expressly distinguishes cooperative patterns from confidentiality controls and forbids private repo fragments in external queries; inspect concrete adapter enforcement before treating these instructions as effective isolation."
-    },
-    {
-      "id": "skills-prompts-candidate-21",
-      "question": "Reconcile dogfood PR-specific base versus trunk diff, reused dev-server checkout/build identity, and resumed result freshness against existing provenance findings. A PR checkout alone does not prove the browser serves that head; old branch-slug reports may outlive changed commits. Inspect related worktree/browser contracts before promotion or dedup. Polish likewise probes localhost HTTP without checking listener/process checkout identity; no existing listener was touched."
-    },
-    {
-      "id": "skills-prompts-candidate-23",
-      "question": "Reconcile issue analyst causal/trend assertions against capped sampling: open-plus-closed same theme is not itself recurrence, closed-only is not proof solved, and creation-rate trends need comparable observation windows. Relate to already corrected research recurrence claims and dedup before promotion."
-    },
-    {
-      "id": "skills-prompts-candidate-24",
-      "question": "Reconcile strict requested-scope generation rule with post-ideation scope-overrun exception allowed by basis alone. Does explicit user scope remain binding during arbitration? No actual scope expansion executed."
-    },
-    {
-      "id": "skills-prompts-candidate-25",
-      "question": "Reconcile optimization persistence guarantees with append-only YAML plus in-place outcome/best updates, cleanup deleting strategy-digest despite resume reliance, and merge/cleanup occurring before aggregate finalization. Inspect crash recovery schema and helpers before finding promotion; read-back verification alone does not prove atomic crash safety."
-    },
-    {
-      "id": "skills-prompts-candidate-26",
-      "question": "Optimization workers must not commit, parent commits only the winning experiment explicitly, then cherry-picks runners-up. Verify runner-up commit prerequisite, Codex worktree binding and immutable-scope verification in helpers before promoting integration/isolation gaps."
-    },
-    {
-      "id": "skills-prompts-candidate-27",
-      "question": "Optimization checks max cost/iterations/hours after whole batch; inspect schema and helpers for pre-dispatch reservations or remaining-budget limits. Reconcile judge maximize-only comparison wording with allowed metric directions and combined-result noise/gate rules. No budget overshoot or wrong winner reproduced."
-    },
-    {
-      "id": "skills-prompts-candidate-28",
-      "question": "Create Issue remains available for HTML plans, but issue creation passes plan file directly as markdown body. Check format-adaptation paths before promoting malformed/lost-content issue handoff. No issue created."
-    },
-    {
-      "id": "skills-prompts-candidate-29",
-      "question": "Reconcile ce-plan authoritative-diagram rule and no-directional-hedging instruction with per-unit technical-design requirement and final checklist demanding directional/non-prescriptive framing. Also inspect structural metadata routing before claiming non-software/HTML misclassification. Supporting section/deepening references pending. Full section contract delegates whether/where diagrams appear, while entry-point final audit requires one per distinct trigger category. Deepening still demands non-prescriptive framing; no definitive exception found yet."
-    },
-    {
-      "id": "skills-prompts-candidate-30",
-      "question": "Reconcile remaining plan-contract drift: unit headings versus bullet-prefix rule, conventional-prefix title versus suffix-only metadata, atomic skip to implementation versus explicit always-plan/no-code request, and universal software-only ce-work claim versus knowledge-work carve-out. Inspect downstream ce-work routing and document precedence before promotion. Specialist migration/deployment outputs request concrete SQL/shell examples despite parent no-code/no-shell output rule; translate or clarify exception rather than execute samples."
-    },
-    {
-      "id": "skills-prompts-candidate-31",
-      "question": "Reconcile polish startup recipes/helper behavior and dedup against scripts raw review: undefined kill-by-port references, bare Procfile detection versus Procfile.dev command, probe port versus actual child binding. Actual frozen resolve-port.sh package-json path reproduced wrong port from unrelated test script; full helper audit pending. Browser pipeline similarly asserts free-port scan guarantees availability, then checks any listener without PID/checkout binding or owned cleanup; main port scan matches entire package file.",
-      "evidence": "Synthetic temporary package.json, scripts ordered test: test-tool --port 9123 then dev: vite --port 5174; bash resolve-port.sh <temp> --type vite exited0 and returned9123. Reordering same two entries dev-first returned5174, exit0. Actual helper lines259-263 grep whole file. Temporary fixtures removed automatically; no server, real config, dotenv or network used."
-    },
-    {
-      "id": "skills-prompts-candidate-32",
-      "question": "POV project-grounding scout calls thin/empty bounded search verified absence of an incumbent. Determine if caller gate forces semantic capability/path coverage before claiming net-new; otherwise report searched-and-not-found rather than universal absence. Same issue affects content-search call-site counts. No false adoption verdict executed."
-    },
-    {
-      "id": "skills-prompts-candidate-33",
-      "question": "Pulse interview promises customized error count/latency, score notes, needs-review flags and schedule choices, but flat schema omits them and explicitly says tracing/schedule not persisted. Reconcile actual consumer settings and same-minute report overwrite before promoting. No config or report modified."
-    },
-    {
-      "id": "skills-prompts-candidate-34",
-      "question": "Pulse quality scoring defaults normal sessions to4-5 and declares all5 too loose/all3 too strict; assess whether distribution-driven adjustment conflicts with fixed rubric/comparable-run evidence. Sampling up to10 without selection contract is not population quality proof."
-    },
-    {
-      "id": "skills-prompts-candidate-35",
-      "question": "Promotion drafts treat active PR/unreleased changelog/current-main diff as what shipped without release-state proof; inspect prior provenance findings for dedup. Also distinguish optional remote persisted drafts from public posting and inspect legacy auth output without exposing secrets. No external call made."
-    },
-    {
-      "id": "skills-prompts-candidate-36",
-      "question": "Proof examples generate a new idempotency key per execution while partial-write advice says retry only the failed operation with the same key; verify API payload/key contract before recommending retries. Automatic raw-response bug reporting may include document excerpts; inspect privacy scope before any external report."
-    },
-    {
-      "id": "skills-prompts-candidate-37",
-      "question": "Resolve-feedback main says escalations never block in all modes, but full-mode summary and targeted needs-human require a blocking question and wait. Pipeline no-block override narrows the contradiction but interactive contract remains inconsistent; reconcile against other workflow authority findings."
-    },
-    {
-      "id": "skills-prompts-candidate-38",
-      "question": "Recording skills say raw/audio local-only by default but analyzer transcribe_media uploads media through curl when OPENAI_API_KEY exists, unless --no-transcribe. Clarify retention/commit versus external processing; inspect caller authorization and existing security-unit findings before promoting. Quick-to-extensive rerun may retranscribe; temp cleanup and portable evidence availability also need explicit contracts. Targeted script lines301-352/1048-1055 read; no API call. Sweep media-analyzer explicitly mandates --no-transcribe for sensitive items, so do not generalize the standalone caller ambiguity to that guarded path."
-    },
-    {
-      "id": "skills-prompts-candidate-39",
-      "question": "Sweep fetch completeness: Slack retrieves replies for parents in range without specifying new replies to older parents; bot/app ack identity is required but not captured in setup. Failed early ack must block later cursor advancement; engine cursor guard only checks referenced item existence, not earlier deferred items. Capped fetch ordering/pagination and email permanent-deferred cursor behavior need end-to-end contract verification."
-    },
-    {
-      "id": "skills-prompts-candidate-40",
-      "question": "Sweep distributed lease claim: local timestamp refresh/ownership checks do not observe a takeover in another checkout; initial push does not fence external writes indefinitely. Wrap-up commits/pushes before run-record/release, leaving those later changes unpublished. Inspect actual multi-checkout behavior before promoting runtime findings; no remote branch manipulation performed."
-    },
-    {
-      "id": "skills-prompts-candidate-41",
-      "question": "Sweep closure: merge ancestry or mergedAt/baseRefName proves landing, not that the claimed fix addresses the reported symptom. PR command omits merge SHA though closed state requires it. Verify target repository, default-head freshness, behavior evidence, existing-closeout idempotence and scheduled retries of already-ingested needs_analysis items. Archive filename collision and stable R-ID allocation also need reconciliation."
-    },
-    {
-      "id": "skills-prompts-candidate-42",
-      "question": "Work assumes Codex spawn_agent isolated uploaded changes and close_agent, unlike current shared filesystem and available lifecycle tools. Engine tool availability does not establish user authority to create a goal or replace an active one. Reconcile capability discovery and instruction precedence, without claiming every historical harness shares current behavior."
-    },
-    {
-      "id": "skills-prompts-candidate-43",
-      "question": "Tracker defer retries or changes sinks after creation errors without distinguishing pre-commit failure from lost response; verify dedup/receipt contract. Autonomous residual auto-acceptance lacks severity gating and must reconcile Aiur requirements; source-level policy scope first."
-    },
-    {
-      "id": "skills-prompts-candidate-44",
-      "question": "Xcode blanket inline-link automation limitation/tool names and Figma full-width/overflow/Tailwind rules need version/project grounding. URL opening is not tap verification; infrastructure errors are not proof of missing installation. Do not repeat these as current external facts without verification."
-    },
-    {
-      "id": "skills-prompts-candidate-45",
-      "question": "Release recipe pushes tag to origin but creates release on fixed canonical repository; validate fork behavior and remote tag existence. npm publication is asserted without waiting for workflow/registry evidence, and escript build/CLI path may be stale against release architecture. Read frozen release workflow/launcher before promotion; no remote mutation."
-    },
-    {
-      "id": "skills-prompts-candidate-46",
-      "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
-    }
-  ],
-  "next": "Closed raw review at review/raw/skills-prompts.json; see closure audit. This file preserves the incremental review history, not a second inventory unit.",
+  "next": "Reconcile this raw unit into final reports and package contracts. Three raw units remain: duplication by name, concept and constant. Do not treat raw finding counts as final unique problems.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -4350,5 +4179,179 @@
     "unresolved_ids": [],
     "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."
   },
+  "files_reviewed": 250,
+  "lines_reviewed_estimate": 36169,
+  "candidate_archive": [
+    {
+      "id": "skills-prompts-candidate-01",
+      "question": "Reconcile shared prompt attention/pause alternatives and legacy attention examples with structured Decision-first requirement. Trace projection/default options before distinguishing transitional compatibility from harmful guidance."
+    },
+    {
+      "id": "skills-prompts-candidate-02",
+      "question": "Check index-lock owner/liveness guards before promoting unconditional lock deletion guidance as a safety finding."
+    },
+    {
+      "id": "skills-prompts-candidate-03",
+      "question": "Resolve ce-review and named persona aliases against the full skill catalog before alleging broken references."
+    },
+    {
+      "id": "skills-prompts-candidate-04",
+      "question": "Reconcile unblocked-only shorthand with merge-readiness delivery and dismissed-decision resolution correlation against runtime."
+    },
+    {
+      "id": "skills-prompts-candidate-06",
+      "question": "Reconcile unconditional resume-first quiet-fleet instructions with explicit pause preservation and read-only-first diagnosis; inspect actual global pause/resume semantics before promoting."
+    },
+    {
+      "id": "skills-prompts-candidate-07",
+      "question": "Verify claimed config max-agent precedence, scheduler/load arithmetic, and24 listener binding count against frozen source and existing claim reconciliation; avoid duplicate findings."
+    },
+    {
+      "id": "skills-prompts-candidate-08",
+      "question": "Reconcile exactly-one plan-wait-or-observe monitoring record with later every-audit observe instruction; determine whether both wording paths cause an ambiguous denominator requirement."
+    },
+    {
+      "id": "skills-prompts-candidate-09",
+      "question": "Reconcile brainstorm entrypoint pipeline overrides and blindspot headless degradation with synthesis-summary explicit interactive-only/no-noninteractive contract. Inspect ce-plan/lfg caller routing before attributing blocked automated planning."
+    },
+    {
+      "id": "skills-prompts-candidate-10",
+      "question": "Check HTML reference-index blob/main mapping against selected source revision and default-branch requirements; inspect duplicated rendering references and existing provenance findings before promoting or deduplicating."
+    },
+    {
+      "id": "skills-prompts-candidate-11",
+      "question": "Reconcile remote review plan/standards discovery and ambient HEAD report metadata with reviewed-ref scope; check requirements-completeness findings introduced during Stage6 against earlier numbering/validation mechanics before promoting distinct defects. Resolve-feedback full mode also edits/stages/pushes ambient checkout without binding requested PR head/dirty ownership; targeted fallback identity needs the same audit."
+    },
+    {
+      "id": "skills-prompts-candidate-12",
+      "question": "Trace data-migration review-base transfer: dispatch names BASE marker while PR-remote has separate PR_BASE_REF, and persona git diff commands omit reviewed head. Determine explicit remote adaptation and duplicate scope finding boundaries before promotion. Planning data-migration prompt also uses one-ended git diff <review-base>, including ambient working-tree edits; caller supplies base but not explicit head/worktree cleanliness. Simplify scope also permits configured upstream as base (possibly the same feature branch) and its branch-only diff excludes uncommitted edits; bind baseline and working-tree scope explicitly."
+    },
+    {
+      "id": "skills-prompts-candidate-13",
+      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete. Also check ce-debug Phase0 org/repo#N parsing followed by number-only gh issue view; URL path explicitly preserves target. Plan supports cross-repo target investigation/output but issue-creation gh example omits --repo; confirm caller cwd binding before promotion. Sweep GitHub connector also seeds owner/repo but its label-edit example omits explicit repository selection."
+    },
+    {
+      "id": "skills-prompts-candidate-15",
+      "question": "Reconcile ce-compound Phase2.5 direct narrow refresh invocation and multi-candidate question with its end-summary prohibition on auto-applied cross-doc maintenance and only-discoverability-prompt claim; inspect supporting contracts before promoting scope or interaction drift."
+    },
+    {
+      "id": "skills-prompts-candidate-16",
+      "question": "Reconcile session-historian never-write/text-only output with parent confirmed scratch-artifact requirement. Parent inline fallback reduces failure impact; inspect dispatch contract and duplicate artifact reliability findings before promotion."
+    },
+    {
+      "id": "skills-prompts-candidate-17",
+      "question": "Assess whether retaining unverifiable merge-state claims with an as-of qualifier preserves durable uncertainty when degraded status appears only in the run report; distinguish previously verified historical assertions from newly unsupported landed claims."
+    },
+    {
+      "id": "skills-prompts-candidate-19",
+      "question": "Resolve residual channel admission: shared template suppresses unverifiable concerns entirely, output template permits below-gate residuals, and verified-resolution observations also use residual_risks. Physical R29/R30 placement is not promoted: both explicitly execute at synthesis, before apply."
+    },
+    {
+      "id": "skills-prompts-candidate-20",
+      "question": "Inspect peer adapter read/egress scope and existing security findings before accepting cross-model reference claim that outside-scratch reads add no material exposure merely because host could read them; distinguish accepted operational risk from authorization and verified containment. POV panel expressly distinguishes cooperative patterns from confidentiality controls and forbids private repo fragments in external queries; inspect concrete adapter enforcement before treating these instructions as effective isolation."
+    },
+    {
+      "id": "skills-prompts-candidate-21",
+      "question": "Reconcile dogfood PR-specific base versus trunk diff, reused dev-server checkout/build identity, and resumed result freshness against existing provenance findings. A PR checkout alone does not prove the browser serves that head; old branch-slug reports may outlive changed commits. Inspect related worktree/browser contracts before promotion or dedup. Polish likewise probes localhost HTTP without checking listener/process checkout identity; no existing listener was touched."
+    },
+    {
+      "id": "skills-prompts-candidate-23",
+      "question": "Reconcile issue analyst causal/trend assertions against capped sampling: open-plus-closed same theme is not itself recurrence, closed-only is not proof solved, and creation-rate trends need comparable observation windows. Relate to already corrected research recurrence claims and dedup before promotion."
+    },
+    {
+      "id": "skills-prompts-candidate-24",
+      "question": "Reconcile strict requested-scope generation rule with post-ideation scope-overrun exception allowed by basis alone. Does explicit user scope remain binding during arbitration? No actual scope expansion executed."
+    },
+    {
+      "id": "skills-prompts-candidate-25",
+      "question": "Reconcile optimization persistence guarantees with append-only YAML plus in-place outcome/best updates, cleanup deleting strategy-digest despite resume reliance, and merge/cleanup occurring before aggregate finalization. Inspect crash recovery schema and helpers before finding promotion; read-back verification alone does not prove atomic crash safety."
+    },
+    {
+      "id": "skills-prompts-candidate-26",
+      "question": "Optimization workers must not commit, parent commits only the winning experiment explicitly, then cherry-picks runners-up. Verify runner-up commit prerequisite, Codex worktree binding and immutable-scope verification in helpers before promoting integration/isolation gaps."
+    },
+    {
+      "id": "skills-prompts-candidate-27",
+      "question": "Optimization checks max cost/iterations/hours after whole batch; inspect schema and helpers for pre-dispatch reservations or remaining-budget limits. Reconcile judge maximize-only comparison wording with allowed metric directions and combined-result noise/gate rules. No budget overshoot or wrong winner reproduced."
+    },
+    {
+      "id": "skills-prompts-candidate-28",
+      "question": "Create Issue remains available for HTML plans, but issue creation passes plan file directly as markdown body. Check format-adaptation paths before promoting malformed/lost-content issue handoff. No issue created."
+    },
+    {
+      "id": "skills-prompts-candidate-29",
+      "question": "Reconcile ce-plan authoritative-diagram rule and no-directional-hedging instruction with per-unit technical-design requirement and final checklist demanding directional/non-prescriptive framing. Also inspect structural metadata routing before claiming non-software/HTML misclassification. Supporting section/deepening references pending. Full section contract delegates whether/where diagrams appear, while entry-point final audit requires one per distinct trigger category. Deepening still demands non-prescriptive framing; no definitive exception found yet."
+    },
+    {
+      "id": "skills-prompts-candidate-30",
+      "question": "Reconcile remaining plan-contract drift: unit headings versus bullet-prefix rule, conventional-prefix title versus suffix-only metadata, atomic skip to implementation versus explicit always-plan/no-code request, and universal software-only ce-work claim versus knowledge-work carve-out. Inspect downstream ce-work routing and document precedence before promotion. Specialist migration/deployment outputs request concrete SQL/shell examples despite parent no-code/no-shell output rule; translate or clarify exception rather than execute samples."
+    },
+    {
+      "id": "skills-prompts-candidate-31",
+      "question": "Reconcile polish startup recipes/helper behavior and dedup against scripts raw review: undefined kill-by-port references, bare Procfile detection versus Procfile.dev command, probe port versus actual child binding. Actual frozen resolve-port.sh package-json path reproduced wrong port from unrelated test script; full helper audit pending. Browser pipeline similarly asserts free-port scan guarantees availability, then checks any listener without PID/checkout binding or owned cleanup; main port scan matches entire package file.",
+      "evidence": "Synthetic temporary package.json, scripts ordered test: test-tool --port 9123 then dev: vite --port 5174; bash resolve-port.sh <temp> --type vite exited0 and returned9123. Reordering same two entries dev-first returned5174, exit0. Actual helper lines259-263 grep whole file. Temporary fixtures removed automatically; no server, real config, dotenv or network used."
+    },
+    {
+      "id": "skills-prompts-candidate-32",
+      "question": "POV project-grounding scout calls thin/empty bounded search verified absence of an incumbent. Determine if caller gate forces semantic capability/path coverage before claiming net-new; otherwise report searched-and-not-found rather than universal absence. Same issue affects content-search call-site counts. No false adoption verdict executed."
+    },
+    {
+      "id": "skills-prompts-candidate-33",
+      "question": "Pulse interview promises customized error count/latency, score notes, needs-review flags and schedule choices, but flat schema omits them and explicitly says tracing/schedule not persisted. Reconcile actual consumer settings and same-minute report overwrite before promoting. No config or report modified."
+    },
+    {
+      "id": "skills-prompts-candidate-34",
+      "question": "Pulse quality scoring defaults normal sessions to4-5 and declares all5 too loose/all3 too strict; assess whether distribution-driven adjustment conflicts with fixed rubric/comparable-run evidence. Sampling up to10 without selection contract is not population quality proof."
+    },
+    {
+      "id": "skills-prompts-candidate-35",
+      "question": "Promotion drafts treat active PR/unreleased changelog/current-main diff as what shipped without release-state proof; inspect prior provenance findings for dedup. Also distinguish optional remote persisted drafts from public posting and inspect legacy auth output without exposing secrets. No external call made."
+    },
+    {
+      "id": "skills-prompts-candidate-36",
+      "question": "Proof examples generate a new idempotency key per execution while partial-write advice says retry only the failed operation with the same key; verify API payload/key contract before recommending retries. Automatic raw-response bug reporting may include document excerpts; inspect privacy scope before any external report."
+    },
+    {
+      "id": "skills-prompts-candidate-37",
+      "question": "Resolve-feedback main says escalations never block in all modes, but full-mode summary and targeted needs-human require a blocking question and wait. Pipeline no-block override narrows the contradiction but interactive contract remains inconsistent; reconcile against other workflow authority findings."
+    },
+    {
+      "id": "skills-prompts-candidate-38",
+      "question": "Recording skills say raw/audio local-only by default but analyzer transcribe_media uploads media through curl when OPENAI_API_KEY exists, unless --no-transcribe. Clarify retention/commit versus external processing; inspect caller authorization and existing security-unit findings before promoting. Quick-to-extensive rerun may retranscribe; temp cleanup and portable evidence availability also need explicit contracts. Targeted script lines301-352/1048-1055 read; no API call. Sweep media-analyzer explicitly mandates --no-transcribe for sensitive items, so do not generalize the standalone caller ambiguity to that guarded path."
+    },
+    {
+      "id": "skills-prompts-candidate-39",
+      "question": "Sweep fetch completeness: Slack retrieves replies for parents in range without specifying new replies to older parents; bot/app ack identity is required but not captured in setup. Failed early ack must block later cursor advancement; engine cursor guard only checks referenced item existence, not earlier deferred items. Capped fetch ordering/pagination and email permanent-deferred cursor behavior need end-to-end contract verification."
+    },
+    {
+      "id": "skills-prompts-candidate-40",
+      "question": "Sweep distributed lease claim: local timestamp refresh/ownership checks do not observe a takeover in another checkout; initial push does not fence external writes indefinitely. Wrap-up commits/pushes before run-record/release, leaving those later changes unpublished. Inspect actual multi-checkout behavior before promoting runtime findings; no remote branch manipulation performed."
+    },
+    {
+      "id": "skills-prompts-candidate-41",
+      "question": "Sweep closure: merge ancestry or mergedAt/baseRefName proves landing, not that the claimed fix addresses the reported symptom. PR command omits merge SHA though closed state requires it. Verify target repository, default-head freshness, behavior evidence, existing-closeout idempotence and scheduled retries of already-ingested needs_analysis items. Archive filename collision and stable R-ID allocation also need reconciliation."
+    },
+    {
+      "id": "skills-prompts-candidate-42",
+      "question": "Work assumes Codex spawn_agent isolated uploaded changes and close_agent, unlike current shared filesystem and available lifecycle tools. Engine tool availability does not establish user authority to create a goal or replace an active one. Reconcile capability discovery and instruction precedence, without claiming every historical harness shares current behavior."
+    },
+    {
+      "id": "skills-prompts-candidate-43",
+      "question": "Tracker defer retries or changes sinks after creation errors without distinguishing pre-commit failure from lost response; verify dedup/receipt contract. Autonomous residual auto-acceptance lacks severity gating and must reconcile Aiur requirements; source-level policy scope first."
+    },
+    {
+      "id": "skills-prompts-candidate-44",
+      "question": "Xcode blanket inline-link automation limitation/tool names and Figma full-width/overflow/Tailwind rules need version/project grounding. URL opening is not tap verification; infrastructure errors are not proof of missing installation. Do not repeat these as current external facts without verification."
+    },
+    {
+      "id": "skills-prompts-candidate-45",
+      "question": "Release recipe pushes tag to origin but creates release on fixed canonical repository; validate fork behavior and remote tag existence. npm publication is asserted without waiting for workflow/registry evidence, and escript build/CLI path may be stale against release architecture. Read frozen release workflow/launcher before promotion; no remote mutation."
+    },
+    {
+      "id": "skills-prompts-candidate-46",
+      "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
+    }
+  ],
+  "follow_up_candidates": [],
   "closure_audit": "review/in-progress/skills-prompts-closure-audit.json"
 }

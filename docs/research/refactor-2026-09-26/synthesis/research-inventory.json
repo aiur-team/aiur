@@ -26,6 +26,7 @@
       "orch-a",
       "orch-b",
       "platform-misc",
+      "skills-prompts",
       "telemetry-usage",
       "tests-1a",
       "tests-1b",
@@ -41,15 +42,14 @@
     "missing_units": [
       "dup-by-concept",
       "dup-by-constant",
-      "dup-by-name",
-      "skills-prompts"
+      "dup-by-name"
     ],
-    "findings": 946,
+    "findings": 1019,
     "original_severity_counts": {
       "P0": 14,
       "P1": 168,
-      "P2": 568,
-      "P3": 196
+      "P2": 616,
+      "P3": 221
     },
     "high_priority_verdicts_missing": [
       "agent-backends-cc-01",

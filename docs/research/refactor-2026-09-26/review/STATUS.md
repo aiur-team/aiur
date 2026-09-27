@@ -850,3 +850,7 @@ Candidate07 reconciled against frozen CLI override storage, lifecycle/slot prece
 ### Skills/prompts: Decision and readiness reconciliation
 
 Final candidates01/04 resolved against frozen ToolExecutor, DecisionAttention, DecisionStore/projection and merged-blocker delivery. Three P2 instruction mismatches: legacy options discarded, merged readiness excluded by unblocked-only shorthand, and dismissed-request resolution lacks an answer action. No live failure asserted. Findings73 (48P2/25P3);42/42 candidates reconciled. The unit remains in progress pending semantic dedup, source/manifest consistency audit and raw closure.
+
+### Skills/prompts: raw review closure
+
+Closed the skills-prompts raw unit as reviewed_pending_synthesis after revalidating all250manifest paths/hashes and36,169lines, checking every finding citation exists/in range, and reconciling all42candidates. Retained73raw observations (48P2/25P3), grouped by related contracts in review/in-progress/skills-prompts-closure-audit.json; cross-unit semantic dedup is explicitly pending. Inventory now29/32raw units and1,019findings (14P0/168P1/616P2/221P3), with182high-severity skeptic reviews still missing. Three raw duplication sweeps remain. This is unit closure, not completion of the overall research.
