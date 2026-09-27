@@ -410,9 +410,27 @@
       "sha256": "3b942e8ab9db9e4ede370ea32d790fd044cb17c5c8c86abfd505ddf0245fdde5",
       "lines": 967,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/coding_agent_test.exs",
+      "sha256": "ec388e42ff032da2ea2e03e6e2438be4a5ebd3037919ea8f23f2dd3d0f553fce",
+      "lines": 1013,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/live_conversation_test.exs",
+      "sha256": "2ff0a79fc7fc2f630ef4c3c918c6408bb7656993922c39a2236776d4419149f1",
+      "lines": 1071,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/repo_base_test.exs",
+      "sha256": "6a25ca68cd927e8603383ad185273fc878b7be415e04f965520ba54ec7952eb3",
+      "lines": 1599,
+      "read": "full"
     }
   ],
-  "scope_note": "68 complete file reads, 16372 lines; remaining paths unreviewed. Earlier isolated assertion probes ran; six newly recorded test files were read, not executed. No live application or TUI verification.",
+  "scope_note": "71 complete file reads, 20055 lines; remaining paths unreviewed. Isolated assertion probes ran, including reversed prewarm events; three newly recorded test files were not executed as suites. No live application or TUI verification.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -523,6 +541,23 @@
       "recommendation": "Reject both supported resume-message shapes, or match the generation-aware shape associated with the fixture and separately preserve legacy coverage.",
       "refactor_hint": "Make worker-control protocol shape shared by producer and contract tests when extracting control transport.",
       "limits": "The probe evaluates the assertion block only; it does not show that production sends a forbidden resume or that all other refusal assertions would miss a mutation."
+    },
+    {
+      "id": "tests-1b-cont-07",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Ordered phase-event test accepts reverse arrival order",
+      "locations": [
+        {
+          "file": "src/test/aiur/repo_base_test.exs",
+          "lines": "958-966"
+        }
+      ],
+      "description": "Four selective assert_receive patterns search past unmatched messages. Their textual order verifies presence, not arrival order.",
+      "evidence": "tooling/prewarm_phase_order_probe.exs extracts the exact four assertions and queues ready, building, fetching, cloning. Original assertions pass; a control receiving each next phase and comparing it to the expected sequence fails.",
+      "recommendation": "Receive a generic phase event for each expected step and compare its phase, or collect the complete event sequence and assert it exactly.",
+      "refactor_hint": "Keep phase notification order as an explicit protocol contract when extracting repository preparation.",
+      "limits": "Assertion-block probe only; no production emitter mutation, full suite execution or actual out-of-order emission is claimed."
     }
   ],
   "preserve": [
@@ -574,7 +609,10 @@
     "AgentRunner tests retain backend-specific fallback, authentication versus transient failures, local resumable-session validation, persisted thread identity drift and startup-comment filtering relative to the latest workpad.",
     "AgentLog tests preserve NDJSON preference with Markdown fallback, malformed-line tolerance, delta/completion replacement, bounded head/tail loading and authentication-failure output. Historical transcript parsing is not live chat UX verification.",
     "Application tests encode shutdown-sensitive child ordering, ownership and membership dependencies, provider-meter aggregation order, always-on recording with optional Executor principal, and rest_for_one restart coupling with explicit process barriers.",
-    "DecisionApi tests retain bounded public projections and redaction, complete ticket matching, cursor stability under insertion, legacy offsets beyond bounded cursor scans, single-snapshot reads, partial versus unavailable health, idempotent attributed decisions and revisions, and serialized rejection of policy evidence from a different request version."
+    "DecisionApi tests retain bounded public projections and redaction, complete ticket matching, cursor stability under insertion, legacy offsets beyond bounded cursor scans, single-snapshot reads, partial versus unavailable health, idempotent attributed decisions and revisions, and serialized rejection of policy evidence from a different request version.",
+    "CodingAgent tests retain registry-owned capabilities and pricing dimensions, explicit operator pins versus usage-limited routed defaults, longest backend-name matching, catalogue-derived aliases, effort/remote flags independent of model selection, and strict session-backend routing. Cat-port tests inspect transport frames; they do not exercise a real provider.",
+    "LiveConversation tests retain qualified source/generation/session fences, terminal and unavailable-state rules, trusted operator/tool admission, redaction and opaque identifiers, bounded JSON wire size including escape-heavy content, replay tombstones, ordered delta completion and coalesced revisions. Suspended-server queue barriers exercise selected interleavings, not exhaustive concurrency or rendered UX.",
+    "RepoBase tests preserve tracked application paths during migration, symlink refusal without target mutation, ledger collision preservation and transfer checkpoints before/after replacement/source deletion, invalid-ledger fail-closed behavior, configured base-branch freshness, child build environment isolation, and dead-worker watchdog release while live work retains its hold. Local-Git fixtures and injected state are distinct from production deployment evidence."
   ],
   "next": [
     "Continue remaining tests-1b paths; audit test support and shared-state restoration.",

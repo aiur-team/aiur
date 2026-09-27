@@ -1175,3 +1175,8 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 ### tests-1b sixty-eight-file checkpoint
 
 68 full reads,16372 lines. Recorded prior GitHubCostCLI, CLI, AgentRunner, AgentLog and Application reads plus DecisionApi. Preserve budget observation provenance, backend-specific recovery, transcript fallback, supervision order and canonical API privacy/pagination/authority contracts. No new promoted finding; no new suite execution. Remaining seven files: agent_control_cli, agent_github_guard, build_gate, coding_agent, init, live_conversation, repo_base. Raw-unit completion remains25/32; no production changes.
+
+
+### tests-1b seventy-one-file checkpoint
+
+71 full reads,20055 lines. Added CodingAgent, LiveConversation and RepoBase. Confirmed phase-order oracle gap: exact four selective receive assertions pass reverse arrival order; an order-sensitive control fails. Portable assertion probe added; no actual out-of-order production emission alleged. Preserve provider capabilities, bounded private conversation projection, migration recovery and dead-versus-live prewarm watchdog contracts. Initial probe-writing command had a Python quoting syntax error and made no artifact; corrected writer and isolated probe succeeded. Four test files remain: agent_control_cli, agent_github_guard, build_gate, init. No production changes or full-suite execution.
