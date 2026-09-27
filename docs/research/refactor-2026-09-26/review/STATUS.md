@@ -1254,3 +1254,7 @@ Read new_entry, new_hidden_window, non_negative_integer, normalize_actor, normal
 ### Name duplication: snapshot authority and observation
 
 Read normalize_snapshot, notification_item, notification_method, number, observe_rate_limits, operator_message_status, orchestrator and ordering: 36 literal entries across eight families. Transcript notification extraction already shares MapAccess; checked aliases and its truthy atom/string fallback. Preserve snapshot authority assumptions, missing numeric evidence, rate-limit identity association, failed-before-delivered status and query validation boundaries. Name triage now 509 families/6522 entries, leaving 1171 cross-module names. Raw findings and skeptic counts are unchanged; no complete snapshot authority, delivery or freshness guarantee is added.
+
+### Name duplication: ownership and parser boundaries
+
+Read owner, page_size, page_title, pane_pid, parent_identity, parse_cursor, parse_number and pause: 42 literal entries across eight families. Two cursor and two positive-number parsers match, with separate tagged-text/list adapters elsewhere. Preserve ownership domain, page-budget preconditions, pane-query errors, missing-parent diagnostics and control entry-point contracts. Name triage now 517 families/6564 entries, leaving 1163 cross-module names. Raw findings and skeptic counts are unchanged; no complete ownership, cursor-scope or pause guarantee is added.

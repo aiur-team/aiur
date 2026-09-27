@@ -86283,10 +86283,640 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "owner",
+      "assessment": "Owner helpers concern separate lease, operating-system and process-monitor domains.",
+      "constraints": [
+        "Executor.Claims finds the first owner-role entry satisfying its live predicate at the chosen time, returning none or a tagged entry.",
+        "BridgePort invokes lsof when available and parses a successful listener query, otherwise nil.",
+        "ProviderAccountGeneration.Monitor retains a monitor for the same PID or replaces it, flushing the old monitor.",
+        "Keep claim authority, observed port ownership and monitor registration separate. These functions alone do not prove unique ownership, process liveness or lease validity."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 123,
+          "module": "Aiur.Executor.Claims",
+          "name": "owner",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "kind": "def",
+          "end_line": 133,
+          "body_sha256": "81c1f3d16370fc1449a655fafb0f6b1ee3e3889b335c1469b51f9f3064ca5e40",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 83,
+          "module": "Aiur.Opencode.BridgePort",
+          "name": "owner",
+          "path": "src/lib/aiur/opencode/bridge_port.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "f7d52c4eb30e56e74139262da413a48a94ef1d98df1f40509719e9bd36efb031",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 5,
+          "module": "Aiur.ProviderAccountGeneration.Monitor",
+          "name": "owner",
+          "path": "src/lib/aiur/provider_account_generation/monitor.ex",
+          "kind": "def",
+          "end_line": 17,
+          "body_sha256": "6737546c3f118b280cbe1e0e8a24cc856d7775526d334bdcfdd15931a28b2179",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "page_size",
+      "assessment": "Page size means budget allocation, query-cost parsing or presentation configuration.",
+      "constraints": [
+        "GitHubGraph.Settings computes a ceiling allocation using the minimum of page/call budgets and clamps the result to at least one.",
+        "GraphQLCost parses a first/last argument, makes variable-valued pagination unpriceable and delegates literals.",
+        "History returns a module attribute.",
+        "Preserve positive-budget preconditions, unknown query cost and UI pagination independently. The arithmetic helper alone does not guard a zero slot count; caller validation was not inspected here."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 144,
+          "module": "Aiur.BuildOrder.GitHubGraph.Settings",
+          "name": "page_size",
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "kind": "defp",
+          "end_line": 147,
+          "body_sha256": "6b7c8e7ec62f6084dd5ebbdd836dd06aac74f9b1b91c218c16b4d05000d2c4dd",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 360,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "page_size",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "kind": "defp",
+          "end_line": 366,
+          "body_sha256": "cf5d9f757c0da0bae8b8ed20134dad25bcaa1bcaf3bbb7aa52c944a2cadc8233",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 28,
+          "module": "AiurWeb.OperatorControlCenter.History",
+          "name": "page_size",
+          "path": "src/lib/aiur_web/components/operator_control_center/history.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "e9b63c8d986219e3a468f05796409325695d40ad04a73bfefbbe82d837e45b9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "page_title",
+      "assessment": "Page titles carry different navigation context.",
+      "constraints": [
+        "Layouts derives a repository-labelled dashboard title with a generic fallback.",
+        "BuildOrderLive adds a selected root identifier to a route label.",
+        "GitHubCacheLive prioritizes no-group generic title, then group when identity is nil, otherwise identity.",
+        "These are domain presentation policies rather than duplicate string utilities; shared construction must retain precedence and missing-context behavior."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 312,
+          "module": "AiurWeb.Layouts",
+          "name": "page_title",
+          "path": "src/lib/aiur_web/components/layouts.ex",
+          "kind": "defp",
+          "end_line": 317,
+          "body_sha256": "9f983db158ecb388e55ea4d4853f1768153c82b554cb37f4ada9224954030452",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 297,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "page_title",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "defp",
+          "end_line": 302,
+          "body_sha256": "840bf4325f4a37d911b610b6b6da941c120c19e39047257116ce7b667ea8e8af",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1668,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "page_title",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1668,
+          "body_sha256": "ed966f7a58d35b3c796903ee169f06279ffb181f311d17121c42675b75b19cd4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1669,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "page_title",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1669,
+          "body_sha256": "e75bb7747a4b983bf2b1a57fd48b6229db9e66b2d2cfa6bb51de69149ade3cb1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1670,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "page_title",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1670,
+          "body_sha256": "0453c81da7bd7451dec39257cb0b465260f67e451a4793f31cc4845c7c123591",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "pane_pid",
+      "assessment": "Pane PID retrieval is layered transport, parsing and optional launch metadata.",
+      "constraints": [
+        "Tmux exposes a five-second GenServer query with no-process and timeout errors.",
+        "Query invokes display-message and parses a trimmed first result line, accepting Integer.parse success even with an unconsumed suffix; empty/unparseable output gets no_pane_pid.",
+        "Claude Repl.Launcher unwraps success and maps other results to nil.",
+        "Preserve error versus optional-metadata semantics. The parser has no positive-PID or complete-consumption guard here; expected tmux output and production incidence remain unverified."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 215,
+          "module": "Aiur.Claude.Repl.Launcher",
+          "name": "pane_pid",
+          "path": "src/lib/aiur/claude/repl/launcher.ex",
+          "kind": "defp",
+          "end_line": 220,
+          "body_sha256": "cb929085cd135f4e0afc0c5292979a9f64afb48ea02552dd45117a8c74c89855",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 331,
+          "module": "Aiur.Tmux",
+          "name": "pane_pid",
+          "path": "src/lib/aiur/tmux.ex",
+          "kind": "def",
+          "end_line": 336,
+          "body_sha256": "dad3ba976ca66917f7e280b5969abe4c656435b0ca19dd23622e4fb64b30b26b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 15,
+          "module": "Aiur.Tmux.Query",
+          "name": "pane_pid",
+          "path": "src/lib/aiur/tmux/query.ex",
+          "kind": "def",
+          "end_line": 29,
+          "body_sha256": "7a1764be3ba2748a9fe2258c58a5d5dfb16836f080e9225291a7548703719d13",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "parent_identity",
+      "assessment": "Parent extraction distinguishes absent, malformed and nonjoinable identity differently.",
+      "constraints": [
+        "CatalogStore validates a map-valued parent through TrackerIdentity.from_github, but other shapes return no parent without a diagnostic.",
+        "GitHubGraph.Endpoint treats explicit nil parent as absent, delegates present nonnil values, and marks missing parent keys or nonmap nodes invalid.",
+        "BuildOrder.Member retains an existing TrackerIdentity only when joinable, otherwise nil.",
+        "Do not erase missing-versus-malformed diagnostics when sharing endpoint extraction. These entry points do not prove repository identity validity without their helpers."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 273,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "parent_identity",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 278,
+          "body_sha256": "af61d8b59e955dc4b796b0e8097fdb4bd44a7c495466cdfb9ba2de19102c10b2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 280,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "parent_identity",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 280,
+          "body_sha256": "f7f60e85734a92a4d2dd9917906e2625e6c14469d881c483d588abf24e3dcfc0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 34,
+          "module": "Aiur.BuildOrder.GitHubGraph.Endpoint",
+          "name": "parent_identity",
+          "path": "src/lib/aiur/build_order/github_graph/endpoint.ex",
+          "kind": "def",
+          "end_line": 40,
+          "body_sha256": "eb68422916f17267305fd769db6ab8f5aa02dec392fe156485112a8f2ffb76dc",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 42,
+          "module": "Aiur.BuildOrder.GitHubGraph.Endpoint",
+          "name": "parent_identity",
+          "path": "src/lib/aiur/build_order/github_graph/endpoint.ex",
+          "kind": "def",
+          "end_line": 42,
+          "body_sha256": "9869c7071bdde981f8616918aae50c03ecc90b78d0a4bf79a1abaa4e39f72ce5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 203,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "parent_identity",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 205,
+          "body_sha256": "b149361d908b2952af6c805d6053fbf175bc49867536cbe36afd2d0f5499a7ef",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 207,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "parent_identity",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 207,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "parse_cursor",
+      "assessment": "Two integer cursor parsers match; the event feed preserves validated source text.",
+      "constraints": [
+        "UsageRuntime and DashboardLive accept nonnegative integers or fully parsed nonnegative integer strings and return nil otherwise.",
+        "AgentEventFeed accepts nil as tagged success, validates a binary nonnegative integer cursor but returns the original string, and returns invalid_cursor for other inputs.",
+        "Share numeric parsing only while preserving opaque text, integer acceptance and tagged errors. These clauses do not prove cursor belongs to the requested stream."
+      ],
+      "clauses": 9,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 320,
+          "module": "Aiur.AgentEventFeed",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "kind": "defp",
+          "end_line": 320,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 322,
+          "module": "Aiur.AgentEventFeed",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "kind": "defp",
+          "end_line": 327,
+          "body_sha256": "a37ee28187467cd681224bf2876ee68b47bccd3b66f2a9f2a468cdb49703dabc",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 329,
+          "module": "Aiur.AgentEventFeed",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "kind": "defp",
+          "end_line": 329,
+          "body_sha256": "4754fca3fed0dc2dbdc834a1910e6de87086093ccdd345a0c5872f617d06e905",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 393,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 393,
+          "body_sha256": "8a1c0d63862aa7472a59b482763fa3e65f712ae7b4c0e787f38d25d27b53cf00",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 395,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 400,
+          "body_sha256": "ba65d3f50ec2916bf3579a6e3f289cec24c2054de838dd3e7c85bf319197ec24",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 402,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 402,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1675,
+          "module": "AiurWeb.DashboardLive",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1675,
+          "body_sha256": "8a1c0d63862aa7472a59b482763fa3e65f712ae7b4c0e787f38d25d27b53cf00",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1677,
+          "module": "AiurWeb.DashboardLive",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1682,
+          "body_sha256": "ba65d3f50ec2916bf3579a6e3f289cec24c2054de838dd3e7c85bf319197ec24",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1684,
+          "module": "AiurWeb.DashboardLive",
+          "name": "parse_cursor",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1684,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "parse_number",
+      "assessment": "Two positive-number parsers match while identity collection uses list results.",
+      "constraints": [
+        "GitHubWebhook.Deposit and ReadCache accept positive integers or fully consumed positive integer strings, otherwise nil.",
+        "ReadCache.Identity uses the same predicate/parsing shape but wraps success in a singleton list and failure in an empty list.",
+        "These support a shared primitive with boundary adapters, preserving absence versus collection semantics. No cache invalidation completeness is inferred from parser equivalence."
+      ],
+      "clauses": 9,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 509,
+          "module": "Aiur.Events.GithubWebhook.Deposit",
+          "name": "parse_number",
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "kind": "defp",
+          "end_line": 509,
+          "body_sha256": "a5b72a8e07157ff4e43268c256341c210dc2999dbcae8144753733a0b74eb805",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 511,
+          "module": "Aiur.Events.GithubWebhook.Deposit",
+          "name": "parse_number",
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "kind": "defp",
+          "end_line": 516,
+          "body_sha256": "4271a5cae63bf7d8296393b7c59704e72b77ae56044eca7f5401e7e88e396bd2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 518,
+          "module": "Aiur.Events.GithubWebhook.Deposit",
+          "name": "parse_number",
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "kind": "defp",
+          "end_line": 518,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 532,
+          "module": "Aiur.GitHub.ReadCache",
+          "name": "parse_number",
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "kind": "defp",
+          "end_line": 532,
+          "body_sha256": "a5b72a8e07157ff4e43268c256341c210dc2999dbcae8144753733a0b74eb805",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 534,
+          "module": "Aiur.GitHub.ReadCache",
+          "name": "parse_number",
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "kind": "defp",
+          "end_line": 539,
+          "body_sha256": "4271a5cae63bf7d8296393b7c59704e72b77ae56044eca7f5401e7e88e396bd2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 541,
+          "module": "Aiur.GitHub.ReadCache",
+          "name": "parse_number",
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "kind": "defp",
+          "end_line": 541,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 185,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "parse_number",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "7f9b361dd38df453fd038ac6593c1127e4e710d6661aa40759356062e0b9a621",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 187,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "parse_number",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "kind": "defp",
+          "end_line": 192,
+          "body_sha256": "92fdb1f1e0d3f7f188218ba2fb51bdfb77320c348f63b31625902408dee44ea7",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 194,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "parse_number",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "kind": "defp",
+          "end_line": 194,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "pause",
+      "assessment": "Pause entry points expose transport-specific interfaces to control.",
+      "constraints": [
+        "AgentChat accepts TrackerIdentity or binary issue identifier and delegates to Orchestrator.pause_agent.",
+        "AgentControlCLI delegates target collections to its pause control command.",
+        "ObservabilityApiController extracts an issue identifier, invokes pause_agent and renders a control response.",
+        "Keep identity shape, batching and HTTP response contracts distinct. A wrapper invocation does not prove authorization, durable pause or stopped provider work."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 104,
+          "module": "Aiur.AgentChat",
+          "name": "pause",
+          "path": "src/lib/aiur/agent_chat.ex",
+          "kind": "def",
+          "end_line": 104,
+          "body_sha256": "34181f501ad5e1a74e6870d9bf09038b840e64eb27f3df13fb596072b5487db2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 106,
+          "module": "Aiur.AgentChat",
+          "name": "pause",
+          "path": "src/lib/aiur/agent_chat.ex",
+          "kind": "def",
+          "end_line": 108,
+          "body_sha256": "8ad787f6e21941591417b38cd0704e599d218f5eb4718a5351cc152c8e425597",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1167,
+          "module": "Aiur.AgentControlCLI",
+          "name": "pause",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "def",
+          "end_line": 1167,
+          "body_sha256": "b34d8c157f1d3969565fffb0b16b9f3b45416cbcabb9cc77d98d38912ccbeb58",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 76,
+          "module": "AiurWeb.ObservabilityApiController",
+          "name": "pause",
+          "path": "src/lib/aiur_web/controllers/observability_api_controller.ex",
+          "kind": "def",
+          "end_line": 80,
+          "body_sha256": "47e9ea940e28238c5b62e44d155dbc046b2fe05712b1726b226c9a68557e2028",
+          "normalized_body_lines": 6,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6522,
-  "limits": "509 selected families and 6522 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6564,
+  "limits": "517 selected families and 6564 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
