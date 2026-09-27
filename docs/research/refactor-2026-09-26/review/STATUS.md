@@ -1166,3 +1166,7 @@ Read new_state, next_generation, normalize_keys, normalize_repository, normalize
 ### Name duplication: interruption and observation contracts
 
 Read os_pid, outcome, pane_interrupt, parse_repo, partial? and poll_interval_ms: 30 literal entries across six families. Identify the shared provider-outcome constructor and existing interrupt delegation; preserve process identity types, parser validation, partial-coverage populations and effective versus configured polling. Read repository-segment, partial-cost and widening helpers where noted. Name triage now 337 families/5576 entries, leaving 1343 cross-module names. Raw findings and skeptic counts are unchanged; no interruption correctness, runtime defect or saving is claimed.
+
+### Name duplication: retention, accounting and redaction policies
+
+Read positive_number, project_identity, prune, read_file, reconciliation, record_delivery, record_failure and redact: 43 literal entries across eight families. Identify equivalent positive-number parsers and existing provider/redaction delegation; preserve retention boundaries, accounting populations, delivery evidence and structural privacy policies. Read all three redaction implementation modules to distinguish credential patterns, URL treatment and bounded traversal. Name triage now 345 families/5619 entries, leaving 1335 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect, complete privacy guarantee or saving is claimed.

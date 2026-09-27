@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "8c50b0f39561fb92c808d00d4c7e4f561d74ef2ed9fe6622239d96fa553d0ad9"
+    "name_triage": "79ebf1ab27722e075d301a917e2cfc9f350153892c0d438db47a4e91c902dc2b"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 337,
-    "remaining_cross_module_names": 1343,
-    "remaining_literal_entries": 4692
+    "reviewed_cross_module_names": 345,
+    "remaining_cross_module_names": 1335,
+    "remaining_literal_entries": 4649
   },
   "families": [
-    {
-      "name": "positive_number",
-      "clauses": 10,
-      "modules": 4,
-      "summed_source_span_lines": 30
-    },
-    {
-      "name": "project_identity",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "prune",
-      "clauses": 7,
-      "modules": 4,
-      "summed_source_span_lines": 44
-    },
-    {
-      "name": "read_file",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 25
-    },
-    {
-      "name": "reconciliation",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 31
-    },
-    {
-      "name": "record_delivery",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 34
-    },
-    {
-      "name": "record_failure",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 36
-    },
-    {
-      "name": "redact",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 13
-    },
     {
       "name": "refresh_catalog",
       "clauses": 4,
