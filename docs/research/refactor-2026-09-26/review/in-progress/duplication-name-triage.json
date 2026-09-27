@@ -108167,10 +108167,514 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "exact",
+      "assessment": "Telemetry field validation and retained merge decoding use different equality/result contracts.",
+      "constraints": [
+        "Telemetry Validation uses a == guard, returns ok on equality and calls classified failure otherwise.",
+        "RecentMerge uses a repeated-value pattern and returns the accepted value or a field-specific invalid error.",
+        "Preserve comparison semantics and output shape; these are not interchangeable boolean predicates or generic coercers."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 86,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter.Validation",
+          "name": "exact",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter/validation.ex",
+          "kind": "defp",
+          "end_line": 86,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 87,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter.Validation",
+          "name": "exact",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter/validation.ex",
+          "kind": "defp",
+          "end_line": 87,
+          "body_sha256": "0f2f19db51c17a7e7446fb2624006a33c9f8c45a8bd0d48ba12a226f650dbe53",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 552,
+          "module": "Aiur.RecentMerge",
+          "name": "exact",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "defp",
+          "end_line": 552,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 553,
+          "module": "Aiur.RecentMerge",
+          "name": "exact",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "defp",
+          "end_line": 553,
+          "body_sha256": "28740c854be7f9b7d90d3da5d7f1720376d3e4799436aad47f4b574bfd97b3c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "exact_cost",
+      "assessment": "Bounded cost validation and precision recovery have different responsibilities.",
+      "constraints": [
+        "Claude Contract accepts nonnegative integer/Decimal only when bounded_decimal? passes; read bounds: finite decimal with exponent, coefficient and normal-form constraints capped at 128 bytes.",
+        "Headless Adapter reparses raw JSON with decimal floats and selects candidate paths; otherwise nil is absent, nonnegative integers become Decimal, Decimal passes through, float is imprecise and other input absent.",
+        "Read cost_from_map: selected raw Decimal goes through non_negative, while the fallback Decimal clause does not validate sign/bounds itself. Preserve precision provenance versus validation; downstream rejection and population remain unverified."
+      ],
+      "clauses": 9,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 63,
+          "module": "Aiur.Claude.Telemetry.Contract",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/claude/telemetry/contract.ex",
+          "kind": "def",
+          "end_line": 65,
+          "body_sha256": "9de2415c360b6a92e054f2253e8d233cb3a89b1e82c22590cb0fec05e6e1461b",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 67,
+          "module": "Aiur.Claude.Telemetry.Contract",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/claude/telemetry/contract.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "c02aaf591353c202cf19c753a586a7dd591ea1bc3cde2ce3ec710aba6d3b25e8",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 72,
+          "module": "Aiur.Claude.Telemetry.Contract",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/claude/telemetry/contract.ex",
+          "kind": "def",
+          "end_line": 72,
+          "body_sha256": "703fe067863f696dcda9c9e4ca8e19715247f9f3c5f97bfd4931650886c31703",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 259,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "def",
+          "end_line": 264,
+          "body_sha256": "57b7c6445789b375510de95dfa91ee3f7bf2573d2e3b63ecabf861e830a980fe",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 266,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "def",
+          "end_line": 266,
+          "body_sha256": "bce4700e278267d95246c4af82674f5becbfd345ac9236a25fb373300202d5f8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 267,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "def",
+          "end_line": 267,
+          "body_sha256": "2df864f52dc8d708c3e3219f89cb1f38097152b9c2558e60f6bdff92f59628d1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 268,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "def",
+          "end_line": 268,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 269,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "def",
+          "end_line": 269,
+          "body_sha256": "b6669d5dff7d3c2faab16aa3dfc4b97c44071ef6530578ad60e94ffc7116de0c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 270,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "exact_cost",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "def",
+          "end_line": 270,
+          "body_sha256": "bce4700e278267d95246c4af82674f5becbfd345ac9236a25fb373300202d5f8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "existing_atom",
+      "assessment": "Existing VM atoms and schema-allowlisted atoms are different trust boundaries.",
+      "constraints": [
+        "TicketHistoryNormalizer calls String.to_existing_atom and rescues ArgumentError to nil.",
+        "UsageEnvelope.Codec accepts an atom only from allowed, or matches binary text against that explicit allowed set; all other inputs yield nil.",
+        "Avoiding new atom allocation is not equivalent to a domain allowlist. Sharing must preserve schema membership rather than broadening acceptance to any atom loaded in the VM."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 292,
+          "module": "Aiur.BuildOrder.TicketHistory.Normalizer",
+          "name": "existing_atom",
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "kind": "defp",
+          "end_line": 296,
+          "body_sha256": "f8d7aa6ab892781ff05323a3fe144ca1668b1c884f0b440df1149aa6845849be",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 92,
+          "module": "Aiur.UsageEnvelope.Codec",
+          "name": "existing_atom",
+          "path": "src/lib/aiur/usage_envelope/codec.ex",
+          "kind": "defp",
+          "end_line": 92,
+          "body_sha256": "02eae358ca7c274a14eb6c879689253401dcd275ec788fae0fb17d3290c57461",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 93,
+          "module": "Aiur.UsageEnvelope.Codec",
+          "name": "existing_atom",
+          "path": "src/lib/aiur/usage_envelope/codec.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "3e87912fb1ad15bad742788cf05ecd82b12a1ef708fa21caa0a3dfbb0828ed43",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 94,
+          "module": "Aiur.UsageEnvelope.Codec",
+          "name": "existing_atom",
+          "path": "src/lib/aiur/usage_envelope/codec.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "expand_git_dir",
+      "assessment": "Both Git directory expansion helpers have equivalent absolute/relative mechanics.",
+      "constraints": [
+        "Absolute git_dir expands on its own; other paths expand relative to workspace.",
+        "One uses case and one if, with the same Path.type and Path.expand operations.",
+        "A shared path helper is plausible, but lexical expansion is not physical containment, symlink resolution or writability validation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 311,
+          "module": "Aiur.Config.CodexSandboxPolicy",
+          "name": "expand_git_dir",
+          "path": "src/lib/aiur/config/codex_sandbox_policy.ex",
+          "kind": "defp",
+          "end_line": 316,
+          "body_sha256": "e41bde877eef5ce166a83e98be2ea19431f5cca473ec5108709092e481cff47d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 243,
+          "module": "Aiur.Workspace.GitMetadata",
+          "name": "expand_git_dir",
+          "path": "src/lib/aiur/workspace/git_metadata.ex",
+          "kind": "defp",
+          "end_line": 245,
+          "body_sha256": "5caceb8a22e58ece6b5b99152f32cf9a1170e00bf2cf9208794716e81bc2ac4e",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "expect_provider",
+      "assessment": "Workspace ownership API and guardian state transition form a generation-fenced protocol.",
+      "constraints": [
+        "Ownership requires a guardian PID and carries generation in its call; nil or other lease shapes fail with workspace_ownership_lost.",
+        "Guardian accepts matching generation only in provisioning/active phase, persists provider_expected true and provider_cleanup unresolved; mismatch preserves state with ownership-lost error.",
+        "Keep authority and persistence with the guardian. A PID value alone does not prove a live guardian, and complete persistence/crash semantics are not certified by this family."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 80,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "expect_provider",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 80,
+          "body_sha256": "51c11343f013a0e538cea34d9f7e894d1e03f94b339ffa53c1ee6b7a53307741",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "expect_provider",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 81,
+          "body_sha256": "fbd6f1181511f6f700273f357a0b98b2d49f3f30f15036c996e86c47136f83ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 82,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "expect_provider",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "fbd6f1181511f6f700273f357a0b98b2d49f3f30f15036c996e86c47136f83ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 249,
+          "module": "Aiur.Workspace.Ownership.Guardian",
+          "name": "expect_provider",
+          "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+          "kind": "defp",
+          "end_line": 252,
+          "body_sha256": "848f9a27f326d474b51ac049c6cdf3e0a0d230f4460cf26bc276098e8553e206",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 254,
+          "module": "Aiur.Workspace.Ownership.Guardian",
+          "name": "expect_provider",
+          "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+          "kind": "defp",
+          "end_line": 254,
+          "body_sha256": "c24dcece51db5264a25e2a3531f7a0a662ce859273c8ecacb6b960265652cf06",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "expired?",
+      "assessment": "OAuth absolute expiry and resource retention use different clocks and boundary rules.",
+      "constraints": [
+        "UsageApi treats positive expiresAt as expired at or before now, nonpositive integer expiry as expired and missing/malformed outer shape as not expired.",
+        "ResourceStore requires integer timestamp and compares elapsed age strictly greater than 72 hours; verified retention constant.",
+        "Preserve missing-expiry policy and inclusive versus exclusive boundary. Not-expired from the OAuth helper is not evidence of usable authorization."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 304,
+          "module": "Aiur.Claude.UsageApi",
+          "name": "expired?",
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "kind": "defp",
+          "end_line": 305,
+          "body_sha256": "9cde692bc0f46d1bb0a18a1678958e1b7caec75875ef102602f43ddab5be7244",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 307,
+          "module": "Aiur.Claude.UsageApi",
+          "name": "expired?",
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "kind": "defp",
+          "end_line": 307,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 308,
+          "module": "Aiur.Claude.UsageApi",
+          "name": "expired?",
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "kind": "defp",
+          "end_line": 308,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1739,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "expired?",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 1739,
+          "body_sha256": "ec56f10aed4a903b89f7ec8d3febbddf9c18a44dc935973c841a8b378f01a02c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fail_delivered_queue_items",
+      "assessment": "Orchestrator already delegates delivered-item failure requests to OperatorMessages.",
+      "constraints": [
+        "Facade forwards server, identifier and reason; owner requires binary identifier and invokes queue_api_call with the failure request.",
+        "The literal functions perform no queue mutation themselves.",
+        "Keep queue state transition and persistence with its owner; issuing this request is not independently proof that all delivered items were durably failed."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 640,
+          "module": "Aiur.Orchestrator",
+          "name": "fail_delivered_queue_items",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 641,
+          "body_sha256": "5a6b4100e1469df29b451c3f2afa5fa7c586a655e9d64493e026fae4113a7bec",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 194,
+          "module": "Aiur.Orchestrator.OperatorMessages",
+          "name": "fail_delivered_queue_items",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "kind": "def",
+          "end_line": 196,
+          "body_sha256": "905a5a706dee399bedcdeccd3fee9762e603fcce39448b78c89c624038296cf1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "failed_health",
+      "assessment": "Pack refresh failure and projection-checkpoint failure expose distinct evidence.",
+      "constraints": [
+        "PackStatus preserves prior successful observation time, records attempt/failure, increments retry count and changes generation only when changed?; read helpers select stale after success and unavailable otherwise.",
+        "Checkpoint returns partial with projection_checkpoint_unavailable reason.",
+        "Preserve retained-data staleness versus partial checkpoint availability. Error projection must not manufacture a fresh successful observation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 196,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "failed_health",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "defp",
+          "end_line": 206,
+          "body_sha256": "a772ac8b91520e384df9062749f11a37289b0f078431d538db4ad4807f748c3a",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 135,
+          "module": "Aiur.CurrentRunProjections.Checkpoint",
+          "name": "failed_health",
+          "path": "src/lib/aiur/current_run_projections/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 137,
+          "body_sha256": "2b940d6e14051effe60b453262360958de91c0b9bb998106aeb95aaf027e3f43",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7849,
-  "limits": "901 selected families and 7849 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7881,
+  "limits": "909 selected families and 7881 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
