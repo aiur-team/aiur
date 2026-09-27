@@ -308,9 +308,39 @@
       "sha256": "23f03cc0a3d1a7cd70588e3b9f0c962b04b0ca91613f074a23cdd7b318a50069",
       "lines": 351,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_delivery_integration_test.exs",
+      "sha256": "91ebda276228e5f1375a3aed1b596200778e8cc8024dd56fce39256ca68c3b27",
+      "lines": 415,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_api_integration_test.exs",
+      "sha256": "a3d5d30769e3ab2cf1b9ce107e14520845873972460c9c7050c385b67a3c87df",
+      "lines": 277,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_revision_test.exs",
+      "sha256": "f6b9b6d18c2d76acf5fdd7462dfe952425f357b3ae018820391bcda58f972198",
+      "lines": 250,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_history_test.exs",
+      "sha256": "6d4aa08473e4ab53a2b83e716f90f1c2abb9a9355bed96ecf80c5c9ed245cba7",
+      "lines": 352,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_withdrawal_test.exs",
+      "sha256": "1c9d9ef5636dcf6cd906eeaf6bc184af5d3c4f82447eeb9a45023fa0f2a9ede7",
+      "lines": 594,
+      "read": "full"
     }
   ],
-  "scope_note": "51 complete file reads, 8594 lines. Skill installation, prompt, watcher, first-read and cadence tests reviewed as source; no new suite execution. Earlier reset-cleanup and transcript-boolean probes ran in isolation. No live application, GitHub operation or TUI execution. 24 manifest files remain.",
+  "scope_note": "56 complete file reads, 10482 lines. Decision lifecycle tests reviewed as source. An isolated extracted-worker cleanup probe confirmed normal-exit cleanup leaves the worker alive; a kill control terminates it. Earlier reset-cleanup and transcript-boolean probes remain applicable. No full suite, live application, GitHub operation or TUI execution. 19 manifest files remain.",
   "findings": [
     {
       "id": "tests-1a-cont-01",
@@ -349,6 +379,23 @@
       "recommendation": "Use a supported event shape whose boolean survives bounded projection, assert the decoded field is exactly false and true in the respective cases, then verify a serializer mutation stringifying booleans fails the test. Keep payload-retention behavior covered separately.",
       "refactor_hint": "At serializer/package boundaries, construct fixtures that reach the represented value and assert its exact decoded type and content; nil-or-map permissiveness cannot establish boolean encoding.",
       "limits": "The probe executes extracted assertions with supplied records, not the full writer or a production serializer mutation. The frozen serializer has an explicit correct boolean clause; no current production encoding defect is alleged."
+    },
+    {
+      "id": "tests-1a-cont-03",
+      "severity": "P3",
+      "category": "testing",
+      "title": "Decision delivery fixture uses a non-terminating cleanup signal",
+      "locations": [
+        {
+          "path": "src/test/aiur/decision_delivery_integration_test.exs",
+          "lines": "244, 321-337, 355-361"
+        }
+      ],
+      "description": "start_orchestrator! spawns an unlinked recursive worker probe. Its on_exit callback calls Process.exit(worker_pid, :normal), which does not terminate this non-trapping target when sent by another process. The full-restart test uses the same ineffective signal before creating its replacement worker. The probe has no stop message or parent monitor, so intended cleanup leaves a live receive loop.",
+      "evidence": "tooling/decision_worker_cleanup_probe.exs extracts the actual worker function and on_exit Process.exit expression from the frozen source. After evaluating that cleanup, the worker echoes a unique post-cleanup barrier and is still alive. A kill control yields a monitored DOWN event. The probe cleans up its owned process.",
+      "recommendation": "Own worker probes under the test supervisor or implement a stop protocol and monitor their exit; verify teardown and restart fixtures observe DOWN before proceeding.",
+      "refactor_hint": "Package integration fixtures need explicit process ownership and completion barriers, including fake workers; stopping the orchestrator does not establish ownership of an independently spawned worker.",
+      "limits": "This isolates the actual helper and cleanup expression, not a full ExUnit run or production controller. No suite-wide process count, performance degradation or production delivery defect is claimed."
     }
   ],
   "preserve": [
@@ -384,7 +431,12 @@
     "Skill taxonomy checks distinguish actual resolved canonical links from index-only tracked symlink assertions used for newly exposed skills and vendored CE entries. Index intent does not by itself verify the current mounted working-tree link. Reference enumeration covers the named list rather than every possible markdown link.",
     "PromptBuilder preserves complexity guidance selection, configured integration-branch authority, shared-versus-skill instruction placement, escaped and bounded untrusted content, author-attribute encoding, hidden-carrier removal, redaction and invalid-UTF8 recovery. Balanced wrappers and instruction text are not proof of model resistance to arbitrary prompt injection.",
     "BuildOrdersCLIFirstRead uses a real private projection with injected blocked readers and short-lived Task callers to verify demand survives caller exit, loading differs from unavailable, inflight requests coalesce and failed-read backoff suppresses another read until an injected later time. It does not launch the shell CLI, RPC daemon or LiveView.",
-    "CadenceFreshness checks literal fresh/stale ages at three effective cadences, explicit zero tolerance, actual queued mailbox depth and agreement between row admission and catalog status. Snapshot timestamps are restated in persistent_term and controller processes are stubs; these tests cover classification and presenter results, not rendered age text or a live polling cadence."
+    "CadenceFreshness checks literal fresh/stale ages at three effective cadences, explicit zero tolerance, actual queued mailbox depth and agreement between row admission and catalog status. Snapshot timestamps are restated in persistent_term and controller processes are stubs; these tests cover classification and presenter results, not rendered age text or a live polling cadence.",
+    "DecisionDeliveryIntegration distinguishes decided, queued, handed-off, delivered, consumed, acknowledged and resolved facts, preserves one action across duplicate answers, and compares the complete audit sequence. Store-only restart adopts a surviving queue item; controller-plus-store restart creates another attempt correlated to the same action and queue identity. Dispatch and delivery are driven through helpers, not an actual provider; filesystem sync is injected as a no-op.",
+    "DecisionApiIntegration drives Endpoint.call with authenticated Plug requests, a private real store and injected dispatcher. It checks persisted-before-dispatch audit visibility, trusted supervisor basis, redaction and duplicate answer/revision suppression. The endpoint runs with server:false; this is in-process HTTP-layer coverage, not a bound listener or browser interaction.",
+    "DecisionRevision rejects stale action/sequence before invoking the answer normalizer, rejects forged identity and unchanged action IDs, retains time-independent retry hashes, and detects persisted sequence/reason tampering. Its normalized-answer seam and codec are test doubles; preserve separate composition coverage through the store/API.",
+    "DecisionHistory preserves unknown provenance rather than guessing from agent names, distinguishes Executor/operator/supervisor attribution, keeps unavailable lifecycle facts nil, rejects unsafe links, preserves zero confidence and represents parent follow-up facts without fabricating child decisions. These are projection assertions rather than rendering assertions.",
+    "DecisionWithdrawal distinguishes queued withdrawal from durable in-flight handoff and confirmed delivery, refuses stale/moot/superseded actions, preserves authority checks and correlated retry attempts across store restarts, and raises attention for unknown outcomes or withdrawn-answer delivery. Restart assertions wait for the store-specific reconciliation report; worker presence and transport success are injected, and filesystem sync is a no-op."
   ],
   "cross_references": [
     {
@@ -468,7 +520,7 @@
     }
   ],
   "next": [
-    "Continue the remaining 24 tests-1a manifest files, including decision lifecycle and controller lifecycle/deactivation coverage.",
-    "Keep documentation-presence, executable guard, projection and rendered-UX evidence separate; verify hypotheses before promoting findings."
+    "Continue the remaining 19 tests-1a manifest files, including decision projection/query/revision store and controller lifecycle/deactivation coverage.",
+    "Keep source, isolated helper probe, provider delivery and rendered-UX evidence distinct; verify remaining hypotheses before promoting findings."
   ]
 }

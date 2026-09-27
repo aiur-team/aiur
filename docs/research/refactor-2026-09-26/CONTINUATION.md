@@ -1220,3 +1220,8 @@ All 75 manifest files are now fully read: 35,287 lines. Checked every file hash 
 ### tests-1a skill and freshness checkpoint
 
 51 full reads, 8,594 lines; 24 manifest files remain. Recorded three previously completed skill-test reads and added PromptBuilder, AiurAgentSkill, BuildOrdersCLIFirstRead and CadenceFreshness. Preserve executable documented-label admission, watcher partial-line/restart semantics, caller-independent graph demand and two-sided cadence freshness contracts. Distinguish wording checks from agent behavior, local install-script execution from SSH, index links from mounted links, private projection calls from shell CLI, and presenter classification from rendered UX. No new promoted finding or test execution; the two existing findings remain bounded by their earlier isolated probes. Overall raw-unit completion stays 26/32. The preceding status turn added no research progress; this checkpoint advances authoritative review coverage. No production changes.
+
+
+### tests-1a decision lifecycle checkpoint
+
+56 full reads, 10,482 lines; 19 manifest files remain. Added delivery/API integration, revision, history and withdrawal tests. Confirmed P3 fixture cleanup defect: the extracted unlinked worker survives its actual normal-exit cleanup expression and answers a post-cleanup barrier; a kill control yields DOWN. The isolated probe cleans up its worker and makes no production or suite-wide performance claim. Preserve action-versus-attempt identity, surviving-queue adoption, durable handoff/withdrawal fencing, trusted provenance, idempotence and audit ordering. In-process Plug, injected dispatch and no-op filesystem sync are explicit evidence limits. No full suite or production edit. Overall raw-unit completion remains 26/32.
