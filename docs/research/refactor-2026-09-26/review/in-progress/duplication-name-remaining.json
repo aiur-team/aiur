@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "65142ad9695a985eb562c6c84c51084eb35fe37da9d933c0dd1756d4301ea48b"
+    "name_triage": "ec4937ec5fdb8d36c71736384c1cb5d3e8a69d36b55ec1290427711eaa33e44c"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 62,
-    "remaining_cross_module_names": 1618,
-    "remaining_literal_entries": 7459
+    "reviewed_cross_module_names": 70,
+    "remaining_cross_module_names": 1610,
+    "remaining_literal_entries": 7334
   },
   "families": [
-    {
-      "name": "execute",
-      "clauses": 23,
-      "modules": 12,
-      "summed_source_span_lines": 221
-    },
-    {
-      "name": "same_repository?",
-      "clauses": 19,
-      "modules": 12,
-      "summed_source_span_lines": 61
-    },
-    {
-      "name": "state_dir",
-      "clauses": 13,
-      "modules": 12,
-      "summed_source_span_lines": 76
-    },
-    {
-      "name": "unavailable",
-      "clauses": 12,
-      "modules": 12,
-      "summed_source_span_lines": 77
-    },
-    {
-      "name": "call",
-      "clauses": 12,
-      "modules": 11,
-      "summed_source_span_lines": 83
-    },
-    {
-      "name": "clear",
-      "clauses": 16,
-      "modules": 11,
-      "summed_source_span_lines": 72
-    },
-    {
-      "name": "entry",
-      "clauses": 18,
-      "modules": 11,
-      "summed_source_span_lines": 180
-    },
-    {
-      "name": "evaluate",
-      "clauses": 12,
-      "modules": 11,
-      "summed_source_span_lines": 206
-    },
     {
       "name": "extract",
       "clauses": 24,

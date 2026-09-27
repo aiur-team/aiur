@@ -970,3 +970,7 @@ Read encode (14 clauses/14 modules), decode (23/13), read (21/14), value (24/14)
 ### Name duplication: collections, publication and scheduling
 
 Read all list, publish, put, reset, schedule, append, coverage and key definitions: 153 literal entries across eight families. Separate transient delivery from durable publication, persistence from best-effort diagnostics, keyed state transitions from map updates, and coalesced policy scheduling from bare timers. Three sample-timer helpers are a narrow sharing candidate; tracker-key wrappers already use a canonical implementation. Name triage now 62 families/2809 entries, with 1618 residual cross-module names. Raw findings and skeptic counts are unchanged; no new defect or savings claim is made.
+
+### Name duplication: identity, paths and execution contracts
+
+Read all execute, same_repository?, state_dir, unavailable, call, clear, entry and evaluate definitions: 125 literal entries across eight families. Repeated lowercased repository tuple comparisons are a narrow sharing candidate; preserve adapter shapes and invalid-input behavior. Path precedence, unavailable evidence, RPC failure policy, continuity revocation and effectful monitoring prevent blanket extraction by name. Name triage now 70 families/2934 entries; regenerated residual queue contains 1610 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or saving is claimed.
