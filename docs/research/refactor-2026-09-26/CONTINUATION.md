@@ -1603,3 +1603,7 @@ Read all 30 fetch, 27 get and 26 lookup definitions/declarations. Preserve finan
 ### Name duplication: event routing and generation scope
 
 Read all 24 topic, 18 broadcast and 17 generation definitions/declarations. Preserve repository/identity/connection routing, local versus distributed publication, invalidation versus full-snapshot payloads and domain-specific failure reporting. Generations include independent counters, source vectors and random tokens; accessor similarity does not establish a shared clock. Name triage now 27 families/843 literal entries. Subscriber/owner-transition verification and remaining sweeps stay open; no new defect or savings count.
+
+### Name duplication: refresh completion and observation effects
+
+Read all 28 refresh and 33 observe definitions/declarations. Separate cast acceptance from synchronous completion, projection aging from fresh IO, protected reads from presentation updates, and best-effort meters from persisted membership/readiness changes. Preserve credential identity, account continuity, task ownership and persistence ordering. Name triage now 29 families/904 literal entries; remaining sweep and transitive verification stay open, with no new defect or savings count.
