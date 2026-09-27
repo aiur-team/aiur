@@ -874,3 +874,7 @@ Read all42terminate clauses in36modules and45subscribe clauses in38modules. Pres
 ### Name duplication: health and freshness semantics
 
 Read44health clauses in27modules and28freshness clauses in19modules. Separate source accessors, scalar normalization, aggregate health, reconciliation metadata and UI projections. Preserve strict versus inclusive threshold comparisons, nil-expiry versus missing-observation semantics and rich failure/age records. Existing web-occ-20 overlaps part of this evidence; no new defect count. Name triage now17families/515literal definitions; remaining families/callbacks still open.
+
+### Name duplication: parsing and positive integers
+
+Read33positive_integer clauses in17modules and39parse definitions/declarations in21modules. Preserve complete-string versus prefix parsing, bounded versions, defaults, error envelopes and streaming state. Matching model-list bodies call different provider converters; reviewed those helper differences before considering shared envelope iteration. Name triage now19families/587literal entries. No new runtime bug or savings count; remaining sweep stays open.
