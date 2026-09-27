@@ -1047,6 +1047,55 @@
       "lines": 247,
       "read": "full",
       "assessment": "Complete content covered by previously reviewed ideation copy plus complete one-paragraph invocation diff. Optimization contract asks for benchmark methods, prior attempts, bottlenecks, regression traps and safe experiment constraints across the full learning corpus. Historical measurements are inputs, not current saving evidence."
+    },
+    {
+      "path": ".claude/skills/ce-plan/SKILL.md",
+      "sha256": "e740b0768d36bff9b2e339d9c30dfb703321aeb274c869a2a4abed9f75a4916f",
+      "lines": 816,
+      "read": "full",
+      "assessment": "Full816 lines read across bounded ranges; truncated menu region replaced with765-790 read. Preserve product contract and stable requirement/unit IDs, direct-entry bootstrap, settled-decision evidence, explicit scope assumptions, requested external research and unavailable-research disclosure. Deepening and document review are distinct. Planning does not execute production code. HTML skip is documented, not a clean review. Diagram directionality and artifact-format routing need supporting-contract reconciliation; no planning workflow invoked."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/approach-altitude.md",
+      "sha256": "82248d8857a36316f18eff111bf04db99ebae4aea8b796cb6a2ca238c4df030b",
+      "lines": 55,
+      "read": "full",
+      "assessment": "Full55 lines read. Explicit approach-only requests hold before deliverable; proactive offer requires both method uncertainty and high correction cost, not size alone. Bounded recon is labeled preliminary, no generic methodology presented as grounded. Persisted knowledge-work marker controls later route; research source reads do not authorize execution. No approach checkpoint started."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/plan-handoff.md",
+      "sha256": "70f0130190a556b6c51bc7433c0fc2fd9e3c9c449d854c2fadf9d222cad2c6a9",
+      "lines": 150,
+      "read": "full",
+      "assessment": "Full150 lines read in bounded ranges. Preserve skipped versus failed versus clean review, residual counts, artifact-readiness execution gate, source-local canonical publication and user-selected external actions. Pipeline returns review envelope; no review run here. HTML issue-body compatibility and cross-repo target propagation remain questions. No goal, issue or publication created."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/html-rendering.md",
+      "sha256": "72bd87e84e2c092afd8693eef14cec1dafb9d0ec42d072004ae4abe9eced5c77",
+      "lines": 634,
+      "read": "full",
+      "assessment": "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-ideate/references/html-rendering.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/markdown-rendering.md",
+      "sha256": "8ed3401f4f7407572c6bbbf9c3dd306721858a3baeab68053b0c6d2efc903e75",
+      "lines": 238,
+      "read": "full",
+      "assessment": "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-ideate/references/markdown-rendering.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/reasoning-elevation.md",
+      "sha256": "e7567b15fe1a54e7514c14b2bbe08cbb65a8bb987d6dd45841a93fb6356af1cd",
+      "lines": 63,
+      "read": "full",
+      "assessment": "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-brainstorm/references/reasoning-elevation.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/settled-decisions.md",
+      "sha256": "e4fa8cecdccdb5d8a141b720c26a733fb143292a81671c21b144fac2584d5b22",
+      "lines": 45,
+      "read": "full",
+      "assessment": "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-brainstorm/references/settled-decisions.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1522,7 +1571,14 @@
     "Full110 lines read. Independent per-item rubric scoring, complete item coverage and ambiguity flags; singleton judgment uses cluster titles/themes only. Structured JSON request is not output validation or calibration evidence. Sampled content lacks explicit untrusted-data instruction here; retain for evaluator-boundary reconciliation, not proof of exploitable injection. No judge run or score claimed.",
     "Full127 lines read. Harness repeatability and guarding against degenerate proxy improvements are essential. Small first-run samples/caps validate method, not population performance. Example baseline memory, issue counts and budget values are illustrative, not Aiur observations. Per-experiment database isolation explicitly recommended.",
     "Full258 lines read in two ranges. Scoped research should target current owning code, with bounded manifest and monorepo scan only when applicable. Explicit rules and observed patterns remain distinct; path evidence and decision-changing findings required. Later shorthand API/data skip headings are narrower than initial structural-signal guard, but full earlier conditional gives intended exception. No repository-wide scan invoked.",
-    "Complete content covered by previously reviewed ideation copy plus complete one-paragraph invocation diff. Optimization contract asks for benchmark methods, prior attempts, bottlenecks, regression traps and safe experiment constraints across the full learning corpus. Historical measurements are inputs, not current saving evidence."
+    "Complete content covered by previously reviewed ideation copy plus complete one-paragraph invocation diff. Optimization contract asks for benchmark methods, prior attempts, bottlenecks, regression traps and safe experiment constraints across the full learning corpus. Historical measurements are inputs, not current saving evidence.",
+    "Full816 lines read across bounded ranges; truncated menu region replaced with765-790 read. Preserve product contract and stable requirement/unit IDs, direct-entry bootstrap, settled-decision evidence, explicit scope assumptions, requested external research and unavailable-research disclosure. Deepening and document review are distinct. Planning does not execute production code. HTML skip is documented, not a clean review. Diagram directionality and artifact-format routing need supporting-contract reconciliation; no planning workflow invoked.",
+    "Full55 lines read. Explicit approach-only requests hold before deliverable; proactive offer requires both method uncertainty and high correction cost, not size alone. Bounded recon is labeled preliminary, no generic methodology presented as grounded. Persisted knowledge-work marker controls later route; research source reads do not authorize execution. No approach checkpoint started.",
+    "Full150 lines read in bounded ranges. Preserve skipped versus failed versus clean review, residual counts, artifact-readiness execution gate, source-local canonical publication and user-selected external actions. Pipeline returns review envelope; no review run here. HTML issue-body compatibility and cross-repo target propagation remain questions. No goal, issue or publication created.",
+    "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-ideate/references/html-rendering.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification.",
+    "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-ideate/references/markdown-rendering.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification.",
+    "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-brainstorm/references/reasoning-elevation.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification.",
+    "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-brainstorm/references/settled-decisions.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification."
   ],
   "follow_up_candidates": [
     {
@@ -1571,7 +1627,7 @@
     },
     {
       "id": "skills-prompts-candidate-13",
-      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete. Also check ce-debug Phase0 org/repo#N parsing followed by number-only gh issue view; URL path explicitly preserves target."
+      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete. Also check ce-debug Phase0 org/repo#N parsing followed by number-only gh issue view; URL path explicitly preserves target. Plan supports cross-repo target investigation/output but issue-creation gh example omits --repo; confirm caller cwd binding before promotion."
     },
     {
       "id": "skills-prompts-candidate-15",
@@ -1616,9 +1672,17 @@
     {
       "id": "skills-prompts-candidate-27",
       "question": "Optimization checks max cost/iterations/hours after whole batch; inspect schema and helpers for pre-dispatch reservations or remaining-budget limits. Reconcile judge maximize-only comparison wording with allowed metric directions and combined-result noise/gate rules. No budget overshoot or wrong winner reproduced."
+    },
+    {
+      "id": "skills-prompts-candidate-28",
+      "question": "Create Issue remains available for HTML plans, but issue creation passes plan file directly as markdown body. Check format-adaptation paths before promoting malformed/lost-content issue handoff. No issue created."
+    },
+    {
+      "id": "skills-prompts-candidate-29",
+      "question": "Reconcile ce-plan authoritative-diagram rule and no-directional-hedging instruction with per-unit technical-design requirement and final checklist demanding directional/non-prescriptive framing. Also inspect structural metadata routing before claiming non-software/HTML misclassification. Supporting section/deepening references pending."
     }
   ],
-  "next": "Continue ce-plan markdown; reconcile optimization candidates25-27 against helpers/schema during follow-up pass. Coverage 149/250 full files, 23828/36169 lines. Nine provisional P2 and four P3 findings; twenty-three follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-plan section, synthesis, deepening and universal references, then agent prompts. Coverage 156/250 full files, 25829/36169 lines. Nine provisional P2 and four P3 findings; twenty-five follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",

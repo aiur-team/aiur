@@ -702,3 +702,7 @@ Completed seven remaining ideation references: six direct full reads and one pre
 ### Skills/prompts: optimization measurement and persistence
 
 Completed six optimization markdown files: five direct full reads and one verified single-paragraph diff against an already reviewed learning prompt. Coverage 149/250 files, 23,828/36,169 lines. Preserve immutable evaluators, repeated baselines, scoped worker authority, immediate durable result recording and combined-change remeasurement. Added persistence/recovery, runner-up integration and budget/direction questions for helper/schema reconciliation; no finding promoted and no optimization executed. Targeted helper/schema searches are not full coverage. All 149 source hashes/line counts verified. Raw units remain28/32; next ce-plan markdown.
+
+### Skills/prompts: planning authority and handoff
+
+Covered seven planning files: three full direct reads and four SHA256-identical copies of previously reviewed references. Coverage 156/250 files, 25,829/36,169 lines. Preserve stable product/unit IDs, settled-decision provenance, bounded scope, unavailable-research disclosure and distinct review skip/failure states. Added HTML issue-body and diagram/routing reconciliation questions; extended cross-repo target question. No new finding promoted. All 156 hashes and line counts verified, including bounded replacement for truncated menu text. No plan execution, goal creation, tracker mutation or production change. Raw units remain28/32; next planning support references.
