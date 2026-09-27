@@ -897,3 +897,17 @@ All 1,032 source hashes rechecked. Location bounds, finding IDs and evidence
 references validated. Raw review units advance to 25/32 and raw findings to
 929; inherited high-severity skepticism and cross-unit deduplication remain
 open. No production changes or independent savings claim.
+
+## Deployment-surface audit checkpoint
+
+Meta-08 remains open. Added source-hashed deployment-surface-audit.json and a
+matrix in deployment-verification.md distinguishing invoked-release --version,
+npm-channel upgrade notices, restart receipts and the installed-upgrade liveness
+guard. Dev notice suppression is explicit; --version is a one-shot launch,
+whereas status uses control RPC. None of these alone compares running dev code
+with upstream main or protects every instance sharing release artifacts.
+
+Historical handoffs located and selectively read; appended updates mean filename
+timestamps cannot bound episodes. Remaining: complete status/dashboard identity
+surface audit and historical duration/restart-side-effect verification. Claim
+coverage stays 50/60. No live launcher, upgrade, release or daemon action.

@@ -1,0 +1,37 @@
+{
+  "status": "partial_meta_08_evidence",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "sources": [
+    {
+      "path": "src/lib/aiur/cli.ex",
+      "lines": "8-16,64-77",
+      "sha256": "80f2579b9f4a99bfb9461241234f54f55369bab3ad82f0669daf553820031967",
+      "assessment": "Compile-time release revision and version formatting; this identifies the invoked release."
+    },
+    {
+      "path": "src/lib/aiur/upgrade.ex",
+      "lines": "1-75,160-222",
+      "sha256": "ac9d9f61ed5a1565680796e2271d1e540fd399e62a4a3a07ea2022322a86679d",
+      "assessment": "Published-channel version checking, explicit dev-launcher suppression, cached registry state and optional notices."
+    },
+    {
+      "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+      "lines": "191-205,501-512,2525-2528,3605-3647,3780-3805,3888-3909",
+      "sha256": "d19f0305bae96904c82d48e7205a6a112dc28b05ab583988107643011c12ff48",
+      "assessment": "Checkout CLI comparison, one-shot version path, status RPC, restart receipt, notice gates and upgrade liveness refusal."
+    },
+    {
+      "path": "scripts/aiurdev",
+      "lines": "429-478,500-516,746-759",
+      "sha256": "40b91537c572f8f5820ff7e9e0a73b2b6bc3a17b351918c9e31029806d998918",
+      "assessment": "Release-to-checkout freshness and command classification; prior isolated probe covers classification."
+    }
+  ],
+  "findings": [
+    "Published-version upgrade notices exist; their dev suppression is deliberate.",
+    "The one-shot --version path identifies the invoked release, not an RPC query of a running daemon.",
+    "Restart receipt verifies the requested build against the disk release stamp; this is not comparison with upstream main.",
+    "Installed upgrade refuses replacement when its selected control-plane probe reports a live daemon unless --force is used; this is not proof that every daemon sharing a release is protected."
+  ],
+  "limits": "Read-only source audit. No launcher, upgrade, daemon or release command executed. No exhaustive absence claim about all status/dashboard surfaces; no current GitHub issue-state refresh. Historical incident timing and restart side effects remain separately unresolved."
+}

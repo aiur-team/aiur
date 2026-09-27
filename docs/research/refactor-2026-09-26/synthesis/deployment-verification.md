@@ -60,3 +60,36 @@ python3 tooling/launcher_control_probe.py "$FROZEN_SNAPSHOT"
 The script extracts and executes only the reviewed pure classification function
 bodies. It does not source the full launcher. Source hashing anchors the result
 to the frozen script. A second run reproduced the saved JSON exactly.
+
+## Version surfaces inspected after the launcher checkpoint
+
+The source audit in deployment-surface-audit.json distinguishes four existing
+surfaces. This refines the report's broad deployment narrative without claiming
+the full historical compound claim has been verified.
+
+| Surface | What it establishes | What it does not establish |
+|---|---|---|
+| CLI version (cli.ex:8–16,64–77; engine 501–512) | Compile-time revision/version of the invoked release, plus CLI package version | Running daemon identity: the engine launches a separate distribution-free one-shot process |
+| Published upgrade notice (upgrade.ex:1–75,160–222) | Installed package version versus its npm channel, with cache/opt-outs | Running dev daemon versus upstream main; dev-launcher checks deliberately return without notice |
+| Restart receipt (engine 3605–3647) | Requested rebuild location/SHA matches the on-disk replacement stamp; unknown/dirty provenance is named | Deployment of every merged commit, or identity of a different already-running daemon |
+| Installed upgrade guard (engine 3888–3909) | Refusal when the selected control-plane liveness probe is up, unless forced | Safety for every other instance sharing the same artifacts |
+
+The engine's notice path also gates on stderr being a TTY, environment opt-outs,
+CI and dev release location (3780–3805). An existing optional notice should not
+be described as universal freshness reporting or as entirely absent. Status
+uses an actual control RPC, whereas --version does not; further status payload
+and dashboard inspection is needed before asserting that no running-build field
+exists anywhere.
+
+These distinctions suggest separate acceptance criteria for the eventual plan:
+capture immutable running-process build identity, expose the disk release and
+checkout identities separately, name the comparison target and observation age,
+and preserve shared-release ownership during build/upgrade. No automatic
+restart or hot-upgrade policy follows from these observations alone.
+
+The named historical handoffs were located and selectively inspected. They
+support reports of stale releases and operator recovery work, but contain later
+appended updates; filenames are not observation end-times. Their duration and
+restart-side-effect claims still need episode-level verification. Nothing from
+machine-specific paths, private workload context or host identity was copied.
+Meta-08 remains open; both-lens coverage stays 50/60.
