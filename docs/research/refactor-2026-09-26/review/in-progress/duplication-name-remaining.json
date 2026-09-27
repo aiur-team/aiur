@@ -4,41 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "1e99f1cf0bfada1e4beafc5ba9f5e893b300c0cf2fb65cc3b1fe22aabc2d303d"
+    "name_triage": "a48278d17061748ee474bf1375718903f2268fdce168cd05388564426bb629cd"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 230,
-    "remaining_cross_module_names": 1450,
-    "remaining_literal_entries": 5539
+    "reviewed_cross_module_names": 234,
+    "remaining_cross_module_names": 1446,
+    "remaining_literal_entries": 5486
   },
   "families": [
-    {
-      "name": "ensure_table",
-      "clauses": 5,
-      "modules": 5,
-      "summed_source_span_lines": 37
-    },
-    {
-      "name": "expire",
-      "clauses": 8,
-      "modules": 5,
-      "summed_source_span_lines": 55
-    },
-    {
-      "name": "format_duration",
-      "clauses": 11,
-      "modules": 5,
-      "summed_source_span_lines": 36
-    },
-    {
-      "name": "format_error",
-      "clauses": 29,
-      "modules": 5,
-      "summed_source_span_lines": 31
-    },
     {
       "name": "fresh?",
       "clauses": 8,

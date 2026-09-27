@@ -1799,3 +1799,7 @@ Read cache_key, cancel_timer, check and claim: 28 literal entries across four fa
 ### Name duplication: bounded collection and accounting inputs
 
 Read collect, dashboard_writable?, deposit and dimensions: 30 literal entries across four families. Preserve pagination lookahead/read caps, process cleanup, configuration sources, body freshness versus processed marks and provider token relationships. Endpoint writable predicates offer a narrow sharing candidate with explicit exception policy. Name triage now 230 families/4729 entries, leaving 1450 cross-module names. Raw findings and skeptic counts are unchanged; authorization completeness, billing correctness and savings are not claimed.
+
+### Name duplication: table creation and timeout evidence
+
+Read ensure_table, expire, format_duration and format_error: 53 literal entries across four families. Identify repeated table-creation patterns and identical seconds-formatting while preserving owner/race/return contracts, expiry correlation, input units and unknown-delivery messages. Name triage now 234 families/4782 entries, leaving 1446 cross-module names. Raw findings and skeptic counts are unchanged; no concurrent failure, runtime delivery or saving is claimed.
