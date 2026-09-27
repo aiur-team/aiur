@@ -1819,3 +1819,7 @@ Read load_regular, mark, matches?, member and members: 31 literal entries across
 ### Name duplication: normalization and polling evidence
 
 Read metadata, normalize_issue_state, opaque, parse_line, poll and provider_health: 44 literal entries across six families. Identify equivalent health coercions and polling wrappers while preserving authority metadata, input normalization, size bounds, parser diagnostics and cursor/accounting semantics. The warmth parser accepts unrestricted phase text before atom conversion; trust-boundary reachability remains unverified. Name triage now 255 families/5064 entries, leaving 1425 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
+
+### Name duplication: quarantine and retention contracts
+
+Read provider_label, quarantine, register, required_string, resolve_repo and retain: 48 literal entries across six families. Three injected repository resolvers are identical; identical provider-label wrappers have different transitive fallbacks. Preserve evidence quarantine, registration authority, string validation and retention lifetimes. Name triage now 261 families/5112 entries, leaving 1419 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect, persistence proof or saving is claimed.
