@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "73213942e3c3c3cec31a885812cc30860ea5af440e7abfb64457f168ac9b6fb0"
+    "name_triage": "6eeffd5256400ca62e485b36adcc5ad09a61a701bb92a20b695b0c8c3fc96601"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 493,
-    "remaining_cross_module_names": 1187,
-    "remaining_literal_entries": 3826
+    "reviewed_cross_module_names": 501,
+    "remaining_cross_module_names": 1179,
+    "remaining_literal_entries": 3782
   },
   "families": [
-    {
-      "name": "new_entry",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 38
-    },
-    {
-      "name": "new_hidden_window",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 49
-    },
-    {
-      "name": "non_negative_integer",
-      "clauses": 6,
-      "modules": 3,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "normalize_actor",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 29
-    },
-    {
-      "name": "normalize_answer",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 40
-    },
-    {
-      "name": "normalize_condition",
-      "clauses": 9,
-      "modules": 3,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "normalize_generation",
-      "clauses": 6,
-      "modules": 3,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "normalize_kind",
-      "clauses": 6,
-      "modules": 3,
-      "summed_source_span_lines": 16
-    },
     {
       "name": "normalize_snapshot",
       "clauses": 7,
