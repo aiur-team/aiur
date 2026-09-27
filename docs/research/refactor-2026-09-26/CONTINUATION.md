@@ -1487,3 +1487,7 @@ Candidate11 reconciled into three findings: ambient checkout identity in remote-
 ### Skills/prompts: tracker target and comment completeness
 
 Candidate13 resolved: prior-comment REST fetch omits pagination; several qualified-target workflows show commands that fall back to ambient repository identity. Installed gh2.96.0 help confirms pagination and repository-placeholder behavior; no external requests or mutations. Plan issue creation intentionally uses the current project, so absent --repo alone was not promoted there. Findings40 (24P2/16P3); raw unit remains open.
+
+### Skills/prompts: aliases and source-reference links
+
+Candidate03 not promoted as runtime failure: stale ce-review/ce-prefixed suggestions coexist with explicit ce-code-review routing and real persona assets. Candidate10 promoted once for byte-identical HTML references hard-coding blob/main without revision/path verification. Findings41 (24P2/17P3). Candidate ledger now explicitly reports42 listed,19 terminal,23 unresolved (partial dispositions stay unresolved). All250 files read; raw unit remains open. No external calls or production changes.

@@ -2709,6 +2709,27 @@
       "recommendation": "Carry host/repository/number as one target through primary and fallback paths, using full URLs or explicit repository/hostname arguments.",
       "refactor_hint": "Centralize tracker target identity and complete collection reads; make truncation explicit.",
       "limits": "Frozen-source command contract and installed CLI-help evidence only. No external request, historical incident attribution or production mutation; semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-41",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "HTML reference links hard-code main instead of the cited revision",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-plan/references/html-rendering.md",
+          "lines": "222-251"
+        },
+        {
+          "path": ".claude/skills/ce-brainstorm/references/html-rendering.md",
+          "lines": "222-251"
+        }
+      ],
+      "description": "The reference-index rule resolves origin and maps every repository-relative path to blob/main. It does not resolve the source revision, check that main exists, or establish that the referenced file is present there. Branch-only evidence can therefore point to another version or an absent path, contradicting the same section prohibition on guessed links.",
+      "evidence": "Bounded full-section reread; both rendering reference files are byte-identical. No remote URL fetched or generated-document link failure observed. This is a source-level provenance rule defect, distinct from review metadata identity.",
+      "recommendation": "Link evidence to its verified repository and revision; use a known appropriate branch only for intentionally moving references, and retain local text when no published destination exists.",
+      "refactor_hint": "Share a source-reference contract carrying repository, revision and path across document renderers.",
+      "limits": "Frozen instruction analysis; no measured broken-link population. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3134,7 +3155,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidate13 reconciled. Continue remaining unresolved candidates, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidates03/10 reconciled.23 listed candidates remain unresolved, including partial45. Finish those, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3308,6 +3329,18 @@
       ],
       "reason": "Verified unpaginated REST example and repository identity loss against installed CLI help, without external requests.",
       "subconcerns": "Plan issue creation normally targets the current project by design; missing --repo alone does not establish a wrong target there, so no plan-specific finding. GHE fallback inherits a prose host-prefix requirement; do not claim inevitable wrong-host use. Actual pagination-loss population remains unmeasured."
+    },
+    {
+      "id": "skills-prompts-candidate-03",
+      "status": "not_promoted",
+      "reason": "Frozen catalog has46 SKILL.md files and no ce-review skill; turn-workflow153 uses that stale name only to describe review phase alerts, while complexity-routing64/79 explicitly invokes ce-code-review. Catalog maps short reviewer labels to real prompt assets; old ce-prefixed persona suggestions are not executable path contracts. No failed dispatch demonstrated.",
+      "validation": "Read persona catalog and complexity/turn context; scanned frozen skill catalog and alias-named metadata paths. Retain canonical skill/persona naming as rewrite cleanup, without asserting runtime breakage or absence of host-provided aliases."
+    },
+    {
+      "id": "skills-prompts-candidate-10",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-41",
+      "reason": "Both HTML reference sections mandate blob/main without verifying source revision; byte-identical copies establish one shared defect rather than two findings."
     }
   ],
   "coverage_validation": {
@@ -3317,5 +3350,36 @@
     "unique_paths": true,
     "all_hashes_verified": true,
     "method": "Full content reads, with explicitly recorded identical-copy or complete-diff reuse. Coverage does not close candidate or cross-unit verification."
+  },
+  "candidate_progress": {
+    "listed_candidates": 42,
+    "terminal_dispositions": 19,
+    "unresolved_candidates": 23,
+    "unresolved_ids": [
+      "skills-prompts-candidate-01",
+      "skills-prompts-candidate-04",
+      "skills-prompts-candidate-07",
+      "skills-prompts-candidate-17",
+      "skills-prompts-candidate-19",
+      "skills-prompts-candidate-20",
+      "skills-prompts-candidate-21",
+      "skills-prompts-candidate-23",
+      "skills-prompts-candidate-25",
+      "skills-prompts-candidate-26",
+      "skills-prompts-candidate-27",
+      "skills-prompts-candidate-31",
+      "skills-prompts-candidate-33",
+      "skills-prompts-candidate-35",
+      "skills-prompts-candidate-36",
+      "skills-prompts-candidate-38",
+      "skills-prompts-candidate-39",
+      "skills-prompts-candidate-40",
+      "skills-prompts-candidate-41",
+      "skills-prompts-candidate-43",
+      "skills-prompts-candidate-44",
+      "skills-prompts-candidate-45",
+      "skills-prompts-candidate-46"
+    ],
+    "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."
   }
 }
