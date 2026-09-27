@@ -337,3 +337,40 @@ real normalized-wire mismatch. Older two-row logs helpers have no repository
 callers beyond their tests, but are publicly re-exported: investigate consumers
 before removal. Unpromoted identity, lifecycle and packaging observations remain
 explicit synthesis questions. No production changes or manual UX claims.
+
+## Duplication census checkpoint
+
+The parse-only census covers all 1,032 frozen `src/lib/**/*.ex` files and
+28,722 literal definition clauses. `function-census-summary.json` records every
+input hash, per-name counts and 126 exact-body candidate clusters (297 sites),
+filtered to physical definition spans and canonical bodies of at least five
+lines. This is syntax evidence, not equivalent behavior or removable LOC.
+Heads/guards and lexical alias/import context still require review. Quoted
+generated definitions and macro expansion are explicitly outside this census.
+
+Twenty-three clusters have initial source-span assessments in
+`review/in-progress/duplication-triage.json`; two fall below the final physical
+threshold. Startup wrappers are not grounds for a shared process abstraction.
+Decision validation, usage persistence, log rotation and control-call helpers
+are stronger ownership candidates, pending context and inherited-finding review.
+105 final exact-body clusters remain to assess; both duplication units
+remain incomplete. Counts stay 24/32 review units and 50/60 claims.
+
+Reproduce with `elixir tooling/function_census.exs /path/to/frozen-snapshot`
+then `python3 tooling/function_census_summary.py /path/to/census.json`.
+`python3 tooling/test_function_census.py` checks module scope, quoted-code
+exclusion, clause/head handling, metadata stability and literal sensitivity on
+synthetic files. No project modules are compiled and no production code changes.
+
+The next ten cluster assessments distinguish same-body scope routing from
+different telemetry/usage key contracts, adapter callback boilerplate from
+backend mutation semantics, and same string parsing from different float
+acceptance. Lifecycle digests and renderer-local separator/elapsed formatting
+are concrete ownership candidates. No candidate is yet a measured saving or
+a promoted deduplicated finding; inherited-finding reconciliation remains open.
+
+Tooling validation used Elixir 1.19.5 / OTP 28.5. Ensure both `elixir` and
+`erl` are on PATH: the standalone research directory has no mise version
+selection. A rerun without that setup failed before parsing; with both installed
+binaries on PATH, all fixture assertions passed. The full production-source
+parse was deterministic and all 1,032 hashes matched the frozen Git commit.
