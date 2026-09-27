@@ -1687,3 +1687,7 @@ Read all execute, same_repository?, state_dir, unavailable, call, clear, entry a
 ### Name duplication: extraction, delivery and limits
 
 Read extract, failure, schedule_tick, truncate, send_operator_message, specs, start and validate: 128 literal entries across eight families. Distinguish accounting counter semantics, transport acceptance, owner/generation lifecycles, validation boundaries and byte/codepoint/grapheme truncation. PeriodicWorker already exposes the guarded tick helper; provider failure envelopes and tool-spec envelopes are narrow sharing candidates. Name triage now 78 families/3062 entries, leaving 1602 cross-module names. Raw findings and skeptic counts are unchanged; no new defect or measured saving is claimed.
+
+### Name duplication: clocks, payloads and startup ordering
+
+Read payload, child_spec, entries, handle_continue, maybe_put, now and now_ms: 147 literal entries across seven families. Preserve checksum version rules, error causes, restart identity/policy, replay/subscription ordering and wall versus monotonic clock domains. Optional map/keyword insertion contains narrow sharing candidates with different nil/empty/predicate semantics. Name triage now 85 families/3209 entries, leaving 1595 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or saving is claimed.
