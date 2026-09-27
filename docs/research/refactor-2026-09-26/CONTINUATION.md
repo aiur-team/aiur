@@ -1667,3 +1667,7 @@ Read all 424 handle_call clauses in 74 modules. Preserve deferred replies versus
 ### Name duplication: asynchronous messages and stale work
 
 Read all 501 literal handle_info clauses in 96 modules, including LiveViews/channels. Preserve task/attempt/generation/token fences, owner-death policy, ordered stalled delivery, independent timer loops, render deduplication and authority revocation. Name triage now 45 families/2441 literal entries; all initially prioritized families have been inspected, but that queue is not the full name sweep. Remaining name triage, generated callbacks, concept/constant sweeps and transitive verification remain open. No additional raw defect, skeptical completion or savings claim is added.
+
+### Name duplication: residual census and domain contracts
+
+The complete literal census contains 13,748 distinct names, including 1,680 used in multiple modules. Read project (24 clauses/15 modules), status (32/15), identity (32/14) and persist (15/14), bringing reviewed families to 49/2544 literal entries. Preserve projection provenance, status failure envelopes, identity authority and persistence acceptance policies; identical joinability helpers are a narrow sharing candidate. A reproducible residual-name index records 1,631 unreviewed cross-module families without claiming they are defects or treating single-module names as code-reviewed. Raw duplication units, transitive checks and final synthesis remain open.
