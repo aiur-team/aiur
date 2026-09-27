@@ -1547,3 +1547,11 @@ Candidate40 resolved with tooling/sweep_shared_lease_probe.py against the actual
 ### Skills/prompts: sweep ingestion, retry and resolution evidence
 
 Candidates39/41 reconciled into four source-contract findings: older-parent reply discovery, missing Slack actor setup, landing-only resolution and persisted media retry scheduling. No live missed reply, failed retry or false close-out claimed. Explicit failed-ack cursor hold prevents promoting the intended workflow as skipping deferred items; capped pagination, read-only source progress, archive collisions and close-out idempotency retain stated evidence limits. Findings66 (44P2/22P3);38/42 candidates resolved,4 remain.
+
+### Skills/prompts: peer read scope and recipient exposure
+
+Candidate20 narrowed to a P3 documentation finding: doc-review's no-material-exposure claim does not follow from greater host privileges or sending one document to the peer. Inspected frozen adapter flags and preserved POV's explicit cooperative-scope limitations; no peer invocation, runtime isolation certification or disclosure claimed. Findings67 (44P2/23P3);39/42 candidates resolved,3 remain.
+
+### Skills/prompts: capacity and listener instructions
+
+Candidate07 reconciled against frozen CLI override storage, lifecycle/slot precedence, dispatch load gate and listener registry/renderer. Explicit CLI cap wins;1.5 times16online schedulers is24; registry has26bindings versus prose24. No launch or live-capacity observation. Findings70 (45P2/25P3);40/42 candidates resolved,2 remain. Cross-claim dedup still required.
