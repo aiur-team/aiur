@@ -84482,10 +84482,603 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "log_context",
+      "assessment": "Logging context mixes structured fields and distinct textual projections.",
+      "constraints": [
+        "CoordinationTasks extracts issue_id/issue_identifier from an optional map and otherwise supplies nil fields.",
+        "RateLimitFallback combines State.issue_context with the running session ID; Workspace.Context uses n/a and issue textual fallbacks for falsey values.",
+        "Keep structured context, session correlation and display fallbacks distinct. None of these wrappers establishes escaping or identity validity."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 383,
+          "module": "Aiur.CoordinationTasks",
+          "name": "log_context",
+          "path": "src/lib/aiur/coordination_tasks.ex",
+          "kind": "defp",
+          "end_line": 394,
+          "body_sha256": "caaf0285ec1458a1e90be0de8b6d49fbd0cdfcebb6ec53c5e828c3d3de2a9ca6",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 648,
+          "module": "Aiur.Orchestrator.RateLimitFallback",
+          "name": "log_context",
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "kind": "defp",
+          "end_line": 649,
+          "body_sha256": "32947bfe56ea16d6b2c5d19b21a96326d9d2c172eac34a723b3aa7504ab9efd9",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 58,
+          "module": "Aiur.Workspace.Context",
+          "name": "log_context",
+          "path": "src/lib/aiur/workspace/context.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "aaf2ada30ce064522294b3cb9ac2efdc1f5b800f0c5436b2d09df0fc09e4c970",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "mark_provider_cleanup_unknown",
+      "assessment": "Cleanup uncertainty propagates through a generation-fenced ownership operation.",
+      "constraints": [
+        "SessionLifecycle invokes ownership marking only for repl_cleanup_failed and otherwise returns ok.",
+        "Ownership sends guardian and generation through its call helper, rejecting absent or malformed leases as workspace_ownership_lost.",
+        "Guardian accepts matching generation only in provisioning/active phases, retains succeeded cleanup, otherwise sets provider_cleanup to failed, and calls persist_update.",
+        "Preserve generation/phase fencing and success retention. The unknown-to-failed representation is literal behavior; its downstream meaning and persistence guarantees require separate analysis."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 240,
+          "module": "Aiur.AgentRunner.SessionLifecycle",
+          "name": "mark_provider_cleanup_unknown",
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "kind": "defp",
+          "end_line": 241,
+          "body_sha256": "463032d811d3f38d96fd5ac0f25aa51d92a40dbe07ecb795ad4ed13ffcac0ebc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 243,
+          "module": "Aiur.AgentRunner.SessionLifecycle",
+          "name": "mark_provider_cleanup_unknown",
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "kind": "defp",
+          "end_line": 243,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 101,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "mark_provider_cleanup_unknown",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 102,
+          "body_sha256": "e47628fef3521a14019d9bf16d131a812294ae35114c15119c3edf3776849922",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 104,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "mark_provider_cleanup_unknown",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 104,
+          "body_sha256": "fbd6f1181511f6f700273f357a0b98b2d49f3f30f15036c996e86c47136f83ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 105,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "mark_provider_cleanup_unknown",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 105,
+          "body_sha256": "fbd6f1181511f6f700273f357a0b98b2d49f3f30f15036c996e86c47136f83ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 289,
+          "module": "Aiur.Workspace.Ownership.Guardian",
+          "name": "mark_provider_cleanup_unknown",
+          "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+          "kind": "defp",
+          "end_line": 297,
+          "body_sha256": "b4fa02af52000c47dd61d20b104f7eddfa9835e22015f4c7a70d1d30472e0f43",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 299,
+          "module": "Aiur.Workspace.Ownership.Guardian",
+          "name": "mark_provider_cleanup_unknown",
+          "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+          "kind": "defp",
+          "end_line": 299,
+          "body_sha256": "c24dcece51db5264a25e2a3531f7a0a662ce859273c8ecacb6b960265652cf06",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "maybe_reason",
+      "assessment": "Two reason accumulators append while a third prepends.",
+      "constraints": [
+        "CurrentRunOutcomeSnapshot.SourceState and CurrentRunSummary.Status append one reason for true and retain the list for false.",
+        "UsageEnvelope prepends for true and likewise retains for false.",
+        "Sharing an accumulator must preserve ordering or explicitly normalize at the domain boundary. These clauses neither deduplicate reasons nor accept arbitrary truthy conditions."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 152,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.SourceState",
+          "name": "maybe_reason",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/source_state.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "50258ebd98fe6dfbcdae6c014eb57b751235352656221c84bd32e770c65360de",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 153,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.SourceState",
+          "name": "maybe_reason",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/source_state.ex",
+          "kind": "defp",
+          "end_line": 153,
+          "body_sha256": "f8d5ffc3fda7bf8c31a734e0c54c22032d66c7b5dc0f1742c0e36a9da54fa10f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 125,
+          "module": "Aiur.CurrentRunSummary.Status",
+          "name": "maybe_reason",
+          "path": "src/lib/aiur/current_run_summary/status.ex",
+          "kind": "defp",
+          "end_line": 125,
+          "body_sha256": "50258ebd98fe6dfbcdae6c014eb57b751235352656221c84bd32e770c65360de",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 126,
+          "module": "Aiur.CurrentRunSummary.Status",
+          "name": "maybe_reason",
+          "path": "src/lib/aiur/current_run_summary/status.ex",
+          "kind": "defp",
+          "end_line": 126,
+          "body_sha256": "f8d5ffc3fda7bf8c31a734e0c54c22032d66c7b5dc0f1742c0e36a9da54fa10f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 585,
+          "module": "Aiur.UsageEnvelope",
+          "name": "maybe_reason",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 585,
+          "body_sha256": "7960d30ab9bc0b2acf9badf031a52e265231bd1ca0c562efd0bc062d2f9067c8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 586,
+          "module": "Aiur.UsageEnvelope",
+          "name": "maybe_reason",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 586,
+          "body_sha256": "f8d5ffc3fda7bf8c31a734e0c54c22032d66c7b5dc0f1742c0e36a9da54fa10f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "measurement?",
+      "assessment": "Measurement presence is checked at different normalization stages.",
+      "constraints": [
+        "Claude RequestUsage first derives dimensions, then accepts any integer dimension. Its dimensions helper was read and includes input/cache/output/total fields plus nil reasoning output.",
+        "Codex Tokens accepts any integer among supplied dimensions.",
+        "OpenAICompat RequestUsage directly checks selected prompt/input/completion/output/total atom/string keys for integer values.",
+        "The shown predicates alone do not require nonnegative integers. Preserve raw-input versus normalized-dimension validation boundaries; negative production incidence and upstream guards were not established in this pass."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 150,
+          "module": "Aiur.Usage.Headless.Claude.RequestUsage",
+          "name": "measurement?",
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "kind": "defp",
+          "end_line": 153,
+          "body_sha256": "495a35a466467600efc49708caa8dd252c9ab35574ffdfde9c0376ce88fcfdb9",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 68,
+          "module": "Aiur.Usage.Headless.Codex.Tokens",
+          "name": "measurement?",
+          "path": "src/lib/aiur/usage/headless/codex/tokens.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "38e99d86faab3d5b8b129899d5e09747925381c634db97069ee4553c512b0c63",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 115,
+          "module": "Aiur.Usage.Headless.OpenAICompat.RequestUsage",
+          "name": "measurement?",
+          "path": "src/lib/aiur/usage/headless/open_ai_compat/request_usage.ex",
+          "kind": "defp",
+          "end_line": 120,
+          "body_sha256": "d8d6c48fc154726f27676a3e45924b342bb9256dd1bbd94a5061e8fab41f417b",
+          "normalized_body_lines": 20,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "member_identity",
+      "assessment": "Membership extraction and planning identity resolution have distinct shape contracts.",
+      "constraints": [
+        "MembershipIndex accepts TrackerIdentity directly, identity or tracker_identity wrappers, otherwise nil.",
+        "TicketActivity unwraps identity maps and otherwise returns the original term unchanged.",
+        "PlanningSource derives ticket identity, skips membership lookup for number nil, otherwise prefers a matching member's TrackerIdentity and falls back to the derived identity.",
+        "Do not replace resolution with a generic unwrap; preserve accepted wrapper keys, fallback behavior and typed membership preference. Matching helper correctness remains unverified."
+      ],
+      "clauses": 9,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 63,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.MembershipIndex",
+          "name": "member_identity",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/membership_index.ex",
+          "kind": "defp",
+          "end_line": 63,
+          "body_sha256": "579c55e1db0b7ec6b4203d444a610ec24ad0514b480c30b0153a4ab417923a3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 64,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.MembershipIndex",
+          "name": "member_identity",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/membership_index.ex",
+          "kind": "defp",
+          "end_line": 64,
+          "body_sha256": "579c55e1db0b7ec6b4203d444a610ec24ad0514b480c30b0153a4ab417923a3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 65,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.MembershipIndex",
+          "name": "member_identity",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/membership_index.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "579c55e1db0b7ec6b4203d444a610ec24ad0514b480c30b0153a4ab417923a3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 66,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.MembershipIndex",
+          "name": "member_identity",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/membership_index.ex",
+          "kind": "defp",
+          "end_line": 66,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 204,
+          "module": "Aiur.TicketActivity",
+          "name": "member_identity",
+          "path": "src/lib/aiur/ticket_activity.ex",
+          "kind": "defp",
+          "end_line": 204,
+          "body_sha256": "579c55e1db0b7ec6b4203d444a610ec24ad0514b480c30b0153a4ab417923a3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 205,
+          "module": "Aiur.TicketActivity",
+          "name": "member_identity",
+          "path": "src/lib/aiur/ticket_activity.ex",
+          "kind": "defp",
+          "end_line": 205,
+          "body_sha256": "579c55e1db0b7ec6b4203d444a610ec24ad0514b480c30b0153a4ab417923a3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 463,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "member_identity",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 463,
+          "body_sha256": "e0fd79df111f37ae0788fd3a9bf4b0568e74fb2794d4b8354658755a105a4717",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 465,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "member_identity",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 472,
+          "body_sha256": "1979af8f95930439f07da046a91642d7f0939d0e496c49f77b59656508e61285",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 474,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "member_identity",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 474,
+          "body_sha256": "e0fd79df111f37ae0788fd3a9bf4b0568e74fb2794d4b8354658755a105a4717",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "metadata_from_message",
+      "assessment": "Provider metadata wrappers share a pattern but enrich different fields.",
+      "constraints": [
+        "Codex CodingAgent delegates to TurnEvents, which combines AppServerPort metadata with top-level map-valued usage.",
+        "Claude combines its port metadata with maybe_set_usage; that helper considers payload/params through find_in and adds map usage and numeric cost_usd.",
+        "Claude port_metadata and both enrichment helpers were read; Claude includes provider/Claude PID fields and delegates process-group enrichment.",
+        "Preserve source-specific process provenance, nested lookup and cost fields before sharing wrappers. Lookup precedence and complete metadata safety were not proven by this batch."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 485,
+          "module": "Aiur.Claude.CodingAgent",
+          "name": "metadata_from_message",
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "kind": "def",
+          "end_line": 487,
+          "body_sha256": "7e94cf5a4c6cf83159e9952d069576f1245f46d10a73bf87290ecb6d9c1a775f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 213,
+          "module": "Aiur.Codex.CodingAgent",
+          "name": "metadata_from_message",
+          "path": "src/lib/aiur/codex/coding_agent.ex",
+          "kind": "def",
+          "end_line": 213,
+          "body_sha256": "6799e3af3d34e20aec0c9ada08d6905fb337bf883e080b1f1c4ece3b4abfe1ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 9,
+          "module": "Aiur.Codex.TurnEvents",
+          "name": "metadata_from_message",
+          "path": "src/lib/aiur/codex/turn_events.ex",
+          "kind": "def",
+          "end_line": 11,
+          "body_sha256": "5dc29cb58a41087afd0a13f7c47ecb701f171bf289ae0bc6935d73fe70ec5d2e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "meter",
+      "assessment": "Meter construction, rendering and percentage display have different evidence contracts.",
+      "constraints": [
+        "BudgetMap marks an existing window map observed, carrying used/limit/remaining/reset and computed observation age; absent windows delegate to stale_meter.",
+        "GitHubCacheLive renders observed values, reset and observation age, and renders stale reason with an age when available.",
+        "ProviderMetersPresenter creates an exact percentage meter only for supported numeric input, using clamping and rounding; other inputs yield kind none.",
+        "Keep observation state, age rendering and missing coverage separate. An existing map is not by itself evidence of complete or fresh quota fields."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 364,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "meter",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "defp",
+          "end_line": 379,
+          "body_sha256": "a37e973a5bebf0b4b3d8880f00fc3d71a326ea3a053523c1d392b21d712ab17c",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 836,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "meter",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 851,
+          "body_sha256": "1cf1578c65decdf7e1f859a9ae92968a27c2b4127c9cf3b76fb74d79fd4770ee",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 299,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "meter",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 301,
+          "body_sha256": "ac3364ee825f26d879e168b84f2f4b194cb732c747a755ae88ea04c681db807a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 303,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "meter",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 303,
+          "body_sha256": "a61876695053f64656edd0f5dad3d4dec80047e428962269dab62ed258114e7a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "model_version",
+      "assessment": "Table wrappers already use one shared model-version presenter.",
+      "constraints": [
+        "FleetTable and UnitsTable both delegate to UnitsPresentation; both aliases were checked.",
+        "UnitsPresentation obtains a binary model label and then a binary Models.label result, returning label/id or nil for unknown cases.",
+        "Retain this existing presentation boundary rather than counting wrappers as independent implementations. Registry resolution and label freshness were not verified here."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 115,
+          "module": "AiurWeb.OperatorControlCenter.FleetTable",
+          "name": "model_version",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "kind": "defp",
+          "end_line": 115,
+          "body_sha256": "021445ea7b42b9edae124545731eb9a645b811b40183cb50b21dfe0e0ffa7171",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 362,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "model_version",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 362,
+          "body_sha256": "021445ea7b42b9edae124545731eb9a645b811b40183cb50b21dfe0e0ffa7171",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 145,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "model_version",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "def",
+          "end_line": 152,
+          "body_sha256": "4dcb4ae0507629d0d292aacd1914a0bfe6141c2c79bbca240884a079f4d9ff18",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 154,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "model_version",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "def",
+          "end_line": 154,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6403,
-  "limits": "485 selected families and 6403 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6442,
+  "limits": "493 selected families and 6442 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
