@@ -7,7 +7,7 @@
       "modules": 123,
       "clauses": 123,
       "summed_source_span_lines": 1994,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "start_link",

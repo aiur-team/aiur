@@ -946,3 +946,7 @@ Read all 49 handle_cast clauses in 21 modules. OTP callback shape is shared prot
 ### Name duplication: rendering media and trust boundaries
 
 Read all 54 render definitions/clauses in 21 modules, including complete LiveView render bodies. Preserve terminal output ownership, agent-input trust filtering, Decision correlation instructions, machine tokens, HTML/JSON encoding boundaries and distinct unavailable/physical-only UI states. Existing shell/components already share framing. Name triage now 42 families/1393 literal entries. This source review is not manual UI verification; remaining callbacks, helpers and broader sweeps stay open.
+
+### Name duplication: startup contracts and disabled callbacks
+
+Read all 123 init definitions in 123 modules. Preserve synchronous readiness, recovery failure policy, public-table restore ordering, unknown baselines, process ownership and supervisor restart semantics; not every init is a GenServer callback. Name triage now 43 families/1516 literal entries. An isolated frozen-source probe reproduces invalid ignore returns in both monitors and passes after an in-memory return-only correction, corroborating existing loose-4-01 without adding a defect. Twelve inherited findings now have partial duplication reconciliation; high-severity skeptical completion is unchanged. Remaining callback/name, concept and constant sweeps stay open; full application boot and transitive startup correctness are not claimed.

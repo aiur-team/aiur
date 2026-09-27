@@ -168,7 +168,26 @@
       "disposition": "corroborated_four_freshness_label_mappings",
       "assessment": "Read all25freshness_label clauses. Four presenters map stale to Healthy, while ConversationDrawer keeps Stale and GitHubCache uses older. This confirms a subset of the inherited label-collapse finding; it does not independently verify all nine locations, test assertions or the historical product-decision explanation. Status atoms remain alongside labels at inspected ProviderMeters and CurrentRunOutcomes call sites. Link this evidence to the original finding instead of counting another defect.",
       "evidence": "duplication-name-triage.json"
+    },
+    {
+      "finding_id": "loose-4-01",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "disabled_callback_failure_reproduced_in_isolated_vm",
+      "assessment": "Both frozen monitor modules reproduce bad_return_value when their disabled branches are selected with minimal configuration doubles. Recompiling each exact source with only {:ignore, %State{}} replaced by :ignore changes GenServer.start to :ignore. The unconditional child declarations at src/lib/aiur.ex:312-313 corroborate relevance, but the probe does not load actual config, start the application or establish historical incidence. Preserve original ID; P0 severity and complete documented-opt-out path remain for skeptical review.",
+      "evidence": "tooling/disabled_monitor_init_probe.exs; duplication-name-triage.json init family",
+      "validation": {
+        "command": "ERL_FLAGS='+S 1:1' elixir tooling/disabled_monitor_init_probe.exs SNAPSHOT_ROOT",
+        "runtime": "Elixir 1.19.5 / OTP 28",
+        "exit_code": 0,
+        "results": [
+          "Aiur.BuildGateHoldMonitor original=bad_return_value",
+          "Aiur.BuildGateHoldMonitor in_memory_correction=ignore",
+          "Aiur.SaturationSentinel original=bad_return_value",
+          "Aiur.SaturationSentinel in_memory_correction=ignore"
+        ],
+        "scope": "Isolated VM; no application build, production edits, external requests, or live state mutation. Runtime binaries selected explicitly because the private scratch directory has no mise version configuration."
+      }
     }
   ],
-  "limits": "Eleven selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
+  "limits": "Twelve selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
 }
