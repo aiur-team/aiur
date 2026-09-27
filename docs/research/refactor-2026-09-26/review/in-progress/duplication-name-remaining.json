@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "3d0561732c13f1fe2f8659a5324b7cfc150656e82a967b3fdd0ed389468baa8f"
+    "name_triage": "87e627bef28c12658ae89eef3c36d3e88c0677676f2f5d3d720b5e9d65713e20"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 717,
-    "remaining_cross_module_names": 963,
-    "remaining_literal_entries": 2969
+    "reviewed_cross_module_names": 725,
+    "remaining_cross_module_names": 955,
+    "remaining_literal_entries": 2950
   },
   "families": [
-    {
-      "name": "card",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 42
-    },
-    {
-      "name": "catalog_repository",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "catalog_revision",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "catalog_snapshot",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "catalog_topic",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "ceil_div",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "cells",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "cells_snapshot",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
     {
       "name": "change",
       "clauses": 2,

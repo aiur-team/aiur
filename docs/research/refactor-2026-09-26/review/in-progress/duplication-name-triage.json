@@ -98807,10 +98807,358 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "card",
+      "assessment": "Build-order and provider-meter cards present different evidence domains.",
+      "constraints": [
+        "BuildOrderPresenter combines member identity, planning lane/phase, execution/readiness and activity progress/freshness/observation fields.",
+        "ProviderMetersPresenter derives card state and known-identity gating, then assembles identity/auth/plan/health/freshness/timestamps/windows.",
+        "Retain domain schemas and unknown-identity gating; constructing freshness fields does not prove rendering or correct source interpretation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 8,
+          "line": 463,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "card",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 484,
+          "body_sha256": "57a8b7c398a262e93f9bfeae83fb630d77ff957f4a6d636b5df3c90741eece1b",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 107,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "card",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 126,
+          "body_sha256": "b11eb98af2301e01aeb4eb9be4d128730cc266484daf6e75309f3d50fa07df92",
+          "normalized_body_lines": 25,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "catalog_repository",
+      "assessment": "Planning fallback and route snapshot extraction have different authority sources.",
+      "constraints": [
+        "PlanningSource uses the first pack repository, falling back to configured_repository_tuple for an empty list.",
+        "SourceRuntime uses a catalog Snapshot repository tuple or nil.",
+        "Preserve configured fallback versus absent observed repository; homogeneous planning-pack identity and snapshot freshness are not certified here."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 587,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "catalog_repository",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 587,
+          "body_sha256": "2177d309122a488550c08816d49d8c6d7b10e2e56b48c1b9e9df63f424619880",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 588,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "catalog_repository",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 588,
+          "body_sha256": "325fae844f5902a41acb2fb736ea9f0153ccc5bf168ea1ab7d7ff1fb9f2540d2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 342,
+          "module": "AiurWeb.BuildOrder.SourceRuntime",
+          "name": "catalog_repository",
+          "path": "src/lib/aiur_web/build_order/source_runtime.ex",
+          "kind": "defp",
+          "end_line": 347,
+          "body_sha256": "2bf8ad8185dd43a008db97d0e8e57e968e48981fb8857ec2556480c1b673cf1e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "catalog_revision",
+      "assessment": "Declared price-data revision and a UI change fingerprint are different concepts.",
+      "constraints": [
+        "PriceTable.Data returns the declared catalog revision constant, which was inspected.",
+        "UnitsPresenter hashes catalog status/message/truncation plus snapshot health and row announcement signatures, truncates SHA256 to five bytes and returns lowercase hex; exceptions yield unknown.",
+        "Keep declared dataset revision distinct from a presentation fingerprint. The truncated fingerprint is not a unique catalog version or an authoritative data-integrity hash."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 146,
+          "module": "Aiur.Usage.PriceTable.Data",
+          "name": "catalog_revision",
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "kind": "def",
+          "end_line": 146,
+          "body_sha256": "66cf6c3bb453829146cf2103b9e635e304541cd21400130155407548b59209eb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 391,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresenter",
+          "name": "catalog_revision",
+          "path": "src/lib/aiur_web/operator_control_center/units_presenter.ex",
+          "kind": "defp",
+          "end_line": 407,
+          "body_sha256": "8372fb5d011de3733964b4758482a187029f2004ab531348d979940853a47c83",
+          "normalized_body_lines": 21,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "catalog_snapshot",
+      "assessment": "Graph policy snapshot construction and route-state access are already separate layers.",
+      "constraints": [
+        "GraphProjection calls Policy.snapshot with catalog, active repository, authority epoch, current time and catalog freshness bound.",
+        "RouteState returns its stored catalog_snapshot field.",
+        "Preserve producer policy versus stored-view access; the accessor does not recompute freshness or prove current authority."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1383,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "catalog_snapshot",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "defp",
+          "end_line": 1391,
+          "body_sha256": "8440bfde1096a13a0d0b4ef81541be50dfc27af208ef6e0c1bcc05a414dfb5de",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 161,
+          "module": "AiurWeb.BuildOrder.RouteState",
+          "name": "catalog_snapshot",
+          "path": "src/lib/aiur_web/build_order/route_state.ex",
+          "kind": "def",
+          "end_line": 161,
+          "body_sha256": "b09c241810699aff03ce393e24b3203cff1a9279b0b1567181bac67e26ab4a66",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "catalog_topic",
+      "assessment": "GraphProjection already delegates catalog topic ownership to Policy.",
+      "constraints": [
+        "Verified the Policy alias resolves to GraphProjection.Policy.",
+        "Policy constructs the catalog topic through its shared topic helper.",
+        "Retain this facade boundary; topic encoding and repository validation were not re-certified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 121,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "catalog_topic",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "defdelegate",
+          "end_line": 121,
+          "body_sha256": "9735b7790ff39b27bfc5761769991eb86062fecf11fb5684eb3ffd722d53ce90",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 16,
+          "module": "Aiur.BuildOrder.GraphProjection.Policy",
+          "name": "catalog_topic",
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "kind": "def",
+          "end_line": 16,
+          "body_sha256": "5a75e23f69a1da79a6ee70cdfe2d43f848f9cab747071d8203af0faaa7e35d21",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ceil_div",
+      "assessment": "Two integer ceiling-division helpers are identical after parameter renaming.",
+      "constraints": [
+        "Both return zero for a zero numerator and otherwise use div(numerator + denominator - 1, denominator).",
+        "The functions have no local guards ensuring nonnegative numerators or positive denominators.",
+        "A shared primitive must preserve or explicitly specify that input domain; this formula is not a general signed ceiling-division contract."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 140,
+          "module": "Aiur.Events.GithubCommentsPoller",
+          "name": "ceil_div",
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "kind": "defp",
+          "end_line": 140,
+          "body_sha256": "07e37eaf0627b55ca9cf1b72e05de6590b3899ac34af6765529abbc2c5841d44",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 141,
+          "module": "Aiur.Events.GithubCommentsPoller",
+          "name": "ceil_div",
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "kind": "defp",
+          "end_line": 141,
+          "body_sha256": "3a0e02cbadefad9a351783b8da65e8aa82a2c0f106eb467f7bc6d83ca69d46aa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 284,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "ceil_div",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 284,
+          "body_sha256": "07e37eaf0627b55ca9cf1b72e05de6590b3899ac34af6765529abbc2c5841d44",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 285,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "ceil_div",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 285,
+          "body_sha256": "a3fa5ad0646cb889706f39c4eee3d0a5629ea8daaa8e0505ba8153e917ebcf8a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cells",
+      "assessment": "Accounting-cell construction and compacted-block access have different roles.",
+      "constraints": [
+        "UsageAggregate.Key derives envelope dimensions and concatenates token/money cells for the delta.",
+        "UsageCompaction.Block returns its stored cells field.",
+        "Preserve production versus access ownership; cell conservation, normalization and deduplication are not established by this literal comparison."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 55,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "cells",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "def",
+          "end_line": 58,
+          "body_sha256": "4069983629192a498ed31df8855fdb579ffee33369d49eff120a8062f84195f9",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 73,
+          "module": "Aiur.UsageCompaction.Block",
+          "name": "cells",
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "8ae0783ed547e9ae366098df12c30fc4314e6a9ef793fb55fa350b4432910c8d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cells_snapshot",
+      "assessment": "UsageAggregate already delegates synchronous cell reads to Store.",
+      "constraints": [
+        "Verified UsageAggregate.Store alias; the facade invokes its zero-argument default.",
+        "Store calls GenServer with cells_snapshot using its default server argument.",
+        "Retain the public facade and process boundary; consistency and reply shape require handler review, and a call alone does not establish snapshot completeness."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 46,
+          "module": "Aiur.UsageAggregate",
+          "name": "cells_snapshot",
+          "path": "src/lib/aiur/usage_aggregate.ex",
+          "kind": "def",
+          "end_line": 46,
+          "body_sha256": "26db4bf3f48c04b02b40c428e6f94d13944431852725cbb01489accc4031b4d6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 35,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "cells_snapshot",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "80dca3bbbe0859c7faa88b00b756dc70ee0733cf3a49929e7c1f9c7dc11431ba",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7299,
-  "limits": "717 selected families and 7299 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7318,
+  "limits": "725 selected families and 7318 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
