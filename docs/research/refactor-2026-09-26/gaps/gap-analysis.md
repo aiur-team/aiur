@@ -21,6 +21,13 @@ exceed one) and adds the valid `duration_weighted_attended_frac`. Use the latter
 Historical causal claims below remain under verification unless a verdict says
 otherwise; in particular, a missing progress event does not prove no useful work.
 
+**Uptime caveat:** the historical event-ID generator preserves reservations
+across restarts, so the analyzer's event-ID quotient is not a guaranteed daemon
+boot identity. The pre-log spans and 75.6% headline are retained-model results,
+not verified continuous uptime or measured wasted time. See
+[the uptime contract audit](../synthesis/gap-uptime-contract.json).
+
+
 ## 0. Headline
 
 | Measure | Value |

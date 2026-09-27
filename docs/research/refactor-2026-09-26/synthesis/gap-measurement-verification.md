@@ -149,3 +149,30 @@ Reproduction: `python3 tooling/gap_boundary_audit.py "$LOCAL_GAP_SCRATCH"
 at minute precision, so computed lifts are explicitly approximate. A fresh run
 reproduced the saved audit, including 11 limit windows totaling 25.4660 h and
 13.6197 h overlapping gaps. Raw inputs and private chronology remain local.
+
+## Uptime identity and progress coverage checkpoint
+
+The historical event-ID generator does **not** guarantee that dividing an ID
+by one million yields a daemon boot identity. Persisted reservations survive a
+restart; a restarted generator can emit the same quotient. Cold recovery can
+also seed from an older durable maximum above wall time. Consequently a common
+prefix cannot prove uninterrupted uptime. The analyzer's two-hour observed-up
+docstring is not implemented: it appends the full inferred span.
+
+See gap-uptime-contract.json for the historical source hash and a source-rule
+arithmetic counterexample. This invalidates the asserted proof of pre-log
+uptime, not the previously reproduced interval arithmetic. No corrected
+denominator is yet established, and no percentage of wasted time is measured.
+
+A separate source-coverage audit finds that architecture-docs was fetched but
+its GitHub cache is not read by the archon-alias progress loader. Applying the
+same inclusion rules finds 3,537 qualifying source records and **zero** inside
+the retained >=30-minute gaps; this particular omission therefore changes the
+retained gap total by zero hours. That negative sensitivity result does not
+establish complete source coverage. Repeated audit output matches exactly.
+
+The three run directories flagged as absent from the presentation table all
+belong to khala and already appear in the retained analysis model. They are a
+table-completeness issue, not three proven missing denominator intervals.
+Matching Bash invocations also count without verified command success, so
+the progress definition should not promise uniformly durable outputs.

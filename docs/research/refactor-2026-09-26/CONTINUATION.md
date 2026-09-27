@@ -1006,3 +1006,19 @@ Claim lens coverage is 52/60; review units remain 25/32. Next claim work:
 codebase-07, gaps-01/03/04/05/06/07 and meta-07. Remaining review, duplication,
 feature challenges, skeptic pass, final synthesis and CE planning still pending.
 No runtime changes or production test claims.
+
+## Gap source and uptime contract checkpoint
+
+Added gap-progress-coverage.json/tooling/gap_progress_coverage.py: the omitted
+architecture-docs GitHub cache has 3,537 qualifying records but zero strictly
+inside retained >=30-minute gaps; repeated output is identical. No ratio change
+from this omission alone. All three flagged run directories resolve to khala
+and already exist in the retained model.
+
+Added gap-uptime-contract.json: historical IdGenerator reservation recovery
+contradicts treating event_id // 1000000 as a guaranteed boot identity. The
+analyzer's claimed two-hour observed-up bound is also absent from execution.
+Source-rule arithmetic demonstrates a restart preserving the quotient; no
+runtime reproduction or corrected denominator claimed. Progress counts matched
+Bash calls without success checks. Gaps-01 remains open for final verdict and
+report correction; coverage still 52/60. This is a major synthesis caveat.
