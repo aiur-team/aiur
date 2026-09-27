@@ -1185,3 +1185,8 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 ### tests-1b seventy-three-file checkpoint
 
 73 full reads,25471 lines. Added Init and BuildGate. Confirmed background-descendant fixture identity defect: $$ records the parent PID, so the cancellation test checks the parent twice and fallback cleanup targets it too. Actual fixture writer extracted via AST; added BASHPID observation proves a distinct live child. Released child and removed temporary probe files. Initial attempt exhausted temporary-filesystem quota before spawning; explicit research scratch root succeeded. Portable probe added, no production containment failure alleged. Preserve setup consent/scope and build admission/retention/ownership boundaries. Two files remain: agent_control_cli and agent_github_guard. No production changes or full-suite execution.
+
+
+### tests-1b seventy-four-file checkpoint
+
+74 full reads,29523 lines. Added AgentControlCLI plus TestSupport lines1-390 as an excerpt. Preserve wake claim/ack failure semantics, bounded todo cleanup, daemon-owned admission causes and sample ages, generation-correlated resume confirmation, unknown outcomes and retry identities, and watch resolution/change behavior. Existing watch resolution test consumes a supplied ledger and does not close the default listener routing gap. TestSupport is serial and supplies per-case durable roots; do not infer an async race from this module mutating globals. One combined read was output-truncated; reread lines950-1070 recovered the omitted boundary before counting full coverage. Only agent_github_guard remains. No new promoted finding, suite execution or production change.
