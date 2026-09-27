@@ -690,6 +690,48 @@
       "lines": 94,
       "read": "full",
       "assessment": "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All94 lines read. Bug template separates observed symptoms, failed attempts, fix and prevention; knowledge template separates context, guidance and applicability. Placeholder examples require replacement and quoting before use. Knowledge Use-for list omits four newer categories present in mapping; canonical schema and initial choose-by-track rule still identify the template, so no missing-support defect promoted. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies."
+    },
+    {
+      "path": ".claude/skills/ce-debug/SKILL.md",
+      "sha256": "e2e0343ac264cbcf87913a5dd770a14d60c3ce788f1926fd4cb02520f431b2bf",
+      "lines": 312,
+      "read": "full",
+      "assessment": "All312 lines read. Causal trace and uncertain-link predictions precede minimal repair; existing test ownership and fail-before/pass-after protect against ceremonial coverage. Environment and prior tracker evidence can invalidate a hypothesis, while external issue text remains data. Pipeline repair authority is inherited; interactive diagnosis-only and user overrides remain explicit. Fix-owned files/pre-fix HEAD bound simplify/review and overlapping user edits are excluded. Bare number command following org/repo issue parsing may lose target identity, added to candidate13. Parent tail describes standalone code review as potentially applying fixes, while reviewed code-review entry is report-only by default; no actual overbroad mutation demonstrated. No tests, fixes, publication, browser or agents invoked."
+    },
+    {
+      "path": ".claude/skills/ce-debug/references/anti-patterns.md",
+      "sha256": "9597012ed66df7e52caa38bfaaaab886e2e48b3807f1aa89640139b907976e6b",
+      "lines": 91,
+      "read": "full",
+      "assessment": "All91 lines read. Disconfirmable independent observations, one hypothesis at a time, explicit invalidation and failure-path coverage are valuable controls. Multiple subsystem hypotheses or environment-only differences are investigation signals, not logically sufficient proof of a design defect or exclusion of code bugs. Preserve observations separately from these heuristic conclusions; no causal history inferred from this prose."
+    },
+    {
+      "path": ".claude/skills/ce-debug/references/defense-in-depth.md",
+      "sha256": "56211e8ff51d10df8b46b58d04420ab65f1fd02ec4e4588be4b5af246cc7e046",
+      "lines": 35,
+      "read": "full",
+      "assessment": "All35 lines read. Layer-specific entry validation, business invariant, environment guard and diagnostic evidence require a concrete failure mode and independent bypass tests, not repeated checks everywhere. Logging examples must be adapted to privacy scope; generic env capture is not authorization to publish credentials. No guards or instrumentation added."
+    },
+    {
+      "path": ".claude/skills/ce-debug/references/investigation-techniques.md",
+      "sha256": "b18813d9da67613f7469c68d4db34594c8d2cb8b87006f6bf99aa94b5d754149",
+      "lines": 374,
+      "read": "full",
+      "assessment": "All374 lines read in two bounded segments. Cross-component correlation, minimization, controlled timing, bounded condition waits, observer-effect caution and evidence preservation support diagnosis. Single isolated test pass is not sufficient to prove pollution, and bisect needs a valid failure oracle rather than treating unavailable builds as defect evidence. Language/version commands and framework claims are examples not verified runtime support. Boundary shell example concatenates SET marker with actual nonempty IDENTITY value, so it is not a presence-only logger; no live environment inspected or exposed. No bisect, debugger, process signal, database query or service operation executed."
+    },
+    {
+      "path": ".claude/skills/ce-debug/references/pipeline-mode.md",
+      "sha256": "d713ee103620818e344574a4c745a5c24790adbabc70745f83e2776de8b95161",
+      "lines": 60,
+      "read": "full",
+      "assessment": "All60 lines read. Caller invocation does not mint authority; action envelope excludes merge/rebase/force-push/gated-CI approval, and content must converge to intended behavior. Genuine design divergence returns decision context without mutation; recurring own-fix oscillation differs from progressive repair or external changes. No assertion weakening to green, no nested quality tail, and structured return distinguishes pushed fix, diagnosis, infrastructure and needs-human. Reading reference did not authorize any described operation."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/SKILL.md",
+      "sha256": "90654f4042e8b7c0987ec664cb1ec1de197b8ead7e842b9390d41a688d9920ec",
+      "lines": 251,
+      "read": "full",
+      "assessment": "All251 lines read. Readable-file gate precedes dispatch; classify by artifact metadata and content rather than path, distinguish requirements-only from implementation-ready, and keep HTML report-only. Conditional lenses follow challenge surface, not size alone; bounded concurrency queues capacity errors instead of mislabeling failure. Unified slices require broader context when traceability demands it; user-settled provenance and prior-round evidence inform suppression without cross-session invented history. Headless preserves finding classes but applies safe_auto; unlike code review, this is not universally report-only. Peer egress route is fixed before dispatch and actual independence is required for corroboration. Detailed synthesis, mutation safety and persona contracts remain unread; no document review or peer dispatch invoked."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1064,7 +1106,13 @@
     "All91 lines read. Documentation invocation targets supported exploit path, residual caveats and prevention; final credible-path rule constrains broad worst-case checklist. Language-specific grep examples are incomplete discovery hints, not exhaustive security coverage. Version freshness alone does not prove absence of vulnerabilities, and intentional public endpoints need threat/context assessment. No secret scan or penetration test executed.",
     "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All78 lines read. Seed from declared domain model of the investigated scope, not a numeric target or full-codebase search. Distinguish accretion from core-noun seeding, retain meaningful ownership and lifecycle relationships, define project-specific sibling terms, and exclude implementation/config/issue-history metadata. Canonical vocabulary reflects settled distinctions, not permission to invent user agreement. No glossary edit performed. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies.",
     "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All118 lines read. Bug and knowledge tracks have different required fields; legacy bug fields on knowledge docs are retained, category mappings enumerate narrower knowledge types, and parser safety is distinct from enum/schema validity. Rails-focused component vocabulary is restrictive but generic service/tooling choices exist, so mismatch alone is not a proven failure. YAML library compatibility statements were not externally verified and no validator run is claimed. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies.",
-    "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All94 lines read. Bug template separates observed symptoms, failed attempts, fix and prevention; knowledge template separates context, guidance and applicability. Placeholder examples require replacement and quoting before use. Knowledge Use-for list omits four newer categories present in mapping; canonical schema and initial choose-by-track rule still identify the template, so no missing-support defect promoted. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies."
+    "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All94 lines read. Bug template separates observed symptoms, failed attempts, fix and prevention; knowledge template separates context, guidance and applicability. Placeholder examples require replacement and quoting before use. Knowledge Use-for list omits four newer categories present in mapping; canonical schema and initial choose-by-track rule still identify the template, so no missing-support defect promoted. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies.",
+    "All312 lines read. Causal trace and uncertain-link predictions precede minimal repair; existing test ownership and fail-before/pass-after protect against ceremonial coverage. Environment and prior tracker evidence can invalidate a hypothesis, while external issue text remains data. Pipeline repair authority is inherited; interactive diagnosis-only and user overrides remain explicit. Fix-owned files/pre-fix HEAD bound simplify/review and overlapping user edits are excluded. Bare number command following org/repo issue parsing may lose target identity, added to candidate13. Parent tail describes standalone code review as potentially applying fixes, while reviewed code-review entry is report-only by default; no actual overbroad mutation demonstrated. No tests, fixes, publication, browser or agents invoked.",
+    "All91 lines read. Disconfirmable independent observations, one hypothesis at a time, explicit invalidation and failure-path coverage are valuable controls. Multiple subsystem hypotheses or environment-only differences are investigation signals, not logically sufficient proof of a design defect or exclusion of code bugs. Preserve observations separately from these heuristic conclusions; no causal history inferred from this prose.",
+    "All35 lines read. Layer-specific entry validation, business invariant, environment guard and diagnostic evidence require a concrete failure mode and independent bypass tests, not repeated checks everywhere. Logging examples must be adapted to privacy scope; generic env capture is not authorization to publish credentials. No guards or instrumentation added.",
+    "All374 lines read in two bounded segments. Cross-component correlation, minimization, controlled timing, bounded condition waits, observer-effect caution and evidence preservation support diagnosis. Single isolated test pass is not sufficient to prove pollution, and bisect needs a valid failure oracle rather than treating unavailable builds as defect evidence. Language/version commands and framework claims are examples not verified runtime support. Boundary shell example concatenates SET marker with actual nonempty IDENTITY value, so it is not a presence-only logger; no live environment inspected or exposed. No bisect, debugger, process signal, database query or service operation executed.",
+    "All60 lines read. Caller invocation does not mint authority; action envelope excludes merge/rebase/force-push/gated-CI approval, and content must converge to intended behavior. Genuine design divergence returns decision context without mutation; recurring own-fix oscillation differs from progressive repair or external changes. No assertion weakening to green, no nested quality tail, and structured return distinguishes pushed fix, diagnosis, infrastructure and needs-human. Reading reference did not authorize any described operation.",
+    "All251 lines read. Readable-file gate precedes dispatch; classify by artifact metadata and content rather than path, distinguish requirements-only from implementation-ready, and keep HTML report-only. Conditional lenses follow challenge surface, not size alone; bounded concurrency queues capacity errors instead of mislabeling failure. Unified slices require broader context when traceability demands it; user-settled provenance and prior-round evidence inform suppression without cross-session invented history. Headless preserves finding classes but applies safe_auto; unlike code review, this is not universally report-only. Peer egress route is fixed before dispatch and actual independence is required for corroboration. Detailed synthesis, mutation safety and persona contracts remain unread; no document review or peer dispatch invoked."
   ],
   "follow_up_candidates": [
     {
@@ -1113,7 +1161,7 @@
     },
     {
       "id": "skills-prompts-candidate-13",
-      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete."
+      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete. Also check ce-debug Phase0 org/repo#N parsing followed by number-only gh issue view; URL path explicitly preserves target."
     },
     {
       "id": "skills-prompts-candidate-15",
@@ -1128,7 +1176,7 @@
       "question": "Assess whether retaining unverifiable merge-state claims with an as-of qualifier preserves durable uncertainty when degraded status appears only in the run report; distinguish previously verified historical assertions from newly unsupported landed claims."
     }
   ],
-  "next": "Continue ce-debug entrypoint and references. Coverage 98/250 full files, 15797/36169 lines. Eight provisional P2 and three P3 findings; fifteen follow-up candidates. All compound markdown covered, not scripts/schema. Raw unit remains open.",
+  "next": "Continue ce-doc-review references and personas. Coverage 104/250 full files, 16920/36169 lines. Eight provisional P2 and three P3 findings; fifteen follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
