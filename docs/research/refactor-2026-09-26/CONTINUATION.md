@@ -1155,3 +1155,8 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 ### tests-1b forty-five-file checkpoint
 
 45 full test-file reads,6188 lines. Added shutdown/provider/workflow/revision/coordination/disposition/durable-state contracts. Isolated unchanged ProviderMeterRefreshTest:16tests,0failures; spawn tracing proves one unlinked helper remains sleeping after success. Recorded P3 and portable probe, which cleans that helper. No full application boot; missing optional modules produce expected compilation warnings and default-config fallback. Initial attribution by initial_call missed erlang.apply; spawn-fun module tracing corrected the probe. RepoBase/BuildGate combined output was truncated and is NOT counted as a full read. Coordination infinite-timeout test deadline coverage remains a hypothesis. No production changes.
+
+
+### tests-1b timeout mutation checkpoint
+
+46 full test reads,6459 lines. Confirmed infinity-timeout oracle hole: original targeted test passes baseline and a resolver mutation replacing infinity with20ms; guarded80ms hold passes baseline and fails mutant on premature successor. Portable AST-extraction/in-memory mutation probe added. Initial probe used recursive prewalk insertion and hung two disposable VMs; terminated those exact processes and changed to postwalk, then all four expected outcomes completed. No production edits. ProcessReaper full review preserves injected-kill and PID guard contracts; draining late-registration test only exercises an unreadable dead PID, not a real kill. Broader mutation coverage remains incomplete.

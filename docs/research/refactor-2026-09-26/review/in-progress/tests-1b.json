@@ -272,9 +272,15 @@
       "sha256": "31580a556adfb09d2148299fc9fb5b5363ee84ac37efca3f31d4ae5ff275c722",
       "lines": 285,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/process_reaper_test.exs",
+      "sha256": "eb0be310b432eb84302119ad15fc0ea3936a13e5460031d7dd38c6c06231b416",
+      "lines": 271,
+      "read": "full"
     }
   ],
-  "scope_note": "45 complete file reads, 6188 lines; remaining paths unreviewed. Targeted excerpts recorded separately. Isolated assertion/policy probes and 16 provider-refresh tests ran; no full application suite or live runtime launched.",
+  "scope_note": "46 complete file reads, 6459 lines; remaining paths unreviewed. Isolated assertion/policy/lifecycle probes and a targeted coordinator mutation ran; no full application suite or live runtime launched.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -351,6 +357,23 @@
       "recommendation": "Register helper cleanup immediately after spawning and monitor its termination, or make the watcher exit after sending its departure acknowledgement.",
       "refactor_hint": "Own test helper lifetimes explicitly when splitting package test suites so passing tests leave no hidden process population.",
       "limits": "One inert helper survives this module; no measured suite slowdown, production leak, or scheduler leak is claimed. Config, Orchestrator and ProviderMeterProbe are absent in the isolated VM; callbacks are injected, and the default-config case uses the production fallback. This is not a full application test run."
+    },
+    {
+      "id": "tests-1b-cont-05",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Infinite-timeout test finishes before its guarded deadline",
+      "locations": [
+        {
+          "file": "src/test/aiur/coordination_tasks_test.exs",
+          "lines": "323-339"
+        }
+      ],
+      "description": "The test promises ordering past the20ms default timeout but releases the first worker immediately after checking the queued entry. It does not require that worker to remain alive beyond the timeout.",
+      "evidence": "tooling/coordination_timeout_probe.exs extracts the original test via AST and compiles the real coordinator with an in-memory mutation changing resolve_timeout(:infinity, default) to return default. Original test: baseline passes, mutant passes. Adding an80ms no-second-start assertion and worker-liveness check before release: baseline passes, mutant fails on premature second_started after20ms.",
+      "recommendation": "Hold the first operation beyond the configured deadline and assert both no successor execution and worker liveness before releasing it. Prefer a controllable timer seam when available.",
+      "refactor_hint": "Preserve operation-specific timeout overrides and keyed-lane exclusion when extracting coordination; test the temporal guarantee rather than only initial queue population.",
+      "limits": "One isolated test was selected from the unchanged frozen module; unused helpers produce compiler warnings. The source mutation exists only in memory and no production file changed. The timing guard is a bounded wall-clock probe, not a claim of exhaustive scheduler interleavings."
     }
   ],
   "preserve": [
@@ -380,7 +403,8 @@
     "Decision revision dispatch revalidates trusted target identity, retains retryable tracker failures and correlated corrective-message semantics without claiming prior effects were rolled back.",
     "CoordinationTasks tests cover keyed ordering and fairness, overload recovery, task-start retry/coalescing, expired admission, worker/coordinator death and bounded redacted failure details.",
     "Issue-disposition tests invoke the actual hook with safely passed JSON and cover shell wrappers, substitutions, API creation refusal and read-only commands.",
-    "DurableRuntimeState tests separate launch logs from persistent state, prove monotonic IDs across crash/clock rollback, retain subscription cursors and reject stale legacy session adoption."
+    "DurableRuntimeState tests separate launch logs from persistent state, prove monotonic IDs across crash/clock rollback, retain subscription cursors and reject stale legacy session adoption.",
+    "ProcessReaper tests preserve kind filtering, PID normalization, recycled-PID command guards, missing-server tolerance, non-draining restart admission and launcher pidfile records with injected kill callbacks."
   ],
   "next": [
     "Continue remaining tests-1b paths; audit test support and shared-state restoration.",
@@ -414,6 +438,15 @@
       ],
       "scope": "full",
       "finding": "Production scheduler used in isolated lifecycle probe; external observer callbacks injected."
+    },
+    {
+      "path": "src/lib/aiur/coordination_tasks.ex",
+      "lines": [
+        427,
+        432
+      ],
+      "scope": "excerpt",
+      "finding": "Infinity timeout resolver mutated in memory; actual scheduler timer differentiates guarded original from mutant."
     }
   ],
   "follow_up_candidates": [
@@ -442,15 +475,6 @@
         33
       ],
       "question": "Regex inventories literal get_env/fetch_env and attribute strings but may omit fetch_env! or dynamic names; verify actual omissions before calling this a coverage defect.",
-      "status": "unverified hypothesis"
-    },
-    {
-      "path": "src/test/aiur/coordination_tasks_test.exs",
-      "lines": [
-        323,
-        338
-      ],
-      "question": "The infinite-timeout case releases the first worker without explicitly crossing the configured20ms deadline. Check a controlled timeout mutation before promoting a coverage defect.",
       "status": "unverified hypothesis"
     }
   ]
