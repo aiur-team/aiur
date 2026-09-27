@@ -4,41 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "f8279f6ef818cfb4b2b12c51709277394304195c0bb12852d31380b5fd5ad448"
+    "name_triage": "d23e56968dfe227f0b18827226ae04b2c30c81972e1dc318624f8e538b971abb"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 156,
-    "remaining_cross_module_names": 1524,
-    "remaining_literal_entries": 6213
+    "reviewed_cross_module_names": 160,
+    "remaining_cross_module_names": 1520,
+    "remaining_literal_entries": 6171
   },
   "families": [
-    {
-      "name": "replay",
-      "clauses": 8,
-      "modules": 7,
-      "summed_source_span_lines": 92
-    },
-    {
-      "name": "restore",
-      "clauses": 12,
-      "modules": 7,
-      "summed_source_span_lines": 55
-    },
-    {
-      "name": "scan",
-      "clauses": 9,
-      "modules": 7,
-      "summed_source_span_lines": 69
-    },
-    {
-      "name": "scope",
-      "clauses": 13,
-      "modules": 7,
-      "summed_source_span_lines": 51
-    },
     {
       "name": "store",
       "clauses": 10,

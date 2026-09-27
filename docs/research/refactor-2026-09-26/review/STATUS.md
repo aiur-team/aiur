@@ -1030,3 +1030,7 @@ Read complete, deliver, enabled?, ensure, fetch_issue_states_by_ids, fetch_issue
 ### Name duplication: invalidation, validation and progress evidence
 
 Read invalidate, normalize_event, normalize_key, only_keys, parse_integer, pause_agent, progress and relationship_revision: 102 literal entries across eight families. Preserve epoch revocation, webhook routing, key completeness/alias policy, integer parsing domains and progress coverage/freshness. Strict decision key/parsing helpers and endpoint pause override selection offer narrow sharing candidates. Name triage now 156 families/4055 entries, leaving 1524 cross-module names. Raw findings and skeptic counts are unchanged; downstream validation and runtime effects remain unverified where noted.
+
+### Name duplication: recovery and scan policy
+
+Read replay, restore, scan and scope: 42 literal entries across four families. Existing DecisionLog sharing leaves domain corruption, torn-tail repair, checkpoint readiness and replay selection policy explicit. Monitor scanning also preserves retry eligibility after failed writes. Name triage now 160 families/4097 entries, leaving 1520 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
