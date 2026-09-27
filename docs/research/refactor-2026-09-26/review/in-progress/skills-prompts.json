@@ -844,6 +844,76 @@
       "lines": 142,
       "read": "full",
       "assessment": "All142 lines read. Fifteen specified cases cover activation, host/route identity, receipt-gated promotion, slice parity/whole-doc pass, bounded launch/wait/reap and same-family adaptation. Stubbed deterministic script coverage is distinguished from agent behavior and fresh instruction injection. This file specifies tests; no eval or fake CLI harness was run and no test result inferred."
+    },
+    {
+      "path": ".claude/skills/ce-dogfood/SKILL.md",
+      "sha256": "aaa3bf3b151d846de2d5dd7ff84a7ffb4963b222e23d0b4401426ec601382637",
+      "lines": 198,
+      "read": "full",
+      "assessment": "All198 lines read. Manual invocation only, browser interaction through declared capability, PR identity retained through isolation/checkout, and current-branch work stays in place. Journeys include true side-effect destinations; persona inference is labeled, terminal human blockers stay blocked, small repairs require regression evidence and actual browser replay, and red suite prevents ready verdict. Phase1 always uses trunk despite PR-specific base; port reuse lacks checkout/build identity and resumed Pass/Fixed rows lack explicit head revalidation: candidate21. ce-debug/ce-compound delegation mode is unspecified, so hands-off composition needs caller reconciliation. No browser/server/fix/commit workflow invoked."
+    },
+    {
+      "path": ".claude/skills/ce-dogfood/references/dogfood-report-template.md",
+      "sha256": "860dc52cd31aaa846fd845c7235521dae993bb0f2a03b669d7d280890d18bc4e",
+      "lines": 81,
+      "read": "full",
+      "assessment": "All81 lines read. Durable checkpoint owns complete flow, matrix, fix/root-cause/regression, persona friction, console, human verification, decisions and suite-verdict fields. Repo-relative paths preserve portability. Matrix commit column does not explicitly pin the source/build of all passing observations; candidate21. Template main wording is illustrative under parent detected-trunk rule, not standalone default-branch defect."
+    },
+    {
+      "path": ".claude/skills/ce-dogfood/references/test-matrix-taxonomy.md",
+      "sha256": "dbb9951a04279575dd7a6bfcf62a53626fdd6a4bcac98e5f5706f837a3ae357d",
+      "lines": 62,
+      "read": "full",
+      "assessment": "All62 lines read. Journey entry/action/result/destination/aftermath prevent interpreting emitted side effect as successful end-to-end outcome. Functional state round-trips, access controls, failure/empty/boundary/re-entry, accessibility and adjacent regressions guide diff-specific coverage. Heuristic route mapping is not exhaustive runtime reachability proof and no browser coverage is credited here."
+    },
+    {
+      "path": ".claude/skills/ce-explain/SKILL.md",
+      "sha256": "8441cec995c07677f7e6eb0601a2a28d32f7be440e0d1c50aedac0536f8eb72c",
+      "lines": 101,
+      "read": "full",
+      "assessment": "All101 lines read. Teaching request differs from operational Q&A, scope/ideation and durable repo learning. Explicit input shape governs grounding; existing source anchors repo claims and unavailable external verification must be labeled. Optional check-in requires actual human prediction before reveal and cannot be automated. Artifact exists before destination selection; publication is a separate chosen action, not implied by reading. Scratch artifact is temporary, so personal durability requires selected destination. No explanation artifact, session scout, external research or publication produced."
+    },
+    {
+      "path": ".claude/skills/ce-explain/references/intake.md",
+      "sha256": "3c41d71bd2a68a9988324516531a9e32cf57f6ccc9829e13b230c611c4f653b8",
+      "lines": 31,
+      "read": "full",
+      "assessment": "All31 lines read. Explicit diff/since tokens override inference and conflict needs resolution; output format has a defined fallback, unknown topic prefixes pass through. Resolvable change beats conceptual framing; external topics avoid fabricated repository context. No input classification executed beyond source assessment."
+    },
+    {
+      "path": ".claude/skills/ce-explain/references/check-in.md",
+      "sha256": "de187f983e5ac5f8c8eb917c068056396407ca1482c85daa46569691a8dc9e47",
+      "lines": 33,
+      "read": "full",
+      "assessment": "All33 lines read. Retention warrant differs from quick comprehension; decline is final, raw diff precedes prediction and reveal follows actual response. Exercises test application and boundaries, not recitation; feedback corrects a named gap and has a finite endpoint. No user learning result inferred."
+    },
+    {
+      "path": ".claude/skills/ce-explain/references/destinations.md",
+      "sha256": "f3e038187cefabeb3d39c0f5a7f78873c476e2cb396d4242108e3940adcd6da3",
+      "lines": 30,
+      "read": "full",
+      "assessment": "All30 lines read. Capability discovery precedes destination availability; publish creates a body-only self-contained view while scratch file stays canonical. Named local destination is separate from external Proof/Thinkroom publishing; fallback must not invent endpoint shape. Retry policy exists, but no actual external service behavior or API compatibility verified."
+    },
+    {
+      "path": ".claude/skills/ce-explain/references/agents/work-recap-scout.md",
+      "sha256": "9e9f9f419a7b4c9313a2ac471b50f4766b78461d67f026670493691eb9984b20",
+      "lines": 23,
+      "read": "full",
+      "assessment": "All23 lines read. Bounded evidence file with commit/date/source references separates extraction from interpretation. Missing PR interface is unavailable evidence, not guessed merge state; empty window produces no artifact. This is a read-contract assessment, not a new history search."
+    },
+    {
+      "path": ".claude/skills/ce-explain/references/explainer-html.md",
+      "sha256": "baa717488f08cda491d8994cb452472e1e3aed380830a45b985ff1cdbae7d7ad",
+      "lines": 36,
+      "read": "full",
+      "assessment": "All36 lines read. One offline display-only file, visible provenance and model-knowledge uncertainty, no external requests or executable UI; visuals require full prose equivalents. Absolute no-URL post-audit is stricter than no-network-request invariant and can constrain citation links, but source attribution need not require network fetching. Platform-specific open example is subordinate to parent capability handling. No HTML rendered."
+    },
+    {
+      "path": ".claude/skills/ce-explain/references/explainer-markdown.md",
+      "sha256": "9826edbeb23874051a04fdfa409a3b83d60518c5a2ebef7015dd0e4eb13bbb64",
+      "lines": 30,
+      "read": "full",
+      "assessment": "All30 lines read. Pure Markdown with metadata, relative source paths, no embedded exercise UI and text-equivalent diagrams. Format-specific YAML metadata differs intentionally from HTML visible-header rules. Mermaid requires renderer support; no rendered artifact portability test run."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1265,7 +1335,17 @@
     "All41 lines read. Review named trust boundaries, actors and realistic exploit paths at artifact-appropriate granularity. Missing plan detail is actionable only within committed surface; existing mitigation and scope prevent speculative attacks becoming findings. No production threat path reproduced.",
     "All25 lines read. Broad cross-section traceability complements slices without rerunning every lens. Shared evidence/provenance constraints remain and peer never grants silent-apply authority. Its asserted independence is subject to parent actual receipt gate, not merely separate process identity.",
     "All111 lines read through bounded rereads after truncation. Fixed target/route/recipient sanctions precede content egress; actual identity receipts gate independence. Unified twins get same slices, one whole-document pass supplies broader coverage. Bounded detached lifecycle distinguishes exit from usable artifact and preserves terminal failure attribution before cleanup; repeated quota failures stop auto-retry. Intentional missing decision primer relies on synthesis suppression. Read-only residual permits outside-scratch reads; document permission does not by itself establish authorization for all host-readable context. Exact adapter enforcement is not verified by this prose read.",
-    "All142 lines read. Fifteen specified cases cover activation, host/route identity, receipt-gated promotion, slice parity/whole-doc pass, bounded launch/wait/reap and same-family adaptation. Stubbed deterministic script coverage is distinguished from agent behavior and fresh instruction injection. This file specifies tests; no eval or fake CLI harness was run and no test result inferred."
+    "All142 lines read. Fifteen specified cases cover activation, host/route identity, receipt-gated promotion, slice parity/whole-doc pass, bounded launch/wait/reap and same-family adaptation. Stubbed deterministic script coverage is distinguished from agent behavior and fresh instruction injection. This file specifies tests; no eval or fake CLI harness was run and no test result inferred.",
+    "All198 lines read. Manual invocation only, browser interaction through declared capability, PR identity retained through isolation/checkout, and current-branch work stays in place. Journeys include true side-effect destinations; persona inference is labeled, terminal human blockers stay blocked, small repairs require regression evidence and actual browser replay, and red suite prevents ready verdict. Phase1 always uses trunk despite PR-specific base; port reuse lacks checkout/build identity and resumed Pass/Fixed rows lack explicit head revalidation: candidate21. ce-debug/ce-compound delegation mode is unspecified, so hands-off composition needs caller reconciliation. No browser/server/fix/commit workflow invoked.",
+    "All81 lines read. Durable checkpoint owns complete flow, matrix, fix/root-cause/regression, persona friction, console, human verification, decisions and suite-verdict fields. Repo-relative paths preserve portability. Matrix commit column does not explicitly pin the source/build of all passing observations; candidate21. Template main wording is illustrative under parent detected-trunk rule, not standalone default-branch defect.",
+    "All62 lines read. Journey entry/action/result/destination/aftermath prevent interpreting emitted side effect as successful end-to-end outcome. Functional state round-trips, access controls, failure/empty/boundary/re-entry, accessibility and adjacent regressions guide diff-specific coverage. Heuristic route mapping is not exhaustive runtime reachability proof and no browser coverage is credited here.",
+    "All101 lines read. Teaching request differs from operational Q&A, scope/ideation and durable repo learning. Explicit input shape governs grounding; existing source anchors repo claims and unavailable external verification must be labeled. Optional check-in requires actual human prediction before reveal and cannot be automated. Artifact exists before destination selection; publication is a separate chosen action, not implied by reading. Scratch artifact is temporary, so personal durability requires selected destination. No explanation artifact, session scout, external research or publication produced.",
+    "All31 lines read. Explicit diff/since tokens override inference and conflict needs resolution; output format has a defined fallback, unknown topic prefixes pass through. Resolvable change beats conceptual framing; external topics avoid fabricated repository context. No input classification executed beyond source assessment.",
+    "All33 lines read. Retention warrant differs from quick comprehension; decline is final, raw diff precedes prediction and reveal follows actual response. Exercises test application and boundaries, not recitation; feedback corrects a named gap and has a finite endpoint. No user learning result inferred.",
+    "All30 lines read. Capability discovery precedes destination availability; publish creates a body-only self-contained view while scratch file stays canonical. Named local destination is separate from external Proof/Thinkroom publishing; fallback must not invent endpoint shape. Retry policy exists, but no actual external service behavior or API compatibility verified.",
+    "All23 lines read. Bounded evidence file with commit/date/source references separates extraction from interpretation. Missing PR interface is unavailable evidence, not guessed merge state; empty window produces no artifact. This is a read-contract assessment, not a new history search.",
+    "All36 lines read. One offline display-only file, visible provenance and model-knowledge uncertainty, no external requests or executable UI; visuals require full prose equivalents. Absolute no-URL post-audit is stricter than no-network-request invariant and can constrain citation links, but source attribution need not require network fetching. Platform-specific open example is subordinate to parent capability handling. No HTML rendered.",
+    "All30 lines read. Pure Markdown with metadata, relative source paths, no embedded exercise UI and text-equivalent diagrams. Format-specific YAML metadata differs intentionally from HTML visible-header rules. Mermaid requires renderer support; no rendered artifact portability test run."
   ],
   "follow_up_candidates": [
     {
@@ -1335,9 +1415,13 @@
     {
       "id": "skills-prompts-candidate-20",
       "question": "Inspect peer adapter read/egress scope and existing security findings before accepting cross-model reference claim that outside-scratch reads add no material exposure merely because host could read them; distinguish accepted operational risk from authorization and verified containment."
+    },
+    {
+      "id": "skills-prompts-candidate-21",
+      "question": "Reconcile dogfood PR-specific base versus trunk diff, reused dev-server checkout/build identity, and resumed result freshness against existing provenance findings. A PR checkout alone does not prove the browser serves that head; old branch-slug reports may outlive changed commits. Inspect related worktree/browser contracts before promotion or dedup."
     }
   ],
-  "next": "All manifest ce-doc-review markdown covered. Continue ce-dogfood entrypoint and references. Coverage 120/250 full files, 18992/36169 lines. Nine provisional P2 and three P3 findings; seventeen follow-up candidates. Scripts/schema remain separate coverage.",
+  "next": "Continue ce-handoff then ce-ideate markdown. Coverage 130/250 full files, 19617/36169 lines. Nine provisional P2 and three P3 findings; eighteen follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
