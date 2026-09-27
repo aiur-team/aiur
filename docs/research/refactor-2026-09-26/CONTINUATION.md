@@ -129,7 +129,17 @@ unbounded readiness request, and clipboard failure handling with isolated
 source probes. Results carry source hashes and explicit limitations. No browser,
 daemon, shared release or production file was changed. Raw unit coverage remains
 23/32 and claim coverage remains 50/60; do not count this partial artifact as a
-finished review unit. Next unit work is the remaining Stream Deck corpus.
+finished review unit.
+
+The following Stream Deck lifecycle pass adds 29 full reads, for 45/178 files
+and 133 remaining. Two more P2 findings have composed runtime reproductions:
+duplicate monitor termination schedules duplicate replacements, and same-vendor
+different-product removal closes the active device without reopening. The
+`streamdeck_lifecycle_probe.mjs` tool uses a real missing-executable spawn to
+confirm the first trigger and injected USB/timer/monitor collaborators for the
+runtime consequences. Partial-unit findings total five. Next work is the channel,
+controller, audio and rendering corpus plus remaining scripts/tests. Raw unit
+coverage is still 23/32; claim coverage remains 50/60.
 
 ## Completion contract — all still required unless explicitly checked
 

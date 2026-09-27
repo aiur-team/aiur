@@ -3,9 +3,9 @@
   "status": "in-progress",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 178,
-  "files_reviewed": 16,
-  "lines_reviewed_estimate": 2966,
-  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. No Stream Deck files counted. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint.",
+  "files_reviewed": 45,
+  "lines_reviewed_estimate": 6657,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised.",
   "coverage": [
     {
       "path": "website/src/dashboard.ts",
@@ -86,6 +86,151 @@
       "path": "website/docs-app/.vitepress/theme/index.ts",
       "status": "read_in_full",
       "sha256": "f686375985143ed2ee1c06913618b2f7c8d22a7cc657abb3aa9166ee21b2d3f7"
+    },
+    {
+      "path": "packages/streamdeck/src/lifecycle.ts",
+      "status": "read_in_full",
+      "sha256": "a0d623594249251bee0e1430adf3822147c59ad379245d48679ea5b51b4acd3c"
+    },
+    {
+      "path": "packages/streamdeck/src/lock.ts",
+      "status": "read_in_full",
+      "sha256": "91bec42ab48c9b64b98711b50f4177733454243071fbe6e69bd77b9062e5cdca"
+    },
+    {
+      "path": "packages/streamdeck/src/device-path.ts",
+      "status": "read_in_full",
+      "sha256": "762571e122b6cbd9772f02c0fbe1ce2cbe928daadb1df3015a48d81d91ea4175"
+    },
+    {
+      "path": "packages/streamdeck/src/line-source.ts",
+      "status": "read_in_full",
+      "sha256": "1c6e4c5b7e6305bc496a4b61936de8ac1e325f12a8252e66aa11a58df7aaf860"
+    },
+    {
+      "path": "packages/streamdeck/src/sleep-source.ts",
+      "status": "read_in_full",
+      "sha256": "46370864be79cfc619d3681d3914f0d6686c18acadde63b8ccb187b674a8a7f6"
+    },
+    {
+      "path": "packages/streamdeck/src/udev-source.ts",
+      "status": "read_in_full",
+      "sha256": "ea701ec25ff7d9bd58f67e39a66b7f5844f43cef4b7f61adf951e2bdf4d92a03"
+    },
+    {
+      "path": "packages/streamdeck/src/runtime.ts",
+      "status": "read_in_full",
+      "sha256": "a95c2ee00814b241953068145312d79cf01d145a21c1c910db5ea8a4f098f0e9"
+    },
+    {
+      "path": "packages/streamdeck/src/read.ts",
+      "status": "read_in_full",
+      "sha256": "6a5bb8d2cd9de9f47505631536539b9ea8f903568a3a8ae33be84a2ca133f0cd"
+    },
+    {
+      "path": "packages/streamdeck/src/backend.ts",
+      "status": "read_in_full",
+      "sha256": "b9c5bd7efeddd2064dd8ebead7a4ce311ef2410494820fdb43a044a78a6f81c6"
+    },
+    {
+      "path": "packages/streamdeck/src/usb-backend.ts",
+      "status": "read_in_full",
+      "sha256": "d2c232ae9334fab1ba9c59d3bbdf0ae3efdbc7a07ed7f9ba659326becf9edd1a"
+    },
+    {
+      "path": "packages/streamdeck/src/hidraw-backend.ts",
+      "status": "read_in_full",
+      "sha256": "6da77a043e8dda229e4bfb9bc92b8d1a241086f25ae8445cf32f8af1bb9ea912"
+    },
+    {
+      "path": "packages/streamdeck/src/report.ts",
+      "status": "read_in_full",
+      "sha256": "a0ffe6bde30c40e7876712f9ce159711028e5ea2e7f919b764ba18563ce38932"
+    },
+    {
+      "path": "packages/streamdeck/src/main.ts",
+      "status": "read_in_full",
+      "sha256": "fcc9a4d19efe64f5e84f03237e0db0c5e17673fcf81303071706281f72719539"
+    },
+    {
+      "path": "packages/streamdeck/src/index.ts",
+      "status": "read_in_full",
+      "sha256": "6aa82f5aa801307bab7671661d6ac85ff5c5ae92d2ed3b6d8b302c4e07b878a5"
+    },
+    {
+      "path": "packages/streamdeck/src/input.ts",
+      "status": "read_in_full",
+      "sha256": "e2784f3a743e22ec189ed775ea6c1b3c2dbd13d409c6d2fd03b8a685ac64ae68"
+    },
+    {
+      "path": "packages/streamdeck/test/line-source.test.ts",
+      "status": "read_in_full",
+      "sha256": "4e0fa0a5c31b905f79b593d4c4f8f102d8e1847a0e17998edd4f4b874317cf16"
+    },
+    {
+      "path": "packages/streamdeck/test/udev-source.test.ts",
+      "status": "read_in_full",
+      "sha256": "5604fed4d694cacf88a886aaebe6a4fd7ffd694646763fa27c6ff546d0e40233"
+    },
+    {
+      "path": "packages/streamdeck/test/sleep-source.test.ts",
+      "status": "read_in_full",
+      "sha256": "bfd62e3d09339f242b78c55d1f3c63b9b15053dcd3106febc03adc2cd5e5ea23"
+    },
+    {
+      "path": "packages/streamdeck/test/lock.test.ts",
+      "status": "read_in_full",
+      "sha256": "2eb116f06c34837384570a17dc6ff906cfde9ce65dd524219bf7ceb16373110e"
+    },
+    {
+      "path": "packages/streamdeck/test/device-path.test.ts",
+      "status": "read_in_full",
+      "sha256": "d6be751de2d16c187e7cd05f42b1d43fa5eeca34cb369d95d1419844af17702e"
+    },
+    {
+      "path": "packages/streamdeck/test/runtime.test.ts",
+      "status": "read_in_full",
+      "sha256": "41ebf1afc5f5b552fd63efc0db320bf0e08be627a30516f41d7895798ebb8e07"
+    },
+    {
+      "path": "packages/streamdeck/test/lifecycle.test.ts",
+      "status": "read_in_full",
+      "sha256": "094e85f786c70f84a128809e293e79e458f92db4af11dfa1c4bacd98909e2adf"
+    },
+    {
+      "path": "packages/streamdeck/test/read.test.ts",
+      "status": "read_in_full",
+      "sha256": "51fcdb3d5ef269fdbaff8e9e4d0f5966041aec1648f6a8d52f6f7840f384afd9"
+    },
+    {
+      "path": "packages/streamdeck/test/usb-backend.test.ts",
+      "status": "read_in_full",
+      "sha256": "bd09a9648494a65a87c5e796ef8f01c716244d8df98a25c9b0097b4b02f499c1"
+    },
+    {
+      "path": "packages/streamdeck/test/hidraw-backend.test.ts",
+      "status": "read_in_full",
+      "sha256": "219ace6c42fbafff85684aafd1170e97f4d5c0e9a0b30c97f1a074f83ffb0520"
+    },
+    {
+      "path": "packages/streamdeck/test/input.test.ts",
+      "status": "read_in_full",
+      "sha256": "ac5ab2d194a86d672ec64a13af1b1de62853909787d585e1ab34107051f9846e"
+    },
+    {
+      "path": "packages/streamdeck/test/index.test.ts",
+      "status": "read_in_full",
+      "sha256": "0554babc8e2f40bc8ecc30acde7cccf6772eebec70bd8676a25af809bdb8518f"
+    },
+    {
+      "path": "packages/streamdeck/test/report.test.ts",
+      "status": "read_in_full",
+      "sha256": "ed482bd04238d1551fb4ecdf818650d8922c764d8d800420b496f11919243f5a"
+    },
+    {
+      "path": "packages/streamdeck/vitest.config.ts",
+      "status": "read_in_full",
+      "sha256": "3f24924df4314360af0f21a7e31020225f7a2bda75a56f37bcf927a4242a08c3"
     }
   ],
   "remaining_files": [
@@ -121,18 +266,13 @@
     "packages/streamdeck/src/audio/system.ts",
     "packages/streamdeck/src/audio/tts.ts",
     "packages/streamdeck/src/audio/waveform.ts",
-    "packages/streamdeck/src/backend.ts",
     "packages/streamdeck/src/channel.ts",
     "packages/streamdeck/src/commands.ts",
     "packages/streamdeck/src/controller.ts",
     "packages/streamdeck/src/debug.ts",
     "packages/streamdeck/src/demo.ts",
-    "packages/streamdeck/src/device-path.ts",
     "packages/streamdeck/src/dial.ts",
-    "packages/streamdeck/src/hidraw-backend.ts",
     "packages/streamdeck/src/imageWriter/headerGenerator.ts",
-    "packages/streamdeck/src/index.ts",
-    "packages/streamdeck/src/input.ts",
     "packages/streamdeck/src/key-face-contract.ts",
     "packages/streamdeck/src/keys.ts",
     "packages/streamdeck/src/keys/keyCache.ts",
@@ -145,18 +285,10 @@
     "packages/streamdeck/src/keys/keyWriter.ts",
     "packages/streamdeck/src/keys/quality.ts",
     "packages/streamdeck/src/keys/writeQueue.ts",
-    "packages/streamdeck/src/lifecycle.ts",
-    "packages/streamdeck/src/line-source.ts",
-    "packages/streamdeck/src/lock.ts",
     "packages/streamdeck/src/logs.ts",
-    "packages/streamdeck/src/main.ts",
     "packages/streamdeck/src/mode.ts",
     "packages/streamdeck/src/rasterizer.ts",
-    "packages/streamdeck/src/read.ts",
-    "packages/streamdeck/src/report.ts",
-    "packages/streamdeck/src/runtime.ts",
     "packages/streamdeck/src/settings.ts",
-    "packages/streamdeck/src/sleep-source.ts",
     "packages/streamdeck/src/surface.ts",
     "packages/streamdeck/src/touchStrip/agentDetail.ts",
     "packages/streamdeck/src/touchStrip/chatLog.ts",
@@ -170,8 +302,6 @@
     "packages/streamdeck/src/touchStrip/stripRenderer.ts",
     "packages/streamdeck/src/touchStrip/summarySegment.ts",
     "packages/streamdeck/src/touchStrip/typewriter.ts",
-    "packages/streamdeck/src/udev-source.ts",
-    "packages/streamdeck/src/usb-backend.ts",
     "packages/streamdeck/src/voiceHost.ts",
     "packages/streamdeck/src/voicePanel.ts",
     "packages/streamdeck/test/aiur-speech.test.ts",
@@ -202,12 +332,8 @@
     "packages/streamdeck/test/controller.test.ts",
     "packages/streamdeck/test/debug.test.ts",
     "packages/streamdeck/test/demo.test.ts",
-    "packages/streamdeck/test/device-path.test.ts",
     "packages/streamdeck/test/dial.test.ts",
-    "packages/streamdeck/test/hidraw-backend.test.ts",
     "packages/streamdeck/test/imageWriter/headerGenerator.test.ts",
-    "packages/streamdeck/test/index.test.ts",
-    "packages/streamdeck/test/input.test.ts",
     "packages/streamdeck/test/key-face-contract.test.ts",
     "packages/streamdeck/test/keys.test.ts",
     "packages/streamdeck/test/keys/descriptorFixtures.ts",
@@ -221,17 +347,10 @@
     "packages/streamdeck/test/keys/keyWriter.test.ts",
     "packages/streamdeck/test/keys/quality.test.ts",
     "packages/streamdeck/test/keys/writeQueue.test.ts",
-    "packages/streamdeck/test/lifecycle.test.ts",
-    "packages/streamdeck/test/line-source.test.ts",
-    "packages/streamdeck/test/lock.test.ts",
     "packages/streamdeck/test/logs.test.ts",
     "packages/streamdeck/test/mode.test.ts",
     "packages/streamdeck/test/rasterizer.test.ts",
-    "packages/streamdeck/test/read.test.ts",
-    "packages/streamdeck/test/report.test.ts",
-    "packages/streamdeck/test/runtime.test.ts",
     "packages/streamdeck/test/settings.test.ts",
-    "packages/streamdeck/test/sleep-source.test.ts",
     "packages/streamdeck/test/support/deckReports.ts",
     "packages/streamdeck/test/surface.test.ts",
     "packages/streamdeck/test/touchStrip/agentDetail.test.ts",
@@ -246,11 +365,8 @@
     "packages/streamdeck/test/touchStrip/stripRenderer.test.ts",
     "packages/streamdeck/test/touchStrip/summarySegment.test.ts",
     "packages/streamdeck/test/touchStrip/typewriter.test.ts",
-    "packages/streamdeck/test/udev-source.test.ts",
-    "packages/streamdeck/test/usb-backend.test.ts",
     "packages/streamdeck/test/voiceHost.test.ts",
-    "packages/streamdeck/test/voicePanel.test.ts",
-    "packages/streamdeck/vitest.config.ts"
+    "packages/streamdeck/test/voicePanel.test.ts"
   ],
   "findings": [
     {
@@ -326,6 +442,70 @@
         "evidence_file": "website-review-probe.json",
         "limits": "No live browser or Aiur run; minimal DOM/API doubles and fake clock. No independent skeptic review yet."
       }
+    },
+    {
+      "id": "nonelixir-web-04",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "A failed monitor spawn forks two recovery chains",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/line-source.ts",
+          "lines": "67-68"
+        },
+        {
+          "path": "packages/streamdeck/src/runtime.ts",
+          "lines": "252-291"
+        },
+        {
+          "path": "packages/streamdeck/test/line-source.test.ts",
+          "lines": "42-50"
+        }
+      ],
+      "description": "spawnLineSource forwards both error and close to onEnd. The runtime treats each as a separate terminal event, schedules a restart twice, and retains only the newest timer and child. When a monitor executable is absent, Node actually emits ENOENT followed by close(-2). The two timers create two replacements; stopping the runtime kills only the last replacement. If stopped before either timer runs, the overwritten timer remains and can spawn a child after stop. The normal main-process signal path calls process.exit after cleanup, so the post-stop survival claim applies to the exported runtime stop API; duplicate monitors while running do not depend on that API.",
+      "evidence": "streamdeck-lifecycle-probe.json: actual failed executable produces two onEnd calls; actual runtime schedules 500 and 1000 ms retries, creates two replacement sleep monitors, and leaves one replacement outside cleanup. The line-source test explicitly expects two notifications; the runtime harness registers only close, so its restart test misses the pair.",
+      "recommendation": "Make termination idempotent per monitor generation, retain one restart timer, and guard spawnOnce against stopped state. Test the error-then-close sequence through the composed source/runtime, including stopping before and after replacement.",
+      "refactor_hint": "Keep the pure device reducer. Strengthen the child-monitor adapter contract with exactly-once termination and generation-owned cleanup; splitting packages without that contract preserves the defect.",
+      "effort": "S",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-lifecycle-probe.json",
+        "limits": "No physical USB or live daemon. Real Node missing-executable spawn confirms the monitor trigger; remaining collaborators are injected doubles. No independent skeptic review yet."
+      }
+    },
+    {
+      "id": "nonelixir-web-05",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Removing another Elgato product takes the active deck offline",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/udev-source.ts",
+          "lines": "58-85"
+        },
+        {
+          "path": "packages/streamdeck/src/runtime.ts",
+          "lines": "301-306"
+        },
+        {
+          "path": "packages/streamdeck/src/lifecycle.ts",
+          "lines": "153-161,195-198"
+        },
+        {
+          "path": "packages/streamdeck/src/main.ts",
+          "lines": "111,129-133"
+        }
+      ],
+      "description": "Device discovery/open selects VID and PID, but udev filtering accepts any usb_device with vendor 0fd9. A remove for another product therefore becomes device-removed for the connected Stream Deck +. The reducer closes the healthy handle and enters absent; there is no retry timer, so it waits for a later matching-vendor add event or restart despite the intended deck remaining plugged in. The trigger requires another same-vendor device; no prevalence is claimed.",
+      "evidence": "The composed runtime probe starts one healthy fake backend, ignores a different-vendor remove, then closes once on vendor 0fd9/product ffff and leaves zero poll/reopen timers. Product ffff is deliberately synthetic, not a claim about a shipped model. A proper 0084 removal is still recognized. Existing udev tests include different vendors and driver/interface churn, but no same-vendor different-product case.",
+      "recommendation": "Match the selected device identity across discovery and hotplug. At minimum check product as well as vendor; for multiple identical devices, correlate the owned physical device path or serial. Add composed add/remove tests for other products and other instances of the same model.",
+      "refactor_hint": "Device selection and hotplug normalization need one identity contract. Do not pass a cause-neutral vendor event to a lifecycle that assumes it refers to its owned device.",
+      "effort": "S",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-lifecycle-probe.json",
+        "limits": "No physical USB or live daemon. Real Node missing-executable spawn confirms the monitor trigger; remaining collaborators are injected doubles. No independent skeptic review yet."
+      }
     }
   ],
   "unpromoted_observations": [
@@ -340,6 +520,18 @@
     {
       "topic": "Narrow landscape simulation",
       "disposition": "Potential geometry mismatch: side-by-side uses aspect ratio and a minimum 44-column pane beside a 30-column dashboard. Needs browser reachability/layout evidence before claiming clipping."
+    },
+    {
+      "topic": "Exported Runtime.stop ownership",
+      "disposition": "stop calls cleanup without closing the backend or changing reducer state. Production main uses the registered signal handler instead. Review API consumers before separately promoting this beyond the monitor timer behavior demonstrated in finding 04."
+    },
+    {
+      "topic": "Entry-point test boundary",
+      "disposition": "main.ts and vitest.config.ts call the entry point branch-free wiring, but it now contains buffering, async device acquisition, voice rebuilds, channel retry state and rendering coordination. Coverage exclusion is real; absence of all integration protection is not established yet. Channel/controller/surface tests remain to read."
+    },
+    {
+      "topic": "USB startPoll failure",
+      "disposition": "startInput runs outside the iface.claim try/catch. A synchronous startPoll exception may retain the opened handle. Need adapter-level reproduction and caller cleanup audit before promoting."
     }
   ]
 }

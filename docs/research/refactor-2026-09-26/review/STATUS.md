@@ -29,3 +29,27 @@ research evidence, not manual UX verification. Output is retained in
 `in-progress/website-review-probe.json`; each input carries a SHA-256 hash.
 No production implementation changed. This partial unit is deliberately not
 counted among the 23 raw unit artifacts.
+
+## Stream Deck lifecycle continuation
+
+The same partial unit now records 45 complete file reads: the 16 website paths
+plus 29 Stream Deck source, test and configuration paths. There are 133 paths
+remaining. Two additional P2 findings concern duplicate monitor restart chains
+and removal events from a different product of the same vendor. Five provisional
+findings now sit outside the inherited `raw/` totals.
+
+```sh
+node tooling/streamdeck_lifecycle_probe.mjs /path/to/frozen-snapshot
+```
+
+On Linux with Node 24, the probe confirms that a genuinely absent executable
+produces both error and close notifications, then drives the frozen runtime with
+injected timers and device/monitor doubles. One failure schedules two replacements;
+cleanup loses ownership of one child or timer. A same-vendor, different-product
+removal also closes a healthy backend and leaves no reopen timer. Results are in
+`in-progress/streamdeck-lifecycle-probe.json`. These are conditional source-level
+reproductions, not hardware testing or estimates of incident frequency.
+
+The pure device reducer already separates idle reads, disconnects, suspend and
+bounded recovery. Preserve that seam in planning. The demonstrated gaps concern
+monitor termination ownership and device identity at the event adapter boundary.
