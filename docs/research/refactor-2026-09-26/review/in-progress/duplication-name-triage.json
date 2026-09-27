@@ -99155,10 +99155,430 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "change",
+      "assessment": "Decision and revision form updates share structure but different eligibility gates.",
+      "constraints": [
+        "DecisionCommands uses selected_open_decision then put_form.",
+        "RevisionCommands uses answered_decision then put_revision_form; both retain the socket when lookup returns error.",
+        "Share form mechanics only while preserving open-versus-answered eligibility and state keys; deeper selection and validation rules remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 16,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "change",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "7cef407ffdcc223e9e093e364a9e38048e18504996ff6280a2e3b424dd8772b0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 16,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "change",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "dd2392dfc2e2c5a6143a5a12d752ce106eb448c8088f1a7f03cb819cac656575",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "check_ci_readiness",
+      "assessment": "The client facade and initialization policy already call the same readiness owner.",
+      "constraints": [
+        "Verified both CiReadiness aliases; GitHub.Client simply forwards opts.",
+        "Init.GitHub resolves repo/base branch and uses an operator token when present, otherwise requests workflow_presence_only. A GitHub tracker without a repo errors; other trackers return ready true.",
+        "Preserve presence-only versus full-check modes and non-GitHub applicability. No token was read; ready true on the non-GitHub branch is not evidence of GitHub CI readiness."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 35,
+          "module": "Aiur.GitHub.Client",
+          "name": "check_ci_readiness",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "4aa72a78890d1797cc02186f81f6c6e4a15f975423fdd3a78ec3e23c16a09825",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 35,
+          "module": "Aiur.Init.GitHub",
+          "name": "check_ci_readiness",
+          "path": "src/lib/aiur/init/github.ex",
+          "kind": "def",
+          "end_line": 42,
+          "body_sha256": "6d1edc22e533222aa3063904e2a2a5f775a1451043b9a3c9eee2527329668bb4",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 44,
+          "module": "Aiur.Init.GitHub",
+          "name": "check_ci_readiness",
+          "path": "src/lib/aiur/init/github.ex",
+          "kind": "def",
+          "end_line": 44,
+          "body_sha256": "fa0faab7e2e579b2b5e55b692d09e2b7e6c5a25946c1a05815ab4a45ad775754",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 45,
+          "module": "Aiur.Init.GitHub",
+          "name": "check_ci_readiness",
+          "path": "src/lib/aiur/init/github.ex",
+          "kind": "def",
+          "end_line": 45,
+          "body_sha256": "acb4c4d9eb0aaa913df05497e3e29110260c22e33bac369cf3a7f7a824ba1c7d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "checkpoint_interval",
+      "assessment": "Recovery interval validation differs from resource-store option lookup.",
+      "constraints": [
+        "Membership recovery accepts positive integers and otherwise uses its verified default 32.",
+        "ResourceStore reads checkpoint_interval_ms directly from opts with a verified default 30000; this accessor does not validate an explicit override.",
+        "Preserve interval units and validation ownership; timing/trigger callers are not certified by this comparison."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 249,
+          "module": "Aiur.CurrentRunMembership.Store.Recovery",
+          "name": "checkpoint_interval",
+          "path": "src/lib/aiur/current_run_membership/store/recovery.ex",
+          "kind": "defp",
+          "end_line": 249,
+          "body_sha256": "f720fbe84c056f2c94fc4ed735b4e1f31ecacd0d170ffab86e239d4a58d4c1b8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 250,
+          "module": "Aiur.CurrentRunMembership.Store.Recovery",
+          "name": "checkpoint_interval",
+          "path": "src/lib/aiur/current_run_membership/store/recovery.ex",
+          "kind": "defp",
+          "end_line": 250,
+          "body_sha256": "89839aa84c7ca00193ea22e1ef031583f5fc191e1bcb7165a23fe5d292bf0667",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1349,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "checkpoint_interval",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 1349,
+          "body_sha256": "3924654de0378cbb4a13cfb30cc08852ae7cfb18c52907fa3792edf13b1f293e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "children_index",
+      "assessment": "Process parent indexing matches only for fully populated parent metadata.",
+      "constraints": [
+        "Both group child PIDs by parent and prepend to each parent list.",
+        "AgentProcessLog defaults missing ppid to zero; RunTelemetry.Sampler uses strict process.ppid access.",
+        "A shared indexer needs an explicit missing-parent contract. Indexing process metadata does not prove process liveness or a complete process-tree census."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 207,
+          "module": "Aiur.AgentProcessLog",
+          "name": "children_index",
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "kind": "defp",
+          "end_line": 212,
+          "body_sha256": "d13db16e1ba9c03405bc39325413f9b8508b74127418ae658dbfea5f167a9b3f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 728,
+          "module": "Aiur.RunTelemetry.Sampler",
+          "name": "children_index",
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "kind": "defp",
+          "end_line": 730,
+          "body_sha256": "7baa90fad41411bca8f0adb64791a9c8254cbdeb63185916c8c05402e3c57aeb",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ci_wait_state?",
+      "assessment": "Orchestrator already delegates CI-wait classification.",
+      "constraints": [
+        "Verified CiLifecycle alias and the ci-wait state constant.",
+        "CiLifecycle normalizes binary issue states through DispatchPolicy and compares to ci-wait; nonbinary inputs return false.",
+        "Retain the shared lifecycle policy rather than duplicating it in the facade; state classification does not prove an active CI waiter."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 367,
+          "module": "Aiur.Orchestrator",
+          "name": "ci_wait_state?",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 367,
+          "body_sha256": "8ae7e93bd97ea3400960a3601f604770fd6e22e9ab36d8fc8c42aae94ea01d7f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 94,
+          "module": "Aiur.Orchestrator.CiLifecycle",
+          "name": "ci_wait_state?",
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "kind": "def",
+          "end_line": 96,
+          "body_sha256": "c2c31b0dc5139721cafb081511c303b8502d4cc2b7f671fd3531e1499937ca3b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 98,
+          "module": "Aiur.Orchestrator.CiLifecycle",
+          "name": "ci_wait_state?",
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "claim_next_operator_queue_item",
+      "assessment": "Orchestrator facade forwards queue claims to OperatorMessages.",
+      "constraints": [
+        "Verified OM resolves to Aiur.Orchestrator.OperatorMessages.",
+        "The target validates a binary identifier and sends the claim operation through queue_api_call.",
+        "Preserve the API boundary; the wrapper alone does not prove exclusive claims, persistence or message delivery."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 611,
+          "module": "Aiur.Orchestrator",
+          "name": "claim_next_operator_queue_item",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 612,
+          "body_sha256": "ccd143fd30e5949bfb2eebf92915f7ab03ebb9ac752074bb1bc2d6dbcd4f54e7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 155,
+          "module": "Aiur.Orchestrator.OperatorMessages",
+          "name": "claim_next_operator_queue_item",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "kind": "def",
+          "end_line": 157,
+          "body_sha256": "289a8dc6d82d08690f0feb470648458b99ff3d9283beac901373d8f45db468a2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "clamp_percent",
+      "assessment": "Progress normalization differs from meter range clamping.",
+      "constraints": [
+        "ProgressTracker clamps integers, truncates floats before clamping and maps all other values to zero.",
+        "ProviderMetersPresenter clamps comparisons below zero/above 100 but otherwise preserves the value, including in-range fractions; it has no local numeric guard.",
+        "Do not replace either with the other without specifying precision and invalid-input policy. Caller validation and unknown-value incidence remain unverified."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 109,
+          "module": "Aiur.ProgressTracker",
+          "name": "clamp_percent",
+          "path": "src/lib/aiur/progress_tracker.ex",
+          "kind": "defp",
+          "end_line": 109,
+          "body_sha256": "414fe154813e19cd922e7a5968de19795819a89fbfd0626047ba2701bb4ae8da",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 110,
+          "module": "Aiur.ProgressTracker",
+          "name": "clamp_percent",
+          "path": "src/lib/aiur/progress_tracker.ex",
+          "kind": "defp",
+          "end_line": 110,
+          "body_sha256": "64f5e2d893aeb30971b8c5956725fb5dfd60e2366e7c46fd21f34c6947b4a413",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.ProgressTracker",
+          "name": "clamp_percent",
+          "path": "src/lib/aiur/progress_tracker.ex",
+          "kind": "defp",
+          "end_line": 111,
+          "body_sha256": "07e37eaf0627b55ca9cf1b72e05de6590b3899ac34af6765529abbc2c5841d44",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 305,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "clamp_percent",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 305,
+          "body_sha256": "07e37eaf0627b55ca9cf1b72e05de6590b3899ac34af6765529abbc2c5841d44",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 306,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "clamp_percent",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 306,
+          "body_sha256": "975332a785514e7313b7fcf0c3e42160bdd460627780c33ac93c38d466880cd9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 307,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "clamp_percent",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 307,
+          "body_sha256": "8d43e98fb7bdb2dcf6870e04157f3a6f4b75411a9237605ffc5f7bfc5fdc93e6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "classify_error",
+      "assessment": "GitHub.Client already delegates error classification.",
+      "constraints": [
+        "The Errors entry distinguishes tagged transport failures from response maps with integer status and forwards them to separate classifiers.",
+        "Client forwards directly to Errors.classify_error.",
+        "Retain the facade and transport/status boundary; complete taxonomy, malformed-input policy and retry behavior require deeper classifier/caller review."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 60,
+          "module": "Aiur.GitHub.Client",
+          "name": "classify_error",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "1b4893e7ee5ee38cd12a21a28f4e35730414370a8acfdf561933dd333950e24c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 47,
+          "module": "Aiur.GitHub.Errors",
+          "name": "classify_error",
+          "path": "src/lib/aiur/github/errors.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "5ea4dc0d82ef5948d2fd7013c4397e97ebb2798d43cebd7727e01a6142357c87",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 49,
+          "module": "Aiur.GitHub.Errors",
+          "name": "classify_error",
+          "path": "src/lib/aiur/github/errors.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "849d313c854610acb328c7f491a2cce9a277b5fae6b883e9e1deade8088a10de",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7318,
-  "limits": "725 selected families and 7318 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7343,
+  "limits": "733 selected families and 7343 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
