@@ -1,0 +1,77 @@
+{
+  "node": "v24.18.0",
+  "source_sha256": {
+    "src/surface.ts": "d63779ec4ca653940344f16291f5b8ee945f841bc5bdaf0fd69055cd2a471197",
+    "src/keys/keyFill.ts": "353344bf1abda2f92df288c7abb52192ceb8ac8f8887fd03dfc69d86c450b0fe",
+    "src/keys/keyImage.ts": "901613b30793b7f8414eefaa4e915cbb09b1cd70fd72263ed5c1c7060297f142",
+    "src/keys.ts": "b02b9d2a014fd1f14337d331dc6e8f4c8f67866cc69a004d9744110ba8c093c3",
+    "src/key-face-contract.ts": "c39d1af396a38821203b368d7e5316707272bd0800d8b870318d98e54c330baf",
+    "src/key-face-contract.json": "e6df4a2804358b7f475091860425b7255f6eb4c5ce4fd08a4a4d26b032e563cd",
+    "src/keys/keyRenderer.ts": "3968e93b4f2ccea608a5dfe5ea2ef2e1267edba5ab3d94a014ba3ed57fcca8ae",
+    "src/keys/keyCache.ts": "0524230ae8903fc7e2ff62d6c7cf665f8f109c1db6c88910c73368abc2b6c37f",
+    "src/keys/keyContent.ts": "854524f0ac0d83f4e9a75e6e38875ccecf39379490e2cc59b89f98ab4fb2c905",
+    "src/keys/writeQueue.ts": "48865ad95ef7eee5589338db25c8417e3176dc14b62b5f13ae68710f5710ff64",
+    "src/keys/keyWriter.ts": "c89087c9e9e89fd5540dadd79eb8377f7a37e722e0930611914caca71c560c62",
+    "src/rasterizer.ts": "7e37b7bfcc266b1b35489c34bc4499248a584315da9c643499c078d02bedb7cd",
+    "src/touchStrip/stripRenderer.ts": "a2f83b135e697e12a49ca5fbe7a524875ef96683407efc976174dd0e830da44c",
+    "src/touchStrip/panelCache.ts": "a72a1734c36c56ff3670e3bac9b423ac3fe0f0e21cd74099037742256bfce751",
+    "src/imageWriter/headerGenerator.ts": "565931da00c13c5b91139067d5ce0f785498a8b8ddc09521561268562f7c3976",
+    "src/touchStrip/stripLayout.ts": "b671b954c1590a7c8c97a6760a3930a0b702368fded16af6f65be1cd7136ba35",
+    "src/touchStrip/geometry.ts": "18f9e676a7b09f94427d09b5b192fbf69749271f175ae89a7dfe1842d9a9ca81",
+    "src/touchStrip/providerPanel.ts": "11d287449f9f1276c7135de1496bb27bf9ba5844cd8753527d2008ca83a35ed3",
+    "src/touchStrip/providerSegment.ts": "0ef4d063408f89e6c8f98f738d7473002caceaeec39c507e8c3a3c33efa07516",
+    "src/touchStrip/summarySegment.ts": "fddc3c2f28ad5b5a3378cbfdb8f62bb5c8b640aeb974390b3a76c73f840d4b19",
+    "src/touchStrip/agentDetail.ts": "c905be40bf857013bdbfecffc46313ed2ec051170500e382fcfe354fbbfd605f",
+    "src/touchStrip/pagerSegment.ts": "c0968355356039cf7fed0a547c3d990c91dc63a8c69ab81410b7b655c46d5e0c",
+    "src/dial.ts": "e03767521756a71ea75d209aab9af9aed9f28dbe37f514302935068097b93f5f",
+    "src/settings.ts": "966018caf4a3379af785095c319a0a7e28c3cfd759ed493550ce3c784799dec3",
+    "src/voicePanel.ts": "215a6b3a10373d0224a3cac69459d6facd9053051de4de2c5ca0407a769525e3",
+    "src/audio/index.ts": "72e49b41b4b2f5db6dd995fb96929c05ad56dfc12d29ce6ff488390f5c54384a",
+    "src/audio/pcm.ts": "56632d69bf7704d9824596e2e93d418d06ff0287a5cddd6ae3f22e61044b821d",
+    "src/audio/waveform.ts": "03460c6afb1de131a46c8dd4686c37c1d951cabcc794d17e22872214f2ca4f29",
+    "src/audio/buffer.ts": "5c88b803c5b5fcd3c8dd207b2eac010e5cd3dfc1083ff6e4244615abe0e12bc9",
+    "src/audio/stt.ts": "9f096f8284f82acf9fdc1aa9173fa49e9924fba7cb7f3bb9c241c9bd6920abb3",
+    "src/audio/relay.ts": "f438ea65f95e9373095386d7b56428260ccaf2dc73de62598d621286b4736379",
+    "src/audio/devices.ts": "4349ecf3cee1134f3e531c2b9b841509683d85f2a5c04248f93af003bbc4ed4b",
+    "src/audio/capture.ts": "0b15a39506eb3d112fbd80aa1861130057ad240e280e2db8cf559380c8549edf",
+    "src/audio/aggregate.ts": "7fd93a2f04d044c7b6d281750a41472780f39c291f0c37a0394f6302ceb7f2d3",
+    "src/audio/preferences.ts": "8c2c0012a5d0c9920562441f5cd522203ae45461dd34a0ca409b5c7d7dbe872b",
+    "src/audio/node-preferences.ts": "1b6575188e4ad927be87e95b6359544c1258390df7c0df83f509686c2ef4320d",
+    "src/audio/session.ts": "906222367837987de6a9114731b946cc09e3862a5c9f47115b8bf0656225e3c4",
+    "src/audio/node-system.ts": "cd5374dbc12eb95d2530e5e0ea3a21b491ebf30b076c8960c167c944b088bf0b",
+    "src/commands.ts": "c6bf1ff7ae666890659794cb39a73ab4ca6ee3043d2b23c53306ca203ec5d33f"
+  },
+  "selected_device": "mic-7",
+  "page_offsets": [
+    6,
+    0,
+    6
+  ],
+  "composed_panels": [
+    [
+      {
+        "kind": "settings",
+        "selectedLabel": "Mic 7",
+        "deviceCount": 8,
+        "pageLabel": "2/2"
+      }
+    ],
+    [
+      {
+        "kind": "settings",
+        "selectedLabel": "Mic 0",
+        "deviceCount": 8,
+        "pageLabel": "1/2"
+      }
+    ],
+    [
+      {
+        "kind": "settings",
+        "selectedLabel": "Mic 7",
+        "deviceCount": 8,
+        "pageLabel": "2/2"
+      }
+    ]
+  ],
+  "limits": "Actual physical compositor and strip layout with a recording rasterizer replacement and no-op device writes. No pixels, USB or microphone tested. Encoder records the panel model supplied for rendering; production capture selection was source-traced separately."
+}

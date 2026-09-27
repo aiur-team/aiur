@@ -3,9 +3,9 @@
   "status": "in-progress",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 178,
-  "files_reviewed": 92,
-  "lines_reviewed_estimate": 14196,
-  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed.",
+  "files_reviewed": 109,
+  "lines_reviewed_estimate": 16949,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed. Surface continuation adds 17 full reads: voice/settings/mode models and tests, typewriter/panel cache/strip renderer/key cache/write queue and tests, plus full physical surface. Surface tests only searched/targeted, not complete. Native rasterizer is replaced by a recording encoder in the probe; its transitive dependencies do not count as read coverage.",
   "coverage": [
     {
       "path": "website/src/dashboard.ts",
@@ -466,6 +466,91 @@
       "path": "packages/streamdeck/test/audio/waveform.test.ts",
       "status": "read_in_full",
       "sha256": "5e6bb7f84140a341b491a25145a67d47b50c9384597806689db27d57141445df"
+    },
+    {
+      "path": "packages/streamdeck/src/voicePanel.ts",
+      "status": "read_in_full",
+      "sha256": "215a6b3a10373d0224a3cac69459d6facd9053051de4de2c5ca0407a769525e3"
+    },
+    {
+      "path": "packages/streamdeck/test/voicePanel.test.ts",
+      "status": "read_in_full",
+      "sha256": "743baff3ff5f92177655dd79275ccce661f84e5381c3306dce23841d18aaf1fd"
+    },
+    {
+      "path": "packages/streamdeck/src/settings.ts",
+      "status": "read_in_full",
+      "sha256": "966018caf4a3379af785095c319a0a7e28c3cfd759ed493550ce3c784799dec3"
+    },
+    {
+      "path": "packages/streamdeck/test/settings.test.ts",
+      "status": "read_in_full",
+      "sha256": "f19e4575da8f384cd24acf54ce9f50ea94eff70462e00bfb308584ff2cbffb6b"
+    },
+    {
+      "path": "packages/streamdeck/src/mode.ts",
+      "status": "read_in_full",
+      "sha256": "b29abbe81deaac11414bfa650f6510d16380054b3e4f6d13a89e5344a5a980ab"
+    },
+    {
+      "path": "packages/streamdeck/test/mode.test.ts",
+      "status": "read_in_full",
+      "sha256": "81b23f50ffab5528ae4473bf4ba679a4d41c9442e969ca85c23ab471ab9df7a0"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/typewriter.ts",
+      "status": "read_in_full",
+      "sha256": "4e6b24761e3b3322bf4f2d0fee9517ae837051fd9feeac8770a1ba0be96aa7d4"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/typewriter.test.ts",
+      "status": "read_in_full",
+      "sha256": "cb574aa5321a7fa60ab2e19615fbc966103b3e9c782126c768e84c1a70981d0b"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/panelCache.ts",
+      "status": "read_in_full",
+      "sha256": "a72a1734c36c56ff3670e3bac9b423ac3fe0f0e21cd74099037742256bfce751"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/panelCache.test.ts",
+      "status": "read_in_full",
+      "sha256": "8e23804af4ce04dd7ccd9e97e3b9584a841a546309a327bff7e3c100f7452edd"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/writeQueue.ts",
+      "status": "read_in_full",
+      "sha256": "48865ad95ef7eee5589338db25c8417e3176dc14b62b5f13ae68710f5710ff64"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/writeQueue.test.ts",
+      "status": "read_in_full",
+      "sha256": "31de91755f990fb2965c68432050f82450ee3af83937efba1f888f7edb389eef"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/stripRenderer.ts",
+      "status": "read_in_full",
+      "sha256": "a2f83b135e697e12a49ca5fbe7a524875ef96683407efc976174dd0e830da44c"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/stripRenderer.test.ts",
+      "status": "read_in_full",
+      "sha256": "0db4265f3c43c1640084fb1d6ac5373a65a2a555762616689382e12112b18a52"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/keyCache.ts",
+      "status": "read_in_full",
+      "sha256": "0524230ae8903fc7e2ff62d6c7cf665f8f109c1db6c88910c73368abc2b6c37f"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/keyCache.test.ts",
+      "status": "read_in_full",
+      "sha256": "53f4b429a26f693eca1596e2602b8e1113c43e4e3183eba6de9823724cd70df9"
+    },
+    {
+      "path": "packages/streamdeck/src/surface.ts",
+      "status": "read_in_full",
+      "sha256": "d63779ec4ca653940344f16291f5b8ee945f841bc5bdaf0fd69055cd2a471197"
     }
   ],
   "remaining_files": [
@@ -487,7 +572,6 @@
     "packages/streamdeck/src/imageWriter/headerGenerator.ts",
     "packages/streamdeck/src/key-face-contract.ts",
     "packages/streamdeck/src/keys.ts",
-    "packages/streamdeck/src/keys/keyCache.ts",
     "packages/streamdeck/src/keys/keyContent.ts",
     "packages/streamdeck/src/keys/keyFace.ts",
     "packages/streamdeck/src/keys/keyFill.ts",
@@ -496,25 +580,17 @@
     "packages/streamdeck/src/keys/keyRenderer.ts",
     "packages/streamdeck/src/keys/keyWriter.ts",
     "packages/streamdeck/src/keys/quality.ts",
-    "packages/streamdeck/src/keys/writeQueue.ts",
     "packages/streamdeck/src/logs.ts",
-    "packages/streamdeck/src/mode.ts",
     "packages/streamdeck/src/rasterizer.ts",
-    "packages/streamdeck/src/settings.ts",
-    "packages/streamdeck/src/surface.ts",
     "packages/streamdeck/src/touchStrip/agentDetail.ts",
     "packages/streamdeck/src/touchStrip/chatLog.ts",
     "packages/streamdeck/src/touchStrip/geometry.ts",
     "packages/streamdeck/src/touchStrip/pagerSegment.ts",
-    "packages/streamdeck/src/touchStrip/panelCache.ts",
     "packages/streamdeck/src/touchStrip/providerPanel.ts",
     "packages/streamdeck/src/touchStrip/providerSegment.ts",
     "packages/streamdeck/src/touchStrip/regionLatency.ts",
     "packages/streamdeck/src/touchStrip/stripLayout.ts",
-    "packages/streamdeck/src/touchStrip/stripRenderer.ts",
     "packages/streamdeck/src/touchStrip/summarySegment.ts",
-    "packages/streamdeck/src/touchStrip/typewriter.ts",
-    "packages/streamdeck/src/voicePanel.ts",
     "packages/streamdeck/test/art/gradient.test.ts",
     "packages/streamdeck/test/art/icons.test.ts",
     "packages/streamdeck/test/art/segments.test.ts",
@@ -527,7 +603,6 @@
     "packages/streamdeck/test/key-face-contract.test.ts",
     "packages/streamdeck/test/keys.test.ts",
     "packages/streamdeck/test/keys/descriptorFixtures.ts",
-    "packages/streamdeck/test/keys/keyCache.test.ts",
     "packages/streamdeck/test/keys/keyContent.test.ts",
     "packages/streamdeck/test/keys/keyFace.test.ts",
     "packages/streamdeck/test/keys/keyFill.test.ts",
@@ -536,25 +611,18 @@
     "packages/streamdeck/test/keys/keyRenderer.test.ts",
     "packages/streamdeck/test/keys/keyWriter.test.ts",
     "packages/streamdeck/test/keys/quality.test.ts",
-    "packages/streamdeck/test/keys/writeQueue.test.ts",
     "packages/streamdeck/test/logs.test.ts",
-    "packages/streamdeck/test/mode.test.ts",
     "packages/streamdeck/test/rasterizer.test.ts",
-    "packages/streamdeck/test/settings.test.ts",
     "packages/streamdeck/test/surface.test.ts",
     "packages/streamdeck/test/touchStrip/agentDetail.test.ts",
     "packages/streamdeck/test/touchStrip/chatLog.test.ts",
     "packages/streamdeck/test/touchStrip/geometry.test.ts",
     "packages/streamdeck/test/touchStrip/pagerSegment.test.ts",
-    "packages/streamdeck/test/touchStrip/panelCache.test.ts",
     "packages/streamdeck/test/touchStrip/providerPanel.test.ts",
     "packages/streamdeck/test/touchStrip/providerSegment.test.ts",
     "packages/streamdeck/test/touchStrip/regionLatency.test.ts",
     "packages/streamdeck/test/touchStrip/stripLayout.test.ts",
-    "packages/streamdeck/test/touchStrip/stripRenderer.test.ts",
-    "packages/streamdeck/test/touchStrip/summarySegment.test.ts",
-    "packages/streamdeck/test/touchStrip/typewriter.test.ts",
-    "packages/streamdeck/test/voicePanel.test.ts"
+    "packages/streamdeck/test/touchStrip/summarySegment.test.ts"
   ],
   "findings": [
     {
@@ -942,6 +1010,36 @@
         "evidence_file": "streamdeck-audio-resource-probe.json",
         "limits": "Actual frozen source. Capture has a real bounded Node child, not microphone/parec; playback events and fetch response are injected. No hardware/provider/daemon, incident prevalence or independent skeptic review."
       }
+    },
+    {
+      "id": "nonelixir-web-14",
+      "category": "state-truth",
+      "severity": "P2",
+      "title": "Microphone paging changes the displayed active device without changing capture",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/surface.ts",
+          "lines": "409-426"
+        },
+        {
+          "path": "packages/streamdeck/src/main.ts",
+          "lines": "368"
+        },
+        {
+          "path": "packages/streamdeck/src/settings.ts",
+          "lines": "105-117"
+        }
+      ],
+      "description": "The compositor finds selectedMic only among the visible six microphone slots. If the selected device is on another page, the settings strip falls back to microphones[0], even though capture resolves the selected ID against the full device list. Paging alone therefore makes the active microphone caption name the wrong device. Selecting a non-first device and paging away is sufficient.",
+      "evidence": "The actual compositor, with a recording rasterizer and no-op transport, receives eight microphones and selectedMicId mic-7. Page offsets 6,0,6 yield strip selectedLabel Mic 7,Mic 0,Mic 7. The selection never changes. main.ts constructs capture from micPreferences.resolve over all device IDs. This verifies the panel model, not rendered pixels or microphone hardware.",
+      "recommendation": "Resolve the selected microphone against the complete device list for the strip caption. Keep page slicing for key placement only. Test a selected device outside the visible page and a remembered device that is absent.",
+      "refactor_hint": "Separate active-device identity from the currently visible selection window; a shared page model is not the full device state.",
+      "effort": "S",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-surface-probe.json",
+        "limits": "Actual compositor/layout with recording encoder, no-op writes; no native rendering, USB, microphone or independent skeptic review."
+      }
     }
   ],
   "unpromoted_observations": [
@@ -996,6 +1094,18 @@
     {
       "topic": "PCM chunk alignment",
       "disposition": "decodePcm16 drops an odd trailing byte without carrying it to the next chunk; raw bytes still reach the transcriber through the aggregator, so potential misalignment affects meters/waveform, not necessarily transcription. Need split-stream composed evidence and production chunk census before broader impact claims."
+    },
+    {
+      "topic": "Preserve key-write ownership",
+      "disposition": "KeyCache and KeyWriteQueue already distinguish pending/committed content, commit after full transfer, invalidate partial writes, halt after first-report failure, and require a fresh writer to reset. Full tests cover same-key reversal/cancellation. Preserve this contract when simplifying rendering; do not classify it as gratuitous layering."
+    },
+    {
+      "topic": "Strip cache and repaint signature failures",
+      "disposition": "PanelCache records bytes before transport and surface records lastSignature before writes. main routes write failures to runtime recovery and surface invalidates on backend identity change, so the local eager-cache observation alone does not establish permanently stale production pixels. Need failure/recovery composition before promotion."
+    },
+    {
+      "topic": "Typewriter identity",
+      "disposition": "The typewriter uses row index/body, not role or stable event identity, and does not restrict message animation to assistant role despite a test comment. Inspect caller filtering and sliding transcript behavior before assigning user impact."
     }
   ]
 }

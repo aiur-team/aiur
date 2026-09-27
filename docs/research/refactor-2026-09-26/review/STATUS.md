@@ -120,3 +120,22 @@ No hardware, provider, daemon or package suite was run; this was source review
 and targeted probe execution. Next review work is rendering, voice-panel host
 wiring, controller tests and remaining scripts/configuration. Overall claim
 coverage stays 50/60 and completed raw review units stay 23/32.
+
+## Surface state checkpoint
+
+Seventeen additional full reads bring the partial unit to 109/178 files,
+leaving 69. Finding 14 reproduces a wrong active-microphone caption when the
+selected device is outside the visible settings page: the compositor emits
+Mic 7, Mic 0, Mic 7 for page offsets 6, 0, 6 with Mic 7 selected throughout.
+The recording rasterizer proves the panel model, not pixels or hardware.
+Reproduce with `node tooling/streamdeck_surface_probe.mjs /path/to/frozen-snapshot`;
+results are in `review/in-progress/streamdeck-surface-probe.json`.
+
+The reviewed key cache/write queue already protects pending versus committed
+content, partial writes and fresh-writer recovery. Preserve those contracts.
+Strip cache/signature state is eager, but production recovery invalidates on
+backend replacement; no permanent stale-pixel claim is established yet.
+Typewriter row identity and role filtering remain candidates requiring caller
+analysis. Continue with remaining surface/controller tests, renderers and
+scripts. Fourteen partial-unit findings (twelve P2, two P3) are not included in
+the inherited raw totals; overall counts remain 23/32 units and 50/60 claims.
