@@ -89062,10 +89062,746 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "request_resource",
+      "assessment": "Quota resource classifiers overlap but do not have identical endpoint semantics.",
+      "constraints": [
+        "Budget delegates binary URLs to EndpointPolicy and otherwise defaults core; the endpoint classifier and family/resource table were read.",
+        "EndpointPolicy maps search paths to search and rate_limit to none, in addition to GraphQL/core families.",
+        "Quota and RequestLog prioritize anonymous as core:anonymous, otherwise classify only exact /graphql as graphql and all other paths as core. Quota's anonymous constant was checked.",
+        "The latter two helpers match, but consolidation must reconcile endpoint versus credential-pool semantics. Caller paths, separate billability gates and production misattribution were not established; no new raw defect or saving is claimed."
+      ],
+      "clauses": 8,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 324,
+          "module": "Aiur.GitHub.Budget",
+          "name": "request_resource",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "def",
+          "end_line": 324,
+          "body_sha256": "f168d904bad4985c8ec98d20b54e752a075f6b6d90179bfeb95d1cb3fe2c5278",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 325,
+          "module": "Aiur.GitHub.Budget",
+          "name": "request_resource",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "def",
+          "end_line": 325,
+          "body_sha256": "b029961d90ce4f5b8dee4fbae8424b01d710a097eed3b1bbf8ed799717bdbbdd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1234,
+          "module": "Aiur.GitHub.Quota",
+          "name": "request_resource",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 1234,
+          "body_sha256": "39b2bd42b8b80e76da8a9994798ae8b9a3bbf09f9cac6d9df2b9a8dfe2f4e2c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1236,
+          "module": "Aiur.GitHub.Quota",
+          "name": "request_resource",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 1238,
+          "body_sha256": "e83df12fc15b2704081aea96488603e36f0b23ec891a54c8870c8a3f87472796",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1240,
+          "module": "Aiur.GitHub.Quota",
+          "name": "request_resource",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 1240,
+          "body_sha256": "b029961d90ce4f5b8dee4fbae8424b01d710a097eed3b1bbf8ed799717bdbbdd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 262,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "request_resource",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 262,
+          "body_sha256": "50a02386e3d7a7f59904fcc1c1567bcba856a933c97f84288526295b4b24fee7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 264,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "request_resource",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 266,
+          "body_sha256": "e83df12fc15b2704081aea96488603e36f0b23ec891a54c8870c8a3f87472796",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 268,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "request_resource",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 268,
+          "body_sha256": "b029961d90ce4f5b8dee4fbae8424b01d710a097eed3b1bbf8ed799717bdbbdd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reset_at",
+      "assessment": "Reset timestamps are selected, decoded or inferred using different conventions.",
+      "constraints": [
+        "BuildOrder.Catalog retains a DateTime option only for budget/rate_limited failures.",
+        "ElevenLabs.Quota decodes integer Unix seconds and returns nil on invalid input.",
+        "OpenAICompat.MeterAdapter parses stringified input: values above one billion are Unix seconds, nonnegative lower values are relative seconds from observation time, otherwise nil.",
+        "Preserve absolute versus relative units and failure filtering. The heuristic and accepted provider populations were not independently verified."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 86,
+          "module": "Aiur.BuildOrder.Catalog",
+          "name": "reset_at",
+          "path": "src/lib/aiur/build_order/catalog.ex",
+          "kind": "defp",
+          "end_line": 91,
+          "body_sha256": "9e9089e77b268904ea73be9ed1dc510c5356a1ebc844ca272fc594a18811c041",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 93,
+          "module": "Aiur.BuildOrder.Catalog",
+          "name": "reset_at",
+          "path": "src/lib/aiur/build_order/catalog.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 288,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "reset_at",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 293,
+          "body_sha256": "0150f6e401411fdf8fac7fa44417b60f941c16728c5a8a2434199b8b996add93",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 295,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "reset_at",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 295,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 89,
+          "module": "Aiur.OpenAICompat.MeterAdapter",
+          "name": "reset_at",
+          "path": "src/lib/aiur/open_ai_compat/meter_adapter.ex",
+          "kind": "defp",
+          "end_line": 89,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 91,
+          "module": "Aiur.OpenAICompat.MeterAdapter",
+          "name": "reset_at",
+          "path": "src/lib/aiur/open_ai_compat/meter_adapter.ex",
+          "kind": "defp",
+          "end_line": 97,
+          "body_sha256": "e08e8349fa55fe14cf94ffaafb264b2bbb44141dd60bda0d1bf63e20615325b2",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reset_delay_ms",
+      "assessment": "Reset delays differ in input format, clock source and bounds.",
+      "constraints": [
+        "GraphProjectionPolicy accepts DateTime or positive Unix seconds against a supplied DateTime; its helper rejects expired delays and applies minimum/maximum retry bounds.",
+        "Budget accepts integer or fully parsed string Unix seconds against system time and floors the result at one millisecond.",
+        "Connectivity accepts an ISO8601 reset string from a detail map, rejects expired delays and caps long delays with a warning; the cap helper was read.",
+        "Do not unify time conversion without retaining expired-versus-minimum-delay semantics, injection of time and bound policy."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 322,
+          "module": "Aiur.BuildOrder.GraphProjection.Policy",
+          "name": "reset_delay_ms",
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "kind": "defp",
+          "end_line": 326,
+          "body_sha256": "4006b982ba84b90b365899e8c061b971a63c60d412cf40498b0962549860bd02",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 328,
+          "module": "Aiur.BuildOrder.GraphProjection.Policy",
+          "name": "reset_delay_ms",
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "kind": "defp",
+          "end_line": 335,
+          "body_sha256": "1da73d1915a65a98042139d2ae96d0c17a1cbaaeab428a62dc00692f2da4c8c4",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 337,
+          "module": "Aiur.BuildOrder.GraphProjection.Policy",
+          "name": "reset_delay_ms",
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "kind": "defp",
+          "end_line": 337,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 793,
+          "module": "Aiur.GitHub.Budget",
+          "name": "reset_delay_ms",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "defp",
+          "end_line": 798,
+          "body_sha256": "785582bf9af378cd21172da055bb3dd171a5f9ad61c107deb9bce48930126523",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 800,
+          "module": "Aiur.GitHub.Budget",
+          "name": "reset_delay_ms",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "defp",
+          "end_line": 800,
+          "body_sha256": "33fed494a59831b033de2eeb9445207973ed457eb511b34cc20d11e8fbe1c38e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 801,
+          "module": "Aiur.GitHub.Budget",
+          "name": "reset_delay_ms",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "defp",
+          "end_line": 801,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 213,
+          "module": "Aiur.GitHub.Connectivity",
+          "name": "reset_delay_ms",
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "kind": "defp",
+          "end_line": 223,
+          "body_sha256": "c456045a93eaea6fe91095937b6c74b874c4f02fa5922ae507b33dd4b2ee42ad",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reset_topic",
+      "assessment": "Three reset accessors intentionally name separate pubsub domains.",
+      "constraints": [
+        "Checked constants: graph, ticket_detail_coordinator and ticket_history use distinct build_order reset topics.",
+        "Identical accessor shapes are not duplicate event identity. Preserve each producer/consumer scope if sharing pubsub infrastructure."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 127,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "reset_topic",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "def",
+          "end_line": 127,
+          "body_sha256": "cd0ab839abdca3e6327be8bc3702a021989d014943b4205900e0fd6f187a5afe",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 64,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator",
+          "name": "reset_topic",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+          "kind": "def",
+          "end_line": 64,
+          "body_sha256": "cd0ab839abdca3e6327be8bc3702a021989d014943b4205900e0fd6f187a5afe",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 70,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider",
+          "name": "reset_topic",
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "cd0ab839abdca3e6327be8bc3702a021989d014943b4205900e0fd6f187a5afe",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "resolve_review_thread",
+      "assessment": "Thread identity enrichment and resolving a review conversation are different operations.",
+      "constraints": [
+        "GitHubWebhook enriches comment payload with a resolved thread ID from comment node ID, retaining the payload on unsuccessful resolution.",
+        "Client delegates to ReviewThreads.Resolution, which normalizes thread ID and optional terminal reply, requires a token and invokes the mutation helper.",
+        "Preserve lookup versus mutation, optional enrichment fallback and credential requirements. Neither wrapper proves a thread was actually resolved or a terminal reply posted."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 202,
+          "module": "Aiur.Events.GithubWebhook",
+          "name": "resolve_review_thread",
+          "path": "src/lib/aiur/events/github_webhook.ex",
+          "kind": "defp",
+          "end_line": 216,
+          "body_sha256": "1fa579ec0d5c12b1a7837752c1379864cb5da121b14d8cbc9df9cce2c957627c",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 362,
+          "module": "Aiur.GitHub.Client",
+          "name": "resolve_review_thread",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 363,
+          "body_sha256": "352ae3a5c50f926d73c738313f69590706ff2402832fc43cc0cd3cd6f3aea3c6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 40,
+          "module": "Aiur.GitHub.ReviewThreads.Resolution",
+          "name": "resolve_review_thread",
+          "path": "src/lib/aiur/github/review_threads/resolution.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "2279f650bad2d08968fed0a45beb53b184616f609b6205655d103e6b560fa804",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "resource",
+      "assessment": "Credential resource lookup partly shares Budget policy and partly trusts response evidence.",
+      "constraints": [
+        "CredentialSelector delegates to Budget.request_resource.",
+        "CredentialHeadroom accepts a header resource from its allowed set, otherwise uses Budget classification.",
+        "EndpointPolicy maps endpoint family through its enumerated resource table.",
+        "Keep observed response resource versus predicted endpoint pool distinct; shared classification alone does not prove correct credential attribution."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 260,
+          "module": "Aiur.GitHub.CredentialHeadroom",
+          "name": "resource",
+          "path": "src/lib/aiur/github/credential_headroom.ex",
+          "kind": "defp",
+          "end_line": 265,
+          "body_sha256": "89ce3fc3898ab3a238249e830896506815ed308db719ff208c8a51fc1aae3665",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 230,
+          "module": "Aiur.GitHub.CredentialSelector",
+          "name": "resource",
+          "path": "src/lib/aiur/github/credential_selector.ex",
+          "kind": "defp",
+          "end_line": 230,
+          "body_sha256": "09e4512e654def76e8c8eb1cdab1f3b6b33f415cc011153a0f692f6bf3d75182",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 69,
+          "module": "Aiur.GitHub.EndpointPolicy",
+          "name": "resource",
+          "path": "src/lib/aiur/github/endpoint_policy.ex",
+          "kind": "def",
+          "end_line": 69,
+          "body_sha256": "e80fed5ae7eb34d2f11c17fccd338b41a4d56c59473ae02e25f9d1c58d19c0e5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "resource_version",
+      "assessment": "Comment-version selectors match while thread identity adds generation scope.",
+      "constraints": [
+        "CommentsPoller and Webhook.Normalizer select nonempty updated_at, then nonempty submitted_at, otherwise nil.",
+        "GitHubReviewThreadIdentity prefixes a binary version with a nonempty generation, uses generation alone for nonbinary version, and otherwise preserves the original version.",
+        "Share the two comment selectors while retaining generation fencing. Timestamp strings are not parsed or proven monotonic by these clauses."
+      ],
+      "clauses": 8,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 764,
+          "module": "Aiur.Events.GithubCommentsPoller",
+          "name": "resource_version",
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "kind": "defp",
+          "end_line": 764,
+          "body_sha256": "a766aeb5cadf10b7a5ae33d33ef24b0cfaa2e7ef025251de1786c47f0abacc88",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 766,
+          "module": "Aiur.Events.GithubCommentsPoller",
+          "name": "resource_version",
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "kind": "defp",
+          "end_line": 767,
+          "body_sha256": "c273cdf66a697413e105ade903da306568b7c5179e3cd6fc4c02473154e686e1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 769,
+          "module": "Aiur.Events.GithubCommentsPoller",
+          "name": "resource_version",
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "kind": "defp",
+          "end_line": 769,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 25,
+          "module": "Aiur.Events.GithubReviewThreadIdentity",
+          "name": "resource_version",
+          "path": "src/lib/aiur/events/github_review_thread_identity.ex",
+          "kind": "def",
+          "end_line": 27,
+          "body_sha256": "3ea5c4e1182196396e470f114a731200afe46728dbfe68faa294fb389d1c0083",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 29,
+          "module": "Aiur.Events.GithubReviewThreadIdentity",
+          "name": "resource_version",
+          "path": "src/lib/aiur/events/github_review_thread_identity.ex",
+          "kind": "def",
+          "end_line": 29,
+          "body_sha256": "99b0415805efeb5df200f4a59bbb47052819169908685e7913d0b56e2f9b4002",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 516,
+          "module": "Aiur.Events.GithubWebhook.Normalizer",
+          "name": "resource_version",
+          "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+          "kind": "defp",
+          "end_line": 516,
+          "body_sha256": "a766aeb5cadf10b7a5ae33d33ef24b0cfaa2e7ef025251de1786c47f0abacc88",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 517,
+          "module": "Aiur.Events.GithubWebhook.Normalizer",
+          "name": "resource_version",
+          "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+          "kind": "defp",
+          "end_line": 517,
+          "body_sha256": "c273cdf66a697413e105ade903da306568b7c5179e3cd6fc4c02473154e686e1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 518,
+          "module": "Aiur.Events.GithubWebhook.Normalizer",
+          "name": "resource_version",
+          "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+          "kind": "defp",
+          "end_line": 518,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "response_status",
+      "assessment": "Provider response classification differs on forbidden and malformed status values.",
+      "constraints": [
+        "ElevenLabs.Quota accepts 2xx, maps 401/403 to authentication and 429 to rate_limited, other integer status to provider_error and malformed responses to malformed.",
+        "OpenAICompat.ProviderMeterProbe maps only 401 to authentication; its remaining status-field clause accepts any value as provider_error, including nonintegers.",
+        "GitHub.RequestLog renders integer status from an ok response tuple as text and all other results as error.",
+        "Preserve provider-specific classification and diagnostic serialization. Uniform HTTP mappings would change both 403 meaning and malformed-input handling."
+      ],
+      "clauses": 13,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 211,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "response_status",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 211,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 212,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "response_status",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 212,
+          "body_sha256": "8901c020319cfe7b83bfc56373404d56babdf09e5d56a738d2e8b7e2ae5b4b69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 213,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "response_status",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 213,
+          "body_sha256": "8901c020319cfe7b83bfc56373404d56babdf09e5d56a738d2e8b7e2ae5b4b69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 214,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "response_status",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 214,
+          "body_sha256": "2e763cb8dfd5529e8c09ea9d2fbf2b59e50f20076795593e58a8ec363cfc7803",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 215,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "response_status",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 215,
+          "body_sha256": "943857db562e5e993b474245f53114c7061744fc829f14e3148b85f70d5b4f29",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 216,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "response_status",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 216,
+          "body_sha256": "934f092483364aeeeff3074c926c7fa2938947f65a60a7176bc06ac6b9d914e0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 352,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "response_status",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 352,
+          "body_sha256": "6cee4f6ad9c2fe73707b6c2f1162df32985fc3a525dbcee82e421f9bc9c86b54",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 353,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "response_status",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 353,
+          "body_sha256": "9b7813b1d8e3db370167b2ee9dc0fa4998abfd9f8afbc18e81836603b80b55b2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 109,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "response_status",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 109,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 110,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "response_status",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 110,
+          "body_sha256": "8901c020319cfe7b83bfc56373404d56babdf09e5d56a738d2e8b7e2ae5b4b69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "response_status",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 111,
+          "body_sha256": "2e763cb8dfd5529e8c09ea9d2fbf2b59e50f20076795593e58a8ec363cfc7803",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 112,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "response_status",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 112,
+          "body_sha256": "943857db562e5e993b474245f53114c7061744fc829f14e3148b85f70d5b4f29",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 113,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "response_status",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 113,
+          "body_sha256": "934f092483364aeeeff3074c926c7fa2938947f65a60a7176bc06ac6b9d914e0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6701,
-  "limits": "549 selected families and 6701 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6752,
+  "limits": "557 selected families and 6752 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
