@@ -613,6 +613,83 @@
       "lines": 755,
       "read": "full",
       "assessment": "All755 lines read in four bounded segments. One solved learning per run; Full and Lightweight have explicit evidence and write-scope differences. Scratch artifacts survive inline summary collapse, with complete inline fallback on failed writes; primary writer owns tracked outputs. Session metadata probe is relevance-gated and source behavior/merge-state must be independently grounded. Full overlap handling updates existing knowledge; lightweight guards exact-path collisions without claiming semantic dedup. Parser safety, mechanical flags and semantic validation are distinct; historical citations may be intentional and unavailable merge truth is degraded. Vocabulary creation belongs to Full, lightweight only refines existing entries; instruction edits require interactive authority. Refresh follow-up wording and stale opt-in session-history support sentence need reconciliation against active routing. No session probe, subagent, glossary, instruction edit or runtime action invoked; performance examples are illustrative, not measured savings."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/grounding-validation.md",
+      "sha256": "0295ee3be2f19b22b95568cbf17b846d20ff75e358331077fd477da95aa5ad19",
+      "lines": 84,
+      "read": "full",
+      "assessment": "All84 lines read. Behavior is grounded in local defining source, merge status in remote tracker truth with git fallback, and countable enumerations require substantiation. Historical missing paths are adjudicated rather than automatically erased; scaffold is always corrected. Unverifiable behavior is softened but unverifiable merge-state is retained with only as-of qualifier and degraded run report: candidate17 tracks whether durable claim wording preserves uncertainty. Neither mechanical nor semantic validator executed."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/agents/session-historian.md",
+      "sha256": "9d266ba34adacf6943f3fc490e8f3c1cad04a68409f0a687d9c21cbb92f37a1b",
+      "lines": 83,
+      "read": "full",
+      "assessment": "All83 lines read. Synthesis only reads supplied extracted paths, bounded to five sessions and specific topic; no discovery, source-log expansion, personal/team judgments, secrets, internal reasoning or verbatim tool payloads. Stale session conclusions remain caveated and provenance retained. Reference forbids all writes and requires prose return while parent requires confirmed scratch artifact: candidate16. Inline fallback exists in parent, so no lost-output incident inferred."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/agents/best-practices-researcher.md",
+      "sha256": "441d5fb051b660c5be0ad621e6b0da6b9000583322967c46831e207e4c215f9b",
+      "lines": 115,
+      "read": "full",
+      "assessment": "All115 lines read. Invocation narrows generic research to durable-learning enrichment. Skill availability is discovered rather than assumed; version/deprecation checks and explicit source attribution precede external recommendations. Repository conventions and official technology facts are different authority domains; curated skills do not independently prove runtime or current vendor behavior. Fixed2026 date and illustrative API history are source text, not externally verified in this review. No external research or skill invocation performed."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/agents/framework-docs-researcher.md",
+      "sha256": "100c7b5cbe64b9904fa59998e01f18924293cc9701709b6c54207e458dfb9e34",
+      "lines": 93,
+      "read": "full",
+      "assessment": "All93 lines read. Match dependency versions, inspect installed implementation when applicable, verify deprecation before external adoption and attribute guidance. Context7/CLI/web have explicit availability fallbacks; Ruby commands require relevant ecosystem. Invocation contract narrows broad implementation guide to evidence for captured lesson. No package install, API query or external recommendation made."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/agents/pattern-recognition-specialist.md",
+      "sha256": "0d73822ccea06dd3e9a25e9e21e1908377cb9c5364b678b940fefef7f84c9580",
+      "lines": 55,
+      "read": "full",
+      "assessment": "All55 lines read. Documentation invocation focuses reusable failure class, not unrelated code-quality sweep. Duplication thresholds and naming samples are discovery techniques, not measured savings or exhaustive proof. Legitimate language idioms and project-specific boundary rules must precede generic smells; TODO presence alone is not a defect. No duplicate detector run in this read."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/agents/data-integrity-guardian.md",
+      "sha256": "db9cd2ee40e30bdf8b84bb6abaff03f61b44a04218875637a651a66cbf0d7900",
+      "lines": 68,
+      "read": "full",
+      "assessment": "All68 lines read. Preserve explicit invariant, concrete corruption path and rollback/verification, including transactions, references and data migration shape. Generic privacy checklist does not establish legal compliance or justify unrelated scope. Documentation invocation validates lesson and caveats; no database inspection, migration or legal determination performed."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/agents/performance-oracle.md",
+      "sha256": "79abcaee9a66355d996937cc6562a507b4b8d2de52060be3153ecb2088941491",
+      "lines": 108,
+      "read": "full",
+      "assessment": "All108 lines read. Documentation invocation requires measurements proving the fix and scope-specific scaling assumptions. Generic mandatory200ms API and5KB bundle budgets, complexity threshold and10x/100x/1000x projections are not derived from project requirements or observed population. Preserve measured bottleneck/assumption distinctions and do not adopt these numbers as Aiur acceptance criteria. No benchmark, latency measurement or saving established."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/agents/security-sentinel.md",
+      "sha256": "f84717fe79958d66eab7528d5eecf91704b05121dd565e31b7536eadf2d9e5ed",
+      "lines": 91,
+      "read": "full",
+      "assessment": "All91 lines read. Documentation invocation targets supported exploit path, residual caveats and prevention; final credible-path rule constrains broad worst-case checklist. Language-specific grep examples are incomplete discovery hints, not exhaustive security coverage. Version freshness alone does not prove absence of vulnerabilities, and intentional public endpoints need threat/context assessment. No secret scan or penetration test executed."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/concepts-vocabulary.md",
+      "sha256": "79ac66f7f9fa52d940ff71b725bce207c09cfa14269d4340b8831da8239e2c71",
+      "lines": 78,
+      "read": "full",
+      "assessment": "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All78 lines read. Seed from declared domain model of the investigated scope, not a numeric target or full-codebase search. Distinguish accretion from core-noun seeding, retain meaningful ownership and lifecycle relationships, define project-specific sibling terms, and exclude implementation/config/issue-history metadata. Canonical vocabulary reflects settled distinctions, not permission to invent user agreement. No glossary edit performed. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies."
+    },
+    {
+      "path": ".claude/skills/ce-compound/references/yaml-schema.md",
+      "sha256": "079395c03f6abf89ac95e227ec31b9db13de6bc414ca7fbe0fc72fcbfa1a53d7",
+      "lines": 118,
+      "read": "full",
+      "assessment": "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All118 lines read. Bug and knowledge tracks have different required fields; legacy bug fields on knowledge docs are retained, category mappings enumerate narrower knowledge types, and parser safety is distinct from enum/schema validity. Rails-focused component vocabulary is restrictive but generic service/tooling choices exist, so mismatch alone is not a proven failure. YAML library compatibility statements were not externally verified and no validator run is claimed. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies."
+    },
+    {
+      "path": ".claude/skills/ce-compound/assets/resolution-template.md",
+      "sha256": "8f184825c7f9e2a5bd6894e7567776cb4cf19e0c2be1c8c0589ccd73d3f00617",
+      "lines": 94,
+      "read": "full",
+      "assessment": "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All94 lines read. Bug template separates observed symptoms, failed attempts, fix and prevention; knowledge template separates context, guidance and applicability. Placeholder examples require replacement and quoting before use. Knowledge Use-for list omits four newer categories present in mapping; canonical schema and initial choose-by-track rule still identify the template, so no missing-support defect promoted. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -976,7 +1053,18 @@
     "All78 lines read. Seed from declared domain model of the investigated scope, not a numeric target or full-codebase search. Distinguish accretion from core-noun seeding, retain meaningful ownership and lifecycle relationships, define project-specific sibling terms, and exclude implementation/config/issue-history metadata. Canonical vocabulary reflects settled distinctions, not permission to invent user agreement. No glossary edit performed.",
     "All118 lines read. Bug and knowledge tracks have different required fields; legacy bug fields on knowledge docs are retained, category mappings enumerate narrower knowledge types, and parser safety is distinct from enum/schema validity. Rails-focused component vocabulary is restrictive but generic service/tooling choices exist, so mismatch alone is not a proven failure. YAML library compatibility statements were not externally verified and no validator run is claimed.",
     "All94 lines read. Bug template separates observed symptoms, failed attempts, fix and prevention; knowledge template separates context, guidance and applicability. Placeholder examples require replacement and quoting before use. Knowledge Use-for list omits four newer categories present in mapping; canonical schema and initial choose-by-track rule still identify the template, so no missing-support defect promoted.",
-    "All755 lines read in four bounded segments. One solved learning per run; Full and Lightweight have explicit evidence and write-scope differences. Scratch artifacts survive inline summary collapse, with complete inline fallback on failed writes; primary writer owns tracked outputs. Session metadata probe is relevance-gated and source behavior/merge-state must be independently grounded. Full overlap handling updates existing knowledge; lightweight guards exact-path collisions without claiming semantic dedup. Parser safety, mechanical flags and semantic validation are distinct; historical citations may be intentional and unavailable merge truth is degraded. Vocabulary creation belongs to Full, lightweight only refines existing entries; instruction edits require interactive authority. Refresh follow-up wording and stale opt-in session-history support sentence need reconciliation against active routing. No session probe, subagent, glossary, instruction edit or runtime action invoked; performance examples are illustrative, not measured savings."
+    "All755 lines read in four bounded segments. One solved learning per run; Full and Lightweight have explicit evidence and write-scope differences. Scratch artifacts survive inline summary collapse, with complete inline fallback on failed writes; primary writer owns tracked outputs. Session metadata probe is relevance-gated and source behavior/merge-state must be independently grounded. Full overlap handling updates existing knowledge; lightweight guards exact-path collisions without claiming semantic dedup. Parser safety, mechanical flags and semantic validation are distinct; historical citations may be intentional and unavailable merge truth is degraded. Vocabulary creation belongs to Full, lightweight only refines existing entries; instruction edits require interactive authority. Refresh follow-up wording and stale opt-in session-history support sentence need reconciliation against active routing. No session probe, subagent, glossary, instruction edit or runtime action invoked; performance examples are illustrative, not measured savings.",
+    "All84 lines read. Behavior is grounded in local defining source, merge status in remote tracker truth with git fallback, and countable enumerations require substantiation. Historical missing paths are adjudicated rather than automatically erased; scaffold is always corrected. Unverifiable behavior is softened but unverifiable merge-state is retained with only as-of qualifier and degraded run report: candidate17 tracks whether durable claim wording preserves uncertainty. Neither mechanical nor semantic validator executed.",
+    "All83 lines read. Synthesis only reads supplied extracted paths, bounded to five sessions and specific topic; no discovery, source-log expansion, personal/team judgments, secrets, internal reasoning or verbatim tool payloads. Stale session conclusions remain caveated and provenance retained. Reference forbids all writes and requires prose return while parent requires confirmed scratch artifact: candidate16. Inline fallback exists in parent, so no lost-output incident inferred.",
+    "All115 lines read. Invocation narrows generic research to durable-learning enrichment. Skill availability is discovered rather than assumed; version/deprecation checks and explicit source attribution precede external recommendations. Repository conventions and official technology facts are different authority domains; curated skills do not independently prove runtime or current vendor behavior. Fixed2026 date and illustrative API history are source text, not externally verified in this review. No external research or skill invocation performed.",
+    "All93 lines read. Match dependency versions, inspect installed implementation when applicable, verify deprecation before external adoption and attribute guidance. Context7/CLI/web have explicit availability fallbacks; Ruby commands require relevant ecosystem. Invocation contract narrows broad implementation guide to evidence for captured lesson. No package install, API query or external recommendation made.",
+    "All55 lines read. Documentation invocation focuses reusable failure class, not unrelated code-quality sweep. Duplication thresholds and naming samples are discovery techniques, not measured savings or exhaustive proof. Legitimate language idioms and project-specific boundary rules must precede generic smells; TODO presence alone is not a defect. No duplicate detector run in this read.",
+    "All68 lines read. Preserve explicit invariant, concrete corruption path and rollback/verification, including transactions, references and data migration shape. Generic privacy checklist does not establish legal compliance or justify unrelated scope. Documentation invocation validates lesson and caveats; no database inspection, migration or legal determination performed.",
+    "All108 lines read. Documentation invocation requires measurements proving the fix and scope-specific scaling assumptions. Generic mandatory200ms API and5KB bundle budgets, complexity threshold and10x/100x/1000x projections are not derived from project requirements or observed population. Preserve measured bottleneck/assumption distinctions and do not adopt these numbers as Aiur acceptance criteria. No benchmark, latency measurement or saving established.",
+    "All91 lines read. Documentation invocation targets supported exploit path, residual caveats and prevention; final credible-path rule constrains broad worst-case checklist. Language-specific grep examples are incomplete discovery hints, not exhaustive security coverage. Version freshness alone does not prove absence of vulnerabilities, and intentional public endpoints need threat/context assessment. No secret scan or penetration test executed.",
+    "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All78 lines read. Seed from declared domain model of the investigated scope, not a numeric target or full-codebase search. Distinguish accretion from core-noun seeding, retain meaningful ownership and lifecycle relationships, define project-specific sibling terms, and exclude implementation/config/issue-history metadata. Canonical vocabulary reflects settled distinctions, not permission to invent user agreement. No glossary edit performed. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies.",
+    "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All118 lines read. Bug and knowledge tracks have different required fields; legacy bug fields on knowledge docs are retained, category mappings enumerate narrower knowledge types, and parser safety is distinct from enum/schema validity. Rails-focused component vocabulary is restrictive but generic service/tooling choices exist, so mismatch alone is not a proven failure. YAML library compatibility statements were not externally verified and no validator run is claimed. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies.",
+    "Full content verified byte-identical to previously fully read ce-compound-refresh counterpart; counted once at this manifest path. All94 lines read. Bug template separates observed symptoms, failed attempts, fix and prevention; knowledge template separates context, guidance and applicability. Placeholder examples require replacement and quoting before use. Knowledge Use-for list omits four newer categories present in mapping; canonical schema and initial choose-by-track rule still identify the template, so no missing-support defect promoted. Initial parity-command quoting failed before comparison; corrected Python comparison passed for all three copies."
   ],
   "follow_up_candidates": [
     {
@@ -1030,9 +1118,17 @@
     {
       "id": "skills-prompts-candidate-15",
       "question": "Reconcile ce-compound Phase2.5 direct narrow refresh invocation and multi-candidate question with its end-summary prohibition on auto-applied cross-doc maintenance and only-discoverability-prompt claim; inspect supporting contracts before promoting scope or interaction drift."
+    },
+    {
+      "id": "skills-prompts-candidate-16",
+      "question": "Reconcile session-historian never-write/text-only output with parent confirmed scratch-artifact requirement. Parent inline fallback reduces failure impact; inspect dispatch contract and duplicate artifact reliability findings before promotion."
+    },
+    {
+      "id": "skills-prompts-candidate-17",
+      "question": "Assess whether retaining unverifiable merge-state claims with an as-of qualifier preserves durable uncertainty when degraded status appears only in the run report; distinguish previously verified historical assertions from newly unsupported landed claims."
     }
   ],
-  "next": "Continue ce-compound supporting markdown references. Coverage 87/250 full files, 14810/36169 lines. Eight provisional P2 and three P3 findings; thirteen follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-debug entrypoint and references. Coverage 98/250 full files, 15797/36169 lines. Eight provisional P2 and three P3 findings; fifteen follow-up candidates. All compound markdown covered, not scripts/schema. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
