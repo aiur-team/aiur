@@ -4,70 +4,22 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "ec4937ec5fdb8d36c71736384c1cb5d3e8a69d36b55ec1290427711eaa33e44c"
+    "name_triage": "12a2da3062b40291fd5171d5582fa0859e1e2901ade122d18f281dec565ed13d"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 70,
-    "remaining_cross_module_names": 1610,
-    "remaining_literal_entries": 7334
+    "reviewed_cross_module_names": 78,
+    "remaining_cross_module_names": 1602,
+    "remaining_literal_entries": 7206
   },
   "families": [
-    {
-      "name": "extract",
-      "clauses": 24,
-      "modules": 11,
-      "summed_source_span_lines": 112
-    },
-    {
-      "name": "failure",
-      "clauses": 16,
-      "modules": 11,
-      "summed_source_span_lines": 84
-    },
     {
       "name": "payload",
       "clauses": 71,
       "modules": 11,
       "summed_source_span_lines": 389
-    },
-    {
-      "name": "schedule_tick",
-      "clauses": 11,
-      "modules": 11,
-      "summed_source_span_lines": 39
-    },
-    {
-      "name": "send_operator_message",
-      "clauses": 18,
-      "modules": 11,
-      "summed_source_span_lines": 118
-    },
-    {
-      "name": "specs",
-      "clauses": 12,
-      "modules": 11,
-      "summed_source_span_lines": 93
-    },
-    {
-      "name": "start",
-      "clauses": 11,
-      "modules": 11,
-      "summed_source_span_lines": 225
-    },
-    {
-      "name": "truncate",
-      "clauses": 19,
-      "modules": 11,
-      "summed_source_span_lines": 55
-    },
-    {
-      "name": "validate",
-      "clauses": 17,
-      "modules": 11,
-      "summed_source_span_lines": 138
     },
     {
       "name": "child_spec",
