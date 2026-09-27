@@ -454,3 +454,22 @@ Two reset-time ISO formatter pairs match below the five-line body threshold.
 Local shared helpers may be appropriate; this does not unify provider reset
 input policies. Remaining names, concepts, constants and final reconciliation
 are still open. Research completion totals remain unchanged.
+
+## Normalize-family checkpoint
+
+All 81 literal normalize definitions/declarations across 35 modules were read,
+bringing name-family coverage to seven families and 158 entries. Bodyless
+default-argument declarations are counted explicitly; this is not a count of
+independent functions or expanded arities. Source hashes matched the census.
+
+ToolCallIdentity fingerprint canonicalization is not JSONSafe serialization:
+scalar atom handling and structural conversion differ, and the former feeds
+an identity digest. UnitsRow.URL and BuildOrder.Bounded also have different
+policies: HTTP acceptance, empty queries, fragment stripping/rejection and
+bounded validation need an explicit decision before sharing an adapter.
+
+Command validators, provider telemetry adapters, conversation trust filters,
+opaque identifiers, cache observability and UI fallbacks remain separate domain
+contracts. Shared low-level checks may be candidates; the normalize name alone
+does not justify combining responsibilities. Remaining name, concept, constant
+and final reconciliation work stays open. No production code changed.
