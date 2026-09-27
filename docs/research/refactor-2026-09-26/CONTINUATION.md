@@ -1535,3 +1535,7 @@ Candidate38 promoted for standalone local-only prose versus default external tra
 ### Skills/prompts: launch specification consistency
 
 Candidate31 resolved into actual port-helper order-dependence and Procfile versus Procfile.dev recipe mismatch. Saved tooling/polish_port_probe.py reproduces unrelated-test port9123 versus dev port5174 by reordering identical scripts. Server identity/race concerns stay with candidate21. Findings57 (36P2/21P3);8 listed candidates unresolved. No server, network or termination action.
+
+### Skills/prompts: browser evidence identity
+
+Candidate21 resolved into three source-level findings: PR base replaced by trunk, resumed completed scenarios not reconciled against revision changes, and listener readiness without served-target identity. No browser failure or competing-process incident claimed. Findings60 (39P2/21P3);35/42 candidates resolved,7 remain. Historical row SHAs and selective retesting remain useful; freshness needs an explicit check.

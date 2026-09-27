@@ -3142,6 +3142,69 @@
       "recommendation": "Carry the detected existing Procfile path into start commands and generated launch configuration, preferring the development file when present.",
       "refactor_hint": "Resolve one launch specification and derive command, config file and expected endpoint from it.",
       "limits": "Port helper reproduced with synthetic local fixtures; Procfile finding is source-only. No network, server, process termination or production change. Script-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-58",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Dogfood replaces the PR base with trunk",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-dogfood/SKILL.md",
+          "lines": "54-64"
+        },
+        {
+          "path": ".claude/skills/ce-dogfood/SKILL.md",
+          "lines": "75-103"
+        }
+      ],
+      "description": "PR identity is preserved during checkout, but change analysis always diffs the detected default branch against HEAD. For a stacked PR targeting another feature branch, this includes ancestor changes outside the requested PR; a stale local trunk is also preferred to its remote-tracking ref.",
+      "evidence": "The explicit PR metadata read includes headRefName and isCrossRepository, not baseRefName or baseRefOid. Phase1 derives TRUNK from the default branch and uses TRUNK...HEAD. No hosted PR was tested.",
+      "recommendation": "Resolve and record the actual PR base and head for PR targets; use the integration branch only for branch targets, with explicit freshness policy.",
+      "refactor_hint": "Represent validation scope, revision and server identity explicitly in durable evidence rather than inferring them from branch names or ports.",
+      "limits": "Source-level workflow finding; no end-to-end failure or production effect claimed. Semantic dedup with existing review and script findings remains pending."
+    },
+    {
+      "id": "skills-prompts-cont-59",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Dogfood resumes completed scenarios without revision validation",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-dogfood/SKILL.md",
+          "lines": "64-73"
+        },
+        {
+          "path": ".claude/skills/ce-dogfood/SKILL.md",
+          "lines": "188-198"
+        }
+      ],
+      "description": "Resume restores Pass, Fixed and Skipped rows as done based on a branch-slug report. It does not compare their recorded commit SHA with the resumed revision or invalidate affected scenarios after intervening changes.",
+      "evidence": "The final report requires per-scenario SHAs, but the resume rule does not consume them. The later adjacent-journey retest rule applies to fixes made during the workflow; it does not reconcile changes made between sessions. Automated-suite execution does not establish browser-scenario freshness.",
+      "recommendation": "Compare the resumed revision and relevant inputs with recorded evidence; requeue affected scenarios or explicitly label old results historical.",
+      "refactor_hint": "Represent validation scope, revision and server identity explicitly in durable evidence rather than inferring them from branch names or ports.",
+      "limits": "Source-level workflow finding; no end-to-end failure or production effect claimed. Semantic dedup with existing review and script findings remains pending."
+    },
+    {
+      "id": "skills-prompts-cont-60",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Browser readiness accepts a listener without target identity",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-dogfood/SKILL.md",
+          "lines": "140-147"
+        },
+        {
+          "path": ".claude/skills/ce-test-browser/references/pipeline-orchestration.md",
+          "lines": "19-52"
+        }
+      ],
+      "description": "Dogfood reuses any listener at the selected port. Pipeline browser testing scans for a free port then launches asynchronously and accepts any later listener there; it records neither child identity nor served revision. A concurrent process can bind between scan and launch, so the scan does not guarantee ownership.",
+      "evidence": "Read the complete pipeline recipe: readiness uses lsof alone and navigation follows the chosen port. Dogfood explicitly says to reuse an existing listener. No browser session, competing process or wrong-checkout incident was produced.",
+      "recommendation": "Bind browser evidence to a verified target checkout/build and server instance; check startup failure and endpoint identity before accepting readiness.",
+      "refactor_hint": "Represent validation scope, revision and server identity explicitly in durable evidence rather than inferring them from branch names or ports.",
+      "limits": "Source-level workflow finding; no end-to-end failure or production effect claimed. Semantic dedup with existing review and script findings remains pending."
     }
   ],
   "preserve": [
@@ -3567,7 +3630,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidate31 reconciled with saved helper probe.8 listed candidates remain unresolved; candidate21 owns browser revision/server identity and resume freshness.",
+  "next": "All 250 files read; 35/42 candidates resolved. Seven remain: attention/pause contracts, readiness delivery, capacity precedence, peer access scope and three sweep reconciliation candidates. Semantic dedup and raw-unit closure still pending.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3861,6 +3924,17 @@
       ],
       "reason": "Port helper order-dependence reproduced and recipe accepted-path/start-path mismatch confirmed.",
       "subconcerns": "Undefined kill-by-port references are stale prose; no live termination mechanism or killed process established. Port scan race/listener identity and probe-to-child binding are consolidated under still-open candidate21. Framework-specific environment handling not asserted without version evidence."
+    },
+    {
+      "id": "skills-prompts-candidate-21",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-58",
+        "skills-prompts-cont-59",
+        "skills-prompts-cont-60"
+      ],
+      "reason": "PR scope, resumed evidence freshness and listener identity have explicit incomplete contracts.",
+      "subconcerns": "Free-port scan is observation, not reservation. Framework-specific PORT handling is unverified and excluded. Historical row SHAs are useful provenance and should be preserved; not every change requires every scenario to rerun."
     }
   ],
   "coverage_validation": {
@@ -3873,14 +3947,13 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 34,
-    "unresolved_candidates": 8,
+    "terminal_dispositions": 35,
+    "unresolved_candidates": 7,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
       "skills-prompts-candidate-07",
       "skills-prompts-candidate-20",
-      "skills-prompts-candidate-21",
       "skills-prompts-candidate-39",
       "skills-prompts-candidate-40",
       "skills-prompts-candidate-41"
