@@ -76337,10 +76337,628 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "alive?",
+      "assessment": "Liveness names represent listener completeness, BEAM registration and OS probing.",
+      "constraints": [
+        "ExecutorListener requires nonempty bindings and no missing defaults; it does not simply inspect a process.",
+        "Orchestrator.State handles PIDs, local names and via/global registrations, with false fallback. ProcessIdentity probes a positive OS PID with kill -0.",
+        "ProcessIdentity returns true on an exception but false for a completed nonzero exit. Probe exceptions and unsuccessful command results therefore have different policies; no causal interpretation of nonzero results is established here.",
+        "Keep liveness and ownership evidence separate before destructive cleanup. The name alone cannot justify treating a failed probe as proof a process is gone."
+      ],
+      "clauses": 8,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 28,
+          "module": "Aiur.ExecutorListener",
+          "name": "alive?",
+          "path": "src/lib/aiur/executor_listener.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "031a8c381fc515545cf195b1fcfd600057d3a8f231b0ad5a0c0bd1610d1ae5b0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 511,
+          "module": "Aiur.Orchestrator.State",
+          "name": "alive?",
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "kind": "def",
+          "end_line": 511,
+          "body_sha256": "bf76019375bf9d319b8eb1d7853037189c78d011df0f81c69733d0bd999d8157",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 512,
+          "module": "Aiur.Orchestrator.State",
+          "name": "alive?",
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "kind": "def",
+          "end_line": 512,
+          "body_sha256": "7a4470eae77c013229c999773b4d1411a05e4d28d4ad1c16a6d1ac72489a7f26",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 513,
+          "module": "Aiur.Orchestrator.State",
+          "name": "alive?",
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "kind": "def",
+          "end_line": 513,
+          "body_sha256": "a5a683f95294b0afdccdcddbaee078543b92041752d26135d17d3f059ed28468",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 514,
+          "module": "Aiur.Orchestrator.State",
+          "name": "alive?",
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "kind": "def",
+          "end_line": 514,
+          "body_sha256": "a5a683f95294b0afdccdcddbaee078543b92041752d26135d17d3f059ed28468",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 515,
+          "module": "Aiur.Orchestrator.State",
+          "name": "alive?",
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "kind": "def",
+          "end_line": 515,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 5,
+          "module": "Aiur.ProcessIdentity",
+          "name": "alive?",
+          "path": "src/lib/aiur/process_identity.ex",
+          "kind": "def",
+          "end_line": 11,
+          "body_sha256": "15521ad0055315d6eff0bd586e605a9d70935de62dbe15221d54c768e91b497c",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 13,
+          "module": "Aiur.ProcessIdentity",
+          "name": "alive?",
+          "path": "src/lib/aiur/process_identity.ex",
+          "kind": "def",
+          "end_line": 13,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "append_diagnostics",
+      "assessment": "Two diagnostic appenders are identical; a third narrows the accepted record type.",
+      "constraints": [
+        "GitHubGraph.Dependencies and Normalizer append additions after rejecting nil, preserving existing order and duplicates.",
+        "CatalogStore performs the same operation but requires a RootSummary struct instead of any map with diagnostics.",
+        "This is a small shared-mechanics candidate with explicit record validation. It neither normalizes diagnostic severity nor proves unique findings."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 313,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "append_diagnostics",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 315,
+          "body_sha256": "378bccc784325d022ec74678e3b77ff8cc39cb36b73b65049f7382b482977354",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 116,
+          "module": "Aiur.BuildOrder.GitHubGraph.Dependencies",
+          "name": "append_diagnostics",
+          "path": "src/lib/aiur/build_order/github_graph/dependencies.ex",
+          "kind": "defp",
+          "end_line": 118,
+          "body_sha256": "378bccc784325d022ec74678e3b77ff8cc39cb36b73b65049f7382b482977354",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 265,
+          "module": "Aiur.BuildOrder.GitHubGraph.Normalizer",
+          "name": "append_diagnostics",
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "kind": "defp",
+          "end_line": 267,
+          "body_sha256": "378bccc784325d022ec74678e3b77ff8cc39cb36b73b65049f7382b482977354",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "append_line",
+      "assessment": "Append helpers differ in durability and error visibility.",
+      "constraints": [
+        "Asks.Store opens binary append, writes, then syncs only after a successful write, and closes in an after block.",
+        "Findings uses the same open/write/close shape without explicit sync; each reports a distinct tagged open error with path.",
+        "OperatorWaitLog constructs timestamped metrics, creates directories and writes encoded NDJSON with raising APIs, rescuing exceptions to an error log.",
+        "Preserve durability and failure contracts when sharing file mechanics. None of these literal bodies proves locking, atomic record boundaries or durable error reporting."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 55,
+          "module": "Aiur.Asks.Store",
+          "name": "append_line",
+          "path": "src/lib/aiur/asks_store.ex",
+          "kind": "defp",
+          "end_line": 67,
+          "body_sha256": "f4995ab3853f8e0732f9558e2311b593e636adb59746f9b83f1f032a50c1bde0",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 126,
+          "module": "Aiur.Findings",
+          "name": "append_line",
+          "path": "src/lib/aiur/findings.ex",
+          "kind": "defp",
+          "end_line": 138,
+          "body_sha256": "8ed7953d56bf7c712c247bcddf89825cce925788b21b5d07e69a3335cb02cd58",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 100,
+          "module": "Aiur.OperatorWaitLog",
+          "name": "append_line",
+          "path": "src/lib/aiur/operator_wait_log.ex",
+          "kind": "defp",
+          "end_line": 115,
+          "body_sha256": "b96e2fe349f5d4d43045bd2e3d386eff5d01d75028c8cd468ce2e5176579437e",
+          "normalized_body_lines": 22,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_corruption",
+      "assessment": "Three stores share a read-only corruption state but retain different operational consequences.",
+      "constraints": [
+        "DecisionStore, RecentMergeStore and DeliveryLog leave state unchanged for nil corruption.",
+        "For a corrupt line/reason each logs and emits a domain alert, then marks writable? false with corrupt health.",
+        "Decision and merge alerts describe read-only state; delivery deduplication warns that prior deliveries may be reprocessed. The latter is a distinct recovery consequence.",
+        "Shared corruption-state mechanics must preserve domain alert identity and recovery meaning. Alert helper behavior, exceptions and replay handling are not verified by this family."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 697,
+          "module": "Aiur.DecisionStore",
+          "name": "apply_corruption",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 697,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 699,
+          "module": "Aiur.DecisionStore",
+          "name": "apply_corruption",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 714,
+          "body_sha256": "dbfd04466f9cd47737baff10019baa693779ee7081d78ef6ad2b7c71689c75fe",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 158,
+          "module": "Aiur.RecentMergeStore",
+          "name": "apply_corruption",
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 160,
+          "module": "Aiur.RecentMergeStore",
+          "name": "apply_corruption",
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "kind": "defp",
+          "end_line": 170,
+          "body_sha256": "7d44990d6dbaab67038c8fb15ab240c0733e2f7f747941628fa9559603f87a41",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 269,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "apply_corruption",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 269,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 271,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "apply_corruption",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 281,
+          "body_sha256": "55a08c4f3d69aaec8c7b6669dcfe8ad957ca110ffc052222ec117dd7f396a694",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "attention_key",
+      "assessment": "Attention keys have distinct namespaces and eligibility gates.",
+      "constraints": [
+        "AlertLedger delegates to AlertTopic only when the string needs_attention key is true.",
+        "AlertTopic separates ticket attention slug keys, other ticket topics and system topics, returning nil for unsupported shapes.",
+        "DecisionAttention uses an issue-identifier/slug pair without the same tuple namespace.",
+        "Preserve key population and source namespace; these keys do not establish global tracker identity or complete attention acknowledgement."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 344,
+          "module": "Aiur.AlertLedger",
+          "name": "attention_key",
+          "path": "src/lib/aiur/alert_ledger.ex",
+          "kind": "defp",
+          "end_line": 344,
+          "body_sha256": "09077590fbccf1893c3d1d20d62ca36f75fe2459fcad2c19941301951a8f6300",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 345,
+          "module": "Aiur.AlertLedger",
+          "name": "attention_key",
+          "path": "src/lib/aiur/alert_ledger.ex",
+          "kind": "defp",
+          "end_line": 345,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 7,
+          "module": "Aiur.AlertTopic",
+          "name": "attention_key",
+          "path": "src/lib/aiur/alert_topic.ex",
+          "kind": "def",
+          "end_line": 12,
+          "body_sha256": "aaeac88e94986a74c92644b54d624b3943a8f461efab41c11295d5619ca349d5",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 14,
+          "module": "Aiur.AlertTopic",
+          "name": "attention_key",
+          "path": "src/lib/aiur/alert_topic.ex",
+          "kind": "def",
+          "end_line": 14,
+          "body_sha256": "70d336293a69c572b5bf6f833e466803c339dd7a2e59221511b392568caf403c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 15,
+          "module": "Aiur.AlertTopic",
+          "name": "attention_key",
+          "path": "src/lib/aiur/alert_topic.ex",
+          "kind": "def",
+          "end_line": 15,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 459,
+          "module": "Aiur.DecisionAttention",
+          "name": "attention_key",
+          "path": "src/lib/aiur/decision_attention.ex",
+          "kind": "defp",
+          "end_line": 459,
+          "body_sha256": "03925832661a1a517d677c6edf052b9f711640167cc8adc71ee57911dd749c98",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "attribution",
+      "assessment": "Usage attribution construction, wire conversion and validation are separate layers.",
+      "constraints": [
+        "Headless.Adapter builds run, tracker, attempt, session, thread, turn and request attribution from Context.",
+        "UsageEnvelope enforces allowed fields, tracker identity and opaque-value validation before producing normalized attribution.",
+        "Codec instead converts tracker identity and retains other map entries. Its literal function is not an equivalent strict validator.",
+        "Do not replace envelope validation with codec conversion. Complete decode-path validation and attribution authenticity remain unverified here."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 167,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "attribution",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 177,
+          "body_sha256": "be74d88eccfc7e33cdd5dde85b3a11de4d1bbaa2790a29063713ea0b9245a97d",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 410,
+          "module": "Aiur.UsageEnvelope",
+          "name": "attribution",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 416,
+          "body_sha256": "d277e14f871b95909f35867969af5b6c4fb0c86dfc0bbcdbc9235922225450c8",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 418,
+          "module": "Aiur.UsageEnvelope",
+          "name": "attribution",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 418,
+          "body_sha256": "ab643042ad7e9e1ca15d46fa261d742326a6cf7343a79608f37cfcc2f60764ba",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 44,
+          "module": "Aiur.UsageEnvelope.Codec",
+          "name": "attribution",
+          "path": "src/lib/aiur/usage_envelope/codec.ex",
+          "kind": "defp",
+          "end_line": 48,
+          "body_sha256": "e5e2d7821cd2f265690077dac9d2327b4ee5edb94e79641181ccfecbaa1b1f61",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 50,
+          "module": "Aiur.UsageEnvelope.Codec",
+          "name": "attribution",
+          "path": "src/lib/aiur/usage_envelope/codec.ex",
+          "kind": "defp",
+          "end_line": 50,
+          "body_sha256": "ab643042ad7e9e1ca15d46fa261d742326a6cf7343a79608f37cfcc2f60764ba",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "authorized_context",
+      "assessment": "Three financial-context gates are equivalent and use the same shared access module.",
+      "constraints": [
+        "UsageRuntime, AnalyticsLive and DashboardLive require capability state authorized plus a FinancialDataAccess.Context result; all other combinations return locked.",
+        "Their FinancialDataAccess aliases were checked and all resolve to AiurWeb.FinancialDataAccess. Variable names differ but branching and output contracts match.",
+        "Consolidation could remove three copies of this gate without changing the predicate; broader permission, revocation and context-authentication correctness is not established by this comparison."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 406,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "authorized_context",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 413,
+          "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 681,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "authorized_context",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 688,
+          "body_sha256": "6358b727474198b4ceeab3c125699569c4a94e189cdee962d53cc2fda329eef2",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1420,
+          "module": "AiurWeb.DashboardLive",
+          "name": "authorized_context",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1427,
+          "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "back",
+      "assessment": "Back navigation spans scoped history and device mode transitions.",
+      "constraints": [
+        "ContextRuntime delegates to TicketContextSelection and applies the returned selection.",
+        "TicketContextSelection requires an open selection in current model scope and an available history node, increments focus revision and rotates the request. Other typed states are retained; invalid state becomes a new default struct.",
+        "StreamdeckLive moves logs/settings/commands to command mode, command mode to grid with focus changes, and otherwise leaves state unchanged.",
+        "Keep request invalidation and scope checks with context history; device mode navigation has different effects and is not a duplicate algorithm."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 50,
+          "module": "AiurWeb.BuildOrder.ContextRuntime",
+          "name": "back",
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "bbc3bd05ad82ed3ec2aaf1dca43c3ae9419c91705cd4261b5e90759577a0cabf",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 138,
+          "module": "AiurWeb.BuildOrder.TicketContextSelection",
+          "name": "back",
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "kind": "def",
+          "end_line": 151,
+          "body_sha256": "207cc29b7b22c100e1c4dd353904d1d1bfe761b16d19dcedf462889b03cc27bb",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 153,
+          "module": "AiurWeb.BuildOrder.TicketContextSelection",
+          "name": "back",
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "kind": "def",
+          "end_line": 153,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 154,
+          "module": "AiurWeb.BuildOrder.TicketContextSelection",
+          "name": "back",
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "kind": "def",
+          "end_line": 154,
+          "body_sha256": "bbe470570e49267d490185b982e7988ccf0cc6962b452b9f2b97ad7e6219e4fd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1395,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "back",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1396,
+          "body_sha256": "c5748a4b13b087c5fe114aa2a6d0c967659444974028769e133a2428ce011be4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1398,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "back",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1406,
+          "body_sha256": "e9a42754100266951c19deeaa25c6a2e759e9732db324025a24673f9a6870e04",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1408,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "back",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1408,
+          "body_sha256": "276f964b448523b2127571c0da9a709d14922f5a27305e8433a4b2d69ab2e19e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5855,
-  "limits": "385 selected families and 5855 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5896,
+  "limits": "393 selected families and 5896 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
