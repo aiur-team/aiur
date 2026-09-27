@@ -578,6 +578,41 @@
       "lines": 679,
       "read": "full",
       "assessment": "All679 lines read across bounded reads; truncated final segment was reread fully. Scoped no-match exits without widening, old age is not invalidity, and current code grounds learning maintenance without production fixes. Keep avoids churn; updates preserve valid guidance, consolidation retains unique retrieval value, replacement needs sufficient evidence, and uncertainty stays stale. Substantive inbound citations constrain unattended deletion/replacement; broader headless safe-action wording needs reconciliation with per-action references before a finding. Learning and derived-pattern ordering, vocabulary seeding and coherence, scope-limited concepts, and applied-versus-recommended reporting are explicit. Headless instruction-file discoverability remains recommendation-only; no maintenance, agent dispatch, PR or runtime action invoked. Supporting references and validators remain unread."
+    },
+    {
+      "path": ".claude/skills/ce-compound-refresh/references/per-action-flows.md",
+      "sha256": "239437d924f1575de85edec2c58b23433c91f922b996f1084127ea5327342ce7",
+      "lines": 109,
+      "read": "full",
+      "assessment": "All109 lines read. Keep is no-write, Update changes meaningful factual drift, Consolidate preserves unique content and updates citations before deletion, and independent retrieval can justify splitting. Replace requires schema/template and parser checks; mechanical citation flags require adjudication rather than automatic rejection. Late substantive citations prevent deletion. Same-path successor allowance in parent is not excluded from unconditional old-file deletion here: finding11. Cosmetic-only items listed under Replace are constrained by parent no-churn rule; no cosmetic rewrite performed. Validators and agents not executed."
+    },
+    {
+      "path": ".claude/skills/ce-compound-refresh/references/concepts-vocabulary.md",
+      "sha256": "79ac66f7f9fa52d940ff71b725bce207c09cfa14269d4340b8831da8239e2c71",
+      "lines": 78,
+      "read": "full",
+      "assessment": "All78 lines read. Seed from declared domain model of the investigated scope, not a numeric target or full-codebase search. Distinguish accretion from core-noun seeding, retain meaningful ownership and lifecycle relationships, define project-specific sibling terms, and exclude implementation/config/issue-history metadata. Canonical vocabulary reflects settled distinctions, not permission to invent user agreement. No glossary edit performed."
+    },
+    {
+      "path": ".claude/skills/ce-compound-refresh/references/yaml-schema.md",
+      "sha256": "079395c03f6abf89ac95e227ec31b9db13de6bc414ca7fbe0fc72fcbfa1a53d7",
+      "lines": 118,
+      "read": "full",
+      "assessment": "All118 lines read. Bug and knowledge tracks have different required fields; legacy bug fields on knowledge docs are retained, category mappings enumerate narrower knowledge types, and parser safety is distinct from enum/schema validity. Rails-focused component vocabulary is restrictive but generic service/tooling choices exist, so mismatch alone is not a proven failure. YAML library compatibility statements were not externally verified and no validator run is claimed."
+    },
+    {
+      "path": ".claude/skills/ce-compound-refresh/assets/resolution-template.md",
+      "sha256": "8f184825c7f9e2a5bd6894e7567776cb4cf19e0c2be1c8c0589ccd73d3f00617",
+      "lines": 94,
+      "read": "full",
+      "assessment": "All94 lines read. Bug template separates observed symptoms, failed attempts, fix and prevention; knowledge template separates context, guidance and applicability. Placeholder examples require replacement and quoting before use. Knowledge Use-for list omits four newer categories present in mapping; canonical schema and initial choose-by-track rule still identify the template, so no missing-support defect promoted."
+    },
+    {
+      "path": ".claude/skills/ce-compound/SKILL.md",
+      "sha256": "f69d9d60da39d30112a83bd21a3ec5888c6f3442909404b2e79b1d4c4cf0c8e7",
+      "lines": 755,
+      "read": "full",
+      "assessment": "All755 lines read in four bounded segments. One solved learning per run; Full and Lightweight have explicit evidence and write-scope differences. Scratch artifacts survive inline summary collapse, with complete inline fallback on failed writes; primary writer owns tracked outputs. Session metadata probe is relevance-gated and source behavior/merge-state must be independently grounded. Full overlap handling updates existing knowledge; lightweight guards exact-path collisions without claiming semantic dedup. Parser safety, mechanical flags and semantic validation are distinct; historical citations may be intentional and unavailable merge truth is degraded. Vocabulary creation belongs to Full, lightweight only refines existing entries; instruction edits require interactive authority. Refresh follow-up wording and stale opt-in session-history support sentence need reconciliation against active routing. No session probe, subagent, glossary, instruction edit or runtime action invoked; performance examples are illustrative, not measured savings."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -827,6 +862,31 @@
       "recommendation": "Carry the resolved host-qualified PR URL through composition, preview and explicit edit arguments; revalidate target identity before mutation.",
       "refactor_hint": "Treat publication target as immutable typed context shared by preparation and application, rather than rediscovering it from ambient checkout state.",
       "limits": "No PR edit, network call or historical wrong-target incident demonstrated. Exact CLI target-selection behavior verified using local help only; cross-unit dedup remains pending."
+    },
+    {
+      "id": "skills-prompts-cont-11",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Same-path learning replacement is followed by unconditional deletion",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-compound-refresh/SKILL.md",
+          "lines": "378-379"
+        },
+        {
+          "path": ".claude/skills/ce-compound-refresh/references/per-action-flows.md",
+          "lines": "59-66"
+        },
+        {
+          "path": ".claude/skills/ce-compound-refresh/references/per-action-flows.md",
+          "lines": "92-92"
+        }
+      ],
+      "description": "For substantive inbound citations the parent explicitly allows writing a successor at the same path. The Replace flow writes and validates the successor, then unconditionally directs the orchestrator to delete the old learning file. When old and successor paths are equal, literal application deletes the newly validated successor and leaves those citations dangling.",
+      "evidence": "Full parent and per-action reference reads establish both allowed path identity and unconditional final deletion. No path-inequality or same-path in-place exception is supplied.",
+      "recommendation": "Distinguish in-place replacement from successor migration. Delete the old path only when it differs from the validated successor, and verify the successor and inbound links after the transition.",
+      "refactor_hint": "Represent document replacement as an explicit old-path/new-path transition with a preserved-successor invariant, shared by prose and validation.",
+      "limits": "Instruction-level failure path only; no production document deleted, agent workflow executed or historical loss established. Git recovery would remain available for tracked content. Cross-unit dedup pending."
     }
   ],
   "preserve": [
@@ -911,7 +971,12 @@
     "All55 lines read. Default-branch creation and feature-branch preservation are mode-specific; unpublished commits require carry-or-leave choice, with pipeline preserving current branch. Stash includes untracked files and conflicts retain recoverable stash rather than auto-resolving. Failed fetch leaves freshness explicitly unverified. No branch, stash or history operation executed from these instructions.",
     "All221 lines read. Explicit PR mode pins source head OID and actual base repository; inaccessible local refs fall back to PR evidence. Full commit range and final diff determine outcome coverage, not latest title or file extension. Evidence is chosen for material claims; tests do not substitute for screenshots or measurement. Existing sections and related-reference semantics are preserved without inventing closures. Explicit target metadata is lost in parent apply example, finding10. Tracker closing semantics and concept-novelty keyword heuristic were not independently verified.",
     "All88 lines read. Commit scope follows intended logical changes with explicit file staging and repository conventions; detached commit possibility is distinct from full shipping branch requirements. No hunk staging is assumed and no unrelated changes should be swept in. Reading this frozen instruction does not independently authorize shipping or branch publication.",
-    "All679 lines read across bounded reads; truncated final segment was reread fully. Scoped no-match exits without widening, old age is not invalidity, and current code grounds learning maintenance without production fixes. Keep avoids churn; updates preserve valid guidance, consolidation retains unique retrieval value, replacement needs sufficient evidence, and uncertainty stays stale. Substantive inbound citations constrain unattended deletion/replacement; broader headless safe-action wording needs reconciliation with per-action references before a finding. Learning and derived-pattern ordering, vocabulary seeding and coherence, scope-limited concepts, and applied-versus-recommended reporting are explicit. Headless instruction-file discoverability remains recommendation-only; no maintenance, agent dispatch, PR or runtime action invoked. Supporting references and validators remain unread."
+    "All679 lines read across bounded reads; truncated final segment was reread fully. Scoped no-match exits without widening, old age is not invalidity, and current code grounds learning maintenance without production fixes. Keep avoids churn; updates preserve valid guidance, consolidation retains unique retrieval value, replacement needs sufficient evidence, and uncertainty stays stale. Substantive inbound citations constrain unattended deletion/replacement; broader headless safe-action wording needs reconciliation with per-action references before a finding. Learning and derived-pattern ordering, vocabulary seeding and coherence, scope-limited concepts, and applied-versus-recommended reporting are explicit. Headless instruction-file discoverability remains recommendation-only; no maintenance, agent dispatch, PR or runtime action invoked. Supporting references and validators remain unread.",
+    "All109 lines read. Keep is no-write, Update changes meaningful factual drift, Consolidate preserves unique content and updates citations before deletion, and independent retrieval can justify splitting. Replace requires schema/template and parser checks; mechanical citation flags require adjudication rather than automatic rejection. Late substantive citations prevent deletion. Same-path successor allowance in parent is not excluded from unconditional old-file deletion here: finding11. Cosmetic-only items listed under Replace are constrained by parent no-churn rule; no cosmetic rewrite performed. Validators and agents not executed.",
+    "All78 lines read. Seed from declared domain model of the investigated scope, not a numeric target or full-codebase search. Distinguish accretion from core-noun seeding, retain meaningful ownership and lifecycle relationships, define project-specific sibling terms, and exclude implementation/config/issue-history metadata. Canonical vocabulary reflects settled distinctions, not permission to invent user agreement. No glossary edit performed.",
+    "All118 lines read. Bug and knowledge tracks have different required fields; legacy bug fields on knowledge docs are retained, category mappings enumerate narrower knowledge types, and parser safety is distinct from enum/schema validity. Rails-focused component vocabulary is restrictive but generic service/tooling choices exist, so mismatch alone is not a proven failure. YAML library compatibility statements were not externally verified and no validator run is claimed.",
+    "All94 lines read. Bug template separates observed symptoms, failed attempts, fix and prevention; knowledge template separates context, guidance and applicability. Placeholder examples require replacement and quoting before use. Knowledge Use-for list omits four newer categories present in mapping; canonical schema and initial choose-by-track rule still identify the template, so no missing-support defect promoted.",
+    "All755 lines read in four bounded segments. One solved learning per run; Full and Lightweight have explicit evidence and write-scope differences. Scratch artifacts survive inline summary collapse, with complete inline fallback on failed writes; primary writer owns tracked outputs. Session metadata probe is relevance-gated and source behavior/merge-state must be independently grounded. Full overlap handling updates existing knowledge; lightweight guards exact-path collisions without claiming semantic dedup. Parser safety, mechanical flags and semantic validation are distinct; historical citations may be intentional and unavailable merge truth is degraded. Vocabulary creation belongs to Full, lightweight only refines existing entries; instruction edits require interactive authority. Refresh follow-up wording and stale opt-in session-history support sentence need reconciliation against active routing. No session probe, subagent, glossary, instruction edit or runtime action invoked; performance examples are illustrative, not measured savings."
   ],
   "follow_up_candidates": [
     {
@@ -963,11 +1028,11 @@
       "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete."
     },
     {
-      "id": "skills-prompts-candidate-14",
-      "question": "Reconcile compound-refresh headless Replace/Consolidate/Delete rules with substantive-citation and problem-domain-gone exceptions in per-action references before treating different action scopes as contradictory."
+      "id": "skills-prompts-candidate-15",
+      "question": "Reconcile ce-compound Phase2.5 direct narrow refresh invocation and multi-candidate question with its end-summary prohibition on auto-applied cross-doc maintenance and only-discoverability-prompt claim; inspect supporting contracts before promoting scope or interaction drift."
     }
   ],
-  "next": "Continue ce-compound-refresh supporting markdown references. Coverage 82/250 full files, 13656/36169 lines. Seven provisional P2 and three P3 findings; thirteen follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-compound supporting markdown references. Coverage 87/250 full files, 14810/36169 lines. Eight provisional P2 and three P3 findings; thirteen follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -992,6 +1057,12 @@
       "status": "not_promoted",
       "reason": "Single-finding template conflates inaccessible evidence with false finding, but active finish-review selects validator-batch-template and retains infrastructure-degraded blockers. No incoming reference to the legacy template found within this skill bundle.",
       "validation": "Full template and governing workflow reads plus scoped reference search; no global unreachable-code or runtime dispatch claim."
+    },
+    {
+      "id": "skills-prompts-candidate-14",
+      "status": "not_promoted",
+      "reason": "Headless substantive-citation stale marking is a specific restriction on the general sufficient-evidence Replace rule; stricter auto-delete criteria can route active-domain redundancy through Consolidate. Per-action flows defer to classification and repeat late-citation reclassification. These scope differences alone do not prove contradictory applicable actions.",
+      "validation": "Full parent and supporting per-action reads; separate same-path deletion defect recorded as finding11. No maintenance action executed."
     }
   ]
 }
