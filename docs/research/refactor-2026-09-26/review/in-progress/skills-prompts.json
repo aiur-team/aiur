@@ -1096,6 +1096,34 @@
       "lines": 45,
       "read": "full",
       "assessment": "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-brainstorm/references/settled-decisions.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/deepening-workflow.md",
+      "sha256": "d5f35047d133a69080a6bf06c33022f228f56afd4c01b994b409665c250cb115",
+      "lines": 263,
+      "read": "full",
+      "assessment": "Full263 lines read. Checklist scores prioritize gaps, not calibrated confidence. Preserve bounded section-specific research, repo/origin evidence, accepted-only interactive integration, stable U-IDs and visible unresolved product questions. Auto mode cannot silently invert settled choices. Missing/malformed artifact handling is explicit. No research agents or planning workflow invoked."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/plan-sections.md",
+      "sha256": "082219787c4df38138cae1da57dc763910a268dc59169065c9fa0242a49e0c42",
+      "lines": 427,
+      "read": "full",
+      "assessment": "Full427 lines read. Implementation readiness requires complete product/planning/unit/verification/done contracts and no launch blocker; readiness is not progress. Preserve stable section IDs, size-aware navigation, behavioral test gates, cleanup completion and precise source anchors. Specific Verification Contract requires concrete repo commands despite global recipe prohibition (finding14). Other format/atomic-route differences remain candidate30; no plan authored."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/universal-planning.md",
+      "sha256": "ed9b73d48b86c38819f54a75434acd862c794bd250bf2a510e1ce4dfb924a501",
+      "lines": 168,
+      "read": "full",
+      "assessment": "Full168 lines read. Classify task type rather than code vocabulary; local-code answers require source inspection, unstable recommendations require current research, and partial evidence must be disclosed. Non-code plans use native-domain structure and explicit destination/publication choice. Legacy software-only ce-work wording conflicts with newer knowledge-work carve-out, retained for routing reconciliation. No external requests or execution invoked."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/synthesis-summary.md",
+      "sha256": "be19132d497ed45162f37d621400a15133a48cb84219d1abda273621dd39985b",
+      "lines": 418,
+      "read": "full",
+      "assessment": "Full418 lines read in three bounded ranges. Preserve stated/inferred/excluded distinctions, settled-decision provenance, preauthorized confirmation skip, explicit assumptions in unattended planning, and user revisions as scope changes. Compression must preserve real uncertainty and never turn unvalidated bets into confirmed choices. Detailed and shorthand file/module callout rules differ; assess specific exceptions before promotion. No interactive gate applied to current research."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1420,6 +1448,31 @@
       "recommendation": "Either enforce session identity in storage/key selection or explicitly support cross-session reuse with source timestamp and a freshness policy. Report the actual provenance of reused research.",
       "refactor_hint": "Keep cache ownership, reuse eligibility and presentation provenance in one shared contract.",
       "limits": "Instruction-level eligibility defect, not an observed stale answer or executed model workflow. Explicit re-research and inaccessible-cache fallback mitigate. Cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-14",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Planning rules both require and prohibit concrete verification commands",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-plan/references/plan-sections.md",
+          "lines": "193-200"
+        },
+        {
+          "path": ".claude/skills/ce-plan/SKILL.md",
+          "lines": "629-630"
+        },
+        {
+          "path": ".claude/skills/ce-plan/references/deepening-workflow.md",
+          "lines": "252-254"
+        }
+      ],
+      "description": "The implementation-ready Verification Contract requires repo-specific commands and rejects generic run-tests language. The entry-point planning rules and deepening prohibitions disallow exact test command recipes without an exception for that contract. Following the global prohibition can omit the concrete gates required by the section contract, while adding them violates the global rule.",
+      "evidence": "Full entry-point, section-contract and deepening reads. The section contract explicitly names commands as required Verification Contract content; the prohibitions apply to the plan generally rather than only to implementation-unit choreography.",
+      "recommendation": "Allow exact verification commands in the Verification Contract while prohibiting implementation and commit choreography in unit descriptions. Share that exception between authoring and deepening rules.",
+      "refactor_hint": "Separate executable acceptance-gate metadata from prescriptive implementation steps in the canonical planning contract.",
+      "limits": "Instruction-level contradiction, not a reproduced failed execution. A reader can infer the narrower intended exception, reducing severity. No tests, plan workflow or production changes executed; cross-unit dedup pending."
     }
   ],
   "preserve": [
@@ -1578,7 +1631,11 @@
     "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-ideate/references/html-rendering.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification.",
     "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-ideate/references/markdown-rendering.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification.",
     "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-brainstorm/references/reasoning-elevation.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification.",
-    "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-brainstorm/references/settled-decisions.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification."
+    "Full-content coverage by verified SHA256 identity with previously reviewed .claude/skills/ce-brainstorm/references/settled-decisions.md. Inherits prior content assessment; this is duplicated instruction evidence, not independent behavior verification.",
+    "Full263 lines read. Checklist scores prioritize gaps, not calibrated confidence. Preserve bounded section-specific research, repo/origin evidence, accepted-only interactive integration, stable U-IDs and visible unresolved product questions. Auto mode cannot silently invert settled choices. Missing/malformed artifact handling is explicit. No research agents or planning workflow invoked.",
+    "Full427 lines read. Implementation readiness requires complete product/planning/unit/verification/done contracts and no launch blocker; readiness is not progress. Preserve stable section IDs, size-aware navigation, behavioral test gates, cleanup completion and precise source anchors. Specific Verification Contract requires concrete repo commands despite global recipe prohibition (finding14). Other format/atomic-route differences remain candidate30; no plan authored.",
+    "Full168 lines read. Classify task type rather than code vocabulary; local-code answers require source inspection, unstable recommendations require current research, and partial evidence must be disclosed. Non-code plans use native-domain structure and explicit destination/publication choice. Legacy software-only ce-work wording conflicts with newer knowledge-work carve-out, retained for routing reconciliation. No external requests or execution invoked.",
+    "Full418 lines read in three bounded ranges. Preserve stated/inferred/excluded distinctions, settled-decision provenance, preauthorized confirmation skip, explicit assumptions in unattended planning, and user revisions as scope changes. Compression must preserve real uncertainty and never turn unvalidated bets into confirmed choices. Detailed and shorthand file/module callout rules differ; assess specific exceptions before promotion. No interactive gate applied to current research."
   ],
   "follow_up_candidates": [
     {
@@ -1679,10 +1736,14 @@
     },
     {
       "id": "skills-prompts-candidate-29",
-      "question": "Reconcile ce-plan authoritative-diagram rule and no-directional-hedging instruction with per-unit technical-design requirement and final checklist demanding directional/non-prescriptive framing. Also inspect structural metadata routing before claiming non-software/HTML misclassification. Supporting section/deepening references pending."
+      "question": "Reconcile ce-plan authoritative-diagram rule and no-directional-hedging instruction with per-unit technical-design requirement and final checklist demanding directional/non-prescriptive framing. Also inspect structural metadata routing before claiming non-software/HTML misclassification. Supporting section/deepening references pending. Full section contract delegates whether/where diagrams appear, while entry-point final audit requires one per distinct trigger category. Deepening still demands non-prescriptive framing; no definitive exception found yet."
+    },
+    {
+      "id": "skills-prompts-candidate-30",
+      "question": "Reconcile remaining plan-contract drift: unit headings versus bullet-prefix rule, conventional-prefix title versus suffix-only metadata, atomic skip to implementation versus explicit always-plan/no-code request, and universal software-only ce-work claim versus knowledge-work carve-out. Inspect downstream ce-work routing and document precedence before promotion."
     }
   ],
-  "next": "Continue ce-plan section, synthesis, deepening and universal references, then agent prompts. Coverage 156/250 full files, 25829/36169 lines. Nine provisional P2 and four P3 findings; twenty-five follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-plan agent prompt assets. Coverage 160/250 full files, 27105/36169 lines. Nine provisional P2 and five P3 findings; twenty-six follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",

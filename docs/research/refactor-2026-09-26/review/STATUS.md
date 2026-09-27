@@ -706,3 +706,7 @@ Completed six optimization markdown files: five direct full reads and one verifi
 ### Skills/prompts: planning authority and handoff
 
 Covered seven planning files: three full direct reads and four SHA256-identical copies of previously reviewed references. Coverage 156/250 files, 25,829/36,169 lines. Preserve stable product/unit IDs, settled-decision provenance, bounded scope, unavailable-research disclosure and distinct review skip/failure states. Added HTML issue-body and diagram/routing reconciliation questions; extended cross-repo target question. No new finding promoted. All 156 hashes and line counts verified, including bounded replacement for truncated menu text. No plan execution, goal creation, tracker mutation or production change. Raw units remain28/32; next planning support references.
+
+### Skills/prompts: plan readiness and deepening
+
+Read four complete planning support references; coverage 160/250 files, 27,105/36,169 lines. Preserve launch-blocker readiness gate, stable section/unit IDs, accepted-only interactive changes and explicit unattended assumptions. Recorded provisional P3 command-contract contradiction: concrete verification commands required by section contract but exact test recipes globally prohibited. Added remaining format/domain routing question and expanded diagram reconciliation. All 160 hashes/line counts verified. No plan, subagent, test, tracker action or production change. Raw units remain28/32; next planning agent prompts.
