@@ -88,9 +88,9 @@
   "unresolved": [
     "Exact restart/deployment timestamps for earlier episodes",
     "Independent census of twelve Khala restarts and per-restart backups",
-    "Decision retry ladder reset mechanism and causality",
     "Four re-reported fixed bugs and their deployed versions",
-    "Complete runtime status/dashboard build identity audit"
+    "Complete runtime status/dashboard build identity audit",
+    "Historical deployed-revision retry-reset behavior and incident frequency; frozen mechanism documented separately in decision-restart-contract.json"
   ],
   "limits": "Local public-project records only, paraphrased; no machine paths, private workload details or host identity published. Historical self-reports are not independent runtime measurements. No live system was changed.",
   "repeated_wip_account": [

@@ -924,3 +924,16 @@ Earlier records support reported activation gaps but not all asserted duration
 or authority interpretations. Twelve restarts/backups, retry-reset mechanism,
 four repeated bugs and remaining build-identity surfaces are still unresolved.
 Meta-08 stays open and claim count stays 50/60. No operational state changed.
+
+## Decision restart contract checkpoint
+
+Source and existing test inspection confirms process-local retry counters reset
+on DecisionStore boot, and fenced boot reconciliation can dispatch an active
+transiently failed answer again. Durable attempt history and numbering survive;
+missing/resolved/moot/inapplicable answers are excluded. New-worker budget reset
+is a separate deliberate path. See decision-restart-contract.json for source
+hashes, exact ranges and explicit source-only verification limits.
+
+No test or daemon executed. The September 17 deployed revision and incident
+frequency remain unverified; a targeted search did not locate the twelve-
+restart claim, which remains unresolved. Meta-08 is still open, 50/60 claims.

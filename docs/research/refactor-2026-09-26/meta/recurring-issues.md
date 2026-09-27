@@ -337,7 +337,7 @@ separately. See the [deployment checkpoint](../synthesis/deployment-verification
   tonight" (08-23); #2481 and #2395 merged but a rebuild "owed and unscheduled" (09-03);
   #2553/#2604 reported inert during early 09-10; all-day duration and per-wave interventions not independently established;
   #2677 deployment reported complete about 10 h 25 m after its commit timestamp (09-17; exact activation time unverified); the khala peer re-reported four already-fixed bugs
-  from an old build (09-16/17, not independently counted in this audit); one restart reportedly wiped and then restored a roughly 21 KB WIP (09-18). The same loss account is copied into six handoffs, not six incidents. The claimed twelve restarts/backups and decision retry-ladder reset remain unverified; see the [episode audit](../synthesis/deployment-episodes.json).
+  from an old build (09-16/17, not independently counted in this audit); one restart reportedly wiped and then restored a roughly 21 KB WIP (09-18). The same loss account is copied into six handoffs, not six incidents. The claimed twelve restarts/backups remain unverified. Frozen DecisionStore boot resets process-local retry counts and can retry eligible transient failures; persisted attempts and lifecycle gates remain. Historical incidence is unverified; see the [episode audit](../synthesis/deployment-episodes.json) and [restart contract](../synthesis/decision-restart-contract.json).
 - **Fixes claimed and recurrence:** standing restart authority (08-10); memory rules "merged
   code is inert until rebuilt". No "running build older than main" alert was filed or built
   (flagged as "worth a ticket if it recurs" on 08-22; it recurred the same day). #2656

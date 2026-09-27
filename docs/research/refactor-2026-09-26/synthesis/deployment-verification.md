@@ -107,4 +107,30 @@ standing authorization. The September 10 early record still treats PR2604 as
 pending merge, and early-hours records alone do not establish all-day delay.
 The September 18 WIP-loss account is copied through six handoffs; preserve one
 reported incident and an explicit unverified size/mechanism, not six events.
-The twelve-restart count and retry-reset mechanism remain open.
+The twelve-restart count and historical retry-reset incidence remain open; the frozen mechanism is examined below.
+
+## Decision retries across restart
+
+The frozen DecisionStore initializes its in-memory retry and append-retry maps
+empty after loading persisted state (525–609). Writable boot schedules fenced
+reconciliation. A current answer whose latest failure is transient can qualify
+even with retry_failed? false (3571–3612, 3719–3741, 4513–4526); its renewed
+failures consume a fresh in-memory delay ladder (4370–4407). Durable attempt
+history remains, and the next attempt ID uses its length rather than the reset
+retry counter (4466–4470).
+
+This confirms a specific mechanism behind the report's restart concern, not
+universal redelivery: missing answers, resolved/moot decisions and inapplicable
+revisions are excluded, and queue/unknown outcomes have their own paths.
+New-worker delivery deliberately resets an eligible action's ladder separately.
+The existing test at decision_store_test.exs:4177–4212 expects a second failed
+attempt after restart even with an empty configured retry-delay list, then
+checks explicit new-worker delivery. It was read, not executed in this audit.
+
+Source hashes, gates and limitations are recorded in
+decision-restart-contract.json. Planning should specify the intended lifetime
+of retry budgets separately from durable attempt identity. Whether the same
+mechanism operated on the September 17 deployed revision and how often it
+recurred remain historical questions. A targeted literal search of Khala
+handoffs/meta did not locate the twelve-restart claim; no absence or zero
+count is inferred from that failed search.

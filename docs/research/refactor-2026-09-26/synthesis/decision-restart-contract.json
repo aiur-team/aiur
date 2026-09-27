@@ -1,0 +1,28 @@
+{
+  "claim": "meta-08",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "status": "source_contract_verified_runtime_incidence_unmeasured",
+  "sources": [
+    {
+      "path": "src/lib/aiur/decision_store.ex",
+      "sha256": "604fa85db5df33bb49c726741b3567c911372de746dc0908cb91020ab3b81711",
+      "lines": "525-532,558-609,3469-3476,3571-3612,3719-3741,4370-4407,4466-4470,4513-4526,4559-4601"
+    },
+    {
+      "path": "src/test/aiur/decision_store_test.exs",
+      "sha256": "e572590fc8f103cc66e4311330288098139cd841cb459bd1ac9f52a192b399c0",
+      "lines": "4177-4212"
+    }
+  ],
+  "facts": [
+    "configure_dispatch merges retry_counts: %{} and append_retry_counts: %{} into boot/replayed state.",
+    "Writable boot schedules reconcile_dispatches using current decision fences; reconciliation applies answer_dispatch_schedulable? with retry_failed? false.",
+    "dispatchable? excludes missing answers, resolved/moot decisions and no_longer_applicable revisions. A failed latest attempt still qualifies if its failure class is transient, even when retry_failed? is false; unknown outcomes and never-attempted answers also qualify.",
+    "schedule_transient_retry indexes retry_delays_ms with the in-memory count and increments it; exhausted automatic retry emits attention. The counter is not reconstructed from persisted attempt count in configure_dispatch.",
+    "next_attempt_id uses length of active persisted attempts plus one. Resetting the retry budget does not erase durable attempts or restart attempt numbering.",
+    "New-worker delivery separately deletes the retry count for eligible answers, excludes already delivered attempts and retains action/lifecycle gates.",
+    "The existing restart-between-answer-and-redispatch test starts with retry_delays_ms [], records one failed attempt, restarts, and expects a second failed attempt before explicit new-worker delivery."
+  ],
+  "interpretation": "A DecisionStore process restart can reopen the automatic retry budget for an eligible transiently failed active answer. This is narrower than every daemon restart redelivering every answer. It also differs from the deliberate new-worker retry-budget reset. Package design must specify whether budgets are process-local, durable per action, or target-generation-scoped while preserving durable attempt identity and unknown-outcome handling.",
+  "limits": "Source and existing test inspected; no Mix suite, isolated runtime probe or live daemon executed. This frozen contract is not proof of exact behavior on the historical September 17 deployed revision or of the number/cost of re-deliveries. Twelve historical restarts/backups remain uncounted."
+}
