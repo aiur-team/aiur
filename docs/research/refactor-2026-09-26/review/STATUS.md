@@ -890,3 +890,7 @@ Read all 51 load definitions/declarations in 38 modules, six artifact-reading he
 ### Name duplication: retrieval, identity and field presence
 
 Read all 30 fetch, 27 get and 26 lookup definitions/declarations. Preserve financial access identity, cache clocks/provenance, repository and generation scope, ambiguous versus absent identity, retained-store health and pricing intervals. MapAccess truthiness fallback differs from Decision/projection presence-preserving helpers for false and nil; no consolidation is safe without choosing that contract explicitly. Name triage now 24 families/784 literal entries. No new runtime defect or savings claim; remaining sweep and caller verification remain open.
+
+### Name duplication: event routing and generation scope
+
+Read all 24 topic, 18 broadcast and 17 generation definitions/declarations. Preserve repository/identity/connection routing, local versus distributed publication, invalidation versus full-snapshot payloads and domain-specific failure reporting. Generations include independent counters, source vectors and random tokens; accessor similarity does not establish a shared clock. Name triage now 27 families/843 literal entries. Subscriber/owner-transition verification and remaining sweeps stay open; no new defect or savings count.
