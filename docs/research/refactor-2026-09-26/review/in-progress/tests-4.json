@@ -73,6 +73,69 @@
       "lines": 118,
       "read": "full",
       "assessment": "Pinned fixture normalization carries provider/backend/source/version and reported quota only. Unknown status with quota/reset omitted stays unknown and absent, not zero. Reconciler refresh at reset+1 makes health/window stale. Concrete drift/range/unknown-field and legacy/OTel rejection cases, plus fixture forbidden-substring checks. Test title every non-allowlisted field is broader than finite examples; do not report exhaustive privacy proof."
+    },
+    {
+      "path": "src/test/aiur/claude/coding_agent_test.exs",
+      "sha256": "45070426e41bedaa0c0c32d73c613ab0507ae412c5585cf7ff24f3de19980681",
+      "lines": 808,
+      "read": "full",
+      "assessment": "Real adapter ports talk to scripted shell app-servers. Workspace/base/telemetry env, model override, dynamic tool advertisement, invocation identity, tool replies and 110KiB spill file round-trip are asserted. Two sessions coexist but turns run sequentially; the shared frame check sorts model values, not per-session identity. Closed port and exit-1 failures remain clean errors. Meter ingestion and redacted callbacks are injected. Provider refusal pauses preserve retry counts, record reset (including controlled atomic-rename failure), respect global/label/operator holds, and resume at reset through direct reconcile; entry lacks a generation and expects legacy two-tuple resume. Later unrelated crashes, stale/quoted/tool banners and assistant-only banner do not inherit quota classification. No actual Claude service, full controller run or rendered UI exercised."
+    },
+    {
+      "path": "src/test/aiur/claude/remote_control_test.exs",
+      "sha256": "b35b096743273bd8efe258d72fd885f0e29a97636950933db8b63afba4c824ba",
+      "lines": 633,
+      "read": "full",
+      "assessment": "Mixes real OS and injected boundaries: live BEAM procfs identity, actual sleep process-group pidfd reap, trap-installed readiness before delayed TERM wait, real distinct child found through pgrep, and group cleanup after leader exits. Identity-change barrier uses injected reaper, not a real PID-reuse race. Private trust JSON preserves sibling keys. Fake procfs with injected kill tests strict descendant cwd, protected self tree, shallow-root refusal, later-appearing process resweep and bounded exhausted warning. real_proc scenario uses real procfs and inside/outside sleepers, not launcher stop end-to-end. Its cwd wait exhausts as ok and inside sleeper lacks fallback cleanup if reap fails; retain as failure-path hygiene candidate, not proven leak. No real RC service attachment."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/command_test.exs",
+      "sha256": "e397e0a56bf5d9b5a95dfbfe234fe0d8889c6dd78dd4b386a97cca1699d123cd",
+      "lines": 181,
+      "read": "full",
+      "assessment": "Mostly shell-text construction checks: success chain, credential scrub before exec, configured base quoting, flag order and absent optional flags. Failed-workspace case actually runs bash with stub claude and requires nonzero/no launch/no token output; successful launch credential removal is not exercised here. Resume ID requires private transcript existence. Hook-settings environment-dependent case accepts nil or binary and only constrains nonraising return shape."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/launcher_test.exs",
+      "sha256": "7767f99f82011b54d902dcdda3affab8a9ddbdd0f23f26a85b5a843ed8400788",
+      "lines": 249,
+      "read": "full",
+      "assessment": "Tmux mock command/reply handshake tests readiness timeout cleanup, failure retention when pane kill fails, successful non-RC session metadata and both ProcessReaper registrations, unavailable RC attach cleanup, and missing hook listener rejected before any tmux output. Fabricated teardown PIDs have host probes/signals stubbed in failure cases. Readiness/RC remain injected pane text; no live tmux/Claude. Serial application-env override is restored by put_env (absent becomes nil). receive_barrier and Task.await infinity do not provide a local bounded failure deadline."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/hook_turn_test.exs",
+      "sha256": "d8633200a604eb147ecb83a413ae44d0003af0f5a150411872282a39464b159a",
+      "lines": 303,
+      "read": "full",
+      "assessment": "Mock paste/pane/interrupt plus actual HookEvents dispatch. Successful Ctrl+C returns correlated pause request; failed interrupt returns error, not paused. Silent timeout, repeated heartbeat extension, provider-hook-only delivery acknowledgement, raw session ID versus synthetic display fallback, structured StopFailure quota versus ordinary auth failure/assistant prose preserved. Heartbeat timing uses wall-clock sleeps; helper drain recursion has no overall local deadline. No HTTP hook transport, provider or UI verification."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/operator_inject_test.exs",
+      "sha256": "5124861178fd294176bca845d13503fa59e6d8bca077085803d98318c25f98f3",
+      "lines": 108,
+      "read": "full",
+      "assessment": "Mock literal send-keys followed by Enter; newline/control sanitization, all-control empty/no send, invalid payload/session, Ctrl+C, immediate success callback and missing-tmux failure callback, noop. A success request ID demonstrates transport command completion, not provider acceptance or persisted delivery. Sanitization sample asserts no newline and matching printable text but does not exhaustively inspect every control byte."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/prompt_submit_test.exs",
+      "sha256": "9043d421e6b8e1b67246f2df5be124ce07300a26af0c9695924629d87cb32097",
+      "lines": 182,
+      "read": "full",
+      "assessment": "Preserve distinct submission contracts: hook/RC path never clears input and sends Enter best-effort even after echo timeout; transcript path clears/retypes missing echo and returns prompt_not_delivered without Enter on timeout. Mock command response sequencing drives actual function paths; paste chip/prefix are fabricated observations. Drain rejects unexpected clear commands until completion marker; not manual TUI testing."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/rc_attach_test.exs",
+      "sha256": "71a6f792e32127114757ec91618d3cd4b8338de84bed6693e989a8866389cc99",
+      "lines": 109,
+      "read": "full",
+      "assessment": "Mock banner immediate URL and footer-driven /rc, Enter, dialog scrape then Escape. Timeout still dismisses dialog and yields nil; no evidence at zero budget nil. These characterize text/command protocol, not real service availability; fixed captured/fabricated strings may drift independently."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/turn_events_test.exs",
+      "sha256": "2afcadf260388ed9c3e4fafcfaa7c64801bdf460f98d244d7aff6ac1fdc409c5",
+      "lines": 40,
+      "read": "full",
+      "assessment": "Callback envelope preserves event/session/thread/turn details, DateTime timestamp, and nested transcript without flattening type. Title says merges event/timestamp over details but supplied details contain no colliding event/timestamp; exact overwrite precedence is not constrained by these fixtures."
     }
   ],
   "scope_note": "Source review only; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
@@ -87,7 +150,16 @@
     "Lifecycle/unknown normalization, optional fields and nonbinary-to-nil cases, actual subscribed dispatch and per-identifier exclusion. Malformed dispatch returns ok. Does not exercise HTTP ingress or a running Claude hook.",
     "Restores injected dashboard URL provider; exact set of four hook names; endpoint sampled from StopFailure. Shell-command substring checks require timeout/silencing/header/exit suffix and normalized slash; does not execute curl or prove wall-clock bound/exit behavior. Write test decodes actual JSON and cleans generated path.",
     "Structured and textual limit classifications have negative ordinary-crash/stack-line-429 controls. Prose reset extraction, structured reset priority, timezone-resolved provider refusal, missing reset nil, 404/529 and banner-without-provider-provenance rejection are explicit. These finite fixtures are not exhaustive language parsing or current provider protocol validation.",
-    "Pinned fixture normalization carries provider/backend/source/version and reported quota only. Unknown status with quota/reset omitted stays unknown and absent, not zero. Reconciler refresh at reset+1 makes health/window stale. Concrete drift/range/unknown-field and legacy/OTel rejection cases, plus fixture forbidden-substring checks. Test title every non-allowlisted field is broader than finite examples; do not report exhaustive privacy proof."
+    "Pinned fixture normalization carries provider/backend/source/version and reported quota only. Unknown status with quota/reset omitted stays unknown and absent, not zero. Reconciler refresh at reset+1 makes health/window stale. Concrete drift/range/unknown-field and legacy/OTel rejection cases, plus fixture forbidden-substring checks. Test title every non-allowlisted field is broader than finite examples; do not report exhaustive privacy proof.",
+    "Real adapter ports talk to scripted shell app-servers. Workspace/base/telemetry env, model override, dynamic tool advertisement, invocation identity, tool replies and 110KiB spill file round-trip are asserted. Two sessions coexist but turns run sequentially; the shared frame check sorts model values, not per-session identity. Closed port and exit-1 failures remain clean errors. Meter ingestion and redacted callbacks are injected. Provider refusal pauses preserve retry counts, record reset (including controlled atomic-rename failure), respect global/label/operator holds, and resume at reset through direct reconcile; entry lacks a generation and expects legacy two-tuple resume. Later unrelated crashes, stale/quoted/tool banners and assistant-only banner do not inherit quota classification. No actual Claude service, full controller run or rendered UI exercised.",
+    "Mixes real OS and injected boundaries: live BEAM procfs identity, actual sleep process-group pidfd reap, trap-installed readiness before delayed TERM wait, real distinct child found through pgrep, and group cleanup after leader exits. Identity-change barrier uses injected reaper, not a real PID-reuse race. Private trust JSON preserves sibling keys. Fake procfs with injected kill tests strict descendant cwd, protected self tree, shallow-root refusal, later-appearing process resweep and bounded exhausted warning. real_proc scenario uses real procfs and inside/outside sleepers, not launcher stop end-to-end. Its cwd wait exhausts as ok and inside sleeper lacks fallback cleanup if reap fails; retain as failure-path hygiene candidate, not proven leak. No real RC service attachment.",
+    "Mostly shell-text construction checks: success chain, credential scrub before exec, configured base quoting, flag order and absent optional flags. Failed-workspace case actually runs bash with stub claude and requires nonzero/no launch/no token output; successful launch credential removal is not exercised here. Resume ID requires private transcript existence. Hook-settings environment-dependent case accepts nil or binary and only constrains nonraising return shape.",
+    "Tmux mock command/reply handshake tests readiness timeout cleanup, failure retention when pane kill fails, successful non-RC session metadata and both ProcessReaper registrations, unavailable RC attach cleanup, and missing hook listener rejected before any tmux output. Fabricated teardown PIDs have host probes/signals stubbed in failure cases. Readiness/RC remain injected pane text; no live tmux/Claude. Serial application-env override is restored by put_env (absent becomes nil). receive_barrier and Task.await infinity do not provide a local bounded failure deadline.",
+    "Mock paste/pane/interrupt plus actual HookEvents dispatch. Successful Ctrl+C returns correlated pause request; failed interrupt returns error, not paused. Silent timeout, repeated heartbeat extension, provider-hook-only delivery acknowledgement, raw session ID versus synthetic display fallback, structured StopFailure quota versus ordinary auth failure/assistant prose preserved. Heartbeat timing uses wall-clock sleeps; helper drain recursion has no overall local deadline. No HTTP hook transport, provider or UI verification.",
+    "Mock literal send-keys followed by Enter; newline/control sanitization, all-control empty/no send, invalid payload/session, Ctrl+C, immediate success callback and missing-tmux failure callback, noop. A success request ID demonstrates transport command completion, not provider acceptance or persisted delivery. Sanitization sample asserts no newline and matching printable text but does not exhaustively inspect every control byte.",
+    "Preserve distinct submission contracts: hook/RC path never clears input and sends Enter best-effort even after echo timeout; transcript path clears/retypes missing echo and returns prompt_not_delivered without Enter on timeout. Mock command response sequencing drives actual function paths; paste chip/prefix are fabricated observations. Drain rejects unexpected clear commands until completion marker; not manual TUI testing.",
+    "Mock banner immediate URL and footer-driven /rc, Enter, dialog scrape then Escape. Timeout still dismisses dialog and yields nil; no evidence at zero budget nil. These characterize text/command protocol, not real service availability; fixed captured/fabricated strings may drift independently.",
+    "Callback envelope preserves event/session/thread/turn details, DateTime timestamp, and nested transcript without flattening type. Title says merges event/timestamp over details but supplied details contain no colliding event/timestamp; exact overwrite precedence is not constrained by these fixtures."
   ],
   "cross_references": [],
   "follow_up_candidates": [
@@ -97,7 +169,14 @@
       "lines": "65-101",
       "hypothesis": "The full-conversation test name claims ordering, but its oracle checks membership only and accepts reordered forwarded events.",
       "next": "Extract the actual assertions for a bounded permutation probe, check other transcript tests for order coverage, and distinguish a local oracle gap from an end-to-end ordering defect."
+    },
+    {
+      "id": "tests-4-candidate-02",
+      "path": "src/test/aiur/claude/remote_control_test.exs",
+      "lines": "563-608",
+      "hypothesis": "The real-proc test has fallback kill only for outside sleeper; a failed inside reap can leave the fixture until its 300-second lifetime ends. Readiness helper returns ok on exhaustion.",
+      "next": "Check enclosing cleanup and demonstrate only with isolated owned children before promoting; do not run live workspace sweeps."
     }
   ],
-  "next": "Read coding_agent_test.exs and remote_control_test.exs, then the remaining Claude REPL and provider units. 90 files remain; do not count this partial ledger as a completed raw unit."
+  "next": "19/100 full files, 3823/40603 lines. Continue repl/reaper_test.exs and repl/transcript_turn_test.exs, then repl_agent_test.exs and remaining Claude telemetry/transcript tests; 81 files remain."
 }
