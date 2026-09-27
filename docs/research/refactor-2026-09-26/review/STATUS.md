@@ -433,3 +433,24 @@ Reproduce the index with `python3 tooling/duplication_overlap.py /path/to/resear
 disjoint ranges, path isolation, unresolved expressions and duplicate IDs.
 The full index reproduced identically. No raw finding is removed or promoted;
 remaining name/concept/constant sweeps and final semantic deduplication are open.
+
+## Repeated-name checkpoint: six complete name families
+
+The name sweep now records all 77 literal clauses for parse_time,
+parse_datetime, to_iso8601, format, timestamp and safe_call in
+`duplication-name-triage.json`. Heads and fallback clauses were read, including
+small definitions excluded by the body-size threshold. Source hashes match
+the frozen census; this is partial name coverage, not a completed unit.
+
+Decision cursor ISO parsing requires zero UTC offset, unlike general timestamp
+parsers. Model availability accepts DateTime and Unix seconds while model
+discovery does not. The timestamp name covers parsing, serialization, clock
+sampling, fallback time and HTML rendering; format also names unrelated output
+and option-validation operations. Eleven safe_call definitions have different
+success envelopes, exception/throw handling and fallback meanings. Preserve
+those contracts instead of extracting by spelling alone.
+
+Two reset-time ISO formatter pairs match below the five-line body threshold.
+Local shared helpers may be appropriate; this does not unify provider reset
+input policies. Remaining names, concepts, constants and final reconciliation
+are still open. Research completion totals remain unchanged.
