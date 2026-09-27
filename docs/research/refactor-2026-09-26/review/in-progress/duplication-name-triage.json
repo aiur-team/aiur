@@ -70142,10 +70142,584 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "handle_notification",
+      "assessment": "Notification handling has distinct provider authority, redaction and protocol boundaries.",
+      "constraints": [
+        "Claude.AccountMeters requires a reference binding, adapts the snapshot and matches observed binding before ingesting; malformed or rejected paths call failure handling.",
+        "Codex.AccountGeneration distinguishes updates, refresh, rate limits and unknown account lifecycle methods. It preserves exhausted-reset observation before rate-limit patch acceptance and emits redacted account notifications; unknown account methods lose continuity.",
+        "Codex.Notifications emits the account handler's redacted details or the ordinary raw/payload path on ignore. Tmux.Protocol instead parses known control-notification prefixes and retains unknown lines as unknown_notification.",
+        "Preserve provider-specific continuity and redaction decisions. Shared dispatch mechanics must not route sensitive account payloads through the ordinary raw path; complete method coverage and downstream privacy are not certified by this family read."
+      ],
+      "clauses": 10,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 12,
+          "module": "Aiur.Claude.AccountMeters",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/claude/account_meters.ex",
+          "kind": "def",
+          "end_line": 12,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 14,
+          "module": "Aiur.Claude.AccountMeters",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/claude/account_meters.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "01efa15d135fd5b4dcee0e1af819a67c82dfcc38f5d59f3ceb8427516cb70afb",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 30,
+          "module": "Aiur.Claude.AccountMeters",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/claude/account_meters.ex",
+          "kind": "def",
+          "end_line": 30,
+          "body_sha256": "934f092483364aeeeff3074c926c7fa2938947f65a60a7176bc06ac6b9d914e0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 22,
+          "module": "Aiur.Codex.AccountGeneration",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "kind": "def",
+          "end_line": 30,
+          "body_sha256": "b80be4bc60c2b767763f685bcda5685fab96743cd8c60def95f3eabaf65b000f",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 32,
+          "module": "Aiur.Codex.AccountGeneration",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "e7bf86e38f64018050fc930bbffc67658842b6ef2f554d2202351306f749f272",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 37,
+          "module": "Aiur.Codex.AccountGeneration",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "c2fcf90dc4e7de813abbc899bb203f43654b01ccb2f5ac8d80fbc88ba1840d71",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 53,
+          "module": "Aiur.Codex.AccountGeneration",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "kind": "def",
+          "end_line": 56,
+          "body_sha256": "2bfe60b09ff20d857b25bea0e4e8b3456634e8e57af6010afc19687bdd89deaf",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 58,
+          "module": "Aiur.Codex.AccountGeneration",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "kind": "def",
+          "end_line": 58,
+          "body_sha256": "251b6f598ca5f5f0b2be4c83b115bea460b94def123e1fc05c89a6fe8a4b0daa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 7,
+          "line": 37,
+          "module": "Aiur.Codex.Notifications",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/codex/notifications.ex",
+          "kind": "defp",
+          "end_line": 53,
+          "body_sha256": "88e3d3c8ed75f361ef7d2e33087e8c66ffffe7c2dfffadb8f5416bc345c76591",
+          "normalized_body_lines": 26,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 107,
+          "module": "Aiur.Tmux.Protocol",
+          "name": "handle_notification",
+          "path": "src/lib/aiur/tmux/protocol.ex",
+          "kind": "defp",
+          "end_line": 120,
+          "body_sha256": "6cbb2058e8f6609f8f32d12783d8f47e414a39fc6fda14e56663f3c56126d780",
+          "normalized_body_lines": 19,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "handle_params",
+      "assessment": "LiveView route callbacks coordinate different state and source lifecycles.",
+      "constraints": [
+        "AnalyticsLive derives scope and loads its model. BuildOrderLive navigates RouteState, applies source effects, assigns the model, synchronizes usage/analytics scope and clears the time domain.",
+        "DashboardLive normalizes filters/sort, selects units and decisions, reloads first-page history and canonicalizes units URLs.",
+        "GithubCacheLive updates route, resource/entry selection, search and freshness/writer/body/sort filters.",
+        "Common route lookup is already shared through RouteRegistry where used. Preserve scope synchronization, history reset and canonicalization rather than hiding callback-specific effects in a generic route handler."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 50,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "handle_params",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "ecfdfd6f6060fcf314f446bf103aeff4694637861d65e437d3c661f87734dbf8",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 70,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "handle_params",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "7cab19933cdadabe94b687d73cc436d34da7f09dda55f89de3a7b48faf3d1e3e",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 189,
+          "module": "AiurWeb.DashboardLive",
+          "name": "handle_params",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "def",
+          "end_line": 202,
+          "body_sha256": "0cf95eae920c066f5a8f40291a4d936c832da7a5c642369777b360cca8af9af2",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 133,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "handle_params",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "def",
+          "end_line": 144,
+          "body_sha256": "f4a61cc66b825b11d1da7b2b699cf0b5eb51c5289c1152b4d28ebc347e96d10b",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "hostname",
+      "assessment": "Three hostname readers are equivalent; session handles add an injected override.",
+      "constraints": [
+        "DaemonLifecycle, Executor.Claims and ControlLifecycleStore pattern-match successful inet.gethostname and convert its charlist to a string, differing only in local variable names.",
+        "SessionHandle accepts a binary hostname option, otherwise performs the same hostname lookup and string conversion.",
+        "A shared host-identity helper can preserve injection and lookup failure behavior. These bodies do not establish whether hostname alone is sufficient process or workspace identity; no actual host value was read for this research."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 105,
+          "module": "Aiur.DaemonLifecycle",
+          "name": "hostname",
+          "path": "src/lib/aiur/daemon_lifecycle.ex",
+          "kind": "defp",
+          "end_line": 108,
+          "body_sha256": "3434c457f7414822c7926a33a2a717ddc676986ff34780e0cf77a1ef2d0740f4",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 470,
+          "module": "Aiur.Executor.Claims",
+          "name": "hostname",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "kind": "defp",
+          "end_line": 473,
+          "body_sha256": "575ce39b81d27f5116bc36ff3e3352c874cce380a9efd6e4c52ef225e345b501",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 248,
+          "module": "Aiur.Orchestrator.ControlLifecycleStore",
+          "name": "hostname",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "kind": "defp",
+          "end_line": 251,
+          "body_sha256": "3434c457f7414822c7926a33a2a717ddc676986ff34780e0cf77a1ef2d0740f4",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 148,
+          "module": "Aiur.SessionHandle",
+          "name": "hostname",
+          "path": "src/lib/aiur/session_handle.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "eea3f0317dbca2914a10b1c12b91b5e76c793b7c0699106d93106161aff2dc4d",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "initial_state",
+      "assessment": "Initial-state constructors establish different absence, budget and handshake meanings.",
+      "constraints": [
+        "InterruptHandshake starts acknowledgment and idle-seen flags false. GitHubGraph.Settings with limits supplies a default request function and explicit call/page budgets; its one-argument form only takes an optional request function and zero counters.",
+        "ElevenLabs.Quota distinguishes missing credentials as unconfigured from present credentials as unknown. SpecsCheck initializes pending specs, implementation flag, seen definitions and findings.",
+        "Preserve unknown-versus-unconfigured and the distinction between bounded and unbounded-looking constructor forms; this read does not establish their call-site invariants or justify one generic initial-state shape."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 9,
+          "module": "Aiur.AppServer.InterruptHandshake",
+          "name": "initial_state",
+          "path": "src/lib/aiur/app_server/interrupt_handshake.ex",
+          "kind": "def",
+          "end_line": 9,
+          "body_sha256": "5cb0fb670d0b3f0f78a0313398fb0ad14d0d4929b04f8587eadf42677433211b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 64,
+          "module": "Aiur.BuildOrder.GitHubGraph.Settings",
+          "name": "initial_state",
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "e38a5c0d2a7facc3bdedfac46fcd2a673d13c8f8caa4a5ba7f586ae15718e777",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 76,
+          "module": "Aiur.BuildOrder.GitHubGraph.Settings",
+          "name": "initial_state",
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "kind": "def",
+          "end_line": 76,
+          "body_sha256": "4c3fd8c57105607952a9417586e6de5723e15bbe467c76949d355d0946c2601d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 183,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "initial_state",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 188,
+          "body_sha256": "2b302aabe9dc86e4adf196179066da8d7cf507984b4104e855a4d927a8e450fa",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 82,
+          "module": "Aiur.SpecsCheck",
+          "name": "initial_state",
+          "path": "src/lib/aiur/specs_check.ex",
+          "kind": "defp",
+          "end_line": 84,
+          "body_sha256": "dc635166cb9b7a7d40c6bb3d1c0814be72651e2d0b4b0a9d83b5ed3acdd0e9c0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "integer",
+      "assessment": "Integer helpers differ in parsing strictness, rounding and missing-value defaults.",
+      "constraints": [
+        "DecisionHistory accepts integers and substitutes zero for other values. Env.Types trims binary input, requires complete parsing and returns tagged validation errors.",
+        "GraphQLErrors accepts a parsed numeric prefix regardless of trailing text, returning nil when parsing fails; its entry body has no binary guard.",
+        "Analytics.Charts accepts integers, rounds floats and strictly parses untrimmed binary values, otherwise nil.",
+        "Do not unify numeric access by silently substituting zero, adding trimming or rejecting prefix formats. Call-site reachability and whether missing-zero defaults mislead consumers remain outside this family read."
+      ],
+      "clauses": 9,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 509,
+          "module": "Aiur.DecisionHistory",
+          "name": "integer",
+          "path": "src/lib/aiur/decision_history.ex",
+          "kind": "defp",
+          "end_line": 509,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 510,
+          "module": "Aiur.DecisionHistory",
+          "name": "integer",
+          "path": "src/lib/aiur/decision_history.ex",
+          "kind": "defp",
+          "end_line": 510,
+          "body_sha256": "07e37eaf0627b55ca9cf1b72e05de6590b3899ac34af6765529abbc2c5841d44",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 23,
+          "module": "Aiur.Env.Types",
+          "name": "integer",
+          "path": "src/lib/aiur/env/types.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "34089065b7138559755d5e655dc1ef1a6264bd9d2453e7068e97c1a8824f6c98",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 30,
+          "module": "Aiur.Env.Types",
+          "name": "integer",
+          "path": "src/lib/aiur/env/types.ex",
+          "kind": "def",
+          "end_line": 30,
+          "body_sha256": "33b3ed7be6df8eaf9241ff80588eec6502b60aa7ff50d49f9681c2f368adaf43",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 163,
+          "module": "Aiur.GitHub.GraphQLErrors",
+          "name": "integer",
+          "path": "src/lib/aiur/github/graphql_errors.ex",
+          "kind": "defp",
+          "end_line": 168,
+          "body_sha256": "385b79a9e3151b8e7252b0c8f0f08cf7a6c3bac3cb6df50e0a0af535dafbaa8b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 587,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "integer",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 587,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 588,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "integer",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 588,
+          "body_sha256": "72e808e65f9ec9bdbcd07fd2a564bcd88fd6cb8e69239a9aa339101dc652df5c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 590,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "integer",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 595,
+          "body_sha256": "dab13d55b7bc3b8f5461575cbdcbeb7f265695c5e14566baef326d352d2ad5a3",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 597,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "integer",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 597,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "iso8601",
+      "assessment": "Timestamp formatting differs in missing output, precision, accepted types and zone conversion.",
+      "constraints": [
+        "DecisionMetrics.Sample handles DateTime and nil explicitly. UsageEnvelope preserves nil and otherwise delegates to DateTime.to_iso8601 without a local struct guard.",
+        "TimeFormat returns an empty string for nil and shifts DateTime to a supplied zone with the raising API before formatting.",
+        "Presenter truncates DateTime to seconds and returns nil for all other inputs.",
+        "Shared formatting must preserve precision and nil-versus-empty semantics as well as invalid-zone behavior. A same-name formatter is not a universal timestamp normalization contract."
+      ],
+      "clauses": 8,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 168,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "iso8601",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 168,
+          "body_sha256": "6444c08becce56613845e01d5aabd6f64c8b795a692edf1b20cd650915793cd3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 169,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "iso8601",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 169,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 635,
+          "module": "Aiur.UsageEnvelope",
+          "name": "iso8601",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 635,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 636,
+          "module": "Aiur.UsageEnvelope",
+          "name": "iso8601",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 636,
+          "body_sha256": "6444c08becce56613845e01d5aabd6f64c8b795a692edf1b20cd650915793cd3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 22,
+          "module": "AiurWeb.OperatorControlCenter.TimeFormat",
+          "name": "iso8601",
+          "path": "src/lib/aiur_web/operator_control_center/time_format.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 24,
+          "module": "AiurWeb.OperatorControlCenter.TimeFormat",
+          "name": "iso8601",
+          "path": "src/lib/aiur_web/operator_control_center/time_format.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "c9743e98fc21ac6e67cc66ecec14def473c6fc43f8af451445bf624a34b6dc4b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 587,
+          "module": "AiurWeb.Presenter",
+          "name": "iso8601",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "kind": "defp",
+          "end_line": 591,
+          "body_sha256": "3aaeb839720346d895d71a9ed9ca43c5854b364bbcd1fc2f4c1ea8f022a27e68",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 593,
+          "module": "AiurWeb.Presenter",
+          "name": "iso8601",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "kind": "defp",
+          "end_line": 593,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5434,
-  "limits": "313 selected families and 5434 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5474,
+  "limits": "319 selected families and 5474 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

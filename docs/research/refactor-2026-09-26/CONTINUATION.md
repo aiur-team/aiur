@@ -1859,3 +1859,7 @@ Read ensure_directory, envelope, event_id, events, failed and fetch_issue_states
 ### Name duplication: replay and population contracts
 
 Read filter, finalize, forget, freshness_status, from_json_safe and groups: 43 literal entries across six families. Preserve coordinated population filtering, compaction phase checks, related-state cleanup, unknown freshness and persisted decision integrity. The atom-valued freshness extractor also accepts nil; downstream handling remains unverified. Name triage now 313 families/5434 entries, leaving 1367 cross-module names. Raw findings and skeptic counts are unchanged; no replay correctness, runtime defect or saving is claimed.
+
+### Name duplication: notification and formatting policies
+
+Read handle_notification, handle_params, hostname, initial_state, integer and iso8601: 40 literal entries across six families. Identify equivalent hostname readers while preserving provider redaction/continuity, route scope effects, unknown initialization, numeric parsing and timestamp precision. Name triage now 319 families/5474 entries, leaving 1361 cross-module names. Raw findings and skeptic counts are unchanged; no complete redaction audit, runtime defect or saving is claimed.

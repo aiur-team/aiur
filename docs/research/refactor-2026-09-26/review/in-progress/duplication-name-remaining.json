@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "aa01fbf6d3a81bcd01624ef9272b9ca5a5837b943691ff1af8221798aa2c0161"
+    "name_triage": "89f9d8914014cc051af4d5966e4b3b6dc5b9db8f38a16114ed77c0bb3bfac57f"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 313,
-    "remaining_cross_module_names": 1367,
-    "remaining_literal_entries": 4834
+    "reviewed_cross_module_names": 319,
+    "remaining_cross_module_names": 1361,
+    "remaining_literal_entries": 4794
   },
   "families": [
-    {
-      "name": "handle_notification",
-      "clauses": 10,
-      "modules": 4,
-      "summed_source_span_lines": 81
-    },
-    {
-      "name": "handle_params",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 51
-    },
-    {
-      "name": "hostname",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "initial_state",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "integer",
-      "clauses": 9,
-      "modules": 4,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "iso8601",
-      "clauses": 8,
-      "modules": 4,
-      "summed_source_span_lines": 16
-    },
     {
       "name": "kind",
       "clauses": 6,
