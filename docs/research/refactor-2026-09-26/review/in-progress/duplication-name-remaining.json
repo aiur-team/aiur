@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "16ea53b0be50525390ace3552811f0094be933e393881ad1c119f079b0dbc507"
+    "name_triage": "68a3de5e54ac89f4d1f9ffced10333fb401bfcb2790ad10f60625a3585724247"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 741,
-    "remaining_cross_module_names": 939,
-    "remaining_literal_entries": 2906
+    "reviewed_cross_module_names": 749,
+    "remaining_cross_module_names": 931,
+    "remaining_literal_entries": 2882
   },
   "families": [
-    {
-      "name": "coding_agent_run_turn",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "collect_descendants",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "column_widths",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "command_for",
-      "clauses": 8,
-      "modules": 2,
-      "summed_source_span_lines": 23
-    },
-    {
-      "name": "command_label",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "commands",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "comment_datetime",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 19
-    },
-    {
-      "name": "comment_event_topic?",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 15
-    },
     {
       "name": "compact_log",
       "clauses": 2,
