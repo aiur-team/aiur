@@ -2976,10 +2976,458 @@
       "disposition": "shared_carried_event_identity_contract",
       "assessment": "Writer retains dispatch/pr_opened/pr_merged point records with binary event keys and original timestamps for segment rollover. Dataset recognizes that same set so replicas collapse by event key rather than counting twice. Synchronize event vocabulary and identity rules while preserving writer admission, decoder shape and continuation-warning semantics.",
       "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "numeric_value": 0,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 31,
+          "module": "Aiur.AgentList.Renderer.Layout",
+          "name": "min_latest_width",
+          "path": "src/lib/aiur/agent_list/renderer/layout.ex",
+          "expression": "0",
+          "numeric_value": 0,
+          "expression_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+        },
+        {
+          "line": 70,
+          "module": "Aiur.DecisionStore",
+          "name": "default_dispatch_delay_ms",
+          "path": "src/lib/aiur/decision_store.ex",
+          "expression": "0",
+          "numeric_value": 0,
+          "expression_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+        }
+      ],
+      "disposition": "different_units_keep_local",
+      "assessment": "Zero is a minimum terminal column width in Layout and an injectable dispatch delay in milliseconds in DecisionStore. These have no shared policy.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 1.5,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 30,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "default_gap_threshold_multiplier",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "expression": "1.5",
+          "numeric_value": 1.5,
+          "expression_sha256": "9f29a130438b81170b92a42650f9a94291ecad60bd47af2a3886e75f7f728725"
+        },
+        {
+          "line": 32,
+          "module": "Aiur.SaturationSentinel",
+          "name": "fallback_threshold_per_scheduler",
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "expression": "1.5",
+          "numeric_value": 1.5,
+          "expression_sha256": "9f29a130438b81170b92a42650f9a94291ecad60bd47af2a3886e75f7f728725"
+        }
+      ],
+      "disposition": "different_ratios_keep_local",
+      "assessment": "Dataset uses 1.5 times the sampling interval to identify sample gaps; SaturationSentinel uses 1.5 as fallback load threshold per scheduler. Independent measurement and admission policies.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 100000,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 268,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "max_entries",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "expression": "100_000",
+          "numeric_value": 100000,
+          "expression_sha256": "47507747ec7ca9fb2b8e3f08e77203a62a1c8ebd5e1aa2ece374053f1bd31f1e"
+        },
+        {
+          "line": 34,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "default_root_number_base",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "expression": "100_000",
+          "numeric_value": 100000,
+          "expression_sha256": "47507747ec7ca9fb2b8e3f08e77203a62a1c8ebd5e1aa2ece374053f1bd31f1e"
+        }
+      ],
+      "disposition": "different_count_and_identity_policy",
+      "assessment": "ResourceStore uses 100000 as a body-shedding backstop against ETS size; entries can survive without bodies, so it is not a strict key-count cap. PlanningSource uses the number as an offset for hashed synthetic root numbers. No shared constant owner is justified.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 150,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 29,
+          "module": "Aiur.Claude.Repl.RcAttach",
+          "name": "url_poll_ms",
+          "path": "src/lib/aiur/claude/repl/rc_attach.ex",
+          "expression": "150",
+          "numeric_value": 150,
+          "expression_sha256": "9ae2bdd7beedc2e766c6b76585530e16925115707dc7a06ab5ee4aa2776b2c7b"
+        },
+        {
+          "line": 20,
+          "module": "AiurWeb.OperatorControlCenter.TicketsPanel",
+          "name": "search_debounce_ms",
+          "path": "src/lib/aiur_web/components/operator_control_center/tickets_panel.ex",
+          "expression": "150",
+          "numeric_value": 150,
+          "expression_sha256": "9ae2bdd7beedc2e766c6b76585530e16925115707dc7a06ab5ee4aa2776b2c7b"
+        }
+      ],
+      "disposition": "independent_poll_and_debounce",
+      "assessment": "RcAttach sleeps 150 ms between remote-control evidence/URL checks. TicketsPanel uses 150 ms input debounce. Equal duration does not imply coordinated UX and external-process timing.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 16,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 20,
+          "module": "Aiur.CoordinationTasks",
+          "name": "default_max_concurrency",
+          "path": "src/lib/aiur/coordination_tasks.ex",
+          "expression": "16",
+          "numeric_value": 16,
+          "expression_sha256": "b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9"
+        },
+        {
+          "line": 9,
+          "module": "Aiur.LiveConversation.Retention",
+          "name": "ended_generation_limit",
+          "path": "src/lib/aiur/live_conversation/retention.ex",
+          "expression": "16",
+          "numeric_value": 16,
+          "expression_sha256": "b17ef6d19c7a5b1ee83b907c595526dcb1eb06db8227d650d5dda0a9f4ce8cd9"
+        }
+      ],
+      "disposition": "independent_concurrency_and_retention",
+      "assessment": "CoordinationTasks defaults to sixteen concurrent tasks; LiveConversation.Retention keeps sixteen ended generations. Different populations and resource policies; keep independent.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 1600,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 24,
+          "module": "Aiur.AgentLog",
+          "name": "body_summary_limit",
+          "path": "src/lib/aiur/agent_log.ex",
+          "expression": "1600",
+          "numeric_value": 1600,
+          "expression_sha256": "b458944d9ec4322f9ff0de2885ce82d580341fcf0fd688422e9929b6e7ce3b2d"
+        },
+        {
+          "line": 7,
+          "module": "Aiur.LiveConversation.Normalizer",
+          "name": "body_limit",
+          "path": "src/lib/aiur/live_conversation/normalizer.ex",
+          "expression": "1600",
+          "numeric_value": 1600,
+          "expression_sha256": "b458944d9ec4322f9ff0de2885ce82d580341fcf0fd688422e9929b6e7ce3b2d"
+        }
+      ],
+      "disposition": "related_display_bounds_distinct_transforms",
+      "assessment": "AgentLog truncates trimmed body summaries to 1600 String.slice units and appends an ellipsis marker. LiveConversation.Normalizer passes 1600 to Sanitizer.sanitize_projection with URL/environment redaction and delivery-dependent trimming; fragment joins add a separate byte cap. Related display policy could be named, but equal bounds do not justify replacing the sanitation pipeline with plain log truncation.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 19,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 8,
+          "module": "Aiur.BuildOrder.Bounded",
+          "name": "max_github_issue_identifier_bytes",
+          "path": "src/lib/aiur/build_order/bounded.ex",
+          "expression": "19",
+          "numeric_value": 19,
+          "expression_sha256": "9400f1b21cb527d7fa3d3eabba93557a18ebe7a2ca4e471cfe5e4c5b4ca7f767"
+        },
+        {
+          "line": 11,
+          "module": "Aiur.Claude.Telemetry.Event",
+          "name": "max_otlp_int64_bytes",
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "expression": "19",
+          "numeric_value": 19,
+          "expression_sha256": "9400f1b21cb527d7fa3d3eabba93557a18ebe7a2ca4e471cfe5e4c5b4ca7f767"
+        }
+      ],
+      "disposition": "different_numeric_domains",
+      "assessment": "BuildOrder.Bounded accepts a positive decimal identifier with at most nineteen bytes/digits. Claude telemetry also bounds input text to nineteen bytes but parses and enforces nonnegative signed-int64 maximum 9223372036854775807. Equal lexical length is not equal numeric range or zero policy.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 2048,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 7,
+          "module": "Aiur.BuildOrder.Bounded",
+          "name": "max_url_bytes",
+          "path": "src/lib/aiur/build_order/bounded.ex",
+          "expression": "2048",
+          "numeric_value": 2048,
+          "expression_sha256": "bfa0ec8bdf2946547879d50a68687ea32e2fa628db187357415858b633d194d9"
+        },
+        {
+          "line": 47,
+          "module": "Aiur.DecisionValidation",
+          "name": "ticket_url_max",
+          "path": "src/lib/aiur/decision_validation.ex",
+          "expression": "2048",
+          "numeric_value": 2048,
+          "expression_sha256": "bfa0ec8bdf2946547879d50a68687ea32e2fa628db187357415858b633d194d9"
+        }
+      ],
+      "disposition": "different_units_and_validation",
+      "assessment": "BuildOrder.Bounded limits URLs/routes to 2048 bytes with UTF-8 and URI/path checks. DecisionValidation limits optional ticket URL text to 2048 String.length units after trimming, allows nil, checks controls, and redacts secrets. Do not merge these validators or describe their limits as the same byte bound.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 259200000,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 264,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "retention_ms",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "expression": "72 * 60 * 60 * 1000",
+          "numeric_value": 259200000,
+          "expression_sha256": "60923fe383f3c41c11ad7de5a9e970491cac4a85f10e32d8c842f720b4655eed"
+        },
+        {
+          "line": 68,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "retention_ms",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "expression": "72 * 60 * 60 * 1000",
+          "numeric_value": 259200000,
+          "expression_sha256": "60923fe383f3c41c11ad7de5a9e970491cac4a85f10e32d8c842f720b4655eed"
+        }
+      ],
+      "disposition": "equal_retention_distinct_records",
+      "assessment": "ResourceStore expires cached bodies/validators/processed marks using a 72-hour window; DeliveryLog retains webhook delivery records with an injectable 72-hour default. Distinct replay/cache identities and lifecycle semantics require separate ownership. Source commentary about external retry guarantees was not independently verified; duration equality proves no such guarantee.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 40,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 42,
+          "module": "Aiur.AgentEventFeed",
+          "name": "default_bus_limit",
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "expression": "40",
+          "numeric_value": 40,
+          "expression_sha256": "d59eced1ded07f84c145592f65bdf854358e009c5cd705f5215bf18697fed103"
+        },
+        {
+          "line": 4,
+          "module": "Aiur.PathSafety",
+          "name": "max_symlink_depth",
+          "path": "src/lib/aiur/path_safety.ex",
+          "expression": "40",
+          "numeric_value": 40,
+          "expression_sha256": "d59eced1ded07f84c145592f65bdf854358e009c5cd705f5215bf18697fed103"
+        }
+      ],
+      "disposition": "different_count_domains",
+      "assessment": "AgentEventFeed defaults to forty bus-history events. PathSafety rejects symlink traversal at depth forty. No shared policy despite matching integer.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 4500,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 17,
+          "module": "Aiur.Config.Schema.Github",
+          "name": "default_daemon_graphql_limit_per_hour",
+          "path": "src/lib/aiur/config/schema/tracker.ex",
+          "expression": "4500",
+          "numeric_value": 4500,
+          "expression_sha256": "c746ee2edf45fa00fca8d08045b2575aac17cf3eeb3f2b0da5e5301fae8d1e47"
+        },
+        {
+          "line": 44,
+          "module": "Aiur.GitHub.Budget",
+          "name": "default_daemon_graphql_limit_per_hour",
+          "path": "src/lib/aiur/github/budget.ex",
+          "expression": "4500",
+          "numeric_value": 4500,
+          "expression_sha256": "c746ee2edf45fa00fca8d08045b2575aac17cf3eeb3f2b0da5e5301fae8d1e47"
+        }
+      ],
+      "disposition": "shared_config_default_contract",
+      "assessment": "Github schema and Budget fallback both use 4500 for daemon GraphQL points per hour. They should agree through a low-dependency defaults owner or explicit schema-derived configuration. Preserve option/config precedence and numeric fallback validation; this is not a saving claim.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 75,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 15,
+          "module": "Aiur.Config.Schema.Github",
+          "name": "default_stagger_ms",
+          "path": "src/lib/aiur/config/schema/tracker.ex",
+          "expression": "75",
+          "numeric_value": 75,
+          "expression_sha256": "f369cb89fc627e668987007d121ed1eacdc01db9e28f8bb26f358b7d8c4f08ac"
+        },
+        {
+          "line": 23,
+          "module": "Aiur.GitHub.Budget",
+          "name": "default_stagger_ms",
+          "path": "src/lib/aiur/github/budget.ex",
+          "expression": "75",
+          "numeric_value": 75,
+          "expression_sha256": "f369cb89fc627e668987007d121ed1eacdc01db9e28f8bb26f358b7d8c4f08ac"
+        }
+      ],
+      "disposition": "shared_config_default_contract",
+      "assessment": "Github schema and Budget fallback both use 75 ms staggering. Synchronize the config default while preserving nonnegative normalization and option/config precedence. This is the same defaults-family opportunity as group 74, not a separate package.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 760,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 9,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "w",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "expression": "760",
+          "numeric_value": 760,
+          "expression_sha256": "afccd937e6ac2d1b6d6e9f318bc5e8a179c977c7413b33b3e4d902ff8cec501e"
+        },
+        {
+          "line": 44,
+          "module": "AiurWeb.OperatorControlCenter.GithubCache.Charts",
+          "name": "w",
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "expression": "760",
+          "numeric_value": 760,
+          "expression_sha256": "afccd937e6ac2d1b6d6e9f318bc5e8a179c977c7413b33b3e4d902ff8cec501e"
+        }
+      ],
+      "disposition": "shared_chart_geometry_optional_local_owner",
+      "assessment": "Analytics and GitHub cache charts use a 760-unit SVG coordinate width for plot bounds and axes. A local chart geometry helper may own this with shared drawing primitives, but differing margins, scales and timeline behavior remain. This is viewBox geometry, not a fixed CSS pixel width or evidence for merging the data models.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 7800,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 22,
+          "module": "Aiur.DecisionDispatch",
+          "name": "max_message_chars",
+          "path": "src/lib/aiur/decision_dispatch.ex",
+          "expression": "7800",
+          "numeric_value": 7800,
+          "expression_sha256": "541eead0d9aecd91a4e591be604dbe311bdebdbf25c85821fabf878018f0504c"
+        },
+        {
+          "line": 16,
+          "module": "Aiur.DecisionRevisionDispatch",
+          "name": "max_message_chars",
+          "path": "src/lib/aiur/decision_revision_dispatch.ex",
+          "expression": "7800",
+          "numeric_value": 7800,
+          "expression_sha256": "541eead0d9aecd91a4e591be604dbe311bdebdbf25c85821fabf878018f0504c"
+        }
+      ],
+      "disposition": "shared_dispatch_budget_distinct_truncation",
+      "assessment": "DecisionDispatch and DecisionRevisionDispatch both cap rendered message content at 7800 character units before the Executor-message path. The former bounds a joined body using a byte-size fast path followed by String.slice; the latter reserves header/footer String.length space before slicing content. Share the budget if useful, retaining formatting and correlation contracts. Constant equality does not prove arbitrary header/footer inputs always fit.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 80,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 25,
+          "module": "Aiur.AgentLog",
+          "name": "message_window",
+          "path": "src/lib/aiur/agent_log.ex",
+          "expression": "80",
+          "numeric_value": 80,
+          "expression_sha256": "48449a14a4ff7d79bb7a1b6f3d488eba397c36ef25634c111b49baf362511afc"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.LiveConversation.Retention",
+          "name": "message_limit",
+          "path": "src/lib/aiur/live_conversation/retention.ex",
+          "expression": "80",
+          "numeric_value": 80,
+          "expression_sha256": "48449a14a4ff7d79bb7a1b6f3d488eba397c36ef25634c111b49baf362511afc"
+        }
+      ],
+      "disposition": "related_history_bounds_distinct_retention",
+      "assessment": "AgentLog takes the last eighty compacted display messages. LiveConversation.Retention trims snapshots above eighty messages while also applying byte/generation/snapshot bounds and eviction bookkeeping. Potential display policy alignment does not justify replacing stateful retention with Enum.take.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
+    },
+    {
+      "numeric_value": 900000,
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 47,
+          "module": "Aiur.Orchestrator.ReadyForReviewTransitions",
+          "name": "history_retry_ms",
+          "path": "src/lib/aiur/orchestrator/ready_for_review_transitions.ex",
+          "expression": "15 * 60 * 1000",
+          "numeric_value": 900000,
+          "expression_sha256": "5cc58377bc0b8eaa4c047b7e2dc4a007376414f967729dd0a15de0c368e8cb26"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.RunTelemetry.Timeline",
+          "name": "default_max_idle_gap_ms",
+          "path": "src/lib/aiur/run_telemetry/timeline.ex",
+          "expression": "15 * 60 * 1000",
+          "numeric_value": 900000,
+          "expression_sha256": "5cc58377bc0b8eaa4c047b7e2dc4a007376414f967729dd0a15de0c368e8cb26"
+        }
+      ],
+      "disposition": "independent_retry_and_timeline_policy",
+      "assessment": "ReadyForReviewTransitions waits fifteen minutes before retrying failed history reads. RunTelemetry.Timeline uses fifteen minutes as a configurable idle-gap threshold for active-time spans. Keep independent; these also numerically match the three :timer.minutes(15) symbolic sites, without creating one shared timing policy.",
+      "coverage": "All declarations and attribute-use sites inspected, with selected validator and consumer functions. Source-level contract assessment, not runtime or external-service verification."
     }
   ],
-  "assessed_group_count": 83,
-  "remaining_candidate_groups": 79,
+  "assessed_group_count": 99,
+  "remaining_candidate_groups": 63,
   "sources": [
     {
       "path": "src/lib/aiur/coding_agent.ex",
@@ -3700,6 +4148,90 @@
     {
       "path": "src/lib/aiur/run_telemetry/writer.ex",
       "sha256": "6b5cb4b1f1d1b55ee1c128b433755fdf424c805ea0041a095c907ff206552412"
+    },
+    {
+      "path": "src/lib/aiur/agent_list/renderer/layout.ex",
+      "sha256": "86f98c7f3fe8a2688a6f3a1a9bdefd5cfcd6382eaa69d675b8b77521198a4183"
+    },
+    {
+      "path": "src/lib/aiur/decision_store.ex",
+      "sha256": "604fa85db5df33bb49c726741b3567c911372de746dc0908cb91020ab3b81711"
+    },
+    {
+      "path": "src/lib/aiur/saturation_sentinel.ex",
+      "sha256": "f64ea3b103e6ff1e73069e2c107eea0999b8769478773a5ecd1a3de82dca2b1c"
+    },
+    {
+      "path": "src/lib/aiur/github/resource_store.ex",
+      "sha256": "8a44d809f8e0143c96ba93304df2559f44f50d911148c8a70f3871f81d9cb10a"
+    },
+    {
+      "path": "src/lib/aiur/claude/repl/rc_attach.ex",
+      "sha256": "a303ef1d77763a71786e0924ed279c7aea8bf3a26b574324b01163d68a544981"
+    },
+    {
+      "path": "src/lib/aiur/coordination_tasks.ex",
+      "sha256": "56a60c434a195a24a6d0aa9bcca76839c63f7204cbeede0b89a499ec7e67eced"
+    },
+    {
+      "path": "src/lib/aiur/live_conversation/retention.ex",
+      "sha256": "84a01fa12fe3d3fbf576abddc9d17db996a2b38d71d60af895ad28da22bf24bb"
+    },
+    {
+      "path": "src/lib/aiur/agent_log.ex",
+      "sha256": "8bf6b56bfd514020c2603363b3a1b8c94287b3a0465f13369c474aa347648f7d"
+    },
+    {
+      "path": "src/lib/aiur/live_conversation/normalizer.ex",
+      "sha256": "17866d669afc3f036c1e900a5bdfdce07370dfc4c480f6235d89e2bdbe15eca4"
+    },
+    {
+      "path": "src/lib/aiur/build_order/bounded.ex",
+      "sha256": "34a7eed8dcbee52f1355ff0c4b1f67532686968b18776c1f1372e92f675e0ad7"
+    },
+    {
+      "path": "src/lib/aiur/decision_validation.ex",
+      "sha256": "b0ea422b4293f92c004b5a0c066416cda4ce2b1e0264f3fb3cf0f11b74cbd03e"
+    },
+    {
+      "path": "src/lib/aiur/webhooks/delivery_log.ex",
+      "sha256": "874fed7eb371f5f47e14bf1f7d7dd95cc78ce2de3e1abc9ea4749248070c3fd9"
+    },
+    {
+      "path": "src/lib/aiur/agent_event_feed.ex",
+      "sha256": "2bbe8d6cb944ea0823b5e5c82d9c0ca6d9e42f7367e01bfb08ec2f833aa50cf7"
+    },
+    {
+      "path": "src/lib/aiur/path_safety.ex",
+      "sha256": "ae49ccfd2c6aa5e04991df32174bcf75b65adcd9c4f0db166c7a511e814d8040"
+    },
+    {
+      "path": "src/lib/aiur/github/budget.ex",
+      "sha256": "0d7b760a65fe3b70d1f69d8414b8c959f26f1923348636a7d33d7168e8693e77"
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+      "sha256": "f91808610b79a60d42eb745c4652461977ab327781bbfeb97018462cdf70e334"
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+      "sha256": "809ac408a765c6252e1a1d8c5a10d8f4f27f9912a344765f0b3c0731d3fdf267"
+    },
+    {
+      "path": "src/lib/aiur/decision_dispatch.ex",
+      "sha256": "e2bfd546756b8e832938523c8c230465450386592db7a4a1700c4cb31506fcc0"
+    },
+    {
+      "path": "src/lib/aiur/decision_revision_dispatch.ex",
+      "sha256": "9e877b03f249c7ecbe610982c7d85070e7e19e9aac1224fc830a31a9ac3f0b26"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/ready_for_review_transitions.ex",
+      "sha256": "454b569decf39cbedbcc11736fcdbfaf19bbcdf978d5983d3d346e2b76cfdf35"
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/timeline.ex",
+      "sha256": "92a6ac7e875f9ad63220044bc87eb6fd1666d4449c5eadaeccc4c27469e16069"
     }
   ],
   "additional_sites": [

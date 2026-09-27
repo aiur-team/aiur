@@ -768,3 +768,17 @@ GitHub display order differs from first-hold dispatch order; provider effort
 admission is not automatically widened by global override vocabulary. Three equal
 15-minute values govern unrelated re-ask, freshness and sweep policies. No production
 changes, live-system verification, quota saving or package-boundary completion claimed.
+
+## Numeric units and small candidate groups checkpoint
+
+99 of 162 attribute groups assessed; 63 numeric groups remain. Sixteen additional
+two-site numeric groups were inspected against declarations and consumers.
+The 2048 URL values differ in byte versus character units and validation; nineteen
+digits do not equate positive issue identity with bounded nonnegative int64.
+ResourceStore's 100000 threshold sheds bodies rather than imposing a hard key cap.
+
+Schema/Budget defaults for GraphQL allowance and request staggering should agree.
+Display/history bounds and chart geometry may share local policy while retaining
+redaction, eviction bookkeeping and layout semantics. Equal delays, counts and
+retention durations alone do not support extraction. Source hashes and targeted
+publication checks passed. No production changes or runtime verification.
