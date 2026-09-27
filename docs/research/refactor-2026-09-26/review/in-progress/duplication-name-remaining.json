@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "dd48c8e62c6bd424d78399032e9283b8471e9a162f5b2bdb1769252335bec539"
+    "name_triage": "72523f3b79a2aeefb92434948a73e1a4d9b3c086bbfd36bcfea2ef48fd2c48a5"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 917,
-    "remaining_cross_module_names": 763,
-    "remaining_literal_entries": 2357
+    "reviewed_cross_module_names": 925,
+    "remaining_cross_module_names": 755,
+    "remaining_literal_entries": 2336
   },
   "families": [
-    {
-      "name": "fetch_api_key",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "fetch_blocking",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "fetch_cached",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 30
-    },
-    {
-      "name": "fetch_chunk",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 30
-    },
-    {
-      "name": "fetch_commit_ci_status",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "fetch_commit_timestamp",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 15
-    },
-    {
-      "name": "fetch_compare_files",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "fetch_decision",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 34
-    },
     {
       "name": "fetch_dist_tags",
       "clauses": 2,

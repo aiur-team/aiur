@@ -109151,10 +109151,382 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "fetch_api_key",
+      "assessment": "Compatible-provider configuration and meter probing share lookup mechanics with distinct errors.",
+      "constraints": [
+        "Both use an injected api_key_fetcher or System.get_env, accepting nonempty binary values without whitespace normalization.",
+        "Config returns missing_api_key with environment name; meter probe returns the bare missing_api_key reason.",
+        "Preserve caller error vocabulary and avoid treating nonempty text as verified credentials. No environment values were read for this review."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 88,
+          "module": "Aiur.OpenAICompat.Config",
+          "name": "fetch_api_key",
+          "path": "src/lib/aiur/open_ai_compat/config.ex",
+          "kind": "defp",
+          "end_line": 95,
+          "body_sha256": "57d038f6d78094d843670111423362d1e502fba9b902b93a79a29edb07b51587",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 75,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "fetch_api_key",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 80,
+          "body_sha256": "63ef5f391b27769077cf62c1b9a178a252bb6d4451d3e8a1d145b374ae4ef520",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_blocking",
+      "assessment": "GitHub client already delegates dependency reads to DependenciesApi.",
+      "constraints": [
+        "DependenciesApi forwards issue number, blocking direction and options to dependency_get.",
+        "Keep dependency direction and transport ownership explicit; the facade is not an independent implementation to deduplicate.",
+        "Full pagination, freshness and authorization semantics are transitive and not certified by these two entry points."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 115,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_blocking",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 115,
+          "body_sha256": "2ff83f1a17620bb42dbe6b2017f375ce645671eb8e18b50a3db6e1fbfedd8447",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 33,
+          "module": "Aiur.GitHub.DependenciesApi",
+          "name": "fetch_blocking",
+          "path": "src/lib/aiur/github/dependencies_api.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "9576ff8d9f55f2d4fc896504f3bdd823d33b9971f8e7a758ab5aa20d1de78fb0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_cached",
+      "assessment": "Per-cycle ETS memoization and UI payload caching have distinct freshness triggers.",
+      "constraints": [
+        "CycleFetchCache returns stored result or invokes fetch_and_store; read helper rechecks ETS, fetches and inserts only cacheable results.",
+        "PayloadLoader event mode sorts the event set into a cache key; other modes use zero age for fresh or 400 ms otherwise, falling back to uncached load on exits.",
+        "Preserve result eligibility versus event/age invalidation. Double lookup alone does not establish single-flight concurrency, and cache exit fallback is not proof of fresh provider data."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 49,
+          "module": "Aiur.GitHub.CycleFetchCache",
+          "name": "fetch_cached",
+          "path": "src/lib/aiur/github/cycle_fetch_cache.ex",
+          "kind": "defp",
+          "end_line": 54,
+          "body_sha256": "c32b7fb7c3aa293d15b13d12645156f75343db1bd01e19df57ec899c8a7efca8",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 91,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "fetch_cached",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "kind": "defp",
+          "end_line": 102,
+          "body_sha256": "c2f09762ffebd2f57de5e41e703b0cb57f887caba05ce2029221290a6a5c64f9",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 104,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "fetch_cached",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "kind": "defp",
+          "end_line": 115,
+          "body_sha256": "d1f86f612ad736ecf6d236c248ec2ce7acc2cea3ef66f945aaf6d09ee2c8cab3",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_chunk",
+      "assessment": "Pack lifecycle completeness and CI batch matching have distinct response contracts.",
+      "constraints": [
+        "PackStatus requires repository map and calls complete_lifecycles; read helper checks every requested number appears in the lifecycle map and errors with missing identities otherwise.",
+        "CiPollBatch indexes entries and passes a repository map to match_entries, reporting ci_poll_batch_missing when absent.",
+        "Keep completeness validation and batch-specific error classification with their domain owners; CI match completeness is not independently established by this family read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 375,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "fetch_chunk",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "defp",
+          "end_line": 390,
+          "body_sha256": "ae8d071c57d250bcc1f54ba2be1be93c80fff8687a0663c82111648afbbcf979",
+          "normalized_body_lines": 26,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 194,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "fetch_chunk",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 207,
+          "body_sha256": "9e8e6616b55e30a1bb915294a6b9cc0fb03a6746e89de98c84d432f314fd76bc",
+          "normalized_body_lines": 23,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_commit_ci_status",
+      "assessment": "Client CI status reads already delegate to PullRequests.",
+      "constraints": [
+        "PullRequests rejects empty/nonbinary SHA, resolves repo/token, reads latest check runs and combined commit status, and requires both reads to succeed.",
+        "The result preserves separate check_runs and commit_status fields rather than declaring pass/fail.",
+        "Preserve composite evidence and errors; reading a status map does not prove required checks passed or all requested evidence is current."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 233,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_commit_ci_status",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 233,
+          "body_sha256": "700a0665fa396aed3121d9e9a612d69eeb4ee9e2d8aca9a752e539e94f7d6504",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 363,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_commit_ci_status",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 363,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 365,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_commit_ci_status",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 381,
+          "body_sha256": "7ead37f73b427753d2f5724a0d38ac84fb07d15779fbea917b9e3722d4e7fe96",
+          "normalized_body_lines": 26,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 383,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_commit_ci_status",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 383,
+          "body_sha256": "396e48ac430f79c32800d68bd25fc8cf24e4acb7b0502555307436523e5cd162",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_commit_timestamp",
+      "assessment": "Client delegates timestamp extraction with explicit invalid-SHA errors.",
+      "constraints": [
+        "PullRequests resolves repository/token and fetches commit JSON; success returns ok with commit_timestamp result.",
+        "Read helper: truthy committer date precedes author date; invalid or absent selected date yields nil, without retrying author after malformed committer date.",
+        "Preserve successful fetch with unknown timestamp versus transport failure. An ok tuple is not proof of an observed commit time."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 236,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_commit_timestamp",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 236,
+          "body_sha256": "e60df6c8f1b831d8f22cd2d3f5dd75daf011c382e587cd35c9e5674c42caa77b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 386,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_commit_timestamp",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 386,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 388,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_commit_timestamp",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 399,
+          "body_sha256": "2cfa37456baeda89333c0f2c1428308ec41316be67b065099012356ddb561f2a",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 401,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_commit_timestamp",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 401,
+          "body_sha256": "396e48ac430f79c32800d68bd25fc8cf24e4acb7b0502555307436523e5cd162",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_compare_files",
+      "assessment": "Client delegates comparison fingerprints to PullRequests.",
+      "constraints": [
+        "PullRequests builds a base...head request for nonempty binary refs; successful files list maps to filename/SHA pairs, dropping invalid entries.",
+        "Read compare_file_fingerprint: both fields must be binary; malformed records yield nil. Status and transport failures receive domain error classification.",
+        "Preserve dropped-record and compare-endpoint completeness limits. A returned list alone does not establish complete changed-file population or pagination coverage."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 333,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_compare_files",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 334,
+          "body_sha256": "9d2f8284c90f40b1de0a34cc08c7ad1558b4136f82d5b80631f4fe491daff203",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 44,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_compare_files",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "cd89691f5bc4585a360312dd94e5359b50315cb9ae3f1e4bfdd2b76484ab9476",
+          "normalized_body_lines": 21,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_decision",
+      "assessment": "Canonical decision lookup and GitHub label-provenance evaluation have different meanings.",
+      "constraints": [
+        "DecisionStore fetches from current by ID and returns not_found when absent.",
+        "DispatchAuthorization reads or reuses timeline evidence, stores fetched metadata, and evaluates provenance; fetch errors return deferred while missing token returns ambiguous.",
+        "Preserve unavailable evidence versus negative authorization and local absence. Full timeline sufficiency and token validity are not certified by these entry points."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 1433,
+          "module": "Aiur.DecisionStore",
+          "name": "fetch_decision",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 1438,
+          "body_sha256": "db719b004dc5d36baa273e08485e25f930619accd58f18ae2a31f3babfa2bf20",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 212,
+          "module": "Aiur.GitHub.DispatchAuthorization",
+          "name": "fetch_decision",
+          "path": "src/lib/aiur/github/dispatch_authorization.ex",
+          "kind": "defp",
+          "end_line": 239,
+          "body_sha256": "768e20e36d2f9f8ad54cc6433af380efafef505677dd4cc6a2c51a1afd615f12",
+          "normalized_body_lines": 25,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7911,
-  "limits": "917 selected families and 7911 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7932,
+  "limits": "925 selected families and 7932 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
