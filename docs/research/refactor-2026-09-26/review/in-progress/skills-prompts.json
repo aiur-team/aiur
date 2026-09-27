@@ -2826,6 +2826,52 @@
       "recommendation": "Separate feature description from availability evidence; qualify unreleased drafts or verify the release/deployment state before saying available now.",
       "refactor_hint": "Separate observed state, population coverage, causal inference and release availability in evidence contracts.",
       "limits": "Frozen-source analysis and logical counterexamples only; no issue dataset fetched, trend measured, release checked or announcement published. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-46",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Release tag push and release creation can target different repositories",
+      "locations": [
+        {
+          "path": ".claude/skills/release/SKILL.md",
+          "lines": "47-61"
+        },
+        {
+          "path": ".claude/skills/release/SKILL.md",
+          "lines": "71-79"
+        }
+      ],
+      "description": "The recipe pushes the prepared tag to origin, then creates a release in a fixed canonical repository, expressly to support fork/workspace remotes. It does not verify that the canonical repository has the same tag commit, nor pass --verify-tag or an explicit target. With a fork origin and absent canonical tag, release creation can select a different commit. Re-release deletion repeats the repository split.",
+      "evidence": "Frozen procedure reread and installed gh2.96.0 release create help: absent tags are created from the target default branch; --verify-tag aborts instead. No actual remote tag, release creation or deletion attempted.",
+      "recommendation": "Bind tag push, release creation and any recreation to one verified repository and commit; require the target tag to exist at the prepared revision.",
+      "refactor_hint": "Use a release contract carrying repository, immutable revision, version and separate publication receipts.",
+      "limits": "Frozen source and installed CLI help only; no build, release, tag mutation, workflow dispatch or registry request. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-47",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Release summary claims npm publication before obtaining workflow receipts",
+      "locations": [
+        {
+          "path": ".claude/skills/release/SKILL.md",
+          "lines": "55-69"
+        },
+        {
+          "path": ".github/workflows/release-npm.yml",
+          "lines": "395-397"
+        },
+        {
+          "path": ".github/workflows/release-npm.yml",
+          "lines": "508-569"
+        }
+      ],
+      "description": "After tag push and GitHub release creation, the skill summary reports launcher and platform packages published. Those actions only initiate the release pipeline; publication depends on setup/build/smoke jobs and subsequent package publishing and registry verification. The procedure has no wait, exact-run check or registry receipt before its success statement.",
+      "evidence": "Read publish dependencies, separate package publish commands and bounded registry convergence verification. Workflow code supplies a concrete completion boundary that the recipe does not consume. No actual failed publication or registry status asserted.",
+      "recommendation": "Report triggered/pending immediately, then report published only after the matching tag/commit workflow and all required registry checks succeed.",
+      "refactor_hint": "Use a release contract carrying repository, immutable revision, version and separate publication receipts.",
+      "limits": "Frozen source and installed CLI help only; no build, release, tag mutation, workflow dispatch or registry request. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3251,7 +3297,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidates23/35 reconciled.19 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; release candidate45 fully reconciled.18 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3462,6 +3508,17 @@
       "finding": "skills-prompts-cont-45",
       "reason": "Re-read exact source list and output wording. Draft-only review and the user-supplied-description override limit impact; no false public announcement or remote draft observed.",
       "subconcerns": "Spiral reference explicitly says drafts persist to the user account; persistence is not equivalent to public posting, and the skill expressly authorizes its optional draft path. Legacy auth prefix matching alone does not prove full-secret output; no auth command run or secret-exposure finding promoted."
+    },
+    {
+      "id": "skills-prompts-candidate-45",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-20",
+        "skills-prompts-cont-21",
+        "skills-prompts-cont-46",
+        "skills-prompts-cont-47"
+      ],
+      "reason": "Completed previously partial candidate: version/build findings20-21 retain their evidence; repository split and publication receipt gap now separately verified. No real release attempted."
     }
   ],
   "coverage_validation": {
@@ -3474,8 +3531,8 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 23,
-    "unresolved_candidates": 19,
+    "terminal_dispositions": 24,
+    "unresolved_candidates": 18,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
@@ -3494,7 +3551,6 @@
       "skills-prompts-candidate-41",
       "skills-prompts-candidate-43",
       "skills-prompts-candidate-44",
-      "skills-prompts-candidate-45",
       "skills-prompts-candidate-46"
     ],
     "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."

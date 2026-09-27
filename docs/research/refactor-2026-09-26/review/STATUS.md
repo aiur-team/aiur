@@ -790,3 +790,7 @@ Candidates17/19 promoted: offline merge-state grounding keeps landed claims with
 ### Skills/prompts: sample inference and release availability
 
 Candidates23/35 promoted: issue-state/theme overlap does not prove recurrence or resolution, capped samples do not establish trend coverage, and promotion drafts can turn active/unreleased evidence into available-now wording. Exact-count rules and draft-only review limit but do not remove these inference gaps. Remote draft persistence is explicit and not public posting; auth prefix alone does not prove secret exposure. Findings45 (26P2/19P3);19 listed candidates unresolved. No external calls or production changes.
+
+### Skills/prompts: release target and completion receipts
+
+Completed partial candidate45 with repository-split and premature npm-success findings. Tag push uses origin while release creation uses canonical repo; installed gh2.96.0 help confirms absent-tag auto-creation unless verify-tag is used. Frozen workflow has build/smoke prerequisites and explicit per-package registry verification not awaited by the recipe. Findings47 (28P2/19P3);18 listed candidates unresolved. No release, tag mutation, build or registry request.
