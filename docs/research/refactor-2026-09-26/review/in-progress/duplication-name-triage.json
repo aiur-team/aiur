@@ -106619,10 +106619,430 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "encode_atom",
+      "assessment": "Atom serialization agrees on atoms but has different invalid-input policy.",
+      "constraints": [
+        "Both preserve nil and stringify other atoms.",
+        "ResourceStore maps every nonatom to nil; ProgressRetention has no nonatom fallback in this family.",
+        "Sharing must preserve caller validation or explicitly select error/coercion policy. Identical valid output is not proof that silent nil is acceptable for retained progress."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 2006,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "encode_atom",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 2006,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2007,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "encode_atom",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 2007,
+          "body_sha256": "f9418266f3faac9ec37bdb40b475414e776fd80c62fe32e972df46de691f6015",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2008,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "encode_atom",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 2008,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 300,
+          "module": "Aiur.ProgressRetention",
+          "name": "encode_atom",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 300,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 301,
+          "module": "Aiur.ProgressRetention",
+          "name": "encode_atom",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 301,
+          "body_sha256": "63bb33c65bddc3b802e333c8fe2bf91e110b0c2b0d99813ecfa4ae1386fe9882",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "encode_cells",
+      "assessment": "Aggregate checkpoint and compaction block cell encoders match exactly.",
+      "constraints": [
+        "Both map Key.encode_cell across cells and sort by Erlang term serialization.",
+        "Verified both Key aliases resolve to Aiur.UsageAggregate.Key.",
+        "A shared encoding helper is concrete; preserve ordering and existing cell schema. Sorting encoded values does not independently prove valid input cells, unique dimensions or accounting conservation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 105,
+          "module": "Aiur.UsageAggregate.Checkpoint",
+          "name": "encode_cells",
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 109,
+          "body_sha256": "db5d15de9eb80d9159e2dbb133823bd6215650df08f954a205e9a7e14ecd66a8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 205,
+          "module": "Aiur.UsageCompaction.Block",
+          "name": "encode_cells",
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "kind": "defp",
+          "end_line": 209,
+          "body_sha256": "db5d15de9eb80d9159e2dbb133823bd6215650df08f954a205e9a7e14ecd66a8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "encode_checkpoint",
+      "assessment": "Checkpoint byte encoding and ledger-facing error translation are distinct layers.",
+      "constraints": [
+        "ProgressRetention JSON-encodes its checkpoint record, caps encoded bytes at 4000000, preserves successful content and wraps encode failures.",
+        "UsageLedger.Store calls an injected encoder with the state limit, maps record_too_large to capacity_exhausted and other errors to checkpoint_encode_failed.",
+        "Keep public ledger failure taxonomy separate from serialization detail; encoding success alone is not a persistence receipt, and post-encoding byte limits do not bound intermediate allocation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 254,
+          "module": "Aiur.ProgressRetention",
+          "name": "encode_checkpoint",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 260,
+          "body_sha256": "ec818de9c0184dc937cd5ceadc33ec265851a76ebb7afb5d2aea8b50ec57d2d8",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 226,
+          "module": "Aiur.UsageLedger.Store",
+          "name": "encode_checkpoint",
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "kind": "defp",
+          "end_line": 232,
+          "body_sha256": "4e70468ef9d930e78951fb190f9155ec997162ebe49fc7a00eba1f26490ef455",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "encode_coverage",
+      "assessment": "Coverage serializers match exactly across aggregate and compaction formats.",
+      "constraints": [
+        "Both retain folded_records and partial_records and emit sorted atom-string reasons from a MapSet.",
+        "A shared projection is plausible alongside cell encoding while retaining each surrounding format/version.",
+        "This encoder performs no count-bound or partial-versus-folded invariant validation itself; schema validation and actual source completeness cannot be inferred from serialized coverage."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 122,
+          "module": "Aiur.UsageAggregate.Checkpoint",
+          "name": "encode_coverage",
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 128,
+          "body_sha256": "c2f133af715fa2c026f14a055d7ce3ad74133ba032ba4514136c1f147ef82722",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 247,
+          "module": "Aiur.UsageCompaction.Block",
+          "name": "encode_coverage",
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "kind": "defp",
+          "end_line": 253,
+          "body_sha256": "c2f133af715fa2c026f14a055d7ce3ad74133ba032ba4514136c1f147ef82722",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "encode_entry",
+      "assessment": "Generic resource checkpoint accumulation and PR readiness sum-type encoding are different contracts.",
+      "constraints": [
+        "ResourceStore encodes a key, logs and omits it on nil, otherwise inserts encoded fields into the accumulator.",
+        "PRReadyLedgerStore encodes draft, never_draft, announced head and history_failed retry time with distinct state tags.",
+        "Preserve attributable omission versus typed readiness history. No production invalid-key population or complete restart recovery is established here."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 1947,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "encode_entry",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 1961,
+          "body_sha256": "2cf2439a79a782dbf28776e0b74f54f8dd5b9b14f7bd6988e446ec08a2e7cea0",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 88,
+          "module": "Aiur.PrReadyLedgerStore",
+          "name": "encode_entry",
+          "path": "src/lib/aiur/pr_ready_ledger_store.ex",
+          "kind": "defp",
+          "end_line": 88,
+          "body_sha256": "2acfbe14a28be89d96afd2521c8b076c3914f8ac73efaa352576cc6ed573712e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 89,
+          "module": "Aiur.PrReadyLedgerStore",
+          "name": "encode_entry",
+          "path": "src/lib/aiur/pr_ready_ledger_store.ex",
+          "kind": "defp",
+          "end_line": 89,
+          "body_sha256": "76715bfc7ef1bf7eecdd1e9e6c7675e402e132e2502ae5cecbed46adfb53445a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 90,
+          "module": "Aiur.PrReadyLedgerStore",
+          "name": "encode_entry",
+          "path": "src/lib/aiur/pr_ready_ledger_store.ex",
+          "kind": "defp",
+          "end_line": 90,
+          "body_sha256": "f86553f1fbb7d977f8b60d2a75dad04e95e1ed6055054db2f2010e3a01daf8a3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Aiur.PrReadyLedgerStore",
+          "name": "encode_entry",
+          "path": "src/lib/aiur/pr_ready_ledger_store.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "db2fe7bca44b5042f91f1f9123331a81c65466e01f711baa2f4a3bcc5e54bd99",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "encode_key",
+      "assessment": "Resource wire keys and opaque counter identities use different schemas.",
+      "constraints": [
+        "ResourceStore accepts a four-tuple with atom type and binary owner/repo/id, requires membership in resource_types and rejects any pipe delimiter in concatenated components; other shapes yield nil.",
+        "CounterPolicy serializes the whole identity as an Erlang term and emits URL-safe base64 without padding.",
+        "Do not substitute one encoding for the other without migration and decoder compatibility. Base64 is encoding, not privacy protection or identity validation."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 2029,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "encode_key",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 2035,
+          "body_sha256": "680cdf283a87d27a018eb040014235a40eb8f3a5d07acc9bc0ec940d057dc5ba",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2037,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "encode_key",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 2037,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 161,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "encode_key",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 161,
+          "body_sha256": "01d3b6a8d03f87103b0c07df24b802ccfa08977bfeb16750e8cfa81b56528ca9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "encode_records",
+      "assessment": "Takeover records and telemetry sequencing are different persistence responsibilities.",
+      "constraints": [
+        "TakeoverAlert.Store maps identifier-keyed records through explicit timestamp/dispatch/owner/PR projection; read its encode_record helper.",
+        "Telemetry.Writer allocates sequence per record, applies writer-restart marking, normalizes time and kind, builds boot/sequence identity and JSON-normalizes/encodes each envelope into ordered newline bytes.",
+        "Read sequence and restart helpers: shared sequence or local increment is selected by state; only qualifying shared restart events are relabeled. Constructed IDs and bytes do not establish durable write, gaplessness or daemon restart identity."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 302,
+          "module": "Aiur.Executor.TakeoverAlert.Store",
+          "name": "encode_records",
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "kind": "defp",
+          "end_line": 304,
+          "body_sha256": "088a1f95c68e30771d35f7a5f58c88c7a7b401bb222604dcf1aa5fb2e205b733",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 479,
+          "module": "Aiur.RunTelemetry.Writer",
+          "name": "encode_records",
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "kind": "defp",
+          "end_line": 508,
+          "body_sha256": "3f7455401fde33384fb559a20b9ffde29150179ee55264b5e2be8e34f44a1251",
+          "normalized_body_lines": 33,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "endpoint_family",
+      "assessment": "Budget request classification already delegates URL policy to EndpointPolicy.",
+      "constraints": [
+        "Budget extracts a binary url and delegates; missing or invalid request shape falls back to rest.",
+        "EndpointPolicy classifies exact rate_limit/graphql, search prefix and repository path segment, with rest fallback including nonbinary input.",
+        "Verified shared alias. Preserve request adaptation versus endpoint policy; fallback classification is not proof of actual upstream resource cost or observed usage."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 320,
+          "module": "Aiur.GitHub.Budget",
+          "name": "endpoint_family",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "def",
+          "end_line": 320,
+          "body_sha256": "8b31bc0cb5171b796b6a2d91b32644eadbd35c63d8f74963e1c3f74263379f85",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 321,
+          "module": "Aiur.GitHub.Budget",
+          "name": "endpoint_family",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "def",
+          "end_line": 321,
+          "body_sha256": "7a37bd53268ae65e69c7f2c778bb5b0078f33c1de44c5d58d6b1b8afbb281bb2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 50,
+          "module": "Aiur.GitHub.EndpointPolicy",
+          "name": "endpoint_family",
+          "path": "src/lib/aiur/github/endpoint_policy.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "9be3b217ee27c37e12038730e155ada963c60667b11812e50da0cdb2befbb4de",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 65,
+          "module": "Aiur.GitHub.EndpointPolicy",
+          "name": "endpoint_family",
+          "path": "src/lib/aiur/github/endpoint_policy.ex",
+          "kind": "def",
+          "end_line": 65,
+          "body_sha256": "7a37bd53268ae65e69c7f2c778bb5b0078f33c1de44c5d58d6b1b8afbb281bb2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7760,
-  "limits": "869 selected families and 7760 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7785,
+  "limits": "877 selected families and 7785 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

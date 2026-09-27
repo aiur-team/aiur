@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "3c70b9968c338c3b41e24e5ac2fc653efdf713c8b24677aadceadb18891c739e"
+    "name_triage": "1a83b3482d4f41b8e473254ff4f76b6a5b15d4d08833c9a95977644c76e71f78"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 869,
-    "remaining_cross_module_names": 811,
-    "remaining_literal_entries": 2508
+    "reviewed_cross_module_names": 877,
+    "remaining_cross_module_names": 803,
+    "remaining_literal_entries": 2483
   },
   "families": [
-    {
-      "name": "encode_atom",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "encode_cells",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "encode_checkpoint",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "encode_coverage",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "encode_entry",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "encode_key",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "encode_records",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 33
-    },
-    {
-      "name": "endpoint_family",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 17
-    },
     {
       "name": "endpoint_label",
       "clauses": 5,
