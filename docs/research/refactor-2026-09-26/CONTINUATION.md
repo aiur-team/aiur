@@ -797,3 +797,17 @@ System.cmd output-size check does not establish bounded capture allocation. The
 OpenAICompat counter-array slot count is not a concurrency cap. No live performance,
 filesystem atomicity or external-service guarantees were inferred from source
 comments. Hash checks passed; no production changes. Broader sweeps remain open.
+
+## Numeric cadence and conversion checkpoint
+
+133 of 162 attribute groups assessed; 29 numeric groups remain. Twelve groups
+cover timing relationships, binary units, pagination, pricing units and defaults.
+Legacy pagination admission bounds and per-million pricing units are separate
+shared contracts despite equal numbers. Schema/Budget defaults should be shared
+per field, not across independent Core/GraphQL/search dimensions.
+
+Related stream inactivity safeguards observe different timestamps and perform
+different actions. SnapshotStore already uses PollCadence; preserve default,
+floor and derived-formula semantics. DeliveryLog's 512-byte prefix plus digest
+is not a 512-byte stored-key maximum. Port line framing is not a total response
+size bound. Hashes checked; no production changes or live timing claims.
