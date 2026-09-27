@@ -67517,10 +67517,522 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "backoff_ms",
+      "assessment": "Retry delays encode distinct classification, reset and jitter policies.",
+      "constraints": [
+        "Connectivity escalates auth failures, uses local-hold reset delay when available, treats unclassified errors with a base delay and prioritizes rate-limit reset, retry-after, poll interval then exponential fallback.",
+        "LocalHold computes capped exponential delay then adds jitter, so max_wait_ms bounds the pre-jitter value rather than necessarily the returned delay.",
+        "AutoResume selects from a bounded schedule by positive attempt number. GithubBudgetPause returns zero for the first generation then capped exponential delay.",
+        "Share arithmetic only with explicit attempt origin, classification and cap/jitter ordering. These bodies do not prove scheduler timing or a retry-rate saving."
+      ],
+      "clauses": 8,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 166,
+          "module": "Aiur.GitHub.Connectivity",
+          "name": "backoff_ms",
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "kind": "def",
+          "end_line": 166,
+          "body_sha256": "590da597bdf3a7f520f92bf73055d94ff39a5c2b54f1b826dee051600c4d18fd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 168,
+          "module": "Aiur.GitHub.Connectivity",
+          "name": "backoff_ms",
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "kind": "def",
+          "end_line": 173,
+          "body_sha256": "8181398b6fb39f9ce6c980485de73f9cefe316c456a5e80341cc10e19ebf9b41",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 175,
+          "module": "Aiur.GitHub.Connectivity",
+          "name": "backoff_ms",
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "kind": "def",
+          "end_line": 175,
+          "body_sha256": "95d37cbfe72a369d8126299288ed87a01a05e2d264aa96c11b2a5745cbc133c6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 177,
+          "module": "Aiur.GitHub.Connectivity",
+          "name": "backoff_ms",
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "kind": "def",
+          "end_line": 191,
+          "body_sha256": "b41ebc9cf16f47a58bcb6a3b8622fc994de3e0649b8695d39623bdc3c08da0bd",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 193,
+          "module": "Aiur.GitHub.Connectivity",
+          "name": "backoff_ms",
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "kind": "def",
+          "end_line": 193,
+          "body_sha256": "1195876deab4e7bc323544107251a231670f0039c58455d4d1f9e8ce3480db33",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 260,
+          "module": "Aiur.GitHub.LocalHold",
+          "name": "backoff_ms",
+          "path": "src/lib/aiur/github/local_hold.ex",
+          "kind": "defp",
+          "end_line": 263,
+          "body_sha256": "04d124d27dac0a869ab7d61451dd519d706cec83169b7b2395e778993a132a30",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 37,
+          "module": "Aiur.Orchestrator.AutoResume",
+          "name": "backoff_ms",
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "kind": "def",
+          "end_line": 42,
+          "body_sha256": "09f4d11cabaeac46ed4ab11f3108671af88bda6b890070cdd326a7b5b94c3c1c",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 101,
+          "module": "Aiur.Orchestrator.GithubBudgetPause",
+          "name": "backoff_ms",
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "kind": "def",
+          "end_line": 107,
+          "body_sha256": "d6c71d3712acbf51b0da34c9b2a081b45cfe9d664cfca7ca3a3e86f681fdd8c9",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bind",
+      "assessment": "Provider binding is already layered through validation and lifecycle ownership.",
+      "constraints": [
+        "ProviderAccountGeneration delegates default-owner binding to a transition. State validates the transition before invoking Lifecycle, otherwise returning unavailable without changing state.",
+        "Lifecycle keeps an existing generation when same-binding continuity is validated, otherwise replaces the known binding as rotated or binds a new entry.",
+        "OpenAICompat.AccountGeneration obtains context/provider/source and recovers before binding, but ignores the bind result and returns :ok even when the with chain does not reach binding.",
+        "Preserve authority, continuity and rotation policy; wrapper success is not proof a generation binding was established. This read does not prove recovery correctness or caller handling of unavailable bindings."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 26,
+          "module": "Aiur.OpenAICompat.AccountGeneration",
+          "name": "bind",
+          "path": "src/lib/aiur/open_ai_compat/account_generation.ex",
+          "kind": "def",
+          "end_line": 40,
+          "body_sha256": "d40ca88bcad5d8f84c60c156398b5c48a27e390de0402b0b4edb8e6b783d0ec0",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 66,
+          "module": "Aiur.ProviderAccountGeneration",
+          "name": "bind",
+          "path": "src/lib/aiur/provider_account_generation.ex",
+          "kind": "def",
+          "end_line": 66,
+          "body_sha256": "02a312a62c494a0ff2bbe2a0bf8b9a2c89cd083eedd478a3c1fbcf3c0b7ac7a9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 69,
+          "module": "Aiur.ProviderAccountGeneration",
+          "name": "bind",
+          "path": "src/lib/aiur/provider_account_generation.ex",
+          "kind": "def",
+          "end_line": 69,
+          "body_sha256": "0107d374a5965ca8df38debe7fb3288a275d08b840bfdea9c045fdf485061c69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 7,
+          "module": "Aiur.ProviderAccountGeneration.Lifecycle",
+          "name": "bind",
+          "path": "src/lib/aiur/provider_account_generation/lifecycle.ex",
+          "kind": "def",
+          "end_line": 19,
+          "body_sha256": "15fce991e09e26fe9ec918c1b52c485021cffd5d17b24413d59f17c01deb91cf",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 43,
+          "module": "Aiur.ProviderAccountGeneration.State",
+          "name": "bind",
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "kind": "def",
+          "end_line": 45,
+          "body_sha256": "7ddc6b90d1f7d096c37a2aeec407c434b85b7f6f3c712be9655e8d68f9022b34",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bounded",
+      "assessment": "Three numeric guards share the same range but domain errors differ from presentation bounds.",
+      "constraints": [
+        "UsageAggregate.Checkpoint, UsageCompaction.Block and Manifest accept integers from zero through 18,446,744,073,709,551,615. Read Block/Manifest max_integer attributes to verify the identical upper bound.",
+        "Their failures retain invalid_checkpoint, invalid_block or invalid_manifest respectively. A common unsigned-64 validator can preserve error provenance through an explicit parameter or domain adapter.",
+        "CurrentRunOutcomesPresenter instead trims binary text, returns nil when blank and slices by a supplied limit. Numeric validation and text presentation must remain distinct contracts."
+      ],
+      "clauses": 8,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 167,
+          "module": "Aiur.UsageAggregate.Checkpoint",
+          "name": "bounded",
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 167,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 168,
+          "module": "Aiur.UsageAggregate.Checkpoint",
+          "name": "bounded",
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 168,
+          "body_sha256": "6cd382f4f9fb9570f8bb8b5cc365f4c1570871bc45f911a8b94bc404a3369b7d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 302,
+          "module": "Aiur.UsageCompaction.Block",
+          "name": "bounded",
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "kind": "defp",
+          "end_line": 302,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 303,
+          "module": "Aiur.UsageCompaction.Block",
+          "name": "bounded",
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "kind": "defp",
+          "end_line": 303,
+          "body_sha256": "56a842cb9fd67682583c9d17030a2f1e0127a13a9c4f1a645f1766e2d8d7ce5c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 316,
+          "module": "Aiur.UsageCompaction.Manifest",
+          "name": "bounded",
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "kind": "defp",
+          "end_line": 316,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 317,
+          "module": "Aiur.UsageCompaction.Manifest",
+          "name": "bounded",
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "kind": "defp",
+          "end_line": 317,
+          "body_sha256": "14863e1da1a153155f7a3a5ce326eb2a8167e1f2cc771734a70b425306b5d047",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 324,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter",
+          "name": "bounded",
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "kind": "defp",
+          "end_line": 327,
+          "body_sha256": "8205718d29fc659cacda06c6e9d7e6c949f1f8668335c8bc77084d7f4cedc597",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 329,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter",
+          "name": "bounded",
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "kind": "defp",
+          "end_line": 329,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "broadcast_changed",
+      "assessment": "Change broadcasts share transport but carry different invalidation and evidence payloads.",
+      "constraints": [
+        "PackStatus conditionally broadcasts health when PubSub exists and returns :ok. CurrentRunMembership distinguishes membership events from health-only changes and includes run/generation/health/freshness through its payload helper.",
+        "DecisionPubSub delegates a typed decision-id/version change to its broadcaster. TicketActivity carries generation, identity, optional snapshot and retention information.",
+        "Preserve event vocabulary, identity and health-only signals; these are consumers of shared PubSub rather than equivalent domain notifications. A returned :ok when PubSub is absent does not establish delivery."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 226,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "broadcast_changed",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "defp",
+          "end_line": 232,
+          "body_sha256": "33e7b7f3f53f2be8065736df2db9d51255bd4c839bfe53d536acf810d2000917",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 67,
+          "module": "Aiur.CurrentRunMembership",
+          "name": "broadcast_changed",
+          "path": "src/lib/aiur/current_run_membership.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "db33b9a3986a128b061d8d1c054f2ea4dc70b0398a0ca403c682036acddc0af6",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 55,
+          "module": "Aiur.DecisionPubSub",
+          "name": "broadcast_changed",
+          "path": "src/lib/aiur/decision_pubsub.ex",
+          "kind": "def",
+          "end_line": 57,
+          "body_sha256": "e14df5eb6c26761efcc6cff8637097752e6b85ed86e740c7bcf9d00daa157093",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 215,
+          "module": "Aiur.TicketActivity",
+          "name": "broadcast_changed",
+          "path": "src/lib/aiur/ticket_activity.ex",
+          "kind": "defp",
+          "end_line": 236,
+          "body_sha256": "5def81fc059078416405eb14799793e50b5bce20643f4075151ef3dd8cb28751",
+          "normalized_body_lines": 24,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bump",
+      "assessment": "Two conditional counters are identical; other bump methods have different state ownership.",
+      "constraints": [
+        "GroupedScopes and UsageAggregate.Query identically increment an existing map key only when the boolean condition is true, otherwise retaining the accumulator. Map.update! requires the key to exist.",
+        "ReadCache.Metrics increments each provided metric key through its counter helper. SlotPolicy casts bump to its owner and catches exits to :ok.",
+        "A shared pure conditional increment is a candidate, but preserve preexisting-key assumptions and do not collapse owner requests into locally completed counter updates."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 260,
+          "module": "Aiur.GitHub.ReadCache.Metrics",
+          "name": "bump",
+          "path": "src/lib/aiur/github/read_cache/metrics.ex",
+          "kind": "defp",
+          "end_line": 262,
+          "body_sha256": "82e941203a480000f258e8d0ddc507ee8e2fd54458379e1b13c492d478d257e4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 76,
+          "module": "Aiur.Opencode.SlotPolicy",
+          "name": "bump",
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "kind": "def",
+          "end_line": 80,
+          "body_sha256": "b199795bdaf2a50d0f020570ed6ba37124f44ad168d1da842d45c284503902ee",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 457,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "bump",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 457,
+          "body_sha256": "f28772386d6503ab2bb08e1f9303debb4f107e008290b25051ea1e690b4b7134",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 458,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "bump",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 458,
+          "body_sha256": "729be935b1b480999a33bfec07ea88256b66592e737f23a25a6324f82e6ae21a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 186,
+          "module": "Aiur.UsageAggregate.Query",
+          "name": "bump",
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "kind": "defp",
+          "end_line": 186,
+          "body_sha256": "f28772386d6503ab2bb08e1f9303debb4f107e008290b25051ea1e690b4b7134",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 187,
+          "module": "Aiur.UsageAggregate.Query",
+          "name": "bump",
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "kind": "defp",
+          "end_line": 187,
+          "body_sha256": "729be935b1b480999a33bfec07ea88256b66592e737f23a25a6324f82e6ae21a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "close_port",
+      "assessment": "Port cleanup differs in draining, result and exception scope.",
+      "constraints": [
+        "Git calls Port.close and rescues all exceptions to :ok. Opencode.Server also closes directly but explicitly returns :ok and only rescues ArgumentError.",
+        "BoundedGlob checks Port.info before closing and rescues ArgumentError. ModelCatalog checks the port and then invokes flush_port on both success and ArgumentError paths.",
+        "Preserve pending-message draining and error/return contracts when sharing close mechanics. The presence of a flush call is not proof of complete process cleanup, and the caller's port ownership remains outside this family read."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 124,
+          "module": "Aiur.Git",
+          "name": "close_port",
+          "path": "src/lib/aiur/git.ex",
+          "kind": "defp",
+          "end_line": 128,
+          "body_sha256": "609238ff0e2392a02d1a9f65adc89d9846f838100f7a893e35e88084333ba7bd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 170,
+          "module": "Aiur.ModelCatalog",
+          "name": "close_port",
+          "path": "src/lib/aiur/model_catalog.ex",
+          "kind": "defp",
+          "end_line": 175,
+          "body_sha256": "944f9186c54a5035bfeba620f0c48f192f2914693bd8d62aff706421afd1822a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 80,
+          "module": "Aiur.OpenAICompat.BoundedGlob",
+          "name": "close_port",
+          "path": "src/lib/aiur/open_ai_compat/bounded_glob.ex",
+          "kind": "defp",
+          "end_line": 84,
+          "body_sha256": "306255517fc541548d00ab10c3c8b3e575f42ce6edebe18d009789809dfc91c2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 200,
+          "module": "Aiur.Opencode.Server",
+          "name": "close_port",
+          "path": "src/lib/aiur/opencode/server.ex",
+          "kind": "defp",
+          "end_line": 205,
+          "body_sha256": "b305ec4e974cf9571a8a8192223ee0f2f267dea149a2c4ba16210865a5b59a3a",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5254,
-  "limits": "283 selected families and 5254 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5289,
+  "limits": "289 selected families and 5289 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
