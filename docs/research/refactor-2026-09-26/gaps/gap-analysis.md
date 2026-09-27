@@ -355,24 +355,32 @@ so that the multi-day stretches do not hide the daily cycle:
 * Run-log era: the curve is flatter (15–34 %). The highest values are at 16:00, 13:00, 00:00 and 10:00 PDT (30–34 %), which fits Executor attention moving between repos rather than sleep.
 * Gap starts are spread over all 24 hours. The busiest start hours are 09:00, 15:00 and 20:00 PDT (8–9 starts each).
 
-**Executor session boundaries.** For each boundary type: the share of the 108 gaps (≥ 30 min) that
-start within 30 min after that boundary, against the share of active-run time that lies within 30
-min after one (the base rate).
+**Executor session boundaries (verified sensitivity check).** The corrected
+association test requires the boundary to precede the gap by at most 30 minutes.
+The inherited test also accepted a boundary up to one minute after the gap
+started, which increased the silence count from 19 to 22. Baselines below are
+approximate, reconstructed from retained active intervals rounded to minutes.
 
-| Boundary | Events | Gaps starting ≤ 30 min after | Base rate | Lift |
+| Boundary | Events | Gaps starting ≤30 min after | Approx. pooled base | Approx. pooled lift |
 |---|---:|---:|---:|---:|
-| Executor goes silent (≥ 30 min with no Executor activity) | 139 | 22 (20.4 %) | 8.7 % | **2.3×** |
-| Claude Code session limit hit (`You've hit your session limit`) | 11 | 6 (5.6 %) | 0.8 % | **7×** |
-| Executor session ends | 144 | 8 (7.4 %) | 3.7 % | 2.0× |
-| Context compaction (`compact_boundary`) | 34 | 1 (0.9 %) | 1.3 % | none |
-| Handoff document written | 87 | 4 (3.7 %) | 4.0 % | none |
-| Session start | 144 | 3 (2.8 %) | 2.7 % | none |
+| Global Executor activity silence ≥30 min | 139 | 19/108 (17.6%) | 8.72% | 2.02× |
+| Recorded session-limit window begins | 11 | 6/108 (5.6%) | 0.82% | 6.76× |
+| Executor session ends | 144 | 8/108 (7.4%) | 3.70% | 2.00× |
+| Compaction boundary | 17 | 1/108 (0.9%) | 1.30% | 0.71× |
+| Handoff document timestamp | 87 | 4/108 (3.7%) | 4.02% | 0.92× |
+| Session start | 144 | 3/108 (2.8%) | 2.73% | 1.02× |
 
-Compaction and handoffs do not predict gaps. Executor silence and session-limit hits do.
+The old count of 34 compactions combined 17 boundary records with their 17
+summary records. Only three of the six limit-associated gap starts follow a
+limit window recorded for the same repository. Shared-account limits might
+cross repository boundaries, but the study does not establish that mapping.
+These are pooled associations, not causal effects or evidence that continuity
+failures are absent. Silence and progress also share activity inputs. See the
+[boundary verdict](../synthesis/verdicts/claims-gaps-boundaries.json).
 
 **Rate and usage limits.**
 * *Executor session limits*: the retained model reports 25.5 h across 11 windows,
-  with 13.6 h overlapping gaps (full correlation verification remains open).
+  with 13.6197 h overlapping gaps; the boundary check reproduces these durations.
   Architecture-docs has 63 assistant limit responses on September 3 from
   19:05:58Z to 22:07:45Z, and a user reset message at 23:52:34Z. Repeated errors
   until that reset are not established. Its observed cursor is 352, with
@@ -411,11 +419,12 @@ attended idle time is mostly (c) and (e): the human is there, working on another
    09-25).
 2. **Daemon liveness has no owner.** A host crash stopped three daemons for 51 h, and nothing restarted
    them or told anyone. Two of them are still down.
-3. **Executor presence is intermittent, and gaps follow its silences** (2.3× lift) and its session-limit
-   hits (7×), pending the full correlation check. The 1,529 architecture-docs
-   records above its shared cursor are unacknowledged through that path, not
-   necessarily unseen. Evaluate viewing, acknowledgement and action completion
-   separately.
+3. **Measure recovery from Executor inactivity and limits.** The strict pooled
+   associations are about 2.0× for silence and 6.8× for recorded limit windows,
+   with shared-input and cross-repository confounding. They do not establish
+   causal shares or rule out continuity failures. The 1,529 architecture-docs
+   records above its cursor are unacknowledged, not necessarily unseen; track
+   observation, acknowledgement and action completion separately.
 4. **Signal hygiene.** 906 unacknowledged `capacity.starved` wakes, 42 % human-review label churn, and a
    starvation alert with known false alarms (#2447) all make real stalls harder to see.
 5. **The August dispatch defect (#2237) is fixed.** Run-log-era infrastructure time is 1.6 %, so the

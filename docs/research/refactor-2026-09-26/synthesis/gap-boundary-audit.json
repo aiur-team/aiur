@@ -1,0 +1,80 @@
+{
+  "scope": "Retained historical model, aggregates only; private sources contribute counts (private). This is association/sensitivity analysis, not causal inference.",
+  "boundary_results": {
+    "compact_boundary": {
+      "boundary_records": 17,
+      "historical_tolerant_gap_hits": 1,
+      "strict_preceding_gap_hits": 1,
+      "gap_count": 108,
+      "approximate_base_rate_from_minute_rounded_active_bounds": 0.012982482459959192,
+      "approximate_strict_lift": 0.7132117673038908
+    },
+    "compact_summary": {
+      "boundary_records": 17,
+      "historical_tolerant_gap_hits": 1,
+      "strict_preceding_gap_hits": 1,
+      "gap_count": 108,
+      "approximate_base_rate_from_minute_rounded_active_bounds": 0.012982472643254037,
+      "approximate_strict_lift": 0.7132123065994337
+    },
+    "compaction_record_union": {
+      "boundary_records": 34,
+      "historical_tolerant_gap_hits": 1,
+      "strict_preceding_gap_hits": 1,
+      "gap_count": 108,
+      "approximate_base_rate_from_minute_rounded_active_bounds": 0.012983904143372397,
+      "approximate_strict_lift": 0.7131336735865865
+    },
+    "exec_session_limit": {
+      "boundary_records": 11,
+      "historical_tolerant_gap_hits": 6,
+      "strict_preceding_gap_hits": 6,
+      "gap_count": 108,
+      "approximate_base_rate_from_minute_rounded_active_bounds": 0.008214929117963,
+      "approximate_strict_lift": 6.7627553150855775
+    },
+    "executor_silence_start": {
+      "boundary_records": 139,
+      "historical_tolerant_gap_hits": 22,
+      "strict_preceding_gap_hits": 19,
+      "gap_count": 108,
+      "approximate_base_rate_from_minute_rounded_active_bounds": 0.08722390645300997,
+      "approximate_strict_lift": 2.016946191474493
+    },
+    "handoff": {
+      "boundary_records": 87,
+      "historical_tolerant_gap_hits": 4,
+      "strict_preceding_gap_hits": 4,
+      "gap_count": 108,
+      "approximate_base_rate_from_minute_rounded_active_bounds": 0.04024166305760069,
+      "approximate_strict_lift": 0.9203654676006642
+    },
+    "session_end": {
+      "boundary_records": 144,
+      "historical_tolerant_gap_hits": 8,
+      "strict_preceding_gap_hits": 8,
+      "gap_count": 108,
+      "approximate_base_rate_from_minute_rounded_active_bounds": 0.037021151725220545,
+      "approximate_strict_lift": 2.0008581749122443
+    },
+    "session_start": {
+      "boundary_records": 144,
+      "historical_tolerant_gap_hits": 3,
+      "strict_preceding_gap_hits": 3,
+      "gap_count": 108,
+      "approximate_base_rate_from_minute_rounded_active_bounds": 0.02731760877714161,
+      "approximate_strict_lift": 1.0168451420616733
+    }
+  },
+  "strict_same_repository_session_limit_gap_hits": 3,
+  "session_limit_window_count": 11,
+  "session_limit_window_hours": 25.46603722208076,
+  "session_limit_gap_overlap_hours": 13.619665810532041,
+  "limitations": [
+    "Baseline active bounds are persisted at minute precision; exact raw uptime has not been reconstructed.",
+    "The historical boundary association pools events across repositories and uses a globally pooled activity silence signal.",
+    "Compaction summaries and boundaries are separate record kinds, not independent interventions.",
+    "Executor control calls also count as progress; silence and gap definitions share input evidence.",
+    "No uncertainty interval or independent experiment establishes a causal effect; absence of observed lift does not establish absence of harm."
+  ]
+}

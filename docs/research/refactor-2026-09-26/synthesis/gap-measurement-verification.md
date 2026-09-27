@@ -133,3 +133,19 @@ Validation compared string and block-list transcript content against an
 independent probe and correlated the later wake-file call with its successful
 result. No cursor, ownership, acknowledgement or retention state was changed.
 Whether out-of-band escalation succeeded during this incident remains open.
+
+## Session-boundary association checked
+
+Claim gaps-08 is checked in `verdicts/claims-gaps-boundaries.json` using
+`gap-boundary-audit.json`. All historical tolerant hit counts and rounded
+baselines reproduce. The strict preceding-boundary test reduces silence hits
+from 22 to 19; 34 compaction records are 17 boundary/summary pairs. Only three
+of six pooled limit matches use a limit window recorded for the same repository.
+The updated source report presents these sensitivities and withdraws causal
+or no-harm conclusions about silence, limits, handoff and compaction.
+
+Reproduction: `python3 tooling/gap_boundary_audit.py "$LOCAL_GAP_SCRATCH"
+"$LOCAL_REPO_STATE"` on one command line. Baseline active intervals are retained
+at minute precision, so computed lifts are explicitly approximate. A fresh run
+reproduced the saved audit, including 11 limit windows totaling 25.4660 h and
+13.6197 h overlapping gaps. Raw inputs and private chronology remain local.

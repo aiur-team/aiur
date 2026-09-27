@@ -80,6 +80,15 @@ reads, bounded retention/overflow reporting and stalled-consumer status.
 Metadata-only evidence and a reproduction tool are published. Action completion
 and escalation must be evaluated separately; no consumer state was changed.
 
+## Session-boundary checkpoint
+
+Claim gaps-08 is checked, bringing both-lens coverage to 47/60. The inherited
+34 compaction records are 17 boundary/summary pairs. Requiring a boundary to
+precede the gap lowers silence-associated starts from 22 to 19; only three of
+six pooled session-limit matches are same-repository matches. The study remains
+observational with shared-input and cross-repository confounding. The independent
+boundary audit reproduces limit durations and emits aggregates only.
+
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.
