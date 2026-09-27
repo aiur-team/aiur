@@ -742,3 +742,7 @@ Read ten complete sweep markdown files; coverage 233/250 files, 34,022/36,169 li
 ### Skills/prompts: browser evidence and worker integration
 
 Read eleven complete browser/Xcode/work markdown files; coverage 244/250 files, 35,669/36,169 lines. Replaced truncated work read with complete bounded ranges. Added provisional P2 worker-commit/integration contradiction, extended server identity question and recorded capability, tracker-retry and UI-verification follow-ups. Preserve real interaction evidence, explicit unknowns, actual-tree integration and test provenance. All 244 hashes/line counts verified. No browser, simulator, worker, tracker or production mutation. Raw units remain28/32; six markdown files remain before candidate reconciliation.
+
+### Skills/prompts: full manifest read coverage
+
+Finished final six markdown files, including complete tracker-defer diff against reviewed counterpart. All250 planned paths /36,169 lines now covered; exact manifest-set equality, unique paths, hashes and line counts verified. Added release-receipt and LFG-completion contract questions; narrowed recording privacy candidate for explicitly guarded sensitive sweep path. Review unit stays open: 42 candidates and19 provisional findings require reconciliation/dedup. No release, build, design import, worktree or production action. Overall raw units remain28/32; next candidate reconciliation.

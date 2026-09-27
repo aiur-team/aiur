@@ -1712,6 +1712,48 @@
       "lines": 165,
       "read": "full",
       "assessment": "Full read. Preserve actual design/render comparison and project conventions. Unconditional full-width/no-overflow and fixed Tailwind assumptions are not universally behavior-preserving; pixel-perfect versus 2-4px substitution tension. Hardwired browser differs from general driver policy; inspect caller applicability. No design API or UI change."
+    },
+    {
+      "path": ".claude/skills/ce-worktree/SKILL.md",
+      "sha256": "5537c924ef408f8fcdf2b579168902807294e2059b3be4b0c637811e91b6fa8c",
+      "lines": 86,
+      "read": "full",
+      "assessment": "Full read. Preserve resolved git-directory comparison, existing isolation detection, single-checkout branch rule and explicit isolation-failure handling. PR ref fetch creates local branch without upstream while gh checkout alternative handles tracking; verify intended push destination. Existing-isolation branch switch still needs dirty ownership guard. No worktree created."
+    },
+    {
+      "path": ".claude/skills/design-import/SKILL.md",
+      "sha256": "f29f1bb75e5ad50b49921efe0ca54271f2932b805cb3aa507a53b1ca60800fe9",
+      "lines": 44,
+      "read": "full",
+      "assessment": "Full read. Preserve disk-first bounded payload retrieval, source hash/size checks, ignored artifacts, no repeat overflowing call and complete-range assembly. Hash proves identity not source completeness; metadata/source-size evidence needed where available. No CLI or design service invoked."
+    },
+    {
+      "path": ".claude/skills/lfg/SKILL.md",
+      "sha256": "f21d7aaa47e38463931e5c3aa89e0b27261e89385aee0dc6350be256ef4ff53c",
+      "lines": 87,
+      "read": "full",
+      "assessment": "Full read. Preserve explicit autonomous invocation, readiness gate, caller-owned tail, verification evidence retry, immutable settled decisions and durable residuals. Branch-local no-remote path uses git add -A unlike selective staging elsewhere. Step2 demands new modified files despite worker idempotency; final DONE permits CI residuals despite green description. Scope these as workflow reconciliation questions, not observed faulty shipment."
+    },
+    {
+      "path": ".claude/skills/lfg/references/review-followup.md",
+      "sha256": "d1892776ab628f6172a1eec66bb25647f5697e58ae3f28380b91e328302d26d3",
+      "lines": 44,
+      "read": "full",
+      "assessment": "Full read. Preserve mechanical/confidence gate, code-evidence recheck, durable commits and no-remote behavior. Review-file staging can include earlier uncommitted edits in same file; actual diff ownership remains necessary. This stricter LFG gate need not equal standalone work policy."
+    },
+    {
+      "path": ".claude/skills/lfg/references/tracker-defer.md",
+      "sha256": "d9420240e49fbaae1045d963824678aec2f2aecc96120f39a4df70e94b48cfc4",
+      "lines": 149,
+      "read": "full",
+      "assessment": "Complete bounded unified diff against previously fully reviewed ce-work tracker-defer: only introduction and interactive-mode attribution differ. Entire149-line counterpart covered by identical body plus inspected changes. Stale ce-code-review interactive-defer attribution conflicts with report-only current ownership; shared retry/idempotency candidate applies. No tracker invoked."
+    },
+    {
+      "path": ".claude/skills/release/SKILL.md",
+      "sha256": "1f33bd28e6ccba3024e8d56461e458f1e17b3f7d97157237ca0b6c74dc4cbf2f",
+      "lines": 90,
+      "read": "full",
+      "assessment": "Full read. Preserve dirty-tree block, version validation, canonical release repository and explicit off-main confirmation. Origin tag push can differ from canonical release repo; tag-existence check is local only. Summary claims npm published without workflow/registry receipt. Escript build path conflicts with documented aiurdev release entry; verify frozen launcher/workflow before promotion. No tag, release, build or registry mutation."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -2408,7 +2450,13 @@
     "Full read. Preserve existing review reuse, actual-code confirmation by fixer, per-file grouping and residual retention. No pre-investigation by parent contrasts resolve-feedback central gate; different contexts, not automatically contradiction. Advisory classification still defers despite never-permission prose; reconcile eligibility wording. No fixes applied.",
     "Full read. Preserve review/apply separation, explicit degraded coverage, durable residuals and settlement-invalidating blockers. Automatic residual acceptance has no severity restriction; inherited scope and Aiur gate need reconciliation. Parent screenshot-capture claim is stale relative to evidence-context handoff. No shipping workflow applied.",
     "Full read. Preserve explicit durable sinks, named/fallback distinctions and per-finding failure receipts. Creation timeout followed by fallback/retry lacks reconciliation/idempotency and may duplicate; artifact-local pointers may be inaccessible to tracker readers. No tracker calls.",
-    "Full read. Preserve actual design/render comparison and project conventions. Unconditional full-width/no-overflow and fixed Tailwind assumptions are not universally behavior-preserving; pixel-perfect versus 2-4px substitution tension. Hardwired browser differs from general driver policy; inspect caller applicability. No design API or UI change."
+    "Full read. Preserve actual design/render comparison and project conventions. Unconditional full-width/no-overflow and fixed Tailwind assumptions are not universally behavior-preserving; pixel-perfect versus 2-4px substitution tension. Hardwired browser differs from general driver policy; inspect caller applicability. No design API or UI change.",
+    "Full read. Preserve resolved git-directory comparison, existing isolation detection, single-checkout branch rule and explicit isolation-failure handling. PR ref fetch creates local branch without upstream while gh checkout alternative handles tracking; verify intended push destination. Existing-isolation branch switch still needs dirty ownership guard. No worktree created.",
+    "Full read. Preserve disk-first bounded payload retrieval, source hash/size checks, ignored artifacts, no repeat overflowing call and complete-range assembly. Hash proves identity not source completeness; metadata/source-size evidence needed where available. No CLI or design service invoked.",
+    "Full read. Preserve explicit autonomous invocation, readiness gate, caller-owned tail, verification evidence retry, immutable settled decisions and durable residuals. Branch-local no-remote path uses git add -A unlike selective staging elsewhere. Step2 demands new modified files despite worker idempotency; final DONE permits CI residuals despite green description. Scope these as workflow reconciliation questions, not observed faulty shipment.",
+    "Full read. Preserve mechanical/confidence gate, code-evidence recheck, durable commits and no-remote behavior. Review-file staging can include earlier uncommitted edits in same file; actual diff ownership remains necessary. This stricter LFG gate need not equal standalone work policy.",
+    "Complete bounded unified diff against previously fully reviewed ce-work tracker-defer: only introduction and interactive-mode attribution differ. Entire149-line counterpart covered by identical body plus inspected changes. Stale ce-code-review interactive-defer attribution conflicts with report-only current ownership; shared retry/idempotency candidate applies. No tracker invoked.",
+    "Full read. Preserve dirty-tree block, version validation, canonical release repository and explicit off-main confirmation. Origin tag push can differ from canonical release repo; tag-existence check is local only. Summary claims npm published without workflow/registry receipt. Escript build path conflicts with documented aiurdev release entry; verify frozen launcher/workflow before promotion. No tag, release, build or registry mutation."
   ],
   "follow_up_candidates": [
     {
@@ -2571,9 +2619,17 @@
     {
       "id": "skills-prompts-candidate-44",
       "question": "Xcode blanket inline-link automation limitation/tool names and Figma full-width/overflow/Tailwind rules need version/project grounding. URL opening is not tap verification; infrastructure errors are not proof of missing installation. Do not repeat these as current external facts without verification."
+    },
+    {
+      "id": "skills-prompts-candidate-45",
+      "question": "Release recipe pushes tag to origin but creates release on fixed canonical repository; validate fork behavior and remote tag existence. npm publication is asserted without waiting for workflow/registry evidence, and escript build/CLI path may be stale against release architecture. Read frozen release workflow/launcher before promotion; no remote mutation."
+    },
+    {
+      "id": "skills-prompts-candidate-46",
+      "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "Continue ce-worktree, design-import, lfg and release markdown. Coverage 244/250 full files, 35669/36169 lines. Fourteen provisional P2 and five P3 findings; forty follow-up candidates. Raw unit remains open.",
+  "next": "All250 manifest markdown files /36169 lines covered and hashes verified. Reconcile 42 follow-up candidates, validate/deduplicate 19 provisional findings (14P2/5P3), then close the raw unit only after those checks. Overall raw units remain28/32.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -2616,6 +2672,20 @@
       "status": "promoted",
       "finding": "skills-prompts-cont-13",
       "reason": "Retention rules preserve sibling runs across sessions; full reuse contract supplies no session or age eligibility."
+    },
+    {
+      "id": "skills-prompts-candidate-38-sweep-scope",
+      "status": "narrowed",
+      "reason": "Sweep media-analyzer explicitly always disables transcription for sensitive items. Standalone recording skill ambiguity remains open; no blanket all-callers disclosure claim.",
+      "validation": "Complete sweep analyzer/template and standalone recording instructions plus targeted transcription function reads."
     }
-  ]
+  ],
+  "coverage_validation": {
+    "files": 250,
+    "lines": 36169,
+    "manifest_set_equal": true,
+    "unique_paths": true,
+    "all_hashes_verified": true,
+    "method": "Full content reads, with explicitly recorded identical-copy or complete-diff reuse. Coverage does not close candidate or cross-unit verification."
+  }
 }
