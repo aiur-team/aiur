@@ -956,6 +956,55 @@
       "lines": 238,
       "read": "full",
       "assessment": "Complete-content coverage by verified SHA256 identity with previously fully reviewed .claude/skills/ce-brainstorm/references/markdown-rendering.md. Inherits its rendering, provenance and portability assessment; identical content is reuse evidence, not independent implementation or runtime verification."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/post-ideation-workflow.md",
+      "sha256": "b3a8cdf3c93b3670ddff68e8eef521a90636e74c369990af66040aa33216d5cb",
+      "lines": 167,
+      "read": "full",
+      "assessment": "Full167 lines read. Preserve fresh-context basis verification with disclosed fallback, evidence-backed arbitration, rejection reasons, visible uncovered axes, artifact-before-publication and chosen-idea requirements seed. Run retention confirms candidate22. Scope expansion exception at31 needs reconciliation with strict generation scope rule; no implementation or publication invoked. Confidence/ranking are judgments, not measured outcomes."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/universal-ideation.md",
+      "sha256": "3f28c99a83aee8d56c78b257c1b514e0a374ceade56463ff879cf9c0bafbca5b",
+      "lines": 107,
+      "read": "full",
+      "assessment": "Full107 lines covered; truncated middle replaced by bounded55-90 read. Native-domain framing preserves generate/critique/survivors and basis verification without unrelated repo reads. Material intake change requires refreshed grounding. No automatic implementation ladder for non-software topics; persistence and explicit discard restrictions retained."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/ideation-sections.md",
+      "sha256": "aa0e912e3f12804c3196f121b9e6b570bf837a0c15bc759479c75b1a405ff697",
+      "lines": 191,
+      "read": "full",
+      "assessment": "Full191 lines read. Discovery artifact has no mutable execution lifecycle; bases, downsides, rejection reasons and zero-survivor axes remain visible. Illustrative diagrams explicitly override authoritative plan-diagram framing and must duplicate meaning in prose. Numeric confidence has no calibration method; treat as judgment, not observed probability."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/agents/web-researcher.md",
+      "sha256": "f2898db79f5ecdfb615d098afc583f24371f05cf11457671dad4b752aa00ca67",
+      "lines": 121,
+      "read": "full",
+      "assessment": "Full121 lines read. Search orientation is not claim evidence; fetch primary sources, distinguish recency from authority and independent corroboration from repeated pages. Explicit untrusted content boundary and actual-used-source list retained. Hardcoded year is snapshot-time context, not live freshness verification. No web request executed."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/agents/issue-intelligence-analyst.md",
+      "sha256": "bbc8f4570b21d902b2fa7ea98c73ed23d86d8a07483d0eb3faa9345bf5d4f588",
+      "lines": 200,
+      "read": "full",
+      "assessment": "Full200 lines read. Bounded samples and 500-character bodies support tentative themes, not population prevalence or established root cause. Preserve actual returned counts and source mix. Candidate23 questions closed/open theme overlap as recurrence proof, closed-only as solved, and mandatory trend labels from capped samples. Remote resolution without explicit repo arguments extends existing target-provenance question; no GitHub operation executed."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/agents/slack-researcher.md",
+      "sha256": "c02d74787b68e6bc89a8176fab3f69ebfb3580e39e127dcc6b7f411c3f991671",
+      "lines": 127,
+      "read": "full",
+      "assessment": "Full127 lines read. Opt-in parent dispatch, bounded thread reads, no DMs, read-only tools and untrusted message boundary retained. Silence/brief replies are interpretive signals, not authorization. Authenticated read access does not establish permission to publish private-channel material; this research neither accessed Slack nor copied private content."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/agents/learnings-researcher.md",
+      "sha256": "6c766aafd538d8f4bb1af8b26004018322b950873cb4a9edab6fa923a49b3dbf",
+      "lines": 247,
+      "read": "full",
+      "assessment": "Complete-content coverage through previously fully read code-review references/personas/learnings-researcher.md plus complete one-hunk diff: only invocation-contract paragraph differs. Ideation expands institutional evidence across bug, architecture, convention and workflow learnings without claiming current defects. No corpus search invoked."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1255,6 +1304,31 @@
       "recommendation": "Separate finding disposition from the resulting scope decision. Re-evaluate dependents against the actual accepted edit or explicit scope decision; Skip alone must not imply component removal or resolve its outstanding concerns.",
       "refactor_hint": "Use explicit decision outcomes and dependency predicates over resulting plan state rather than over generic Apply/Skip/Defer labels.",
       "limits": "Instruction-level contradiction only. Cascading requires separate user confirmation and independence safeguards may prevent some incorrect links; no actual suppressed finding or agent execution reproduced. Cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-13",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Session-only research cache reuse has no session eligibility check",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-ideate/references/web-research-cache.md",
+          "lines": "25-35"
+        },
+        {
+          "path": ".claude/skills/ce-ideate/references/post-ideation-workflow.md",
+          "lines": "148"
+        },
+        {
+          "path": ".claude/skills/ce-ideate/SKILL.md",
+          "lines": "250-265"
+        }
+      ],
+      "description": "Shared per-user storage retains run directories until OS cleanup. Reuse scans sibling runs and accepts matching mode, focus and topic hash; neither current session nor stored timestamp is checked. An earlier-session result for the same topic is therefore eligible while the summary calls it research from this session, potentially suppressing fresh external grounding.",
+      "evidence": "Complete cache, storage and post-ideation retention contracts read. Key contains no session discriminator; timestamp is recorded but absent from eligibility. No extra session subdirectory exists in the specified path.",
+      "recommendation": "Either enforce session identity in storage/key selection or explicitly support cross-session reuse with source timestamp and a freshness policy. Report the actual provenance of reused research.",
+      "refactor_hint": "Keep cache ownership, reuse eligibility and presentation provenance in one shared contract.",
+      "limits": "Instruction-level eligibility defect, not an observed stale answer or executed model workflow. Explicit re-research and inaccessible-cache fallback mitigate. Cross-unit dedup pending."
     }
   ],
   "preserve": [
@@ -1393,7 +1467,14 @@
     "Full89 lines read. Default five agents cover six frames because one receives a pair; 36-48 raw candidates therefore consistent, not count defect. Direct bases require actually read quotations; reasoned bases remain explicit arguments. Preserve requested scope, bounded axis recovery and visible empty-axis gaps. Caching cost benefit is a mechanism prediction, not measured saving. Checkpoints best-effort; not durable completion evidence.",
     "Full56 lines read. Mode variants, normalized subject and repository discriminator separate topics; re-research override invalidates matches. Candidate22: retained sibling-run scan has no session identifier or timestamp eligibility despite same-session reuse description. No cache contents accessed or stale-reuse execution claimed.",
     "Complete-content coverage by verified SHA256 identity with previously fully reviewed .claude/skills/ce-brainstorm/references/html-rendering.md. Inherits its rendering, provenance and portability assessment; identical content is reuse evidence, not independent implementation or runtime verification.",
-    "Complete-content coverage by verified SHA256 identity with previously fully reviewed .claude/skills/ce-brainstorm/references/markdown-rendering.md. Inherits its rendering, provenance and portability assessment; identical content is reuse evidence, not independent implementation or runtime verification."
+    "Complete-content coverage by verified SHA256 identity with previously fully reviewed .claude/skills/ce-brainstorm/references/markdown-rendering.md. Inherits its rendering, provenance and portability assessment; identical content is reuse evidence, not independent implementation or runtime verification.",
+    "Full167 lines read. Preserve fresh-context basis verification with disclosed fallback, evidence-backed arbitration, rejection reasons, visible uncovered axes, artifact-before-publication and chosen-idea requirements seed. Run retention confirms candidate22. Scope expansion exception at31 needs reconciliation with strict generation scope rule; no implementation or publication invoked. Confidence/ranking are judgments, not measured outcomes.",
+    "Full107 lines covered; truncated middle replaced by bounded55-90 read. Native-domain framing preserves generate/critique/survivors and basis verification without unrelated repo reads. Material intake change requires refreshed grounding. No automatic implementation ladder for non-software topics; persistence and explicit discard restrictions retained.",
+    "Full191 lines read. Discovery artifact has no mutable execution lifecycle; bases, downsides, rejection reasons and zero-survivor axes remain visible. Illustrative diagrams explicitly override authoritative plan-diagram framing and must duplicate meaning in prose. Numeric confidence has no calibration method; treat as judgment, not observed probability.",
+    "Full121 lines read. Search orientation is not claim evidence; fetch primary sources, distinguish recency from authority and independent corroboration from repeated pages. Explicit untrusted content boundary and actual-used-source list retained. Hardcoded year is snapshot-time context, not live freshness verification. No web request executed.",
+    "Full200 lines read. Bounded samples and 500-character bodies support tentative themes, not population prevalence or established root cause. Preserve actual returned counts and source mix. Candidate23 questions closed/open theme overlap as recurrence proof, closed-only as solved, and mandatory trend labels from capped samples. Remote resolution without explicit repo arguments extends existing target-provenance question; no GitHub operation executed.",
+    "Full127 lines read. Opt-in parent dispatch, bounded thread reads, no DMs, read-only tools and untrusted message boundary retained. Silence/brief replies are interpretive signals, not authorization. Authenticated read access does not establish permission to publish private-channel material; this research neither accessed Slack nor copied private content.",
+    "Complete-content coverage through previously fully read code-review references/personas/learnings-researcher.md plus complete one-hunk diff: only invocation-contract paragraph differs. Ideation expands institutional evidence across bug, architecture, convention and workflow learnings without claiming current defects. No corpus search invoked."
   ],
   "follow_up_candidates": [
     {
@@ -1469,11 +1550,15 @@
       "question": "Reconcile dogfood PR-specific base versus trunk diff, reused dev-server checkout/build identity, and resumed result freshness against existing provenance findings. A PR checkout alone does not prove the browser serves that head; old branch-slug reports may outlive changed commits. Inspect related worktree/browser contracts before promotion or dedup."
     },
     {
-      "id": "skills-prompts-candidate-22",
-      "question": "Reconcile session-only web research reuse promise with shared retained sibling-run scan: key has mode/focus/topic hash but no session identity; ts is stored without age eligibility. Inspect remaining post-ideation retention rules before promotion. No old research reuse reproduced."
+      "id": "skills-prompts-candidate-23",
+      "question": "Reconcile issue analyst causal/trend assertions against capped sampling: open-plus-closed same theme is not itself recurrence, closed-only is not proof solved, and creation-rate trends need comparable observation windows. Relate to already corrected research recurrence claims and dedup before promotion."
+    },
+    {
+      "id": "skills-prompts-candidate-24",
+      "question": "Reconcile strict requested-scope generation rule with post-ideation scope-overrun exception allowed by basis alone. Does explicit user scope remain binding during arbitration? No actual scope expansion executed."
     }
   ],
-  "next": "Continue ce-ideate remaining references and agent prompts. Coverage 136/250 full files, 21170/36169 lines. Nine provisional P2 and three P3 findings; nineteen follow-up candidates. Raw unit remains open.",
+  "next": "Continue remaining manifest markdown after ce-ideate. Coverage 143/250 full files, 22330/36169 lines. Nine provisional P2 and four P3 findings; twenty follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -1510,6 +1595,12 @@
       "status": "promoted",
       "finding": "skills-prompts-cont-12",
       "reason": "Reviewer contracts confirm roots are criticisms; Skip explicitly leaves plan unchanged, contradicting component-rejection assumption."
+    },
+    {
+      "id": "skills-prompts-candidate-22",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-13",
+      "reason": "Retention rules preserve sibling runs across sessions; full reuse contract supplies no session or age eligibility."
     }
   ]
 }
