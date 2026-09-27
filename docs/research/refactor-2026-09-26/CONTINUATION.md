@@ -267,3 +267,24 @@ latency coverage; do not promote its fourfold arithmetic into measured savings.
 Fifteen partial-unit findings (thirteen P2, two P3) remain outside raw totals.
 Overall counts remain 23/32 review units and 50/60 claims. Continue with art,
 key rendering, logs/controller tests and scripts; no production changes made.
+
+## Key rendering checkpoint
+
+Twenty-five additional complete reads bring the partial web/Stream Deck unit to
+152/178 files, leaving 26. The report writer preserves output versus feature
+transport routing and the original failure even when recovery notification
+throws. The key-face tests already share a JSON parity table with Elixir: reuse
+that approach for provider wire contracts without claiming complete pixel parity.
+
+The rasterizer consumes the footer's unknown-aware percent, not the duplicate
+raw progress field. Existing tests distinguish unknown from measured zero.
+Fresh and stale progress deliberately paint identically in two tests, despite
+a header comment claiming stale alpha; carry this unresolved display requirement
+into planning rather than declaring a newly demonstrated regression. The cache
+is bounded in source, but its serviceability test does not constrain the bound.
+
+No new finding is promoted: fifteen provisional findings remain outside the
+853 inherited raw findings. No canvas suite, device, daemon or manual UX test
+was run. All 25 input hashes match the frozen Git blobs. Continue with art,
+logs/controller/surface tests and scripts. Overall coverage remains 23/32
+completed review units and 50/60 claims; production implementation is unchanged.

@@ -3,9 +3,9 @@
   "status": "in-progress",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 178,
-  "files_reviewed": 127,
-  "lines_reviewed_estimate": 19102,
-  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed. Surface continuation adds 17 full reads: voice/settings/mode models and tests, typewriter/panel cache/strip renderer/key cache/write queue and tests, plus full physical surface. Surface tests only searched/targeted, not complete. Native rasterizer is replaced by a recording encoder in the probe; its transitive dependencies do not count as read coverage. Touch-strip continuation completes all remaining 18 touchStrip source/test paths. Targeted server projection reads cover public provider_meters paths, semantic slot classification and normalize_window; server tests read lines 1-80. art/segments.ts only searched/targeted, not read in full. The provider probe executes the actual client model and checks producer source keys; it does not execute Elixir or a live projection.",
+  "files_reviewed": 152,
+  "lines_reviewed_estimate": 22356,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed. Surface continuation adds 17 full reads: voice/settings/mode models and tests, typewriter/panel cache/strip renderer/key cache/write queue and tests, plus full physical surface. Surface tests only searched/targeted, not complete. Native rasterizer is replaced by a recording encoder in the probe; its transitive dependencies do not count as read coverage. Touch-strip continuation completes all remaining 18 touchStrip source/test paths. Targeted server projection reads cover public provider_meters paths, semantic slot classification and normalize_window; server tests read lines 1-80. art/segments.ts only searched/targeted, not read in full. The provider probe executes the actual client model and checks producer source keys; it does not execute Elixir or a live projection. Key-rendering continuation adds 25 complete reads: HID headers, key content/fill/image/renderer/writer/latency/quality/face/contracts, their tests and fixtures, keys layout/tests, and rasterizer/tests. Twenty-two reads were completed before the continuity checkpoint and three in the resumed pass. Targeted Elixir parity-test search confirms the same JSON vector path; that server test is not counted as a complete read. No native canvas suite or hardware was executed in this pass.",
   "coverage": [
     {
       "path": "website/src/dashboard.ts",
@@ -641,6 +641,131 @@
       "path": "packages/streamdeck/test/touchStrip/summarySegment.test.ts",
       "status": "read_in_full",
       "sha256": "15fcc944e9b2992d41eec75a6bce079928f84fe354a0beac3c444753cc673471"
+    },
+    {
+      "path": "packages/streamdeck/src/imageWriter/headerGenerator.ts",
+      "status": "read_in_full",
+      "sha256": "565931da00c13c5b91139067d5ce0f785498a8b8ddc09521561268562f7c3976"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/keyContent.ts",
+      "status": "read_in_full",
+      "sha256": "854524f0ac0d83f4e9a75e6e38875ccecf39379490e2cc59b89f98ab4fb2c905"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/keyFill.ts",
+      "status": "read_in_full",
+      "sha256": "353344bf1abda2f92df288c7abb52192ceb8ac8f8887fd03dfc69d86c450b0fe"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/keyImage.ts",
+      "status": "read_in_full",
+      "sha256": "901613b30793b7f8414eefaa4e915cbb09b1cd70fd72263ed5c1c7060297f142"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/keyRenderer.ts",
+      "status": "read_in_full",
+      "sha256": "3968e93b4f2ccea608a5dfe5ea2ef2e1267edba5ab3d94a014ba3ed57fcca8ae"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/keyWriter.ts",
+      "status": "read_in_full",
+      "sha256": "c89087c9e9e89fd5540dadd79eb8377f7a37e722e0930611914caca71c560c62"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/quality.ts",
+      "status": "read_in_full",
+      "sha256": "625e06a4a252157a37ba400bd4147274c2c82532b094896758d085a7c1eac115"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/keyLatency.ts",
+      "status": "read_in_full",
+      "sha256": "4f54bef7b9d527bea91f5f3764f8ea7138cd47c25315d1140c6c8bb04cd6b9de"
+    },
+    {
+      "path": "packages/streamdeck/test/imageWriter/headerGenerator.test.ts",
+      "status": "read_in_full",
+      "sha256": "ec01525342338036f7dacb066f79940d9775ca5319d235394475ed99dd0c3ef3"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/keyContent.test.ts",
+      "status": "read_in_full",
+      "sha256": "3aef68e4e23c818a5af9c86acf56673a9536d335b241e3008d35036bd52c690a"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/keyFill.test.ts",
+      "status": "read_in_full",
+      "sha256": "12becfbcee784127c88445ee95130f13dcbbae032f917aed9d9c0ae1fd34627f"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/keyImage.test.ts",
+      "status": "read_in_full",
+      "sha256": "0a906610a9871f0e4e4fc39fc2d1159ff91004f353f188d4c0127db45e35d9b8"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/keyRenderer.test.ts",
+      "status": "read_in_full",
+      "sha256": "9c893b289e1bc665f9477313ceb517d8fd515e03c941e7f6969c906c40550acb"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/keyWriter.test.ts",
+      "status": "read_in_full",
+      "sha256": "7737a4997ce9966b04c2c9c36abbed174e3f93ba12ebed964372f012feabc44a"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/quality.test.ts",
+      "status": "read_in_full",
+      "sha256": "946b51566cdf3cf2989cfd51804572102962b4e8249181cd69e123c530582020"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/keyLatency.test.ts",
+      "status": "read_in_full",
+      "sha256": "d218a600643dd8848982b2b87b14c14352deded4ec253d3c36c25173dc483a50"
+    },
+    {
+      "path": "packages/streamdeck/src/keys/keyFace.ts",
+      "status": "read_in_full",
+      "sha256": "6796dfade2f024ffa4261897fe70c49acc0395452c52e055a7b1331249ab58bc"
+    },
+    {
+      "path": "packages/streamdeck/src/key-face-contract.ts",
+      "status": "read_in_full",
+      "sha256": "c39d1af396a38821203b368d7e5316707272bd0800d8b870318d98e54c330baf"
+    },
+    {
+      "path": "packages/streamdeck/src/keys.ts",
+      "status": "read_in_full",
+      "sha256": "b02b9d2a014fd1f14337d331dc6e8f4c8f67866cc69a004d9744110ba8c093c3"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/descriptorFixtures.ts",
+      "status": "read_in_full",
+      "sha256": "764706975d8fcf80ad2bb69142d4b018c1d84b1d1550e2682495de0820f682d2"
+    },
+    {
+      "path": "packages/streamdeck/test/keys/keyFace.test.ts",
+      "status": "read_in_full",
+      "sha256": "7c4ca9a11e74dda560072fbbbe848bc4447639da6b4459969122c44ddcfeaee4"
+    },
+    {
+      "path": "packages/streamdeck/test/key-face-contract.test.ts",
+      "status": "read_in_full",
+      "sha256": "0b705300907cc351f4bcfd29ce5cce265b133c611be615830066a39d8eead5f0"
+    },
+    {
+      "path": "packages/streamdeck/test/keys.test.ts",
+      "status": "read_in_full",
+      "sha256": "a8a45db34b6b331f28a1041840187d14073f48d78dd8f2cb3a9a921f05cf3736"
+    },
+    {
+      "path": "packages/streamdeck/src/rasterizer.ts",
+      "status": "read_in_full",
+      "sha256": "7e37b7bfcc266b1b35489c34bc4499248a584315da9c643499c078d02bedb7cd"
+    },
+    {
+      "path": "packages/streamdeck/test/rasterizer.test.ts",
+      "status": "read_in_full",
+      "sha256": "4db9f96ff54b298bd488589e44ddafa93de9a85123a2938858818bb8a541392e"
     }
   ],
   "remaining_files": [
@@ -659,19 +784,7 @@
     "packages/streamdeck/src/debug.ts",
     "packages/streamdeck/src/demo.ts",
     "packages/streamdeck/src/dial.ts",
-    "packages/streamdeck/src/imageWriter/headerGenerator.ts",
-    "packages/streamdeck/src/key-face-contract.ts",
-    "packages/streamdeck/src/keys.ts",
-    "packages/streamdeck/src/keys/keyContent.ts",
-    "packages/streamdeck/src/keys/keyFace.ts",
-    "packages/streamdeck/src/keys/keyFill.ts",
-    "packages/streamdeck/src/keys/keyImage.ts",
-    "packages/streamdeck/src/keys/keyLatency.ts",
-    "packages/streamdeck/src/keys/keyRenderer.ts",
-    "packages/streamdeck/src/keys/keyWriter.ts",
-    "packages/streamdeck/src/keys/quality.ts",
     "packages/streamdeck/src/logs.ts",
-    "packages/streamdeck/src/rasterizer.ts",
     "packages/streamdeck/test/art/gradient.test.ts",
     "packages/streamdeck/test/art/icons.test.ts",
     "packages/streamdeck/test/art/segments.test.ts",
@@ -680,20 +793,7 @@
     "packages/streamdeck/test/debug.test.ts",
     "packages/streamdeck/test/demo.test.ts",
     "packages/streamdeck/test/dial.test.ts",
-    "packages/streamdeck/test/imageWriter/headerGenerator.test.ts",
-    "packages/streamdeck/test/key-face-contract.test.ts",
-    "packages/streamdeck/test/keys.test.ts",
-    "packages/streamdeck/test/keys/descriptorFixtures.ts",
-    "packages/streamdeck/test/keys/keyContent.test.ts",
-    "packages/streamdeck/test/keys/keyFace.test.ts",
-    "packages/streamdeck/test/keys/keyFill.test.ts",
-    "packages/streamdeck/test/keys/keyImage.test.ts",
-    "packages/streamdeck/test/keys/keyLatency.test.ts",
-    "packages/streamdeck/test/keys/keyRenderer.test.ts",
-    "packages/streamdeck/test/keys/keyWriter.test.ts",
-    "packages/streamdeck/test/keys/quality.test.ts",
     "packages/streamdeck/test/logs.test.ts",
-    "packages/streamdeck/test/rasterizer.test.ts",
     "packages/streamdeck/test/surface.test.ts"
   ],
   "findings": [
@@ -1220,6 +1320,30 @@
     {
       "topic": "Latency benchmark interpretation",
       "disposition": "regionLatency measures report encoding only, with the full-strip case repeating one segment four times. Its source already states this limitation. Do not use its arithmetic report ratio or injected-clock tests as a measured USB latency saving."
+    },
+    {
+      "topic": "Preserve report routing and original errors",
+      "disposition": "keyWriter routes image output reports and fill feature reports to different backend operations. It notifies recovery on either failure and rethrows the original transport error even when notification throws. Tests explicitly cover that composition. Keep this contract at the transport boundary alongside KeyWriteQueue commit semantics."
+    },
+    {
+      "topic": "Shared visual contract is an existing boundary pattern",
+      "disposition": "TypeScript key-face-contract tests consume key-face-parity-vectors.json; the Elixir contract test references the same file. This is a concrete existing pattern for cross-language expectations, unlike the provider duration fixtures. It constrains tokens/model output, not complete browser/device pixel parity."
+    },
+    {
+      "topic": "Unknown progress duplicate field",
+      "disposition": "buildAgentKey keeps clamped progressPercent even when freshness is unknown, but drawKeyFooter reads footer.percent, which is null in that case. Complete rasterizer read finds no progressPercent use. Do not promote the duplicate-field observation into a false-value pixel finding; consolidate the model only while preserving unknown versus measured-zero rendering."
+    },
+    {
+      "topic": "Stale progress display requirement",
+      "disposition": "rasterizer header says stale uses alpha, but drawKeyFooter never reads freshness and two rasterizer tests explicitly require fresh and stale images to be equal. keys.test.ts verifies stale metadata preservation; this does not imply visible staleness. Record a comment/behavior contradiction and resolve the intended display contract during planning before calling the deliberate rendering policy a regression. No canvas test was executed in this pass."
+    },
+    {
+      "topic": "Rasterizer cache test strength",
+      "disposition": "The cache-limit test only renders many widths and checks that one later image is nonempty; an unbounded cache would also pass. Source does cap its Map at 512 and clones returned cached bytes, so this is an existing coverage gap, not evidence of an unbounded production cache. Width and minute bucket participate in strip identity; chatLog bypasses the cache."
+    },
+    {
+      "topic": "Hardware fill convention and key latency scope",
+      "disposition": "keyFill explicitly leaves raw versus key-count-offset indexing as a hardware convention to verify. Byte fixture tests cannot settle it. keyLatency measures report construction only and its test clock is injected; quality defaults and payload arithmetic are not measured visual-quality or USB performance savings."
     }
   ]
 }
