@@ -490,3 +490,13 @@ boundaries. Sixty is not an independent defect, package or savings count.
 Cross-unit reconciliation, P0/P1 skepticism and final synthesis remain open.
 The top-level raw-unit count is now 25/32; historical checkpoints above retain
 their original counts. The other three duplication units remain incomplete.
+
+
+## GitHub guard review in progress
+
+The tests-1b ledger now records 74 complete files plus lines 1-2700 of the
+5,764-line AgentGitHubGuard test file. Keep the unit incomplete until the
+remaining tests and helpers are reviewed. Read contracts distinguish mocked
+GitHub responses, actual broker admissions and native local replay formatting;
+no live transport, billing, savings or suite-pass claim is added. Overall raw
+review completion remains 25/32.

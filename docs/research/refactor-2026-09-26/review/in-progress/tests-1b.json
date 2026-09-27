@@ -448,7 +448,7 @@
       "read": "full"
     }
   ],
-  "scope_note": "74 complete file reads, 29523 lines; agent_github_guard remains unreviewed. Earlier isolated probes ran; AgentControlCLI was read, not executed as a suite. TestSupport lines1-390 inspected as a cross-reference. No live application or TUI verification.",
+  "scope_note": "74 complete file reads, 29523 lines, plus AgentGitHubGuard lines 1-2700 of 5764. Earlier isolated probes ran; these guard tests were read, not executed. TestSupport lines1-390 inspected as a cross-reference. No live application or TUI verification.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -655,10 +655,14 @@
     "CLI status retains daemon-owned admission causes with observation ages, separates local host load from the daemon decision, names stale/orphaned claims and capacity reservations, and exposes listener/supervision/readiness/ask-store unavailability rather than inventing healthy empty state.",
     "Resume tests distinguish legacy synchronous replies from modern generation-correlated acknowledgement, preserve accepted-but-unknown versus expired versus declined outcomes, reject unrelated lifecycle evidence and retain earlier observations when only a final confirmation read times out.",
     "Message tests preserve pending/delivered/failed distinction, caller-supplied retry identity, fresh identity for each plain send, and timeout-as-unknown wording with a shell-quoted retry command. Status callbacks are injected; these tests alone do not prove provider acknowledgement.",
-    "Watch tests cover reason-only changes, independent per-agent diffs, resolved attention removal and automatic CI gates distinct from review readiness. Shared TestSupport uses serial ExUnit cases and per-case durable roots; AgentControlCLI additionally fences queued SnapshotStore publications before restoring controller state."
+    "Watch tests cover reason-only changes, independent per-agent diffs, resolved attention removal and automatic CI gates distinct from review readiness. Shared TestSupport uses serial ExUnit cases and per-case durable roots; AgentControlCLI additionally fences queued SnapshotStore publications before restoring controller state.",
+    "AgentGitHubGuard excerpt preserves agent-versus-Executor write authority, merge-gate disarm refusal, option-value parsing, comment provenance marking and temporary-copy cleanup on refusal. Space-joined argv capture is not proof of argument-boundary preservation.",
+    "Guard tests distinguish descriptive endpoint families from accounting resources, redact raw command bodies from attribution, test token-file-only child injection, rotate request records and share secondary holds across workspace/repository and wrapper/daemon boundaries.",
+    "Guard pagination tests count real broker ledger admissions against fake REST and GraphQL pages, reject unbudgetable writes/input bodies, and separately invoke native gh for local replay formatting, credential/proxy isolation and replay denial. Canned formatted GraphQL output is routing coverage, not independent formatting verification.",
+    "Guard broker tests distinguish unavailable storage from unrelated or silent broker failures, preserve pacing for non-billable rate-limit probes, and isolate spelling cases by credential key. These are fixture-backed accounting contracts, not a new measurement of GitHub billing or production savings."
   ],
   "next": [
-    "Continue remaining tests-1b paths; audit test support and shared-state restoration.",
+    "Read AgentGitHubGuard lines 2701-5764 and helper implementations; reconcile partial coverage before completing tests-1b.",
     "Validate concurrency test hypothesis with a meaningful mutation before promoting.",
     "Keep routing finding scoped to default-listener lifecycle boundary; do not claim no resolution tests exist elsewhere."
   ],
@@ -763,6 +767,33 @@
       ],
       "question": "Failure-latch test polls paused? immediately after sending fallback, but the armed state is already paused. Check a completion barrier or controlled mutation before asserting that it covers the failed-reap completion transition.",
       "status": "unverified hypothesis"
+    },
+    {
+      "path": "src/test/aiur/agent_github_guard_test.exs",
+      "lines": [
+        2443,
+        2496
+      ],
+      "question": "Concurrent ledger migration test uses broker-start markers plus a 200ms settle, not an exact barrier after every column probe. Inspect start_marking_broker and lock_database before deciding whether the claimed forced interleaving is guaranteed; no defect promoted from comments alone.",
+      "status": "unverified hypothesis"
+    }
+  ],
+  "partial_files": [
+    {
+      "path": "src/test/aiur/agent_github_guard_test.exs",
+      "sha256": "e295b36eec633457dcfdc145bc3fc2b061299c51b9363ca7a647a63285ae4a32",
+      "lines": 5764,
+      "read_ranges": [
+        [
+          1,
+          2700
+        ]
+      ],
+      "read": "partial",
+      "remaining_range": [
+        2701,
+        5764
+      ]
     }
   ]
 }

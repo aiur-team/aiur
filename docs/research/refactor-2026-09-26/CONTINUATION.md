@@ -1142,12 +1142,12 @@ Twelve full reads now recorded with hashes: added ExecutorCommandCLI and members
 
 ### tests-1b twenty-file checkpoint
 
-20 full reads with hashes. Added concrete P2 oracle defect: JsonStore concurrent-read test filters away error tuples. Actual extracted assertion probe passes all10 errors and mixed errors, fails malformed success as control. tooling/json_store_oracle_probe.exs runs with frozen snapshot argument; no production mutation or suite run. Preserve symlink boundary and boot-log isolation checks. Pending env-inventory dynamic/bang-read hypothesis is unverified. Raw-unit count remains25/32.
+20 full reads with hashes. Added concrete P2 oracle defect: JsonStore concurrent-read test filters away error tuples. Actual extracted assertion probe passes all10 errors and mixed errors, fails malformed success as control. tooling/json_store_oracle_probe.exs runs with frozen snapshot argument; no production mutation or suite run. Preserve symlink boundary and boot-log isolation checks. Pending env-inventory dynamic/bang-read hypothesis is unverified. Raw-unit count remains 25/32.
 
 
 ### tests-1b thirty-four-file checkpoint
 
-34 full reads now recorded with hashes. Resource, supervision, memory, progress retention, journal, boot isolation, token usage, webhooks and YAML contracts retained. Added verified local policy-test gap: unchanged GitHubBodyFilePolicyTest passes an unstaged inline-body violation and fails it after staging (2/0, 2/0, 2/1 tests/failures). Portable disposable-repository probe added; this is not a clean-checkout CI blind spot. Initial probe launch failed because the temporary directory had no mise Erlang selection; explicit Erlang bin PATH resolved it without modifying host configuration. No production changes or application boot. Raw-unit count remains25/32.
+34 full reads now recorded with hashes. Resource, supervision, memory, progress retention, journal, boot isolation, token usage, webhooks and YAML contracts retained. Added verified local policy-test gap: unchanged GitHubBodyFilePolicyTest passes an unstaged inline-body violation and fails it after staging (2/0, 2/0, 2/1 tests/failures). Portable disposable-repository probe added; this is not a clean-checkout CI blind spot. Initial probe launch failed because the temporary directory had no mise Erlang selection; explicit Erlang bin PATH resolved it without modifying host configuration. No production changes or application boot. Raw-unit count remains 25/32.
 
 Added four more full reads: qualified identity/observation, decision-metrics restart and HTTP bind collisions. tests-1b now38/75 files, 4202 lines; no new promoted finding. Retain subscription-before-replay barrier and characterization/regression distinction.
 
@@ -1174,7 +1174,7 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 
 ### tests-1b sixty-eight-file checkpoint
 
-68 full reads,16372 lines. Recorded prior GitHubCostCLI, CLI, AgentRunner, AgentLog and Application reads plus DecisionApi. Preserve budget observation provenance, backend-specific recovery, transcript fallback, supervision order and canonical API privacy/pagination/authority contracts. No new promoted finding; no new suite execution. Remaining seven files: agent_control_cli, agent_github_guard, build_gate, coding_agent, init, live_conversation, repo_base. Raw-unit completion remains25/32; no production changes.
+68 full reads,16372 lines. Recorded prior GitHubCostCLI, CLI, AgentRunner, AgentLog and Application reads plus DecisionApi. Preserve budget observation provenance, backend-specific recovery, transcript fallback, supervision order and canonical API privacy/pagination/authority contracts. No new promoted finding; no new suite execution. Remaining seven files: agent_control_cli, agent_github_guard, build_gate, coding_agent, init, live_conversation, repo_base. Raw-unit completion remains 25/32; no production changes.
 
 
 ### tests-1b seventy-one-file checkpoint
@@ -1190,3 +1190,8 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 ### tests-1b seventy-four-file checkpoint
 
 74 full reads,29523 lines. Added AgentControlCLI plus TestSupport lines1-390 as an excerpt. Preserve wake claim/ack failure semantics, bounded todo cleanup, daemon-owned admission causes and sample ages, generation-correlated resume confirmation, unknown outcomes and retry identities, and watch resolution/change behavior. Existing watch resolution test consumes a supplied ledger and does not close the default listener routing gap. TestSupport is serial and supplies per-case durable roots; do not infer an async race from this module mutating globals. One combined read was output-truncated; reread lines950-1070 recovered the omitted boundary before counting full coverage. Only agent_github_guard remains. No new promoted finding, suite execution or production change.
+
+
+### tests-1b GitHub guard partial checkpoint
+
+Read AgentGitHubGuard through line 2700 of 5764 (lines 501-2700 newly inspected in this continuation); 74 full files and 29523 full-file lines remain the completed count. Remaining lines 2701-5764 include helper implementations that must be inspected before promoting timing/fixture concerns. Preserve write-authority and provenance boundaries, credential-local accounting, per-page admission, replay isolation and non-billable-but-paced probes. Native gh replay tests are distinct from canned formatted-output fixtures; neither is a new live GitHub billing census. Migration test's marker-plus-settle interleaving remains an explicit hypothesis pending helper inspection. No additional finding, suite execution or production change. The preceding coordination/status turn made no research progress; this continuation advances the review and records its exact boundary.
