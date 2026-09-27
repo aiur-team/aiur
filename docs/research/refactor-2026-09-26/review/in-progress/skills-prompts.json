@@ -466,6 +466,83 @@
       "lines": 201,
       "read": "full",
       "assessment": "All201 lines read in bounded ranges after an initial truncated read was discarded. Full artifact versus compact return includes first-evidence exception and required impact detail, with source-history checks only when claims depend on history. Quote generated definitions instead of mistaking failed literal search for absence. Distinguishes secondary interaction defects, ungrounded speculation and advisory value, although pre-existing suppression wording versus separate report partition remains to reconcile. File-size/style concerns absent project rules must be suppressed, conflicting with maintainability persona threshold. Reviewer remains operationally read-only; suggested fix and confidence do not grant apply authority. No agents spawned or review artifacts generated."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/learnings-researcher.md",
+      "sha256": "231a47c7fb7d8593d056482338d82741a1be3ad49ef7039b994c5e2e862d494d",
+      "lines": 247,
+      "read": "full",
+      "assessment": "All247 lines read. Search starts with actual vocabulary and discovered corpus shape, broadens sparse matches and narrows oversized sets; knowledge-shaped records need not have bug-shaped fields. Full relevant documents must be read and historical claims checked against present source, with dates and explicit contradictions retained. Output is bounded prose context rather than schema-parsed findings, preserving source relevance and uncertainty. Search-count labels must distinguish candidate scans from full reads. No solutions corpus audit performed by this read."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/performance-reviewer.md",
+      "sha256": "014136a7c3f58494752396e7716a20d75adf8fdea47fa015a43bbbcd17909125",
+      "lines": 45,
+      "read": "full",
+      "assessment": "All45 lines read. Requires expected population/load and production-observable impact before proposing caching, pagination or loop changes. Visible syntactic pattern does not establish magnitude; cold-path and hypothetical scale optimizations are excluded. This aligns with measured-savings discipline but supplies no fresh measurement. No performance benchmark or actual population census run."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/previous-comments-reviewer.md",
+      "sha256": "27cf0694aec33972d2dd802f03a25411df3cf1d10cc0714750165f4377df1e56",
+      "lines": 59,
+      "read": "full",
+      "assessment": "All59 lines read. Requires actual PR URL context, distinguishes unanswered substantive feedback from optional suggestions, self-comments and removed code. Retrieval claims all comments/threads but command examples have no pagination or thread-resolution projection, and number-only gh view depends on ambient repo. Retained as retrieval-scope question pending API contract and existing findings reconciliation; no GitHub request or completeness claim made. Prior comment alone is not current bug proof; source and later discussion remain relevant."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/project-standards-reviewer.md",
+      "sha256": "f936be9a265ae7249341886c23e81fae7ca27d3767b7f104fc116b5c77e4d7f5",
+      "lines": 75,
+      "read": "full",
+      "assessment": "All75 lines read. Every finding requires applicable ancestor-scoped rule and violating changed line; absent rule is not permission to invent generic standards. Pattern examples are conditional on actual standards, not universal native-tool or include-style rules. Remote standards path discovery still needs reviewed-ref reconciliation. Identical before/after example for qualified persona name is unhelpful illustration, not evidence that any live agent reference fails. No additional standards discovered or enforced during this research read."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/reliability-reviewer.md",
+      "sha256": "17b72a6825f8496f3bedf8fe229b40493493d4bdd10b8fefb8f2748e321e1bf7",
+      "lines": 44,
+      "read": "full",
+      "assessment": "All44 lines read. Requires reachable I/O failure, retry/timeout bounds, truthful propagated errors and stand-in fidelity; framework defaults and surrounding guards must be checked before treating syntax as missing protection. Cascade evidence must establish real operating conditions; test-only setup concerns belong to testing lens. No live failure or recovery experiment performed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/security-reviewer.md",
+      "sha256": "bd53a8d1fb3e356616610c79ea808186f89ed64ad8f0f9d30e145b75aa8e146d",
+      "lines": 45,
+      "read": "full",
+      "assessment": "All45 lines read. Trace untrusted entry through guards to sink; source patterns alone do not establish exploitation. Potentially critical uncertainty may remain visible under P0 exception, while generic hardening and already-protected paths are excluded. Early instruction to typically label anchor50 security findings P0 must be read with later critical-impact condition and parent independent urgency/evidence contract, not used to inflate every uncertain concern. No exploit test or new security incident claimed."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/swift-ios-reviewer.md",
+      "sha256": "5c706ddaf1986312d15cbb1146f41a5373f1048741d33916cd86303adda9a18f",
+      "lines": 99,
+      "read": "full",
+      "assessment": "All99 lines read. Domain prompts cover ownership, actor suspension, managed-object context, accessibility, monetary representation and semantic project-file changes. Parent applicability gate prevents applying these wholesale to unrelated languages. Strong syntax-based examples require actual ownership cycle, supported framework/version, concurrency settings and runtime contract verification before findings; no external Swift claims independently validated here. Preserve framework-choice neutrality and machine-generated churn exclusions. No Swift build or UI verification run."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/personas/testing-reviewer.md",
+      "sha256": "8b6e7fad8b4249bfdde96e89f6139b53ca08151407830bd0b2a8d3ed3c79b223",
+      "lines": 46,
+      "read": "full",
+      "assessment": "All46 lines read. Behavior, lifecycle exits, sentinel truthfulness and executable source-of-truth checks matter more than test presence or aggregate coverage. Existing integration coverage can invalidate a file-name-based absence claim; order assertions only matter when order is contractual. New behavior with no test diff is a signal requiring coverage tracing, not proof of no coverage. No newly executed test suite."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/review-output-template.md",
+      "sha256": "bd96c1cc33946d25161684f393ea736a5546b1edca694f88e55168f4c07006a9",
+      "lines": 172,
+      "read": "full",
+      "assessment": "All172 lines read. Stable IDs, severity-grouped evidence, actionable subset and triage groups are separate from apply authority; applied items retain identity and leave remaining-work groups. JSON must preserve impact/evidence and human reports keep self-contained closure. Example is illustrative rather than fully conformant: pre-existing row reuses1, actionable table omits some fixable examples, and early-return preference contradicts shared evidence bar. Governing rules remain stronger than sample; no emitted report from actual invocation assessed. Requirements-completeness late insertion remains unresolved under existing candidate11."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/validator-batch-template.md",
+      "sha256": "dd57c8a84a146dc6ed54f4092ade4c4317d9b6cc4782e76b57b9aa3f4a2ee941",
+      "lines": 36,
+      "read": "full",
+      "assessment": "All36 lines read. One fresh batch independently evaluates each selected finding, includes every high-severity item despite normal eight-item cap, returns exactly one verdict per stable ID and forbids new findings or mutation. Remote source is pinned by provided context. Unknown infrastructure must be handled under parent degraded-validation rule rather than silently called false. No validator dispatched."
+    },
+    {
+      "path": ".claude/skills/ce-code-review/references/validator-template.md",
+      "sha256": "e01a25d43c4d96530c5886edff71f9c0214354e3cf5d55fbceff74811f29eae8",
+      "lines": 89,
+      "read": "full",
+      "assessment": "All89 lines read. Legacy single-finding template checks current defect, diff causality and surrounding protection but treats unreadable source as validated:false, unlike current parent degraded-blocker handling. Scoped search found active finish-review references batch template only; no incoming reference to this older template inside code-review bundle. Do not attribute this dormant guidance to current batch behavior. Staged-diff path and remote-ref handling are explicit. No standalone validator or model run."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -758,7 +835,18 @@
     "All157 lines read. Produces operational go/no-go notes, not a deployment execution. Invariants, pre/post baselines, expected tolerances, rollback limitations and observable signals carry the contract. Illustrative SQL, row counts, timing and alert thresholds are placeholders requiring actual system grounding, not measured Aiur values. Parent migration-artifact gate remains narrower than generic closing use cases. No SQL, deploy, backup restore, monitoring or issue closure performed.",
     "All45 lines read. Focuses lifecycle ownership, effect early-exit cleanup, stale work and overlapping interactions rather than framework or animation taste. A timer or missing debounce alone still requires reachable wrong outcome under shared evidence standard; proposed state representations remain suggestions. Dependency minimization is subordinate to demonstrated race behavior. No browser interaction or runtime timing verification.",
     "All71 lines read. Preserves deletion of concepts rather than relocation, canonical-helper reuse, concrete boundary violations and justified domain complexity. However mandatory P1 when crossing1000 lines and anchor100 from line count conflict with shared suppression absent project standard. Also claims P1 at anchor50 surfaces despite shared primary gate allowing only P0 at50; retained in assessment as calibration drift. These instructions are not evidence that all large Aiur files should split or that estimated removed lines are measured savings.",
-    "All201 lines read in bounded ranges after an initial truncated read was discarded. Full artifact versus compact return includes first-evidence exception and required impact detail, with source-history checks only when claims depend on history. Quote generated definitions instead of mistaking failed literal search for absence. Distinguishes secondary interaction defects, ungrounded speculation and advisory value, although pre-existing suppression wording versus separate report partition remains to reconcile. File-size/style concerns absent project rules must be suppressed, conflicting with maintainability persona threshold. Reviewer remains operationally read-only; suggested fix and confidence do not grant apply authority. No agents spawned or review artifacts generated."
+    "All201 lines read in bounded ranges after an initial truncated read was discarded. Full artifact versus compact return includes first-evidence exception and required impact detail, with source-history checks only when claims depend on history. Quote generated definitions instead of mistaking failed literal search for absence. Distinguishes secondary interaction defects, ungrounded speculation and advisory value, although pre-existing suppression wording versus separate report partition remains to reconcile. File-size/style concerns absent project rules must be suppressed, conflicting with maintainability persona threshold. Reviewer remains operationally read-only; suggested fix and confidence do not grant apply authority. No agents spawned or review artifacts generated.",
+    "All247 lines read. Search starts with actual vocabulary and discovered corpus shape, broadens sparse matches and narrows oversized sets; knowledge-shaped records need not have bug-shaped fields. Full relevant documents must be read and historical claims checked against present source, with dates and explicit contradictions retained. Output is bounded prose context rather than schema-parsed findings, preserving source relevance and uncertainty. Search-count labels must distinguish candidate scans from full reads. No solutions corpus audit performed by this read.",
+    "All45 lines read. Requires expected population/load and production-observable impact before proposing caching, pagination or loop changes. Visible syntactic pattern does not establish magnitude; cold-path and hypothetical scale optimizations are excluded. This aligns with measured-savings discipline but supplies no fresh measurement. No performance benchmark or actual population census run.",
+    "All59 lines read. Requires actual PR URL context, distinguishes unanswered substantive feedback from optional suggestions, self-comments and removed code. Retrieval claims all comments/threads but command examples have no pagination or thread-resolution projection, and number-only gh view depends on ambient repo. Retained as retrieval-scope question pending API contract and existing findings reconciliation; no GitHub request or completeness claim made. Prior comment alone is not current bug proof; source and later discussion remain relevant.",
+    "All75 lines read. Every finding requires applicable ancestor-scoped rule and violating changed line; absent rule is not permission to invent generic standards. Pattern examples are conditional on actual standards, not universal native-tool or include-style rules. Remote standards path discovery still needs reviewed-ref reconciliation. Identical before/after example for qualified persona name is unhelpful illustration, not evidence that any live agent reference fails. No additional standards discovered or enforced during this research read.",
+    "All44 lines read. Requires reachable I/O failure, retry/timeout bounds, truthful propagated errors and stand-in fidelity; framework defaults and surrounding guards must be checked before treating syntax as missing protection. Cascade evidence must establish real operating conditions; test-only setup concerns belong to testing lens. No live failure or recovery experiment performed.",
+    "All45 lines read. Trace untrusted entry through guards to sink; source patterns alone do not establish exploitation. Potentially critical uncertainty may remain visible under P0 exception, while generic hardening and already-protected paths are excluded. Early instruction to typically label anchor50 security findings P0 must be read with later critical-impact condition and parent independent urgency/evidence contract, not used to inflate every uncertain concern. No exploit test or new security incident claimed.",
+    "All99 lines read. Domain prompts cover ownership, actor suspension, managed-object context, accessibility, monetary representation and semantic project-file changes. Parent applicability gate prevents applying these wholesale to unrelated languages. Strong syntax-based examples require actual ownership cycle, supported framework/version, concurrency settings and runtime contract verification before findings; no external Swift claims independently validated here. Preserve framework-choice neutrality and machine-generated churn exclusions. No Swift build or UI verification run.",
+    "All46 lines read. Behavior, lifecycle exits, sentinel truthfulness and executable source-of-truth checks matter more than test presence or aggregate coverage. Existing integration coverage can invalidate a file-name-based absence claim; order assertions only matter when order is contractual. New behavior with no test diff is a signal requiring coverage tracing, not proof of no coverage. No newly executed test suite.",
+    "All172 lines read. Stable IDs, severity-grouped evidence, actionable subset and triage groups are separate from apply authority; applied items retain identity and leave remaining-work groups. JSON must preserve impact/evidence and human reports keep self-contained closure. Example is illustrative rather than fully conformant: pre-existing row reuses1, actionable table omits some fixable examples, and early-return preference contradicts shared evidence bar. Governing rules remain stronger than sample; no emitted report from actual invocation assessed. Requirements-completeness late insertion remains unresolved under existing candidate11.",
+    "All36 lines read. One fresh batch independently evaluates each selected finding, includes every high-severity item despite normal eight-item cap, returns exactly one verdict per stable ID and forbids new findings or mutation. Remote source is pinned by provided context. Unknown infrastructure must be handled under parent degraded-validation rule rather than silently called false. No validator dispatched.",
+    "All89 lines read. Legacy single-finding template checks current defect, diff causality and surrounding protection but treats unreadable source as validated:false, unlike current parent degraded-blocker handling. Scoped search found active finish-review references batch template only; no incoming reference to this older template inside code-review bundle. Do not attribute this dormant guidance to current batch behavior. Staged-diff path and remote-ref handling are explicit. No standalone validator or model run."
   ],
   "follow_up_candidates": [
     {
@@ -804,9 +892,13 @@
     {
       "id": "skills-prompts-candidate-12",
       "question": "Trace data-migration review-base transfer: dispatch names BASE marker while PR-remote has separate PR_BASE_REF, and persona git diff commands omit reviewed head. Determine explicit remote adaptation and duplicate scope finding boundaries before promotion."
+    },
+    {
+      "id": "skills-prompts-candidate-13",
+      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete."
     }
   ],
-  "next": "Continue unread ce-code-review personas starting learnings-researcher and remaining report/validator templates; 66/250 full files, 11502/36169 lines. Six provisional P2 and three P3 findings; eleven follow-up candidates.",
+  "next": "All manifest ce-code-review markdown files read; continue .claude/skills/ce-commit-push-pr/SKILL.md. Coverage 77/250 full files, 12459/36169 lines. Six provisional P2 and three P3 findings; twelve follow-up candidates. Code-review scripts/schema are not credited as full reads.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -825,6 +917,12 @@
       "status": "not_promoted",
       "reason": "Brainstorm section contract explicitly permits technical and architectural detail when it is the subject. General scope-only synthesis wording alone does not establish a defect in architecture planning.",
       "validation": "Read complete entrypoint, section contract and synthesis reference; no generated artifact or downstream caller behavior claimed."
+    },
+    {
+      "id": "skills-prompts-legacy-validator-01",
+      "status": "not_promoted",
+      "reason": "Single-finding template conflates inaccessible evidence with false finding, but active finish-review selects validator-batch-template and retains infrastructure-degraded blockers. No incoming reference to the legacy template found within this skill bundle.",
+      "validation": "Full template and governing workflow reads plus scoped reference search; no global unreachable-code or runtime dispatch claim."
     }
   ]
 }
