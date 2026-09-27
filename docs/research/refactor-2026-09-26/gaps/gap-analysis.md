@@ -5,8 +5,8 @@ Data is read-only. The machine-readable companion is [`gaps.csv`](gaps.csv), wit
 
 > **Privacy rule.** `its-everdred/private-multisig (private)` is a private repository. For it, this report gives
 > only counts, durations and attribution categories. It gives no ticket numbers, titles, log text or
-> paths from inside it. In `gaps.csv` its rows use `repo = private-multisig (private)`, anonymized run
-> ids, and `evidence = private — omitted`.
+> paths from inside it. In `gaps.csv` its rows use `repo = private-multisig (private)`, blank run identifiers and timestamps,
+> and `evidence = private — omitted`. Numerical measurements are retained.
 
 ---
 
@@ -148,13 +148,14 @@ So the *frequent* gaps happen while someone is at the controls. The *long* gaps 
 
 ### Per run
 
-Pre-log boots with no gap of 30 min or more are omitted. Private runs are anonymized.
+Pre-log boots with no gap of 30 min or more are omitted. Private run identifiers
+and chronology are withheld; their counts and numerical measurements remain.
 
 | Repo | Run | Era | Start (UTC) | End (UTC) | Hours | Gaps ≥15m (n / h) | Gaps ≥30m (n / h) | Gaps ≥60m (n / h) |
 |---|---|---|---|---|---:|---:|---:|---:|
-| private-multisig (private) | private-run-1 | run-log | 2026-09-15T01:15Z | 2026-09-15T02:18Z | 1.06 | 1 / 0.44 | 0 / 0.0 | 0 / 0.0 |
-| private-multisig (private) | private-run-2 | run-log | 2026-09-15T02:18Z | 2026-09-15T18:21Z | 16.04 | 14 / 9.63 | 3 / 5.67 | 2 / 4.9 |
-| private-multisig (private) | private-run-3 | run-log | 2026-09-16T15:16Z | 2026-09-22T15:42Z | 144.43 | 1 / 144.43 | 1 / 144.43 | 1 / 144.43 |
+| private-multisig (private) | withheld | run-log | withheld | withheld | 1.06 | 1 / 0.44 | 0 / 0.0 | 0 / 0.0 |
+| private-multisig (private) | withheld | run-log | withheld | withheld | 16.04 | 14 / 9.63 | 3 / 5.67 | 2 / 4.9 |
+| private-multisig (private) | withheld | run-log | withheld | withheld | 144.43 | 1 / 144.43 | 1 / 144.43 | 1 / 144.43 |
 | aiur | 20260916T153434Z-2651128 | run-log | 2026-09-16T15:34Z | 2026-09-16T17:41Z | 2.12 | 1 / 0.74 | 1 / 0.74 | 0 / 0.0 |
 | aiur | 20260916T175148Z-3063564 | run-log | 2026-09-16T17:51Z | 2026-09-16T19:05Z | 1.23 | 0 / 0.0 | 0 / 0.0 | 0 / 0.0 |
 | aiur | 20260916T190631Z-3754910 | run-log | 2026-09-16T19:06Z | 2026-09-16T21:24Z | 2.3 | 0 / 0.0 | 0 / 0.0 | 0 / 0.0 |
@@ -217,7 +218,7 @@ at the start of the gap. "att" is the attended fraction.
 | # | Repo | Start → end (UTC) | h | Attr. | Cause and evidence |
 |---|---|---|---:|---|---|
 | 1 | aiur | 08-25 23:04 → 09-01 06:26 | 151.4 | d (unattended, att 0.00) | Operator away 6 days. The Executor session was silent from 08-25T22:24Z to 09-02T01:54Z. The daemon stayed up (same boot `1787603341`, last wake `system.tracker.auth_preflight_failed.resolved` at 09-01T06:26Z). Wake `system.fleet.capacity.starved` at 08-24T22:26Z was never resolved in that boot. Labels: human-review 12, rework 5 (3 of them `:blocked_on_decision`), todo 1. The 12 PRs waited; the first Executor action was 09-02T01:55Z. The daemon reported capacity starvation, but #2447 (*"Capacity-starvation alerts fire on the normal dispatch ramp and self-resolve: five false alarms"*) shows that this signal was unreliable in this era. |
-| 2 | private-multisig (private) | 09-16 15:16 → 09-22 15:42 | 144.4 | e | private — omitted (daemon up, nothing queued; ended by the host crash) |
+| 2 | private-multisig (private) | withheld | 144.4 | e | private — omitted (daemon up, nothing queued; ended by the host crash) |
 | 3 | aiur | 09-20 02:04 → 09-22 15:42 | 61.6 | b (50.9 h) + c (10.5 h) | Labels: human-review 9 (#2751 and #2749 fresh, #2668 at 71 h, others up to 17 days), paused 10, error 4. The rework tickets #1767, #2245 and #2413 were `Dispatch declined for 1767: :blocked_on_decision.` on decisions pending since 08-21/22 (`ticket.agent.attention.operator-decision` 08-22T02:17Z). Alert 09-21T02:01Z: *"PR #2752 … has been open 24 hours with no review — it is unseen, not blocked."* On 09-20 from 07:26Z to 22:27Z, the aiur Executor session was steering background agents on an unrelated side project (a browser game), so the result is c. After 22:27Z nobody was present. The host crashed at 09-22T15:41:37Z (§6). |
 | 4 | khala | 09-20 03:34 → 09-22 15:42 | 60.1 | b (50.6 h) + c (9.3 h) | The whole queue was blocked behind one human item. On 09-19T19:18Z the Executor commented on #41: *"Executor note on dec_553565e8bca39788 (live two-human proof credentials): this is an operator provis[ioning]…"*. At 19:33Z it labeled #41 `agent:paused`. The 6 remaining todo tickets were `Dispatch declined for 43: :dependency.` (also 44, 45, 47, 48, 49) at 09-20T01:08Z. `live-proof-credentials` attention wakes repeated every 15 min from 09-19T19:17Z to 09-20T00:47Z. At the moment of the crash, the Stream Deck journal line read `channel.grid agents=10 total=10 buckets={"paused":1,"queued":9}`. Together with §6 this is the reported "4.6 days". |
 | 5 | aiur | 09-18 11:40 → 09-19 17:59 | 30.3 | b | Labels: human-review 5 (#2668 at 33 h, #2633/#2610/#2394 at about 175 h, #2519 at 363 h), paused 12, error 4, 3 decision-blocked. Executor 8 active minutes in 30 h. Alert: *"PR #2736 (Provision deletion guards in workspaces) has been open 24 hours with no review — it is unseen, not blocked."* It ended with an Executor control command at 09-19T17:59Z. |
@@ -310,13 +311,13 @@ Other sources for the same question:
 
 | Repo | Down from → to (UTC) | h | Cause |
 |---|---|---:|---|
-| khala, aiur, private | 09-22 15:42 → khala 09-24 18:48 | **51.1** (khala) | **Host crash.** The host journal's boot −1 ended at `Tue 2026-09-22 08:41:37 PDT`, and `last -x` shows no clean shutdown. All three daemons' telemetry stops at 15:42Z. The next boot was 09-24T17:30Z (10:30 PDT). khala was restarted 78 min after boot. **aiur and private-multisig (private) have not been restarted since.** |
+| khala, aiur; 1 additional repo (private) | 09-22 15:42 → khala 09-24 18:48 | **51.1** (khala) | **Host crash.** The host journal's boot −1 ended at `Tue 2026-09-22 08:41:37 PDT`, and `last -x` shows no clean shutdown. Both public daemons' telemetry stops at 15:42Z; one additional daemon (private) is counted in the same failure category. The next boot was 09-24T17:30Z (10:30 PDT). khala was restarted 78 min after boot. **aiur had not been restarted at the report cutoff.** |
 | aiur | 09-04 00:18 → 09-09 21:53 | 141.6 | Not run; the Executor was on architecture-docs/archon |
 | aiur | 09-11 05:54 → 09-16 15:34 | 129.7 | Not run |
 | aiur | 09-01 06:26 → 09-02 01:55 | 19.5 | Not run (end of gap 1) |
 | archon | 09-05 02:16 → 09-09 22:34 | 116.3 | Not run |
 | archon | 09-03, 3 short periods | 1.6 / 5.6 / 2.2 | Restart churn on the first day |
-| private-multisig (private) | 09-15 18:21 → 09-16 15:16 | 20.9 | — |
+| private-multisig (private) | withheld | 20.9 | — |
 
 **The reported "khala down 4.6 days"** is 09-20T03:34Z (last progress, PR #109 merged) to 09-24T18:59Z
 (next progress, PR #131 *"Add a public splash page at khala.aiur.team"* by the Executor), which is 111.4 h.

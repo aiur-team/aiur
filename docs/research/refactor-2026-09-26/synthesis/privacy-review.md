@@ -23,6 +23,21 @@ not a declaration that every inherited artifact is safe.
 - Restored claim-verdict metadata by exact matching to the local journal.
   No journal prose, private source material or credentials were imported.
 
+- Compared the public research against 121 private issue/PR records (private).
+  No exact title of at least 20 characters matched. No 18-word body window
+  matched among 98,029 distinct windows. Raw records and candidate indexes stay
+  in local scratch; this does not cover paraphrases, shorter quotations or
+  private session-only material.
+- Removed 76 CSV cells containing private run/source identifiers or exact event
+  chronology; see `privacy-redactions.json`. Row counts, numeric measurements
+  and all public rows are unchanged, verified against local pre-edit copies.
+  Corresponding private chronology was withheld in the census/gaps prose.
+- Removed private thread chronology from three fields in the recovered claim
+  verdicts. `provenance.post_recovery_redactions` identifies those fields;
+  the original exact journal match predates these intentional redactions.
+  The recovery tool therefore must not be rerun against edited prose as if it
+  were an unchanged journal export.
+
 The correction locations above use stable JSON fields instead of line numbers
 that change when formatting is normalized. No removed value is repeated here.
 

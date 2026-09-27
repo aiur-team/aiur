@@ -93,8 +93,8 @@ then `scratch/gh_stats.py`. PRs are removed with `pr==false`.
 | archon | 152 | 63 | 89 | 0 | 92 | 60 | 2026-09-02 | 2026-09-24 |
 | khala | 217 | 29 | 188 | 1 | 202 | 15 | 2026-09-16 | 2026-09-26 |
 | kevinweaver-dev | 63 | 8 | 55 | 9 | 55 | 8 | 2026-08-01 | 2026-08-03 |
-| private-multisig (private) | 49 | 7 | 42 | 0 | 48 | 1 | 2026-09-15 | 2026-09-15 |
-| croptracker (private) | 8 | 8 | 0 | 0 | 8 | 0 | 2026-07-28 | 2026-07-28 |
+| private-multisig (private) | 49 | 7 | 42 | 0 | 48 | 1 | withheld | withheld |
+| croptracker (private) | 8 | 8 | 0 | 0 | 8 | 0 | withheld | withheld |
 | **Total** | **1,761** | **226** | **1,535** | **66** | **1,401 (80%)** | **360 (20%)** | | |
 
 **Who filed them.** Only two logins filed issues. `its-applekid` is the agent account.
@@ -299,14 +299,14 @@ The longest spans:
 
 | Run | Repo | Span |
 |---|---|---|
-| `20260916T151630Z` | private-multisig (private) | 144 h, 6 files, 0 tickets |
+| withheld | private-multisig (private) | 144 h, 6 files, 0 tickets |
 | `20260917T022859Z` | aiur | 133 h, 12 tickets |
 | `20260920T010817Z` | khala | 62.6 h, 2 tickets |
 | `20260918T104829Z` | khala | 38 h, 31 tickets |
 | `20260925T042508Z` | khala | 24.9 h, 74 tickets |
 
-Three runs end at the same moment, 2026-09-22 15:42Z: an aiur run, a khala run and a
-private-multisig (private) run. So several daemons were running at once and were stopped together.
+Two public runs (aiur and khala) end together at 2026-09-22 15:42Z. One additional
+run (private) belongs to the simultaneous-stop category; its chronology is withheld.
 Nine of 39 dirs (23%) are empty or aborted boots. Six of those nine are clustered on
 09-16 15:15, 09-17 15:23 and 09-25 23:51–23:59, which suggests restart storms.
 
@@ -330,7 +330,7 @@ and `scratch/handoffs.py` (`needs_attention`).
 | architecture-docs | 1,881 | 2026-09-03 → 09-05 | 1,471 (78%) | 54 |
 | archon | 810 | 2026-09-09 → 09-11 | 569 (70%) | 29 |
 | khala | 2,203 | 2026-09-16 → 09-26 (live) | 534 (24%) | 195 |
-| private-multisig (private) | 117 | 2026-09-15 → 09-20 | 17 | 25 |
+| private-multisig (private) | 117 | withheld | 17 | 25 |
 
 By family (first two parts of `topic_class`):
 
