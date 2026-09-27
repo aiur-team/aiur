@@ -1431,3 +1431,7 @@ Read all12 polish markdown files; coverage 188/250 files, 29,700/36,169 lines. P
 ### Skills/prompts: POV evidence and peer independence
 
 Read all11 POV markdown files; coverage 199/250 files, 30,485/36,169 lines. Preserve verified-fact floors, conversation disconfirmation, named recipient authority, receipt-supported model independence, dirty/untracked identity checks, common evidence reconciliation and scoped cleanup. Added bounded-search versus verified-absence question; extended existing peer boundary question with explicit cooperative-scope limits. No new finding promoted. All 199 hashes/line counts verified. No peer, external query, publication or production change. Raw units remain28/32; next product-pulse markdown.
+
+### Skills/prompts: product metrics and promotion evidence
+
+Read five complete pulse/promotion markdown files; coverage 204/250 files, 31,296/36,169 lines. Recorded provisional P2 metric-source mismatch: setup omits payments-class default overrides but report fallback queries analytics. Added settings persistence, quality-score calibration and shipped-state/provider questions. Preserve buffered windows, explicit unknowns, PII exclusion, read-only DB and draft/publication distinction. All 204 hashes/line counts verified. No live query, credential access, provider call, scheduling or production change. Raw units remain28/32; next ce-proof.

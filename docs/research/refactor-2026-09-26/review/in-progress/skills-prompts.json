@@ -1397,6 +1397,41 @@
       "lines": 32,
       "read": "full",
       "assessment": "Full32 lines read. Named incumbent plus touchpoint is useful, and absence requires recorded searches and integration point. Candidate32: equating thin/empty search with verified capability absence can overlook aliases/delegated implementation; a bounded keyword scan is insufficient for broad no-incumbent claim. Call-site counts similarly need semantic scope."
+    },
+    {
+      "path": ".claude/skills/ce-product-pulse/SKILL.md",
+      "sha256": "0dcce76d61051eed587a5d87a53055a47f5b3e8e31f676a287d09eef1917b0fa",
+      "lines": 176,
+      "read": "full",
+      "assessment": "Full176 lines read. Preserve buffered equal-length windows, source timestamps, read-only data access, serial bounded DB load, no PII in reports and explicit scheduling consent. Activity is not shipped-work evidence. Quality default4-5 and score-distribution pressure need calibration review; optional-source failures cannot be silently treated as zero."
+    },
+    {
+      "path": ".claude/skills/ce-product-pulse/references/interview.md",
+      "sha256": "3329868cd6d4cf309172346f716af95176da564e20d3a9891e080387042313fc",
+      "lines": 260,
+      "read": "full",
+      "assessment": "Full260 lines read in two ranges. Preserve credentials outside config, canonical metric sources, pending-versus-excluded metrics and bounded clarification. Class-default source omission conflicts with analytics-only report fallback (finding15). Promised tracing/schedule/quality-note persistence conflicts with flat schema and not-persisted list; candidate33. No interview or config write invoked."
+    },
+    {
+      "path": ".claude/skills/ce-product-pulse/references/report-template.md",
+      "sha256": "0c5261f4dab8c15d980ac4306aa6bba4a573dda105e79d70b227afc48c373884",
+      "lines": 89,
+      "read": "full",
+      "assessment": "Full89 lines read. Preserve actual values, source windows, no invented deltas, visible no-data for strategy metrics, and PII scan of errors/followups. Class-default source mismatch confirmed. General delete-unavailable-lines direction must not erase explicitly required no-data metrics. No report/query generated."
+    },
+    {
+      "path": ".claude/skills/ce-promote/SKILL.md",
+      "sha256": "821e24c6632c0d480a44640b353a77139c46a6252357d9ba2f1a9a67ca294715",
+      "lines": 139,
+      "read": "full",
+      "assessment": "Full139 lines read. Draft-only, no posting/commit/PR action. Source list includes active PR and unreleased changelog, so actual shipped/released status must not be inferred merely from supplied code changes. Spiral opt-out and direct fallback preserve usability; installed auth does not prove output-publication authority. No CLI/auth/provider call executed."
+    },
+    {
+      "path": ".claude/skills/ce-promote/references/spiral-cli.md",
+      "sha256": "c300c8ae8681e730220c8a5f3de4aae9e18fb431318e50a112a10f498429c923",
+      "lines": 147,
+      "read": "full",
+      "assessment": "Full147 lines read. User-directed device approval avoids collecting API keys; durable opt-out disclosed, worktree-aware local exclude avoids tracked config change. Remote draft persistence is an external effect distinct from public posting. Legacy auth output fallback may surface credential prefixes; inspect actual behavior before exposure claim. Source assertions about CLI output/version are not freshly verified. No install/login/draft generation performed."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1746,6 +1781,27 @@
       "recommendation": "Allow exact verification commands in the Verification Contract while prohibiting implementation and commit choreography in unit descriptions. Share that exception between authoring and deepening rules.",
       "refactor_hint": "Separate executable acceptance-gate metadata from prescriptive implementation steps in the canonical planning contract.",
       "limits": "Instruction-level contradiction, not a reproduced failed execution. A reader can infer the narrower intended exception, reducing severity. No tests, plan workflow or production changes executed; cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-15",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Pulse report loses payments-default metric routing saved by setup",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-product-pulse/references/interview.md",
+          "lines": "125"
+        },
+        {
+          "path": ".claude/skills/ce-product-pulse/references/report-template.md",
+          "lines": "12-15"
+        }
+      ],
+      "description": "Setup omits a per-metric override when a strategy metric uses its class default, including pulse_payments_source for revenue. Report assembly instead routes every metric without an override to pulse_analytics_source. A revenue metric intentionally left on the payments default can therefore be queried against the wrong provider and reported as missing or as a different measurement.",
+      "evidence": "Complete interview/config schema, parent config keys and report-template reads. Setup explicitly defines class defaults; report fallback explicitly names only analytics. A separate generic payments query does not repair this per-strategy-metric source selection rule.",
+      "recommendation": "Persist an explicit canonical source for each strategy metric, or use the same class-aware default resolver in setup and reporting. Render source identity and missing-data status faithfully.",
+      "refactor_hint": "Use one typed metric/source contract for configuration and report queries instead of separately narrated default rules.",
+      "limits": "Instruction-level routing mismatch only; no live provider queried and no incorrect report observed. Cross-unit dedup pending."
     }
   ],
   "preserve": [
@@ -1947,7 +2003,12 @@
     "Full26 lines read. Source must entail load-bearing claim; independent corroboration distinct from repeated pages. Availability prose says neither search nor fetch while dependency names both, unlike broader researcher contract; source fetching remains evidence floor. No external facts gathered.",
     "Full37 lines read. Initial independence excludes other conclusions, not the subject. Prompt scope and public-only query terms constrain behavior but are not sandbox proof. Explicit unverified external check and per-claim source anchors retained.",
     "Full21 lines read. Always local precedent, optionally tracker; missing tracker does not erase local evidence. Issue existence is observed, reported performance is not a measurement. Budgeted15 reads and no prior stance found describe search scope, not universal absence.",
-    "Full32 lines read. Named incumbent plus touchpoint is useful, and absence requires recorded searches and integration point. Candidate32: equating thin/empty search with verified capability absence can overlook aliases/delegated implementation; a bounded keyword scan is insufficient for broad no-incumbent claim. Call-site counts similarly need semantic scope."
+    "Full32 lines read. Named incumbent plus touchpoint is useful, and absence requires recorded searches and integration point. Candidate32: equating thin/empty search with verified capability absence can overlook aliases/delegated implementation; a bounded keyword scan is insufficient for broad no-incumbent claim. Call-site counts similarly need semantic scope.",
+    "Full176 lines read. Preserve buffered equal-length windows, source timestamps, read-only data access, serial bounded DB load, no PII in reports and explicit scheduling consent. Activity is not shipped-work evidence. Quality default4-5 and score-distribution pressure need calibration review; optional-source failures cannot be silently treated as zero.",
+    "Full260 lines read in two ranges. Preserve credentials outside config, canonical metric sources, pending-versus-excluded metrics and bounded clarification. Class-default source omission conflicts with analytics-only report fallback (finding15). Promised tracing/schedule/quality-note persistence conflicts with flat schema and not-persisted list; candidate33. No interview or config write invoked.",
+    "Full89 lines read. Preserve actual values, source windows, no invented deltas, visible no-data for strategy metrics, and PII scan of errors/followups. Class-default source mismatch confirmed. General delete-unavailable-lines direction must not erase explicitly required no-data metrics. No report/query generated.",
+    "Full139 lines read. Draft-only, no posting/commit/PR action. Source list includes active PR and unreleased changelog, so actual shipped/released status must not be inferred merely from supplied code changes. Spiral opt-out and direct fallback preserve usability; installed auth does not prove output-publication authority. No CLI/auth/provider call executed.",
+    "Full147 lines read. User-directed device approval avoids collecting API keys; durable opt-out disclosed, worktree-aware local exclude avoids tracked config change. Remote draft persistence is an external effect distinct from public posting. Legacy auth output fallback may surface credential prefixes; inspect actual behavior before exposure claim. Source assertions about CLI output/version are not freshly verified. No install/login/draft generation performed."
   ],
   "follow_up_candidates": [
     {
@@ -2062,9 +2123,21 @@
     {
       "id": "skills-prompts-candidate-32",
       "question": "POV project-grounding scout calls thin/empty bounded search verified absence of an incumbent. Determine if caller gate forces semantic capability/path coverage before claiming net-new; otherwise report searched-and-not-found rather than universal absence. Same issue affects content-search call-site counts. No false adoption verdict executed."
+    },
+    {
+      "id": "skills-prompts-candidate-33",
+      "question": "Pulse interview promises customized error count/latency, score notes, needs-review flags and schedule choices, but flat schema omits them and explicitly says tracing/schedule not persisted. Reconcile actual consumer settings and same-minute report overwrite before promoting. No config or report modified."
+    },
+    {
+      "id": "skills-prompts-candidate-34",
+      "question": "Pulse quality scoring defaults normal sessions to4-5 and declares all5 too loose/all3 too strict; assess whether distribution-driven adjustment conflicts with fixed rubric/comparable-run evidence. Sampling up to10 without selection contract is not population quality proof."
+    },
+    {
+      "id": "skills-prompts-candidate-35",
+      "question": "Promotion drafts treat active PR/unreleased changelog/current-main diff as what shipped without release-state proof; inspect prior provenance findings for dedup. Also distinguish optional remote persisted drafts from public posting and inspect legacy auth output without exposing secrets. No external call made."
     }
   ],
-  "next": "Continue ce-product-pulse markdown. Coverage 199/250 full files, 30485/36169 lines. Nine provisional P2 and five P3 findings; twenty-eight follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-proof markdown. Coverage 204/250 full files, 31296/36169 lines. Ten provisional P2 and five P3 findings; thirty-one follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
