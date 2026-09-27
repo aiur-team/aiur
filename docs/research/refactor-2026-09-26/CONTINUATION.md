@@ -1775,3 +1775,7 @@ Read print_human, query, remove_label, replace, resume_agent and retire: 43 lite
 ### Name duplication: turn execution and sanitization boundaries
 
 Read row, run_turn, safe_reason and sanitize: 43 literal entries across four families. Existing app-server adapter sharing retains pause and account-generation behavior. Equivalent existing-atom decoders and path-character replacement are scoped candidates; preserve source health, provenance and sink-specific validation. Name triage now 206 families/4511 entries, leaving 1474 cross-module names. Raw findings and skeptic counts are unchanged; no runtime delivery or complete sanitization guarantee is claimed.
+
+### Name duplication: session acquisition and cleanup
+
+Read start_session, state_label, stop_session and string_or_nil: 44 literal entries across four families. Preserve backend resource acquisition, Remote Control listener requirements, nested cleanup and proof-of-exit semantics. Three nonempty-binary validators are equivalent; display humanization overlaps prior candidates and is non-additive. Name triage now 210 families/4555 entries, leaving 1470 cross-module names. Raw findings and skeptic counts are unchanged; no runtime cleanup or saving is claimed.
