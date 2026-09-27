@@ -122,9 +122,117 @@
       "sha256": "9705910ab1e47ef95e3eb05491f30a0cb3aac727b8b25ea8d9e9a4dbf086a57f",
       "lines": 27,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_resource_guard_test.exs",
+      "sha256": "64ea00d579e1bed8e477c13fd795c2653f928eaa51ca49039c9990f73d14ac9d",
+      "lines": 105,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/supervision_health_alert_test.exs",
+      "sha256": "8cca75f5bfec6d0e4643558604ee3eceaa8158a274295a807b72ae1e605b33c6",
+      "lines": 113,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/supervision_health_test.exs",
+      "sha256": "02984d20e81e7a1ccdc73f57a4ad048167bab4cbb46850bfd9336bdc37558208",
+      "lines": 165,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/system_memory_test.exs",
+      "sha256": "fabdb763c30e787044b0af7ca943e8344dd9a7351d5be85ee9a9bf1acc224b6c",
+      "lines": 60,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/progress_retention_test.exs",
+      "sha256": "80b308f4529cca33a0090950b11a874b43f8f55c75eda55dacacf668b48d9119",
+      "lines": 128,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/progress_tracker_test.exs",
+      "sha256": "53d7fa6b68849454491aac664b2a8951262c2528a41f5727e66e3f867e04b604",
+      "lines": 142,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/asks_cli_test.exs",
+      "sha256": "24ddfebce6ed3224ba08264fe42aa10b16aac9a1a35560ff126da35b72a491f4",
+      "lines": 50,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/asks_test.exs",
+      "sha256": "e0c7cdb216417cff702aae683ebe7d9dc44874245f42a16d64ff55feb7182c24",
+      "lines": 138,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_pubsub_test.exs",
+      "sha256": "314f82206b6de00866a17894e3a485b2bae1658729cdad96a3eba34600ab51b4",
+      "lines": 125,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/github_body_file_policy_test.exs",
+      "sha256": "45fe1c0b2936b370f4cdd3edba7125251f43eb2375fa6a313fb54cbadd8eb7da",
+      "lines": 83,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/test_boot_guard_test.exs",
+      "sha256": "cd16766261bd71a5941ca14b4905b028d42daf66a9495498f46dc51fe4f87dc6",
+      "lines": 65,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/token_usage_test.exs",
+      "sha256": "0bbc33e6db09838ea2eed48f7afd9b6c93a71af187f078b98309699d07824d6d",
+      "lines": 57,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/webhooks_test.exs",
+      "sha256": "557552496a3419b6f72ee315d2eced3ba3d70e5fbe8170f561e25274c185aff1",
+      "lines": 54,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/yaml_test.exs",
+      "sha256": "6944270a8f4e6e6596b4cdc09f7b78e4e0846bf6ca335f685a1908c0645442a6",
+      "lines": 68,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/tracker_identity_test.exs",
+      "sha256": "bbc0722055d19b3825f75a409bb28341ab43e2550a21a75a680e9e1c10b70188",
+      "lines": 156,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/ticket_observation_test.exs",
+      "sha256": "50e752d7a72fd1ccc5ba75ee2e8b381d8f06bc3c763eef03593ed083a2531609",
+      "lines": 154,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_metrics_restart_test.exs",
+      "sha256": "d1d8e79990d69d3c09d9115d49ea3b4d6600ef854c64ac0bc3b151e13ed5eab3",
+      "lines": 182,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/http_server_port_collision_test.exs",
+      "sha256": "40f9ea353baa1057faa32edcdc26da5117ab125806308e44a30a598961ef2d4d",
+      "lines": 216,
+      "read": "full"
     }
   ],
-  "scope_note": "20 complete file reads, 2141 lines; remaining paths unreviewed. Targeted excerpts recorded separately. Source-oracle probe ran; no full suite or live runtime launched.",
+  "scope_note": "38 complete file reads, 4202 lines; remaining paths unreviewed. Targeted excerpts recorded separately. Isolated source-oracle and policy-test probes ran; no application suite or live runtime launched.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -167,6 +275,23 @@
       "recommendation": "Assert every task result is an ok tuple with the expected value domain and assert the expected result count; use a controlled write/read overlap if atomic visibility is the intended guarantee.",
       "refactor_hint": "Keep persistence tests asserting externally observable all-or-error behavior when extracting the journal/filesystem primitive.",
       "limits": "Only the assertion block executed with supplied results; no production mutation or full ExUnit suite was run."
+    },
+    {
+      "id": "tests-1b-cont-03",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Source policy test ignores unstaged working-tree violations",
+      "locations": [
+        {
+          "file": "src/test/aiur/github_body_file_policy_test.exs",
+          "lines": "15-42"
+        }
+      ],
+      "description": "The test enumerates tracked paths but reads contents with git show :path, which selects the index. An unstaged forbidden inline body is invisible to a local run even though the test is named as a source-wide policy guard.",
+      "evidence": "tooling/github_body_policy_probe.py copies the frozen test unchanged into a disposable Git repository. Safe index/worktree: 2 tests, 0 failures; safe index/unsafe worktree: 2 tests, 0 failures; staging the same unsafe body: 2 tests, 1 failure.",
+      "recommendation": "Decide and document whether the policy guards the staged proposal or the current source. For ordinary local test semantics, enumerate tracked paths but read working-tree contents, and distinguish read failures from clean scans.",
+      "refactor_hint": "Repository policy checks should state their source-of-truth boundary; keep index validation explicit if it is intentionally a pre-commit check.",
+      "limits": "This is an unstaged local-edit blind spot. Clean-checkout CI sees matching index/worktree contents and catches the demonstrated violation. No production failure or network operation is alleged."
     }
   ],
   "preserve": [
@@ -179,7 +304,17 @@
     "Dispatch task tests use private coordinators and blocking jobs to exercise fair admission, pending limits and recovery.",
     "PathSafety tests use real symlinks, exercise escape/cycle rejection and both sides of the traversal cap.",
     "GlobalLogIsolation checks boot-time event-id persistence beneath the temporary runtime root.",
-    "OperatorWaitLog tests exercise composite request identity and mismatched-delivery preservation."
+    "OperatorWaitLog tests exercise composite request identity and mismatched-delivery preservation.",
+    "Resource guard tests inject process inventory and kill callbacks, covering disabled caps and recursive child walks without killing host processes.",
+    "Supervision health tests cover nested missing children, restart exhaustion, retained degradation after alert failure and real AlertFeed resolution.",
+    "SystemMemory distinguishes actual zero availability from unavailable or malformed observations.",
+    "Progress retention covers ordering, flush/restart recovery, graceful termination and corrupt-store quarantine; tracker tests retain unknown/stale/regression ETA behavior.",
+    "Asks journal tests cover concurrent single resolution, invalid transitions, duplicate opens and truncated final appends.",
+    "TestBootGuard protects temporary runtime roots; TokenUsage distinguishes missing usage from zero counts; webhook tests preserve polling until delivery proves availability.",
+    "Yaml tests suspend the real controller and bound task completion to guard the configuration read deadlock.",
+    "TrackerIdentity and TicketObservation retain qualified identity, explicit unjoinable/unattributed states, separate occurrence/observation timestamps, retry provenance and redaction of untrusted text.",
+    "DecisionMetrics restart tests use a replay barrier to exercise subscribe-before-replay, deduplicate persisted events, separate cross-run decision metrics from run-local operator wait, and backfill from the canonical store.",
+    "HTTP collision tests explicitly distinguish existing characterization from nested bind-error regression, assert sibling survival and dashboard-independent alerting, and exercise linked-child exit cleanup."
   ],
   "next": [
     "Continue remaining tests-1b paths; audit test support and shared-state restoration.",

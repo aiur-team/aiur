@@ -1143,3 +1143,10 @@ Twelve full reads now recorded with hashes: added ExecutorCommandCLI and members
 ### tests-1b twenty-file checkpoint
 
 20 full reads with hashes. Added concrete P2 oracle defect: JsonStore concurrent-read test filters away error tuples. Actual extracted assertion probe passes all10 errors and mixed errors, fails malformed success as control. tooling/json_store_oracle_probe.exs runs with frozen snapshot argument; no production mutation or suite run. Preserve symlink boundary and boot-log isolation checks. Pending env-inventory dynamic/bang-read hypothesis is unverified. Raw-unit count remains25/32.
+
+
+### tests-1b thirty-four-file checkpoint
+
+34 full reads now recorded with hashes. Resource, supervision, memory, progress retention, journal, boot isolation, token usage, webhooks and YAML contracts retained. Added verified local policy-test gap: unchanged GitHubBodyFilePolicyTest passes an unstaged inline-body violation and fails it after staging (2/0, 2/0, 2/1 tests/failures). Portable disposable-repository probe added; this is not a clean-checkout CI blind spot. Initial probe launch failed because the temporary directory had no mise Erlang selection; explicit Erlang bin PATH resolved it without modifying host configuration. No production changes or application boot. Raw-unit count remains25/32.
+
+Added four more full reads: qualified identity/observation, decision-metrics restart and HTTP bind collisions. tests-1b now38/75 files, 4202 lines; no new promoted finding. Retain subscription-before-replay barrier and characterization/regression distinction.
