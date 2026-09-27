@@ -1052,3 +1052,19 @@ the disable-prewarm mitigation. Report wording corrected accordingly.
 
 Gaps-03/05 remain open: primary diagnosis, causal population and later exposure
 still need evaluation. Claim coverage stays 53/60. No operational changes.
+
+## Gaps-03/05 bounded verdict checkpoint
+
+Both compound claims rejected with supported point diagnosis and merged repair
+preserved. Successful historical tool results name prewarm checking, zero live
+agents and 31 ready tickets; the analyzer hard-codes load-governor from the topic.
+Pre-log aiur d 257.2 h / 282.9167 h=90.91%; all-prelog d 273.0667 h / 316.0333 h=86.40%.
+These are distinct populations and cannot measure one defect's causal cost.
+
+Later Aiur wake records after repair merge exist (197 prewarm blocked/194 resolved,
+36 fleet-starved/27 resolved), but merged source, effective config and loaded
+revision remain separate. No non-recurrence claim. Primary transcript evidence
+is hashed/paraphrased without raw publication. Verdicts and report corrected.
+
+Coverage 55/60; remaining codebase-07, gaps-04/06/07, meta-07. Review 25/32,
+remaining feature challenges/skeptic checks/synthesis/CE planning unchanged.

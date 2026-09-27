@@ -63,16 +63,18 @@ causation and current-era source completeness remain under review.
 
 **The three largest historical attribution buckets (causal checks incomplete):**
 
-1. **Daemon dispatch starvation (d), 257 h, all in the pre-log aiur era.** The daemon raised
+1. **Pre-log aiur infrastructure bucket (d), 257.2 h, not a single-defect cost.** The daemon raised
    a `system.fleet.capacity.starved` record with no resolution in the selected ID group. At the same time
    `system.dispatch.prewarm_blocked` has 71 blocked and 70 resolved records in the cited event-ID group, forming
    70 ordered pairs and one unclosed block. Pair durations range from 5.15 seconds to
    40.22 minutes; the median is 10.11 minutes. The group is not proven to be one boot.
-   The Executor found the root cause on 08-21T18:42Z: *"Ready tickets=31, live agents=0, effective cap=1,
+   A successful transcript tool result records this point diagnosis on 08-21T18:42Z: *"Ready tickets=31, live agents=0, effective cap=1,
    dispatch constraints=prewarm build (prewarm=checking)"*. It filed #2237, *"Prewarm :checking is an
    absorbing state: a lost ls-remote probe gates fleet dispatch forever"*. The largest single item is a
    151-hour stretch (08-25 to 09-01). In that stretch the operator was also away for 6 days, and 12 PRs
-   waited in `agent:human-review`.
+   waited in `agent:human-review`. The 257.2 h equals 90.91% of pre-log aiur gap bins;
+   the 86.40% figure instead uses all-pre-log d (273.0667 of 316.0333 h). Neither
+   percentage establishes one defect's causal share.
 2. **Agents waiting on an absent Executor (b), 181 h; 66 % of current-era aiur/khala idle time.** Dependency
    graphs make one human-blocked ticket block the whole fleet. For 4.6 days, khala waited on one paused
    ticket (#41, *"live two-human proof credentials: this is an operator provis[ioning]…"*). All six
@@ -254,7 +256,7 @@ use the CSV duration-weighted column for a bounded fraction.
 | 3 | aiur | 09-20 02:04 → 09-22 15:42 | 61.6 | b (50.9 h) + c (10.5 h) | Labels: human-review 9 (#2751 and #2749 fresh, #2668 at 71 h, others up to 17 days), paused 10, error 4. The rework tickets #1767, #2245 and #2413 were `Dispatch declined for 1767: :blocked_on_decision.` on decisions pending since 08-21/22 (`ticket.agent.attention.operator-decision` 08-22T02:17Z). Alert 09-21T02:01Z: *"PR #2752 … has been open 24 hours with no review — it is unseen, not blocked."* On 09-20 from 07:26Z to 22:27Z, the aiur Executor session was steering background agents on an unrelated side project (a browser game), so the result is c. After 22:27Z nobody was present. The host crashed at 09-22T15:41:37Z (§6). |
 | 4 | khala | 09-20 03:34 → 09-22 15:42 | 60.1 | b (50.6 h) + c (9.3 h) | The whole queue was blocked behind one human item. On 09-19T19:18Z the Executor commented on #41: *"Executor note on dec_553565e8bca39788 (live two-human proof credentials): this is an operator provis[ioning]…"*. At 19:33Z it labeled #41 `agent:paused`. The 6 remaining todo tickets were `Dispatch declined for 43: :dependency.` (also 44, 45, 47, 48, 49) at 09-20T01:08Z. `live-proof-credentials` attention wakes repeated every 15 min from 09-19T19:17Z to 09-20T00:47Z. At the moment of the crash, the Stream Deck journal line read `channel.grid agents=10 total=10 buckets={"paused":1,"queued":9}`. Together with §6 this is the reported "4.6 days". |
 | 5 | aiur | 09-18 11:40 → 09-19 17:59 | 30.3 | b | Labels: human-review 5 (#2668 at 33 h, #2633/#2610/#2394 at about 175 h, #2519 at 363 h), paused 12, error 4, 3 decision-blocked. Executor 8 active minutes in 30 h. Alert: *"PR #2736 (Provision deletion guards in workspaces) has been open 24 hours with no review — it is unseen, not blocked."* It ended with an Executor control command at 09-19T17:59Z. |
-| 6 | aiur | 08-20 05:57 → 08-21 02:38 | 20.7 | d | Dispatch defect #2237. In event-ID group `1787205471` (not a verified boot): `system.fleet.capacity.starved` at 06:18Z was never resolved, and `system.dispatch.prewarm_blocked` has 71 blocked and 70 resolution records; 70 ordered pairs plus one unclosed block, with variable durations. This signal alone does not prove the absorbing-state defect caused the whole gap. No Executor session existed until 08-21T02:40Z (*"read recent handoff /aiur-handoff"*). The Executor diagnosed it on 08-21T18:42Z: *"Ready tickets=31, live agents=0, effective cap=1, dispatch constraints=prewarm build (prewarm=checking)"*. |
+| 6 | aiur | 08-20 05:57 → 08-21 02:38 | 20.7 | d | Model assigned d; a later point diagnosis supports a prewarm defect but not the whole interval. In event-ID group `1787205471` (not a verified boot): `system.fleet.capacity.starved` at 06:18Z was never resolved, and `system.dispatch.prewarm_blocked` has 71 blocked and 70 resolution records; 70 ordered pairs plus one unclosed block, with variable durations. This signal alone does not prove the absorbing-state defect caused the whole gap. No Executor session existed until 08-21T02:40Z (*"read recent handoff /aiur-handoff"*). A later successful tool result on 08-21T18:42Z reports: *"Ready tickets=31, live agents=0, effective cap=1, dispatch constraints=prewarm build (prewarm=checking)"*. |
 | 7 | khala | 09-18 22:46 → 09-19 17:55 | 19.1 | b | 3 PRs entered human-review at the start of the gap (#36, #115, #101). 14 todo tickets were dependency- or decision-held behind them. Executor active 0 minutes in the gap (overnight). The first action was an Executor control command at 09-19T17:55Z. |
 | 8 | aiur | 08-25 00:40 → 08-25 14:03 | 13.4 | d (unattended) | Same boot and starvation signal as #1. Labels: human-review 11, rework 6. It ended when the human wrote *"status?"* at 14:03Z. |
 | 9 | aiur | 09-17 03:36 → 09-17 13:57 | 10.4 | c (att 1.00) | #2678: at 03:36:25Z the agent itself moved the ticket from human-review to rework (`labeled agent:rework` by its-applekid). It was never redispatched. The next event on it was a close by the Executor at 09-18T01:13Z. Stranded rework, and an Executor was active on khala the whole time. |
@@ -448,6 +450,8 @@ attended idle time is mostly (c) and (e): the human is there, working on another
    and a watchdog for holds whose worker is no longer alive. Earlier mitigation
    disabled prewarm; later changes repair alert false alarms. A 1.6% model bucket
    does not prove the defect never recurred or justify treating dispatch as solved.
+   Both compound claims are rejected in [the prewarm verdict](../synthesis/verdicts/claims-gaps-prewarm.json);
+   the point diagnosis and merged repair remain supported.
 
 ---
 

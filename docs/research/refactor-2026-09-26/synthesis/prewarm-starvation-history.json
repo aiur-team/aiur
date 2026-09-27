@@ -3,7 +3,7 @@
     "gaps-03",
     "gaps-05"
   ],
-  "status": "partial_verification",
+  "status": "bounded_verdict_complete_with_unresolved_incidence",
   "wake_source": {
     "path": "aiur/executor/aiur.executor.wakes.ndjson",
     "sha256": "fdcf4aecaeb56b47bf7a2a9f84427a7173828d24233ec5174254351280cd3261"
@@ -86,11 +86,10 @@
   ],
   "interpretation": "Repeated blocked/resolved signals do not by themselves prove the absorbing checking-state defect caused the entire classified interval. Capacity starvation, prewarm phase holds, load-ramp false alarms and dependency/decision blockage have distinct contracts. Merged source is not deployment evidence.",
   "unresolved": [
-    "Exact historical loaded revisions and effective prewarm configuration across the claimed healthy interval",
-    "Duration and population behind 257 hours, 86 percent and the 1.9-hour healthy-stretch claim",
-    "Primary transcript diagnosis and whether it explains the older grouped intervals",
-    "Later starvation-event causes and exposure to the original defect after code repair",
-    "Corrected lifecycle grouping independent of event-ID quotient"
+    "Historical loaded revisions/effective prewarm exposure after the repair",
+    "Independent daemon-lifetime and suspension evidence",
+    "Which later starvation alerts reflect real dispatch defects versus false alarms or intended holds",
+    "Causal allocation of classified minutes to individual defects"
   ],
   "reported_healthy_window": {
     "start": "2026-08-21T22:32:00Z",
@@ -100,5 +99,64 @@
     "clipped_gap_hours": 1.950288905236456,
     "all_three_gaps_precede_code_fix_merge": true,
     "assessment": "The interval begins at the disable-prewarm/config-change merge, almost two days before the code repair. Its low modeled gap total cannot be attributed uniquely to the later repair or prove non-recurrence."
+  },
+  "category_population": {
+    "prelog_aiur": {
+      "category_bin_hours": 282.9166666666667,
+      "d_bin_hours": 257.2,
+      "d_share_percent": 90.9101620029455
+    },
+    "all_prelog": {
+      "category_bin_hours": 316.03333333333336,
+      "d_bin_hours": 273.06666666666666,
+      "d_share_percent": 86.40438772281405
+    },
+    "all_runlog": {
+      "category_bin_hours": 411.76666666666665,
+      "d_bin_hours": 6.516666666666667,
+      "d_share_percent": 1.5826115113737553
+    }
+  },
+  "category_interpretation": "257.2 h is pre-log aiur category d, or 90.91% of its 282.9167 h. All pre-log d is 273.0667 h of 316.0333 h (86.40%). These are different populations; neither isolates the absorbing-state defect. The analyzer assigns 'load governor' to every system.fleet.capacity.starved topic without reading its actual binding cause.",
+  "primary_diagnosis_records": [
+    {
+      "source": "local Claude Aiur session 8989d0ab-749c-4674-9bc5-fc65b39f6adb",
+      "line": 51,
+      "record_sha256": "eb4336f1cf42ce82d65482a9452ba6f6e154bd488093f455196c2614a98ff221",
+      "timestamp": "2026-08-21T02:42:12.104Z",
+      "assessment": "Successful tool result includes an August 20 06:18:15.961183Z fleet-starvation alert with live agents zero, load 0.86/16.0, effective cap 1, configured cap 16 and binding prewarm checking; this directly contradicts interpreting the hard-coded load-governor label as its actual cause."
+    },
+    {
+      "source": "local Claude Aiur session 8989d0ab-749c-4674-9bc5-fc65b39f6adb",
+      "line": 5071,
+      "record_sha256": "f586ad3962187e8e07db3fa6c40fe54a85a84ea2fa95f315155fbef75375c1d9",
+      "timestamp": "2026-08-21T18:42:15.847Z",
+      "assessment": "Successful tool result reports ready tickets 31, live agents 0, effective cap 1, configured cap 1 and prewarm checking. This verifies a snapshot, not the cause of every earlier model minute."
+    },
+    {
+      "source": "local Claude Aiur session 8989d0ab-749c-4674-9bc5-fc65b39f6adb",
+      "line": 5106,
+      "record_sha256": "2a504cc405951d13a01f68d74f0437f6e48050d1217051a6e759d2523e51818c",
+      "timestamp": "2026-08-21T18:42:58.841Z",
+      "assessment": "Assistant repeats the diagnosis; this is not independent evidence."
+    },
+    {
+      "source": "local Claude Aiur session 8989d0ab-749c-4674-9bc5-fc65b39f6adb",
+      "line": 5163,
+      "record_sha256": "01c068fbac961b0877e68af9b74ab5b2d6b1153d4d6bafdb77c8911bbf7b1346",
+      "timestamp": "2026-08-21T18:52:34.789Z",
+      "assessment": "Assistant reports checking persists eight minutes after restarting with poll_seconds 30; reported intervention outcome, not proof of deployment across all later intervals."
+    }
+  ],
+  "after_code_merge_signals": {
+    "start_exclusive": "2026-08-23T20:06:53Z",
+    "end_exclusive": "2026-09-26T15:40:00Z",
+    "records_by_topic": {
+      "system.dispatch.prewarm_blocked": 197,
+      "system.dispatch.prewarm_blocked.resolved": 194,
+      "system.fleet.capacity.starved": 36,
+      "system.fleet.capacity.starved.resolved": 27
+    },
+    "interpretation": "Later topic records exist; they neither prove recurrence of the same absorbing-state bug nor prove it absent. Effective configuration, loaded revision, queue eligibility and concrete constraint must be joined at each incident."
   }
 }
