@@ -1394,3 +1394,7 @@ Read coverage_status, coverage_text, create_session, credentials, credit_window,
 ### Name duplication: current scope and unknown cache identity
 
 Read current_scope?, current_size, current_with_cache_identity, current_with_generation, cursor_path, cyclic_nodes, daemon_account and daemon_events: 18 literal entries across eight families. Tailer file-size lookups match. Preserve model-versus-selection correlation, error/empty distinctions, path-sensitive workflow cache identity, unknown generations, graph traversal scope and configured account precedence. Name triage now 797 families/7526 entries, leaving 883 cross-module names. Raw findings and skeptic counts are unchanged; no complete source freshness, graph acyclicity or lifecycle-journal completeness guarantee is added.
+
+### Name duplication: decoding and timestamp contracts
+
+Read dashboard_url, date, datetime_or_nil, datetime_sort_key, deactivate, deadline, decode_and_validate and decode_cells: 24 literal entries across eight families. DateTime normalization/sort keys match; cell decoding shares mechanics with distinct error tags and last-value-wins duplicate handling. Preserve URL fallback, validation versus serialization, missing-time ordering, task versus source deactivation and timeout validation/defaults. Verified shared decoder/schema aliases and timeout constants. Name triage now 805 families/7550 entries, leaving 875 cross-module names. Raw findings and skeptic counts are unchanged; no complete source release, schema enforcement or accounting-conservation guarantee is added.

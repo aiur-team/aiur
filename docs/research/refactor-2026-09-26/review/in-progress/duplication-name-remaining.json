@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "25337c7f76409981746dfdd563fc86f386c5c9293e51cc64e6accf9864d983a5"
+    "name_triage": "f0c49e2ff937cd780bf6d7ddb4ee7c2afc14a06daecf2f786d1a5808465c7ca6"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 797,
-    "remaining_cross_module_names": 883,
-    "remaining_literal_entries": 2742
+    "reviewed_cross_module_names": 805,
+    "remaining_cross_module_names": 875,
+    "remaining_literal_entries": 2718
   },
   "families": [
-    {
-      "name": "dashboard_url",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "date",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "datetime_or_nil",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "datetime_sort_key",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "deactivate",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "deadline",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "decode_and_validate",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "decode_cells",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 18
-    },
     {
       "name": "decode_coverage",
       "clauses": 4,
