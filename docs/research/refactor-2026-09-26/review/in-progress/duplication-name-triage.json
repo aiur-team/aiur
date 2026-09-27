@@ -90880,10 +90880,509 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "send_message",
+      "assessment": "Message entry points operate at different delivery layers.",
+      "constraints": [
+        "AgentControlCLI invokes a configured/default function, preserving message_id for arity three but using a compatibility arity-two call without it.",
+        "Codex.Rpc writes a message through AppServerRpc.send_line.",
+        "ObservabilityApiController chooses text/message/empty fallback and passes optional message_id to operator-message handling before rendering.",
+        "Preserve correlation identity and operator queue versus wire-send semantics. Invocation or write success is not provider delivery proof."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1356,
+          "module": "Aiur.AgentControlCLI",
+          "name": "send_message",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 1361,
+          "body_sha256": "471b5baa4d7019f9cb5edf1af8edf1ab4442c1e7ed7d558221d4a35500911321",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 12,
+          "module": "Aiur.Codex.Rpc",
+          "name": "send_message",
+          "path": "src/lib/aiur/codex/rpc.ex",
+          "kind": "def",
+          "end_line": 12,
+          "body_sha256": "05d275eb1660aa069190f6056c5b169bd350637c3efe2bcd3ae35874e866b5be",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 61,
+          "module": "AiurWeb.ObservabilityApiController",
+          "name": "send_message",
+          "path": "src/lib/aiur_web/controllers/observability_api_controller.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "591a54cd2eaa2644bc9771d98993c79149572d8b0c367aafafa4d312f194ec93",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "session_id",
+      "assessment": "Session identity is extracted, inferred from a path or generated for logging.",
+      "constraints": [
+        "CodexUpdateRelay uses truthy atom/string-key fallback without validating the selected value.",
+        "Claude.DisplayTailer retains a nonempty event session_id or falls back to basename without extension.",
+        "LogFile generates UTC second timestamp plus OS PID.",
+        "These identifiers have different provenance and collision domains; do not treat log-session IDs or filename inference as provider session authority."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 153,
+          "module": "Aiur.AgentRunner.CodexUpdateRelay",
+          "name": "session_id",
+          "path": "src/lib/aiur/agent_runner/codex_update_relay.ex",
+          "kind": "defp",
+          "end_line": 153,
+          "body_sha256": "a24bd771e63ce23df120530c92d460bde23b9a9cafa2ed24225b15ce82a20c96",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 239,
+          "module": "Aiur.Claude.DisplayTailer",
+          "name": "session_id",
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "kind": "defp",
+          "end_line": 241,
+          "body_sha256": "09b0eadd73757281c228e4e6e9d2638c3122fe306586ffa9f504a00d3874ee5a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 243,
+          "module": "Aiur.Claude.DisplayTailer",
+          "name": "session_id",
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "kind": "defp",
+          "end_line": 243,
+          "body_sha256": "00162d500e6fa95932b6066a98689854069a25b5599ef503d2e734744a080aab",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 74,
+          "module": "Aiur.LogFile",
+          "name": "session_id",
+          "path": "src/lib/aiur/log_file.ex",
+          "kind": "defp",
+          "end_line": 77,
+          "body_sha256": "7e5c25aea0c9bf3e85c4ad52d0440c80671b299161f35f43027385338f40e50e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "set_global_pause",
+      "assessment": "Global pause already delegates through a guarded RPC surface.",
+      "constraints": [
+        "AgentControlCLI chooses pause/resume wording and invokes guarded result handling.",
+        "Orchestrator delegates boolean/source variants; GlobalPause supplies default server, CLI source and timeout.",
+        "The terminal wrapper validates inputs, checks server registration, calls GenServer and distinguishes unavailable, timeout and other exit errors.",
+        "Preserve source and failure classifications. A registration check is not a race-free liveness guarantee, and RPC success alone does not establish durable pause or stopped work."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1210,
+          "module": "Aiur.AgentControlCLI",
+          "name": "set_global_pause",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 1213,
+          "body_sha256": "300db6c78795cf47da2c9ec2034f9dcf03a795f0c6650f06558a79c8c993491b",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 564,
+          "module": "Aiur.Orchestrator",
+          "name": "set_global_pause",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 564,
+          "body_sha256": "dcaa985022162d124748b79841015983cc7e45b5e7ec482780d262346cda9023",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 567,
+          "module": "Aiur.Orchestrator",
+          "name": "set_global_pause",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 567,
+          "body_sha256": "78bd50dc1fb19bc8790e6c5e066f3938a2a656eaa1b477a2c51d11fe584a4d32",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 61,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "set_global_pause",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "4ef07862036e1ef0e885950c1df8f27a66b96ebcbb3d0e7bc92625979819dae5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 65,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "set_global_pause",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 65,
+          "body_sha256": "e012df13035db763e732157e99192bf671d03395027bc8dc8d98c4c0a27f6357",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 69,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "set_global_pause",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "333eb1e2c370053f1c50654abd5e9797649af7c27997d491ffbe8da5b727351f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 75,
+          "module": "Aiur.Orchestrator.GlobalPause",
+          "name": "set_global_pause",
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "kind": "def",
+          "end_line": 85,
+          "body_sha256": "49636db805fbc3bb2419a735a8fb73563de66a71f1964b3f5f46a95dbe4f4c85",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "set_terminal_verification_pending",
+      "assessment": "Terminal verification updates are layered and persistence-aware.",
+      "constraints": [
+        "CurrentRunMembership delegates to Store; Store requires TrackerIdentity and boolean input before RPC.",
+        "Runtime derives a pending key, updates the key set and aggregate flag, and skips persistence only when unchanged and the marker is not dirty.",
+        "Invalid identity invokes marker-failed handling; changed/dirty state delegates persistence.",
+        "Preserve dirty-marker repair and per-identity aggregate semantics. Persistence helper guarantees were not certified in this batch."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 58,
+          "module": "Aiur.CurrentRunMembership",
+          "name": "set_terminal_verification_pending",
+          "path": "src/lib/aiur/current_run_membership.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "6f75654eafd89241d6757b798b0886a32487177dec5ed41662556e8cde749329",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 73,
+          "module": "Aiur.CurrentRunMembership.Store",
+          "name": "set_terminal_verification_pending",
+          "path": "src/lib/aiur/current_run_membership/store.ex",
+          "kind": "def",
+          "end_line": 76,
+          "body_sha256": "bab0463438a9da832520e51fc73e5f9f0d31cbeef02bb8ff3f3a710ef9a96bda",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 51,
+          "module": "Aiur.CurrentRunMembership.Store.Runtime",
+          "name": "set_terminal_verification_pending",
+          "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+          "kind": "def",
+          "end_line": 69,
+          "body_sha256": "dd804fcbe042dea49a84b0bcd2fd4e1a6f9d75a0d085dc873cc034b933699e23",
+          "normalized_body_lines": 23,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "shell_quote",
+      "assessment": "Three shell quoting helpers differ; a benign isolated probe reproduces an apostrophe failure.",
+      "constraints": [
+        "AgentControlCLI uses a backslash-escaped apostrophe splice; AffectedTests uses the standard double-quoted apostrophe splice. AgentSkills includes extra escaped double quotes.",
+        "Probe extracted each frozen literal function into QuoteProbe, changing defp to def only, and ran Elixir with ERL_FLAGS=+S 1:1. Input was the fixed harmless string a'b.",
+        "Each probe called q=QuoteProbe.shell_quote(input), then System.cmd(\"sh\", [\"-c\", \"printf %s \" <> q], stderr_to_stdout: true). CLI and AffectedTests returned the original three-byte text with status 0; AgentSkills returned unmatched-quote syntax error with status 2.",
+        "This proves helper-level non-equivalence for one input, not exploitation or observed production incidence. AgentSkills caller populations and overlap with existing raw findings still need reconciliation; no raw count was incremented."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1297,
+          "module": "Aiur.AgentControlCLI",
+          "name": "shell_quote",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 1297,
+          "body_sha256": "1581ce5c9acf1aa7c4679f64d39629b9beda0be558afee5e9e051f0b3ec3053e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 384,
+          "module": "Aiur.AgentSkills",
+          "name": "shell_quote",
+          "path": "src/lib/aiur/agent_skills.ex",
+          "kind": "defp",
+          "end_line": 384,
+          "body_sha256": "42788d1609ec6656c4d4fd5cade0f3facf825cddadf1ad010ac7e6af8edd0d2b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 65,
+          "module": "Mix.Tasks.Aiur.AffectedTests",
+          "name": "shell_quote",
+          "path": "src/lib/mix/tasks/aiur.affected_tests.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "49c4309573c4538710d030fe33c66dc31071ab729fc73b9cd1d4cf622caf42b3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "size",
+      "assessment": "Size accessors differ in whether unavailable state can appear as zero.",
+      "constraints": [
+        "DecisionMetrics.Window returns its stored count.",
+        "ResourceStore reads ETS table size through with_table with zero fallback and also defaults falsey ETS info to zero.",
+        "Webhook.DeliveryLog calls its server through a helper with zero fallback.",
+        "Preserve count source and unavailable evidence. These wrappers do not universally distinguish an empty store from an inaccessible one."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 37,
+          "module": "Aiur.DecisionMetrics.Window",
+          "name": "size",
+          "path": "src/lib/aiur/decision_metrics/window.ex",
+          "kind": "def",
+          "end_line": 37,
+          "body_sha256": "eb1e01c40c801a6397bf37b556b07f37f23397558394670cba6518f3fbce3340",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 1290,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "size",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "def",
+          "end_line": 1292,
+          "body_sha256": "24ff112ebe4eaf90b4b3cbb1350966eebd530d5b396fb31da1ae97790041dd0e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 134,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "size",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "def",
+          "end_line": 134,
+          "body_sha256": "8bac3664ecdb01d7a1fed7ccec13e2cc651ae384896f7e17aea0112d323b08ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "snapshot_timeout_ms",
+      "assessment": "Snapshot tolerance selectors share policy and defaults through different config access.",
+      "constraints": [
+        "All three observability/Stream Deck selectors pass configured or 15000 ms to PollCadence.snapshot_tolerance_ms with dispatch class.",
+        "The controller reads Endpoint.config directly; the two Stream Deck paths use endpoint_config helpers reviewed in an earlier family.",
+        "Share tolerance selection with explicit configuration-error behavior. A tolerance value does not prove a snapshot was observed within that window."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 166,
+          "module": "AiurWeb.ObservabilityApiController",
+          "name": "snapshot_timeout_ms",
+          "path": "src/lib/aiur_web/controllers/observability_api_controller.ex",
+          "kind": "defp",
+          "end_line": 168,
+          "body_sha256": "6de10370b77d76ed8fee474ccb60314ad625b07ca46ca3bb90fff9dc0dee44de",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 1697,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "snapshot_timeout_ms",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1697,
+          "body_sha256": "c474d0e85c5d927ad8dc03f7be2877d4f43e84822dea24df87039f9cc70fe868",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 505,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "snapshot_timeout_ms",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "defp",
+          "end_line": 505,
+          "body_sha256": "c474d0e85c5d927ad8dc03f7be2877d4f43e84822dea24df87039f9cc70fe868",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "stage",
+      "assessment": "Stage parsing, observation validation and recovery error attribution are separate domains.",
+      "constraints": [
+        "TicketHistoryNormalizer retains stages from its configured set or nil.",
+        "TicketActivity.Projection accepts agent-alert observations only when source-derived stage/transition match attributes, otherwise nil.",
+        "UsageLedger.Recovery invokes a function with arguments and wraps tagged errors, unexpected results, exceptions and catches with the supplied stage.",
+        "Keep evidence validation distinct from recovery step attribution. A stage label alone is not completion or authoritative progress."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 251,
+          "module": "Aiur.BuildOrder.TicketHistory.Normalizer",
+          "name": "stage",
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "kind": "defp",
+          "end_line": 251,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 252,
+          "module": "Aiur.BuildOrder.TicketHistory.Normalizer",
+          "name": "stage",
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "kind": "defp",
+          "end_line": 252,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 402,
+          "module": "Aiur.TicketActivity.Projection",
+          "name": "stage",
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "kind": "defp",
+          "end_line": 413,
+          "body_sha256": "fd3b07f6c4a31ee48f2bb9bcef062a97985ce9f819a30b92662f66a298b77d75",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 415,
+          "module": "Aiur.TicketActivity.Projection",
+          "name": "stage",
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "kind": "defp",
+          "end_line": 415,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 356,
+          "module": "Aiur.UsageLedger.Recovery",
+          "name": "stage",
+          "path": "src/lib/aiur/usage_ledger/recovery.ex",
+          "kind": "defp",
+          "end_line": 366,
+          "body_sha256": "9873136306a66d759e72b5a5c3ff304728398c9b552b84ec9449f590f6250803",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6821,
-  "limits": "573 selected families and 6821 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6852,
+  "limits": "581 selected families and 6852 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

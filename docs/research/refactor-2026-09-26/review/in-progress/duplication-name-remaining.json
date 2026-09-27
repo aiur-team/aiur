@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "a7e5055f5bf6c48a775985f1821f791105050ea43c4f6193faf2abb96f3163bd"
+    "name_triage": "d87c811752741257c870892138dfc57f28b9b6d7fe0b1ccb8f2e6820bbe7b312"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 573,
-    "remaining_cross_module_names": 1107,
-    "remaining_literal_entries": 3447
+    "reviewed_cross_module_names": 581,
+    "remaining_cross_module_names": 1099,
+    "remaining_literal_entries": 3416
   },
   "families": [
-    {
-      "name": "send_message",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "session_id",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "set_global_pause",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "set_terminal_verification_pending",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 26
-    },
-    {
-      "name": "shell_quote",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 3
-    },
-    {
-      "name": "size",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "snapshot_timeout_ms",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "stage",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 26
-    },
     {
       "name": "stale_after_ms",
       "clauses": 3,
