@@ -954,3 +954,7 @@ Read all 123 init definitions in 123 modules. Preserve synchronous readiness, re
 ### Name duplication: call admission, authority and replies
 
 Read all 424 handle_call clauses in 74 modules. Preserve deferred replies versus queue admission, writable/run/generation guards, durable ID reservation, caller-owned slot claims and authority-aware caches. Identical history-sampling callbacks and a containment timer-reset transition are narrow sharing candidates; existing Orchestrator/Tmux delegates already separate substantial logic. Flush callbacks have different durability meanings. Name triage now 44 families/1940 literal entries. No new defect or saving is counted; deferred completion, helper correctness, remaining names and broader duplication sweeps stay open.
+
+### Name duplication: asynchronous messages and stale work
+
+Read all 501 literal handle_info clauses in 96 modules, including LiveViews/channels. Preserve task/attempt/generation/token fences, owner-death policy, ordered stalled delivery, independent timer loops, render deduplication and authority revocation. Name triage now 45 families/2441 literal entries; all initially prioritized families have been inspected, but that queue is not the full name sweep. Remaining name triage, generated callbacks, concept/constant sweeps and transitive verification remain open. No additional raw defect, skeptical completion or savings claim is added.
