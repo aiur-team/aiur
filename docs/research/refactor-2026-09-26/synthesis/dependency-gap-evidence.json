@@ -1,0 +1,777 @@
+{
+  "claim": "gaps-06",
+  "status": "verified_with_bounded_corrections",
+  "sources": [
+    {
+      "path": "20260920T010817Z-304273/log/aiur.log",
+      "sha256": "85627b973d0308deb93b10937894df7a4c6bd0930c677e3be0ba4621e3494d2e"
+    },
+    {
+      "path": "20260920T010817Z-304273/log/telemetry.ndjson",
+      "sha256": "f1c996e347eefe94e5824e7aa0542c9253ffe00afbf517d4b3f848ef10bf4c0d"
+    },
+    {
+      "path": "scratch/gaps/gh/aiur-team_khala.issue_events.jsonl",
+      "sha256": "6597f3d2d972613f511396863155f969ff756f2605662750f3fcff599f1f98f0"
+    },
+    {
+      "path": "khala/executor/khala.executor.wakes.ndjson",
+      "sha256": "b65b96fc88c97abae0e3ab5617559cddb3045ee2151d4501729f1b08987bd5e9"
+    },
+    {
+      "path": "khala/executor/handoffs/20260920T073235Z-handoff.md",
+      "sha256": "1245478ba05aa66ffa1287ad570aaf4376cf7f27cda41f6f78496c446d8e3f30"
+    }
+  ],
+  "dependency_declines": [
+    {
+      "issue": 43,
+      "line": 51,
+      "timestamp": "2026-09-20T01:08:38.842693+00:00"
+    },
+    {
+      "issue": 44,
+      "line": 54,
+      "timestamp": "2026-09-20T01:08:38.843867+00:00"
+    },
+    {
+      "issue": 45,
+      "line": 57,
+      "timestamp": "2026-09-20T01:08:38.844762+00:00"
+    },
+    {
+      "issue": 47,
+      "line": 60,
+      "timestamp": "2026-09-20T01:08:38.845692+00:00"
+    },
+    {
+      "issue": 48,
+      "line": 63,
+      "timestamp": "2026-09-20T01:08:38.849017+00:00"
+    },
+    {
+      "issue": 49,
+      "line": 66,
+      "timestamp": "2026-09-20T01:08:38.849998+00:00"
+    }
+  ],
+  "recorded_edges": {
+    "43": [
+      28,
+      34,
+      41,
+      42
+    ],
+    "44": [
+      29,
+      35,
+      43
+    ],
+    "45": [
+      36,
+      37,
+      38,
+      39,
+      41,
+      42
+    ],
+    "47": [
+      43,
+      44,
+      45,
+      46
+    ],
+    "48": [
+      18,
+      43,
+      44,
+      45,
+      46
+    ],
+    "49": [
+      47,
+      48
+    ]
+  },
+  "same_poll_other_ticket_workspace_creation": [
+    {
+      "line": 68,
+      "timestamp": "2026-09-20T01:08:39.101527+00:00"
+    }
+  ],
+  "open_dependencies_at_snapshots": {
+    "2026-09-20T01:08:38Z": {
+      "43": [
+        41,
+        42
+      ],
+      "44": [
+        43
+      ],
+      "45": [
+        41,
+        42
+      ],
+      "47": [
+        43,
+        44,
+        45
+      ],
+      "48": [
+        43,
+        44,
+        45
+      ],
+      "49": [
+        47,
+        48
+      ]
+    },
+    "2026-09-20T03:34:59Z": {
+      "43": [
+        41
+      ],
+      "44": [
+        43
+      ],
+      "45": [
+        41
+      ],
+      "47": [
+        43,
+        44,
+        45
+      ],
+      "48": [
+        43,
+        44,
+        45
+      ],
+      "49": [
+        47,
+        48
+      ]
+    },
+    "2026-09-22T15:42:04Z": {
+      "43": [
+        41
+      ],
+      "44": [
+        43
+      ],
+      "45": [
+        41
+      ],
+      "47": [
+        43,
+        44,
+        45
+      ],
+      "48": [
+        43,
+        44,
+        45
+      ],
+      "49": [
+        47,
+        48
+      ]
+    }
+  },
+  "edge_state_limits": "Log blocker states are nil; closure state is separately replayed from cached GitHub events. Initial state is inferred open once an issue appears in pre-cutoff events. No historical edge-change stream was reconstructed.",
+  "latest_resource_observation": {
+    "timestamp": "2026-09-22T15:42:04.538694Z",
+    "attributes": {
+      "fleet_agents_configured": 16,
+      "fleet_agents_max": 12,
+      "fleet_agents_effective": 12,
+      "fleet_agents_occupied": 0,
+      "fleet_capacity_status": "current",
+      "fleet_capacity_age_ms": 36528,
+      "fleet_load": null,
+      "fleet_load_threshold": null,
+      "fleet_schedulers": null,
+      "partial_fields": [
+        "fleet_admission_signal",
+        "fleet_load",
+        "fleet_load_threshold",
+        "fleet_schedulers"
+      ],
+      "build_gate_active": 0,
+      "build_gate_queued": 0
+    }
+  },
+  "pause_event": [
+    {
+      "created_at": "2026-09-19T19:33:13Z",
+      "event": "labeled",
+      "label": "agent:paused"
+    }
+  ],
+  "credential_attention": {
+    "records": 23,
+    "first_seen_at": "2026-09-19T19:17:59.596093Z",
+    "last_record_first_seen_at": "2026-09-20T00:47:59.610589Z",
+    "interval_seconds": {
+      "minimum": 899.9923479557037,
+      "median": 900.0010169744492,
+      "maximum": 900.0015070438385
+    }
+  },
+  "interpretation": "The six declines are directly recorded. At the first snapshot both 41 and 42 are open roots;42 begins workspace creation in the same poll, contradicting global pause as the sole explanation then. After 42 closes, the recorded graph with replayed closure state reduces to 41 as the open root outside the six dependent tickets. A later resource sample shows effective 12/occupied 0 but omits load/scheduler fields. These observations support a dependency bottleneck within this finite graph, not continuous whole-fleet causality over every minute.",
+  "handoff_caveat": "The September 20 handoff says PR 120/ticket 41 is draft and needs provisioned live-proof inputs, additional test/API changes and rebasing before merge. It is not merely an already-ready PR waiting for credentials, and dependency admission must not be weakened to hide the gate.",
+  "unresolved": [
+    "Completeness and scope of extracted dependency timelines, including external reference 2786 and dependency edges of external blockers",
+    "Continuous control state, alternate runnable supply and causal allocation of each interval",
+    "Which whole-backlog summaries are already present outside the inspected circular-wait alert",
+    "Separation of in-run waiting from subsequent host downtime (gaps-07)"
+  ],
+  "september25": {
+    "window_utc": {
+      "start_inclusive": "2026-09-25T12:08:48.263803+00:00",
+      "end_exclusive": "2026-09-25T21:59:03+00:00",
+      "hours": 9.83742672138744
+    },
+    "wake_record_counts_by_topic": {
+      "ticket.201.agent.attention.paused-agent_pause_request": 1,
+      "ticket.201.agent.attention.operator-decision": 40,
+      "ticket.201.agent.attention.codex-usage-limit": 39
+    },
+    "decline_records_in_window": 0,
+    "decline_records_in_run": 193,
+    "decline_reasons_in_run": {
+      "dependency": 181,
+      "blocked_on_decision": 3,
+      "unauthorized": 9
+    },
+    "interpretation": "The retained extracted alerts contain no candidate-decline record inside this window. The original analyzer applies a recorded decline to the entire matching label-state episode, potentially backward in time. Its 59-of-60 count is therefore an inferred episode classification, not 59 direct observations in the gap. Review-root attribution requires graph and closure replay.",
+    "source_limits": "The current live run alert file differs from the retained extraction and has no matching candidate-decline records. Preserve extracted-source provenance; absence in the current file does not invalidate retained observations.",
+    "sources": [
+      {
+        "path": "scratch/gaps/alerts.tsv",
+        "sha256": "dc148f019e1492a4fec2b52634cf8078424e794c22c14f7057ded4ac371c3def"
+      },
+      {
+        "path": "khala/executor/khala.executor.wakes.ndjson",
+        "sha256": "b65b96fc88c97abae0e3ab5617559cddb3045ee2151d4501729f1b08987bd5e9"
+      }
+    ],
+    "original_model_minute_splits": {
+      "f": 12,
+      "b": 573,
+      "c": 6
+    },
+    "graph_replay": {
+      "cutoff": "2026-09-25T12:08:48Z",
+      "todo": [
+        43,
+        44,
+        45,
+        47,
+        48,
+        49,
+        175,
+        176,
+        177,
+        185,
+        188,
+        189,
+        191,
+        196,
+        197,
+        202,
+        209,
+        210,
+        211,
+        212,
+        213,
+        214,
+        215,
+        216,
+        217,
+        219,
+        221,
+        222,
+        223,
+        224,
+        225,
+        227,
+        228,
+        229,
+        230,
+        231,
+        232,
+        233,
+        234,
+        237,
+        238,
+        239,
+        240,
+        241,
+        246,
+        247,
+        248,
+        251,
+        252,
+        253,
+        254,
+        255,
+        257,
+        258,
+        259,
+        260,
+        261,
+        262,
+        265,
+        266
+      ],
+      "review": [
+        186,
+        195,
+        207,
+        208,
+        243,
+        244,
+        245,
+        256
+      ],
+      "open_edges": {
+        "257": [
+          256
+        ],
+        "258": [
+          257
+        ],
+        "259": [
+          252,
+          253,
+          258
+        ],
+        "260": [
+          258,
+          265
+        ],
+        "261": [
+          254,
+          255,
+          257,
+          258
+        ],
+        "262": [
+          256,
+          257,
+          258,
+          259,
+          260,
+          261
+        ],
+        "265": [
+          213
+        ],
+        "266": [
+          265
+        ],
+        "43": [
+          41
+        ],
+        "44": [
+          43
+        ],
+        "45": [
+          41
+        ],
+        "47": [
+          43,
+          44,
+          45
+        ],
+        "48": [
+          43,
+          44,
+          45
+        ],
+        "49": [
+          47,
+          48
+        ],
+        "175": [
+          2786
+        ],
+        "176": [
+          175,
+          2786
+        ],
+        "177": [
+          175,
+          176
+        ],
+        "185": [
+          41
+        ],
+        "188": [
+          208,
+          209,
+          257
+        ],
+        "189": [
+          185,
+          186,
+          257
+        ],
+        "191": [
+          185,
+          189,
+          208,
+          209
+        ],
+        "196": [
+          252,
+          255,
+          265
+        ],
+        "197": [
+          257
+        ],
+        "202": [
+          208,
+          209,
+          212,
+          213,
+          217,
+          253
+        ],
+        "209": [
+          41,
+          208
+        ],
+        "210": [
+          208
+        ],
+        "211": [
+          208,
+          210
+        ],
+        "212": [
+          257
+        ],
+        "213": [
+          208,
+          211,
+          212,
+          257
+        ],
+        "214": [
+          189,
+          208,
+          210,
+          211
+        ],
+        "215": [
+          185,
+          209,
+          214
+        ],
+        "216": [
+          41,
+          185,
+          208,
+          209,
+          210,
+          211,
+          214
+        ],
+        "217": [
+          213,
+          214,
+          216,
+          257
+        ],
+        "219": [
+          189,
+          257
+        ],
+        "221": [
+          189,
+          208,
+          209,
+          211,
+          214,
+          219
+        ],
+        "222": [
+          221
+        ],
+        "223": [
+          221,
+          222
+        ],
+        "224": [
+          209
+        ],
+        "225": [
+          185,
+          189,
+          219,
+          221,
+          222,
+          223,
+          224
+        ],
+        "227": [
+          185,
+          229
+        ],
+        "228": [
+          188
+        ],
+        "229": [
+          228
+        ],
+        "230": [
+          201,
+          208,
+          209,
+          228,
+          260,
+          265
+        ],
+        "231": [
+          208,
+          209,
+          228,
+          251,
+          252,
+          259
+        ],
+        "232": [
+          208,
+          209,
+          228,
+          254,
+          255,
+          261
+        ],
+        "233": [
+          185,
+          227,
+          228,
+          229,
+          230,
+          231,
+          232,
+          237,
+          238
+        ],
+        "234": [
+          195,
+          254,
+          257
+        ],
+        "237": [
+          189,
+          191,
+          195,
+          208,
+          209,
+          214
+        ],
+        "238": [
+          185,
+          191,
+          196,
+          208,
+          209,
+          214,
+          237
+        ],
+        "239": [
+          185,
+          189,
+          191,
+          208,
+          209,
+          213,
+          214,
+          228
+        ],
+        "240": [
+          201,
+          202,
+          230,
+          231,
+          239,
+          251,
+          252,
+          253,
+          259,
+          260,
+          265
+        ],
+        "241": [
+          202,
+          231,
+          232,
+          236,
+          239,
+          251,
+          252,
+          253,
+          255,
+          259,
+          261
+        ],
+        "246": [
+          197,
+          213,
+          217,
+          243,
+          257
+        ],
+        "247": [
+          197,
+          213,
+          217,
+          244,
+          257
+        ],
+        "248": [
+          197,
+          213,
+          217,
+          245,
+          257
+        ],
+        "251": [
+          257
+        ],
+        "252": [
+          251
+        ],
+        "253": [
+          251,
+          252
+        ],
+        "254": [
+          257
+        ],
+        "255": [
+          191,
+          195,
+          208,
+          209,
+          213,
+          234,
+          254,
+          257
+        ]
+      },
+      "external_frontier": [
+        {
+          "issue": 41,
+          "state": "open",
+          "labels": [
+            "agent:paused",
+            "agent:rework"
+          ]
+        },
+        {
+          "issue": 186,
+          "state": "open",
+          "labels": [
+            "agent:human-review",
+            "agent:rate-limit-fallback"
+          ]
+        },
+        {
+          "issue": 195,
+          "state": "open",
+          "labels": [
+            "agent:human-review",
+            "agent:rate-limit-fallback"
+          ]
+        },
+        {
+          "issue": 201,
+          "state": "open",
+          "labels": [
+            "agent:in-progress",
+            "agent:rate-limit-fallback"
+          ]
+        },
+        {
+          "issue": 208,
+          "state": "open",
+          "labels": [
+            "agent:human-review",
+            "agent:rate-limit-fallback"
+          ]
+        },
+        {
+          "issue": 236,
+          "state": "open",
+          "labels": [
+            "agent:parked"
+          ]
+        },
+        {
+          "issue": 243,
+          "state": "open",
+          "labels": [
+            "agent:human-review",
+            "agent:rate-limit-fallback"
+          ]
+        },
+        {
+          "issue": 244,
+          "state": "open",
+          "labels": [
+            "agent:human-review",
+            "agent:rate-limit-fallback"
+          ]
+        },
+        {
+          "issue": 245,
+          "state": "open",
+          "labels": [
+            "agent:human-review",
+            "agent:rate-limit-fallback"
+          ]
+        },
+        {
+          "issue": 256,
+          "state": "open",
+          "labels": [
+            "agent:human-review",
+            "agent:rate-limit-fallback"
+          ]
+        },
+        {
+          "issue": 2786,
+          "state": null,
+          "labels": []
+        }
+      ],
+      "limitations": "Edge timeline covers selected todo tickets, not every external blocker. Unknown closure is retained as unresolved rather than assumed closed. Cross-repository identifier scope is absent in extracted timeline; issue 2786 cannot be assigned a Khala state."
+    },
+    "graph_replay_sources": [
+      {
+        "path": "scratch/resume-gaps10/khala_bb_timeline.tsv",
+        "sha256": "baa8ae58eed41c43ab304ca390a1b5f1852aa811700a1aa5d1b122decb7b2cec"
+      },
+      {
+        "path": "scratch/gaps/gh/aiur-team_khala.issue_events.jsonl",
+        "sha256": "6597f3d2d972613f511396863155f969ff756f2605662750f3fcff599f1f98f0"
+      }
+    ]
+  },
+  "existing_dependency_alert": {
+    "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+    "lines": [
+      1601,
+      1689
+    ],
+    "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+    "contract": "Existing circular-wait alert counts running agents parked on a blocker that is queued and dispatchable or fleet-capacity limited. Detection is disabled during global pause, capacity hold and prewarm hold; one alert is emitted after the threshold and resolved when the wait disappears.",
+    "limit": "This is not a whole-backlog dependency-root summary. Its presence rules out claiming no dependency alert exists; it does not establish that every planned blocked-fleet surface is already implemented."
+  }
+}

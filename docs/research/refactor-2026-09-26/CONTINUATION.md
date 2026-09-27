@@ -1084,3 +1084,13 @@ infrastructure allocation and automatic reassignment to b are rejected.
 See largest-gap-attribution.json and claims-gaps-largest.json.
 
 Coverage 56/60; remaining codebase-07, gaps-06/07, meta-07. No production changes.
+
+
+### Dependency claim continuation: September 25 evidence
+
+Canonical synthesis/dependency-gap-evidence.json now records exact wake counts over the report minute window: 40 operator-decision, 39 usage-limit, one paused-agent request. Retained alerts.tsv has 193 candidate declines for this run (181 dependency, nine unauthorized, three decision blocked), but none inside 12:08–21:59. Original analyzer backprojects declines across label-state episodes; 59/60 is not a contemporaneous count. Current live alerts file differs from retained extraction. Existing IssueSync circular-wait alert is narrower than a whole-backlog summary. Still finish historical graph/closure replay, exact interval bounds and eight-review-root attribution before final gaps-06 verdict. No production changes.
+
+
+### gaps-06 verified with corrections
+
+Added both-lens verdict and corrected gap rows 4/10 and refactor implication. Exact September 25 graph replay finds 60 todo, eight review; all todo have open/unresolved dependencies. External frontier: seven review issues, paused 41, in-progress 201, parked 236, unresolved external 2786. Extracted timeline lacks external blocker edges and scope; do not claim complete root census. 59/60 was episode-level decline classification, not contemporaneous gating census. Exact interval 9.8374267 h and 40/39 attentions retained. Remaining claims codebase-07, gaps-07, meta-07.
