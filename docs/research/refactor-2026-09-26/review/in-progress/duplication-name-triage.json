@@ -104843,10 +104843,478 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "dispatch_attempt_identity",
+      "assessment": "Decision attempt correlation and issue targeting use different identities.",
+      "constraints": [
+        "DecisionStore takes the last attempt for the active action and returns action, attempt, queue item, run, status and failure-class identity, or nil.",
+        "Read active_dispatch_attempts: filters by active_action_id and preserves list order; last is not independently timestamp-sorted.",
+        "Dispatcher chooses the first nonempty binary among issue identifier and internal ID. Do not replace revision/delivery correlation with a display target."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 3783,
+          "module": "Aiur.DecisionStore",
+          "name": "dispatch_attempt_identity",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 3798,
+          "body_sha256": "02c161850d494bc6b15638caa7b16a8e472cc8b23059bcd67a02b55a108a28dd",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2641,
+          "module": "Aiur.Orchestrator.Dispatcher",
+          "name": "dispatch_attempt_identity",
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "kind": "defp",
+          "end_line": 2643,
+          "body_sha256": "ee84acbbc1b7d3dbf450b10060fc92ac4c9bd0227656a1dec8f12c18c3021f9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dispatch_hold_payload",
+      "assessment": "Status computation and presentation validation are separate stages.",
+      "constraints": [
+        "StatusReport computes nonnegative elapsed whole seconds for a structured dispatch hold; other shapes emit held? false with zero duration.",
+        "Presenter preserves true holds and reason/detail while mapping invalid duration to nil; other shapes emit the same unheld payload.",
+        "Read duration helper: only nonnegative integers survive. Preserve unknown held duration versus zero elapsed time; rendered-age coverage is not established here."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 448,
+          "module": "Aiur.Orchestrator.StatusReport",
+          "name": "dispatch_hold_payload",
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "kind": "defp",
+          "end_line": 461,
+          "body_sha256": "fff0a234704344cd7fb5e1acd7d5bfb19ce4f77f8db72bd79dec90c392f7e236",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 508,
+          "module": "AiurWeb.Presenter",
+          "name": "dispatch_hold_payload",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "kind": "defp",
+          "end_line": 515,
+          "body_sha256": "112806c72955170386a1bf80d7b71bfb7b28c52e170339a8cbd76bdf56a5241a",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 517,
+          "module": "AiurWeb.Presenter",
+          "name": "dispatch_hold_payload",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "kind": "defp",
+          "end_line": 518,
+          "body_sha256": "d1e86b96de4947e1b8050393fa51938359a81951c6e2c82c4ce8c8286f06dc87",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dispatch_status",
+      "assessment": "Decision delivery status and quota admission status are different domains.",
+      "constraints": [
+        "DecisionStore maps pending to dispatch_pending and preserves other delivery states.",
+        "Quota queries its server but converts any call exit to available; state evaluation returns the first primary-resource hold or available.",
+        "Read window_status: missing windows and reset/nonbinding windows are available. Preserve admission policy without treating available as independently measured quota health."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 2044,
+          "module": "Aiur.DecisionStore",
+          "name": "dispatch_status",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 2044,
+          "body_sha256": "e6eb778267ddac28fb76b38b422140414267c48a527f24b5c116db3099c2c0ec",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2045,
+          "module": "Aiur.DecisionStore",
+          "name": "dispatch_status",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 2045,
+          "body_sha256": "8f5a7672eedaa43fb2311a093e04dbeabee779de4d4ce393239700325f3ff8fa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 144,
+          "module": "Aiur.GitHub.Quota",
+          "name": "dispatch_status",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "def",
+          "end_line": 148,
+          "body_sha256": "5059863b0c708138d2df50f51f58a8616d8786d26c40c01222aa4b9f4bec0e30",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 508,
+          "module": "Aiur.GitHub.Quota",
+          "name": "dispatch_status",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 515,
+          "body_sha256": "e6b93b5604d7ea3f8ffd8d7ffc4533b3c9b82e6cce21a652b5a7912ced530db1",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dispatchable?",
+      "assessment": "Decision retry eligibility and provider-set membership are unrelated gates.",
+      "constraints": [
+        "DecisionStore rejects unanswered, resolved, moot and no-longer-applicable decisions; otherwise the last active-action attempt controls eligibility.",
+        "No attempt or unknown status permits dispatch; failed permits explicit retry or one of orchestrator_unavailable, orchestrator_timeout, target_agent_unavailable and target_revalidation_failed.",
+        "ProviderMeterProbe stringifies the provider atom and requires membership in the supplied provider MapSet. Full retry-budget enforcement and actual provider readiness are not established by these predicates."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 4513,
+          "module": "Aiur.DecisionStore",
+          "name": "dispatchable?",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 4513,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 4514,
+          "module": "Aiur.DecisionStore",
+          "name": "dispatchable?",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 4514,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 4515,
+          "module": "Aiur.DecisionStore",
+          "name": "dispatchable?",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 4515,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 4516,
+          "module": "Aiur.DecisionStore",
+          "name": "dispatchable?",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 4516,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 4518,
+          "module": "Aiur.DecisionStore",
+          "name": "dispatchable?",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 4526,
+          "body_sha256": "89c688f13eebf15e1955a0f60fbe3ae5ea2c39a77f9f6279a7dc5970f89ca53a",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 104,
+          "module": "Aiur.ProviderMeterProbe",
+          "name": "dispatchable?",
+          "path": "src/lib/aiur/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 106,
+          "body_sha256": "1df2f96a15c6da1d64dfc6347c9719ff52d1b02e4ef268462cd5f7fa4b37fb80",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dispatchable_backends",
+      "assessment": "Routing preview already delegates registry enablement policy to CodingAgent.",
+      "constraints": [
+        "CodingAgent uses string enabled before atom enabled, accepting booleans only; otherwise it uses the registry default, itself defaulting true.",
+        "Preview passes configured backend settings through a safe wrapper that returns an empty list on exceptions or caught terms.",
+        "Preserve configured enablement versus backend readiness and empty result versus failed preview. This list alone proves neither usable credentials nor probe success."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 342,
+          "module": "Aiur.CodingAgent",
+          "name": "dispatchable_backends",
+          "path": "src/lib/aiur/coding_agent.ex",
+          "kind": "def",
+          "end_line": 350,
+          "body_sha256": "122e07ce192fb48ad63a5a74d519221ea77ae61dfa2f50f48def6c986661dd7a",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 265,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "dispatchable_backends",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 267,
+          "body_sha256": "07538d0216a4d8615d5586d39905da756bf86044c48a95897275f6fd379a08a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "display_identifier",
+      "assessment": "CLI abbreviation and tracker identity validation have distinct contracts.",
+      "constraints": [
+        "CLI prefers a trailing hash-number, then numeric identifier, then numeric issue ID, then nonempty identifier, then stringified issue ID.",
+        "Read CLI helpers: digits including zero and leading zeros are accepted and preserved.",
+        "TrackerIdentity accepts positive integer or fully parsed positive numeric string and canonicalizes through Integer.to_string; other inputs are errors. Presentation shortening must not replace canonical tracker validation."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 3189,
+          "module": "Aiur.AgentControlCLI",
+          "name": "display_identifier",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 3206,
+          "body_sha256": "fd3771057ee9cf7180ae41fd30e083a82ddde4f6e66e7134900cd831159e97da",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 267,
+          "module": "Aiur.TrackerIdentity",
+          "name": "display_identifier",
+          "path": "src/lib/aiur/tracker_identity.ex",
+          "kind": "defp",
+          "end_line": 267,
+          "body_sha256": "e8722d4a17a139ddbe7294987a78606db92219b18279a08d435c9703cc6ce65e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 269,
+          "module": "Aiur.TrackerIdentity",
+          "name": "display_identifier",
+          "path": "src/lib/aiur/tracker_identity.ex",
+          "kind": "defp",
+          "end_line": 274,
+          "body_sha256": "9c514c449097a9f93b7b8577d5abf1601e4445216add4614233846cb8b388dd9",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 276,
+          "module": "Aiur.TrackerIdentity",
+          "name": "display_identifier",
+          "path": "src/lib/aiur/tracker_identity.ex",
+          "kind": "defp",
+          "end_line": 276,
+          "body_sha256": "eb339ced63c3777d9b2004b2d7bb795625947b553e3dc050078cd6ded40f6690",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "do_apply_result",
+      "assessment": "Ad hoc and open-ticket sources share refresh mechanics with distinct unsupported/truncation state.",
+      "constraints": [
+        "Success replaces identifier-keyed records and marks baseline good; duplicate identifiers collapse through Map.new. Open tickets additionally retain the supplied truncation flag.",
+        "Errors keep prior records and mark baseline bad. Read rebuild/status helpers: nonempty retained records become stale, no records unavailable; rebuilt snapshots increment generation and set observed_at to now.",
+        "Open-ticket unsupported clears tickets and directly installs an unsupported snapshot. Keep refresh-attempt time distinct from successful data observation; full consumers and invalidation behavior remain unverified here."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 327,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "do_apply_result",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 330,
+          "body_sha256": "7405ef63dcc3316d46c6a7a853b173f21b71458fa34fb099d83700d5e7ee0e9e",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 336,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "do_apply_result",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 339,
+          "body_sha256": "0c263aa872cf6bf4a24b84b454c3a0eaaf62e1b3f89baa010d549d251e04117d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 380,
+          "module": "Aiur.OpenTicketSource",
+          "name": "do_apply_result",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 383,
+          "body_sha256": "3c7d221a656d832ee4900f2430fbfad47fa0a9f957ffa6b8ce1807aba97b08f8",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 385,
+          "module": "Aiur.OpenTicketSource",
+          "name": "do_apply_result",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 387,
+          "body_sha256": "f6cd796857ff389421f461376160cbda763304831f76fb647b643fc2c3cfe9d5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 394,
+          "module": "Aiur.OpenTicketSource",
+          "name": "do_apply_result",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 397,
+          "body_sha256": "0c263aa872cf6bf4a24b84b454c3a0eaaf62e1b3f89baa010d549d251e04117d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "do_open",
+      "assessment": "Activation selection policy and pane implementation routing are layered responsibilities.",
+      "constraints": [
+        "Activation chooses new conversation versus attach-last-used. Read attach helper: success becomes ok; no-focused-pane opens with a 65-second timeout; other attach errors become ok.",
+        "OpencodeOpen routes the reserved command prefix to opencode pane handling and all other commands to GenericOpen.",
+        "Preserve routing, timeout and suppressed-error policy. An activation ok alone does not prove a visible conversation opened; complete pane effects remain unverified here."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 95,
+          "module": "Aiur.AgentList.Activation",
+          "name": "do_open",
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "kind": "defp",
+          "end_line": 96,
+          "body_sha256": "ba8420174ac0f12c3447bf92aef4a89860171f6f5fe9117c4108b1e17e5c9df0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 98,
+          "module": "Aiur.AgentList.Activation",
+          "name": "do_open",
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "kind": "defp",
+          "end_line": 99,
+          "body_sha256": "3adfee649a9949d0e180280fec93fde32e35deb7d524b4cfc83768c31c433a2c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 23,
+          "module": "Aiur.PaneManager.OpencodeOpen",
+          "name": "do_open",
+          "path": "src/lib/aiur/pane_manager/opencode_open.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "af62145c3151f29aa3592cc3fafed048433560cec32036737838b22840a8bab7",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7652,
-  "limits": "837 selected families and 7652 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7681,
+  "limits": "845 selected families and 7681 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
