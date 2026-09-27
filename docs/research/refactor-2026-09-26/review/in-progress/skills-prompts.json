@@ -1635,6 +1635,83 @@
       "lines": 204,
       "read": "full",
       "assessment": "Full read. Preserve per-source literal standing consent, read-only decline, explicit sensitivity, machine-local/shared topology disclosure, mapped legacy cursors, unrelated config preservation and headless schedule handoff. Sensitive promise of only title/url/id/status conflicts with arbitrary preserved fields such as parent summary. Bot/app reaction identity absent from captured Slack config; follow-up. No interview or scheduling executed."
+    },
+    {
+      "path": ".claude/skills/ce-test-browser/SKILL.md",
+      "sha256": "9fbeb896c87ed4af744582c2e3641ba7c01314bc1e0057ee155a9d504a94bb9b",
+      "lines": 241,
+      "read": "full",
+      "assessment": "Full read. Preserve one-driver session, fresh inspected locators, actual interaction evidence and explicit skipped external flows. PR/branch scope is not bound to checkout/server; hardcoded main and listener-only readiness need existing provenance audit. Port recipe scans whole package file, extending prior helper question. No browser run."
+    },
+    {
+      "path": ".claude/skills/ce-test-browser/references/agent-browser-driver.md",
+      "sha256": "c9929eb953f750ecc7a315d4229363ad4db6f127fd5ebe67b18b534555f634e9",
+      "lines": 47,
+      "read": "full",
+      "assessment": "Full read. Preserve installed-CLI versus runtime distinction, current driver instruction loading and no post-test driver mixing. No CLI installation or browser launch."
+    },
+    {
+      "path": ".claude/skills/ce-test-browser/references/pipeline-orchestration.md",
+      "sha256": "1b18545f7f21ca9310b0dc2c5fb8770a41dc04b7c61c36b809845f70fd8b64f7",
+      "lines": 52,
+      "read": "full",
+      "assessment": "Full read. Scan-then-start does not reserve a port despite guarantee wording; listener check has no spawned PID/checkout binding, no owned-process cleanup, npm may ignore PORT. Extend existing server provenance candidate. No server started."
+    },
+    {
+      "path": ".claude/skills/ce-test-xcode/SKILL.md",
+      "sha256": "65ffef8425823d391ec0f7c5525a5723e44459d044086aaa017f0bcde6d464b0",
+      "lines": 208,
+      "read": "full",
+      "assessment": "Full read. Preserve actual build/install/render evidence, explicit human verification and cleanup. Any list_simulators error is mislabeled not installed; blanket SwiftUI inline-link limitation and current tool names need external verification before reuse. Direct openurl cannot prove tap path. No simulator or installation invoked."
+    },
+    {
+      "path": ".claude/skills/ce-work/SKILL.md",
+      "sha256": "c5db9ea6a3728e8bf8e0e53102e2dc8379269aabb9d0569875bc90ff44763a9b",
+      "lines": 438,
+      "read": "full",
+      "assessment": "Full438 lines read in three bounded ranges replacing truncated initial output. Preserve plan readiness, settled decisions, dependency/contention reasoning, actual-tree inspection and observed test evidence. Worker commit ownership contradicts later isolated-worker permission (finding19). Codex isolation/upload/close assumptions mismatch this session capability contract; do not generalize to historical harnesses. No implementation or workers invoked."
+    },
+    {
+      "path": ".claude/skills/ce-work/references/execution-engines.md",
+      "sha256": "778fc234ce043cf7d5b7ccca47952118db79987c4a5823c08ce0b7cb75e7e138",
+      "lines": 85,
+      "read": "full",
+      "assessment": "Full read. Preserve capability probing, return-to-caller ownership and no fabricated awaitable goal worker. Tool presence alone does not authorize goal creation under this session explicit-request contract; existing active goal and lifecycle ownership need handling. Not applied as goal authority."
+    },
+    {
+      "path": ".claude/skills/ce-work/references/non-code-execution.md",
+      "sha256": "db2b50d32c3dfa3dd1772684b76c3cf7d5384906da5aad6caa5141eebe04e3ec",
+      "lines": 23,
+      "read": "full",
+      "assessment": "Full read. Preserve named-source reads, durable deliverable, user commit preference and separate code-substep safeguards. No knowledge-work execution claimed by this source review."
+    },
+    {
+      "path": ".claude/skills/ce-work/references/review-findings-followup.md",
+      "sha256": "d60ca68483c91aa572d998461f23a9adf2370c1cb4a30317bd7fb66adb3daabc",
+      "lines": 104,
+      "read": "full",
+      "assessment": "Full read. Preserve existing review reuse, actual-code confirmation by fixer, per-file grouping and residual retention. No pre-investigation by parent contrasts resolve-feedback central gate; different contexts, not automatically contradiction. Advisory classification still defers despite never-permission prose; reconcile eligibility wording. No fixes applied."
+    },
+    {
+      "path": ".claude/skills/ce-work/references/shipping-workflow.md",
+      "sha256": "ff8986cac279a37545a9d31c6658c72ea7614935d488d123eda9642220b1f4b4",
+      "lines": 135,
+      "read": "full",
+      "assessment": "Full read. Preserve review/apply separation, explicit degraded coverage, durable residuals and settlement-invalidating blockers. Automatic residual acceptance has no severity restriction; inherited scope and Aiur gate need reconciliation. Parent screenshot-capture claim is stale relative to evidence-context handoff. No shipping workflow applied."
+    },
+    {
+      "path": ".claude/skills/ce-work/references/tracker-defer.md",
+      "sha256": "82f46d1a299734b09832610cc17a091e47b34651a0b37442e00e67f6eebdea97",
+      "lines": 149,
+      "read": "full",
+      "assessment": "Full read. Preserve explicit durable sinks, named/fallback distinctions and per-finding failure receipts. Creation timeout followed by fallback/retry lacks reconciliation/idempotency and may duplicate; artifact-local pointers may be inaccessible to tracker readers. No tracker calls."
+    },
+    {
+      "path": ".claude/skills/ce-work/references/agents/figma-design-sync.md",
+      "sha256": "de3986fee0254f70678e1ed0d7bdac4d3ef8d1a876159c83b7706e0cb757546a",
+      "lines": 165,
+      "read": "full",
+      "assessment": "Full read. Preserve actual design/render comparison and project conventions. Unconditional full-width/no-overflow and fixed Tailwind assumptions are not universally behavior-preserving; pixel-perfect versus 2-4px substitution tension. Hardwired browser differs from general driver policy; inspect caller applicability. No design API or UI change."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -2064,6 +2141,27 @@
       "recommendation": "Define an explicit sensitive-safe persisted schema; exclude parent/context summaries and derived content unless separately sanitized under that contract. Align setup promises and plan generation with the same field policy.",
       "refactor_hint": "Centralize privacy projection at the persistence boundary instead of relying on field-name conventions across connectors.",
       "limits": "Synthetic engine behavior confirmed, not an observed private disclosure. No source service called. No matching ce-sweep finding found in current raw JSON reports; final cross-unit semantic dedup remains."
+    },
+    {
+      "id": "skills-prompts-cont-19",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Work execution gives isolated workers contradictory commit ownership",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-work/SKILL.md",
+          "lines": "179-209"
+        },
+        {
+          "path": ".claude/skills/ce-work/SKILL.md",
+          "lines": "299-302"
+        }
+      ],
+      "description": "Dispatch forbids worker commits and assigns staging/commits to the orchestrator. Its Claude integration example then merges worker branches, which does not transfer uncommitted edits; the later incremental-commit section instead permits isolated workers to stage and commit. These are incompatible ownership/integration contracts.",
+      "evidence": "Complete bounded read of work entry. Initial no-commit instruction includes a narrow workspace-reaping exception, while the later permission applies generally to isolated workers. No single transfer protocol reconciles the branches.",
+      "recommendation": "Define one capability-specific contract: either workers commit and return an immutable commit for integration, or the orchestrator transfers/verifies uncommitted diffs before committing. Make dispatch, integration and cleanup follow that same contract.",
+      "refactor_hint": "Represent workspace isolation, change-transfer method and commit owner as explicit worker capabilities rather than duplicated prose.",
+      "limits": "Source-level contradiction only; no worker worktree created or changes lost in this research. Actual harness capabilities must be probed; historical Codex isolation is not inferred from this session. Cross-unit dedup pending."
     }
   ],
   "preserve": [
@@ -2299,7 +2397,18 @@
     "Full read. Preserve identity-specific reactions, source-scoped per-reply identity and explicit read/write degradation. Parent summary is requested but not covered by body/quote-only redaction. Parent-in-range reply fetching does not specify discovery of new replies to older parents; setup does not capture required bot/app identity. No Slack call.",
     "Full read. Preserve always-no-transcribe for sensitive media, abstraction of private frame content, observation-based findings, explicit uncertain fixed-state and no project mutation. This narrows recording candidate38 for the sweep caller. Multiple recordings/output paths and inferred fixed-on-main evidence need validation before closure.",
     "Full read. Preserve explicit item/source/sensitivity/scratch identity, analyzer path passing, untrusted recording boundary and compact output. Analyzer output writes are explicitly permitted despite single-finding-file shorthand; do not promote that as an authority contradiction.",
-    "Full read. Preserve per-source literal standing consent, read-only decline, explicit sensitivity, machine-local/shared topology disclosure, mapped legacy cursors, unrelated config preservation and headless schedule handoff. Sensitive promise of only title/url/id/status conflicts with arbitrary preserved fields such as parent summary. Bot/app reaction identity absent from captured Slack config; follow-up. No interview or scheduling executed."
+    "Full read. Preserve per-source literal standing consent, read-only decline, explicit sensitivity, machine-local/shared topology disclosure, mapped legacy cursors, unrelated config preservation and headless schedule handoff. Sensitive promise of only title/url/id/status conflicts with arbitrary preserved fields such as parent summary. Bot/app reaction identity absent from captured Slack config; follow-up. No interview or scheduling executed.",
+    "Full read. Preserve one-driver session, fresh inspected locators, actual interaction evidence and explicit skipped external flows. PR/branch scope is not bound to checkout/server; hardcoded main and listener-only readiness need existing provenance audit. Port recipe scans whole package file, extending prior helper question. No browser run.",
+    "Full read. Preserve installed-CLI versus runtime distinction, current driver instruction loading and no post-test driver mixing. No CLI installation or browser launch.",
+    "Full read. Scan-then-start does not reserve a port despite guarantee wording; listener check has no spawned PID/checkout binding, no owned-process cleanup, npm may ignore PORT. Extend existing server provenance candidate. No server started.",
+    "Full read. Preserve actual build/install/render evidence, explicit human verification and cleanup. Any list_simulators error is mislabeled not installed; blanket SwiftUI inline-link limitation and current tool names need external verification before reuse. Direct openurl cannot prove tap path. No simulator or installation invoked.",
+    "Full438 lines read in three bounded ranges replacing truncated initial output. Preserve plan readiness, settled decisions, dependency/contention reasoning, actual-tree inspection and observed test evidence. Worker commit ownership contradicts later isolated-worker permission (finding19). Codex isolation/upload/close assumptions mismatch this session capability contract; do not generalize to historical harnesses. No implementation or workers invoked.",
+    "Full read. Preserve capability probing, return-to-caller ownership and no fabricated awaitable goal worker. Tool presence alone does not authorize goal creation under this session explicit-request contract; existing active goal and lifecycle ownership need handling. Not applied as goal authority.",
+    "Full read. Preserve named-source reads, durable deliverable, user commit preference and separate code-substep safeguards. No knowledge-work execution claimed by this source review.",
+    "Full read. Preserve existing review reuse, actual-code confirmation by fixer, per-file grouping and residual retention. No pre-investigation by parent contrasts resolve-feedback central gate; different contexts, not automatically contradiction. Advisory classification still defers despite never-permission prose; reconcile eligibility wording. No fixes applied.",
+    "Full read. Preserve review/apply separation, explicit degraded coverage, durable residuals and settlement-invalidating blockers. Automatic residual acceptance has no severity restriction; inherited scope and Aiur gate need reconciliation. Parent screenshot-capture claim is stale relative to evidence-context handoff. No shipping workflow applied.",
+    "Full read. Preserve explicit durable sinks, named/fallback distinctions and per-finding failure receipts. Creation timeout followed by fallback/retry lacks reconciliation/idempotency and may duplicate; artifact-local pointers may be inaccessible to tracker readers. No tracker calls.",
+    "Full read. Preserve actual design/render comparison and project conventions. Unconditional full-width/no-overflow and fixed Tailwind assumptions are not universally behavior-preserving; pixel-perfect versus 2-4px substitution tension. Hardwired browser differs from general driver policy; inspect caller applicability. No design API or UI change."
   ],
   "follow_up_candidates": [
     {
@@ -2408,7 +2517,7 @@
     },
     {
       "id": "skills-prompts-candidate-31",
-      "question": "Reconcile polish startup recipes/helper behavior and dedup against scripts raw review: undefined kill-by-port references, bare Procfile detection versus Procfile.dev command, probe port versus actual child binding. Actual frozen resolve-port.sh package-json path reproduced wrong port from unrelated test script; full helper audit pending.",
+      "question": "Reconcile polish startup recipes/helper behavior and dedup against scripts raw review: undefined kill-by-port references, bare Procfile detection versus Procfile.dev command, probe port versus actual child binding. Actual frozen resolve-port.sh package-json path reproduced wrong port from unrelated test script; full helper audit pending. Browser pipeline similarly asserts free-port scan guarantees availability, then checks any listener without PID/checkout binding or owned cleanup; main port scan matches entire package file.",
       "evidence": "Synthetic temporary package.json, scripts ordered test: test-tool --port 9123 then dev: vite --port 5174; bash resolve-port.sh <temp> --type vite exited0 and returned9123. Reordering same two entries dev-first returned5174, exit0. Actual helper lines259-263 grep whole file. Temporary fixtures removed automatically; no server, real config, dotenv or network used."
     },
     {
@@ -2450,9 +2559,21 @@
     {
       "id": "skills-prompts-candidate-41",
       "question": "Sweep closure: merge ancestry or mergedAt/baseRefName proves landing, not that the claimed fix addresses the reported symptom. PR command omits merge SHA though closed state requires it. Verify target repository, default-head freshness, behavior evidence, existing-closeout idempotence and scheduled retries of already-ingested needs_analysis items. Archive filename collision and stable R-ID allocation also need reconciliation."
+    },
+    {
+      "id": "skills-prompts-candidate-42",
+      "question": "Work assumes Codex spawn_agent isolated uploaded changes and close_agent, unlike current shared filesystem and available lifecycle tools. Engine tool availability does not establish user authority to create a goal or replace an active one. Reconcile capability discovery and instruction precedence, without claiming every historical harness shares current behavior."
+    },
+    {
+      "id": "skills-prompts-candidate-43",
+      "question": "Tracker defer retries or changes sinks after creation errors without distinguishing pre-commit failure from lost response; verify dedup/receipt contract. Autonomous residual auto-acceptance lacks severity gating and must reconcile Aiur requirements; source-level policy scope first."
+    },
+    {
+      "id": "skills-prompts-candidate-44",
+      "question": "Xcode blanket inline-link automation limitation/tool names and Figma full-width/overflow/Tailwind rules need version/project grounding. URL opening is not tap verification; infrastructure errors are not proof of missing installation. Do not repeat these as current external facts without verification."
     }
   ],
-  "next": "Continue ce-test-browser markdown. Coverage 233/250 full files, 34022/36169 lines. Thirteen provisional P2 and five P3 findings; thirty-seven follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-worktree, design-import, lfg and release markdown. Coverage 244/250 full files, 35669/36169 lines. Fourteen provisional P2 and five P3 findings; forty follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",

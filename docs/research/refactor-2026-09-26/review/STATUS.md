@@ -738,3 +738,7 @@ Read thirteen complete recording/setup/simplification/strategy markdown files; c
 ### Skills/prompts: feedback sweep contracts
 
 Read ten complete sweep markdown files; coverage 233/250 files, 34,022/36,169 lines. Probed actual frozen state engine with synthetic sensitive content: body/quote removed, parent_summary retained. Recorded provisional P2 against requested Slack context and setup privacy promise. Added fetch/cursor, distributed lease and closure-evidence questions; sensitive sweep media explicitly disables transcription, narrowing prior candidate. All 233 hashes/line counts verified. No source API, message, real recording, shared-branch experiment or production change. Raw units remain28/32; next browser-testing skills.
+
+### Skills/prompts: browser evidence and worker integration
+
+Read eleven complete browser/Xcode/work markdown files; coverage 244/250 files, 35,669/36,169 lines. Replaced truncated work read with complete bounded ranges. Added provisional P2 worker-commit/integration contradiction, extended server identity question and recorded capability, tracker-retry and UI-verification follow-ups. Preserve real interaction evidence, explicit unknowns, actual-tree integration and test provenance. All 244 hashes/line counts verified. No browser, simulator, worker, tracker or production mutation. Raw units remain28/32; six markdown files remain before candidate reconciliation.
