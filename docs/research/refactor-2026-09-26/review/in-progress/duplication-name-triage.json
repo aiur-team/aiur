@@ -101459,10 +101459,538 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "context_tier",
+      "assessment": "Codex context classification and envelope dimension validation are different stages.",
+      "constraints": [
+        "Codex.Tokens classifies integer input above the verified threshold 272000 as long_context, other integer input as short_context and absent input as nil.",
+        "UsageEnvelope accepts nil or delegates provider-specific context-tier validation with a tagged error.",
+        "Preserve inference versus validation, provider support and strict threshold boundary; extracted input validity and pricing applicability remain transitive."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 74,
+          "module": "Aiur.Usage.Headless.Codex.Tokens",
+          "name": "context_tier",
+          "path": "src/lib/aiur/usage/headless/codex/tokens.ex",
+          "kind": "def",
+          "end_line": 80,
+          "body_sha256": "80fe4c495b4324b8ae0b473e9a0dd30b258ef866c62c5027da018fd927c66437",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 82,
+          "module": "Aiur.Usage.Headless.Codex.Tokens",
+          "name": "context_tier",
+          "path": "src/lib/aiur/usage/headless/codex/tokens.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 455,
+          "module": "Aiur.UsageEnvelope",
+          "name": "context_tier",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 455,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 456,
+          "module": "Aiur.UsageEnvelope",
+          "name": "context_tier",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 456,
+          "body_sha256": "6327a5e46cb2a75a7eecd1d83f40dfc54532bd1e74a79712c9af855bcf35e32c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "continuation_key",
+      "assessment": "Capped query continuation preserves scan progress beyond returned results.",
+      "constraints": [
+        "LegacyPage returns last_key.",
+        "Query returns last_scanned_key when capped? is true, otherwise last_key.",
+        "Retain scan-budget versus returned-result cursor semantics; this accessor alone does not prove gap-free or duplicate-free pagination."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 79,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.LegacyPage",
+          "name": "continuation_key",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/legacy_page.ex",
+          "kind": "defp",
+          "end_line": 79,
+          "body_sha256": "097015b21a05e1dac2aa99041f913c728dcc2fd8b2fb93186854666f6d884bb1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.Query",
+          "name": "continuation_key",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query.ex",
+          "kind": "defp",
+          "end_line": 92,
+          "body_sha256": "097015b21a05e1dac2aa99041f913c728dcc2fd8b2fb93186854666f6d884bb1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 93,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.Query",
+          "name": "continuation_key",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "097015b21a05e1dac2aa99041f913c728dcc2fd8b2fb93186854666f6d884bb1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "control_action",
+      "assessment": "Explicit control affordance extraction differs from bucket-based action inference.",
+      "constraints": [
+        "UnitsTable uses pause/resume action, then pause/resume pending_action, otherwise nil.",
+        "StreamdeckLive maps running to pause and paused to resume, otherwise nil.",
+        "Preserve pending-action precedence versus status-bucket inference; a presented action does not prove authorization or command availability."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 239,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "control_action",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 239,
+          "body_sha256": "5cc27b8bf7dffb149bd06b2422ea274c62280f5c1913adcf2c57a09b70457698",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 240,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "control_action",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 240,
+          "body_sha256": "5cc27b8bf7dffb149bd06b2422ea274c62280f5c1913adcf2c57a09b70457698",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 241,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "control_action",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 241,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1057,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "control_action",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1057,
+          "body_sha256": "ea5f13ca9f4a6425574875eb9245a593e2e91d6b1923e2243434fe7c5372823d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1058,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "control_action",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1058,
+          "body_sha256": "5ac84d4102a20d4f33f398e972aa4f791f93a27b127db322a3dcd69549f95419",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1059,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "control_action",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1059,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "control_capabilities",
+      "assessment": "Orchestrator capability lookup already delegates through OperatorMessages.",
+      "constraints": [
+        "Facade exposes default/server arities; OperatorMessages chooses Aiur.Orchestrator by default.",
+        "Binary issue identifiers go through control_api_call with a 5000 millisecond timeout.",
+        "Preserve capability owner and timeout semantics; wrappers do not establish current permission or command completion."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 570,
+          "module": "Aiur.Orchestrator",
+          "name": "control_capabilities",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 570,
+          "body_sha256": "e9eb5cf563ca5b54b623d7bae920831f27350f5b51f632551bc6d12500685bac",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 572,
+          "module": "Aiur.Orchestrator",
+          "name": "control_capabilities",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 573,
+          "body_sha256": "2feb14c4ede0972944eb88d9e1336982f6e208d2d45a7d13601676527e771434",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 128,
+          "module": "Aiur.Orchestrator.OperatorMessages",
+          "name": "control_capabilities",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "kind": "def",
+          "end_line": 129,
+          "body_sha256": "037f5934ad16fc6ae2f11b87cb55c1b2801cbb31923a3e7cef538609cec8a520",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 133,
+          "module": "Aiur.Orchestrator.OperatorMessages",
+          "name": "control_capabilities",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "kind": "def",
+          "end_line": 134,
+          "body_sha256": "9c75cb04a78403ae67b61c3f5658f53f6a28dcf6ef50362dc6ba29888f823fde",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "control_request_id",
+      "assessment": "Request identity creation/pass-through and result extraction have different validation.",
+      "constraints": [
+        "PauseResume generates an ID for nil and wraps any other value in ok.",
+        "DashboardLive accepts only integer results as request IDs, otherwise nil.",
+        "Do not unify allocation/acceptance with presentation extraction; upstream request-ID validation and generator guarantees remain unverified."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1703,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "control_request_id",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "defp",
+          "end_line": 1703,
+          "body_sha256": "c627220094eba2fa1990c950ae3064a04b1736e36510cf693bf724d2d25c01bc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1704,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "control_request_id",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "defp",
+          "end_line": 1704,
+          "body_sha256": "0288fbf33f40765b22f6bbf549dae41f4892fe0cf6ce8762e8d84e5ea34fae28",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2745,
+          "module": "AiurWeb.DashboardLive",
+          "name": "control_request_id",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 2745,
+          "body_sha256": "f92d41166f14dd8d76e882d8eeddf267cb639825fca80ce4f60528b340d54804",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2746,
+          "module": "AiurWeb.DashboardLive",
+          "name": "control_request_id",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 2746,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "conversation_handle",
+      "assessment": "UnitsTable and DashboardLive use identical conversation handle extraction.",
+      "constraints": [
+        "Both require a binary generation_handle nested under live_conversation, otherwise return nil.",
+        "This is a concrete shared projection primitive.",
+        "Binary extraction is not proof of current generation, valid ownership or an attachable conversation."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 273,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "conversation_handle",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 273,
+          "body_sha256": "286086edadbb2ad33662cad6af445068cd88c873e98f1584558b4c7541c33d7d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 274,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "conversation_handle",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 274,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2235,
+          "module": "AiurWeb.DashboardLive",
+          "name": "conversation_handle",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 2236,
+          "body_sha256": "286086edadbb2ad33662cad6af445068cd88c873e98f1584558b4c7541c33d7d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2238,
+          "module": "AiurWeb.DashboardLive",
+          "name": "conversation_handle",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 2238,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "counter_epoch",
+      "assessment": "Usage adapters bind counters to different source identity dimensions.",
+      "constraints": [
+        "Claude telemetry fingerprints source version, run, session, worker generation and producer generation under its counter prefix.",
+        "Headless Adapter fingerprints adapter source version, run, session, attempt, worker generation and account generation under its source-specific epoch prefix.",
+        "Preserve producer versus attempt/account boundaries before sharing hashing mechanics; fingerprint uniqueness and production counter continuity are not established here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 176,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter",
+          "name": "counter_epoch",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "dda8bbf5ee622560feab2b2227093548b724d524117038b934ef1a13596629c0",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 197,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "counter_epoch",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "def",
+          "end_line": 208,
+          "body_sha256": "858f0637733d68569c897f4ce48baf7047838b9f8ea0af087cbc2d30dd4496c9",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "coverage_label",
+      "assessment": "Pricing completeness and provider capability coverage use distinct vocabularies.",
+      "constraints": [
+        "Pricing.Result maps full/partial/unknown to Known/Partial/Unknown with no general fallback.",
+        "ProviderMetersPresenter maps supported/unsupported/empty_supported to capability labels and other values to Unknown coverage.",
+        "Keep measured-price completeness separate from support/no-data status; rendering a label does not establish the underlying classification."
+      ],
+      "clauses": 7,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 120,
+          "module": "Aiur.Usage.Pricing.Result",
+          "name": "coverage_label",
+          "path": "src/lib/aiur/usage/pricing/result.ex",
+          "kind": "defp",
+          "end_line": 120,
+          "body_sha256": "2ccd753e9ba27cca69ccfecf3ba25a3d801410e175c899023f83880d73d9031f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 121,
+          "module": "Aiur.Usage.Pricing.Result",
+          "name": "coverage_label",
+          "path": "src/lib/aiur/usage/pricing/result.ex",
+          "kind": "defp",
+          "end_line": 121,
+          "body_sha256": "8e5fb80aac48a8f61efc9a5399d53ea48a65e857d61a83adeac04ca0fceb1bdb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 122,
+          "module": "Aiur.Usage.Pricing.Result",
+          "name": "coverage_label",
+          "path": "src/lib/aiur/usage/pricing/result.ex",
+          "kind": "defp",
+          "end_line": 122,
+          "body_sha256": "e89d840b64baa55ca353b36317a1df5cb7cf4833f82c5c2f80122d4827a3cf96",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 392,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "coverage_label",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 392,
+          "body_sha256": "8a6b2517f07b822dc8904e9578105b336aca40b605e6d74569be18dd42ddcf7a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 393,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "coverage_label",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 393,
+          "body_sha256": "7c25317a7b02d3584d154486fca78dbfbcc7cb07bf2f5aee736012e48a5e4ac4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 394,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "coverage_label",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 394,
+          "body_sha256": "d71f5f6f83f98cf83abe427c9738e6d5c62688067c76ec22f163e878ef05f680",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 395,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "coverage_label",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 395,
+          "body_sha256": "fd285e137430a5a08c602042e11ac89e5179eb4551704470c9377756f94b99ec",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7450,
-  "limits": "773 selected families and 7450 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7484,
+  "limits": "781 selected families and 7484 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

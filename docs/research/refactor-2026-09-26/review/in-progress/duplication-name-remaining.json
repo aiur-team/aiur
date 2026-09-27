@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "4cb27193573e42bbfa4ff6218c769804f065d3a5792f6edb565b6f0a33d0b515"
+    "name_triage": "b51ddd8f33178f922a27426685f50db71faac4083c2477b292c15d6c62bb18e3"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 773,
-    "remaining_cross_module_names": 907,
-    "remaining_literal_entries": 2818
+    "reviewed_cross_module_names": 781,
+    "remaining_cross_module_names": 899,
+    "remaining_literal_entries": 2784
   },
   "families": [
-    {
-      "name": "context_tier",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "continuation_key",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 3
-    },
-    {
-      "name": "control_action",
-      "clauses": 6,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "control_capabilities",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "control_request_id",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "conversation_handle",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "counter_epoch",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "coverage_label",
-      "clauses": 7,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
     {
       "name": "coverage_status",
       "clauses": 7,
