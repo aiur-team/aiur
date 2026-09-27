@@ -914,6 +914,48 @@
       "lines": 30,
       "read": "full",
       "assessment": "All30 lines read. Pure Markdown with metadata, relative source paths, no embedded exercise UI and text-equivalent diagrams. Format-specific YAML metadata differs intentionally from HTML visible-header rules. Mermaid requires renderer support; no rendered artifact portability test run."
+    },
+    {
+      "path": ".claude/skills/ce-handoff/SKILL.md",
+      "sha256": "e23945f6f1de84067febccc1915d96f0c24c4cc67385fe997132a84ce3437fc9",
+      "lines": 134,
+      "read": "full",
+      "assessment": "Full source read. Immutable pointer-first snapshots, exclusive filename reservation, private managed storage, bounded metadata-only discovery and explicit source selection preserve continuity without granting execution authority. Selected content remains untrusted; current instructions and verified state prevail. Resume stop does not negate separately authorized ongoing research. No handoff workflow invoked."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/SKILL.md",
+      "sha256": "d7cdf017f58f5c729a7dfe8782e9d02855aae7c680ac34bba2687373520db35d",
+      "lines": 402,
+      "read": "full",
+      "assessment": "Full402 lines read across bounded ranges. Preserve candidates versus requirements, explicit directive/evidence routing, topic axes and quoted dossiers, external research skip preference, opt-in Slack, actual fleet-cost disclosure and generation before critique. Thin context and failed grounding remain disclosed limitations, not verified evidence. No agents dispatched or external research performed. Remaining reference review needed for final recommendation pipeline."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/divergent-ideation.md",
+      "sha256": "06c0838196631c96b57eb608e08eb6f8c4c1599ad0f190d79654858fe8ccfa49",
+      "lines": 89,
+      "read": "full",
+      "assessment": "Full89 lines read. Default five agents cover six frames because one receives a pair; 36-48 raw candidates therefore consistent, not count defect. Direct bases require actually read quotations; reasoned bases remain explicit arguments. Preserve requested scope, bounded axis recovery and visible empty-axis gaps. Caching cost benefit is a mechanism prediction, not measured saving. Checkpoints best-effort; not durable completion evidence."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/web-research-cache.md",
+      "sha256": "4f52359fc496de2c44479aec77a34112ab2b101ca2cd9585e033be7216c9c145",
+      "lines": 56,
+      "read": "full",
+      "assessment": "Full56 lines read. Mode variants, normalized subject and repository discriminator separate topics; re-research override invalidates matches. Candidate22: retained sibling-run scan has no session identifier or timestamp eligibility despite same-session reuse description. No cache contents accessed or stale-reuse execution claimed."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/html-rendering.md",
+      "sha256": "72bd87e84e2c092afd8693eef14cec1dafb9d0ec42d072004ae4abe9eced5c77",
+      "lines": 634,
+      "read": "full",
+      "assessment": "Complete-content coverage by verified SHA256 identity with previously fully reviewed .claude/skills/ce-brainstorm/references/html-rendering.md. Inherits its rendering, provenance and portability assessment; identical content is reuse evidence, not independent implementation or runtime verification."
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/markdown-rendering.md",
+      "sha256": "8ed3401f4f7407572c6bbbf9c3dd306721858a3baeab68053b0c6d2efc903e75",
+      "lines": 238,
+      "read": "full",
+      "assessment": "Complete-content coverage by verified SHA256 identity with previously fully reviewed .claude/skills/ce-brainstorm/references/markdown-rendering.md. Inherits its rendering, provenance and portability assessment; identical content is reuse evidence, not independent implementation or runtime verification."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1345,7 +1387,13 @@
     "All30 lines read. Capability discovery precedes destination availability; publish creates a body-only self-contained view while scratch file stays canonical. Named local destination is separate from external Proof/Thinkroom publishing; fallback must not invent endpoint shape. Retry policy exists, but no actual external service behavior or API compatibility verified.",
     "All23 lines read. Bounded evidence file with commit/date/source references separates extraction from interpretation. Missing PR interface is unavailable evidence, not guessed merge state; empty window produces no artifact. This is a read-contract assessment, not a new history search.",
     "All36 lines read. One offline display-only file, visible provenance and model-knowledge uncertainty, no external requests or executable UI; visuals require full prose equivalents. Absolute no-URL post-audit is stricter than no-network-request invariant and can constrain citation links, but source attribution need not require network fetching. Platform-specific open example is subordinate to parent capability handling. No HTML rendered.",
-    "All30 lines read. Pure Markdown with metadata, relative source paths, no embedded exercise UI and text-equivalent diagrams. Format-specific YAML metadata differs intentionally from HTML visible-header rules. Mermaid requires renderer support; no rendered artifact portability test run."
+    "All30 lines read. Pure Markdown with metadata, relative source paths, no embedded exercise UI and text-equivalent diagrams. Format-specific YAML metadata differs intentionally from HTML visible-header rules. Mermaid requires renderer support; no rendered artifact portability test run.",
+    "Full source read. Immutable pointer-first snapshots, exclusive filename reservation, private managed storage, bounded metadata-only discovery and explicit source selection preserve continuity without granting execution authority. Selected content remains untrusted; current instructions and verified state prevail. Resume stop does not negate separately authorized ongoing research. No handoff workflow invoked.",
+    "Full402 lines read across bounded ranges. Preserve candidates versus requirements, explicit directive/evidence routing, topic axes and quoted dossiers, external research skip preference, opt-in Slack, actual fleet-cost disclosure and generation before critique. Thin context and failed grounding remain disclosed limitations, not verified evidence. No agents dispatched or external research performed. Remaining reference review needed for final recommendation pipeline.",
+    "Full89 lines read. Default five agents cover six frames because one receives a pair; 36-48 raw candidates therefore consistent, not count defect. Direct bases require actually read quotations; reasoned bases remain explicit arguments. Preserve requested scope, bounded axis recovery and visible empty-axis gaps. Caching cost benefit is a mechanism prediction, not measured saving. Checkpoints best-effort; not durable completion evidence.",
+    "Full56 lines read. Mode variants, normalized subject and repository discriminator separate topics; re-research override invalidates matches. Candidate22: retained sibling-run scan has no session identifier or timestamp eligibility despite same-session reuse description. No cache contents accessed or stale-reuse execution claimed.",
+    "Complete-content coverage by verified SHA256 identity with previously fully reviewed .claude/skills/ce-brainstorm/references/html-rendering.md. Inherits its rendering, provenance and portability assessment; identical content is reuse evidence, not independent implementation or runtime verification.",
+    "Complete-content coverage by verified SHA256 identity with previously fully reviewed .claude/skills/ce-brainstorm/references/markdown-rendering.md. Inherits its rendering, provenance and portability assessment; identical content is reuse evidence, not independent implementation or runtime verification."
   ],
   "follow_up_candidates": [
     {
@@ -1419,9 +1467,13 @@
     {
       "id": "skills-prompts-candidate-21",
       "question": "Reconcile dogfood PR-specific base versus trunk diff, reused dev-server checkout/build identity, and resumed result freshness against existing provenance findings. A PR checkout alone does not prove the browser serves that head; old branch-slug reports may outlive changed commits. Inspect related worktree/browser contracts before promotion or dedup."
+    },
+    {
+      "id": "skills-prompts-candidate-22",
+      "question": "Reconcile session-only web research reuse promise with shared retained sibling-run scan: key has mode/focus/topic hash but no session identity; ts is stored without age eligibility. Inspect remaining post-ideation retention rules before promotion. No old research reuse reproduced."
     }
   ],
-  "next": "Continue ce-handoff then ce-ideate markdown. Coverage 130/250 full files, 19617/36169 lines. Nine provisional P2 and three P3 findings; eighteen follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-ideate remaining references and agent prompts. Coverage 136/250 full files, 21170/36169 lines. Nine provisional P2 and three P3 findings; nineteen follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
