@@ -1,0 +1,121 @@
+{
+  "claim": "meta-10",
+  "status": "bounded_source_verification",
+  "backlog_samples": [
+    {
+      "path": "aiur/meta/20260822T022000Z-2245-resolved-review-is-the-queue.md",
+      "lines": "18-39",
+      "sha256": "108ec60d83a06d32c613e5099782c0775cd9dbf43d7a74f5d2cddf49a0e4752f",
+      "assessment": "Reports 20 open PRs and eight non-draft; this is not the claimed starting sample of ten."
+    },
+    {
+      "path": "aiur/meta/20260822T153000Z-two-standing-items-were-stale.md",
+      "lines": "10-11,55-64",
+      "sha256": "2847f38ec8a85a60812c9ae4891af9fa0899e3c1666f058a5cc19d924b48f5ca",
+      "assessment": "Reports one working agent, empty todo, 18 human-review tickets and four tickets lacking dispatch labels. The author attributes starvation to review; missing labels are also recorded."
+    },
+    {
+      "path": "aiur/meta/20260822T190000Z-review-is-the-bottleneck-and-the-cache-serves-nothing.md",
+      "lines": "18,23-33",
+      "sha256": "076d06849ef57ea347c29ca8ef54deeff95d6e476af9bc59f7b8a9d3ee9833e2",
+      "assessment": "Reports 32 non-draft PRs, zero approved, 23 review-required and nine changes-requested."
+    },
+    {
+      "path": "aiur/meta/20260822T194500Z-paused-agents-hold-slots-with-no-working-remedy.md",
+      "lines": "17,68-70",
+      "sha256": "3458469163d7c1849914344e235260fed0b2fdde635736202b5ad09cd24a6f65",
+      "assessment": "Reports 36 non-draft PRs, zero approved, 26 review-required and ten changes-requested."
+    },
+    {
+      "path": "aiur/meta/20260822T204500Z-slot-leak-doubled-and-forced-a-restart.md",
+      "lines": "16,64-66",
+      "sha256": "c6afd63f0f6d8293e47951338416bd75ae777cdd3fdf0e2bb4ad31620b9a0971",
+      "assessment": "Reports 40 non-draft PRs, zero approved, 28 review-required and twelve changes-requested."
+    },
+    {
+      "path": "aiur/meta/20260822T223000Z-i-am-the-uncontrolled-load.md",
+      "lines": "15,19-28",
+      "sha256": "e3e73078049e270b3ce2b81bf00f583c8ae80c0d1e3d6836c07da856267385c0",
+      "assessment": "Reports 37 non-draft PRs and eight background reviewers running tests concurrently, outside the fleet load governor. This contradicts a universally serial, sole-reviewer account."
+    },
+    {
+      "path": "aiur/meta/20260823T083000Z-review-is-the-ceiling-and-the-gate-fix-holds.md",
+      "lines": "16",
+      "sha256": "7d36fb76a31225403e911d3b073dae9e8e4ffe90f45eaf9e40399ef960377311",
+      "assessment": "Reports fourteen green+mergeable PRs in a 36-PR non-draft queue; not an independently reconstructed check history."
+    },
+    {
+      "path": "aiur/meta/20260823T112500Z-i-was-wrong-about-what-froze-the-merges.md",
+      "lines": "18,21-40",
+      "sha256": "ffe06b5724774cc63e8638d0fa569dd24ae68fef1cbc1171b9b82953284bbc09",
+      "assessment": "Lists nine specific PRs with fails=0 and pend=0 but REVIEW_REQUIRED; retracts the earlier claim that red main alone froze merges. Its three-hour duration remains the author's report."
+    }
+  ],
+  "backlog_limits": "Contemporaneous reported snapshots, not a fresh API census or independent population reconstruction. Verified reported sequence is 32 -> 36 -> 40 -> 37. The ten-PR starting anchor remains unreproduced; counts mix review-required and changes-requested, not forty unreviewed or ready PRs.",
+  "historical_skill": {
+    "path": ".claude/skills/aiur-run/SKILL.md",
+    "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+    "lines": "473-487",
+    "sha256": "cb4f8656ba216c1aeb2a3c4fb9bc22a0ff4849145b5366609a28aec96616a8f6",
+    "assessment": "The skill reports seventeen reworked-but-unreviewed PRs, sixteen with zero failing checks and oldest nearly a day. The same passage explicitly calls ticket.*.branch.push the rework signal and reports an undrained inbox. It supports a recorded consumption failure, not absence of a push wake. The seventeen-PR population was not independently reconstructed."
+  },
+  "replacement_comparisons": [
+    {
+      "earlier_pr": 2644,
+      "earlier_head": "f94102909b9dc747e846b6eb375a166720a7d646",
+      "later_pr": 2685,
+      "later_merge": "315353d920c68be3804bc417f39a0b03c2074a7d",
+      "diffs": [
+        {
+          "base": "f94102909b9dc747e846b6eb375a166720a7d646^2",
+          "head": "f94102909b9dc747e846b6eb375a166720a7d646",
+          "paths": [
+            "src/lib/aiur/provider_meter_probe.ex"
+          ],
+          "diff_sha256": "2cb086e48ac4706d23a8bea16fc3ec55fc0d36c561c3022dcf7f367ad2bedbcd"
+        },
+        {
+          "base": "315353d920c68be3804bc417f39a0b03c2074a7d^",
+          "head": "315353d920c68be3804bc417f39a0b03c2074a7d",
+          "paths": [
+            "src/lib/aiur/provider_meter_probe.ex"
+          ],
+          "diff_sha256": "5ef57295d990e9dbeb17c938335ab84ba2580d106493da78710f611c9b3dfeb6"
+        }
+      ],
+      "assessment": "Both expand the configured probe workspace before mkdir and session creation, addressing overlapping home-relative/relative-path behavior. Earlier PR2644 expands the root before joining, adds a workspace_root override and diagnostic/error mapping; later merged PR2685 expands the joined path with a one-line production change. These are overlapping fixes, not identical patches or complete behavioral equivalence."
+    },
+    {
+      "earlier_pr": 2669,
+      "earlier_head": "71e2bdbce844c077aa0fce77c7bd5a623e247ba9",
+      "later_pr": 2701,
+      "later_merge": "462460704e26f094f5095c55577930457aa6608a",
+      "diffs": [
+        {
+          "base": "71e2bdbce844c077aa0fce77c7bd5a623e247ba9^2",
+          "head": "71e2bdbce844c077aa0fce77c7bd5a623e247ba9",
+          "paths": [
+            "src/lib/aiur/workspace/provisioner.ex",
+            "src/lib/aiur/workspace/refresh.ex"
+          ],
+          "diff_sha256": "6faa5be109505c48049968a98c6de6d4e2d7fe8170ac5e18ced83e859b2d115d"
+        },
+        {
+          "base": "462460704e26f094f5095c55577930457aa6608a^",
+          "head": "462460704e26f094f5095c55577930457aa6608a",
+          "paths": [
+            "src/lib/aiur/workspace/provisioner.ex",
+            "src/lib/aiur/workspace/refresh.ex"
+          ],
+          "diff_sha256": "c7858217b36d65b2cfcfa21b1410998f173ee8ba2b7adf4bd74bee82a53637f9"
+        }
+      ],
+      "assessment": "Both reinstall missing GitHub support around workspace refresh/reconstruction. Earlier PR2669 repairs the guard during ready-workspace finalization and staged reconstruction, including a remote repair function. Later PR2701 reinstalls the complete support set after reconstruction/recreation and adds missing-piece checks, quota-directory provisioning, dispatch and per-turn guards, and queue restoration on refused turns. The problem overlaps but the later acceptance surface is broader and differently placed; treating it as identical repeated work overstates the evidence."
+    }
+  ],
+  "verification_limits": [
+    "Source/diff inspection only; no production tests or live system executed.",
+    "No counterfactual proof that merging an earlier PR would have prevented every later failure.",
+    "No measurement of avoidable effort, conflict population or savings."
+  ]
+}

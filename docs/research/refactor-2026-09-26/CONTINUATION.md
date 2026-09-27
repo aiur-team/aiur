@@ -986,3 +986,23 @@ execution of the census produced identical JSON. No runtime operations.
 Next: finish actor/conflict/green-check evidence and earlier backlog samples,
 compare replacement-fix semantics, then close both meta-10 lenses with bounded
 claims. Coverage remains 51/60 and 25/32; all broader goal work remains active.
+
+## Meta-10 bounded verdict checkpoint
+
+Completed both lenses with a rejection of the compound claim as written:
+repeated integrations and reported review backlogs are supported, but universal
+serial review, missing push wakes and a measured wasted-effort fraction are not.
+Eight concurrent reviewers are recorded. Earlier/later probe fixes overlap;
+the later GitHub-support fix also adds dispatch/per-turn and queue-restoration
+checks beyond the earlier refresh repair. See review-backlog-and-replacements.json.
+
+Corrected Rank 3, the mechanisms table and timeline. Historical counts remain
+reported snapshots; the ten-PR starting anchor, complete integration/actor/
+conflict population and five-green-PR invalidation remain explicit unresolved
+questions. The skill's seventeen-PR episode itself identifies existing push
+signals ignored by the Executor. No new wake mechanism is justified by absence.
+
+Claim lens coverage is 52/60; review units remain 25/32. Next claim work:
+codebase-07, gaps-01/03/04/05/06/07 and meta-07. Remaining review, duplication,
+feature challenges, skeptic pass, final synthesis and CE planning still pending.
+No runtime changes or production test claims.

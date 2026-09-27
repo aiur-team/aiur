@@ -1,0 +1,28 @@
+{
+  "verdicts": [
+    {
+      "id": "meta-10",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for Git integration structure, cached merge-gap arithmetic and source counterexamples; moderate for contemporaneous self-reported queues; unresolved for effort and actor population",
+      "corrected_claim": "Repeated review backlogs and base integration are supported, but neither universal serial review nor most effort wasted is established. Twenty-one receipts resolve to distinct merges; seven selected PR receipt histories contain 38 distinct main-integration commits. The cached interval between PR2677 and PR2681 merges is 12h45m09s, not measured reviewer idle time. Four cited PRs have approval history and remain unmerged in the extract, without proof of continuing current-head readiness. Two later merged fixes overlap earlier unmerged fixes, with materially different scopes. August records report 32, 36, 40 and then 37 non-draft PRs with zero approved; a skill records seventeen reworked PRs awaiting review. Eight concurrent reviewers and existing branch-push wake contracts contradict the blanket serial-reviewer and no-push-wake explanations.",
+      "method": "Sequential reproduction and interpretation checks using cached public PR/review records, frozen first-parent history, source-hashed historical records, bounded receipt-to-Git census and read-only comparisons of earlier PR heads with later squash-merge diffs.",
+      "note": "Retain explicit review ownership, durable wake consumption, bounded review/test concurrency, current-head evidence and integration scheduling as design requirements. A merge queue is a candidate design, not a measured saving or a sufficient fix for authority, CI failures and consumption gaps. Existing push detection should be traced and repaired where needed rather than duplicated.",
+      "unresolved": [
+        "Complete 12-PR/27-hour event census and exact 40/36 actor counts",
+        "Historical one-conflict population and avoidable-effort fraction",
+        "Whether all five PRs were current-head green and invalidated specifically by PR2677; five subsequent integrations alone do not prove this",
+        "Independent earlier ten-PR starting sample and seventeen-PR history",
+        "Per-PR reasons for not merging and current-head eligibility",
+        "Historical wake delivery/consumption beyond the reported episodes"
+      ],
+      "evidence_artifacts": [
+        "synthesis/merge-review-evidence.json",
+        "synthesis/integration-records.json",
+        "synthesis/review-backlog-and-replacements.json"
+      ],
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher; unsupported subclaims retained as unresolved, not measured findings"
+    }
+  ]
+}

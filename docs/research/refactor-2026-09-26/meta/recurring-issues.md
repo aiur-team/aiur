@@ -41,12 +41,12 @@ Ranked by stated cost (hours stalled, tickets stranded) first, then by recurrenc
 |---|---|---|---|---|---|---|
 | 1 | Tickets strand silently in the daemon's state machine (dispatch, labels, size caps, ci-wait) | ~150 | 08-02 → 09-26 | all 5 + private | fleet 15→1 overnight; 13 agents stalled ~15 h; dispatch frozen 5 h and 9–12 h by silent size caps; ≥10 non-dispatch reproductions on 09-26 | **No.** ≥12 fixes, recurred after most |
 | 2 | Human and authority gates hold agents for hours to weeks | ~110 | 08-03 → 09-26 | 5 | 4 workers × ~17 h (~68 worker-hours) on one permission question; green PRs waiting 15–16 days; rebuild request unanswered ≥23 h | **No.** Authority-floor fixes did not change the floor |
-| 3 | The Executor is the only reviewer and merger, and review is serial | ~60 | 08-08 → 09-26 | aiur, archon, khala | 17 reworked PRs unreviewed up to a day; queue grew to 40 with 0 approved; 12.75 h with no merge; 4 approved PRs abandoned | **No.** Skill rules added twice; recurred |
+| 3 | Review ownership, consumption gaps and repeated base integration | ~60 | 08-08 → 09-26 | aiur, archon, khala | 17 reworked PRs unreviewed up to a day; reported queue reached 40 with 0 approved; 12h45m09s between merges; 4 PRs with approval history unmerged | **No.** Skill rules added twice; recurred |
 | 4 | The Executor's discovery path is not running (durable wake inbox not consumed; monitors lapse) | ~60 | 08-18 → 09-25 | aiur, archon, khala, arch-docs + private | cursor stuck 5 days, then frozen 11 days, then idle 13.5 days; 1,529 wakes never consumed; 13.6 h stall when monitors expired | **No.** Skill rule (#2412) and code fix (#2481) both followed by recurrences |
 | 5 | Rework is not re-dispatched after a request-changes review | ~48 | 08-05 → 09-26 | aiur, archon, khala | 12 of 12 green PRs in a rework loop; 19+ manual relabels in khala, 5 after the latest fix | **No.** ≥10 fix attempts, #1427 → #2817 |
 | 6 | The Executor and the fleet stop together (provider quota, session death, host continuity) | ~58 | 08-10 → 09-26 | aiur, archon, khala, arch-docs | 2 h 33 m, 3.6 h, ~4 h 06 m, ~8.5 h, part of 13.6 h; 16 of 20 slots held after a limit | Partly: Codex limit auto-paused in 7 min on 09-25; Claude limits still needed hand-resumes 09-26 |
 | 7 | Merged fixes do not run until someone rebuilds and restarts | ~100 (with restart friction) | 08-09 → 09-26 | aiur, archon, khala, arch-docs | "a day of merged work had never run"; reported multi-hour activation gaps; exact endpoints and repeated-bug count under audit | **Partial evidence.** Standard inspected status paths lack that comparison; other version notices exist |
-| 8 | CI instability, red main and a serial merge train | ~110 | 08-05 → 09-26 | aiur, archon, khala | red main froze the merge train (08-23); ~40 re-integrations of 12 PRs in 27 h; 17 red CI runs, 12 of them old flakes | **No.** Flake fixes chain from #1591 to #2740 |
+| 8 | CI instability, red main and a serial merge train | ~110 | 08-05 → 09-26 | aiur, archon, khala | red-main freeze attribution was later retracted for nine green PRs (08-23); 38 distinct integrations in seven selected PR histories (full population unresolved); 17 red CI runs, 12 of them old flakes | **No.** Flake fixes chain from #1591 to #2740 |
 | 9 | Status surfaces lie and alerts are mostly noise | ~115 | 08-02 → 09-26 | all 5 | 68–73 % of two wake inboxes was capacity noise; 275 wakes / 3 actions in one run; stalls hidden behind "healthy" | Partly: #2592/#2622 removed one noise source |
 | 10 | The Executor's own loop omits required steps (hourly check as loop, self-poll prompt, retros lapse) | ~48 | 08-09 → 09-26 | all 5 | 9 days with no hourly retro; hourly check was the real loop for days; a CI waiter that never fired | **No.** Rule written 07-13, restated 08-23 and 09-26 |
 
@@ -166,11 +166,13 @@ not to re-prompt, and waiting agents send reminders that bury the one open quest
     Read. New dashboard actions dismissed10/50 requests and deferred11, without granting
     access" (`khala/meta/retros/khala-first-collaboration-20260916.md`)
 
-### Rank 3 — A1. The Executor is the only reviewer and merger, and review is serial
+### Rank 3 — A1. Review ownership, consumption gaps and repeated base integration
 
-**Definition.** Finished PRs wait because one Executor reviews and merges everything, treats
-review as a single pass, misses rework pushes, and re-integrates every open PR each time main
-moves. Approved PRs are abandoned when the session ends.
+**Definition.** Recorded backlogs include missed re-review and repeated base integration.
+The Executor retains review/merge responsibility, but delegated review can run in parallel
+(eight reviewers are recorded on August 22). Approval history does not prove continuing
+current-head readiness or explain why an unmerged PR was left open. See the meta-10 verdict
+and its evidence artifacts; universal serialization and wasted-effort fractions are unproved.
 
 - **Citations:** ~60 (review backlog ~52, plus re-integration waves and abandoned PRs).
   **First seen** 2026-08-08 (`aiur/meta/2026-08-08T2200Z-bottleneck.md`, 19 open PRs).
@@ -188,7 +190,8 @@ moves. Approved PRs are abandoned when the session ends.
   - 08-17/18: 5 PRs "Unreviewed all run" (~22 h).
   - 08-20: 17 PRs reworked but unreviewed, 16 with no failing check, the oldest nearly a day,
     one of them the fix for a bug that was erroring tickets (recorded in the `aiur-run` skill).
-  - 08-22: queue 10 → 40 non-draft PRs with 0 approved. At 15:30Z review "starved the fleet":
+  - 08-22: reported snapshots show 32 → 36 → 40 → 37 non-draft PRs with 0 approved;
+    the earlier ten-PR anchor remains unreproduced. At 15:30Z review "starved the fleet":
     `agent:todo` empty, 18 tickets in `human-review`, 1 agent working. 11 reworked PRs unseen
     for up to ~5 h.
   - 08-23: merges flat at 51 for ~3 h with 9 green PRs waiting; 14 green PRs "sitting because
@@ -196,10 +199,11 @@ moves. Approved PRs are abandoned when the session ends.
   - 09-10: a delegated reviewer silent 85 min before anyone checked.
   - 09-11: 7 green PRs blocked on REVIEW_REQUIRED because the Executor's CI waiter filtered for
     a check named "ci", which does not exist; 15 more unreviewed an hour later.
-  - 09-16/17: ~40 re-integrations of 12 PRs in 27 h (36 by the Executor, only 1 real
-    conflict; event census still unverified); 12 h 45 m 09 s between cached merge timestamps; 4 PRs with recorded approvals remained unmerged in the cache (#2643, #2669, #2673
-    still open in the research extract; #2644 closed unmerged; current-head readiness unverified), and 2 of those bugs were reportedly fixed a second time under new
-    numbers (#2684/#2685, #2697/#2701).
+  - 09-16/17: 21 structured receipts across seven PRs resolve to merges; their selected
+    histories contain 38 distinct main integrations. The original 12-PR/27-hour population,
+    36 Executor actions and single-conflict count remain unverified; 12 h 45 m 09 s between cached merge timestamps; 4 PRs with recorded approvals remained unmerged in the cache (#2643, #2669, #2673
+    still open in the research extract; #2644 closed unmerged; current-head readiness unverified), and two later fixes overlap earlier unmerged work
+    (#2684/#2685, #2697/#2701), with different scopes rather than identical implementations.
   - 09-18: rework on #68, #70, #72 missed because the rework watcher covered only earlier PRs;
     #117–#119 ready ~19 h.
 - **Fixes claimed and recurrence:** #2337 (re-review on rework push, filed 08-22); #2344 (skill:
@@ -349,7 +353,9 @@ separately. See the [deployment checkpoint](../synthesis/deployment-verification
 ### Rank 8 — D2. CI instability, red main and a serial merge train
 
 **Definition.** Flaky tests, environment breaks and semantic conflicts turn main red or eject
-PRs. Each merge forces every other open PR to re-integrate and re-run CI, so merging is serial.
+PRs. Historical waves repeatedly integrate accepted main into open branches and require
+fresh-head CI. The evidence does not establish that every merge requires every open PR
+to be updated, or that all review work is serial; meta-10 preserves that distinction.
 
 - **Citations:** ~110. **First seen** 2026-08-05. **Last seen** 2026-09-26 (khala #399 × #406
   semantic conflict turned main red).
@@ -589,8 +595,10 @@ release interfere across runs; agents and git operations also damage operator fi
 - **Definition:** the Executor implements, re-integrates or re-proves work itself, or runs
   background agents outside the load governor, while the fleet waits.
 - **Citations:** ~77 (self-inflicted problems). **Span:** 2026-08-02 → 2026-09-26.
-- **Evidence:** ~36 re-integrations and ~120 mutation re-runs by the Executor, with 7 Executor
-  commits on agent PRs (09-16/17); the Executor implemented #2680–#2687 while no fleet worker
+- **Evidence:** repeated integrations are supported by the meta-10 Git census, but the
+  claimed 36 Executor integrations, 120 mutation reruns and seven Executor commits remain
+  unverified. Several PR bodies expressly retain historical proof scope without rerunning
+  mutations, so integration counts cannot establish mutation-run counts (09-16/17); the Executor implemented #2680–#2687 while no fleet worker
   ran for ~18.7 h (09-17) until the user said "many independent defects may use native Aiur
   agents"; khala switched to the Executor's own agents while the fleet was globally paused
   (09-17); a subagent lifetime ceiling (200/200) serialized review (08-23); ≥17 hand merges and
@@ -704,9 +712,10 @@ consuming events, or nobody is running.
    counting the operator's choice and the retro gap) are longer than 5 hours. The records state no-progress windows of 12.75 h, 13.6 h, 19.6 h and several days.
 2. **Pull requests are where the Executor's attention fails first.** The operator's picture is
    correct in one precise way: *re-review after rework* is the step that is lost. First reviews
-   happen; the `ticket.branch.push` that means "rework is ready" does not wake anyone, and review
-   is treated as one pass (rows 9, 13, 17, 18, 20, 40, 48). The Executor says so itself: "every
-   rework waits on me noticing" (`aiur/meta/20260823T132000Z`).
+   happen, while recorded rework notifications can go unconsumed (rows 9, 13, 17, 18,
+   20, 40, 48). Frozen defaults already bind ticket.*.branch.push, and the historical
+   skill describes ignored signals. Absence of a wake mechanism is not established. The
+   Executor describes the consumption gap: "every rework waits on me noticing" (`aiur/meta/20260823T132000Z`).
 3. **The Executor attends to one thing while others starve.** A research spike (row 3), CI
    watching instead of the hourly check (row 10), diagnosing Aiur defects, re-integrating and
    re-proving PRs by hand (row 36), implementing tickets itself (row 36), and mail with a peer
@@ -749,7 +758,7 @@ consuming events, or nobody is running.
 | Mechanism | What happens | Evidence (count of gap rows) | What would remove it |
 |---|---|---|---|
 | Discovery depends on the session | Tail and Monitor die with the session or after 30 min; the durable cursor is not consumed; noise buries the backlog | 11 rows; 8 inbox episodes | a daemon-owned loop that wakes the Executor and escalates an unconsumed backlog |
-| One serial reviewer with a one-pass habit | Rework pushes are not a wake; re-integration of every PR on every merge | 5 rows; queue peaks of 19–40 PRs (08-08, 08-09, 08-22) | re-review wakes from rework pushes; parallel scoped re-review; merge queue |
+| Review ownership and consumption gaps | Existing push wakes can go unconsumed; repeated base integrations are recorded; review also runs concurrently | Historical queue reports and bounded meta-10 Git census; causal effort fraction unresolved | Trace existing wake consumption, bound reviewer/test concurrency and evaluate integration scheduling |
 | Executor absence is invisible | Quota, crash, host, rotation, pause | 8 rows | a heartbeat on the Executor with a successor or an alert |
 | Self-authored loops omit obligations | E09 reports a missing retro step and a compaction cut; other records describe narrow waiters/watchers | e09 retro; rows 33, 38, 40 | Assign cadence ownership and check invocation of the existing coded arm/due/record helper; choose enforcement placement explicitly |
 | Attention capture by deep work | Spikes, diagnosing Aiur defects, doing agent work, peer mail | 6 rows | move toil to the daemon; a work-in-progress limit for the Executor |

@@ -1,6 +1,6 @@
 {
   "claim": "meta-10",
-  "status": "partial_verification",
+  "status": "bounded_verdict_complete_with_unresolved_subclaims",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "cache_sources": [
     {
@@ -137,7 +137,6 @@
     "Re-integration event census and actor attribution",
     "One-conflict claim versus actual conflict resolutions",
     "Five-green-PR invalidation from PR2677",
-    "Semantic equivalence of earlier and replacement fixes",
     "Historical rework-push delivery and consumption",
     "Earlier backlog count samples and causal serialization claim"
   ],
@@ -159,5 +158,7 @@
     "receipt_discrepancy": "PR2644 main3eb receipt prior_head c1fdadb differs from actual first parent 29646bb. The reported prior remains an ancestor; do not silently relabel it as the immediate pre-merge head.",
     "footprint_check": "All reported unchanged booleans agree with Git comparison. Only the reported PR2643 CLI documentation footprint changes during the 33fa wave. Supplied footprint completeness is not independently proved.",
     "test_limits": "Historical test counts remain receipt reports. PR bodies explicitly preserve original mutation witness scopes and in several integrations disclaim rerunning them; integrations cannot be counted as fresh mutation-proof executions."
-  }
+  },
+  "followup_artifact": "review-backlog-and-replacements.json",
+  "replacement_assessment": "Source comparison confirms overlapping problems with materially different implementation scope; see followup_artifact."
 }
