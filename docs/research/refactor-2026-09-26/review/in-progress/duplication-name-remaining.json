@@ -4,77 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "64296038383a8799a71b492de31403e7fe0fdc8ef7cb150ecbe5b3ea6cfdfb93"
+    "name_triage": "03f2c9661e5279fe01f40b647d47a04fe7691a97a1343cb7664afe9cb6dbcf0c"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 667,
-    "remaining_cross_module_names": 1013,
-    "remaining_literal_entries": 3118
+    "reviewed_cross_module_names": 677,
+    "remaining_cross_module_names": 1003,
+    "remaining_literal_entries": 3090
   },
   "families": [
-    {
-      "name": "authenticate",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 28
-    },
-    {
-      "name": "authority",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "authority_epoch",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "authorized?",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "availability",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "await_ready",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "await_response",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "back_path",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "backend",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "backend_config",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
     {
       "name": "base_branch",
       "clauses": 11,

@@ -96269,10 +96269,496 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "authenticate",
+      "assessment": "Telemetry ingestion validation and supervisor HTTP actor assignment have different contracts.",
+      "constraints": [
+        "Telemetry Receiver accepts only POST /v1/logs, validates content type/length and a single authorization header, and preserves already_counted on authorization errors.",
+        "SupervisorAuth parses and compares the presented token, assigning decision_actor on success and returning distinct unauthorized bodies for missing versus invalid tokens.",
+        "Preserve transport validation, error-accounting ownership and actor assignment; this read does not certify token comparison or full authentication middleware behavior."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 36,
+          "module": "Aiur.Claude.Telemetry.Receiver",
+          "name": "authenticate",
+          "path": "src/lib/aiur/claude/telemetry/receiver.ex",
+          "kind": "defp",
+          "end_line": 49,
+          "body_sha256": "1b435af2bbe6fbb7e27a9f04de8287405f56d457509932ef18b5e83420a6bf36",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 51,
+          "module": "Aiur.Claude.Telemetry.Receiver",
+          "name": "authenticate",
+          "path": "src/lib/aiur/claude/telemetry/receiver.ex",
+          "kind": "defp",
+          "end_line": 51,
+          "body_sha256": "705ac331472fbd37cf79d55325572f2ca98e701d66c6a27141a8ecf84d96b471",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 40,
+          "module": "AiurWeb.SupervisorAuth",
+          "name": "authenticate",
+          "path": "src/lib/aiur_web/supervisor_auth.ex",
+          "kind": "defp",
+          "end_line": 52,
+          "body_sha256": "b92000ffaaba645e7e8d317aea8ad76980c1d5660e2ffc509359cdc8ba57bea6",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "authority",
+      "assessment": "Configured graph authority and usage provenance metadata are distinct.",
+      "constraints": [
+        "GitHubGraph.Settings verifies configured repository, limits and requested options before returning the authorized configuration tuple.",
+        "GroupedScopes constructs metadata containing schema version, aggregate/source generations, source position and price table revision.",
+        "Do not interpret provenance metadata construction as permission validation; helper validation and provenance completeness remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 40,
+          "module": "Aiur.BuildOrder.GitHubGraph.Settings",
+          "name": "authority",
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "kind": "def",
+          "end_line": 46,
+          "body_sha256": "023ec5f0598d685276dbea3715123ebe08f75489dffb87f182cecdb5b12e2bff",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 498,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "authority",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "def",
+          "end_line": 506,
+          "body_sha256": "c5ca4709207218236a26dcf19ef498baf11d3fb22df8ee6c9e144e9c5a1d77ff",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "authority_epoch",
+      "assessment": "Two web scopes extract the same selected graph snapshot epoch.",
+      "constraints": [
+        "AnalyticsScope and UsageScope match the selected snapshot and return its authority_epoch, otherwise unknown.",
+        "Verified both Snapshot aliases resolve to GraphProjection.Snapshot and both RouteState aliases to the same module.",
+        "This is a concrete shared extraction candidate; a returned field is not independently proof of current authority or snapshot freshness."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 106,
+          "module": "AiurWeb.BuildOrder.AnalyticsScope",
+          "name": "authority_epoch",
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "kind": "defp",
+          "end_line": 111,
+          "body_sha256": "e274d9f5802d40f603915bc29ba4d439347531ac86784cccb3b6cb7b593f73c0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 114,
+          "module": "AiurWeb.BuildOrder.UsageScope",
+          "name": "authority_epoch",
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "kind": "defp",
+          "end_line": 119,
+          "body_sha256": "e274d9f5802d40f603915bc29ba4d439347531ac86784cccb3b6cb7b593f73c0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "authorized?",
+      "assessment": "Opaque account authority matching differs from capability-state display classification.",
+      "constraints": [
+        "ProviderAccountGeneration.Registry requires a reference authority equal to that stored for the provider/backend/binding entry.",
+        "DashboardLive accepts a capability map only when state is authorized.",
+        "Keep reference-based identity checks distinct from reading a previously classified capability; upstream capability authenticity is not established by the UI predicate."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 80,
+          "module": "Aiur.ProviderAccountGeneration.Registry",
+          "name": "authorized?",
+          "path": "src/lib/aiur/provider_account_generation/registry.ex",
+          "kind": "def",
+          "end_line": 85,
+          "body_sha256": "59df80f9ee246a993024e2f3aedd85bd2f5bcd81f36ca5170edb39e1fffb654e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1771,
+          "module": "AiurWeb.DashboardLive",
+          "name": "authorized?",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1771,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1772,
+          "module": "AiurWeb.DashboardLive",
+          "name": "authorized?",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1772,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "availability",
+      "assessment": "Graph diagnostic precedence differs from boolean availability conversion.",
+      "constraints": [
+        "SelectedRoot prioritizes structurally_invalid health, then returns nil for observed structural diagnostics, then for usable/nondegraded health, otherwise provider_stale or provider_unavailable.",
+        "Read structural/provider diagnostic helpers: non-provider-sourced diagnostics count as structural and provider-sourced diagnostics mark degradation.",
+        "UnitsPresentation maps true/false directly to available/unavailable. Preserve diagnostic precedence; nil in SelectedRoot is not a general assertion that the graph is valid or healthy."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 63,
+          "module": "Aiur.BuildOrder.SelectedRoot",
+          "name": "availability",
+          "path": "src/lib/aiur/build_order/selected_root.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 65,
+          "module": "Aiur.BuildOrder.SelectedRoot",
+          "name": "availability",
+          "path": "src/lib/aiur/build_order/selected_root.ex",
+          "kind": "def",
+          "end_line": 80,
+          "body_sha256": "56e92e5c46471dc2957cdd6aaefd6e3dbbfe4fb0382ecb22635ac64f122166ec",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 82,
+          "module": "Aiur.BuildOrder.SelectedRoot",
+          "name": "availability",
+          "path": "src/lib/aiur/build_order/selected_root.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "bd7a3f382093c21792772e11446a4902fe958dfed7c08b5a10eec471411ab35a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 179,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "availability",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "defp",
+          "end_line": 179,
+          "body_sha256": "a504cf2bf649ba99113d5e6ac5311ca8861ad0523dd91d03652c186c13a70e22",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 180,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "availability",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "defp",
+          "end_line": 180,
+          "body_sha256": "586b98f048e679a7158398a2db393f35d783902b99a8dc19edd4229efba40f14",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "await_ready",
+      "assessment": "Pane prompt observation and a server readiness call are different protocols.",
+      "constraints": [
+        "Claude Repl Launcher computes a monotonic deadline; the read helper captures the pane and searches for its ready-prompt substring, retrying absent prompts and capture errors.",
+        "Opencode.Server uses GenServer.call with a default 30000 millisecond caller timeout.",
+        "Preserve readiness evidence and timeout ownership; retry behavior, prompt precision and server readiness implementation are not certified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 318,
+          "module": "Aiur.Claude.Repl.Launcher",
+          "name": "await_ready",
+          "path": "src/lib/aiur/claude/repl/launcher.ex",
+          "kind": "defp",
+          "end_line": 321,
+          "body_sha256": "e2b436b7b2b71023674bf881e40b3b4cdaee615a75fae5899746f9c87400a834",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 17,
+          "module": "Aiur.Opencode.Server",
+          "name": "await_ready",
+          "path": "src/lib/aiur/opencode/server.ex",
+          "kind": "def",
+          "end_line": 17,
+          "body_sha256": "9f2a540182d8104812072d56814fd9e1605a1a66d0381a4088c5227a2d8df5b9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "await_response",
+      "assessment": "Provider wrappers already use the shared AppServer RPC layer with different options.",
+      "constraints": [
+        "Claude CodingAgent uses configured agent-read timeout and the Claude label.",
+        "Codex Rpc accepts an explicit timeout, notification callback defaulting to ignore and sensitive_response? defaulting to false, passing these to AppServerRpc.",
+        "Verified both aliases resolve to Aiur.AppServer.Rpc. Retain provider notification and sensitive-response policy; sharing wrappers must not erase those options."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 439,
+          "module": "Aiur.Claude.CodingAgent",
+          "name": "await_response",
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "kind": "defp",
+          "end_line": 441,
+          "body_sha256": "cb1b984eb032553b5a833dcf9e13921d25540b29bc0305fa224098eb5a261f0c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 20,
+          "module": "Aiur.Codex.Rpc",
+          "name": "await_response",
+          "path": "src/lib/aiur/codex/rpc.ex",
+          "kind": "def",
+          "end_line": 24,
+          "body_sha256": "948ba3d2b324f7320783a01f924c0e58eb0569763aeda76c756e475be7c25f40",
+          "normalized_body_lines": 19,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "back_path",
+      "assessment": "Navigation helpers encode different route-state policies.",
+      "constraints": [
+        "BuildOrderLive exposes route.path only while RouteState reports selected.",
+        "GithubCacheLive returns nil for no group, a root group path for missing identity, otherwise that group's path.",
+        "Keep surface-specific navigation state; route/path helpers and link safety are not established by this comparison."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 304,
+          "module": "AiurWeb.BuildOrderLive",
+          "name": "back_path",
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "kind": "defp",
+          "end_line": 304,
+          "body_sha256": "07e1d68c62d19b975c2e924a66ba8fa5aec7a9195cf5ec7c140f4fe9e4669a0c",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1672,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "back_path",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1672,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1673,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "back_path",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1673,
+          "body_sha256": "9bfd68cabf38b88c7d411452fc5f484d25e247daee5f7f675bfac5dbdd237e22",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1674,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "back_path",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1674,
+          "body_sha256": "0e83152833d31e001f9ec9bb1e8fa4338d2f22301e424051f29902a2ce5f7a4c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "backend",
+      "assessment": "Provider meter backend selection and ledger storage selection are different domains.",
+      "constraints": [
+        "ProviderMeterProjection defaults its zero-arity call to app_server and delegates provider-specific lookup to CodingAgent.",
+        "UsageLedger reads its persistent-term backend when the named process exists, otherwise uses configured_backend.",
+        "Preserve provider versus storage vocabulary and runtime fallback behavior; process registration alone does not prove persistent-term readiness or backend health."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 424,
+          "module": "Aiur.ProviderMeterProjection",
+          "name": "backend",
+          "path": "src/lib/aiur/provider_meter_projection.ex",
+          "kind": "def",
+          "end_line": 424,
+          "body_sha256": "c7529598a74cfe6ca6cdffd6c42c382f3d42b93b291d896ec1c4c57eba1108d1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 428,
+          "module": "Aiur.ProviderMeterProjection",
+          "name": "backend",
+          "path": "src/lib/aiur/provider_meter_projection.ex",
+          "kind": "def",
+          "end_line": 428,
+          "body_sha256": "ab49fa7a80b6a13a6f1268e9eaf3e323c3fb033724c2da02de2c8a7277aa4824",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 105,
+          "module": "Aiur.UsageLedger",
+          "name": "backend",
+          "path": "src/lib/aiur/usage_ledger.ex",
+          "kind": "defp",
+          "end_line": 109,
+          "body_sha256": "fe99bfc3b2f2c52542f5ba7b2a86a75ac368d5dcfddfc0c8b27e688910a4d696",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "backend_config",
+      "assessment": "Global backend map lookup differs from compatibility-layer override validation.",
+      "constraints": [
+        "Config looks up a binary backend in agent_backend_configs and defaults missing entries to an empty map.",
+        "OpenAICompat.Config atomizes an explicit map override, fetches backend config when absent and rejects other override shapes.",
+        "Preserve map versus tagged-result contracts and override precedence; atomization safety and fetched config validation remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 347,
+          "module": "Aiur.Config",
+          "name": "backend_config",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 350,
+          "body_sha256": "54945c5f66ad6494fd8368cb418dcf7bb6906dd1e2583aa54a1924c836a10a36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 44,
+          "module": "Aiur.OpenAICompat.Config",
+          "name": "backend_config",
+          "path": "src/lib/aiur/open_ai_compat/config.ex",
+          "kind": "defp",
+          "end_line": 55,
+          "body_sha256": "6f15fd2094cff0e9c573135d8c0a3e780149f62e0e081d0fc527b3d6eb966587",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7150,
-  "limits": "667 selected families and 7150 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7178,
+  "limits": "677 selected families and 7178 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
