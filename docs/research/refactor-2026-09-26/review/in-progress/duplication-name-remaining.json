@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "935f63b424f672340d9adfb7c2376ca67f7872573bacb4524a206e61199b7889"
+    "name_triage": "a5fb1634b6f7e68c9edbe29b674ea8dd1d98e1e11e25047229cba10a7e98a711"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 845,
-    "remaining_cross_module_names": 835,
-    "remaining_literal_entries": 2587
+    "reviewed_cross_module_names": 853,
+    "remaining_cross_module_names": 827,
+    "remaining_literal_entries": 2561
   },
   "families": [
-    {
-      "name": "do_publish",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "do_refresh",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 69
-    },
-    {
-      "name": "do_run",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 52
-    },
-    {
-      "name": "do_start_session",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 66
-    },
-    {
-      "name": "draft_body",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "drill_down",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 37
-    },
-    {
-      "name": "drop_partial_prefix",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "duplicate?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
     {
       "name": "durable_decision_topic?",
       "clauses": 2,

@@ -105311,10 +105311,442 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "do_publish",
+      "assessment": "Ticker injection and canonical event publication are already layered.",
+      "constraints": [
+        "LsRemoteTicker delegates to Publisher unless supplied an arity-three publisher function.",
+        "Publisher allocates an ID, constructs observation metadata, publishes to Exchange, records the emit marker, marks the resource processed, then broadcasts debug output.",
+        "Preserve publication-before-suppression ordering and injected test seams. Subscriber count and successful return do not independently prove subscriber processing or durable delivery."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 204,
+          "module": "Aiur.Events.LsRemoteTicker",
+          "name": "do_publish",
+          "path": "src/lib/aiur/events/ls_remote_ticker.ex",
+          "kind": "defp",
+          "end_line": 206,
+          "body_sha256": "f93f71547eee2dc531a82e7fe7ef5f337c2672c48421c1539512c9aae111c1aa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 208,
+          "module": "Aiur.Events.LsRemoteTicker",
+          "name": "do_publish",
+          "path": "src/lib/aiur/events/ls_remote_ticker.ex",
+          "kind": "defp",
+          "end_line": 210,
+          "body_sha256": "81380992715b7a17483c47d6672820fe3a6d26d8d9a21a29c31801832b133c51",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 220,
+          "module": "Aiur.Events.Publisher",
+          "name": "do_publish",
+          "path": "src/lib/aiur/events/publisher.ex",
+          "kind": "defp",
+          "end_line": 234,
+          "body_sha256": "20b858c259074c4bf8396121bd2d63c1f3a37578156d5760bfc0942ceeb9988a",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "do_refresh",
+      "assessment": "Token renewal and review-author trust refresh have distinct failure policies.",
+      "constraints": [
+        "Disabled AppTokenRefresher returns state; enabled refresh handles acquisition success/failure then schedules the next attempt.",
+        "CodeOwners unions resolved file identities with normalized configured daemon, bot and trusted accounts; degraded file parsing contributes no resolved identities.",
+        "Read trust helpers: empty new allowlist falls back to normalized repository owner, or retains the previous allowlist when owner is unknown. Preserve degradation provenance and retained trust rather than treating all failures as empty membership; remote resolution completeness remains unverified."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 147,
+          "module": "Aiur.GitHub.AppTokenRefresher",
+          "name": "do_refresh",
+          "path": "src/lib/aiur/github/app_token_refresher.ex",
+          "kind": "defp",
+          "end_line": 147,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 149,
+          "module": "Aiur.GitHub.AppTokenRefresher",
+          "name": "do_refresh",
+          "path": "src/lib/aiur/github/app_token_refresher.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "e634d18f10a020627e1a6a4fb4939bc80af6c567c3cd141b69b062aa244ede55",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 181,
+          "module": "Aiur.GitHub.CodeOwners",
+          "name": "do_refresh",
+          "path": "src/lib/aiur/github/code_owners.ex",
+          "kind": "defp",
+          "end_line": 238,
+          "body_sha256": "0a11c8b1f18d5d07b045bb8e1ea183341fd8468adceabd6c20e542b3e416690c",
+          "normalized_body_lines": 64,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "do_run",
+      "assessment": "Findings command execution and bounded GitHub retry are unrelated orchestration.",
+      "constraints": [
+        "FindingsCLI dispatches JSON-object recording, open digest and diagnostic listing; listing reports unreadable entries before rendering survivors.",
+        "LocalHold retries only error results approved by retry_plan, records timeout evidence, sleeps and decrements remaining waits while incrementing retry count.",
+        "Read retry_plan: exhausted waits keep the error, budget holds use hold_plan and backoff requires retryable GitHub error classification. Total wall-clock bound and attempt side-effect idempotency are not proven here."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 16,
+          "module": "Aiur.FindingsCLI",
+          "name": "do_run",
+          "path": "src/lib/aiur/findings_cli.ex",
+          "kind": "defp",
+          "end_line": 26,
+          "body_sha256": "a953c500c4595872aa9850c32d0c7fbaf39d576aa4a730a6d6b0bf30f9a59184",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 28,
+          "module": "Aiur.FindingsCLI",
+          "name": "do_run",
+          "path": "src/lib/aiur/findings_cli.ex",
+          "kind": "defp",
+          "end_line": 37,
+          "body_sha256": "a086edbf477cbd45492cd7bcc5114c3d2ce91cbdb3a2a954075b33e0ab59f09a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 39,
+          "module": "Aiur.FindingsCLI",
+          "name": "do_run",
+          "path": "src/lib/aiur/findings_cli.ex",
+          "kind": "defp",
+          "end_line": 52,
+          "body_sha256": "01f3fd54088a8565af171bca01e1e7961a36537ed06aef94dd505924a7d72cb8",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 144,
+          "module": "Aiur.GitHub.LocalHold",
+          "name": "do_run",
+          "path": "src/lib/aiur/github/local_hold.ex",
+          "kind": "defp",
+          "end_line": 160,
+          "body_sha256": "a578f1952d74100c289451021cf0b2fa9183b647f0820bd732ee27f7444c71e6",
+          "normalized_body_lines": 20,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "do_start_session",
+      "assessment": "Protocol initialization and contained terminal process launch must stay distinct.",
+      "constraints": [
+        "Claude CodingAgent initializes the port, then starts its thread only on success.",
+        "REPL Launcher derives resume identity and command, creates a hidden pane, obtains process/group identity, notifies provider start and requires integer process-group ID before finishing.",
+        "Containment-unavailable and notification errors invoke spawned-pane cleanup. Resume validity, process identity fencing and cleanup completion depend on helpers not fully audited by this family."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 220,
+          "module": "Aiur.Claude.CodingAgent",
+          "name": "do_start_session",
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "kind": "defp",
+          "end_line": 225,
+          "body_sha256": "e43688d5aa3e10d0573401e91cd2d42307297588cea0a6fc7b1eaad5452b0ea6",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 67,
+          "module": "Aiur.Claude.Repl.Launcher",
+          "name": "do_start_session",
+          "path": "src/lib/aiur/claude/repl/launcher.ex",
+          "kind": "defp",
+          "end_line": 126,
+          "body_sha256": "2c067a63b75dd5bbbce7cd75ed8b13929d665f4a3d4a59da06e6437b87c99c1b",
+          "normalized_body_lines": 69,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "draft_body",
+      "assessment": "In-memory draft validation and pack-file loading share a byte bound but different trust boundaries.",
+      "constraints": [
+        "Member accepts binary bodies from one through 64000 bytes and otherwise nil.",
+        "PlanningSource expands the pack and document paths, checks lexical equality or directory-prefix containment, reads the file and applies the same byte bound.",
+        "Read document_inside_pack?: no symlink resolution in that helper; lexical containment is not proof of physical containment. Filesystem population and exploitability remain unverified, and full File.read precedes size rejection."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 93,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "draft_body",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 94,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "draft_body",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 808,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "draft_body",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 818,
+          "body_sha256": "08aea93a87f5e74b7ea46485123a191aed25f744a1bd9191805fb9983a9cf86b",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 820,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "draft_body",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 820,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "drill_down",
+      "assessment": "Presenter already delegates contributor pagination to GroupedScopes.",
+      "constraints": [
+        "GroupedScopes gets dimension contributors, clamps cursor with max(cursor, 0), applies bounded/default page limit, slices and reports total/continuation.",
+        "Read clamp_limit: positive integers are capped and invalid limits default. Cursor type validation is not established by max alone.",
+        "Presenter maps contributor rows and labels while preserving pagination; nonmap source yields empty pagination. Empty fallback is not evidence of a known empty contributor population."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 555,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "drill_down",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "def",
+          "end_line": 572,
+          "body_sha256": "158a394931774c44337becb9f75cfcbeb018355666964f5564d10011852c473f",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 130,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "drill_down",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "def",
+          "end_line": 130,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 132,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "drill_down",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "def",
+          "end_line": 146,
+          "body_sha256": "10756f49300e8f76dd7fe18638df92e632e43a5e6f74386a0f48ccd2b6efad2f",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 148,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "drill_down",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "def",
+          "end_line": 150,
+          "body_sha256": "3dc3d9357676c872492a4af35d16fb9c231b6c04f76bd6e64b1ee00f4247e0e2",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "drop_partial_prefix",
+      "assessment": "Both newline-tail prefix helpers match exactly.",
+      "constraints": [
+        "False preserves all contents; true removes through the first newline and returns empty when none exists.",
+        "Read both call sites: any positive byte offset triggers prefix removal, without checking whether the offset already lies at a record boundary.",
+        "Shared byte mechanics are plausible, but AlertLedger suppresses read failures to empty while DecisionMetrics retains errors and truncation metadata. No lossless tail or recovery guarantee follows from body equality."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 45,
+          "module": "Aiur.AlertLedger.Tail",
+          "name": "drop_partial_prefix",
+          "path": "src/lib/aiur/alert_ledger/tail.ex",
+          "kind": "defp",
+          "end_line": 45,
+          "body_sha256": "2cdc522cd4426421b6606ed14b682fd375b4285b95d68f7e0c8653fa1a6c603b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 47,
+          "module": "Aiur.AlertLedger.Tail",
+          "name": "drop_partial_prefix",
+          "path": "src/lib/aiur/alert_ledger/tail.ex",
+          "kind": "defp",
+          "end_line": 52,
+          "body_sha256": "03ef58be2e2be4c59fa1cdbf6726bb52e5f56c745b4713f04bb5496a3b67b174",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 121,
+          "module": "Aiur.DecisionMetrics.Log",
+          "name": "drop_partial_prefix",
+          "path": "src/lib/aiur/decision_metrics/log.ex",
+          "kind": "defp",
+          "end_line": 121,
+          "body_sha256": "2cdc522cd4426421b6606ed14b682fd375b4285b95d68f7e0c8653fa1a6c603b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 123,
+          "module": "Aiur.DecisionMetrics.Log",
+          "name": "drop_partial_prefix",
+          "path": "src/lib/aiur/decision_metrics/log.ex",
+          "kind": "defp",
+          "end_line": 128,
+          "body_sha256": "03ef58be2e2be4c59fa1cdbf6726bb52e5f56c745b4713f04bb5496a3b67b174",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "duplicate?",
+      "assessment": "Dependency identity detection and diagnostic presentation are separate stages.",
+      "constraints": [
+        "Dependencies checks native/external entries only, derives Endpoint keys, discards nil keys and compares list length with unique-key count.",
+        "BuildOrderBreakdown checks Node diagnostics for duplicate_identity without recomputing identities.",
+        "Preserve canonical identity policy versus consumption of diagnostics; equality of names does not justify moving duplicate detection into rendering. Full Endpoint semantics and diagnostic production are not certified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 106,
+          "module": "Aiur.BuildOrder.GitHubGraph.Dependencies",
+          "name": "duplicate?",
+          "path": "src/lib/aiur/build_order/github_graph/dependencies.ex",
+          "kind": "defp",
+          "end_line": 114,
+          "body_sha256": "35e24d5f9fa352b535e349f9c4eace26f0aae3c46ce1b554e1ffb839ae7eb60a",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 289,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderBreakdown",
+          "name": "duplicate?",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex",
+          "kind": "defp",
+          "end_line": 290,
+          "body_sha256": "55908ea9a7568d69cb163fed8855f81c5b209da802f1efb0b3bcd8f00a04b004",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7681,
-  "limits": "845 selected families and 7681 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7707,
+  "limits": "853 selected families and 7707 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
