@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "a81bb8d570a51eb4323c86be4bf9eadbcebecf57a9206ac157f02dc86a7a65bc"
+    "name_triage": "02fbe21a3b9c404f3fa72ff7717e730755afd5e8754e2b8dde6f0db5433c78fe"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 885,
-    "remaining_cross_module_names": 795,
-    "remaining_literal_entries": 2460
+    "reviewed_cross_module_names": 893,
+    "remaining_cross_module_names": 787,
+    "remaining_literal_entries": 2442
   },
   "families": [
-    {
-      "name": "ensure_tracker_preflight",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "ensure_utf8",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "entry_key",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "envelope_attributes",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 94
-    },
-    {
-      "name": "equal?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "error_response",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "escape_cell",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "escape_graphql_string",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
     {
       "name": "estimate",
       "clauses": 4,

@@ -107435,10 +107435,346 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "ensure_tracker_preflight",
+      "assessment": "Orchestrator already delegates tracker readiness policy to TrackerHealth.",
+      "constraints": [
+        "TrackerHealth validates configuration, invokes GitHub auth preflight only for github and returns unchanged successful state for other tracker kinds.",
+        "Configuration errors retain state in the error tuple.",
+        "Preserve tracker-specific routing and state-bearing error contract; the name does not establish authentication proof for every tracker."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 291,
+          "module": "Aiur.Orchestrator",
+          "name": "ensure_tracker_preflight",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 291,
+          "body_sha256": "f15c2508407e9a00546156896463203a284b61b0df7142250cec8b8965ac69bc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 364,
+          "module": "Aiur.Orchestrator.TrackerHealth",
+          "name": "ensure_tracker_preflight",
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "kind": "def",
+          "end_line": 375,
+          "body_sha256": "baad75ba87b4e184e0289a70ed62dd6d575d8ba39a766530009912d05c55272d",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ensure_utf8",
+      "assessment": "Both helpers preserve valid UTF8 and interpret invalid binaries as Latin1.",
+      "constraints": [
+        "PromptBuilder requires a binary and returns the Latin1-to-UTF8 conversion directly.",
+        "Events.Sanitizer additionally checks conversion result and falls back to String.replace_invalid for a nonbinary result.",
+        "Preserve conversion-versus-replacement semantics: invalid UTF8 bytes can become Latin1 characters rather than replacement glyphs. Caller input validity and downstream content fidelity remain unverified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 318,
+          "module": "Aiur.Events.Sanitizer",
+          "name": "ensure_utf8",
+          "path": "src/lib/aiur/events/sanitizer.ex",
+          "kind": "defp",
+          "end_line": 327,
+          "body_sha256": "6ab8d10db321e68ae1c9d51c7b51b15fd9fafa098e5d46f14eaf53e0188529cc",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 185,
+          "module": "Aiur.PromptBuilder",
+          "name": "ensure_utf8",
+          "path": "src/lib/aiur/prompt_builder.ex",
+          "kind": "defp",
+          "end_line": 192,
+          "body_sha256": "625012b9b8f69eb7634ada6aa12851a77e8c82430101552d2575d19747f900ab",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "entry_key",
+      "assessment": "Read-cache request identity and webhook delivery identity encode different domains.",
+      "constraints": [
+        "ReadCache hashes method/url/body Erlang serialization and pairs the digest with supplied identities.",
+        "DeliveryLog combines atom scope with nonempty binary or integer ID; invalid shapes return nil. Read bound: binary keys over 512 bytes retain a 512-byte prefix plus SHA256 suffix.",
+        "The prefix bound is not the final key length, and byte truncation is not character-aware. Preserve scoped credential/request identity versus delivery deduplication; population and collision/privacy guarantees are not established here."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 505,
+          "module": "Aiur.GitHub.ReadCache",
+          "name": "entry_key",
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "kind": "defp",
+          "end_line": 510,
+          "body_sha256": "280287f0b3030739239f738ecfe49cbc7b32b93f7e901739812641e00eb5f91c",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 157,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "entry_key",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "2021186d8eb6547004a972507cf1ce810ee830309eff32fbb3876ccc97422c40",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 158,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "entry_key",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "090565cd627ac1ba62cbce1df9e7940ffbb81c4d6ca83dd418a3c96fbde07431",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 159,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "entry_key",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 159,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "envelope_attributes",
+      "assessment": "Remote-control Claude usage and headless usage share a schema but distinct evidence authority.",
+      "constraints": [
+        "Claude telemetry fixes provider/backend/transport and delta/request measurement, computes partial coverage from missing cache counters and marks auth/account generation unknown due to untrusted lifecycle.",
+        "Headless adapter sources identity/schema fields from provider adapter, attribution and account generation from context, and measurement/tokens from required source facts with selected defaults.",
+        "Keep producer trust and counter semantics explicit when sharing envelope assembly. Similar output fields do not establish interchangeable attribution, completeness or counter epochs."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 77,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter",
+          "name": "envelope_attributes",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "kind": "defp",
+          "end_line": 134,
+          "body_sha256": "e86df8b7d81cddbb412ee92584cc6fcfcd34931fd7a6c8924d4f9e488a14fbeb",
+          "normalized_body_lines": 75,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 118,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "envelope_attributes",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 153,
+          "body_sha256": "1d5437195f149416d0f508d74dd686ac6ed28e3f978495eb83c4eea27d5bfe32",
+          "normalized_body_lines": 46,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "equal?",
+      "assessment": "Structural comparison is adapted to different calling conventions.",
+      "constraints": [
+        "StringOrMap schema returns the boolean result of ==.",
+        "ProviderMeters.Input returns ok or an error tuple with not_equal from the same comparison.",
+        "Preserve boolean predicate versus validation-result contract. These functions use non-strict equality; replacing with strict comparison would be a behavior change."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 12,
+          "module": "Aiur.Config.Schema.StringOrMap",
+          "name": "equal?",
+          "path": "src/lib/aiur/config/schema/string_or_map.ex",
+          "kind": "def",
+          "end_line": 12,
+          "body_sha256": "1dbe9c14b881dd070be5ee2d862240cf91046a69ecf2cbfd4aee0e394d740431",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 329,
+          "module": "Aiur.ProviderMeters.Input",
+          "name": "equal?",
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "kind": "defp",
+          "end_line": 329,
+          "body_sha256": "8ac70458bd2aee2a038750f939d193a58d51b6180cafb9bbd557caa84ced1201",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "error_response",
+      "assessment": "Decision and observability API error renderers match exactly.",
+      "constraints": [
+        "Both set the supplied HTTP status and render the same nested error code/message map.",
+        "Verified both modules use Phoenix.Controller with JSON formats.",
+        "A shared response helper is concrete; authentication, safe error vocabulary and redaction stay with controller/router callers and are not guaranteed by this renderer."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 161,
+          "module": "AiurWeb.DecisionApiController",
+          "name": "error_response",
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "kind": "defp",
+          "end_line": 165,
+          "body_sha256": "826bb54eb137fb91a733629615fffad32ba05cbab82112aded1cc0ad023bf033",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 153,
+          "module": "AiurWeb.ObservabilityApiController",
+          "name": "error_response",
+          "path": "src/lib/aiur_web/controllers/observability_api_controller.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "826bb54eb137fb91a733629615fffad32ba05cbab82112aded1cc0ad023bf033",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "escape_cell",
+      "assessment": "Markdown findings cells and request-log fields use different escaping grammars.",
+      "constraints": [
+        "FindingsCLI stringifies values, escapes pipe characters and collapses whitespace into a space.",
+        "RequestLog expects string input and escapes backslashes, tabs, newlines and carriage returns in that order.",
+        "Keep display-table normalization separate from reversible field escaping; neither is a general HTML, shell or secret-redaction mechanism."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 103,
+          "module": "Aiur.FindingsCLI",
+          "name": "escape_cell",
+          "path": "src/lib/aiur/findings_cli.ex",
+          "kind": "defp",
+          "end_line": 103,
+          "body_sha256": "371de902dcd0bfadb8396f79c28273115c3181a2d2c55e36c083d67f91709415",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 209,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "escape_cell",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 215,
+          "body_sha256": "9c9f75c7b0181ad70e7a575e414f93abc1b6515b5d216d32aa516c3a5883caa0",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "escape_graphql_string",
+      "assessment": "CI and comment polling branch-string escaping matches exactly.",
+      "constraints": [
+        "Both escape backslashes then double quotes; observed call sites interpolate branch names into headRefName quoted arguments.",
+        "Sharing these literal mechanics is plausible with the same branch input contract.",
+        "The helper does not encode all control characters or validate GraphQL input. Full branch validation/population and migration to variables remain separate questions; no injection or production-failure claim is established here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 273,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "escape_graphql_string",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 275,
+          "body_sha256": "8b24e35bab1996ed8b80071eb1dc98806d339ee18ea5ae042b79359d11be49d6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 371,
+          "module": "Aiur.GitHub.CommentPollBatch",
+          "name": "escape_graphql_string",
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 373,
+          "body_sha256": "8b24e35bab1996ed8b80071eb1dc98806d339ee18ea5ae042b79359d11be49d6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7808,
-  "limits": "885 selected families and 7808 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7826,
+  "limits": "893 selected families and 7826 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
