@@ -1058,3 +1058,7 @@ Read finish, fold, humanize, issue, message and model: 69 literal entries across
 ### Name duplication: initialization and evidence defaults
 
 Read model_label, mount, new_binding, non_negative, parse_timestamp and paused?: 60 literal entries across six families. Identify equivalent integer validators and nil-returning timestamp parsers while preserving offset acceptance, fallback policy, process-owned binding context and connected-only initialization. Pause predicates cover different containment, display and control populations. Name triage now 196 families/4425 entries, leaving 1484 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
+
+### Name duplication: query and mutation boundaries
+
+Read print_human, query, remove_label, replace, resume_agent and retire: 43 literal entries across six families. Shared GraphQL envelope construction and resume override selection are scoped candidates; preserve CLI source evidence, label-removal idempotence/write-through, replacement authority, receipts and retirement lifetime. Name triage now 202 families/4468 entries, leaving 1478 cross-module names. Raw findings and skeptic counts are unchanged; no runtime completion or saving is claimed.

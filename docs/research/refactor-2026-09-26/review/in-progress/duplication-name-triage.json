@@ -56236,10 +56236,616 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "print_human",
+      "assessment": "CLI renderers share envelope presentation patterns but report different evidence.",
+      "constraints": [
+        "Analytics, BuildOrders, Commands and Units print capture/source context, but source-age and warning rendering differ. Units explicitly distinguishes unobserved rows from a valid empty list; BuildOrders chooses catalog versus selected output.",
+        "GitHubCost distinguishes no attributed calls from zero cost, then prints windows, reconciliation, ledger, cache and optional credential detail. GitHubUsage presents actor request ceilings and uses parsed capture time or current time for its rendering.",
+        "Shared source/header formatting is a possible narrow extraction, but metric populations, unknown-state text, reconciliation and age evidence must remain visible. These bodies alone do not prove CLI output completeness or equivalence."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 189,
+          "module": "Aiur.AnalyticsCLI",
+          "name": "print_human",
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "kind": "defp",
+          "end_line": 257,
+          "body_sha256": "59ece616eb220f11ae5ea8397e23b7565dcef2ad138a9afbcb42f5fcd8370221",
+          "normalized_body_lines": 100,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 266,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "print_human",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 276,
+          "body_sha256": "0f24d226cfa19a978da3e9397f51fe19a4ed6d6887608f0e90f7c8d714ee5eeb",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 164,
+          "module": "Aiur.CommandsCLI",
+          "name": "print_human",
+          "path": "src/lib/aiur/commands_cli.ex",
+          "kind": "defp",
+          "end_line": 172,
+          "body_sha256": "a9319fcdc4ff8acb30e7930dcd6adb69e2612978bbccc2cd33de23a44a892a61",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 251,
+          "module": "Aiur.GitHubCostCLI",
+          "name": "print_human",
+          "path": "src/lib/aiur/github_cost_cli.ex",
+          "kind": "defp",
+          "end_line": 279,
+          "body_sha256": "dbb9249461a5124b21823f5ff54f2adda6775e4d23dc8d6ab973f43f1e62734e",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 127,
+          "module": "Aiur.GitHubUsageCLI",
+          "name": "print_human",
+          "path": "src/lib/aiur/github_usage_cli.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "5c85b550af0619e36085373fbc92be324aa33b1b62438c265381432c107dedce",
+          "normalized_body_lines": 34,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 226,
+          "module": "Aiur.UnitsCLI",
+          "name": "print_human",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 239,
+          "body_sha256": "d87f8a235d02aa787eed643d8db32f193234c7254ce2864d4e627865254b7a31",
+          "normalized_body_lines": 22,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "query",
+      "assessment": "Query helpers combine construction, validation and owner access.",
+      "constraints": [
+        "CIPollBatch and CommentPollBatch share the GraphQL repository envelope construction pattern but generate different alias bodies and operation names. This is a narrow templating candidate, not proof their requests are interchangeable.",
+        "CommandsCLI constructs different lifecycle filters; even its :all branch explicitly selects open lifecycle while optionally adding ticket/search. Preserve the actual query contract rather than assuming the filter name means all history.",
+        "RetainedSnapshot validates query and readable health before evaluation; UsageAggregate delegates through Store to a GenServer call. Query construction, pure validation and owner execution are distinct boundaries."
+      ],
+      "clauses": 7,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 93,
+          "module": "Aiur.CommandsCLI",
+          "name": "query",
+          "path": "src/lib/aiur/commands_cli.ex",
+          "kind": "defp",
+          "end_line": 105,
+          "body_sha256": "dcb23d0e1da0b8abe4cad56ddcccba1904b2bbd0009087085c36183806cf2145",
+          "normalized_body_lines": 30,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 52,
+          "module": "Aiur.DecisionStore.RetainedSnapshot",
+          "name": "query",
+          "path": "src/lib/aiur/decision_store/retained_snapshot.ex",
+          "kind": "def",
+          "end_line": 59,
+          "body_sha256": "7f9ffeaefee688d4b7e129aae772097bd4a78f33bcfefd235b5c106a513eb321",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 61,
+          "module": "Aiur.DecisionStore.RetainedSnapshot",
+          "name": "query",
+          "path": "src/lib/aiur/decision_store/retained_snapshot.ex",
+          "kind": "def",
+          "end_line": 61,
+          "body_sha256": "462a61e9fd249bfef0317dd1716cca5408f725341ab0d9adc5d2a3879afb2aed",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 209,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "query",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 219,
+          "body_sha256": "9ee1f9ae275b1d67f5aa46fba63ced092525dfab13b3b9d4f5d2a7d4790d3c97",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 320,
+          "module": "Aiur.GitHub.CommentPollBatch",
+          "name": "query",
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 330,
+          "body_sha256": "d5ad93f2f0391af1ed0abe4690cf99fb58a169908b2767e2c7107b2418a28525",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 30,
+          "module": "Aiur.UsageAggregate",
+          "name": "query",
+          "path": "src/lib/aiur/usage_aggregate.ex",
+          "kind": "def",
+          "end_line": 30,
+          "body_sha256": "ca443e61f8ce74f089424f0a4a2fdcf394b569b7e257a0e898374c9b342922ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 29,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "query",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "def",
+          "end_line": 29,
+          "body_sha256": "50944f665268536ff0e2122df8cdf1cea8bcb20111af322322439a75313437af",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "remove_label",
+      "assessment": "Label removal already has a provider boundary with idempotence and write-through policy.",
+      "constraints": [
+        "Tracker, GitHub.Tracker and Client forward to IssueState. GitHub removal writes through returned surviving labels on 2xx with a body; success without a body and 404 return :ok, while other responses propagate classified errors.",
+        "Linear explicitly returns unsupported; Memory changes configured labels and emits an event. This differs from the successful empty defaults seen in read capabilities.",
+        "Any shared mutation abstraction must preserve idempotence, returned-label cache updates and unsupported behavior. A successful removal is not by itself proof of downstream scheduler state."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 385,
+          "module": "Aiur.GitHub.Client",
+          "name": "remove_label",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 387,
+          "body_sha256": "32d5dabad16f0711673234a8f4d2dd5ca1d30c8c249ea65cff597684bb741376",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 64,
+          "module": "Aiur.GitHub.IssueState",
+          "name": "remove_label",
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "kind": "def",
+          "end_line": 91,
+          "body_sha256": "03381a3bf9dc66b19a860a12cbe177f4f879bb9b4f19ec2f711c0438665bcd88",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 190,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "remove_label",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 192,
+          "body_sha256": "fda714279fc36005885b2b268fd126aabd8f64849c753cbcd4e1f7a2d6417c4b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 139,
+          "module": "Aiur.Linear.Tracker",
+          "name": "remove_label",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 139,
+          "body_sha256": "637392237e07867c0cb6fa0aba4bf58d5a4473c816d4e9d3a6b83a1475b46a9e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 112,
+          "module": "Aiur.Memory.Tracker",
+          "name": "remove_label",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 116,
+          "body_sha256": "b9ecff3e930155519e3eb0956bb7c13f9e8ad0962091e4209f63f74202dea882",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 113,
+          "module": "Aiur.Tracker",
+          "name": "remove_label",
+          "path": "src/lib/aiur/tracker.ex",
+          "kind": "def",
+          "end_line": 115,
+          "body_sha256": "3aa72e7f2e58c88c3e3457e1c5304c1385b7e7ff80ae387c7360fcb233106927",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "replace",
+      "assessment": "Replacement preserves distinct generation authority and navigation semantics.",
+      "constraints": [
+        "ProviderAccountGeneration forwards a transition; State validates observation and authority before Lifecycle.replace. Lifecycle distinguishes bound versus rotated from the existing snapshot generation before applying replacement. Invalid authority returns unavailable without changing state.",
+        "TicketContextSelection only replaces an open selection in the current scope with a different resolved identity, maintaining bounded history, incrementing focus revision and rotating the request. ContextRuntime already delegates to it.",
+        "BranchRefStore forwards wholesale refs replacement to its owner. Replacing data, replacing an authority generation and navigating a selection are different operations despite their name."
+      ],
+      "clauses": 9,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 82,
+          "module": "Aiur.Events.BranchRefStore",
+          "name": "replace",
+          "path": "src/lib/aiur/events/branch_ref_store.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "597af2a8914c5690ecae4368a08fc3f7830a06700879df03fd4dffa38d2fc325",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 72,
+          "module": "Aiur.ProviderAccountGeneration",
+          "name": "replace",
+          "path": "src/lib/aiur/provider_account_generation.ex",
+          "kind": "def",
+          "end_line": 72,
+          "body_sha256": "d4b8725b66711a078052c412c983f9457b4f1e531800d5e78cec85b8ba9f7a5a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 75,
+          "module": "Aiur.ProviderAccountGeneration",
+          "name": "replace",
+          "path": "src/lib/aiur/provider_account_generation.ex",
+          "kind": "def",
+          "end_line": 75,
+          "body_sha256": "5c7a264cfe9306a58e98e99e5d839a7723fc01522f0c5fb622f2384c9d856b59",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 22,
+          "module": "Aiur.ProviderAccountGeneration.Lifecycle",
+          "name": "replace",
+          "path": "src/lib/aiur/provider_account_generation/lifecycle.ex",
+          "kind": "def",
+          "end_line": 27,
+          "body_sha256": "d39607f7e502d0b38fc19585537caf6bbe6ce60fa90ca7bd46776f736e40c940",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 57,
+          "module": "Aiur.ProviderAccountGeneration.State",
+          "name": "replace",
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "959761cc7514e834e02a0d9ffbf2cb9f1cfc7ecfa94337389cfd5cc7b4c5c727",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 44,
+          "module": "AiurWeb.BuildOrder.ContextRuntime",
+          "name": "replace",
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "3289810300f1520841f112c706fe04e3a1129c26c12bf1bf66950796f370212e",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 117,
+          "module": "AiurWeb.BuildOrder.TicketContextSelection",
+          "name": "replace",
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "kind": "def",
+          "end_line": 131,
+          "body_sha256": "51cc8e5838cd7a9e51404d2d060ecd3aee9ba650938d0a8c869a321171420432",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 133,
+          "module": "AiurWeb.BuildOrder.TicketContextSelection",
+          "name": "replace",
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "kind": "def",
+          "end_line": 133,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 134,
+          "module": "AiurWeb.BuildOrder.TicketContextSelection",
+          "name": "replace",
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "kind": "def",
+          "end_line": 134,
+          "body_sha256": "bbe470570e49267d490185b982e7988ccf0cc6962b452b9f2b97ad7e6219e4fd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "resume_agent",
+      "assessment": "Resume wrappers expose distinct receipt and control entry points.",
+      "constraints": [
+        "Orchestrator already delegates to PauseResume, which sends the control call; ObservabilityApiController passes its selected orchestrator. CLI uses an injectable resume_with_receipt function.",
+        "DashboardLive and StreamdeckLive select the same endpoint override or AgentChat.resume fallback, but access configuration through different functions. Their override-selection mechanics are a candidate only after preserving configuration lookup behavior.",
+        "Do not equate CLI receipt-bearing completion with plain resume or control-call admission. This family read does not verify resumed execution or durable receipt delivery."
+      ],
+      "clauses": 8,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 3185,
+          "module": "Aiur.AgentControlCLI",
+          "name": "resume_agent",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 3187,
+          "body_sha256": "35c531cd92f9b101d8c4cbf470f686866f0e42a6c1f1dd5f91b8755b3aa9c238",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 492,
+          "module": "Aiur.Orchestrator",
+          "name": "resume_agent",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 492,
+          "body_sha256": "cc3c6060f56fcf50419ab5c9473ce6c252373ec490c20688532def91a4b50019",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 496,
+          "module": "Aiur.Orchestrator",
+          "name": "resume_agent",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 496,
+          "body_sha256": "78ed1541ead64994000672e6dea1445dcfef310ee6e1752633d8f42206d78c0d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "resume_agent",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "9789c215076651857fb64a6e3c59c515d8e4499da99451e173886fdd47fe8f9b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 88,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "resume_agent",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "def",
+          "end_line": 89,
+          "body_sha256": "ab8f22f8018b883965d9f32c0107c5b0cd50c53e4458005b3fae8d9d6601556b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 198,
+          "module": "AiurWeb.ObservabilityApiController",
+          "name": "resume_agent",
+          "path": "src/lib/aiur_web/controllers/observability_api_controller.ex",
+          "kind": "defp",
+          "end_line": 199,
+          "body_sha256": "2966f9476af010c73c812518ade3793b1e82f219f925af0e9486aaa423bdff32",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2752,
+          "module": "AiurWeb.DashboardLive",
+          "name": "resume_agent",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 2757,
+          "body_sha256": "5352077696d49c6f3803b026837434158d92266715a321bcbb20c7495df5ac1e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1595,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "resume_agent",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1600,
+          "body_sha256": "20c7a9db32a27b739c460eebe341c277ff78c2385fa7bfd89dcfec82fdccb761",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "retire",
+      "assessment": "Retirement distinguishes authority revocation from ledger watermark advancement.",
+      "constraints": [
+        "ProviderAccountGeneration forwards the transition; State validates invalidation, obtains a new snapshot/change and retires the registry entry. Registry already delegates to Tombstones.",
+        "Tombstones removes the live entry, clears its monitor, forgets continuity, stores the snapshot and maintains a bounded tombstone order. These effects are part of authority lifetime and must remain ordered.",
+        "UsageLedger and Store forward a nonnegative watermark retirement request to the owner. This is ledger retention policy, not equivalent to provider binding retirement; durability and downstream compaction behavior are outside this entry-point review."
+      ],
+      "clauses": 7,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 91,
+          "module": "Aiur.ProviderAccountGeneration",
+          "name": "retire",
+          "path": "src/lib/aiur/provider_account_generation.ex",
+          "kind": "def",
+          "end_line": 91,
+          "body_sha256": "0fe8bff812ae8c0fc45c71c9a386c5ccfcc0cf3fdc38cd701159c2790829283a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 94,
+          "module": "Aiur.ProviderAccountGeneration.Registry",
+          "name": "retire",
+          "path": "src/lib/aiur/provider_account_generation/registry.ex",
+          "kind": "defdelegate",
+          "end_line": 94,
+          "body_sha256": "5314689cf1576b99f487c22b66cd90405de7e9b07aa0414a8904d36294c3c01c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 76,
+          "module": "Aiur.ProviderAccountGeneration.State",
+          "name": "retire",
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "kind": "def",
+          "end_line": 83,
+          "body_sha256": "98485cb709704d95789caf73e74af312910af6a7df8ae0f68000c12870ae5de6",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 7,
+          "module": "Aiur.ProviderAccountGeneration.Tombstones",
+          "name": "retire",
+          "path": "src/lib/aiur/provider_account_generation/tombstones.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "08f2e7d185178d7fb52c0a75f3c0112ec1f04220f6196db6cf5317211de27bbe",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "Aiur.UsageLedger",
+          "name": "retire",
+          "path": "src/lib/aiur/usage_ledger.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "0725327997c9ee537c3daf22a76edc7faa9ebaa9e42aaa91b650d1730222a63c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 38,
+          "module": "Aiur.UsageLedger.Store",
+          "name": "retire",
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "kind": "def",
+          "end_line": 38,
+          "body_sha256": "d2289aee03081b3eb1b304b99a5bfc9615630272cfb255a25b15fea2249e50be",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 42,
+          "module": "Aiur.UsageLedger.Store",
+          "name": "retire",
+          "path": "src/lib/aiur/usage_ledger/store.ex",
+          "kind": "def",
+          "end_line": 44,
+          "body_sha256": "dec9540996bafbe306a1e40f5f711a8398d5a3086b9f810b28f1ca6a2b79fdd7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 4425,
-  "limits": "196 selected families and 4425 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 4468,
+  "limits": "202 selected families and 4468 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
