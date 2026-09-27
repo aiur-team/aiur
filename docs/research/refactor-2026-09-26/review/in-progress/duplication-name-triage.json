@@ -94571,10 +94571,682 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "alert_fun",
+      "assessment": "Alert callback selection differs in configuration scope and closure inputs.",
+      "constraints": [
+        "SupervisionHealth captures per-call alert_opts in a snapshot/missing-IDs closure.",
+        "Webhook Auth reads an application callback override with Alerts.emit_system/2 as default.",
+        "Preserve callback signatures and configuration lifetime; neither factory proves alert delivery."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 156,
+          "module": "Aiur.SupervisionHealth",
+          "name": "alert_fun",
+          "path": "src/lib/aiur/supervision_health.ex",
+          "kind": "defp",
+          "end_line": 159,
+          "body_sha256": "8f22a6605648acfef2c668c2727e0247caa4a33904c68e075903bd7dd01d10d8",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 113,
+          "module": "AiurWeb.GithubWebhook.Auth",
+          "name": "alert_fun",
+          "path": "src/lib/aiur_web/github_webhook/auth.ex",
+          "kind": "defp",
+          "end_line": 115,
+          "body_sha256": "6b13978538c1ceb9f179a764a4bf54e30425ad971542c4d8e1501690987c0c80",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "alert_reason",
+      "assessment": "Textual event reasons and row attention causes serve different schemas.",
+      "constraints": [
+        "Alerts uses a trimmed nonblank string reason, falling back to message or empty string; present_string helper was read.",
+        "UnitsRow.Fields keeps a truthy explicit alert or derives :open_command from a positive integer count.",
+        "Do not collapse display text and typed row causes into one fallback policy."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 213,
+          "module": "Aiur.Alerts",
+          "name": "alert_reason",
+          "path": "src/lib/aiur/alerts.ex",
+          "kind": "defp",
+          "end_line": 221,
+          "body_sha256": "afb45e7ee262250484fd14ea1f1f3b0821fd364dbdc93626376763df79127439",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 185,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Fields",
+          "name": "alert_reason",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "kind": "defp",
+          "end_line": 187,
+          "body_sha256": "3b03fb7c1b2404420e3716507068b72e456407c62e2ab6551586df2c6db11424",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "alerts_template",
+      "assessment": "Init already delegates OS-specific template selection.",
+      "constraints": [
+        "Init delegates both arities to the verified Aiur.Init.Templates alias.",
+        "Templates selects macOS for unix/darwin and Linux for other Unix and fallback inputs; zero arity obtains :os.type().",
+        "Retain the facade and platform-selection boundary; template contents and packaging are outside this read."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 300,
+          "module": "Aiur.Init",
+          "name": "alerts_template",
+          "path": "src/lib/aiur/init.ex",
+          "kind": "defdelegate",
+          "end_line": 300,
+          "body_sha256": "986b3c70e36ce6642541f74ace1b95ece5b080cce97fd53753a54f4f1bcd85ce",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 304,
+          "module": "Aiur.Init",
+          "name": "alerts_template",
+          "path": "src/lib/aiur/init.ex",
+          "kind": "defdelegate",
+          "end_line": 304,
+          "body_sha256": "986b3c70e36ce6642541f74ace1b95ece5b080cce97fd53753a54f4f1bcd85ce",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 65,
+          "module": "Aiur.Init.Templates",
+          "name": "alerts_template",
+          "path": "src/lib/aiur/init/templates.ex",
+          "kind": "def",
+          "end_line": 65,
+          "body_sha256": "b61357f139693038b243776c55c88b25552fe2c819482a098cc2ecfe0662f675",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 69,
+          "module": "Aiur.Init.Templates",
+          "name": "alerts_template",
+          "path": "src/lib/aiur/init/templates.ex",
+          "kind": "def",
+          "end_line": 69,
+          "body_sha256": "01b83505ec9531fa9bad32110e0076ca48d6c2993e25a19d8db77a77b4a3a6b3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 70,
+          "module": "Aiur.Init.Templates",
+          "name": "alerts_template",
+          "path": "src/lib/aiur/init/templates.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "0d3dea8add87dccd40372a82f2d4241103edd0f36f4137a6431c6e33501120bd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 71,
+          "module": "Aiur.Init.Templates",
+          "name": "alerts_template",
+          "path": "src/lib/aiur/init/templates.ex",
+          "kind": "def",
+          "end_line": 71,
+          "body_sha256": "0d3dea8add87dccd40372a82f2d4241103edd0f36f4137a6431c6e33501120bd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "alias_labels",
+      "assessment": "Label generation and backend gating are already separate responsibilities.",
+      "constraints": [
+        "CodingAgent creates model-prefixed labels from backend-alias map keys.",
+        "GitHub.Labels calls that generator only when the configured backend list contains claude.",
+        "Preserve the backend gate; supported-backend incidence and generated label ordering are not established here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 606,
+          "module": "Aiur.CodingAgent",
+          "name": "alias_labels",
+          "path": "src/lib/aiur/coding_agent.ex",
+          "kind": "def",
+          "end_line": 606,
+          "body_sha256": "0d16da5da9ea2f68238171806c0a4c3f880c04376e2d56db34675927cfb356fa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 105,
+          "module": "Aiur.GitHub.Labels",
+          "name": "alias_labels",
+          "path": "src/lib/aiur/github/labels.ex",
+          "kind": "def",
+          "end_line": 111,
+          "body_sha256": "f5a54cf2722d76e07264420d3292244285b1be47be37e674ba6580eea54197de",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "allowed_users",
+      "assessment": "Config normalization differs from authorization set construction.",
+      "constraints": [
+        "Config normalizes binary/list logins, trimming, dropping empty/nonbinary entries and case-insensitive deduplication; empty results fall back to codeowners_users.",
+        "DispatchAuthorization chooses the opts override or Config.allowed_users(), lowercases each value and builds a MapSet.",
+        "An override bypasses Config normalization, so input contracts matter before sharing. CODEOWNERS resolution and authorization outcome are not certified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 485,
+          "module": "Aiur.GitHub.Config",
+          "name": "allowed_users",
+          "path": "src/lib/aiur/github/config.ex",
+          "kind": "def",
+          "end_line": 490,
+          "body_sha256": "ff07eaf10037e93f2fe02ab9515acd119afff6f9d993ebcaf77dca5134192001",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 585,
+          "module": "Aiur.GitHub.DispatchAuthorization",
+          "name": "allowed_users",
+          "path": "src/lib/aiur/github/dispatch_authorization.ex",
+          "kind": "defp",
+          "end_line": 590,
+          "body_sha256": "9d3980787cd8b6aaf85580f19e518fbfea394d62713ad871fd4b7af2e573cf69",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ambiguous_alias?",
+      "assessment": "Schema validation adds gates around an existing model-level predicate.",
+      "constraints": [
+        "Models counts distinct nonnil vendors among models matching the requested family; malformed outer inputs return false.",
+        "AgentValidation requires a binary model and nonempty backend alias list before calling Models.ambiguous_alias? on backend models; Models alias verified.",
+        "Preserve alias availability and backend population selection; vendor/family extraction remains transitive."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 124,
+          "module": "Aiur.CodingAgent.Models",
+          "name": "ambiguous_alias?",
+          "path": "src/lib/aiur/coding_agent/models.ex",
+          "kind": "def",
+          "end_line": 131,
+          "body_sha256": "b8084b6a82e1dceef6e5a838671152d7271f257b21601a7abe5f2fc82bdfc060",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 133,
+          "module": "Aiur.CodingAgent.Models",
+          "name": "ambiguous_alias?",
+          "path": "src/lib/aiur/coding_agent/models.ex",
+          "kind": "def",
+          "end_line": 133,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 130,
+          "module": "Aiur.Config.Schema.AgentValidation",
+          "name": "ambiguous_alias?",
+          "path": "src/lib/aiur/config/schema/agent_validation.ex",
+          "kind": "defp",
+          "end_line": 133,
+          "body_sha256": "b75bf2fca8f11320fefb92590de4932ed1d408176a51c2febf3fe366d98452dd",
+          "normalized_body_lines": 7,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "analytics",
+      "assessment": "CLI command execution and web availability projection are distinct.",
+      "constraints": [
+        "AgentControlCLI wraps AnalyticsCLI.run and exit_marker inside guarded analytics execution.",
+        "ControlCenterPresenter selects availability/path/message for boolean availability, otherwise returns an explicit unavailable map.",
+        "Keep CLI effects separate from presentation; accepted path/message content is not validated by the projection clause."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 365,
+          "module": "Aiur.AgentControlCLI",
+          "name": "analytics",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "def",
+          "end_line": 367,
+          "body_sha256": "fecf81f13f86ad4c3f2f002b1c8bf90b5176fd36b9c59591e81abd68e21937db",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 205,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "analytics",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "kind": "defp",
+          "end_line": 207,
+          "body_sha256": "69e4f87f48434bffb40a6a30b76991731365867d082dc77f3664d8237394d5f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 209,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "analytics",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "kind": "defp",
+          "end_line": 211,
+          "body_sha256": "9ef19f549b31fc6e65c78753672343b959c677c0f5f10b578b6010fd5b4afbf4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "analytics_path",
+      "assessment": "Filesystem storage and a constrained web route share only a name.",
+      "constraints": [
+        "RepoBase joins analytics onto the repository storage path for a binary repo URL.",
+        "RecentOutcomes exposes only the exact /analytics route with available? true; every other input returns nil.",
+        "Keep filesystem derivation and the UI route allowlist separate; repo_path internals are not certified."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 110,
+          "module": "Aiur.RepoBase",
+          "name": "analytics_path",
+          "path": "src/lib/aiur/repo_base.ex",
+          "kind": "def",
+          "end_line": 111,
+          "body_sha256": "ab0f48dcae1af2ce3bdb9267c6421f4e54ae7d21b5761e5fa1606c80a4180bed",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 67,
+          "module": "AiurWeb.OperatorControlCenter.RecentOutcomes",
+          "name": "analytics_path",
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "kind": "defp",
+          "end_line": 67,
+          "body_sha256": "3c2860890a8ad25cba2327e203e2f5beb808fc1dc8dcd838f8f1eed83c38445a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 68,
+          "module": "AiurWeb.OperatorControlCenter.RecentOutcomes",
+          "name": "analytics_path",
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "kind": "defp",
+          "end_line": 68,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "answer_content",
+      "assessment": "Decision and revision form parsers have matching success behavior and distinct error prose.",
+      "constraints": [
+        "Both accept nonempty option IDs after the option: prefix, or trim binary custom responses and reject empty responses.",
+        "Their fallback/custom errors differ to identify initial answers versus revisions.",
+        "Extract a shared content parser with contextual errors if useful; these clauses do not establish option membership, authorization or revision/version validity."
+      ],
+      "clauses": 8,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 148,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "answer_content",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "defp",
+          "end_line": 150,
+          "body_sha256": "f8b0477794a30ccb96a429fb5b413aaa51376e6c70b8ec02b3c66fbc9c334470",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 152,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "answer_content",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "2cc4752e3d4f49766b90ddc0edc7be6af16773b241e6eefd7760651a02d742e0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 159,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "answer_content",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "defp",
+          "end_line": 160,
+          "body_sha256": "27532c1f38b36f006ba70a98d3e9e292392efa87341f0132b5b5f610772647eb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 162,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "answer_content",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "defp",
+          "end_line": 162,
+          "body_sha256": "deaba4e5eeafbe100fce2b1ac22c50a5af4671dd02eeedda6af6adffd9d20f96",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 120,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "answer_content",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "defp",
+          "end_line": 122,
+          "body_sha256": "f8b0477794a30ccb96a429fb5b413aaa51376e6c70b8ec02b3c66fbc9c334470",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 124,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "answer_content",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "defp",
+          "end_line": 129,
+          "body_sha256": "b8edcbb57bb1cc2f4835080db80bf27a349a03d37e43ca57df6df2e1dd35d842",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 131,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "answer_content",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "defp",
+          "end_line": 132,
+          "body_sha256": "699e769047a32e7f79ad9525c66ae8c808dcf72d0cc9497a77bab59730186372",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 134,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "answer_content",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "defp",
+          "end_line": 134,
+          "body_sha256": "6cb2f8337c014d9f23258e4587240ac1879d1dca6bb07e798db86075391d9159",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "answer_label",
+      "assessment": "Answer label resolution matches after adapting the input shape.",
+      "constraints": [
+        "DecisionAction unwraps decision.answer/options; DecisionRevisionAction accepts answer and options separately.",
+        "Both resolve a binary selected option ID, fall back to Option plus ID when missing, otherwise return custom_response or Unavailable.",
+        "A shared answer/options presenter can preserve clause precedence and fallbacks; custom_response type validation is not established here."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 179,
+          "module": "AiurWeb.OperatorControlCenter.DecisionAction",
+          "name": "answer_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_action.ex",
+          "kind": "defp",
+          "end_line": 184,
+          "body_sha256": "dade389f3a3e88c0f95ab7894e96f17ea97dc9f7b4b092d29d42159b08b87dcf",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 186,
+          "module": "AiurWeb.OperatorControlCenter.DecisionAction",
+          "name": "answer_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_action.ex",
+          "kind": "defp",
+          "end_line": 186,
+          "body_sha256": "363010fd2b37e755570ec9defa1739e6e1e1e47a851ae4b884d46866e64cfe47",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 188,
+          "module": "AiurWeb.OperatorControlCenter.DecisionAction",
+          "name": "answer_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_action.ex",
+          "kind": "defp",
+          "end_line": 188,
+          "body_sha256": "b618200230733907d7bb2faa6ec22e070e661240c6e206364def29d84d1991aa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 171,
+          "module": "AiurWeb.OperatorControlCenter.DecisionRevisionAction",
+          "name": "answer_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "kind": "defp",
+          "end_line": 176,
+          "body_sha256": "58b1a5caa622918e3352326030d6d65a08094ba2a8e92a6318689789dda04f1a",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 178,
+          "module": "AiurWeb.OperatorControlCenter.DecisionRevisionAction",
+          "name": "answer_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "kind": "defp",
+          "end_line": 178,
+          "body_sha256": "363010fd2b37e755570ec9defa1739e6e1e1e47a851ae4b884d46866e64cfe47",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 179,
+          "module": "AiurWeb.OperatorControlCenter.DecisionRevisionAction",
+          "name": "answer_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "kind": "defp",
+          "end_line": 179,
+          "body_sha256": "b618200230733907d7bb2faa6ec22e070e661240c6e206364def29d84d1991aa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "api_estimate",
+      "assessment": "Pricing orchestration already delegates successful result construction.",
+      "constraints": [
+        "Pricing checks preconditions, builds/prices components and resolves full, partial or unknown outcomes.",
+        "Read resolved_estimate and verified Pricing.Result alias: only the successful pricing branch invokes Result.api_estimate; partial uses partial_api_estimate and unknown yields nil.",
+        "Result sums Decimal component amounts and builds full-coverage metadata. Preserve this result-construction boundary; the full label depends on upstream classification and is not independently proven by summation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 6,
+          "line": 81,
+          "module": "Aiur.Usage.Pricing",
+          "name": "api_estimate",
+          "path": "src/lib/aiur/usage/pricing.ex",
+          "kind": "defp",
+          "end_line": 89,
+          "body_sha256": "d72b5a10bfe496fdf7e6b829c88958846ad76605eb4584023bc88b9133e628ae",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 52,
+          "module": "Aiur.Usage.Pricing.Result",
+          "name": "api_estimate",
+          "path": "src/lib/aiur/usage/pricing/result.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "f811cbb47e911ad90d8dea4acbc15f6e57ad4797c4fdd80f5bcd1f513cd416e8",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_enrichment",
+      "assessment": "Event projection and persisted command handling enforce different stages.",
+      "constraints": [
+        "DecisionProjection fetches current decision, checks enrichment version/base and applies the request.",
+        "DecisionStore checks prior enrichment replay first, then stale expected version, unchanged duplicate, and finally persistence.",
+        "Preserve replay precedence, version checks and command-versus-projection ownership; helper predicates and durable atomicity remain unverified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 214,
+          "module": "Aiur.DecisionProjection",
+          "name": "apply_enrichment",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 220,
+          "body_sha256": "39da9c2b50a2416f996ecc3192ef6eb99fd4c0ce4bae5f63161ed52428d4c475",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 2082,
+          "module": "Aiur.DecisionStore",
+          "name": "apply_enrichment",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 2096,
+          "body_sha256": "f960fad27533b63f0db41112bef72c42cb06c82acd8a4779494efafa410c0fc5",
+          "normalized_body_lines": 21,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7046,
-  "limits": "637 selected families and 7046 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7087,
+  "limits": "649 selected families and 7087 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

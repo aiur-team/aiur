@@ -4,89 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "512be71f35cdc25623dc048c3b41d3426caa7006662babe055eacaa5f5ad4dbc"
+    "name_triage": "f617c43162ed95155b29dc6a1cb43702aa1a41ab947439a5e7e53b5a96dd0fc5"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 637,
-    "remaining_cross_module_names": 1043,
-    "remaining_literal_entries": 3222
+    "reviewed_cross_module_names": 649,
+    "remaining_cross_module_names": 1031,
+    "remaining_literal_entries": 3181
   },
   "families": [
-    {
-      "name": "alert_fun",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "alert_reason",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "alerts_template",
-      "clauses": 6,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "alias_labels",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "allowed_users",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "ambiguous_alias?",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "analytics",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "analytics_path",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "answer_content",
-      "clauses": 8,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "answer_label",
-      "clauses": 6,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "api_estimate",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "apply_enrichment",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
     {
       "name": "apply_entry",
       "clauses": 3,
