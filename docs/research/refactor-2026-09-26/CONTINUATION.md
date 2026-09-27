@@ -1215,3 +1215,8 @@ All 75 manifest files are now fully read: 35,287 lines. Checked every file hash 
 ### tests-1a transcript oracle checkpoint
 
 44 full reads, 5,924 lines. Added credential gate, transcript/history, RTK, meter projection, log configuration and activity tests. Confirmed P2 boolean-oracle gap: exact assertions accept string-false and missing-payload records; boolean-sensitive control rejects both. Supporting IssueLog source shows bounded edit projection drops the fixture's truncated:false before serialization, while the serializer itself correctly handles booleans. Portable assertion probe added; no writer-suite run or production mutation. Preserve gate-versus-bind, signal-versus-partition-restart, retained-snapshot-versus-session-end and projection-versus-store-restart evidence limits. Unit remains partial with 31 files remaining; overall 26/32.
+
+
+### tests-1a skill and freshness checkpoint
+
+51 full reads, 8,594 lines; 24 manifest files remain. Recorded three previously completed skill-test reads and added PromptBuilder, AiurAgentSkill, BuildOrdersCLIFirstRead and CadenceFreshness. Preserve executable documented-label admission, watcher partial-line/restart semantics, caller-independent graph demand and two-sided cadence freshness contracts. Distinguish wording checks from agent behavior, local install-script execution from SSH, index links from mounted links, private projection calls from shell CLI, and presenter classification from rendered UX. No new promoted finding or test execution; the two existing findings remain bounded by their earlier isolated probes. Overall raw-unit completion stays 26/32. The preceding status turn added no research progress; this checkpoint advances authoritative review coverage. No production changes.

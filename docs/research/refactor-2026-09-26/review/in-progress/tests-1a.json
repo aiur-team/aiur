@@ -266,9 +266,51 @@
       "sha256": "50dee8ee312fab1f0e119564d7248b2721ef76dd0a5fa157e0b5b2c718530dfb",
       "lines": 216,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_skills_test.exs",
+      "sha256": "3855b19c947cc485790223d5a4160caf519e45c8e632e964e8c77bbbb1ff1ef4",
+      "lines": 322,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/aiur_debug_skill_test.exs",
+      "sha256": "6823f173c92f0b908421d5a45de60f75248e6c4d5b4631db27f53e0c28ab35bd",
+      "lines": 169,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/aiur_alert_watch_skill_test.exs",
+      "sha256": "b2d1dc2dcca2c37df1dce75e14b93af26917627f3568cd537348b89ae1a8407c",
+      "lines": 464,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/prompt_builder_test.exs",
+      "sha256": "8f06d44d63cf44cfa9f06fc7ed321bc31c88dd6350399970bdbe2db7bf70b0c5",
+      "lines": 294,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+      "sha256": "5644983b4221781a576ca6f882d33fef529ec5fe566054d36dffa92e956539e5",
+      "lines": 228,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/aiur_agent_skill_test.exs",
+      "sha256": "fc0603f5dcfe6347eda6eee7492a5b0ccbb592a393bfd5c90d873c9714b9cdda",
+      "lines": 842,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/cadence_freshness_test.exs",
+      "sha256": "23f03cc0a3d1a7cd70588e3b9f0c962b04b0ca91613f074a23cdd7b318a50069",
+      "lines": 351,
+      "read": "full"
     }
   ],
-  "scope_note": "44 complete file reads, 5924 lines. Earlier reset cleanup probe and new extracted transcript-boolean assertion probe ran in isolation. No full suite, actual reset workflow, live application or TUI execution. 31 manifest files remain.",
+  "scope_note": "51 complete file reads, 8594 lines. Skill installation, prompt, watcher, first-read and cadence tests reviewed as source; no new suite execution. Earlier reset-cleanup and transcript-boolean probes ran in isolation. No live application, GitHub operation or TUI execution. 24 manifest files remain.",
   "findings": [
     {
       "id": "tests-1a-cont-01",
@@ -334,7 +376,15 @@
     "Provider projection tests retain observed ages, partial source health, probe-failure counts, independent windows and providers, rejection of stale/missing timestamps and generation redaction. A test named after session end only injects a historical snapshot; it does not exercise session termination.",
     "RTK tests distinguish disabled/unavailable/refused states, require the gh rewrite exclusion, preserve no-data versus measured-zero savings and check the shipped schema default. Supplied gain payloads are parser fixtures, not new production savings measurements.",
     "LogFile tests restore logger handlers and configuration, preserve explicit log roots and debug flag precedence, and fail safely on unreadable/invalid config. These source checks do not prove absence of unrelated asynchronous writers during global configuration changes.",
-    "TicketActivity separates recent/current membership, content-free observations and stale-but-known phases. Its retention test restarts the projection while keeping the retention process alive; disk flush is exercised, but durable-store restart recovery is covered elsewhere."
+    "TicketActivity separates recent/current membership, content-free observations and stale-but-known phases. Its retention test restarts the projection while keeping the retention process alive; disk flush is exercised, but durable-store restart recovery is covered elsewhere.",
+    "AgentSkills exercises actual local installation and runs the remote-install shell script locally against Git fixtures. It preserves existing repository skills, canonical relative Codex links, vendored manifest/license identity, refresh failure retention and external gitdir handling. This is not SSH transport verification; the local unsafe-link best-effort result differs from remote-script nonzero failure.",
+    "AiurDebugSkill checks documented recipes, correlation/guardrail vocabulary and three reference-file presences; substring links and privacy regex fixtures do not prove exhaustive link resolution, privacy or successful runtime diagnosis.",
+    "Alert-watch tests execute the Bash watcher with bounded iterations, isolated HOME, notification/tmux/process stubs and an atomic poll-release barrier. They cover cold-start skipping, backlog replay, decision resolution, restart suppression, malformed history, jq-free escaping and half-written records completed between scans. Notification recorder success is not actual backend delivery.",
+    "AiurAgentSkill mostly constrains instruction text, but its creation-rule test extracts labels from the specific rule paragraphs and runs the real quota wrapper with a stub gh and broker explicitly disabled, checking both accepted dispositions and rejection without a disposition. Preserve this executable documentation contract without interpreting it as live GitHub admission coverage.",
+    "Skill taxonomy checks distinguish actual resolved canonical links from index-only tracked symlink assertions used for newly exposed skills and vendored CE entries. Index intent does not by itself verify the current mounted working-tree link. Reference enumeration covers the named list rather than every possible markdown link.",
+    "PromptBuilder preserves complexity guidance selection, configured integration-branch authority, shared-versus-skill instruction placement, escaped and bounded untrusted content, author-attribute encoding, hidden-carrier removal, redaction and invalid-UTF8 recovery. Balanced wrappers and instruction text are not proof of model resistance to arbitrary prompt injection.",
+    "BuildOrdersCLIFirstRead uses a real private projection with injected blocked readers and short-lived Task callers to verify demand survives caller exit, loading differs from unavailable, inflight requests coalesce and failed-read backoff suppresses another read until an injected later time. It does not launch the shell CLI, RPC daemon or LiveView.",
+    "CadenceFreshness checks literal fresh/stale ages at three effective cadences, explicit zero tolerance, actual queued mailbox depth and agreement between row admission and catalog status. Snapshot timestamps are restated in persistent_term and controller processes are stubs; these tests cover classification and presenter results, not rendered age text or a live polling cadence."
   ],
   "cross_references": [
     {
@@ -386,6 +436,15 @@
         785
       ],
       "finding": "Bounded edit payload reconstructs tool/output and optional changes, dropping truncated:false from the test fixture; json_safe nevertheless has explicit nil/boolean clauses. Excerpt-only supporting source read."
+    },
+    {
+      "path": "src/test/aiur/aiur_alert_watch_skill_test.exs",
+      "lines": [
+        1,
+        464
+      ],
+      "finding": "The workspace file-tail watcher has its own resolution/replay tests. Its coverage does not establish that default ExecutorListener topic subscriptions receive every attention or resolution.",
+      "related_finding": "tests-1b-cont-01"
     }
   ],
   "follow_up_candidates": [
@@ -409,7 +468,7 @@
     }
   ],
   "next": [
-    "Continue the remaining 31 tests-1a manifest files, including skill tests, decision lifecycle tests and controller lifecycle/deactivation coverage.",
-    "Keep shared-supervisor observations linked to existing findings and verify hypotheses before adding severity-bearing findings."
+    "Continue the remaining 24 tests-1a manifest files, including decision lifecycle and controller lifecycle/deactivation coverage.",
+    "Keep documentation-presence, executable guard, projection and rendered-UX evidence separate; verify hypotheses before promoting findings."
   ]
 }
