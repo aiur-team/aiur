@@ -53,3 +53,28 @@ reproductions, not hardware testing or estimates of incident frequency.
 The pure device reducer already separates idle reads, disconnects, suspend and
 bounded recovery. Preserve that seam in planning. The demonstrated gaps concern
 monitor termination ownership and device identity at the event adapter boundary.
+
+## Channel and command continuation
+
+The partial unit now has 54/178 complete reads, 124 remaining paths, and eight
+provisional P2 findings. The nine added reads cover the channel, controller,
+command model, voice session, selected complete tests and HID report helpers.
+The much larger controller test file remains only partially reviewed; the JSON
+coverage notes identify the ranges read.
+
+```sh
+node tooling/streamdeck_channel_probe.mjs /path/to/frozen-snapshot
+```
+
+The probe demonstrates text loss on an offline Send press, `QUEUED` state on an
+offline Implement press, ignored server errors for `say`/`control`, and no cursor
+request when history navigation reaches the first eight-item server page. An
+answer-command error is the positive control: it does reach its error callback.
+Input travels through the actual controller's HID decoder. The channel uses a
+synthetic socket; the surface contributes only its unchanged `agentLess`
+predicate, so these checks do not claim pixel, hardware or live-service coverage.
+
+Preserve the existing server ownership of delivery, queueing and durable Command
+answers. The missing client contracts are acceptance receipts, retained pending
+intent and cursor-driven history navigation. A new package boundary alone would
+not repair them.

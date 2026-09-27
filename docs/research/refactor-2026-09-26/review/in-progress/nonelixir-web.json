@@ -3,9 +3,9 @@
   "status": "in-progress",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 178,
-  "files_reviewed": 45,
-  "lines_reviewed_estimate": 6657,
-  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised.",
+  "files_reviewed": 54,
+  "lines_reviewed_estimate": 9690,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor.",
   "coverage": [
     {
       "path": "website/src/dashboard.ts",
@@ -231,6 +231,51 @@
       "path": "packages/streamdeck/vitest.config.ts",
       "status": "read_in_full",
       "sha256": "3f24924df4314360af0f21a7e31020225f7a2bda75a56f37bcf927a4242a08c3"
+    },
+    {
+      "path": "packages/streamdeck/src/channel.ts",
+      "status": "read_in_full",
+      "sha256": "40ed38e3837768bbcf3fe64a60617e744f89c2b91dee877e3d964e5c53097452"
+    },
+    {
+      "path": "packages/streamdeck/src/aiur-speech.ts",
+      "status": "read_in_full",
+      "sha256": "ecf1e846b5c3c30b4f68a1a2d44ab61f791f4608a50ccaaca39d3112034d6d12"
+    },
+    {
+      "path": "packages/streamdeck/src/commands.ts",
+      "status": "read_in_full",
+      "sha256": "c6bf1ff7ae666890659794cb39a73ab4ca6ee3043d2b23c53306ca203ec5d33f"
+    },
+    {
+      "path": "packages/streamdeck/src/controller.ts",
+      "status": "read_in_full",
+      "sha256": "0c29d92d6a6b0934fd2ef2947c96c0aa71d8eb606b18892d8baddb99f0feead0"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/session.ts",
+      "status": "read_in_full",
+      "sha256": "906222367837987de6a9114731b946cc09e3862a5c9f47115b8bf0656225e3c4"
+    },
+    {
+      "path": "packages/streamdeck/test/channel.test.ts",
+      "status": "read_in_full",
+      "sha256": "3188e36b818294f0d345a0d74c16a03051563c1dd00edaa5ee8233789f446d11"
+    },
+    {
+      "path": "packages/streamdeck/test/aiur-speech.test.ts",
+      "status": "read_in_full",
+      "sha256": "95b1b42c36fa682e5cd62b749c5b45cccd736d1f2cba0f8191cfffe1122c38fd"
+    },
+    {
+      "path": "packages/streamdeck/test/commands.test.ts",
+      "status": "read_in_full",
+      "sha256": "fe6454596823c7313297bf71e913d702696ba7aedefdb5d44faab393b3fbab3d"
+    },
+    {
+      "path": "packages/streamdeck/test/support/deckReports.ts",
+      "status": "read_in_full",
+      "sha256": "87af8264613ba78a49fa30a46f3c4ca4a32a6ffc7b594cf1e3633d32a2c6f773"
     }
   ],
   "remaining_files": [
@@ -242,7 +287,6 @@
     "packages/streamdeck/scripts/render-preview.mjs",
     "packages/streamdeck/scripts/reset-device.mjs",
     "packages/streamdeck/scripts/test/build-package.test.mjs",
-    "packages/streamdeck/src/aiur-speech.ts",
     "packages/streamdeck/src/art/gradient.ts",
     "packages/streamdeck/src/art/icons.ts",
     "packages/streamdeck/src/art/segments.ts",
@@ -261,14 +305,10 @@
     "packages/streamdeck/src/audio/playback.ts",
     "packages/streamdeck/src/audio/preferences.ts",
     "packages/streamdeck/src/audio/relay.ts",
-    "packages/streamdeck/src/audio/session.ts",
     "packages/streamdeck/src/audio/stt.ts",
     "packages/streamdeck/src/audio/system.ts",
     "packages/streamdeck/src/audio/tts.ts",
     "packages/streamdeck/src/audio/waveform.ts",
-    "packages/streamdeck/src/channel.ts",
-    "packages/streamdeck/src/commands.ts",
-    "packages/streamdeck/src/controller.ts",
     "packages/streamdeck/src/debug.ts",
     "packages/streamdeck/src/demo.ts",
     "packages/streamdeck/src/dial.ts",
@@ -304,7 +344,6 @@
     "packages/streamdeck/src/touchStrip/typewriter.ts",
     "packages/streamdeck/src/voiceHost.ts",
     "packages/streamdeck/src/voicePanel.ts",
-    "packages/streamdeck/test/aiur-speech.test.ts",
     "packages/streamdeck/test/art/gradient.test.ts",
     "packages/streamdeck/test/art/icons.test.ts",
     "packages/streamdeck/test/art/segments.test.ts",
@@ -327,8 +366,6 @@
     "packages/streamdeck/test/audio/stt.test.ts",
     "packages/streamdeck/test/audio/tts.test.ts",
     "packages/streamdeck/test/audio/waveform.test.ts",
-    "packages/streamdeck/test/channel.test.ts",
-    "packages/streamdeck/test/commands.test.ts",
     "packages/streamdeck/test/controller.test.ts",
     "packages/streamdeck/test/debug.test.ts",
     "packages/streamdeck/test/demo.test.ts",
@@ -351,7 +388,6 @@
     "packages/streamdeck/test/mode.test.ts",
     "packages/streamdeck/test/rasterizer.test.ts",
     "packages/streamdeck/test/settings.test.ts",
-    "packages/streamdeck/test/support/deckReports.ts",
     "packages/streamdeck/test/surface.test.ts",
     "packages/streamdeck/test/touchStrip/agentDetail.test.ts",
     "packages/streamdeck/test/touchStrip/chatLog.test.ts",
@@ -506,6 +542,100 @@
         "evidence_file": "streamdeck-lifecycle-probe.json",
         "limits": "No physical USB or live daemon. Real Node missing-executable spawn confirms the monitor trigger; remaining collaborators are injected doubles. No independent skeptic review yet."
       }
+    },
+    {
+      "id": "nonelixir-web-06",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Send discards spoken text before delivery is accepted",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/controller.ts",
+          "lines": "743-749"
+        },
+        {
+          "path": "packages/streamdeck/src/channel.ts",
+          "lines": "413-420,444-472"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "lines": "416-422"
+        }
+      ],
+      "description": "sendTranscript optional-chains the channel call and then unconditionally clears the voice buffer. With channel=null during reconnect, no frame is sent and the only buffered text is discarded. With a connected channel, say refs are not tracked, so a server error or outcome_unknown reply has no callback and cannot preserve/recover the already-cleared message. main.ts retains the live grid on disconnect and voiceSession.dispose stops capture without clearing committed text, so the offline case is reachable with a retained Send affordance.",
+      "evidence": "streamdeck-channel-probe.json: encoded key input against the actual controller changes nonempty text to empty with a null channel. A say error frame against the actual channel generates zero callbacks, while an answer_command error invokes commandsError as a positive parsing control. Server reply_to_say explicitly returns errors and outcome_unknown.",
+      "recommendation": "Represent an outbound message as pending until a correlated server receipt, keep text and a stable message ID through disconnect/unknown outcomes, and expose failure without consuming the buffer. Reject offline sends visibly. Do not regenerate the message ID for a retry of the same intended message.",
+      "refactor_hint": "The channel API currently returns void for a durable delivery operation. Make submission, receipt and unknown outcome explicit in the device-control contract rather than relying on UI optimism.",
+      "effort": "M",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-channel-probe.json",
+        "limits": "Encoded HID input and synthetic socket replies against frozen source; injected voice/channel ports and extracted agentLess predicate. No renderer, hardware or live daemon. No independent skeptic review yet."
+      }
+    },
+    {
+      "id": "nonelixir-web-07",
+      "category": "state-truth",
+      "severity": "P2",
+      "title": "Implement shows QUEUED when no request was sent or a request failed",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/controller.ts",
+          "lines": "634-642,1093-1100"
+        },
+        {
+          "path": "packages/streamdeck/src/surface.ts",
+          "lines": "272"
+        },
+        {
+          "path": "packages/streamdeck/src/channel.ts",
+          "lines": "413-420,444-472"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "lines": "107-113"
+        }
+      ],
+      "description": "The Implement handler sets implementQueued after an optional channel call, even when the channel is null. The rendered key derives QUEUED from that flag. When connected, control replies are untracked and errors are ignored; the flag clears on any grid update rather than on an operation result. A physical press can therefore claim queued before any daemon acceptance, and during reconnect can claim it without a request at all.",
+      "evidence": "The controller probe presses Implement with channel=null and observes implementQueued=true. The channel probe sends implement then an error reply and observes no callback. The server explicitly returns queue success or failure, so a receipt exists but is not consumed.",
+      "recommendation": "Keep a sending state separate from accepted queue state, disable or visibly reject offline control attempts, and correlate the control reply to the ticket/action before rendering QUEUED. Cover daemon rejection and disconnect as well as successful method invocation.",
+      "refactor_hint": "Share an explicit command-result contract across physical and browser surfaces. Keep client intent separate from daemon state.",
+      "effort": "M",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-channel-probe.json",
+        "limits": "Encoded HID input and synthetic socket replies against frozen source; injected voice/channel ports and extracted agentLess predicate. No renderer, hardware or live daemon. No independent skeptic review yet."
+      }
+    },
+    {
+      "id": "nonelixir-web-08",
+      "category": "missing-behavior",
+      "severity": "P2",
+      "title": "Command history cannot advance beyond the server first page",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/controller.ts",
+          "lines": "819-830,879-884,1051-1060"
+        },
+        {
+          "path": "packages/streamdeck/src/channel.ts",
+          "lines": "350-357"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_commands.ex",
+          "lines": "20,34-39,75-83"
+        }
+      ],
+      "description": "The server defaults to eight history items and supplies has_next/next_cursor. The channel exposes commandsPage(cursor), but the controller never calls it: both knob turning and pressing only clamp or cycle within commandsPage.items.length. An eight-item first page has maximum local offset zero, so the control advertised as history paging cannot reach older Commands. Merely retaining the unused channel method does not provide paging.",
+      "evidence": "The probe gives the actual controller eight items, total 24 and a next cursor, then drives four cycles of dial turns and presses. It makes zero commandsPage requests and historyOffset stays zero. Repository search finds the controller method name only in its channel type, not an invocation.",
+      "recommendation": "Consume the opaque cursor when navigation reaches the loaded-page boundary, keep page/focus identity and a previous-page strategy, and distinguish loading/error from end-of-history. Test using the server default eight-item page plus a next cursor, not a single oversized in-memory page.",
+      "refactor_hint": "Document whether the client holds one server page or accumulated history. The present local-window and server-cursor contracts are both implemented but never connected.",
+      "effort": "M",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-channel-probe.json",
+        "limits": "Encoded HID input and synthetic socket replies against frozen source; injected voice/channel ports and extracted agentLess predicate. No renderer, hardware or live daemon. No independent skeptic review yet."
+      }
     }
   ],
   "unpromoted_observations": [
@@ -532,6 +662,18 @@
     {
       "topic": "USB startPoll failure",
       "disposition": "startInput runs outside the iface.claim try/catch. A synchronous startPoll exception may retain the opened handle. Need adapter-level reproduction and caller cleanup audit before promoting."
+    },
+    {
+      "topic": "Rejected channel join",
+      "disposition": "A synthetic join error causes neither closed notification nor socket close; subsequent controls remain pending. Source has no join/heartbeat acknowledgement deadline. Need deployment reachability and transport/server close behavior before asserting indefinite live failure."
+    },
+    {
+      "topic": "Command answer draft retention",
+      "disposition": "approveCommand clears dictation and selection before answer receipt, including a null-channel case after async key derivation. Related to finding 06, but the answer flow and focus races need their own composed probe before broadening its scope."
+    },
+    {
+      "topic": "History identity and refresh anchoring",
+      "disposition": "setCommands accepts page identity without matching focusedIdentifier; setLogs stores previousStarts after replacing eventStarts. Trace actual push ordering and sliding-window tests before promoting either candidate."
     }
   ]
 }

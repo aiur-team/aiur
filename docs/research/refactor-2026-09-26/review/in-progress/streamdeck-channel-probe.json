@@ -1,0 +1,45 @@
+{
+  "node": "v24.18.0",
+  "source_sha256": {
+    "src/controller.ts": "0c29d92d6a6b0934fd2ef2947c96c0aa71d8eb606b18892d8baddb99f0feead0",
+    "src/dial.ts": "e03767521756a71ea75d209aab9af9aed9f28dbe37f514302935068097b93f5f",
+    "src/input.ts": "e2784f3a743e22ec189ed775ea6c1b3c2dbd13d409c6d2fd03b8a685ac64ae68",
+    "src/channel.ts": "40ed38e3837768bbcf3fe64a60617e744f89c2b91dee877e3d964e5c53097452",
+    "src/aiur-speech.ts": "ecf1e846b5c3c30b4f68a1a2d44ab61f791f4608a50ccaaca39d3112034d6d12",
+    "src/commands.ts": "c6bf1ff7ae666890659794cb39a73ab4ca6ee3043d2b23c53306ca203ec5d33f",
+    "src/keys.ts": "b02b9d2a014fd1f14337d331dc6e8f4c8f67866cc69a004d9744110ba8c093c3",
+    "src/key-face-contract.ts": "c39d1af396a38821203b368d7e5316707272bd0800d8b870318d98e54c330baf",
+    "src/key-face-contract.json": "e6df4a2804358b7f475091860425b7255f6eb4c5ce4fd08a4a4d26b032e563cd",
+    "src/touchStrip/chatLog.ts": "db047a7ee15886dda09344b61160cd82ac4d1545c2ae579acf53ad78e1947af5",
+    "src/touchStrip/typewriter.ts": "4e6b24761e3b3322bf4f2d0fee9517ae837051fd9feeac8770a1ba0be96aa7d4",
+    "src/touchStrip/providerPanel.ts": "11d287449f9f1276c7135de1496bb27bf9ba5844cd8753527d2008ca83a35ed3",
+    "src/touchStrip/providerSegment.ts": "0ef4d063408f89e6c8f98f738d7473002caceaeec39c507e8c3a3c33efa07516",
+    "src/settings.ts": "966018caf4a3379af785095c319a0a7e28c3cfd759ed493550ce3c784799dec3",
+    "src/surface.ts": "d63779ec4ca653940344f16291f5b8ee945f841bc5bdaf0fd69055cd2a471197",
+    "test/support/deckReports.ts": "87af8264613ba78a49fa30a46f3c4ca4a32a6ffc7b594cf1e3633d32a2c6f773"
+  },
+  "ignored_replies": {
+    "control_error_callbacks": 0,
+    "say_error_callbacks": 0,
+    "answer_error_callback": "commandsError"
+  },
+  "rejected_join": {
+    "closed_callbacks": 0,
+    "socket_closes": 0,
+    "sent_frames": 1
+  },
+  "offline_controller": {
+    "message_before": "nonempty",
+    "message_after": "",
+    "has_transcript_after_send": false,
+    "implement_queued_without_channel": true
+  },
+  "history": {
+    "loaded_items": 8,
+    "total": 24,
+    "has_next": true,
+    "page_requests": 0,
+    "offset": 0
+  },
+  "limits": "Source modules with types removed and only agentLess extracted from surface.ts; renderer/native image code not executed. Actual controller consumes encoded HID reports with injected channel/voice ports. Channel uses a synthetic socket and token fetch. No browser, physical hardware or live daemon tested. Missing join timeout is inspected, not timed here."
+}

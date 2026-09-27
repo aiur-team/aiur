@@ -141,6 +141,16 @@ runtime consequences. Partial-unit findings total five. Next work is the channel
 controller, audio and rendering corpus plus remaining scripts/tests. Raw unit
 coverage is still 23/32; claim coverage remains 50/60.
 
+The channel/command pass adds nine complete reads (54/178; 124 paths remain).
+Three more P2 findings reproduce offline Send text loss, false Implement QUEUED
+state and missing server-cursor history navigation. The source probe also shows
+that `say`/`control` error replies are discarded, while answer-command errors
+reach their callback. The server already supplies acceptance/error receipts and
+history cursors; the client does not complete those contracts. Eight findings
+remain in the partial unit. Controller test coverage is partial, recorded in its
+coverage notes. Continue with audio/rendering and outstanding controller tests;
+do not equate transitively loaded probe dependencies with reviewed files.
+
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.
