@@ -2730,6 +2730,60 @@
       "recommendation": "Link evidence to its verified repository and revision; use a known appropriate branch only for intentionally moving references, and retain local text when no published destination exists.",
       "refactor_hint": "Share a source-reference contract carrying repository, revision and path across document renderers.",
       "limits": "Frozen instruction analysis; no measured broken-link population. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-42",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Offline grounding retains unverified landed claims without durable uncertainty",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-compound/references/grounding-validation.md",
+          "lines": "10-12"
+        },
+        {
+          "path": ".claude/skills/ce-compound/references/grounding-validation.md",
+          "lines": "54-60"
+        },
+        {
+          "path": ".claude/skills/ce-compound/references/grounding-validation.md",
+          "lines": "74-84"
+        },
+        {
+          "path": ".claude/skills/ce-compound/SKILL.md",
+          "lines": "179-179"
+        }
+      ],
+      "description": "The grounding reference classifies merge-state claims as unverifiable when remote/fallback evidence is unavailable, then instructs keeping them with an as-of qualifier while reporting degraded verification separately. A temporal qualifier does not state that the claim is unverified. The permanent document can thus retain a confident landed assertion without the uncertainty visible only in the run report. Previously verified historical claims are not the problem; the rule does not require that prior verification.",
+      "evidence": "Read the complete grounding contract, which explicitly says future agents trust the permanent document without rechecking. Parent extractor requires reachability for fixed-in assertions and otherwise pending wording; offline handling is the inconsistent exception. No false published claim observed.",
+      "recommendation": "Keep verification status and evidence date beside the durable claim; distinguish verified historical landing from unknown current merge state and use pending/unverified wording when evidence is absent.",
+      "refactor_hint": "Carry evidence state in durable artifacts and distinguish uncertainty from resolution.",
+      "limits": "Frozen-source contract review only; no document refresh, review workflow or external verification executed. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-43",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Residual concern contracts mix suppressed uncertainty and verified success",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-doc-review/references/subagent-template.md",
+          "lines": "33-43"
+        },
+        {
+          "path": ".claude/skills/ce-doc-review/references/subagent-template.md",
+          "lines": "73-73"
+        },
+        {
+          "path": ".claude/skills/ce-doc-review/references/review-output-template.md",
+          "lines": "75-81"
+        }
+      ],
+      "description": "The shared confidence rubric directs reviewers to suppress an unverifiable concern entirely when it cannot reach anchor50. The output template defines Residual Concerns as precisely concerns that could not reach anchor50. A third rule sends verified prior-round success observations into residual_risks. These instructions disagree about admission and mix unresolved risk with successful verification in one field.",
+      "evidence": "Re-read suppression, residual-section definition and prior-resolution exception together. No incorrect rendered report asserted. Physical R29/R30 placement remains unpromoted because those rules expressly apply during synthesis before mutation.",
+      "recommendation": "Define separate fields for evidenced residual risk, verification limitations and resolved checks; make reviewer admission and report rendering use the same definitions.",
+      "refactor_hint": "Carry evidence state in durable artifacts and distinguish uncertainty from resolution.",
+      "limits": "Frozen-source contract review only; no document refresh, review workflow or external verification executed. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3155,7 +3209,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidates03/10 reconciled.23 listed candidates remain unresolved, including partial45. Finish those, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidates17/19 reconciled.21 listed candidates remain unresolved. Continue reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3341,6 +3395,18 @@
       "status": "promoted",
       "finding": "skills-prompts-cont-41",
       "reason": "Both HTML reference sections mandate blob/main without verifying source revision; byte-identical copies establish one shared defect rather than two findings."
+    },
+    {
+      "id": "skills-prompts-candidate-17",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-42",
+      "reason": "Read the complete grounding contract, which explicitly says future agents trust the permanent document without rechecking. Parent extractor requires reachability for fixed-in assertions and otherwise pending wording; offline handling is the inconsistent exception. No false published claim observed."
+    },
+    {
+      "id": "skills-prompts-candidate-19",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-43",
+      "reason": "Re-read suppression, residual-section definition and prior-resolution exception together. No incorrect rendered report asserted. Physical R29/R30 placement remains unpromoted because those rules expressly apply during synthesis before mutation."
     }
   ],
   "coverage_validation": {
@@ -3353,14 +3419,12 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 19,
-    "unresolved_candidates": 23,
+    "terminal_dispositions": 21,
+    "unresolved_candidates": 21,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
       "skills-prompts-candidate-07",
-      "skills-prompts-candidate-17",
-      "skills-prompts-candidate-19",
       "skills-prompts-candidate-20",
       "skills-prompts-candidate-21",
       "skills-prompts-candidate-23",
