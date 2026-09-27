@@ -1565,6 +1565,76 @@
       "lines": 89,
       "read": "full",
       "assessment": "Full read. Preserve compact canonical source, ISO update date, answered optional sections and metric definitions. Template primary-persona duplication can conflict with interview secondary-persona distinction; low-impact editorial ambiguity, not promoted. No strategy output generated."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/SKILL.md",
+      "sha256": "d6dcc01f3f6cdbd6ada8eb31ff7923f70cea51969389095a4dc7a02c8baaf0da",
+      "lines": 164,
+      "read": "full",
+      "assessment": "Full read. Preserve config-only write authority, ordered write/read-back/upsert/cursor, lease-loss stop, shape-validated fix references, media retry bounds and machine/human plan regions. Follow up cross-checkout lease fencing, failed-item cursor barriers, retry selection, commit-before-release durability and merged-versus-behavioral-fix evidence. No sweep invoked."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/state-schema.md",
+      "sha256": "d4ddb2b8b79818366e5698f3235166fee0a8ba5e4b046444fb55ca0600c39acd",
+      "lines": 211,
+      "read": "full",
+      "assessment": "Full read. Preserve source-scoped identities, additive field preservation, atomic locked updates, explicit lease ownership and evidence-field downgrade. Engine guarantees presence rather than semantic validity of close evidence. Targeted engine read/probe confirms sensitive filtering covers body/quote only, retaining parent_summary; finding18. Repo-wide mutex claim needs distributed protocol evidence, not local flock."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/plan-template.md",
+      "sha256": "e7c5c92f75d6be1f382c1c3fd447945e0eb02723c5bb642ebe03796815f0f0e0",
+      "lines": 63,
+      "read": "full",
+      "assessment": "Full read. Preserve stable requirement identities, machine-owned regions, sensitive quote replacement and unrelated-plan rotation. Dated archive collision and removed R-ID reuse need verification; human notes intentionally excluded from reconciliation, not assumed consumed. No plan generated."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/model-tiers.md",
+      "sha256": "0adc166d45bc71f9604b2b7062ec35967ec2d5fc0fc3ee21e5a4a7a6e8923b49",
+      "lines": 9,
+      "read": "full",
+      "assessment": "Full read. Preserve capability-based tier choice, inherited fallback, same artifact/budget contracts for inline execution and judgment retained by parent. Tier description is not proof of model identity or capability."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/sources/email.md",
+      "sha256": "a0b73cff1075cfdc7289de84c78eb4bd695ca09a86281b199d5952ffa59fe03b",
+      "lines": 57,
+      "read": "full",
+      "assessment": "Full read. Preserve scoped mailbox read-only behavior, no outbound mail, Message-ID dedup, inclusive received-date cursor and explicit degraded capability. State-only acknowledgement versus permanent ack_deferred/cursor hold needs contract reconciliation; no mailbox read."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/sources/github-issues.md",
+      "sha256": "84369bb4551ecab47a11e726094f878618ac0f04ff81fe580fb159b7a9b8fb35",
+      "lines": 59,
+      "read": "full",
+      "assessment": "Full read. Preserve config-bound labels, inclusive update cursor, PR exclusion, explicit truncation and untrusted-content boundary. Label presence permits human actor while describing identity-scoped receipt; auth scope alone does not establish repo write permission. Example issue-edit omits explicit repo despite seeded target; extend existing target-identity candidate. No GitHub call."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/sources/slack.md",
+      "sha256": "833872155e6478bbbbecf44d27a5dba3b9877d881ce70654ef6348eef8078aac",
+      "lines": 61,
+      "read": "full",
+      "assessment": "Full read. Preserve identity-specific reactions, source-scoped per-reply identity and explicit read/write degradation. Parent summary is requested but not covered by body/quote-only redaction. Parent-in-range reply fetching does not specify discovery of new replies to older parents; setup does not capture required bot/app identity. No Slack call."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/agents/media-analyzer.md",
+      "sha256": "10b0cdeea2b0e5b582d16f444c33125e9ca0045410f2520a4225aa0aa45f06c6",
+      "lines": 53,
+      "read": "full",
+      "assessment": "Full read. Preserve always-no-transcribe for sensitive media, abstraction of private frame content, observation-based findings, explicit uncertain fixed-state and no project mutation. This narrows recording candidate38 for the sweep caller. Multiple recordings/output paths and inferred fixed-on-main evidence need validation before closure."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/subagent-template.md",
+      "sha256": "b49fe7bf22170099189097b48f9f75f6fcca8ab9a560fabdf0185413327ca372",
+      "lines": 60,
+      "read": "full",
+      "assessment": "Full read. Preserve explicit item/source/sensitivity/scratch identity, analyzer path passing, untrusted recording boundary and compact output. Analyzer output writes are explicitly permitted despite single-finding-file shorthand; do not promote that as an authority contradiction."
+    },
+    {
+      "path": ".claude/skills/ce-sweep/references/interview.md",
+      "sha256": "bc6129c66596ebd8e3586ebcca63dcd1b63b98299e699a1d3e46bc37702a9c8a",
+      "lines": 204,
+      "read": "full",
+      "assessment": "Full read. Preserve per-source literal standing consent, read-only decline, explicit sensitivity, machine-local/shared topology disclosure, mapped legacy cursors, unrelated config preservation and headless schedule handoff. Sensitive promise of only title/url/id/status conflicts with arbitrary preserved fields such as parent summary. Bot/app reaction identity absent from captured Slack config; follow-up. No interview or scheduling executed."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1969,6 +2039,31 @@
       "recommendation": "Require matching baseline evidence before declaring pre-existing; otherwise investigate the dependency path or return an unresolved validation result without asserting provenance.",
       "refactor_hint": "Carry validation evidence and baseline identity as structured data instead of inferring cause from changed-file overlap.",
       "limits": "Instruction-level defect; no production tests or PR workflow executed. Cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-18",
+      "severity": "P2",
+      "category": "privacy",
+      "title": "Sensitive sweep items retain requested parent-thread summaries",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-sweep/references/sources/slack.md",
+          "lines": "23"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/references/interview.md",
+          "lines": "73-81"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/scripts/sweep-state.py",
+          "lines": "442-458"
+        }
+      ],
+      "description": "Slack mapping asks for a parent summary on each reply. Setup promises sensitive items retain only titles, URLs, IDs and status, but the engine preserves arbitrary fields and removes only body/quote. A sensitive parent summary can therefore survive in committed state.",
+      "evidence": "Actual frozen engine subprocess probe in a temporary directory: acquire lease, upsert sensitive=true with synthetic body, quote and parent_summary. Both commands return OK; body/quote disappear and parent_summary remains. The connector does not prescribe the summary field name; any extra field has the same retention behavior.",
+      "recommendation": "Define an explicit sensitive-safe persisted schema; exclude parent/context summaries and derived content unless separately sanitized under that contract. Align setup promises and plan generation with the same field policy.",
+      "refactor_hint": "Centralize privacy projection at the persistence boundary instead of relying on field-name conventions across connectors.",
+      "limits": "Synthetic engine behavior confirmed, not an observed private disclosure. No source service called. No matching ce-sweep finding found in current raw JSON reports; final cross-unit semantic dedup remains."
     }
   ],
   "preserve": [
@@ -2194,7 +2289,17 @@
     "Full read. Preserve no-op update signals, cleanup bounds and dependence-aware concurrency. TOCTOU advice still subordinate to behavior/trust-boundary preservation; separate resource existence from authorization and ownership checks before proposing removals.",
     "Full read. Preserve strategy/requirements/execution separation, optional focus, existing-section preservation and bounded user interview. Hardcoded current-year note will age; use actual date already required by template. Not executing an interview or changing STRATEGY.md.",
     "Full read. Preserve falsifiable user problem, causal connection to approach, defined metrics/sources, limited pushback and optional externally meaningful milestones. One-primary-persona and 2-4-track heuristics are generic editorial preferences, not grounds to remove either first-class Aiur operating mode.",
-    "Full read. Preserve compact canonical source, ISO update date, answered optional sections and metric definitions. Template primary-persona duplication can conflict with interview secondary-persona distinction; low-impact editorial ambiguity, not promoted. No strategy output generated."
+    "Full read. Preserve compact canonical source, ISO update date, answered optional sections and metric definitions. Template primary-persona duplication can conflict with interview secondary-persona distinction; low-impact editorial ambiguity, not promoted. No strategy output generated.",
+    "Full read. Preserve config-only write authority, ordered write/read-back/upsert/cursor, lease-loss stop, shape-validated fix references, media retry bounds and machine/human plan regions. Follow up cross-checkout lease fencing, failed-item cursor barriers, retry selection, commit-before-release durability and merged-versus-behavioral-fix evidence. No sweep invoked.",
+    "Full read. Preserve source-scoped identities, additive field preservation, atomic locked updates, explicit lease ownership and evidence-field downgrade. Engine guarantees presence rather than semantic validity of close evidence. Targeted engine read/probe confirms sensitive filtering covers body/quote only, retaining parent_summary; finding18. Repo-wide mutex claim needs distributed protocol evidence, not local flock.",
+    "Full read. Preserve stable requirement identities, machine-owned regions, sensitive quote replacement and unrelated-plan rotation. Dated archive collision and removed R-ID reuse need verification; human notes intentionally excluded from reconciliation, not assumed consumed. No plan generated.",
+    "Full read. Preserve capability-based tier choice, inherited fallback, same artifact/budget contracts for inline execution and judgment retained by parent. Tier description is not proof of model identity or capability.",
+    "Full read. Preserve scoped mailbox read-only behavior, no outbound mail, Message-ID dedup, inclusive received-date cursor and explicit degraded capability. State-only acknowledgement versus permanent ack_deferred/cursor hold needs contract reconciliation; no mailbox read.",
+    "Full read. Preserve config-bound labels, inclusive update cursor, PR exclusion, explicit truncation and untrusted-content boundary. Label presence permits human actor while describing identity-scoped receipt; auth scope alone does not establish repo write permission. Example issue-edit omits explicit repo despite seeded target; extend existing target-identity candidate. No GitHub call.",
+    "Full read. Preserve identity-specific reactions, source-scoped per-reply identity and explicit read/write degradation. Parent summary is requested but not covered by body/quote-only redaction. Parent-in-range reply fetching does not specify discovery of new replies to older parents; setup does not capture required bot/app identity. No Slack call.",
+    "Full read. Preserve always-no-transcribe for sensitive media, abstraction of private frame content, observation-based findings, explicit uncertain fixed-state and no project mutation. This narrows recording candidate38 for the sweep caller. Multiple recordings/output paths and inferred fixed-on-main evidence need validation before closure.",
+    "Full read. Preserve explicit item/source/sensitivity/scratch identity, analyzer path passing, untrusted recording boundary and compact output. Analyzer output writes are explicitly permitted despite single-finding-file shorthand; do not promote that as an authority contradiction.",
+    "Full read. Preserve per-source literal standing consent, read-only decline, explicit sensitivity, machine-local/shared topology disclosure, mapped legacy cursors, unrelated config preservation and headless schedule handoff. Sensitive promise of only title/url/id/status conflicts with arbitrary preserved fields such as parent summary. Bot/app reaction identity absent from captured Slack config; follow-up. No interview or scheduling executed."
   ],
   "follow_up_candidates": [
     {
@@ -2243,7 +2348,7 @@
     },
     {
       "id": "skills-prompts-candidate-13",
-      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete. Also check ce-debug Phase0 org/repo#N parsing followed by number-only gh issue view; URL path explicitly preserves target. Plan supports cross-repo target investigation/output but issue-creation gh example omits --repo; confirm caller cwd binding before promotion."
+      "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete. Also check ce-debug Phase0 org/repo#N parsing followed by number-only gh issue view; URL path explicitly preserves target. Plan supports cross-repo target investigation/output but issue-creation gh example omits --repo; confirm caller cwd binding before promotion. Sweep GitHub connector also seeds owner/repo but its label-edit example omits explicit repository selection."
     },
     {
       "id": "skills-prompts-candidate-15",
@@ -2332,10 +2437,22 @@
     },
     {
       "id": "skills-prompts-candidate-38",
-      "question": "Recording skills say raw/audio local-only by default but analyzer transcribe_media uploads media through curl when OPENAI_API_KEY exists, unless --no-transcribe. Clarify retention/commit versus external processing; inspect caller authorization and existing security-unit findings before promoting. Quick-to-extensive rerun may retranscribe; temp cleanup and portable evidence availability also need explicit contracts. Targeted script lines301-352/1048-1055 read; no API call."
+      "question": "Recording skills say raw/audio local-only by default but analyzer transcribe_media uploads media through curl when OPENAI_API_KEY exists, unless --no-transcribe. Clarify retention/commit versus external processing; inspect caller authorization and existing security-unit findings before promoting. Quick-to-extensive rerun may retranscribe; temp cleanup and portable evidence availability also need explicit contracts. Targeted script lines301-352/1048-1055 read; no API call. Sweep media-analyzer explicitly mandates --no-transcribe for sensitive items, so do not generalize the standalone caller ambiguity to that guarded path."
+    },
+    {
+      "id": "skills-prompts-candidate-39",
+      "question": "Sweep fetch completeness: Slack retrieves replies for parents in range without specifying new replies to older parents; bot/app ack identity is required but not captured in setup. Failed early ack must block later cursor advancement; engine cursor guard only checks referenced item existence, not earlier deferred items. Capped fetch ordering/pagination and email permanent-deferred cursor behavior need end-to-end contract verification."
+    },
+    {
+      "id": "skills-prompts-candidate-40",
+      "question": "Sweep distributed lease claim: local timestamp refresh/ownership checks do not observe a takeover in another checkout; initial push does not fence external writes indefinitely. Wrap-up commits/pushes before run-record/release, leaving those later changes unpublished. Inspect actual multi-checkout behavior before promoting runtime findings; no remote branch manipulation performed."
+    },
+    {
+      "id": "skills-prompts-candidate-41",
+      "question": "Sweep closure: merge ancestry or mergedAt/baseRefName proves landing, not that the claimed fix addresses the reported symptom. PR command omits merge SHA though closed state requires it. Verify target repository, default-head freshness, behavior evidence, existing-closeout idempotence and scheduled retries of already-ingested needs_analysis items. Archive filename collision and stable R-ID allocation also need reconciliation."
     }
   ],
-  "next": "Continue ce-sweep markdown. Coverage 223/250 full files, 33081/36169 lines. Twelve provisional P2 and five P3 findings; thirty-four follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-test-browser markdown. Coverage 233/250 full files, 34022/36169 lines. Thirteen provisional P2 and five P3 findings; thirty-seven follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",

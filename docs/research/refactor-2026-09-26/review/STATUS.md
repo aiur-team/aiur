@@ -734,3 +734,7 @@ Read six complete markdown files; coverage 210/250 files, 32,180/36,169 lines. A
 ### Skills/prompts: recording evidence and behavior preservation
 
 Read thirteen complete recording/setup/simplification/strategy markdown files; coverage 223/250 files, 33,081/36,169 lines. Preserve observed/inferred distinction, unknown source mapping, exact behavioral equivalence, trust-boundary checks and strategy/execution separation. Added recording local-retention versus remote-processing candidate after targeted analyzer read; extended diff-baseline question. No new finding promoted. All 223 hashes/line counts verified. No media processing, API request, setup/config change, reviewer dispatch or production edit. Raw units remain28/32; next ce-sweep.
+
+### Skills/prompts: feedback sweep contracts
+
+Read ten complete sweep markdown files; coverage 233/250 files, 34,022/36,169 lines. Probed actual frozen state engine with synthetic sensitive content: body/quote removed, parent_summary retained. Recorded provisional P2 against requested Slack context and setup privacy promise. Added fetch/cursor, distributed lease and closure-evidence questions; sensitive sweep media explicitly disables transcription, narrowing prior candidate. All 233 hashes/line counts verified. No source API, message, real recording, shared-branch experiment or production change. Raw units remain28/32; next browser-testing skills.
