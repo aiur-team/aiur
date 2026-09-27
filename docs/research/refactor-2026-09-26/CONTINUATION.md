@@ -1771,3 +1771,7 @@ Read model_label, mount, new_binding, non_negative, parse_timestamp and paused?:
 ### Name duplication: query and mutation boundaries
 
 Read print_human, query, remove_label, replace, resume_agent and retire: 43 literal entries across six families. Shared GraphQL envelope construction and resume override selection are scoped candidates; preserve CLI source evidence, label-removal idempotence/write-through, replacement authority, receipts and retirement lifetime. Name triage now 202 families/4468 entries, leaving 1478 cross-module names. Raw findings and skeptic counts are unchanged; no runtime completion or saving is claimed.
+
+### Name duplication: turn execution and sanitization boundaries
+
+Read row, run_turn, safe_reason and sanitize: 43 literal entries across four families. Existing app-server adapter sharing retains pause and account-generation behavior. Equivalent existing-atom decoders and path-character replacement are scoped candidates; preserve source health, provenance and sink-specific validation. Name triage now 206 families/4511 entries, leaving 1474 cross-module names. Raw findings and skeptic counts are unchanged; no runtime delivery or complete sanitization guarantee is claimed.

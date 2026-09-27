@@ -4,41 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "643c551a685bd4cf3130548f0dd1c329b9823fe62b9680609002f5bdcec0e223"
+    "name_triage": "adc8e5ee50977b6694d299f2331168402e3c23a680cdd8ea8173f5f90d9215d0"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 202,
-    "remaining_cross_module_names": 1478,
-    "remaining_literal_entries": 5800
+    "reviewed_cross_module_names": 206,
+    "remaining_cross_module_names": 1474,
+    "remaining_literal_entries": 5757
   },
   "families": [
-    {
-      "name": "row",
-      "clauses": 6,
-      "modules": 6,
-      "summed_source_span_lines": 147
-    },
-    {
-      "name": "run_turn",
-      "clauses": 9,
-      "modules": 6,
-      "summed_source_span_lines": 75
-    },
-    {
-      "name": "safe_reason",
-      "clauses": 12,
-      "modules": 6,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "sanitize",
-      "clauses": 16,
-      "modules": 6,
-      "summed_source_span_lines": 95
-    },
     {
       "name": "start_session",
       "clauses": 6,
