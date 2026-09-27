@@ -422,9 +422,21 @@
       "sha256": "5e47823b6ec91a78d283cc69be5a5516e487356a012689621eb29aa875667716",
       "lines": 1004,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/alerts_test.exs",
+      "sha256": "44bc2d51966542f0e2c60b668834dc871a16f7338798ac8ba0e35b0444dcf9aa",
+      "lines": 1388,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_ci_lifecycle_test.exs",
+      "sha256": "fca03ff702ec746fb3cbcc687db4e29ff67a8bf995dc7220f62de8d49fe55fb6",
+      "lines": 1733,
+      "read": "full"
     }
   ],
-  "scope_note": "70 complete file reads, 18241 lines. Operator timeout, provider probe and dynamic tool tests reviewed as source. Extended the existing worker-cleanup probe to a second fixture; both extracted workers survive their actual normal-exit cleanup and terminate under the kill control. No full suite, live application, GitHub operation or TUI execution. Five manifest files remain.",
+  "scope_note": "72 complete file reads, 21362 lines. Alerts and CI lifecycle source reviewed, including helper wiring and evidence limits. Isolated extracted-assertion probes demonstrate selective-receive ordering and missing-audit-event gaps with rejecting controls; no application boot, full suite, live GitHub or TUI execution. Three manifest files remain.",
   "findings": [
     {
       "id": "tests-1a-cont-01",
@@ -484,6 +496,23 @@
       "recommendation": "Own worker probes under the test supervisor or implement a stop protocol and monitor their exit; verify teardown and restart fixtures observe DOWN before proceeding.",
       "refactor_hint": "Package integration fixtures need explicit process ownership and completion barriers, including fake workers; stopping the orchestrator does not establish ownership of an independently spawned worker.",
       "limits": "This isolates the actual helper and cleanup expression, not a full ExUnit run or production controller. No suite-wide process count, performance degradation or production delivery defect is claimed."
+    },
+    {
+      "id": "tests-1a-cont-04",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Audit ordering assertion accepts a missing handled event",
+      "locations": [
+        {
+          "path": "src/test/aiur/decision_revision_store_test.exs",
+          "lines": "564-568"
+        }
+      ],
+      "description": "The supersession test finds the revision and follow_up_handled audit indexes, then compares them without asserting that both were found. With a present revision and absent handled event, Elixir term ordering makes an integer index less than nil, so the ordering assertion passes.",
+      "evidence": "tooling/decision_order_oracle_probe.exs extracts the two index expressions and comparison from the frozen test. A valid ordered audit and an audit missing follow_up_handled both pass. A control requiring integer indexes passes the valid audit and rejects the missing event.",
+      "recommendation": "Assert that both matching audit events exist before comparing positions, and correlate the handled event to the superseded action. Retain the separate restart-repair count check.",
+      "refactor_hint": "Durable lifecycle tests must constrain event presence as well as ordering; projection state and resolver calls alone cannot establish the persisted audit transition.",
+      "limits": "This evaluates the extracted audit oracle against supplied records and a minimal event struct. It does not show that the full test passes against a production mutation, nor allege an actual missing production event. Earlier state and resolver assertions constrain additional behavior."
     }
   ],
   "preserve": [
@@ -544,7 +573,13 @@
     "The timeout fixture's delayed resume helpers use a 225 ms sleep around a 150 ms caller timeout, so those two timing windows are scheduler-dependent. The AgentChat case temporarily unregisters and restores the application-owned controller name; serial case execution does not stop unrelated application processes. These limits are not independently reproduced flakes.",
     "ProviderMeterProbe tests preserve session-close attempts, crash-versus-timeout/transport causes, per-window publication, meter observation for credentialed disabled providers and no-request behavior for keyless disabled providers. Session agents, usage APIs and balance transports are injected; assertions establish adapter/projection contracts rather than current external service behavior.",
     "Balance probe fixtures use private baseline files and distinguish first-seed dollar-only data, configured initial deposits, persisted baseline reseeding after top-up, resumed spend measurement, failed baseline writes and malformed/missing balances without fabricated zero credits. The exhausted-balance assertion uses == 100.0, which compares numeric value without independently enforcing float type; no new precision or billing claim is made.",
-    "DynamicTool covers schema advertising, legacy/raw/string and atom-key argument forms, GraphQL body-preserving errors, injected verified-review outcomes, event allowlist validation and dependency errors. Reserved alert scopes are rejected by an injected emitter in that fixture; it verifies error mapping rather than the real emitter's scope enforcement. Subscription/publisher closures do not establish actual broker routing or delivery."
+    "DynamicTool covers schema advertising, legacy/raw/string and atom-key argument forms, GraphQL body-preserving errors, injected verified-review outcomes, event allowlist validation and dependency errors. Reserved alert scopes are rejected by an injected emitter in that fixture; it verifies error mapping rather than the real emitter's scope enforcement. Subscription/publisher closures do not establish actual broker routing or delivery.",
+    "Alerts tests preserve central/workspace persistence and deduplication, repeated takeover collapse, resolution/refire cycles, suppressed resolution publication, typed stage observations and configurable sound mapping. These assert persisted feed records and Exchange events, not default ExecutorListener receipt; file-tail watcher and direct publisher coverage do not close the default routing gap.",
+    "Alert teardown explicitly monitors and awaits controller DOWN before removing state, a useful counterexample to the independently leaking worker fixtures. Several eventually assertions reinject signals and inspect whole-log substrings rather than correlated rows; legacy unconfirmed control fixtures are distinct from generation-confirmed pause/resume. Fake-player success and platform command selection are not audible playback verification.",
+    "CiLifecycle tests preserve displaced-result rejection, local budget holds without REST fallback, genuine upstream rate-limit fallback, shared cache retention, tracker-write-before-resume, failure-side-effect suppression, approved-head identity and explicit operator/usage pause causes. Timers are token-correlated, rearmed on failed writes or live fences and ignored when stale; missing active workers remain a separate activation question.",
+    "The CI recorder receives generic messages and stamps their arrival positions before forwarding them; numbered assertions therefore constrain observed tracker/event/queue/resume ordering instead of merely using selective receives. Its sync marker bounds messages from that sender, not every possible future asynchronous emitter. poll_ci also explicitly invokes terminal routing through a helper after polling, so these tests do not independently prove the live orchestrator wires that transition.",
+    "Parked-ready and approved-green-draft attentions have distinct disappearance policies: parked readiness resolves on departure or an open-PR miss, while draft stall remains latched across transient misses, missing approval and temporary poll-set departure, resolving on a known disappearance or ready transition. Restart deduplication is supplied by an injected loader, not an actual durable-ledger restart.",
+    "CI fixtures use private state and injected GitHub/alert callbacks; they are not live GitHub, provider, deployment, dashboard or TUI verification. Existing two-element negative resume/pause patterns deserve the same generation-aware assertion correction identified in tests-1b-cont-06; no actual forbidden resume was demonstrated here."
   ],
   "cross_references": [
     {
@@ -605,6 +640,15 @@
       ],
       "finding": "The workspace file-tail watcher has its own resolution/replay tests. Its coverage does not establish that default ExecutorListener topic subscriptions receive every attention or resolution.",
       "related_finding": "tests-1b-cont-01"
+    },
+    {
+      "path": "src/test/aiur/decision_attention_test.exs",
+      "lines": [
+        130,
+        137
+      ],
+      "related_finding": "tests-1b-cont-07",
+      "finding": "Extracted projected/alerted selective receives accept reverse arrival order. Generic first-message control rejects reversal and accepts correct order. Group with the existing selective-receive ordering family rather than count another independent defect. Other payload/subscription assertions and persistence-failure coverage remain intact; no production emitter mutation was run."
     }
   ],
   "follow_up_candidates": [
@@ -625,28 +669,10 @@
       ],
       "status": "unverified hypothesis",
       "question": "Unlinked watcher cleanup occurs only after two assertions; an early assertion failure may leave its infinite sleeper alive. Check suite lifecycle and demonstrate the failure path before promoting a leak finding; successful-path cleanup exists."
-    },
-    {
-      "path": "src/test/aiur/decision_attention_test.exs",
-      "lines": [
-        108,
-        139
-      ],
-      "status": "unverified hypothesis",
-      "question": "The persistence-before-alert test uses selective receives for projected then alerted messages and checks subscription only after completion. Compare with the existing selective-receive ordering finding; test a reordered implementation or extracted assertion sequence before adding another finding. The separate persistence-failure test does constrain failed projection side effects."
-    },
-    {
-      "path": "src/test/aiur/decision_revision_store_test.exs",
-      "lines": [
-        530,
-        585
-      ],
-      "status": "unverified hypothesis",
-      "question": "The durable supersession ordering assertion compares two Enum.find_index results without asserting integer presence. Determine whether omission of follow_up_handled can pass this test while the resolver still emits; distinguish this local audit-order oracle from the separate restart-repair test's explicit count."
     }
   ],
   "next": [
-    "Read the remaining five files: alerts, core, github_client, orchestrator_ci_lifecycle and orchestrator_deactivate.",
-    "Verify ordering and cleanup hypotheses before unit closure; deduplicate fixture defects and keep external-transport claims bounded."
+    "Read the remaining three files: core, github_client and orchestrator_deactivate.",
+    "Resolve the remaining isolation/cleanup hypotheses; consolidate shared assertion families before unit closure."
   ]
 }
