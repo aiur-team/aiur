@@ -1250,3 +1250,7 @@ Read log_context, mark_provider_cleanup_unknown, maybe_reason, measurement?, mem
 ### Name duplication: normalization domains
 
 Read new_entry, new_hidden_window, non_negative_integer, normalize_actor, normalize_answer, normalize_condition, normalize_generation and normalize_kind: 44 literal entries across eight families. Preserve unknown/error/default distinctions, launch environment and parser input domains. Actor answer/event limits differ (200/256); CLI visible conditions exclude stuck. Positive-generation normalizers match. Read actor-kind/optional-field/key helpers and condition vocabulary/aliases. Name triage now 501 families/6486 entries, leaving 1179 cross-module names. Raw findings and skeptic counts are unchanged; no complete authorization, bootstrap or generation-validity guarantee is added.
+
+### Name duplication: snapshot authority and observation
+
+Read normalize_snapshot, notification_item, notification_method, number, observe_rate_limits, operator_message_status, orchestrator and ordering: 36 literal entries across eight families. Transcript notification extraction already shares MapAccess; checked aliases and its truthy atom/string fallback. Preserve snapshot authority assumptions, missing numeric evidence, rate-limit identity association, failed-before-delivered status and query validation boundaries. Name triage now 509 families/6522 entries, leaving 1171 cross-module names. Raw findings and skeptic counts are unchanged; no complete snapshot authority, delivery or freshness guarantee is added.

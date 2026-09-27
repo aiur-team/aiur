@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "6eeffd5256400ca62e485b36adcc5ad09a61a701bb92a20b695b0c8c3fc96601"
+    "name_triage": "f623343bfaf5d97c8acfcbbe8cd1f1e36c1a2a6355a2e6d6677d424b8fa1d42a"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 501,
-    "remaining_cross_module_names": 1179,
-    "remaining_literal_entries": 3782
+    "reviewed_cross_module_names": 509,
+    "remaining_cross_module_names": 1171,
+    "remaining_literal_entries": 3746
   },
   "families": [
-    {
-      "name": "normalize_snapshot",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 47
-    },
-    {
-      "name": "notification_item",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "notification_method",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "number",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "observe_rate_limits",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "operator_message_status",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "orchestrator",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "ordering",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 4
-    },
     {
       "name": "owner",
       "clauses": 3,
