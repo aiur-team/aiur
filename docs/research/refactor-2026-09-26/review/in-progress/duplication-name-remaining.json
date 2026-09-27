@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "62903baf2fee900ec57f65e29d64f43f3cf3606c949cef36adfc74b21b54ad0e"
+    "name_triage": "8a846669ec3f455ee36f08989ea5d1da10072b5a9bd9b131c9688b55ff3d105c"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 301,
-    "remaining_cross_module_names": 1379,
-    "remaining_literal_entries": 4908
+    "reviewed_cross_module_names": 307,
+    "remaining_cross_module_names": 1373,
+    "remaining_literal_entries": 4877
   },
   "families": [
-    {
-      "name": "ensure_directory",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 30
-    },
-    {
-      "name": "envelope",
-      "clauses": 6,
-      "modules": 4,
-      "summed_source_span_lines": 101
-    },
-    {
-      "name": "event_id",
-      "clauses": 7,
-      "modules": 4,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "events",
-      "clauses": 6,
-      "modules": 4,
-      "summed_source_span_lines": 34
-    },
-    {
-      "name": "failed",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "fetch_issue_states_by_ids_conditional",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 31
-    },
     {
       "name": "filter",
       "clauses": 8,

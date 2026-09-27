@@ -1142,3 +1142,7 @@ Read comment_body, configured_repository, confirm, correlation, decision_id and 
 ### Name duplication: demand and diagnostic evidence
 
 Read demand, derive, detail, diagnostics, digest and dump: 40 literal entries across six families. Identify matching full SHA-256 mechanics and existing decision-query reuse while preserving monitored demand, attribution, diagnostic meaning, truncated identity and accounting serialization. Name triage now 301 families/5360 entries, leaving 1379 cross-module names. Raw findings and skeptic counts are unchanged; no runtime correctness, privacy guarantee or saving is claimed.
+
+### Name duplication: event and capability boundaries
+
+Read ensure_directory, envelope, event_id, events, failed and fetch_issue_states_by_ids_conditional: 31 literal entries across six families. Identify identical support-directory guards and existing conditional-fetch delegation while preserving path policy, measurement envelopes, event validation, recovery reads and failure evidence. Name triage now 307 families/5391 entries, leaving 1373 cross-module names. Raw findings and skeptic counts are unchanged; no path-safety proof, cache hit rate or saving is claimed.
