@@ -902,3 +902,7 @@ Read all 28 refresh and 33 observe definitions/declarations. Separate cast accep
 ### Name duplication: write mechanics and durability policy
 
 Read all 24 write definitions/declarations in 19 modules and complete Fs. Existing atomic replacement is a sharing point, but callers differ in file versus recovery syncing, permissions, bounds, error mapping, cleanup, memo invalidation and append ownership. ModelDiscovery invalidates its memo even when rename returns an error; preserve or explicitly revise that behavior in any consolidation. Name triage now 30 families/928 literal entries. No crash-durability certification, new defect count or savings claim; remaining sweep stays open.
+
+### Name duplication: requests and source attribution
+
+Read all 24 request and 28 source definitions/declarations. Preserve control-intent idempotency, origin and credential identity, transport/concurrency policy, provider headers and domain error envelopes. Source helpers describe distinct health, disclosure, pricing and accounting contracts; common names do not justify one representation. Name triage now 32 families/980 literal entries, not 32 completed raw review units. Remaining sweep and transitive verification stay open; no new defect or savings count.
