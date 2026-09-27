@@ -1210,3 +1210,8 @@ All 75 manifest files are now fully read: 35,287 lines. Checked every file hash 
 ### tests-1a reset cleanup scope checkpoint
 
 37 full reads, 4,374 lines. Added decision answer/log and shard/support/environment/reset tests. Confirmed P1 cleanup scope: the reset test removes the shared aiur-workspaces parent, deleting an unrelated sibling in an isolated sentinel probe; fixture-only control preserves it. Probe extracts the frozen cleanup expression and refuses shared TMPDIR roots. Initial probe attempts failed before evaluation (sigil delimiter syntax, then formatting non-expression AST nodes); corrected matching evaluates only File.rm_rf! calls and the successful run removed its private fixtures. No shared temp tree, actual reset, production mutation or full suite was exercised. Config/helper cross-references distinguish per-VM state isolation from unchanged TMPDIR. The unit remains partial, 38 files remaining; raw-unit completion stays 26/32.
+
+
+### tests-1a transcript oracle checkpoint
+
+44 full reads, 5,924 lines. Added credential gate, transcript/history, RTK, meter projection, log configuration and activity tests. Confirmed P2 boolean-oracle gap: exact assertions accept string-false and missing-payload records; boolean-sensitive control rejects both. Supporting IssueLog source shows bounded edit projection drops the fixture's truncated:false before serialization, while the serializer itself correctly handles booleans. Portable assertion probe added; no writer-suite run or production mutation. Preserve gate-versus-bind, signal-versus-partition-restart, retained-snapshot-versus-session-end and projection-versus-store-restart evidence limits. Unit remains partial with 31 files remaining; overall 26/32.

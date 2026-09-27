@@ -532,3 +532,10 @@ tests-1a advances to 37/75 files (4,374 lines). One P1 finding is recorded
 in its partial ledger: reset-test cleanup deletes a common workspace parent.
 An isolated exact-expression probe deletes a sibling sentinel; a fixture-only
 control preserves it. No production data loss or full-suite execution is claimed.
+
+
+tests-1a now covers 44/75 files (5,924 lines). The partial ledger has one
+P1 cleanup finding and one P2 transcript assertion finding. The latter is
+verified with extracted assertions and a source check that the fixture field
+is dropped before serialization; production boolean encoding is not alleged
+broken. Overall raw-unit coverage remains 26/32.

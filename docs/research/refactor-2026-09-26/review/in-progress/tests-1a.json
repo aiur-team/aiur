@@ -224,9 +224,51 @@
       "sha256": "6223ddd75371a79009f18fe2cb69207256d562445a60f2d97cbf3713d68cc7d6",
       "lines": 537,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/http_server_credential_gate_test.exs",
+      "sha256": "7fd24510959e29be3c0b254916be3750876cddbb65da5f714701e233ad1261da",
+      "lines": 154,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/issue_log_transcript_test.exs",
+      "sha256": "51e997d8cc70cef36a2bbe67dc123631b9b9312a6ec0e9e9b843ccbcc324391d",
+      "lines": 151,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/rtk_test.exs",
+      "sha256": "dbb00ec8f2112d8ab15a473866bd134ba6df857cc24a6189c28b12d13d547097",
+      "lines": 155,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/issue_log_event_history_test.exs",
+      "sha256": "fbf346f59ea1a3bf568cfa8e9d89d37bf339c01f26d716cd55d4c27d6f4fc981",
+      "lines": 327,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/provider_meter_projection_test.exs",
+      "sha256": "13d44c7d2ea7b8f7ae10b47f4ebba41c98ec470f1b9309827a4e0012863b75fb",
+      "lines": 262,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/log_file_test.exs",
+      "sha256": "dbcf647294a0355d43fde3ac7823182857d5a20273c4673f685e8893e8ed2051",
+      "lines": 285,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/ticket_activity_test.exs",
+      "sha256": "50dee8ee312fab1f0e119564d7248b2721ef76dd0a5fa157e0b5b2c718530dfb",
+      "lines": 216,
+      "read": "full"
     }
   ],
-  "scope_note": "37 complete file reads, 4374 lines. The reset cleanup expression was extracted and executed only inside a private caller-owned TMPDIR, with a sibling sentinel and a narrow-cleanup control. No full suite, actual reset workflow, live application or TUI execution. 38 manifest files remain.",
+  "scope_note": "44 complete file reads, 5924 lines. Earlier reset cleanup probe and new extracted transcript-boolean assertion probe ran in isolation. No full suite, actual reset workflow, live application or TUI execution. 31 manifest files remain.",
   "findings": [
     {
       "id": "tests-1a-cont-01",
@@ -244,6 +286,27 @@
       "recommendation": "Allocate a unique parent beneath the system temp root that contains the required aiur-workspaces path segment, then remove only that owned parent. Alternatively remove only the fixture path and assert a sibling sentinel survives teardown.",
       "refactor_hint": "Test fixtures should carry an explicit owned cleanup root distinct from product workspace roots; package extraction must not preserve broad parent deletion as a reusable helper.",
       "limits": "This verifies cleanup scope, not observed loss of real workspace data. An externally supplied private TMPDIR narrows exposure to that directory. No shared temporary directory or real reset operation was touched; no full-suite run or production mutation was performed."
+    },
+    {
+      "id": "tests-1a-cont-02",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Transcript boolean test neither retains nor asserts its boolean fixture",
+      "locations": [
+        {
+          "path": "src/test/aiur/issue_log_transcript_test.exs",
+          "lines": "45-56"
+        },
+        {
+          "path": "src/lib/aiur/issue_log.ex",
+          "lines": "748-776"
+        }
+      ],
+      "description": "The boolean persistence test supplies truncated:false in an edit-tool payload, then asserts only that payload is nil or a map and role is a binary. The production bounded_edit_payload reconstruction keeps tool/output and optional edit changes, dropping this truncated field before serialization. The named boolean behavior is therefore neither reached by that fixture field nor constrained by its assertions.",
+      "evidence": "tooling/transcript_boolean_oracle_probe.exs extracts the two actual assertions and evaluates valid false, string false and missing-payload records. All three pass; an exact boolean control accepts only the valid false record. Source inspection independently shows the fixture boolean is removed by the bounded payload projection.",
+      "recommendation": "Use a supported event shape whose boolean survives bounded projection, assert the decoded field is exactly false and true in the respective cases, then verify a serializer mutation stringifying booleans fails the test. Keep payload-retention behavior covered separately.",
+      "refactor_hint": "At serializer/package boundaries, construct fixtures that reach the represented value and assert its exact decoded type and content; nil-or-map permissiveness cannot establish boolean encoding.",
+      "limits": "The probe executes extracted assertions with supplied records, not the full writer or a production serializer mutation. The frozen serializer has an explicit correct boolean clause; no current production encoding defect is alleged."
     }
   ],
   "preserve": [
@@ -264,7 +327,14 @@
     "TestShard preserves golden cross-language assignments and insertion/deletion stability; its self-comparison test adds no independent constraint, while separate golden and population assertions do. Discovery tests cover actual nonempty project file selection without changing cwd.",
     "TestSupport tests explicitly exercise application recovery, process-down barriers and synchronous workflow reload completion. This is deliberate recovery infrastructure coverage, distinct from incidental application-child mutation in unrelated unit tests.",
     "TestEnvironment includes an AST cwd guard covering lexical aliases/imports, direct/Erlang calls, inert quote bodies versus executable unquotes and async module scope. It is a syntactic guard, not proof of transitive helper or runtime-generated call coverage.",
-    "TestReset tests distinguish missing/invalid ticket input, explicit confirmation, agent-workspace refusal, closed-ticket cleanup and separate remove/add label calls. Command construction and injected runners are not live GitHub validation; dry-run success alone does not prove absence of every side effect."
+    "TestReset tests distinguish missing/invalid ticket input, explicit confirmation, agent-workspace refusal, closed-ticket cleanup and separate remove/add label calls. Command construction and injected runners are not live GitHub validation; dry-run success alone does not prove absence of every side effect.",
+    "HTTP credential-gate tests distinguish loopback admission from non-loopback refusal and restore endpoint/environment configuration. A non-ignore result and warning logs prove gate passage, not successful bind or HTTP request authentication.",
+    "IssueLog event-history tests distinguish missing/unavailable/empty typed histories, isolate equal repository leaves by owner, keep transcript text from forging daemon events and bind concurrent writers to qualified identities across config changes.",
+    "Transcript tests retain JSON null for absent turn/message IDs, named roles, and queued-versus-delivered user echo labels. Injecting a killed exit signal proves writer signal tolerance but does not actually restart its PubSub partition.",
+    "Provider projection tests retain observed ages, partial source health, probe-failure counts, independent windows and providers, rejection of stale/missing timestamps and generation redaction. A test named after session end only injects a historical snapshot; it does not exercise session termination.",
+    "RTK tests distinguish disabled/unavailable/refused states, require the gh rewrite exclusion, preserve no-data versus measured-zero savings and check the shipped schema default. Supplied gain payloads are parser fixtures, not new production savings measurements.",
+    "LogFile tests restore logger handlers and configuration, preserve explicit log roots and debug flag precedence, and fail safely on unreadable/invalid config. These source checks do not prove absence of unrelated asynchronous writers during global configuration changes.",
+    "TicketActivity separates recent/current membership, content-free observations and stale-but-known phases. Its retention test restarts the projection while keeping the retention process alive; disk flush is exercised, but durable-store restart recovery is covered elsewhere."
   ],
   "cross_references": [
     {
@@ -308,6 +378,14 @@
         77
       ],
       "finding": "Read the complete 77-line helper: global log cleanup is bounded to configured log parent; the helper does not replace TMPDIR. Supporting read not counted in the 75-file manifest."
+    },
+    {
+      "path": "src/lib/aiur/issue_log.ex",
+      "lines": [
+        740,
+        785
+      ],
+      "finding": "Bounded edit payload reconstructs tool/output and optional changes, dropping truncated:false from the test fixture; json_safe nevertheless has explicit nil/boolean clauses. Excerpt-only supporting source read."
     }
   ],
   "follow_up_candidates": [
@@ -331,7 +409,7 @@
     }
   ],
   "next": [
-    "Continue the remaining 38 tests-1a manifest files, including skill tests, decision lifecycle tests and controller lifecycle/deactivation coverage.",
+    "Continue the remaining 31 tests-1a manifest files, including skill tests, decision lifecycle tests and controller lifecycle/deactivation coverage.",
     "Keep shared-supervisor observations linked to existing findings and verify hypotheses before adding severity-bearing findings."
   ]
 }
