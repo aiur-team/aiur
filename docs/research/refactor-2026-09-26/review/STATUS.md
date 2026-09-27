@@ -325,3 +325,33 @@ Recorded source sites match the frozen census hashes. These assessments make
 no production-execution, runtime-prevalence, or cost-saving claims. Name,
 near-body, concept and constant sweeps, inherited-finding reconciliation, and
 the wider research completion checklist remain open.
+
+## Exact-body assessment checkpoint: 126 of 126 clusters
+
+All 126 exact-body candidate clusters (297 sites) now have source-span
+assessments in duplication-triage.json. Two additional reviewed clusters fall
+below the final size threshold. This completes the candidate assessment pass,
+not the duplication review units: repeated-name, renamed/near-body, concept,
+constant and inherited-finding reconciliation work remains.
+
+The final pass records concrete constraints:
+
+- Existing Protocol.MapAccess.message_timestamp and Events.CommentFilter
+  workpad detection match local copies; prefer existing ownership where the
+  dependency direction fits.
+- Presence-preserving atom/string lookup differs from MapAccess.get's truthy
+  fallback. Nil/false values must not change meaning during consolidation.
+- CLI table cutoffs are 96 versus 120 columns. Log rotation policies are
+  4 MiB/eight generations versus 1 MiB/two generations. Same bodies do not mean
+  those constants should become one policy.
+- Claude reset timestamps admit fractional seconds; Codex accepts integer
+  seconds. Preserve provider format contracts even when conversion bodies match.
+- Comment-list ingestion deliberately drops an old validator after storing a
+  nil-etag list. Shared ingestion must retain that explicit invalidation.
+- GraphQL cost handling must preserve reported versus assumed provenance and
+  the caller's failure/304 contract.
+
+All recorded sites were rechecked against frozen census hashes, and final
+candidate IDs/sites exactly match the census population. No raw review unit
+is promoted; completion totals remain 24/32 units and 50/60 claims. No
+production files changed and no savings are claimed.
