@@ -1180,3 +1180,8 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 ### tests-1b seventy-one-file checkpoint
 
 71 full reads,20055 lines. Added CodingAgent, LiveConversation and RepoBase. Confirmed phase-order oracle gap: exact four selective receive assertions pass reverse arrival order; an order-sensitive control fails. Portable assertion probe added; no actual out-of-order production emission alleged. Preserve provider capabilities, bounded private conversation projection, migration recovery and dead-versus-live prewarm watchdog contracts. Initial probe-writing command had a Python quoting syntax error and made no artifact; corrected writer and isolated probe succeeded. Four test files remain: agent_control_cli, agent_github_guard, build_gate, init. No production changes or full-suite execution.
+
+
+### tests-1b seventy-three-file checkpoint
+
+73 full reads,25471 lines. Added Init and BuildGate. Confirmed background-descendant fixture identity defect: $$ records the parent PID, so the cancellation test checks the parent twice and fallback cleanup targets it too. Actual fixture writer extracted via AST; added BASHPID observation proves a distinct live child. Released child and removed temporary probe files. Initial attempt exhausted temporary-filesystem quota before spawning; explicit research scratch root succeeded. Portable probe added, no production containment failure alleged. Preserve setup consent/scope and build admission/retention/ownership boundaries. Two files remain: agent_control_cli and agent_github_guard. No production changes or full-suite execution.

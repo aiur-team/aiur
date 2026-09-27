@@ -428,9 +428,21 @@
       "sha256": "6a25ca68cd927e8603383ad185273fc878b7be415e04f965520ba54ec7952eb3",
       "lines": 1599,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/init_test.exs",
+      "sha256": "c60635b556aa2d01e9a5259af74f70bd84d6c0fb2adfdc805a6c6ae0142fd550",
+      "lines": 2185,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/build_gate_test.exs",
+      "sha256": "8a5c63c3d9b18dcb7ef8b8fbde869b5d68cc0f8d96e4e158a33d60180f2a1591",
+      "lines": 3231,
+      "read": "full"
     }
   ],
-  "scope_note": "71 complete file reads, 20055 lines; remaining paths unreviewed. Isolated assertion probes ran, including reversed prewarm events; three newly recorded test files were not executed as suites. No live application or TUI verification.",
+  "scope_note": "73 complete file reads, 25471 lines; remaining paths unreviewed. Isolated fixture/ assertion probes ran; Init and BuildGate were not executed as suites. No live application or TUI verification.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -558,6 +570,23 @@
       "recommendation": "Receive a generic phase event for each expected step and compare its phase, or collect the complete event sequence and assert it exactly.",
       "refactor_hint": "Keep phase notification order as an explicit protocol contract when extracting repository preparation.",
       "limits": "Assertion-block probe only; no production emitter mutation, full suite execution or actual out-of-order emission is claimed."
+    },
+    {
+      "id": "tests-1b-cont-08",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Descendant cleanup fixture records its parent PID",
+      "locations": [
+        {
+          "file": "src/test/aiur/build_gate_test.exs",
+          "lines": "1479-1516,3066-3069"
+        }
+      ],
+      "description": "The background Bash subshell writes $$ to the descendant PID file. Bash preserves the parent shell value of $$ in subshells, so the cancellation test reads the same PID for Mix and its descendant; the descendant-gone assertion and fallback kill target the already-exited parent.",
+      "evidence": "tooling/build_descendant_identity_probe.exs extracts the actual fixture writer from the frozen AST and adds only a BASHPID observation beside the original PID write. The recorded descendant equals the parent, while BASHPID differs and kill -0 confirms that actual child is alive. The probe releases its child and removes temporary files.",
+      "recommendation": "Record BASHPID inside the descendant subshell, verify it differs from the parent, establish that it is alive before cancellation, and monitor that exact process through cleanup.",
+      "refactor_hint": "Process-containment contract tests must prove ownership and identity of the process they assert was reaped.",
+      "limits": "This verifies fixture identity and the resulting assertion gap, not a production containment failure or a full cancellation-path mutation. The first probe attempt hit temporary-filesystem quota before spawning a child; rerunning under an explicit research scratch root succeeded."
     }
   ],
   "preserve": [
@@ -612,7 +641,9 @@
     "DecisionApi tests retain bounded public projections and redaction, complete ticket matching, cursor stability under insertion, legacy offsets beyond bounded cursor scans, single-snapshot reads, partial versus unavailable health, idempotent attributed decisions and revisions, and serialized rejection of policy evidence from a different request version.",
     "CodingAgent tests retain registry-owned capabilities and pricing dimensions, explicit operator pins versus usage-limited routed defaults, longest backend-name matching, catalogue-derived aliases, effort/remote flags independent of model selection, and strict session-backend routing. Cat-port tests inspect transport frames; they do not exercise a real provider.",
     "LiveConversation tests retain qualified source/generation/session fences, terminal and unavailable-state rules, trusted operator/tool admission, redaction and opaque identifiers, bounded JSON wire size including escape-heavy content, replay tombstones, ordered delta completion and coalesced revisions. Suspended-server queue barriers exercise selected interleavings, not exhaustive concurrency or rendered UX.",
-    "RepoBase tests preserve tracked application paths during migration, symlink refusal without target mutation, ledger collision preservation and transfer checkpoints before/after replacement/source deletion, invalid-ledger fail-closed behavior, configured base-branch freshness, child build environment isolation, and dead-worker watchdog release while live work retains its hold. Local-Git fixtures and injected state are distinct from production deployment evidence."
+    "RepoBase tests preserve tracked application paths during migration, symlink refusal without target mutation, ledger collision preservation and transfer checkpoints before/after replacement/source deletion, invalid-ledger fail-closed behavior, configured base-branch freshness, child build environment isolation, and dead-worker watchdog release while live work retains its hold. Local-Git fixtures and injected state are distinct from production deployment evidence.",
+    "Init tests use injected I/O and provisioning dependencies to preserve scope choice, saved-config resume, opt-in section backfill, no build after failed append, backend-specific routing, missing-label-only provisioning, and withholding readiness on setup failures. File-preservation assertions using fake ensure helpers prove orchestration expectations, not the production helper implementation.",
+    "BuildGate tests distinguish admission timeout from running-command lifetime, actual flock ownership from PID metadata, busy retained descendants from idle adopted daemons, unavailable CPU measurements from zero, cancellation ownership from unrelated sessions, and separate immutable locks from writable metadata. Shell grammar ambiguity, FIFO/symlink metadata, missing runtimes and publication failures fail closed; unavailable memory measurement deliberately fails open. Linux/flock and host-tool prerequisites limit portability."
   ],
   "next": [
     "Continue remaining tests-1b paths; audit test support and shared-state restoration.",
