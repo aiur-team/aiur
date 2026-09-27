@@ -4,47 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "b83c40ebd4a990afdc8fc185c585574133ad83c153a97a431b60bbd3ff141b5b"
+    "name_triage": "131a6cc84a9251bc03223db8e8453d41f7795de02e952c752b5b22e15d72c31c"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 108,
-    "remaining_cross_module_names": 1572,
-    "remaining_literal_entries": 6757
+    "reviewed_cross_module_names": 113,
+    "remaining_cross_module_names": 1567,
+    "remaining_literal_entries": 6704
   },
   "families": [
-    {
-      "name": "unsafe_control_chars?",
-      "clauses": 9,
-      "modules": 9,
-      "summed_source_span_lines": 41
-    },
-    {
-      "name": "unsubscribe",
-      "clauses": 14,
-      "modules": 9,
-      "summed_source_span_lines": 40
-    },
-    {
-      "name": "value_of",
-      "clauses": 9,
-      "modules": 9,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "command",
-      "clauses": 11,
-      "modules": 8,
-      "summed_source_span_lines": 102
-    },
-    {
-      "name": "counts",
-      "clauses": 10,
-      "modules": 8,
-      "summed_source_span_lines": 62
-    },
     {
       "name": "dispatch",
       "clauses": 33,

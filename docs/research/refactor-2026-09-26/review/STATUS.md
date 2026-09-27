@@ -1002,3 +1002,7 @@ Read field, from_record, history and normalize_state: 60 literal entries across 
 ### Name duplication: notification, provenance and release ownership
 
 Read notify, provenance, provider and release: 52 literal entries across four families. History and ticket-context provenance projection is an equivalent sharing candidate, including inspected opaque-ID helpers. Preserve notification failure isolation, source-health dimensions and generation/owner fences when releasing resources. Name triage now 108 families/3511 entries, leaving 1572 cross-module names. Raw findings and skeptic counts are unchanged; successful wrapper returns do not certify downstream delivery or durable release.
+
+### Name duplication: control characters, subscriptions and counts
+
+Read unsafe_control_chars?, unsubscribe, value_of, command and counts: 53 literal entries across five families. Separate strict and multiline character policies, durable subscription removal from local cleanup, and unavailable counts from zero. Accounting dual-key access and tolerant history unsubscribe contain narrow sharing candidates; command defaults differ on whitespace-only input. Name triage now 113 families/3564 entries, leaving 1567 cross-module names. Raw findings and skeptic counts are unchanged; runtime impact and savings are not claimed.
