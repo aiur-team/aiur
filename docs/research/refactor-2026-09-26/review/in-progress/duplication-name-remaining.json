@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "72523f3b79a2aeefb92434948a73e1a4d9b3c086bbfd36bcfea2ef48fd2c48a5"
+    "name_triage": "3f09acd8c427f6f988fdac29a16c68f6331f4201ec2c17fdb5c9d8ec4fb81afc"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 925,
-    "remaining_cross_module_names": 755,
-    "remaining_literal_entries": 2336
+    "reviewed_cross_module_names": 933,
+    "remaining_cross_module_names": 747,
+    "remaining_literal_entries": 2318
   },
   "families": [
-    {
-      "name": "fetch_dist_tags",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "fetch_issue",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "fetch_issue_comments_conditional",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 37
-    },
-    {
-      "name": "fetch_issue_raw_conditional",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "fetch_linked_pull_requests",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 28
-    },
-    {
-      "name": "fetch_map",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "fetch_open_pull_request",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "fetch_open_pull_request_conditional",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
     {
       "name": "fetch_open_pull_requests",
       "clauses": 2,

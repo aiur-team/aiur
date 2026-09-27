@@ -109523,10 +109523,346 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "fetch_dist_tags",
+      "assessment": "Registry facade already delegates to an injectable transport.",
+      "constraints": [
+        "Registry resolves endpoint and passes a 5000 ms timeout; Req transport accepts HTTP 200, decodes body and extracts flat or nested dist-tags maps.",
+        "Read transport decoder/extractor: binary JSON decode exceptions are rescued into errors; non-200 reports unexpected_status.",
+        "Keep endpoint policy and injectable transport boundary. Map acceptance alone does not validate version strings or prove registry freshness."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 14,
+          "module": "Aiur.Upgrade.Registry.Transport.Req",
+          "name": "fetch_dist_tags",
+          "path": "src/lib/aiur/upgrade/registry.ex",
+          "kind": "def",
+          "end_line": 30,
+          "body_sha256": "0ee302407776099d97dd4a3a6c434dc1b1b6318520ede21f772ba981a616d29e",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 67,
+          "module": "Aiur.Upgrade.Registry",
+          "name": "fetch_dist_tags",
+          "path": "src/lib/aiur/upgrade/registry.ex",
+          "kind": "def",
+          "end_line": 69,
+          "body_sha256": "a4bda19ed1c835c9b30d534932be89f9172e900bd4989d38d405f35a0149b51d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_issue",
+      "assessment": "Ticket-detail raw reads and add-agent verification have different repository and result contracts.",
+      "constraints": [
+        "TicketDetailRepository forwards only request_fun/revalidate/freshness_ms plus explicit configured repository to Issues.fetch_issue_raw_conditional.",
+        "AddAgentSubmission uses configured verification callback or Tracker.fetch_issue_states_by_ids with a one-identifier list through safe_call.",
+        "Preserve repository pinning and raw detail versus tracker-state verification. These calls do not independently establish dispatch authority."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 70,
+          "module": "Aiur.BuildOrder.TicketDetail.Repository",
+          "name": "fetch_issue",
+          "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+          "kind": "def",
+          "end_line": 77,
+          "body_sha256": "dbbbeac6525e3dc62133ee4da28638377d9efd2a218b2f0a2e4b9c85f73c83b5",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "AiurWeb.OperatorControlCenter.AddAgentSubmission",
+          "name": "fetch_issue",
+          "path": "src/lib/aiur_web/operator_control_center/add_agent_submission.ex",
+          "kind": "defp",
+          "end_line": 87,
+          "body_sha256": "7ad696a20e8cf29323dad076e99c8aa882049b906b128bd3ce35e1664c452d93",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_issue_comments_conditional",
+      "assessment": "Client per-cycle caching wraps a conditional paginated comment reader.",
+      "constraints": [
+        "Client cache key includes stringified issue number and since/etag cursor pair; read comment_cursor_key.",
+        "Comments preserves not_modified on 304 and classifies failures. Read conditional_stream_pages: successful multipage issue reads return nil validator rather than retaining the first-page ETag.",
+        "Keep pagination-aware validator policy. A 304 is not an empty comment list, and caching identity/single-flight completeness beyond these functions remains unverified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 266,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_issue_comments_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 270,
+          "body_sha256": "56956321f84ab41b859de43abdb72593c0aa16d053874a88a103d072cf70a72a",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 91,
+          "module": "Aiur.GitHub.Comments",
+          "name": "fetch_issue_comments_conditional",
+          "path": "src/lib/aiur/github/comments.ex",
+          "kind": "def",
+          "end_line": 122,
+          "body_sha256": "b2db82c183df1103ab6b8cb70965e966c66464bbc369900395472c6df652513d",
+          "normalized_body_lines": 37,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_issue_raw_conditional",
+      "assessment": "GitHub client already delegates raw issue cache/revalidation policy.",
+      "constraints": [
+        "Issues resolves explicit/default repository and token, builds resource key and returns a stored map as ok/body/fresh or revalidates on nil.",
+        "Read stored_issue: explicit revalidate bypasses stored data; otherwise servable_within checks fetched resource with freshness_ms.",
+        "Preserve freshness ownership and explicit bypass. The returned fresh tag is a policy result, not an independent live upstream observation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 148,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_issue_raw_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 149,
+          "body_sha256": "1c4f9a7c074056762af2ed7e49e688b3eac81c1d376a5179778e1f66fc0a3826",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 153,
+          "module": "Aiur.GitHub.Issues",
+          "name": "fetch_issue_raw_conditional",
+          "path": "src/lib/aiur/github/issues.ex",
+          "kind": "def",
+          "end_line": 166,
+          "body_sha256": "b4b179b66e89651c08f85c976d042396d6e57c859c988c8006f2e5278b646eaf",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_linked_pull_requests",
+      "assessment": "Ticket-detail repository delegates relationships with an optional injected reader.",
+      "constraints": [
+        "Repository accepts an arity-two relationship reader or calls IssueRelationships with identity, configured repository and options.",
+        "IssueRelationships requires binary provider/issue/repository fields, parses a positive fully consumed number, obtains token/request function, fetches and normalizes response against provider ID.",
+        "Invalid outer shapes have an explicit error. A partially parsed identifier returns a tuple not covered by the shown with-else branches; caller validation and reachable malformed population are unverified, so no raw defect is added here."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 81,
+          "module": "Aiur.BuildOrder.TicketDetail.Repository",
+          "name": "fetch_linked_pull_requests",
+          "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+          "kind": "def",
+          "end_line": 86,
+          "body_sha256": "071ceb338d516921289143bbd66e96d0937a1d6d37df25b0d53306c6e7048712",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 38,
+          "module": "Aiur.GitHub.IssueRelationships",
+          "name": "fetch_linked_pull_requests",
+          "path": "src/lib/aiur/github/issue_relationships.ex",
+          "kind": "def",
+          "end_line": 38,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 40,
+          "module": "Aiur.GitHub.IssueRelationships",
+          "name": "fetch_linked_pull_requests",
+          "path": "src/lib/aiur/github/issue_relationships.ex",
+          "kind": "def",
+          "end_line": 58,
+          "body_sha256": "1b1bb5e472c2529c011be05dd8791c93e320b0a8d562c2886118bbebd93b8d07",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 60,
+          "module": "Aiur.GitHub.IssueRelationships",
+          "name": "fetch_linked_pull_requests",
+          "path": "src/lib/aiur/github/issue_relationships.ex",
+          "kind": "def",
+          "end_line": 61,
+          "body_sha256": "e5b88fa4f597cd7a1d540b18ef40230bbfd4bb1344a698962639ae13709ab883",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_map",
+      "assessment": "Decision event and projection map-field validation matches exactly.",
+      "constraints": [
+        "Both accept a map value at the supplied key and otherwise return field-specific missing_or_invalid.",
+        "A shared decoder primitive is concrete while retaining caller field names and schema ownership.",
+        "The helper does not guard the outer raw value itself or validate contents of the accepted map; complete schema correctness is transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1033,
+          "module": "Aiur.DecisionEvent",
+          "name": "fetch_map",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 1038,
+          "body_sha256": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1006,
+          "module": "Aiur.DecisionProjection",
+          "name": "fetch_map",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 1011,
+          "body_sha256": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_open_pull_request",
+      "assessment": "Public client uses retained resource policy rather than directly repeating the raw reader.",
+      "constraints": [
+        "Read client stored helper: ResourceFetch.need wraps conditional PullRequests fetch with decision freshness, then removes metadata from the returned tuple.",
+        "Raw PullRequests read maps 404 to ok/nil, classifies other errors and normalizes a 200 map; read normalization: open survives, other binary state becomes nil, absent/nonbinary state map survives.",
+        "Preserve cached evidence versus transport observation and permissive response normalization. ok/map alone does not independently prove an open PR."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 288,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_open_pull_request",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 290,
+          "body_sha256": "e43dae1e0f480ec13642f920f62bc3436b41f49a7ab7688045af8557c71249b2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 621,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_open_pull_request",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 641,
+          "body_sha256": "cf5b5194f455484277ba8034c536efe8cdf5e6b2fb9d71dec0e8103621a95897",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_open_pull_request_conditional",
+      "assessment": "Client already delegates conditional PR transport.",
+      "constraints": [
+        "PullRequests constructs the conditional request and routes response through its adapter.",
+        "Read response clauses: 200 returns normalized PR plus retained ETag; 304 preserves not_modified; 404 returns ok/nil/nil; other failures are classified.",
+        "Keep unchanged evidence distinct from absence and ensure retained validator semantics survive any package extraction. Full resource reuse/expiry behavior is not certified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 328,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_open_pull_request_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 329,
+          "body_sha256": "eebb6ea50ecc8e223da6691cc2af3b3db4306055dd272f42d310e9ad2dd18ee7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 665,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_open_pull_request_conditional",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 675,
+          "body_sha256": "a5b0dcfbcedd9cf9b0107fb6f57b1f95f5cff61ac9514108a6501c747eee7fe3",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7932,
-  "limits": "925 selected families and 7932 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7950,
+  "limits": "933 selected families and 7950 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
