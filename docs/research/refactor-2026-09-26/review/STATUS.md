@@ -1182,3 +1182,7 @@ Read safely_set_terminal_verification_pending, scalar, schedule_sweep, schema_ve
 ### Name duplication: launch and source identity contracts
 
 Read source_event_id, source_health, start_port, start_task, start_turn, text, ticket_identifier and tracker_kind: 46 literal entries across eight families. Verify identical task-start fallback helpers and retained-decision identifier extraction; preserve source fingerprint material, health validation, containment callbacks, provider policies and rendering contracts. Name triage now 369 families/5750 entries, leaving 1311 cross-module names. Raw findings and skeptic counts are unchanged; no deduplication, remote containment, task completion or injection guarantee is claimed.
+
+### Name duplication: transitions and delivery evidence
+
+Read transition, trusted_url, unavailable_snapshot, with_lock, write_checkpoint, writer, account_generation and acknowledge_provider_delivery: 66 literal entries across eight families. Identify three identical URL-shape filters; preserve state-machine guards, identity-bound links, unavailable accounting, lock/recovery effects and delivery acknowledgement layers. Read the hook delivery callback wrapper to establish its exception and ignored-result behavior. Name triage now 377 families/5816 entries, leaving 1303 cross-module names. Raw findings and skeptic counts are unchanged; no complete replay, URL trust, crash durability or end-to-end delivery guarantee is claimed.
