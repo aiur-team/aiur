@@ -1230,3 +1230,8 @@ All 75 manifest files are now fully read: 35,287 lines. Checked every file hash 
 ### tests-1a retained decisions checkpoint
 
 60 full reads, 13,665 lines; 15 manifest files remain. Added attention, retained query, projection and revision-store tests. Preserve bounded scan continuation, partial-versus-unavailable and indeterminate lookup states, captured-versus-unknown provenance, unknown-event forward compatibility, original-action history and parent-owned follow-up recovery. Record limits of state-injected indexes, modeled rollback readers, controlled schedulers and no-op sync. Two ordering assertions remain hypotheses pending focused validation and deduplication; no new severity-bearing finding or test execution. Overall raw review coverage remains 26/32; no production changes.
+
+
+### tests-1a alert and admission checkpoint
+
+67 full reads, 16,140 lines; eight manifest files remain. Added alert feed, provider checkpoint, digest coalescing, interrupts, admission, merge retention and usage envelope. Preserve bounded alert retention and backfill, single-writer checkpoint semantics, generation-confirmed control, distinct resource-admission states and exact measurement identity. Record limits of immediate lock noncompletion checks, claimed-versus-consumed queue fixtures, fake-provider traces, assumed tmux failure and parser fixtures versus GitHub semantics. No new promoted finding or test execution. Overall raw review completion remains 26/32; no production changes.

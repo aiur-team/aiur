@@ -362,9 +362,51 @@
       "sha256": "41431d4c49b5058a0f120105d4589fb11cdb820e2bf50a8d9b3a8d0fcdb32d51",
       "lines": 766,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/alert_feed_test.exs",
+      "sha256": "83c2caafab161d50b7915b2e524ae35f7c56ce10d83f2f09e42577f0d856d38b",
+      "lines": 433,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/coding_agent_checkpoint_test.exs",
+      "sha256": "2ee6081ad28266ec89f2fb1958fbe9c4a6d900222e7d681f37357d418bde0b50",
+      "lines": 497,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_events_digest_coalesce_test.exs",
+      "sha256": "e9b80e0084ed57f46eef2befa867b74025e51d774edae8b9703b835427893114",
+      "lines": 148,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_interrupt_test.exs",
+      "sha256": "acb9c9bca34f543852bbc2dd44bf78dfca7c4f330d442d1defff131c3c181a5f",
+      "lines": 255,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_load_gate_test.exs",
+      "sha256": "88d025002ac40e48ddf1ee7b9586e7031f6ce19670e6c1d94034570953f37a1f",
+      "lines": 268,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/recent_merge_store_test.exs",
+      "sha256": "009f955cf1fa2e942aadf63338021ef0697d71d448465a1d585bd6c77f0ff93e",
+      "lines": 444,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/usage_envelope_test.exs",
+      "sha256": "c27bd0269c6e36e23d5ee3099c0268dd9be1a339a555772e0216d7db7f759eb4",
+      "lines": 430,
+      "read": "full"
     }
   ],
-  "scope_note": "60 complete file reads, 13665 lines. Attention, retained query, replay projection and revision-store tests reviewed as source; no new test execution. Three earlier findings retain their isolated-probe limits. No full suite, live application, GitHub operation or TUI execution. 15 manifest files remain.",
+  "scope_note": "67 complete file reads, 16140 lines. Alert-feed, provider-checkpoint, coalescing, interrupt, admission, merge-retention and usage-envelope tests reviewed as source; no new test execution. Three earlier findings retain their isolated-probe limits. No full suite, live application, GitHub operation or TUI execution. Eight manifest files remain.",
   "findings": [
     {
       "id": "tests-1a-cont-01",
@@ -467,7 +509,15 @@
     "DecisionProjection keeps decision lifecycle distinct from delivery and action attempts, preserves original answers and historical acknowledgements through revisions, and rejects wrong-action transitions. Typed provenance tests distinguish captured from unknown, detect stripping/binding changes and forbid enrichment rewriting trusted provenance.",
     "Projection compatibility tests preserve opaque unknown event records while validating their envelope and rejecting duplicate event IDs; known types still fail on unsupported schemas. The rollback-reader helper reconstructs a historical hash algorithm but invokes the current request decoder, so it is compatibility-model evidence rather than an independently executed old release.",
     "DecisionRevisionStore preserves exact retry identity after restart, conflicting-token refusal, at-most-one correction for competing callers, audit visibility from inside dispatch, active-revision retry and barrier-controlled corrective dispatch ordering. Handoff-before-settlement and action-scoped append-failure fixtures cover distinct recovery seams.",
-    "Revision follow-ups remain parent-owned audit facts: missing targets avoid queue attempts, restart reprojects a stable slug, newer revisions supersede old follow-ups and stale reconciliation repairs a deliberately removed handled event. The test controls scheduler delivery and rewrites its private audit; this is targeted replay recovery rather than a real host crash or filesystem-sync test."
+    "Revision follow-ups remain parent-owned audit facts: missing targets avoid queue attempts, restart reprojects a stable slug, newer revisions supersede old follow-ups and stale reconciliation repairs a deliberately removed handled event. The test controls scheduler delivery and rewrites its private audit; this is targeted replay recovery rather than a real host crash or filesystem-sync test.",
+    "AlertFeed tests separate normal project-ledger reads from explicit workspace backfill using a FIFO that would block accidental transcript opening. They preserve firing/resolution cycles, first-opening time with latest question, bounded tail parsing, active-attention retention priority, explicit active drops when the byte ceiling cannot fit them, indivisible-record refusal and retryable backfill markers.",
+    "Alert ledger concurrency fixtures hold append/backfill locks explicitly and check final persisted records. The append-start marker precedes append itself and Task.yield(task, 0) does not establish that each contender has reached lock acquisition; final retained bytes are stronger evidence than that immediate noncompletion observation.",
+    "CodingAgentCheckpoint drives real adapters against fake shell app-servers, checks traced turn/start count, rejects safe-checkpoint delivery during a live turn and exercises backend-specific acknowledged interruption plus prestart-versus-active idle status. The post-return stability check observes another 150 ms; it is bounded fake-protocol coverage, not a real provider or workspace-concurrency stress run.",
+    "EventsDigestCoalesce preserves per-item enqueue identity while combining events only at drain, sorting/deduplicating event IDs and deduplicating comments by comment identity across distinct event IDs. Other identifiers and operator-message ordering remain separate. The test named after a delivered duplicate has only claimed the item; it does not mark consumption or exercise cursor advancement.",
+    "OrchestratorInterrupt distinguishes working native interrupt, pause requested, matching-generation pause confirmation and second-press pane close. It retains queued messages when hardware interruption fails. These fixtures mutate the application-owned controller and inspect return values/state; they do not press keys or verify rendered chat panes, and failure injection relies on the assumed absence of a tmux server for the fixture pane.",
+    "Admission tests preserve strict load and memory boundaries, disabled-source short circuits, unavailable-versus-exhausted FD behavior, rounded integer reserves, static capacity caps, cooldown and demand/headroom-dependent recovery. Pure envelope outputs and injected source strings do not measure real host saturation or demonstrate the entire dispatch loop leaves running workers untouched.",
+    "RecentMergeStore distinguishes live observation from backfill attribution, keeps same-repository closing references beyond summary truncation, bounds/redacts content and rejects malformed URLs/timestamps. It tests append-before-state behavior, torn-tail repair versus corrupt-prefix read-only state, retention across restart and sticky partial reconciliation. Closing-keyword cases are local parser expectations, not new verification of GitHub behavior; filesystem sync is injected.",
+    "UsageEnvelope keeps account generation separate from counter epoch, requires deterministic identity for counter evidence, preserves unknown occurrence/pricing context and rejects unsafe attribution and invalid UTF8. ExactMoney rejects floating-point input and validates declared minor scales; provider-specific context/cache partitions round-trip without mixing providers. These are codec/measurement contracts, not a billing reconciliation or price-catalog validation."
   ],
   "cross_references": [
     {
@@ -569,7 +619,7 @@
     }
   ],
   "next": [
-    "Continue the remaining 15 tests-1a manifest files, including alerts, provider probes and controller lifecycle/deactivation coverage.",
-    "Verify ordering hypotheses before promotion and deduplicate them against existing test-oracle findings."
+    "Read the remaining eight files: alerts, core, dynamic_tool, github_client, operator_send_timeout, orchestrator_ci_lifecycle, orchestrator_deactivate and provider_meter_probe.",
+    "Verify ordering and cleanup hypotheses before promotion; retain explicit limits for fake-provider and global-controller fixtures."
   ]
 }
