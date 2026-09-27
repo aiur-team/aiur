@@ -818,3 +818,7 @@ Candidate43 resolved: retry/fallback does not distinguish rejected creation from
 ### Skills/prompts: capability error classification
 
 Candidate44 narrowed to a P3: any list_simulators error is reported as XcodeBuildMCP not installed. No server/simulator invoked. Tool-version and SwiftUI-link assertions remain explicit unverified questions; URL fallback is not claimed as tap proof. Figma project-standard override prevents treating generic width preferences alone as a confirmed violation. Findings54 (33P2/21P3);11 listed candidates unresolved. No production changes.
+
+### Skills/prompts: processing boundaries and retry uncertainty
+
+Candidate38 promoted for standalone local-only prose versus default external transcription when a key exists; sensitive sweep no-transcribe path excluded. Candidate36 not promoted: initial UUID examples do not disprove retry prose, and partial payload/key semantics plus diagnostic recipient/redaction remain unverified API questions. Findings55 (34P2/21P3);9 listed candidates unresolved. No media upload, API call, bug report or production mutation.

@@ -3071,6 +3071,35 @@
       "recommendation": "Separate missing capability from a failed invocation, preserve the concrete error and diagnose that cause before suggesting installation.",
       "refactor_hint": "Represent capability discovery and runtime health as distinct states rather than one unavailable label.",
       "limits": "Source-level diagnostic mapping only. Tool-name compatibility and SwiftUI automation claims remain version-specific unverified facts, not falsified by this finding. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-55",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Recording local-only guidance omits default external transcription",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-riffrec-feedback-analysis/SKILL.md",
+          "lines": "20-35"
+        },
+        {
+          "path": ".claude/skills/ce-riffrec-feedback-analysis/references/quick-bug-report.md",
+          "lines": "7-12"
+        },
+        {
+          "path": ".claude/skills/ce-riffrec-feedback-analysis/scripts/analyze_riffrec_zip.py",
+          "lines": "301-328"
+        },
+        {
+          "path": ".claude/skills/ce-riffrec-feedback-analysis/scripts/analyze_riffrec_zip.py",
+          "lines": "1048-1059"
+        }
+      ],
+      "description": "The common rules call raw recordings and audio chunks local-only by default. The default analyzer invocation does not set --no-transcribe; absent a notes transcript, it uploads media through curl to the transcription endpoint when OPENAI_API_KEY exists. The prose does not distinguish local retention/no-commit policy from external processing, so the stated boundary and default data flow disagree.",
+      "evidence": "Read common rules, full quick path, transcription function and main dispatch. Media is supplied as multipart file data; API-key availability gates the upload. No media, real credential or endpoint request used. Sensitive sweep caller explicitly uses --no-transcribe and is excluded from the finding.",
+      "recommendation": "State retention and processing boundaries separately; disclose the selected transcription route and provide an explicit local-only mode whose invocation disables upload.",
+      "refactor_hint": "Carry data-processing policy as an explicit analyzer input instead of deriving it solely from ambient credential availability.",
+      "limits": "Source-level documentation/data-flow mismatch, not an observed unauthorized disclosure. Existing script/security findings require semantic dedup. No transcription executed."
     }
   ],
   "preserve": [
@@ -3496,7 +3525,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidate44 reconciled with explicit external-version uncertainty retained.11 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidates36/38 reconciled with explicit API uncertainties retained.9 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3767,6 +3796,19 @@
       "finding": "skills-prompts-cont-54",
       "reason": "Explicit any-error-to-not-installed mapping establishes the narrow diagnostic defect.",
       "subconcerns": "No frozen XcodeBuildMCP/iOS version or simulator evidence establishes whether named tools and the blanket inline-link limitation are accurate; retain as explicit version-qualified verification questions, not confirmed defects. Opening a URL is not evidence of tap delivery, but the skill presents it as a fallback and asks for manual taps, so no false tap-verification claim proven. Figma prompt43/141 requires project standards; width/Tailwind preferences alone do not establish a project-specific violation."
+    },
+    {
+      "id": "skills-prompts-candidate-36",
+      "status": "not_promoted",
+      "reason": "Fresh uuid examples can be initial requests; retry prose explicitly asks for the same key. Whether a reduced partial-write payload can reuse that key depends on the server idempotency contract, which the frozen repository does not establish. No duplicate edit or rejected retry reproduced.",
+      "subconcerns": "Raw error fields may contain document context, but report_bug destination visibility and redaction are not verified. Preserve explicit unresolved API questions: same-key/different-body partial retry behavior, and diagnostic content minimization/recipient access. Do not claim a confirmed privacy leak or invoke the reporting endpoint."
+    },
+    {
+      "id": "skills-prompts-candidate-38",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-55",
+      "reason": "Default upload path contradicts unqualified local-only prose; sweep-sensitive path is explicitly exempt.",
+      "subconcerns": "Quick-to-extensive rerun may repeat transcription, but no measured duplicate cost. OS temp cleanup timing and portability of intentionally uncommitted evidence remain retention/handoff design questions, not proven losses."
     }
   ],
   "coverage_validation": {
@@ -3779,8 +3821,8 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 31,
-    "unresolved_candidates": 11,
+    "terminal_dispositions": 33,
+    "unresolved_candidates": 9,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
@@ -3788,8 +3830,6 @@
       "skills-prompts-candidate-20",
       "skills-prompts-candidate-21",
       "skills-prompts-candidate-31",
-      "skills-prompts-candidate-36",
-      "skills-prompts-candidate-38",
       "skills-prompts-candidate-39",
       "skills-prompts-candidate-40",
       "skills-prompts-candidate-41"
