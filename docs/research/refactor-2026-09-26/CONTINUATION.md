@@ -650,3 +650,24 @@ is supported, but a global vocabulary must not automatically widen provider
 permissions. Source hashes match the frozen census. No production changes,
 pricing-rate audit, runtime tests or savings claim. Remaining 158 candidate groups
 and the inline constant sweep stay open.
+
+## Inline regex and identity constants checkpoint
+
+The parse-only regex census covers 326 sigil sites and 28 cross-module
+syntactic groups across the same 1,032 hashed source files. It includes inline
+uses, preserves flags and skips quoted generated code. Fixture checks and a
+second full run matched. Dynamic Regex.compile strings remain excluded.
+
+Six attribute groups are now assessed (156 remain), plus two overlapping regex
+groups. Currency parsing has three sites, including inline Aggregate.Key; shared
+grammar does not share error envelopes or explicit UTF-8 prechecks. Decimal
+string grammar has two sites, but ExactMoney accepts additional numeric forms
+and minor-unit conversion. Do not replace whole decoders with one another.
+
+All eight __MODULE__ attribute sites use distinct module identities for ETS or
+persistent_term; identical source text is not one repeated storage value.
+Sources and references were inspected; no production changes or runtime
+behavior guarantees are claimed. Reproduce regex census with elixir
+tooling/regex_census.exs /path/to/snapshot; fixtures use
+python3 tooling/test_regex_census.py. Semantic review of remaining regex groups
+and the broader numeric/string-key sweep remain open.

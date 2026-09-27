@@ -140,10 +140,118 @@
       "disposition": "shared_vocabulary_provider_policy_separate",
       "assessment": "Validator and Aggregate.Key share duration vocabulary with different nil/input/error contracts. CodingAgent has an additional inline identical allowed list in the Claude pricing descriptor, outside the attribute census; it represents provider permission, not a mandate to accept future global vocabulary additions. ProviderDimensions narrows each component and UsageEnvelope validates supplied partitions against provider metadata. Retain those checks.",
       "related_finding": "telemetry-usage-34"
+    },
+    {
+      "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27",
+      "modules": 8,
+      "site_count": 8,
+      "sites": [
+        {
+          "line": 29,
+          "module": "Aiur.GitHub.CredentialHeadroom",
+          "name": "table",
+          "path": "src/lib/aiur/github/credential_headroom.ex",
+          "expression": "__MODULE__",
+          "numeric_value": null,
+          "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27"
+        },
+        {
+          "line": 26,
+          "module": "Aiur.GitHub.OpenIssueSnapshot",
+          "name": "table",
+          "path": "src/lib/aiur/github/open_issue_snapshot.ex",
+          "expression": "__MODULE__",
+          "numeric_value": null,
+          "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27"
+        },
+        {
+          "line": 32,
+          "module": "Aiur.Opencode.ActiveTurns",
+          "name": "table",
+          "path": "src/lib/aiur/opencode/active_turns.ex",
+          "expression": "__MODULE__",
+          "numeric_value": null,
+          "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27"
+        },
+        {
+          "line": 34,
+          "module": "Aiur.Opencode.TokenRegistry",
+          "name": "table",
+          "path": "src/lib/aiur/opencode/token_registry.ex",
+          "expression": "__MODULE__",
+          "numeric_value": null,
+          "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27"
+        },
+        {
+          "line": 21,
+          "module": "Aiur.Orchestrator.SnapshotPublisher",
+          "name": "table",
+          "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+          "expression": "__MODULE__",
+          "numeric_value": null,
+          "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27"
+        },
+        {
+          "line": 17,
+          "module": "Aiur.Orchestrator.SnapshotStore",
+          "name": "cache_key",
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "expression": "__MODULE__",
+          "numeric_value": null,
+          "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27"
+        },
+        {
+          "line": 14,
+          "module": "Aiur.Orchestrator.TrackedSet",
+          "name": "table",
+          "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+          "expression": "__MODULE__",
+          "numeric_value": null,
+          "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27"
+        },
+        {
+          "line": 26,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.LatestRun",
+          "name": "cache_table",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/latest_run.ex",
+          "expression": "__MODULE__",
+          "numeric_value": null,
+          "expression_sha256": "067e73981d1b4174b29431411d85c3d1927ca6a624ab5264133228c847286a27"
+        }
+      ],
+      "disposition": "distinct_module_identity_not_shared_value",
+      "assessment": "All eight attribute declarations and references inspected. Seven name module-specific ETS tables; SnapshotStore uses its module in persistent_term tuple keys. Identical source text expands to eight distinct identities. Do not centralize these values into one table/key. Shared storage mechanics would need explicit identity, ownership and retention contracts, beyond this literal match."
+    },
+    {
+      "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 28,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "currency",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression": "~r\"^[A-Z]{3}$\"",
+          "numeric_value": null,
+          "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab"
+        },
+        {
+          "line": 12,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "currency",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "expression": "~r\"^[A-Z]{3}$\"",
+          "numeric_value": null,
+          "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab"
+        }
+      ],
+      "disposition": "shared_predicate_different_error_contracts",
+      "assessment": "PriceTable.Validator and ExactMoney use the same pattern and explicit String.valid? check, but return invalid_price_currency versus invalid_currency. Inline census adds Aggregate.Key.currency/1 with the same pattern, no explicit String.valid? precheck, and bare :error. Sharing a named currency-shape predicate is possible; preserve caller validation/error contracts. No ISO currency-code membership or strict whole-input validity proved by pattern identity."
     }
   ],
-  "assessed_group_count": 4,
-  "remaining_candidate_groups": 158,
+  "assessed_group_count": 6,
+  "remaining_candidate_groups": 156,
   "sources": [
     {
       "path": "src/lib/aiur/coding_agent.ex",
@@ -184,6 +292,42 @@
     {
       "path": "src/lib/aiur/usage_ledger/record.ex",
       "sha256": "106245b5e50c6493cd4dcf5f44582b48d300edb81cdb35f057b843c6ff061820"
+    },
+    {
+      "path": "src/lib/aiur/github/credential_headroom.ex",
+      "sha256": "e3464b6e6f3f665505a834ae7d2f0f0ca6f9ecee94944ba3878a4cad4b1e2c1e"
+    },
+    {
+      "path": "src/lib/aiur/github/open_issue_snapshot.ex",
+      "sha256": "b9c53f52ee2406abd3fe6fc60bcfb8a9794af6d2a213a90bf910c82f2fd40bd4"
+    },
+    {
+      "path": "src/lib/aiur/opencode/active_turns.ex",
+      "sha256": "73ff346a1dc28a0afe511b48a1a70aa178da284d305564b242e2c6c02b4eb395"
+    },
+    {
+      "path": "src/lib/aiur/opencode/token_registry.ex",
+      "sha256": "819acc8a878e429d4f077539852ea04603a9002a8e75046d89a44d4d4a5baf9f"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+      "sha256": "427e1af6b229e64ae2896bd5edc3837f3543cba652ffbad68ef3fc502c468388"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+      "sha256": "78d590d50b5f0da0a869bf880c7fbcf9dff3e7c1104febe7ad1ebbe7b12936f0"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+      "sha256": "273f7a9ed7efb1bd2021a5f6bc51431a3d6ab45e816023e7ece4437f550af7f8"
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/analytics/latest_run.ex",
+      "sha256": "65ceafd68ed51d8a6f836980ca41a1f7c010b53b1a64ce6b62bd8b88cb539578"
+    },
+    {
+      "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+      "sha256": "3e4834fd315bc784de42844bc3b1779aaf8614f54981bd7d34a5b5a83ad13293"
     }
   ],
   "additional_sites": [
@@ -245,5 +389,58 @@
       "coverage": "full module; provider/component restriction"
     }
   ],
-  "limits": "Four of 162 attribute candidate groups semantically assessed. Relevant consumers read, not all files in full. Inline occurrence search adds one provider-policy site; not a complete inline constant census. No pricing-rate accuracy, live spend, runtime tests, savings or full telemetry-usage-34 verification claimed."
+  "limits": "Six of 162 attribute groups assessed; two regex groups assessed separately with overlap. Relevant consumers read, not all source files in full. Shared syntax is not semantic equivalence. No runtime correctness, live financial data, current pricing accuracy or savings claimed.",
+  "regex_assessments": [
+    {
+      "modules": 3,
+      "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+      "sites": [
+        {
+          "line": 28,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+          "expression": "~r\"^[A-Z]{3}$\""
+        },
+        {
+          "line": 269,
+          "module": "Aiur.UsageAggregate.Key",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+          "expression": "~r\"^[A-Z]{3}$\""
+        },
+        {
+          "line": 12,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+          "expression": "~r\"^[A-Z]{3}$\""
+        }
+      ],
+      "disposition": "currency_shape_predicate_candidate",
+      "assessment": "Three sites including inline Aggregate.Key; domain error atoms differ and only two callers explicitly guard valid UTF-8. Preserve wrappers and treat any anchoring/input-policy change separately from extraction."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "1fe43711bb7041e503818ec6ddb1e684464369254ee8a2cf82ba08ea25fee217",
+      "sites": [
+        {
+          "line": 29,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression_sha256": "1fe43711bb7041e503818ec6ddb1e684464369254ee8a2cf82ba08ea25fee217",
+          "expression": "~r\"^\\d+(?:\\.\\d+)?$\""
+        },
+        {
+          "line": 182,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "expression_sha256": "1fe43711bb7041e503818ec6ddb1e684464369254ee8a2cf82ba08ea25fee217",
+          "expression": "~r\"^\\d+(?:\\.\\d+)?$\""
+        }
+      ],
+      "disposition": "decimal_string_predicate_candidate_not_whole_money_decoder",
+      "assessment": "PriceTable.Validator.price/1 and ExactMoney.exact_decimal/1 share the decimal string grammar, valid UTF-8 check and 1..128-byte bound. ExactMoney additionally accepts bounded integers and Decimal structs, validates nonnegative/finite amounts and supports explicit minor-unit conversion; price rejects non-string inputs and floats separately. Error atoms and overlength behavior differ. Extract only shared lexical validation if worthwhile, not either whole decoder."
+    }
+  ]
 }
