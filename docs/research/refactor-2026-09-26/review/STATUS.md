@@ -500,3 +500,21 @@ remaining tests and helpers are reviewed. Read contracts distinguish mocked
 GitHub responses, actual broker admissions and native local replay formatting;
 no live transport, billing, savings or suite-pass claim is added. Overall raw
 review completion remains 25/32.
+
+
+## tests-1b unit completed
+
+All 75 manifest files were read in full (35,287 lines); frozen hashes and exact
+manifest membership were rechecked. The raw unit contains eight bounded
+findings: seven P2 and one P3. Earlier probes constrain assertion or fixture
+behavior as individually documented; no full-suite or manual UX pass is claimed.
+
+The final guard review retains separate contracts for write authority, broker
+compatibility/recovery, credential identity, Git workspace ownership, cache
+freshness and conditional replay. Marker-plus-settle migration synchronization
+and different-resource overlap remain limited evidence, not production defects.
+Cross-unit deduplication and unresolved hypotheses remain for synthesis.
+
+Raw review units: **26/32**. Remaining: tests-1a, tests-4, skills-prompts,
+dup-by-name, dup-by-concept and dup-by-constant. Unit presence does not establish
+uniform review depth or overall research completion.
