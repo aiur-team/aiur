@@ -32,6 +32,7 @@
       "tests-1c",
       "tests-2",
       "tests-3",
+      "tests-4",
       "tests-5",
       "tests-6",
       "web-occ",
@@ -41,15 +42,14 @@
       "dup-by-concept",
       "dup-by-constant",
       "dup-by-name",
-      "skills-prompts",
-      "tests-4"
+      "skills-prompts"
     ],
-    "findings": 941,
+    "findings": 946,
     "original_severity_counts": {
       "P0": 14,
       "P1": 168,
-      "P2": 565,
-      "P3": 194
+      "P2": 568,
+      "P3": 196
     },
     "high_priority_verdicts_missing": [
       "agent-backends-cc-01",

@@ -2,8 +2,8 @@
 
 The inherited code review stopped early on 2026-09-26: first the account session limit was hit, then Claude credits ran out.
 
-- `raw/` holds 27 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
-- Units still incomplete: tests-4, skills-prompts, and three cross-cutting duplication sweeps (by name, by concept, by constant).
+- `raw/` holds 28 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
+- Units still incomplete: skills-prompts, and three cross-cutting duplication sweeps (by name, by concept, by constant).
 - Not verified: no P0/P1 finding has had its skeptic check yet. Treat every severity as the reviewer's own claim.
 - Not written yet: `code-review.md`, `findings.json`, `by-boundary.md`.
 
@@ -622,3 +622,7 @@ DashboardLive remainder3801-6562 and helpers reviewed; all100 files and40,603 li
 ### tests-4 owned-process failure cleanup probe
 
 Promoted candidate02 as P3 tests-4-cont-03: the actual two cleanup callbacks stop the outside sleeper but leave the inside sleeper runnable after a failed reap and directory removal. Extracted frozen AST helpers/callbacks, verified both owned children initially running, and used explicit owned-PID cleanup as positive control; all children stopped. tmp_root! constructs paths only and suite cleanup removes its log directory, not this child. Probe exits0 with four results. No production reaper invoked or live workspace swept. Three candidates remain (04/05/06); raw units remain27/32.
+
+### tests-4 complete: five bounded findings
+
+Closed tests-4 after100 full-file reads totaling40,603 lines, exact manifest membership and all hashes reverified. Candidate04 narrowed to proven mailbox-consumption versus tick-completion gap: actual helper returns during a held production snapshot callback; sys.get_state waits until release. Candidate05 not promoted: synchronous old-relay stop explains the post-focus subscription test, while already-queued stale messages need separate direct injection. Candidate06 narrowed to signal-oracle insensitivity: the actual two shim tests pass against original and INT/TERM-ignored private copies (2/2 each). Five findings total: threeP2, twoP3; none alleges a newly reproduced production failure. Initial monitor probe had an extraction-count assumption corrected before the successful run; warnings are unused unavailable dependencies. Research probes do not establish full-suite, real-build, crash-durability or TUI verification. Raw units now28/32;946 findings,182 high-priority skeptic checks still pending. Continue skills-prompts, three duplication sweeps, reconciliation and final synthesis/planning.

@@ -1,6 +1,6 @@
 {
   "unit_id": "tests-4",
-  "status": "in_progress",
+  "status": "reviewed_pending_synthesis",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 100,
   "files": [
@@ -705,7 +705,7 @@
       "assessment": "Lines1-1900 reviewed continuously. Early nested doubles distinguish retained counts, detail versions, unavailable/indeterminate store, and report rejected answers/revisions; QueueOrchestrator delegates production message functions. Direct render_payload bypasses mount and seeds assigns, so distinguish those template tests from LiveView requests. Persisted global pause survives same-name publisher replacement with stale snapshot, while real click exercises injected disk-full reply; read-only desktop assertion partly generic disabled text, mobile aria scoped. DOM/CSS/nav checks are structural, not responsive browser execution. Untyped status entries do not establish healthy typed Units membership. Projection-completion test has a20ms negative receive then positive notification; its final disappearance predicate differs from the initial empty-state text and may already be true, so do not count it alone as refreshed rendering. Missing first snapshot differs from unreachable orchestrator and read-model failure; unknown cause not labeled unreachable. Escaped decision markdown, retained partial counts and indeterminate missing-detail status are distinct. Durable outcomes intentionally absent from Units route. Burst tests use injected timer/flush barriers; helper implementation later in file remains unread. Authentication missing503 and configured401 distinct. Credential rotation followed by live_redirect makes capability locked and strips financial sentinel from socket, HTML and logs, retaining nonfinancial runtime seconds; authorized socket private context excludes credentials. Authorized usage test only requires nonlocked state among five possibilities, not a known amount or exact empty state. Real retained store and DecisionMetrics events plus same-name component replacements constrain removal of old2000ms latency when only requested event exists; twelve replacements leave cache size8. This is component replacement, not daemon restart. URL filter/open/close/search patches and ticket11 versus1110 exactness covered. Human and delegated open authority preserved. Deferred Commands stay open/blocking, answering moves to history and count0/1. StaleCountsStore deliberately returns0 while retained page reports1 to require same-snapshot chips; unavailable-store reload produces cell-scoped em dash rather than stale1 or zero. All Commands hides search/pagination; invalid cursor returns unavailable without killing view. Twenty-seven retained decisions, twenty-five dismissed, two open compare DOM identifiers with CLI set and totals. Direct detail beyond50 overview test begins at end of range, not yet reviewed completely. No tests executed; no finding promoted. Lines1901-3800 reviewed continuously. Direct retained detail outside50overview remains available and answerable/revisable; stale URL filter does not suppress selected resolved record. Unavailable/indeterminate detail hides stale overview/form and forged answer/revision submits have store-spy non-invocation assertions. Nonselected open Command can be answered without changing selected one, with exact store option/rationale checked. Overview eviction tests add newer records then explicitly reload, not simultaneous race. Versioned store spies constrain expected_version and revision expected_action_id from rendered detail rather than stale overview. Initial irreversible answers intentionally need no redundant confirmation; corrective irreversible revision does require it and unchanged revision_sequence0 is checked on rejection. Revision version refresh explicitly clears checked confirmation and draft; answer refresh test title mentions confirmation but only seeds custom text, so confirmation clearing is not independently exercised there. Exact direct-route lookup count2 includes disconnected and connected parameter passes. Delivery failure/retry uses real store, counted fake dispatcher, cache disabled and lifecycle notifications; checks one answer, failed and queued audit event, same mounted view retry removal plus fresh mount. Assertions still have2second deadlines despite comments claiming no deadline. Runtime writable-gate change leaves answer nil and no dispatch; stale-version/action conflict keeps draft, passes operator actor and version/action/revision-sequence, idempotency prefix only (not replay uniqueness). Append-only revision preserves original choice and stores new active answer; unavailable target creates explicit handled follow-up without claiming rollback, resolver/projector injected. Answer capstone delegates real OperatorMessages through QueueOrchestrator and checks exact six-event audit order, but test itself claims queue item, records delivery and submits acknowledgement/resolution. Revision capstone checks new action/prior correlation, resets ack/resolution, metrics normalization/human actor, history and exact eleven-event audit order; tracker fetch supplied and lifecycle manually reported. Queue notification precedes store revision-dispatched, hence separate await helper (not yet read). Deferral persists and emits Executor event without ticket queue; dismissal of nonblocking decision sends checkpoint judgement message only to live agent; gone remains empty. Free-form closure records dismissed with no answer, not lifecycle acknowledgement. Two metrics convergence/handshake tests now assert Command latency remains absent both before and after. They exercise events and a held seed barrier but do not assert changed metrics in rendered/assigned payload; their titles exceed their observable postconditions. Later helper and remaining sections still unread. No tests executed or finding promoted. Lines3801-6562 complete the source review. Direct Supervisor DecisionApi calls exercise actor/policy and delegated enrichment, not HTTP authentication. Human-required rejection leaves answer nil. History pagination10/20/25 remains distinct from refresh totals and retains off-page detail; revised answers update the exact row. Expiration is explicit N/A plus Expired, deferral stays open. Units URL version, invalid filter canonicalization, stable typed rows and generation changes constrained. Ticket context queries begin only after explicit selection; failed subscriptions retry while unsubscribe is expected only for successful subscriptions. Alpha/beta subscription assertions establish presence, not ordering. Conversation focus pins opaque handles, ignores other handles and uses injected projection-restart notifications, not real process restart. Message callbacks receive full ticket identity; edited drafts receive new idempotency IDs, unknown-result retries reuse the ID, and success permits a new ID for repeated text. Controls distinguish requested from applied until lifecycle events; read-only, unsupported, duplicate pending, changed state, stale generation and terminal membership paths constrain owner non-invocation. Lifecycle fixture identity uses display identifier plus issue ID/generation, so it is not independently full typed lifecycle correlation. Colliding display IDs across repositories/providers disable writes and forged handlers have non-invocation assertions. Membership failure renders unavailable rather than healthy zero. Add Agent default routing fixture deliberately differs from supplied complexity; expected preview calls production resolver and proves integration, not independent routing truth. Held tracker/authorization callbacks keep submit disabled and allow Close before release; submitted form values are authoritative without change events. Waiting hint requires verified authorization, with denied/deferred paths distinct. Partial label removal survives retry without repeating it. Real DispatchAuthorization runs with injected HTTP events, but verification fixture issue ID differs from selected issue, so do not claim identity coverage from the rejection assertion. Already-labelled plans do not rewrite labels. Ticket search includes title/body, unrevealed matches, bounded reveal and explicit unavailable counts. Family alias selection preserves intent independently of concrete model resolution. Helpers use private endpoint/store/metrics paths and restore config; stores disable filesystem sync, so tests do not prove crash durability. Queue worker is unlinked but has explicit :stop handling, without a DOWN wait. Bounded reload helper uses per-view sys.get_state barriers, checks one timer per view after bursts, and asserts unchanged snapshot mailbox call count with SnapshotStore; this is not a measured production saving. reload_view is an actor barrier, not completion of every spawned task. await_dispatched_revision is bounded at200 ten-millisecond attempts, correcting earlier unread-helper uncertainty. Cache cardinality is asserted before all-element freshness. All6562 lines now reviewed; no test suite or browser execution and no new finding promoted."
     }
   ],
-  "scope_note": "Source review with an isolated extracted-assertion order probe; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
+  "scope_note": "All100 manifest files fully read and frozen hashes checked. Five bounded findings supported by extracted assertion, manifest, owned-process, monitor-barrier and selected shim-fixture probes. No full suite, live provider, real release build or manual UI verification. Supporting source excerpts are not additional whole-file coverage. Three P2 and two P3 findings still need cross-unit deduplication.",
   "findings": [
     {
       "id": "tests-4-cont-01",
@@ -761,6 +761,40 @@
       "recommendation": "Register cleanup for each owned process immediately after it is created, before later fixture setup can fail, and make readiness exhaustion fail explicitly. Verify failure-path cleanup with an owned-process barrier.",
       "refactor_hint": "Test process fixtures should own teardown independently of the production cleanup behavior they are testing.",
       "limits": "Isolated fixture failure-path probe only, not a full ExUnit or production reaper run. No live workspace sweep. Maximum ordinary leftover lifetime is the300-second sleep; no production leak alleged. Readiness exhaustion observed in source but not separately executed. Cross-unit deduplication pending."
+    },
+    {
+      "id": "tests-4-cont-04",
+      "severity": "P2",
+      "category": "testing",
+      "title": "An empty monitor mailbox does not prove tick completion",
+      "locations": [
+        {
+          "path": "src/test/aiur/executor/takeover_alert_monitor_test.exs",
+          "lines": "78-104"
+        }
+      ],
+      "description": "wait_for_mailbox_drained returns as soon as the monitor has consumed the tick message, even while its snapshot callback is still executing. Callers can advance the clock or assert absence of alerts without waiting for the prior operation to finish. Record existence and already-true last_alert predicates elsewhere also are not whole-tick barriers, although their downstream effects require separate analysis.",
+      "evidence": "tooling/takeover_monitor_barrier_probe.exs compiles the frozen production Monitor and extracts the actual wait helper. An injected snapshot callback announces entry and waits for release. With the real tick held, mailbox is empty and helper returns; a sys.get_state task remains blocked and returns only after release. Three positive results, exit0.",
+      "recommendation": "Use a completion barrier on the monitor after sending each tick before changing fixture inputs or making negative assertions. Keep checks of durable state as separate behavior assertions.",
+      "refactor_hint": "Consume, persist and complete are distinct milestones; asynchronous test helpers should name and synchronize the exact milestone.",
+      "limits": "Empty nonauthoritative snapshot path only; no store, tracker, full suite or live daemon. A minimal Issue struct enables compilation of unused emitters; warnings concern unavailable branches never executed. Monitor captures now before the held snapshot, so this does not prove that a running tick rereads an advanced clock or currently emits a wrong alert. Cross-unit barrier findings need deduplication."
+    },
+    {
+      "id": "tests-4-cont-05",
+      "severity": "P3",
+      "category": "testing",
+      "title": "Shim signal tests accept explicitly ignored interrupt and terminate signals",
+      "locations": [
+        {
+          "path": "src/test/scripts_aiurdev_test.exs",
+          "lines": "1885-1952"
+        }
+      ],
+      "description": "Both signal-cleanup tests await natural completion of a one-second fake release and inspect the final lock. They ignore signal-command status and shim exit status. These assertions also pass when the shim explicitly ignores INT and TERM while retaining ordinary EXIT and success-path lock cleanup.",
+      "evidence": "tooling/shim_signal_oracle_probe.exs extracts the actual two tests and their fixture helpers into an isolated ExUnit module. A private original shim copy passes2/2; a private mutant changes all four combined cleanup traps to EXIT-only cleanup plus ignored INT/TERM and also passes2/2. Fake compiler/release/engine come from the source fixtures; original checkout never changes.",
+      "recommendation": "Define the intended interrupted-build behavior and assert an observable signal-path effect with confirmed delivery and owned-process cleanup. Do not infer interrupted completion from a lock absent after a normally finishing build; takeover ownership should be checked separately.",
+      "refactor_hint": "A final-state cleanup assertion cannot distinguish interrupt cleanup from ordinary success cleanup.",
+      "limits": "Two selected fixture tests only, not the full suite or real release build. No held-build control establishing an immediate-unlock or nonzero-exit contract: Bash can defer traps during foreground work, and the current trap does not itself exit. This finding establishes oracle insensitivity, not a production signal-handling bug or required abort semantics. Cross-unit deduplication pending."
     }
   ],
   "preserve": [
@@ -871,30 +905,8 @@
       "note": "Ordered multi-block role assertion narrows tests-4-cont-01 to display forwarding; it is not a suite-wide absence-of-ordering claim."
     }
   ],
-  "follow_up_candidates": [
-    {
-      "id": "tests-4-candidate-04",
-      "path": "src/test/aiur/executor/takeover_alert_monitor_test.exs",
-      "lines": "67-104",
-      "hypothesis": "Record-existence and empty-mailbox waits do not prove entire monitor tick completion; already-true state predicates further weaken negative timing assertions.",
-      "next": "Use deterministic held callbacks with the actual helper before promoting. Monitor captures now once before snapshot processing, so demonstrate the claimed behavioral gap rather than assuming every clock advance races. Cross-reference existing barrier findings to avoid duplication."
-    },
-    {
-      "id": "tests-4-candidate-05",
-      "path": "src/test/aiur_web/live/streamdeck_live_test.exs",
-      "lines": "1197-1251",
-      "hypothesis": "The old-topic broadcasts occur after refocusing has swapped subscriptions, so they may never reach the LiveView identity guard. Production handle_info reloads the incoming identifier, not the current identifier; accepting an actually delivered stale message would read the old durable feed and conflict with the new-entry assertion.",
-      "next": "Check relay delivery and consider direct tagged stale-message injection with a mailbox barrier/current-topic positive control. The separate StreamdeckChannel test443-451 already directly injects a stale tagged event for its own handler; do not conflate channel and LiveView coverage or promote the earlier current-feed-reload speculation."
-    },
-    {
-      "id": "tests-4-candidate-06",
-      "path": "src/test/scripts_aiurdev_test.exs",
-      "lines": "1878-1952",
-      "hypothesis": "Signal-cleanup tests ignore kill result and exit status, while the fake release completes naturally after one second; normal completion may satisfy cleanup assertions even with signal handling bypassed.",
-      "next": "Use isolated owned-child mutation with held release plus exact signal/exit evidence before promoting; inspect production trap semantics and deduplicate cleanup findings."
-    }
-  ],
-  "next": "100/100 full files, 40603/40603 lines read. Resolve remaining candidates04/05/06 before raw-unit closure; two P2 and one P3 confirmed. Source review and isolated probes are not full suite execution.",
+  "follow_up_candidates": [],
+  "next": "Reconcile five findings and100 preservation assessments into final reports/package contracts. Tests-4 reading and candidate dispositions complete; four raw units remain: skills-prompts and duplication by name/concept/constant.",
   "candidate_resolutions": [
     {
       "id": "tests-4-candidate-03",
@@ -915,6 +927,33 @@
       "status": "promoted",
       "finding": "tests-4-cont-03",
       "validation": "Actual AST fixture callbacks/helpers with isolated owned sleepers; four successful probe results, exit0. Shared tmp_root! and test_helper source do not add process teardown."
+    },
+    {
+      "id": "tests-4-candidate-04",
+      "status": "promoted_narrowed",
+      "finding": "tests-4-cont-04",
+      "validation": "Actual helper returns during held production Monitor snapshot callback; actor barrier waits. Clock reread/race claim not established."
+    },
+    {
+      "id": "tests-4-candidate-05",
+      "status": "not_promoted_scope_clarified",
+      "reason": "Both test titles concern focus/subscription replacement. focus_logs loads the new durable feed and replace_transcript_relay synchronously GenServer.stop's the old relay before starting the new subscription. A later broadcast to the old topic therefore tests stopped-subscription behavior, not necessarily the LiveView identity guard. The actual guard rejects mismatched identity and reloads the incoming identifier only on a match; there is no demonstrated production defect. Keep subscription regression coverage and recommend direct stale tagged-message injection to separately protect already-queued mailbox messages.",
+      "evidence": [
+        "src/lib/aiur_web/live/streamdeck_live.ex:268",
+        "src/lib/aiur_web/live/streamdeck_live.ex:1751",
+        "src/lib/aiur_web/streamdeck_transcript_relay.ex:13",
+        "src/test/aiur_web/live/streamdeck_live_test.exs:1197",
+        "src/test/aiur_web/channels/streamdeck_channel_test.exs:443"
+      ],
+      "validation": "Source tracing only; no LiveView mutation or browser test. Channel direct-message coverage belongs to its distinct handler. Earlier current-feed-reload speculation remains withdrawn."
+    },
+    {
+      "id": "tests-4-candidate-06",
+      "status": "promoted_narrowed",
+      "finding": "tests-4-cont-05",
+      "validation": "Actual two extracted fixture tests pass against original and explicitly ignored-signal mutant,2/2 each. No immediate-unlock/abort contract inferred."
     }
-  ]
+  ],
+  "files_reviewed": 100,
+  "lines_reviewed_estimate": 40603
 }
