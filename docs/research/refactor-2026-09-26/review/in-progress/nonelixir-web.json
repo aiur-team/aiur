@@ -3,9 +3,9 @@
   "status": "in-progress",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 178,
-  "files_reviewed": 109,
-  "lines_reviewed_estimate": 16949,
-  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed. Surface continuation adds 17 full reads: voice/settings/mode models and tests, typewriter/panel cache/strip renderer/key cache/write queue and tests, plus full physical surface. Surface tests only searched/targeted, not complete. Native rasterizer is replaced by a recording encoder in the probe; its transitive dependencies do not count as read coverage.",
+  "files_reviewed": 127,
+  "lines_reviewed_estimate": 19102,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed. Surface continuation adds 17 full reads: voice/settings/mode models and tests, typewriter/panel cache/strip renderer/key cache/write queue and tests, plus full physical surface. Surface tests only searched/targeted, not complete. Native rasterizer is replaced by a recording encoder in the probe; its transitive dependencies do not count as read coverage. Touch-strip continuation completes all remaining 18 touchStrip source/test paths. Targeted server projection reads cover public provider_meters paths, semantic slot classification and normalize_window; server tests read lines 1-80. art/segments.ts only searched/targeted, not read in full. The provider probe executes the actual client model and checks producer source keys; it does not execute Elixir or a live projection.",
   "coverage": [
     {
       "path": "website/src/dashboard.ts",
@@ -551,6 +551,96 @@
       "path": "packages/streamdeck/src/surface.ts",
       "status": "read_in_full",
       "sha256": "d63779ec4ca653940344f16291f5b8ee945f841bc5bdaf0fd69055cd2a471197"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/agentDetail.ts",
+      "status": "read_in_full",
+      "sha256": "c905be40bf857013bdbfecffc46313ed2ec051170500e382fcfe354fbbfd605f"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/chatLog.ts",
+      "status": "read_in_full",
+      "sha256": "db047a7ee15886dda09344b61160cd82ac4d1545c2ae579acf53ad78e1947af5"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/geometry.ts",
+      "status": "read_in_full",
+      "sha256": "18f9e676a7b09f94427d09b5b192fbf69749271f175ae89a7dfe1842d9a9ca81"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/pagerSegment.ts",
+      "status": "read_in_full",
+      "sha256": "c0968355356039cf7fed0a547c3d990c91dc63a8c69ab81410b7b655c46d5e0c"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/providerPanel.ts",
+      "status": "read_in_full",
+      "sha256": "11d287449f9f1276c7135de1496bb27bf9ba5844cd8753527d2008ca83a35ed3"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/providerSegment.ts",
+      "status": "read_in_full",
+      "sha256": "0ef4d063408f89e6c8f98f738d7473002caceaeec39c507e8c3a3c33efa07516"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/regionLatency.ts",
+      "status": "read_in_full",
+      "sha256": "f8615fc91c45706a4b15af02226960cd8347b5e01f539f5df3c1709b58f5dd06"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/stripLayout.ts",
+      "status": "read_in_full",
+      "sha256": "b671b954c1590a7c8c97a6760a3930a0b702368fded16af6f65be1cd7136ba35"
+    },
+    {
+      "path": "packages/streamdeck/src/touchStrip/summarySegment.ts",
+      "status": "read_in_full",
+      "sha256": "fddc3c2f28ad5b5a3378cbfdb8f62bb5c8b640aeb974390b3a76c73f840d4b19"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/agentDetail.test.ts",
+      "status": "read_in_full",
+      "sha256": "0baf606377c44e9007914a2c176df98da591e4e60466fdc7da9f25f7b5add0ac"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/chatLog.test.ts",
+      "status": "read_in_full",
+      "sha256": "cd921265d845c33c8fcca18ea6ee9ce1c2078a01d83c50a938edf4d9005ead15"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/geometry.test.ts",
+      "status": "read_in_full",
+      "sha256": "b6763cdf2fba85a168611ca168dcf4e37b70c5ab8957e861975a8bbd9eb38142"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/pagerSegment.test.ts",
+      "status": "read_in_full",
+      "sha256": "02a1f4e19f26cb0ec2d7ff24ff314daa8bdae26b31f2679e22d82fc82b477657"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/providerPanel.test.ts",
+      "status": "read_in_full",
+      "sha256": "cd9c772218f462b42ff150d4977289d97fb4e8f40988c87fe109eb8946087c2f"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/providerSegment.test.ts",
+      "status": "read_in_full",
+      "sha256": "463e3f3247897019e61c06c2fdf3d9b65912e65e79c5a1c26cd041f4a17b371a"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/regionLatency.test.ts",
+      "status": "read_in_full",
+      "sha256": "f7c1765c4cf2e8d6dd3e7eebf943eb2f41883900b000f9a82aa8da1144766c04"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/stripLayout.test.ts",
+      "status": "read_in_full",
+      "sha256": "8dc7eace386859e9991cea1748a00ab1a260e29d6b77fce5c0b8818ccb4f38eb"
+    },
+    {
+      "path": "packages/streamdeck/test/touchStrip/summarySegment.test.ts",
+      "status": "read_in_full",
+      "sha256": "15fcc944e9b2992d41eec75a6bce079928f84fe354a0beac3c444753cc673471"
     }
   ],
   "remaining_files": [
@@ -582,15 +672,6 @@
     "packages/streamdeck/src/keys/quality.ts",
     "packages/streamdeck/src/logs.ts",
     "packages/streamdeck/src/rasterizer.ts",
-    "packages/streamdeck/src/touchStrip/agentDetail.ts",
-    "packages/streamdeck/src/touchStrip/chatLog.ts",
-    "packages/streamdeck/src/touchStrip/geometry.ts",
-    "packages/streamdeck/src/touchStrip/pagerSegment.ts",
-    "packages/streamdeck/src/touchStrip/providerPanel.ts",
-    "packages/streamdeck/src/touchStrip/providerSegment.ts",
-    "packages/streamdeck/src/touchStrip/regionLatency.ts",
-    "packages/streamdeck/src/touchStrip/stripLayout.ts",
-    "packages/streamdeck/src/touchStrip/summarySegment.ts",
     "packages/streamdeck/test/art/gradient.test.ts",
     "packages/streamdeck/test/art/icons.test.ts",
     "packages/streamdeck/test/art/segments.test.ts",
@@ -613,16 +694,7 @@
     "packages/streamdeck/test/keys/quality.test.ts",
     "packages/streamdeck/test/logs.test.ts",
     "packages/streamdeck/test/rasterizer.test.ts",
-    "packages/streamdeck/test/surface.test.ts",
-    "packages/streamdeck/test/touchStrip/agentDetail.test.ts",
-    "packages/streamdeck/test/touchStrip/chatLog.test.ts",
-    "packages/streamdeck/test/touchStrip/geometry.test.ts",
-    "packages/streamdeck/test/touchStrip/pagerSegment.test.ts",
-    "packages/streamdeck/test/touchStrip/providerPanel.test.ts",
-    "packages/streamdeck/test/touchStrip/providerSegment.test.ts",
-    "packages/streamdeck/test/touchStrip/regionLatency.test.ts",
-    "packages/streamdeck/test/touchStrip/stripLayout.test.ts",
-    "packages/streamdeck/test/touchStrip/summarySegment.test.ts"
+    "packages/streamdeck/test/surface.test.ts"
   ],
   "findings": [
     {
@@ -1040,6 +1112,36 @@
         "evidence_file": "streamdeck-surface-probe.json",
         "limits": "Actual compositor/layout with recording encoder, no-op writes; no native rendering, USB, microphone or independent skeptic review."
       }
+    },
+    {
+      "id": "nonelixir-web-15",
+      "category": "contract-drift",
+      "severity": "P2",
+      "title": "Provider meters discard the server semantic window contract",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/touchStrip/providerSegment.ts",
+          "lines": "113-155"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "lines": "346-353,378-388,423-436"
+        },
+        {
+          "path": "packages/streamdeck/test/touchStrip/providerSegment.test.ts",
+          "lines": "8-21,54-65"
+        }
+      ],
+      "description": "The server projection normalizes provider windows into session/weekly keys and omits duration_minutes. The client ignores those semantic keys and reclassifies by duration. A normalized pair has no classifiable duration and is rejected as ambiguous, yielding hasData false despite both real readings. A sole weekly window is reassigned to session by the singleton fallback. Both join snapshots and usage updates use this normalized server path.",
+      "evidence": "streamdeck-provider-probe.json checks the frozen normalize_window output keys and executes the client against synthetic values in that wire shape: session 42/weekly 71 yields no data; weekly-only 71 yields session 71 and weekly null. The older duration-bearing shape remains a positive control. Server tests explicitly assert preservation of session/weekly including weekly-only; client fixtures instead include durations. Server execution and live prevalence were not measured.",
+      "recommendation": "Consume the server-owned semantic slots directly, retaining missing slots, per-window freshness and observation identity. Add a serialized producer fixture consumed by the TypeScript model so a server contract change cannot pass disjoint fixture suites. Version the external projection if both old and new clients must coexist.",
+      "refactor_hint": "Keep provider classification in one owner. Package boundaries need shared wire-contract verification, not duplicated normalizers with independent unit tests.",
+      "effort": "M",
+      "verification": {
+        "status": "client_reproduced_producer_source_traced",
+        "evidence_file": "streamdeck-provider-probe.json",
+        "limits": "Actual client model; producer shape source-checked rather than executed. Synthetic percentages; no live meters, pixels, hardware or independent skeptic review."
+      }
     }
   ],
   "unpromoted_observations": [
@@ -1106,6 +1208,18 @@
     {
       "topic": "Typewriter identity",
       "disposition": "The typewriter uses row index/body, not role or stable event identity, and does not restrict message animation to assistant role despite a test comment. Inspect caller filtering and sliding transcript behavior before assigning user impact."
+    },
+    {
+      "topic": "Provider unknown percentage with duration",
+      "disposition": "The client returns 0 for a duration-bearing window with missing percentage; one test explicitly expects it. Current normalized producer omits duration, so this probe case is a latent older-shape defect, not established production reachability. Preserve unknown values in the replacement contract."
+    },
+    {
+      "topic": "Provider freshness on rendered strip",
+      "disposition": "ProviderSegmentModel retains provider freshness but drops per-window freshness and age. Targeted painter search found no freshness/age references. Read the complete art renderer and exercise stale versus fresh drawing before promoting a displayed-staleness finding."
+    },
+    {
+      "topic": "Latency benchmark interpretation",
+      "disposition": "regionLatency measures report encoding only, with the full-strip case repeating one segment four times. Its source already states this limitation. Do not use its arithmetic report ratio or injected-clock tests as a measured USB latency saving."
     }
   ]
 }

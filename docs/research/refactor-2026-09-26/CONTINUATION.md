@@ -245,3 +245,25 @@ Typewriter row identity and role filtering remain candidates requiring caller
 analysis. Continue with remaining surface/controller tests, renderers and
 scripts. Fourteen partial-unit findings (twelve P2, two P3) are not included in
 the inherited raw totals; overall counts remain 23/32 units and 50/60 claims.
+
+## Provider contract checkpoint
+
+All touchStrip source/test paths are now read: eighteen additional paths bring
+the partial unit to 127/178, leaving 51. Finding 15 identifies producer-consumer
+drift: the server emits semantic session/weekly slots without durations, while
+the client reclassifies by duration. A real two-window shape becomes no data; a
+weekly-only shape becomes session usage. The client tests use an older shape.
+
+`node tooling/streamdeck_provider_probe.mjs /path/to/frozen-snapshot` checks
+the producer's source-level output keys and executes the actual client model
+against synthetic values in that shape, with the old shape as a positive
+control. The server is source-traced, not executed, and no live prevalence is
+claimed. Results are in `review/in-progress/streamdeck-provider-probe.json`.
+A shared serialized contract fixture is needed across the proposed boundary.
+
+Provider painter freshness/age handling remains a candidate for the complete
+art-renderer pass. The report-encoding benchmark already disclaims hardware
+latency coverage; do not promote its fourfold arithmetic into measured savings.
+Fifteen partial-unit findings (thirteen P2, two P3) remain outside raw totals.
+Overall counts remain 23/32 review units and 50/60 claims. Continue with art,
+key rendering, logs/controller tests and scripts; no production changes made.
