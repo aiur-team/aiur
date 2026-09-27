@@ -4,35 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "131a6cc84a9251bc03223db8e8453d41f7795de02e952c752b5b22e15d72c31c"
+    "name_triage": "197b3e1cb132dfec54a5218656375873c74c287e651e63ccb75756794cf664df"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 113,
-    "remaining_cross_module_names": 1567,
-    "remaining_literal_entries": 6704
+    "reviewed_cross_module_names": 116,
+    "remaining_cross_module_names": 1564,
+    "remaining_literal_entries": 6651
   },
   "families": [
-    {
-      "name": "dispatch",
-      "clauses": 33,
-      "modules": 8,
-      "summed_source_span_lines": 159
-    },
-    {
-      "name": "emit_alert",
-      "clauses": 10,
-      "modules": 8,
-      "summed_source_span_lines": 149
-    },
-    {
-      "name": "fetch_candidate_issues",
-      "clauses": 10,
-      "modules": 8,
-      "summed_source_span_lines": 47
-    },
     {
       "name": "flush",
       "clauses": 8,

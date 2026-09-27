@@ -1715,3 +1715,7 @@ Read notify, provenance, provider and release: 52 literal entries across four fa
 ### Name duplication: control characters, subscriptions and counts
 
 Read unsafe_control_chars?, unsubscribe, value_of, command and counts: 53 literal entries across five families. Separate strict and multiline character policies, durable subscription removal from local cleanup, and unavailable counts from zero. Accounting dual-key access and tolerant history unsubscribe contain narrow sharing candidates; command defaults differ on whitespace-only input. Name triage now 113 families/3564 entries, leaving 1567 cross-module names. Raw findings and skeptic counts are unchanged; runtime impact and savings are not claimed.
+
+### Name duplication: dispatch, alerts and candidate authority
+
+Read dispatch, emit_alert and fetch_candidate_issues: 53 literal entries across three families. Queue start-failure policies differ between coordination retry and decision-dispatch terminal notification. Preserve decision correlation, webhook admission and mutable candidate-label authority. Recent-merge and webhook delivery alert wrappers share narrow callback mechanics with distinct diagnostic labels. Name triage now 116 families/3617 entries, leaving 1564 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
