@@ -4,41 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "c06b08b6b66a3eff63048d9c0b195c1ad27908dc7557cfd5d8b919281e5e4169"
+    "name_triage": "b6615c59975ec02b7bc56ad7ee2af2faa5ee6fb779788614d8291e5bf82cff4d"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 100,
-    "remaining_cross_module_names": 1580,
-    "remaining_literal_entries": 6869
+    "reviewed_cross_module_names": 104,
+    "remaining_cross_module_names": 1576,
+    "remaining_literal_entries": 6809
   },
   "families": [
-    {
-      "name": "field",
-      "clauses": 16,
-      "modules": 9,
-      "summed_source_span_lines": 26
-    },
-    {
-      "name": "from_record",
-      "clauses": 17,
-      "modules": 9,
-      "summed_source_span_lines": 163
-    },
-    {
-      "name": "history",
-      "clauses": 9,
-      "modules": 9,
-      "summed_source_span_lines": 114
-    },
-    {
-      "name": "normalize_state",
-      "clauses": 18,
-      "modules": 9,
-      "summed_source_span_lines": 56
-    },
     {
       "name": "notify",
       "clauses": 10,

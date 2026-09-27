@@ -994,3 +994,7 @@ Read source_version, all, available?, boot, catalog and checksum: 59 literal ent
 ### Name duplication: classification, current state and enum domains
 
 Read classify, current, emit and enum: 69 literal entries across four families. Preserve classifier unknown/fatal distinctions, configuration-path authority, synchronization effects, callback failure policy and allowlist result domains. Enum conversion contains narrow sharing candidates; UsageEnvelope and ExactMoney normalization helpers were also inspected. Name triage now 100 families/3399 entries, leaving 1580 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
+
+### Name duplication: fields, durable records and state normalization
+
+Read field, from_record, history and normalize_state: 60 literal entries across four families. Field-access duplicates must preserve explicit nil/false and key precedence. Durable readers retain separate authentication/restoration rules; history carries distinct completeness and pagination contracts. Tracker normalization differs from lifecycle/health enums and agent mutation authorization. Name triage now 104 families/3459 entries, leaving 1576 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
