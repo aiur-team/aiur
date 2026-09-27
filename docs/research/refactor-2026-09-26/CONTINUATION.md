@@ -751,3 +751,20 @@ Schema and wizard bot validation, and configured versus missing-only label
 defaults, are not interchangeable. All listed source hashes matched the census.
 No production edits, credential reads, external URL verification, runtime tests
 or savings claims. Broader constant and concept sweeps remain open.
+
+## Symbolic constant candidate assessment checkpoint
+
+All 82 symbolic attribute groups now have source-consumer assessments. Including
+the u64 numeric group, 83 of 162 groups are assessed; 79 numeric groups remain.
+This completes only the generated symbolic candidate set, not the constant unit
+or the broader inline/key/timeout sweep. Source hashes matched the frozen census.
+
+Shared contracts include marker vocabulary, supervisor actor identity, usage group
+dimensions, telemetry metrics/evidence and carried point-event identities. Existing
+TurnMarkers and GraphqlCost accessors already own part of the duplication. Preserve
+strict marker routing versus broad synthetic filtering, nested raw telemetry versus
+flattened summary decoding, and repeated authorization checks at delivery boundaries.
+GitHub display order differs from first-hold dispatch order; provider effort
+admission is not automatically widened by global override vocabulary. Three equal
+15-minute values govern unrelated re-ask, freshness and sweep policies. No production
+changes, live-system verification, quota saving or package-boundary completion claimed.

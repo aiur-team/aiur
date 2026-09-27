@@ -2185,10 +2185,801 @@
       "disposition": "module_relative_keys_distinct_scope",
       "assessment": "Events.Exchange nests its module-specific table key with a server identity. CycleFetchCache uses its own module-specific key in the process dictionary for a private ETS table. Equal source expressions resolve to different keys and storage scopes; do not unify them.",
       "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "52040b5bc2900d5c8b2c615adf0af33d4cddb312af569762a438c38171a36536",
+      "modules": 4,
+      "site_count": 4,
+      "sites": [
+        {
+          "line": 17,
+          "module": "AiurWeb.FinancialData",
+          "name": "authentication_required",
+          "path": "src/lib/aiur_web/financial_data.ex",
+          "expression": "{:error, :authentication_required}",
+          "numeric_value": null,
+          "expression_sha256": "52040b5bc2900d5c8b2c615adf0af33d4cddb312af569762a438c38171a36536"
+        },
+        {
+          "line": 9,
+          "module": "AiurWeb.FinancialData.Cache",
+          "name": "authentication_required",
+          "path": "src/lib/aiur_web/financial_data/cache.ex",
+          "expression": "{:error, :authentication_required}",
+          "numeric_value": null,
+          "expression_sha256": "52040b5bc2900d5c8b2c615adf0af33d4cddb312af569762a438c38171a36536"
+        },
+        {
+          "line": 6,
+          "module": "AiurWeb.FinancialData.Cache.Pending",
+          "name": "authentication_required",
+          "path": "src/lib/aiur_web/financial_data/cache/pending.ex",
+          "expression": "{:error, :authentication_required}",
+          "numeric_value": null,
+          "expression_sha256": "52040b5bc2900d5c8b2c615adf0af33d4cddb312af569762a438c38171a36536"
+        },
+        {
+          "line": 7,
+          "module": "AiurWeb.FinancialDataAccess.Proof",
+          "name": "authentication_required",
+          "path": "src/lib/aiur_web/financial_data_access/proof.ex",
+          "expression": "{:error, :authentication_required}",
+          "numeric_value": null,
+          "expression_sha256": "52040b5bc2900d5c8b2c615adf0af33d4cddb312af569762a438c38171a36536"
+        }
+      ],
+      "disposition": "shared_error_contract_not_shared_auth_check",
+      "assessment": "FinancialData, Cache, Pending and Access.Proof return the same denial tuple. Preserve checks at request, cache delivery and pending-waiter resolution, including generation invalidation and stale eviction. Naming a common error does not justify removing repeated authorization checks at different times.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "0073512964772b814e0921967ba96df3c08410ff90e70897882bc9516b4715bf",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 17,
+          "module": "Aiur.DecisionAttention",
+          "name": "default_reask_interval_ms",
+          "path": "src/lib/aiur/decision_attention.ex",
+          "expression": ":timer.minutes(15)",
+          "numeric_value": null,
+          "expression_sha256": "0073512964772b814e0921967ba96df3c08410ff90e70897882bc9516b4715bf"
+        },
+        {
+          "line": 61,
+          "module": "Aiur.GitHub.BoundedBlockedBy",
+          "name": "default_max_age_ms",
+          "path": "src/lib/aiur/github/bounded_blocked_by.ex",
+          "expression": ":timer.minutes(15)",
+          "numeric_value": null,
+          "expression_sha256": "0073512964772b814e0921967ba96df3c08410ff90e70897882bc9516b4715bf"
+        },
+        {
+          "line": 95,
+          "module": "Aiur.GitHub.ViewStateSweep",
+          "name": "default_interval_ms",
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "expression": ":timer.minutes(15)",
+          "numeric_value": null,
+          "expression_sha256": "0073512964772b814e0921967ba96df3c08410ff90e70897882bc9516b4715bf"
+        }
+      ],
+      "disposition": "equal_duration_independent_policy",
+      "assessment": "The same 15-minute expression sets decision re-ask cadence, blocked-by staleness bound and view-state sweep fallback cadence. Their configuration paths and failure costs differ. Keep policies independent; this symbolic group numerically equals 900000 ms but was not folded by the bounded arithmetic census.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "2db951f8819082e67c46f48898525c6878d0f4f2f87aaeac6d0c9b374e8b42bd",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 31,
+          "module": "Aiur.GitHub.CredentialHeadroom",
+          "name": "resources",
+          "path": "src/lib/aiur/github/credential_headroom.ex",
+          "expression": "[\"core\", \"graphql\"]",
+          "numeric_value": null,
+          "expression_sha256": "2db951f8819082e67c46f48898525c6878d0f4f2f87aaeac6d0c9b374e8b42bd"
+        },
+        {
+          "line": 27,
+          "module": "Aiur.GitHub.CredentialUsage",
+          "name": "resources",
+          "path": "src/lib/aiur/github/credential_usage.ex",
+          "expression": "[\"core\", \"graphql\"]",
+          "numeric_value": null,
+          "expression_sha256": "2db951f8819082e67c46f48898525c6878d0f4f2f87aaeac6d0c9b374e8b42bd"
+        },
+        {
+          "line": 9,
+          "module": "Aiur.Orchestrator.GithubBudgetPause",
+          "name": "budget_resources",
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "expression": "[\"core\", \"graphql\"]",
+          "numeric_value": null,
+          "expression_sha256": "2db951f8819082e67c46f48898525c6878d0f4f2f87aaeac6d0c9b374e8b42bd"
+        }
+      ],
+      "disposition": "shared_primary_budget_vocabulary",
+      "assessment": "Headroom admits core/graphql windows, CredentialUsage aggregates those resources, and GitHubBudgetPause accepts them in a bounded hold payload. Share resource vocabulary without replacing credential aggregation or hold timestamp validation. Related groups 29 and 42 differ in spelling/order or purpose; these are not three independent extraction opportunities.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "3835e8a3b9dba7e62ec3f0925b2a5f4b450dd1027ba3ca01ec3934d2044d270d",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 29,
+          "module": "Aiur.Orchestrator.CiLifecycle",
+          "name": "human_review_state",
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "expression": "\"human-review\"",
+          "numeric_value": null,
+          "expression_sha256": "3835e8a3b9dba7e62ec3f0925b2a5f4b450dd1027ba3ca01ec3934d2044d270d"
+        },
+        {
+          "line": 18,
+          "module": "Aiur.Orchestrator.CommentPolling.TargetSelection",
+          "name": "human_review_state",
+          "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+          "expression": "\"human-review\"",
+          "numeric_value": null,
+          "expression_sha256": "3835e8a3b9dba7e62ec3f0925b2a5f4b450dd1027ba3ca01ec3934d2044d270d"
+        },
+        {
+          "line": 30,
+          "module": "Aiur.Orchestrator.CommentWake",
+          "name": "non_closing_merge_state",
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "expression": "\"human-review\"",
+          "numeric_value": null,
+          "expression_sha256": "3835e8a3b9dba7e62ec3f0925b2a5f4b450dd1027ba3ca01ec3934d2044d270d"
+        }
+      ],
+      "disposition": "shared_state_name_distinct_transitions",
+      "assessment": "human-review is shared lifecycle vocabulary. CILifecycle includes it with ci-wait for polling; comment target selection includes merging/rework; CommentWake uses it when a merged PR does not close its ticket. Centralizing spelling must preserve these distinct state sets and transition conditions.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "7c7edf976888bbb0620616845b9978a630e84b24bac0e086680a98735099f999",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 25,
+          "module": "Aiur.DecisionApi",
+          "name": "supervisor_actor",
+          "path": "src/lib/aiur/decision_api.ex",
+          "expression": "%{kind: :supervisor, id: \"supervising-agent\"}",
+          "numeric_value": null,
+          "expression_sha256": "7c7edf976888bbb0620616845b9978a630e84b24bac0e086680a98735099f999"
+        },
+        {
+          "line": 12,
+          "module": "Aiur.DecisionEnrichment",
+          "name": "supervisor_actor",
+          "path": "src/lib/aiur/decision_enrichment.ex",
+          "expression": "%{kind: :supervisor, id: \"supervising-agent\"}",
+          "numeric_value": null,
+          "expression_sha256": "7c7edf976888bbb0620616845b9978a630e84b24bac0e086680a98735099f999"
+        },
+        {
+          "line": 18,
+          "module": "AiurWeb.SupervisorAuth",
+          "name": "actor",
+          "path": "src/lib/aiur_web/supervisor_auth.ex",
+          "expression": "%{kind: :supervisor, id: \"supervising-agent\"}",
+          "numeric_value": null,
+          "expression_sha256": "7c7edf976888bbb0620616845b9978a630e84b24bac0e086680a98735099f999"
+        }
+      ],
+      "disposition": "shared_trusted_actor_contract",
+      "assessment": "SupervisorAuth injects the supervising-agent actor after token validation and exposes actor/0; DecisionAPI and DecisionEnrichment pattern-match the same required fields with distinct error envelopes. A low-dependency actor contract avoids web-to-domain coupling. Map patterns permit additional keys; do not describe this as strict whole-map equality or treat identity construction as authentication.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "f3027d99c92372f4ad8a8000cc80986b66c6092737e0ab533fdbc259e801dd08",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 36,
+          "module": "Aiur.Opencode.ChatCompletions",
+          "name": "turn_marker_prefix",
+          "path": "src/lib/aiur/opencode/chat_completions.ex",
+          "expression": "\"__aiur_turn__:\"",
+          "numeric_value": null,
+          "expression_sha256": "f3027d99c92372f4ad8a8000cc80986b66c6092737e0ab533fdbc259e801dd08"
+        },
+        {
+          "line": 9,
+          "module": "Aiur.Opencode.ChatCompletions.TurnRequest",
+          "name": "turn_marker_prefix",
+          "path": "src/lib/aiur/opencode/chat_completions/turn_request.ex",
+          "expression": "\"__aiur_turn__:\"",
+          "numeric_value": null,
+          "expression_sha256": "f3027d99c92372f4ad8a8000cc80986b66c6092737e0ab533fdbc259e801dd08"
+        },
+        {
+          "line": 23,
+          "module": "Aiur.Opencode.TurnMarkers",
+          "name": "marker_prefix",
+          "path": "src/lib/aiur/opencode/turn_markers.ex",
+          "expression": "\"__aiur_turn__:\"",
+          "numeric_value": null,
+          "expression_sha256": "f3027d99c92372f4ad8a8000cc80986b66c6092737e0ab533fdbc259e801dd08"
+        }
+      ],
+      "disposition": "shared_marker_protocol_existing_owner",
+      "assessment": "TurnMarkers already exposes marker_text/1 and marker_prefix/0. ChatCompletions routes and validates turn markers; TurnRequest broadly classifies their prefix as synthetic. Share protocol vocabulary while retaining strict routing validation, broad exclusion and shadowed-marker repost behavior. An accessor alone cannot replace a binary-pattern prefix without an appropriate compile-time or parser boundary.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "2cb886370809cd1feaae0feb3b2b4fdf44a685c7c550454babae20f22377cd18",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 57,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "resources",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "expression": "[\"graphql\", \"core\"]",
+          "numeric_value": null,
+          "expression_sha256": "2cb886370809cd1feaae0feb3b2b4fdf44a685c7c550454babae20f22377cd18"
+        },
+        {
+          "line": 76,
+          "module": "Aiur.GitHub.QuotaUsage",
+          "name": "budget_order",
+          "path": "src/lib/aiur/github/quota_usage.ex",
+          "expression": "[\"graphql\", \"core\"]",
+          "numeric_value": null,
+          "expression_sha256": "2cb886370809cd1feaae0feb3b2b4fdf44a685c7c550454babae20f22377cd18"
+        }
+      ],
+      "disposition": "shared_display_order_not_dispatch_order",
+      "assessment": "BudgetMap and QuotaUsage deliberately display graphql before core. QuotaUsage appends other budgets in sorted order. Preserve ordered display vocabulary; group 9 uses the opposite order and group 42 feeds first-matching dispatch holds, so one global ordered list would change semantics.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "50c5a8ee662743b7836d40bbb6786f71bb1484db38afcf2d25696bcbf3f166f0",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 59,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "dims_dimensions",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "expression": "%{\n  by_provider: :provider,\n  by_run: :run_id,\n  by_ticket: :ticket,\n  by_agent_family: :agent_family,\n  by_backend: :backend,\n  by_upstream_provider: :upstream_provider,\n  by_model: :resolved_model,\n  by_auth_mode: :auth_mode,\n  by_account_generation: :account_generation,\n  by_relationship_revision: :relationship_revision,\n  by_pricing_date: :pricing_date\n}",
+          "numeric_value": null,
+          "expression_sha256": "50c5a8ee662743b7836d40bbb6786f71bb1484db38afcf2d25696bcbf3f166f0"
+        },
+        {
+          "line": 15,
+          "module": "Aiur.UsageAggregate.Query",
+          "name": "group_dimensions",
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "expression": "%{\n  by_provider: :provider,\n  by_run: :run_id,\n  by_ticket: :ticket,\n  by_agent_family: :agent_family,\n  by_backend: :backend,\n  by_upstream_provider: :upstream_provider,\n  by_model: :resolved_model,\n  by_auth_mode: :auth_mode,\n  by_account_generation: :account_generation,\n  by_relationship_revision: :relationship_revision,\n  by_pricing_date: :pricing_date\n}",
+          "numeric_value": null,
+          "expression_sha256": "50c5a8ee662743b7836d40bbb6786f71bb1484db38afcf2d25696bcbf3f166f0"
+        }
+      ],
+      "disposition": "shared_usage_group_dimension_mapping",
+      "assessment": "GroupedScopes and Aggregate.Query map eleven public group names to the same dimension fields. Both fetch those dimensions, with Query routing through Key.group_value/2. A shared mapping is supported; keep contributor token/money buckets and aggregate measure folding separate, including GroupedScopes extra route/partition/currency groups.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "66424274aa5696423cd062530fe61616f9e00c7cbcc567f3645ee8bb700d59a4",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 27,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "root_label",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "expression": "\"build-order\"",
+          "numeric_value": null,
+          "expression_sha256": "66424274aa5696423cd062530fe61616f9e00c7cbcc567f3645ee8bb700d59a4"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.BuildOrder.GitHubGraph.Normalizer",
+          "name": "root_label",
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "expression": "\"build-order\"",
+          "numeric_value": null,
+          "expression_sha256": "66424274aa5696423cd062530fe61616f9e00c7cbcc567f3645ee8bb700d59a4"
+        }
+      ],
+      "disposition": "shared_build_order_root_label",
+      "assessment": "CatalogStore selects and validates roots using build-order; GitHubGraph.Normalizer validates the same root label. This is a shared Build Order contract. Queries also contains the label inline in its catalog selection, outside this attribute group; coordinate query filtering as well as validation.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "7019ebbb6e0e8883113e16bb81a0fb41c033c4e1eea675cb72294d2217c70391",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 47,
+          "module": "Aiur.GitHub.Quota",
+          "name": "primary_resources",
+          "path": "src/lib/aiur/github/quota.ex",
+          "expression": "~w\"core graphql\"",
+          "numeric_value": null,
+          "expression_sha256": "7019ebbb6e0e8883113e16bb81a0fb41c033c4e1eea675cb72294d2217c70391"
+        },
+        {
+          "line": 22,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryStrip",
+          "name": "github_resources",
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "expression": "~w\"core graphql\"",
+          "numeric_value": null,
+          "expression_sha256": "7019ebbb6e0e8883113e16bb81a0fb41c033c4e1eea675cb72294d2217c70391"
+        }
+      ],
+      "disposition": "shared_resource_set_distinct_order_consumers",
+      "assessment": "Quota and RunSummaryStrip use core/graphql as the primary resource list. Quota separately meters core:anonymous and dispatches on the first primary hold; the UI enumerates existing windows. Keep anonymous metering separate from dispatch gating and preserve dispatch priority. Coordinate vocabulary with group 9, not the opposite display order in group 29.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "70ae2d136b94414f476361a24fa7a489e5cc25584529f90851a9978fe459d00f",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 43,
+          "module": "Aiur.Orchestrator.Lifecycle",
+          "name": "empty_agent_totals",
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "expression": "%{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}",
+          "numeric_value": null,
+          "expression_sha256": "70ae2d136b94414f476361a24fa7a489e5cc25584529f90851a9978fe459d00f"
+        },
+        {
+          "line": 11,
+          "module": "Aiur.Orchestrator.TokenAccounting",
+          "name": "empty_agent_totals",
+          "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+          "expression": "%{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0}",
+          "numeric_value": null,
+          "expression_sha256": "70ae2d136b94414f476361a24fa7a489e5cc25584529f90851a9978fe459d00f"
+        }
+      ],
+      "disposition": "shared_agent_totals_initial_value",
+      "assessment": "Lifecycle initializes zero token/runtime totals, and TokenAccounting uses the same value when applying a delta to nil totals. A named empty-totals constructor in accounting can own the shape. Preserve lifecycle reset timing and nil handling; equality of initial maps does not establish equivalence of lifecycle and accounting operations.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "752aafe2c38f18eced947824760fd3a4b44db46e27816daed88db743ad93c43f",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 8,
+          "module": "Aiur.BuildOrder.GitHubGraph.Queries",
+          "name": "rate_limit",
+          "path": "src/lib/aiur/build_order/github_graph/queries.ex",
+          "expression": "\"rateLimit { limit cost remaining resetAt }\"",
+          "numeric_value": null,
+          "expression_sha256": "752aafe2c38f18eced947824760fd3a4b44db46e27816daed88db743ad93c43f"
+        },
+        {
+          "line": 99,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "selection",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "expression": "\"rateLimit { limit cost remaining resetAt }\"",
+          "numeric_value": null,
+          "expression_sha256": "752aafe2c38f18eced947824760fd3a4b44db46e27816daed88db743ad93c43f"
+        }
+      ],
+      "disposition": "shared_graphql_selection_existing_owner",
+      "assessment": "Build Order query templates embed the same rateLimit fields that GraphqlCost.selection/0 already exposes and instrument/1 injects. Reuse that contract subject to compile-time dependencies, while preserving instrumenter decline/idempotence behavior. This is telemetry selection reuse, not a measured quota saving.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "76b4345e03f69a30fa14435aa7cf184be8ede62f935887ac0f43a4e87ca6f236",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 877,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "default_icons",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "expression": "[\"bolt\", \"cube\", \"sparkles\", \"server-stack\", \"rectangle-group\"]",
+          "numeric_value": null,
+          "expression_sha256": "76b4345e03f69a30fa14435aa7cf184be8ede62f935887ac0f43a4e87ca6f236"
+        },
+        {
+          "line": 31,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderEpicIcon",
+          "name": "explicit_icons",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_epic_icon.ex",
+          "expression": "[\"bolt\", \"cube\", \"sparkles\", \"server-stack\", \"rectangle-group\"]",
+          "numeric_value": null,
+          "expression_sha256": "76b4345e03f69a30fa14435aa7cf184be8ede62f935887ac0f43a4e87ca6f236"
+        }
+      ],
+      "disposition": "shared_icon_palette_order_matters",
+      "assessment": "PlanningSource hashes root identity into an ordered palette and selects an unused candidate; BuildOrderEpicIcon compiles those SVGs with additional lane/generic icons. Share the supported palette while preserving order and the wider renderer icon set. Reordering changes default icon assignment.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "8853b090b07baf12d152939b72b027ec27003c5dbb1d99ff4314bbcf6505ba4b",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 43,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "drill_dimensions",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "expression": "~w\"by_provider by_ticket by_agent_family by_model by_account_generation\"a",
+          "numeric_value": null,
+          "expression_sha256": "8853b090b07baf12d152939b72b027ec27003c5dbb1d99ff4314bbcf6505ba4b"
+        },
+        {
+          "line": 82,
+          "module": "AiurWeb.DashboardLive",
+          "name": "usage_drill_dimensions",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "expression": "~w\"by_provider by_ticket by_agent_family by_model by_account_generation\"a",
+          "numeric_value": null,
+          "expression_sha256": "8853b090b07baf12d152939b72b027ec27003c5dbb1d99ff4314bbcf6505ba4b"
+        }
+      ],
+      "disposition": "shared_ui_drill_dimension_allowlist",
+      "assessment": "UsageRuntime and DashboardLive use the same five dimensions and binary-to-known-atom lookup with nil fallback. A shared UI drill contract is supported. This is narrower than the complete usage grouping map in group 35; centralization must not automatically expose every aggregate dimension or bypass financial-data authorization.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "8866dfba6e45b21a348fc3ff6d66a57564c81c1758fea4e6f2c309f8337fbbf2",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 24,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "resource_evidence",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "expression": "~w\"\n    fleet_capacity_status fleet_capacity_age_ms fleet_capacity_observed_at_ms\n    fleet_admission_signal\n    build_gate_enabled build_gate_status build_gate_observed_at_ms\n  \"a",
+          "numeric_value": null,
+          "expression_sha256": "8866dfba6e45b21a348fc3ff6d66a57564c81c1758fea4e6f2c309f8337fbbf2"
+        },
+        {
+          "line": 283,
+          "module": "Aiur.RunTelemetry.Summaries",
+          "name": "resource_evidence",
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "expression": "~w\"\n    fleet_capacity_status fleet_capacity_age_ms fleet_capacity_observed_at_ms\n    fleet_admission_signal\n    build_gate_enabled build_gate_status build_gate_observed_at_ms\n  \"a",
+          "numeric_value": null,
+          "expression_sha256": "8866dfba6e45b21a348fc3ff6d66a57564c81c1758fea4e6f2c309f8337fbbf2"
+        }
+      ],
+      "disposition": "shared_telemetry_evidence_schema",
+      "assessment": "Dataset and Summaries decode the same seven evidence fields from string keys into atom keys. A telemetry schema owner should keep serialized/reloaded evidence aligned, preserving nil/unknown values and keeping evidence separate from numeric metrics. It does not prove that every computed age is rendered.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "8b80e54f9ff3997438be54dc08ca4264fc18235e37fed1fc62907085a70b2ca3",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 14,
+          "module": "Aiur.RunTelemetry",
+          "name": "filename",
+          "path": "src/lib/aiur/run_telemetry.ex",
+          "expression": "\"telemetry.ndjson\"",
+          "numeric_value": null,
+          "expression_sha256": "8b80e54f9ff3997438be54dc08ca4264fc18235e37fed1fc62907085a70b2ca3"
+        },
+        {
+          "line": 14,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "telemetry_filename",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "expression": "\"telemetry.ndjson\"",
+          "numeric_value": null,
+          "expression_sha256": "8b80e54f9ff3997438be54dc08ca4264fc18235e37fed1fc62907085a70b2ca3"
+        }
+      ],
+      "disposition": "shared_telemetry_artifact_name",
+      "assessment": "RunTelemetry derives its output path beside the log file; Dataset recursively discovers telemetry.ndjson under supplied directories. These writer/reader names must stay in sync through telemetry layout vocabulary. Keep output placement and input discovery separate.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "8b9e2badcb8a702ee5cbadfe9b5a3b3942fa2a73028f46c8917dd17e65db1314",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 20,
+          "module": "Aiur.Opencode.ChatCompletions",
+          "name": "stream_marker_prefix",
+          "path": "src/lib/aiur/opencode/chat_completions.ex",
+          "expression": "\"__aiur_stream__:\"",
+          "numeric_value": null,
+          "expression_sha256": "8b9e2badcb8a702ee5cbadfe9b5a3b3942fa2a73028f46c8917dd17e65db1314"
+        },
+        {
+          "line": 10,
+          "module": "Aiur.Opencode.ChatCompletions.TurnRequest",
+          "name": "stream_marker_prefix",
+          "path": "src/lib/aiur/opencode/chat_completions/turn_request.ex",
+          "expression": "\"__aiur_stream__:\"",
+          "numeric_value": null,
+          "expression_sha256": "8b9e2badcb8a702ee5cbadfe9b5a3b3942fa2a73028f46c8917dd17e65db1314"
+        }
+      ],
+      "disposition": "shared_stream_marker_protocol_distinct_validation",
+      "assessment": "ChatCompletions routes stream markers, handling nudge markers separately and rejecting invalid stream IDs; TurnRequest excludes any matching prefix as synthetic. Share protocol names without replacing broad prefix classification with strict parsing or admitting malformed markers to replay.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "9204f8517635911985b28efa0246376fc0ddb02f8f00bff5d1ee26fada3cca76",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 27,
+          "module": "Aiur.ModelAvailability",
+          "name": "windows",
+          "path": "src/lib/aiur/model_availability.ex",
+          "expression": "~w\"hourly weekly monthly\"",
+          "numeric_value": null,
+          "expression_sha256": "9204f8517635911985b28efa0246376fc0ddb02f8f00bff5d1ee26fada3cca76"
+        },
+        {
+          "line": 12,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryStrip",
+          "name": "durable_windows",
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "expression": "~w\"hourly weekly monthly\"",
+          "numeric_value": null,
+          "expression_sha256": "9204f8517635911985b28efa0246376fc0ddb02f8f00bff5d1ee26fada3cca76"
+        }
+      ],
+      "disposition": "shared_limit_window_vocabulary_distinct_policy",
+      "assessment": "ModelAvailability tracks hourly/weekly/monthly windows for admission and reset/backoff semantics. RunSummaryStrip reads those windows for a highest-percent fallback, requiring positive limits, while availability checks permit zero limits. Share names if useful; do not substitute UI percentage selection for dispatch availability.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "95d0d3b6c6a3613c63717385148a05c30daeefa5667a065a4dce8c7b672eec98",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 13,
+          "module": "Aiur.Claude.Telemetry.Contract",
+          "name": "efforts",
+          "path": "src/lib/aiur/claude/telemetry/contract.ex",
+          "expression": "~w\"low medium high xhigh max\"",
+          "numeric_value": null,
+          "expression_sha256": "95d0d3b6c6a3613c63717385148a05c30daeefa5667a065a4dce8c7b672eec98"
+        },
+        {
+          "line": 66,
+          "module": "Aiur.CodingAgent",
+          "name": "effort_override_values",
+          "path": "src/lib/aiur/coding_agent.ex",
+          "expression": "~w\"low medium high xhigh max\"",
+          "numeric_value": null,
+          "expression_sha256": "95d0d3b6c6a3613c63717385148a05c30daeefa5667a065a4dce8c7b672eec98"
+        }
+      ],
+      "disposition": "provider_contract_not_global_permission",
+      "assessment": "Claude telemetry accepts low/medium/high/xhigh/max; CodingAgent uses the same current list for global override labels, reserved names and parsing, with backend support checked elsewhere. Equality today does not mean a future global effort must be accepted by Claude telemetry. Keep provider admission explicit.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "b8fe7237bbb2ef2b384f5589aa246b4de37b93e3295ac2a77fc6ffd1032683d2",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 9,
+          "module": "AiurWeb.OperatorControlCenter.TicketsPanel",
+          "name": "icon_svg",
+          "path": "src/lib/aiur_web/components/operator_control_center/tickets_panel.ex",
+          "expression": "~s\"viewBox=\\\"0 0 24 24\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" stroke-width=\\\"2\\\" stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" aria-hidden=\\\"true\\\"\"",
+          "numeric_value": null,
+          "expression_sha256": "b8fe7237bbb2ef2b384f5589aa246b4de37b93e3295ac2a77fc6ffd1032683d2"
+        },
+        {
+          "line": 213,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "icon_svg",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "expression": "~s\"viewBox=\\\"0 0 24 24\\\" fill=\\\"none\\\" stroke=\\\"currentColor\\\" stroke-width=\\\"2\\\" stroke-linecap=\\\"round\\\" stroke-linejoin=\\\"round\\\" aria-hidden=\\\"true\\\"\"",
+          "numeric_value": null,
+          "expression_sha256": "b8fe7237bbb2ef2b384f5589aa246b4de37b93e3295ac2a77fc6ffd1032683d2"
+        }
+      ],
+      "disposition": "shared_icon_geometry_local_presentation",
+      "assessment": "TicketsPanel and UnitsTable intentionally share SVG geometry/accessibility attributes but render different paths. A local icon component can own the common shell if that simplifies UI code. This is presentation reuse, not a domain package boundary or justification for a generic global string constant.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "d82f8f5358c50a0be8ff6a81be62be4d6542f4623fbbfc1efa5773f1306e89e3",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 12,
+          "module": "Aiur.UsageAggregate.Projection",
+          "name": "coverage_reasons",
+          "path": "src/lib/aiur/usage_aggregate/projection.ex",
+          "expression": "[\n  :missing_trusted_occurrence_time,\n  :unknown_relationship,\n  :contradictory_relationship,\n  :missing_historic_relationship_revision,\n  :partial_update,\n  :untrusted_account_generation,\n  :unknown_account_generation\n]",
+          "numeric_value": null,
+          "expression_sha256": "d82f8f5358c50a0be8ff6a81be62be4d6542f4623fbbfc1efa5773f1306e89e3"
+        },
+        {
+          "line": 40,
+          "module": "Aiur.UsageEnvelope",
+          "name": "coverage_reasons",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "expression": "[\n  :missing_trusted_occurrence_time,\n  :unknown_relationship,\n  :contradictory_relationship,\n  :missing_historic_relationship_revision,\n  :partial_update,\n  :untrusted_account_generation,\n  :unknown_account_generation\n]",
+          "numeric_value": null,
+          "expression_sha256": "d82f8f5358c50a0be8ff6a81be62be4d6542f4623fbbfc1efa5773f1306e89e3"
+        }
+      ],
+      "disposition": "shared_coverage_reason_vocabulary_distinct_processing",
+      "assessment": "UsageEnvelope validates explicit coverage reasons and adds implicit missing-time/account-generation reasons; Aggregate.Projection filters and accumulates the same seven allowed reasons. Keep vocabulary synchronized while preserving rejection versus filtering/aggregation semantics and partial-record accounting.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "d87f9a44bf420ecf3c3ba8bc05cb35cecdc80fcecd2b070e01dc7203219bf766",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 16,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "resource_metrics",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "expression": "~w\"\n    cpu_percent rss_bytes fd_count read_bytes write_bytes\n    read_bytes_per_second write_bytes_per_second\n    system_fd_used system_fd_limit system_fd_available system_fd_headroom_ratio\n    fleet_agents_occupied fleet_agents_configured fleet_agents_max fleet_agents_effective\n    fleet_load fleet_load_threshold fleet_schedulers\n    build_gate_capacity build_gate_active build_gate_queued build_queue_oldest_wait_seconds\n  \"",
+          "numeric_value": null,
+          "expression_sha256": "d87f9a44bf420ecf3c3ba8bc05cb35cecdc80fcecd2b070e01dc7203219bf766"
+        },
+        {
+          "line": 275,
+          "module": "Aiur.RunTelemetry.Summaries",
+          "name": "resource_metrics",
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "expression": "~w\"\n    cpu_percent rss_bytes fd_count read_bytes write_bytes\n    read_bytes_per_second write_bytes_per_second\n    system_fd_used system_fd_limit system_fd_available system_fd_headroom_ratio\n    fleet_agents_occupied fleet_agents_configured fleet_agents_max fleet_agents_effective\n    fleet_load fleet_load_threshold fleet_schedulers\n    build_gate_capacity build_gate_active build_gate_queued build_queue_oldest_wait_seconds\n  \"",
+          "numeric_value": null,
+          "expression_sha256": "d87f9a44bf420ecf3c3ba8bc05cb35cecdc80fcecd2b070e01dc7203219bf766"
+        }
+      ],
+      "disposition": "shared_metric_schema_distinct_input_shapes",
+      "assessment": "Dataset and Summaries enumerate the same resource metrics. Dataset extracts four system_fd metrics from a nested raw object, whereas Summaries reads flattened saved sample keys. Share metric names without merging whole decoders; otherwise nested file-descriptor evidence would be lost. Dataset also uses the list for numeric-only profiles.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "da5e2410e3347b5b04186b99fa38283005de152b6b0f324d20aaeee9868e67f0",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 138,
+          "module": "Aiur.AgentList.Renderer.EventPhrases",
+          "name": "summary_keys",
+          "path": "src/lib/aiur/agent_list/renderer/event_phrases.ex",
+          "expression": "~w\"message title summary subject name label commit_message\"",
+          "numeric_value": null,
+          "expression_sha256": "da5e2410e3347b5b04186b99fa38283005de152b6b0f324d20aaeee9868e67f0"
+        },
+        {
+          "line": 27,
+          "module": "Aiur.Opencode.EventRow",
+          "name": "body_summary_keys",
+          "path": "src/lib/aiur/opencode/event_row.ex",
+          "expression": "~w\"message title summary subject name label commit_message\"",
+          "numeric_value": null,
+          "expression_sha256": "da5e2410e3347b5b04186b99fa38283005de152b6b0f324d20aaeee9868e67f0"
+        }
+      ],
+      "disposition": "shared_summary_precedence_distinct_rendering",
+      "assessment": "EventPhrases and EventRow search the same ordered top-level text keys, using string then atom lookup. EventRow additionally falls back to nested payloads and truncates its display; EventPhrases uses separate comment/title helpers and whitespace normalization. Share top-level precedence if useful, preserving nested fallback and rendering contracts.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "dfddc6d43fe2e96f0260ead677d98af86f623cbf5238a1712c045e2c72647791",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 8,
+          "module": "Aiur.BuildOrder.TicketHistory.Normalizer",
+          "name": "progress_names",
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "expression": "[\"progress\", \"progress.checkin\", \"progress.phase\"]",
+          "numeric_value": null,
+          "expression_sha256": "dfddc6d43fe2e96f0260ead677d98af86f623cbf5238a1712c045e2c72647791"
+        },
+        {
+          "line": 15,
+          "module": "Aiur.TicketObservation",
+          "name": "progress_names",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "expression": "[\"progress\", \"progress.checkin\", \"progress.phase\"]",
+          "numeric_value": null,
+          "expression_sha256": "dfddc6d43fe2e96f0260ead677d98af86f623cbf5238a1712c045e2c72647791"
+        }
+      ],
+      "disposition": "shared_progress_event_names_distinct_admission",
+      "assessment": "TicketObservation retains the three progress event names and sanitizes safe percent attributes; TicketHistoryNormalizer classifies those names only with an integer percent in 0..100. A shared observation vocabulary prevents drift; preserve ingestion sanitization and history admission/error behavior.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "f408eaee34c0a2a838728371e12c760e6ecd8875420ec39dffb0f2e5edc22ff3",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 9,
+          "module": "Aiur.Claude.AccountMeters",
+          "name": "redacted_method",
+          "path": "src/lib/aiur/claude/account_meters.ex",
+          "expression": "\"provider_account/rate_limits_changed\"",
+          "numeric_value": null,
+          "expression_sha256": "f408eaee34c0a2a838728371e12c760e6ecd8875420ec39dffb0f2e5edc22ff3"
+        },
+        {
+          "line": 13,
+          "module": "Aiur.Codex.AccountGeneration",
+          "name": "rate_limits_changed",
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "expression": "\"provider_account/rate_limits_changed\"",
+          "numeric_value": null,
+          "expression_sha256": "f408eaee34c0a2a838728371e12c760e6ecd8875420ec39dffb0f2e5edc22ff3"
+        }
+      ],
+      "disposition": "shared_redacted_notification_contract",
+      "assessment": "Claude.AccountMeters and Codex.AccountGeneration emit the same provider_account/rate_limits_changed name for redacted provider notifications. Share the neutral event vocabulary without exposing raw payloads or coupling provider-specific authentication, generation and ingestion logic.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "expression_sha256": "fbeb66a983f63143447037b40f8f46171e3330020692d241bf4ec28293f737ef",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 651,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "carried_point_events",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "expression": "~w\"dispatch pr_opened pr_merged\"",
+          "numeric_value": null,
+          "expression_sha256": "fbeb66a983f63143447037b40f8f46171e3330020692d241bf4ec28293f737ef"
+        },
+        {
+          "line": 43,
+          "module": "Aiur.RunTelemetry.Writer",
+          "name": "carried_point_events",
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "expression": "~w\"dispatch pr_opened pr_merged\"",
+          "numeric_value": null,
+          "expression_sha256": "fbeb66a983f63143447037b40f8f46171e3330020692d241bf4ec28293f737ef"
+        }
+      ],
+      "disposition": "shared_carried_event_identity_contract",
+      "assessment": "Writer retains dispatch/pr_opened/pr_merged point records with binary event keys and original timestamps for segment rollover. Dataset recognizes that same set so replicas collapse by event key rather than counting twice. Synchronize event vocabulary and identity rules while preserving writer admission, decoder shape and continuation-warning semantics.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; selected consumer functions read. This is source-level contract assessment, not transitive runtime verification."
     }
   ],
-  "assessed_group_count": 57,
-  "remaining_candidate_groups": 105,
+  "assessed_group_count": 83,
+  "remaining_candidate_groups": 79,
   "sources": [
     {
       "path": "src/lib/aiur/coding_agent.ex",
@@ -2737,6 +3528,178 @@
     {
       "path": "src/lib/mix/tasks/aiur.telemetry.dashboard.ex",
       "sha256": "93392a27937de4a771687bd79e26a14deab0e061caaffab60896c284b9001b62"
+    },
+    {
+      "path": "src/lib/aiur_web/financial_data/cache.ex",
+      "sha256": "1e306ae5b95e5192b1e22fbf4514a36eba93090527c46e34f99f6c531e1069cc"
+    },
+    {
+      "path": "src/lib/aiur_web/financial_data/cache/pending.ex",
+      "sha256": "cfab01fc7f9d67ed30b58f917d14c914d899fe008b40ff6a62ccefe147c229a0"
+    },
+    {
+      "path": "src/lib/aiur_web/financial_data_access/proof.ex",
+      "sha256": "53d760a52932041ff9f1c075a5cb2055d77990f7cbcbaaed090c4a45b4bbaa8b"
+    },
+    {
+      "path": "src/lib/aiur/decision_attention.ex",
+      "sha256": "a0c3771847ee7e7e88638514ff848ed180e58f1b18af23c11cdd73b44322b1f3"
+    },
+    {
+      "path": "src/lib/aiur/github/bounded_blocked_by.ex",
+      "sha256": "d222c21d5505ccb1705ff80848bdb15fa7ae8d8be53ee05a66e932b329357302"
+    },
+    {
+      "path": "src/lib/aiur/github/view_state_sweep.ex",
+      "sha256": "67deb57c8729a9ccd1064fc2ecfa468c31c029308965b9e2ecef14fb5c1dfe3e"
+    },
+    {
+      "path": "src/lib/aiur/github/credential_usage.ex",
+      "sha256": "d5b3d46e5802a665cc10940f83ee4bf800464e9f7e2d2273e389964df474252f"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+      "sha256": "15479fabbae8214ebb46144062ea4f15ac462139850ce628d394dad9e39b8767"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+      "sha256": "1613e1956450be31420774994d9aa6a62702e87956e3269ec8da4d340ea1bc98"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+      "sha256": "5a5f20ad2a5acca2ae62ab8237a0e89e83b0f4155967cfac133bdd43cd9e1ebe"
+    },
+    {
+      "path": "src/lib/aiur/decision_api.ex",
+      "sha256": "d12b7bd8966e4b01fee0d6b371a6d0d3a6164882064fa4bebc172c3928bb8480"
+    },
+    {
+      "path": "src/lib/aiur/decision_enrichment.ex",
+      "sha256": "e781d4352434c32df3d1ade575e7cbb236877dd2a0d0d4dfa22eedb2b85bebe4"
+    },
+    {
+      "path": "src/lib/aiur_web/supervisor_auth.ex",
+      "sha256": "0231da7af253469b1a5993cfa6d0e6b506c4fdc8d86f37567bc360f9e4391e09"
+    },
+    {
+      "path": "src/lib/aiur/opencode/chat_completions.ex",
+      "sha256": "98b0e9625cf4784b723e61c3a592ab759da32e510a858ba7af30c9e1ee2ae71f"
+    },
+    {
+      "path": "src/lib/aiur/opencode/chat_completions/turn_request.ex",
+      "sha256": "276c6b6e2fd063a308f0b43bc0130fc22a6e10df5b5e2e68b34775a6fbd86a8b"
+    },
+    {
+      "path": "src/lib/aiur/opencode/turn_markers.ex",
+      "sha256": "e4d73ed31346478f80e73d58abfcac314e87d8896018ccbebb33b7959d933eda"
+    },
+    {
+      "path": "src/lib/aiur/github/budget_map.ex",
+      "sha256": "b6ae4d53d8d82b29b4aaa71085aab393583829ee54f018d7aaf15d1661ef596f"
+    },
+    {
+      "path": "src/lib/aiur/github/quota_usage.ex",
+      "sha256": "c01d61aeaf41173829379f529352de79295c9349907854f663e73979ce83ca71"
+    },
+    {
+      "path": "src/lib/aiur/usage/grouped_scopes.ex",
+      "sha256": "6a7d36085b57e05fc64c375e3ff0509efec6f89264aa5ebf86b3633c182616f1"
+    },
+    {
+      "path": "src/lib/aiur/usage_aggregate/query.ex",
+      "sha256": "c4b9d4ce5eadd740aa7e81b26b9c975467cc83bb0d77067d00daa8ebcb8a4f27"
+    },
+    {
+      "path": "src/lib/aiur/build_order/catalog_store.ex",
+      "sha256": "5609968a1944f8430d91cc1a96f42ddb381230d0749febfce18503b3af348078"
+    },
+    {
+      "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+      "sha256": "6f86778c308d3014e7094608ec7f82c8c9b2156cc3d69979ba4402a65fd5e04a"
+    },
+    {
+      "path": "src/lib/aiur/github/quota.ex",
+      "sha256": "32dbf6fff8b4381dabf48006aa7b2016532e67db44c8906fba5f0a8e4eb11e4e"
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+      "sha256": "205d444796a9b92d0697d70fd34b6531b8f35a6d9ea8d079b1e41d9491389cbd"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+      "sha256": "30c4a5dceb9caf75f8b35a81f6f1150b80906b25c0f5decf142e044319c896ca"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+      "sha256": "47d2e13b2674b980769c586203a40e2a1077919f7e3b06c74d9de75cb663ef99"
+    },
+    {
+      "path": "src/lib/aiur/build_order/github_graph/queries.ex",
+      "sha256": "e00526c07d35ec518db4756d96e8e2008c044bba8675820394e769d9df1740ae"
+    },
+    {
+      "path": "src/lib/aiur/github/graphql_cost.ex",
+      "sha256": "4c142f189fd683af721381b65feadd1d5d6711df34b793b54c8050b20bac62d0"
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/build_order_epic_icon.ex",
+      "sha256": "999b4fdb1a60406ded0bd324aa39106d615d4e816f0fc64c850bdf3e6233cc65"
+    },
+    {
+      "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+      "sha256": "d04ec6b1a92f2f5190ffb88b1a9ed4b511a0dd102735fe412ca55794c5482fb9"
+    },
+    {
+      "path": "src/lib/aiur_web/live/dashboard_live.ex",
+      "sha256": "ee48ac3305f4d2766333ae9f67e2043fd9f5c5c28d231501623b53a61c6fc7c4"
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/dataset.ex",
+      "sha256": "7122e09e141a1896f0c5fa5ac7a2c44aed0b5d7568501239790139f8d2c7b1f5"
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/summaries.ex",
+      "sha256": "60eb00171482267f4d710e1dfff71241ef9b45c350f4f1226466ad965904abb1"
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry.ex",
+      "sha256": "1a41cf77eb53abbac46d492b61e853729642b5fc3017f563f42c274049925644"
+    },
+    {
+      "path": "src/lib/aiur/model_availability.ex",
+      "sha256": "6ea7dc9fef0653e00591819161b167f8a6c047cc2e9e7c2a6677693e26975d17"
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/tickets_panel.ex",
+      "sha256": "624bba71256871fb13923c0704ed6117f5d2acdfdfb0d42190f6ac27a9485ed2"
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+      "sha256": "535ee539d97ed4b44cb91e3927ae8e6a0f782a348424ac577f0605487e5dac0c"
+    },
+    {
+      "path": "src/lib/aiur/usage_aggregate/projection.ex",
+      "sha256": "cc1a448dd0ae7fb82ece8a59b6dde5ce33a480980434b4b4da23b9331d4a32c5"
+    },
+    {
+      "path": "src/lib/aiur/agent_list/renderer/event_phrases.ex",
+      "sha256": "ad0f43f2f1e73e7b1d9258c0b46f30384153897a03f1bff2acddea3a33cda20c"
+    },
+    {
+      "path": "src/lib/aiur/opencode/event_row.ex",
+      "sha256": "56b81cf9ee37864231a6dc4c554241756fdb3f8e4435939a46022c09f05f7590"
+    },
+    {
+      "path": "src/lib/aiur/claude/account_meters.ex",
+      "sha256": "9f8c9643539b4ee6921e6ac32eb668579f0e8879052ad1b2e18dcdc8c08445d2"
+    },
+    {
+      "path": "src/lib/aiur/codex/account_generation.ex",
+      "sha256": "1648d5b84859a00eacdaf3d5f4fb7831a4149e87970e14f65dbc494ae8d4cc31"
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/writer.ex",
+      "sha256": "6b5cb4b1f1d1b55ee1c128b433755fdf424c805ea0041a095c907ff206552412"
     }
   ],
   "additional_sites": [
