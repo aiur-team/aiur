@@ -1531,3 +1531,7 @@ Candidate44 narrowed to a P3: any list_simulators error is reported as XcodeBuil
 ### Skills/prompts: processing boundaries and retry uncertainty
 
 Candidate38 promoted for standalone local-only prose versus default external transcription when a key exists; sensitive sweep no-transcribe path excluded. Candidate36 not promoted: initial UUID examples do not disprove retry prose, and partial payload/key semantics plus diagnostic recipient/redaction remain unverified API questions. Findings55 (34P2/21P3);9 listed candidates unresolved. No media upload, API call, bug report or production mutation.
+
+### Skills/prompts: launch specification consistency
+
+Candidate31 resolved into actual port-helper order-dependence and Procfile versus Procfile.dev recipe mismatch. Saved tooling/polish_port_probe.py reproduces unrelated-test port9123 versus dev port5174 by reordering identical scripts. Server identity/race concerns stay with candidate21. Findings57 (36P2/21P3);8 listed candidates unresolved. No server, network or termination action.

@@ -3100,6 +3100,48 @@
       "recommendation": "State retention and processing boundaries separately; disclose the selected transcription route and provide an explicit local-only mode whose invocation disables upload.",
       "refactor_hint": "Carry data-processing policy as an explicit analyzer input instead of deriving it solely from ambient credential availability.",
       "limits": "Source-level documentation/data-flow mismatch, not an observed unauthorized disclosure. Existing script/security findings require semantic dedup. No transcription executed."
+    },
+    {
+      "id": "skills-prompts-cont-56",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Port discovery reads unrelated package scripts",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-polish/scripts/resolve-port.sh",
+          "lines": "255-265"
+        },
+        {
+          "path": ".claude/skills/ce-polish/references/dev-server-vite.md",
+          "lines": "11-21"
+        }
+      ],
+      "description": "The package-json probe comments say dev/start scripts but grep the entire file and select the first port-like substring. An earlier unrelated test script can supply the URL probed by polish even though npm run dev starts a different port.",
+      "evidence": "Actual frozen helper run in temporary fixtures: scripts test:test-tool --port9123 then dev:vite --port5174 returns9123; reversing the same entries returns5174. Both exit0. Durable reproduction tooling/polish_port_probe.py; no server started.",
+      "recommendation": "Parse package.json and inspect the selected launch script and its explicit overrides, not arbitrary file order.",
+      "refactor_hint": "Resolve one launch specification and derive command, config file and expected endpoint from it.",
+      "limits": "Port helper reproduced with synthetic local fixtures; Procfile finding is source-only. No network, server, process termination or production change. Script-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-57",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Plain Procfile detection launches a missing Procfile.dev",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-polish/references/dev-server-procfile.md",
+          "lines": "5-22"
+        },
+        {
+          "path": ".claude/skills/ce-polish/references/dev-server-procfile.md",
+          "lines": "39-58"
+        }
+      ],
+      "description": "The recipe signature accepts either Procfile or Procfile.dev, but both overmind and foreman commands and the generated launch stub require Procfile.dev. A project admitted solely by Procfile has no file at the prescribed launch path.",
+      "evidence": "Read complete recipe. Prefer Procfile.dev is reasonable when it exists but does not supply fallback to the actual detected file. No process manager or server launched.",
+      "recommendation": "Carry the detected existing Procfile path into start commands and generated launch configuration, preferring the development file when present.",
+      "refactor_hint": "Resolve one launch specification and derive command, config file and expected endpoint from it.",
+      "limits": "Port helper reproduced with synthetic local fixtures; Procfile finding is source-only. No network, server, process termination or production change. Script-unit semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3525,7 +3567,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidates36/38 reconciled with explicit API uncertainties retained.9 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidate31 reconciled with saved helper probe.8 listed candidates remain unresolved; candidate21 owns browser revision/server identity and resume freshness.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3809,6 +3851,16 @@
       "finding": "skills-prompts-cont-55",
       "reason": "Default upload path contradicts unqualified local-only prose; sweep-sensitive path is explicitly exempt.",
       "subconcerns": "Quick-to-extensive rerun may repeat transcription, but no measured duplicate cost. OS temp cleanup timing and portability of intentionally uncommitted evidence remain retention/handoff design questions, not proven losses."
+    },
+    {
+      "id": "skills-prompts-candidate-31",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-56",
+        "skills-prompts-cont-57"
+      ],
+      "reason": "Port helper order-dependence reproduced and recipe accepted-path/start-path mismatch confirmed.",
+      "subconcerns": "Undefined kill-by-port references are stale prose; no live termination mechanism or killed process established. Port scan race/listener identity and probe-to-child binding are consolidated under still-open candidate21. Framework-specific environment handling not asserted without version evidence."
     }
   ],
   "coverage_validation": {
@@ -3821,15 +3873,14 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 33,
-    "unresolved_candidates": 9,
+    "terminal_dispositions": 34,
+    "unresolved_candidates": 8,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
       "skills-prompts-candidate-07",
       "skills-prompts-candidate-20",
       "skills-prompts-candidate-21",
-      "skills-prompts-candidate-31",
       "skills-prompts-candidate-39",
       "skills-prompts-candidate-40",
       "skills-prompts-candidate-41"
