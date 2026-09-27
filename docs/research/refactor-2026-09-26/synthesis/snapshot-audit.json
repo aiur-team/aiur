@@ -1,0 +1,40 @@
+{
+  "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "method": "git ls-tree -rz; Git blob SHA-1 of every regular file or symlink target; full git archive extraction",
+  "tracked_blobs": 3378,
+  "original_snapshot": {
+    "matching_blobs": 2692,
+    "missing_count": 686,
+    "mismatched_count": 0,
+    "missing_by_top_directory": {
+      ".aiur-test-tickets.json": 1,
+      ".aiur": 12,
+      ".claude": 2,
+      ".codex": 45,
+      ".compound-engineering": 1,
+      ".dockerignore": 1,
+      ".env.example": 1,
+      ".gitattributes": 1,
+      ".github": 23,
+      ".gitignore": 1,
+      "AGENTS.md": 1,
+      "CONTRIBUTING.md": 1,
+      "Dockerfile": 1,
+      "LICENSE": 1,
+      "Makefile": 1,
+      "NOTICE": 1,
+      "README.md": 1,
+      "SPEC.md": 1,
+      "docs": 451,
+      "mise.toml": 1,
+      "package.json": 1,
+      "src": 137
+    }
+  },
+  "complete_snapshot": {
+    "matching_blobs": 3378,
+    "missing_count": 0,
+    "mismatched_count": 0
+  },
+  "note": "Original snapshot preserved. Complete snapshot is machine-local; every further review must use it. Prior reviews may have consulted git separately; missing extraction is a coverage risk, not proof each finding is wrong."
+}

@@ -3,6 +3,22 @@
 Measured 2026-09-26 against `main` at `0972f0297`, read-only. Scratch data and
 scripts: `~/.aiur/research/refactor-2026-09-26/scratch/`.
 
+## Verification corrections (2026-09-26)
+
+This survey measured `0972f0297` (a September 19 commit). The later full code review
+uses `3339b8871` (September 26). Do not combine their counts as one snapshot.
+The continuing verification is recorded in `../synthesis/verdicts/`; this
+report is not yet fully verified. Two checked corrections apply to both revisions:
+
+- `status`, `agents`, and `watch` already use the snapshot read model, not the
+  Orchestrator mailbox. Blocking control mutations remain a separate concern.
+- The ten-minute idle-poll ceiling claimed earlier is absent from the actual
+  interval calculation and timer scheduling. Global pause updates the snapshot
+  and dashboard; its lack of a dedicated wake is narrower than "publishes nothing".
+
+See [the control-path verdicts](../synthesis/verdicts/claims-codebase-control.json)
+for exact paths, methods, and limitations.
+
 ## Summary
 
 - **Size.** `src/lib` has 1,028 Elixir files and 260,300 lines: 219,421 in
@@ -45,8 +61,9 @@ scripts: `~/.aiur/research/refactor-2026-09-26/scratch/`.
   files emit alerts). About 50 emitted topics never reach the wake inbox, among them
   `system.pr_health.stale_unreviewed`, `ticket.*.agent.stalled`,
   `ticket.*.agent.usage_limit_exhausted`, and `system.executor_takeover.*`.
-  A fleet that is idle because it has no ready work, or because it is globally
-  paused, emits no wake at all. The daemon computes "Executor stalled" only when
+  The fleet-capacity starvation predicate excludes globally paused fleets and
+  fleets without ready work; other PR, CI and pause-attention wakes can still fire.
+  The daemon computes "Executor stalled" only when
   a CLI asks for it. §6 has the evidence.
 
 ## Method
@@ -1453,20 +1470,25 @@ often each one happens.
    `system.build_gate.hold_timeout`, `system.ci_readiness.not_ready`,
    `system.dispatch.decision_store_unavailable`,
    `system.github.budget_broker_degraded`, `system.github_app_token.*`.
-4. **An idle fleet is silent.** `IssueSync.fleet_capacity_starved?/1`
-   requires `not globally_paused and ready_count > 0`. So a fleet idle because
-   no ticket is ready (every ticket waits on review, merge, or a label the
-   Executor must add) raises nothing. `GlobalPause` publishes nothing when it
-   engages, and the pause survives restarts. These are the states where only
-   the Executor can unblock work, and they produce no wake. Meanwhile the
-   Executor's adaptive quiet-audit wait widens toward its ceiling each time
-   nothing wakes it.
+4. **The starvation signal does not cover every actionable idle state.**
+   `IssueSync.fleet_capacity_starved?/1` requires `not globally_paused and
+   ready_count > 0`. That specific signal cannot represent a fleet awaiting
+   Executor-owned review or a pause decision. Other PR, CI and pause-attention
+   wakes remain possible, so this does not prove an idle fleet is silent.
+   `GlobalPause` persists the operator's switch, publishes snapshot/dashboard
+   updates, and requests per-agent pauses that can emit attention wakes; it has
+   no dedicated global-pause wake. Persistence is intentional and must survive
+   the rewrite. An idle-state wake must distinguish deliberate parking from
+   work that actually requires intervention.
 5. **An idle fleet also looks less often.** `TrackerHealth.poll_schedule/2`
-   multiplies the poll interval by `polling.idle_widen_factor` (default 5.0,
-   max 100) while the fleet is idle, up to a 10-minute ceiling. A label written
-   with `gh` (not `aiur --todo`) on a repository without webhooks can wait out
-   that interval. `aiur --todo` and webhook label deliveries do request a
-   prompt poll.
+   applies `polling.idle_widen_factor` (default 5.0, schema maximum 100.0) only
+   after a completed, fresh candidate poll and when there are no active runners
+   and no dispatchable demand, or global pause is on. There is no universal
+   ten-minute ceiling: `IntervalPolicy.widen/2` multiplies while preserving the
+   base floor, then the scheduler respects any wider GitHub floor. A remote
+   label without a delivered wake can wait until the scheduled poll.
+   `aiur --todo`, unpause and webhook deliveries request a prompt poll, still
+   respecting GitHub's floor. This describes code behavior, not measured delay.
 6. **"Executor stalled" is computed only on demand.** `Executor.Roster`
    derives `active / idle / stalled / expired` from lease and acknowledgement
    evidence, but only `AgentControlCLI` calls it, when a CLI asks. No daemon
@@ -1476,9 +1498,13 @@ often each one happens.
    poll runs inside its GenServer. `GitHub.Transport` documents that the
    orchestrator waits in a selective receive during a poll and "the
    Orchestrator's mailbox still grows while its poll cycle fetches" (#1837).
-   `AgentControlCLI` warns that `set max-agents` can look hung for up to 5
-   seconds behind a GitHub-bound poll (#2137). Pause, message and status all
-   go through the same mailbox.
+   `AgentControlCLI` describes a five-second control-call budget for
+   `set max-agents` (#2137), not a measured poll duration. Pause and message
+   mutations still use that process; `status`, `agents` and `watch` already
+   read `SnapshotStore` through `fleet_view` and avoid its mailbox. Preserve
+   that existing isolation and move blocking candidate fetches away from the
+   control mutation path. Historical idle hours attributable to this mechanism
+   have not been established by this code inspection.
 8. **Alert state lives in the orchestrator.** 21 fields of
    `Orchestrator.State` are alert latches (`*_alert_active`,
    `*_resolution_emitted`, `observed_error_alerts`, `active_attention_topics`
