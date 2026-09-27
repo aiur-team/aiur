@@ -1647,3 +1647,7 @@ Read all 46 build definitions/declarations in 29 modules. Separate pure assembly
 ### Name duplication: execution ownership and completion
 
 Read all 44 run definitions/declarations in 40 modules. Preserve provider-specific lifecycle cleanup, indeterminate coordination timeouts, host-retry ownership, sandbox/budget requirements and workspace staging. CLI print/exit repetition is a narrower candidate than shared execution; deletion-attempt counts need failure review before success claims. Name triage now 40 families/1290 literal entries. Remaining callbacks, rendering and broader sweeps remain open; no new defect or savings count.
+
+### Name duplication: asynchronous callback policies
+
+Read all 49 handle_cast clauses in 21 modules. OTP callback shape is shared protocol, while bodies retain writable/generation fences, refresh authorization, provenance, persistence/admission ordering and audio readiness/flush state. Name triage now 41 families/1339 literal entries. Cast acceptance does not establish durable success; remaining callbacks, rendering and broader sweeps stay open.
