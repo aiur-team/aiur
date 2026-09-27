@@ -876,7 +876,7 @@
       "next": "Use isolated owned-child mutation with held release plus exact signal/exit evidence before promoting; inspect production trap semantics and deduplicate cleanup findings."
     }
   ],
-  "next": "99/100 full files, 34041/40603 lines. Continue dashboard_live6562. Two confirmed P2 findings, four unverified candidates, and candidate03 not promoted because exact schema-default coverage exists; raw unit incomplete.",
+  "next": "99/100 full files, 34041/40603 lines counted. DashboardLive lines1-1900 read and recorded separately; continue1901-6562, then resolve four candidates. Two confirmed P2 findings; raw unit incomplete.",
   "candidate_resolutions": [
     {
       "id": "tests-4-candidate-03",
@@ -891,6 +891,21 @@
         "src/lib/aiur/config/schema/attrs.ex:12"
       ],
       "validation": "Source inspection only; no suite or mutation run."
+    }
+  ],
+  "partial_reads": [
+    {
+      "path": "src/test/aiur_web/live/dashboard_live_test.exs",
+      "sha256": "de6f53f4afdd073b34afdfc5778d9300068e31d383af742308d8762bbbb49473",
+      "total_lines": 6562,
+      "read_ranges": [
+        [
+          1,
+          1900
+        ]
+      ],
+      "assessment": "Lines1-1900 reviewed continuously. Early nested doubles distinguish retained counts, detail versions, unavailable/indeterminate store, and report rejected answers/revisions; QueueOrchestrator delegates production message functions. Direct render_payload bypasses mount and seeds assigns, so distinguish those template tests from LiveView requests. Persisted global pause survives same-name publisher replacement with stale snapshot, while real click exercises injected disk-full reply; read-only desktop assertion partly generic disabled text, mobile aria scoped. DOM/CSS/nav checks are structural, not responsive browser execution. Untyped status entries do not establish healthy typed Units membership. Projection-completion test has a20ms negative receive then positive notification; its final disappearance predicate differs from the initial empty-state text and may already be true, so do not count it alone as refreshed rendering. Missing first snapshot differs from unreachable orchestrator and read-model failure; unknown cause not labeled unreachable. Escaped decision markdown, retained partial counts and indeterminate missing-detail status are distinct. Durable outcomes intentionally absent from Units route. Burst tests use injected timer/flush barriers; helper implementation later in file remains unread. Authentication missing503 and configured401 distinct. Credential rotation followed by live_redirect makes capability locked and strips financial sentinel from socket, HTML and logs, retaining nonfinancial runtime seconds; authorized socket private context excludes credentials. Authorized usage test only requires nonlocked state among five possibilities, not a known amount or exact empty state. Real retained store and DecisionMetrics events plus same-name component replacements constrain removal of old2000ms latency when only requested event exists; twelve replacements leave cache size8. This is component replacement, not daemon restart. URL filter/open/close/search patches and ticket11 versus1110 exactness covered. Human and delegated open authority preserved. Deferred Commands stay open/blocking, answering moves to history and count0/1. StaleCountsStore deliberately returns0 while retained page reports1 to require same-snapshot chips; unavailable-store reload produces cell-scoped em dash rather than stale1 or zero. All Commands hides search/pagination; invalid cursor returns unavailable without killing view. Twenty-seven retained decisions, twenty-five dismissed, two open compare DOM identifiers with CLI set and totals. Direct detail beyond50 overview test begins at end of range, not yet reviewed completely. No tests executed; no finding promoted.",
+      "next_line": 1901
     }
   ]
 }
