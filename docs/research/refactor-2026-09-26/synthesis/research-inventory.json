@@ -2,17 +2,9 @@
   "note": "Artifact coverage only. Verdict presence does not prove correctness or research completion.",
   "claims": {
     "expected": 60,
-    "verdict_records": 80,
-    "both_lenses_present": 59,
-    "remaining": [
-      {
-        "id": "meta-07",
-        "missing_lenses": [
-          "interpret",
-          "reproduce"
-        ]
-      }
-    ]
+    "verdict_records": 81,
+    "both_lenses_present": 60,
+    "remaining": []
   },
   "review": {
     "expected_units": 32,

@@ -39,7 +39,7 @@ Ranked by stated cost (hours stalled, tickets stranded) first, then by recurrenc
 
 | # | Problem class | Citations | Span | Repos | Largest stated costs | Fix held? |
 |---|---|---|---|---|---|---|
-| 1 | Tickets strand silently in the daemon's state machine (dispatch, labels, size caps, ci-wait) | ~150 | 08-02 → 09-26 | all 5 + private | fleet 15→1 overnight; 13 agents stalled ~15 h; dispatch frozen 5 h and 9–12 h by silent size caps; ≥10 non-dispatch reproductions on 09-26 | **No.** ≥12 fixes, recurred after most |
+| 1 | Reported dispatch and state-transition failures (distinct mechanisms; see verification boundary) | ~150 reported citations | 08-02 → 09-26 | all 5 + private | fleet 15→1 overnight; 13 agents stalled ~15 h; dispatch frozen 5 h and 9–12 h by silent size caps; ≥10 retrospectively reported non-dispatch cases on 09-26 | ≥12 reported fixes; recurrence rate unverified |
 | 2 | Human and authority gates hold agents for hours to weeks | ~110 | 08-03 → 09-26 | 5 | 4 workers × ~17 h (~68 worker-hours) on one permission question; green PRs waiting 15–16 days; rebuild request unanswered ≥23 h | **No.** Authority-floor fixes did not change the floor |
 | 3 | Review ownership, consumption gaps and repeated base integration | ~60 | 08-08 → 09-26 | aiur, archon, khala | 17 reworked PRs unreviewed up to a day; reported queue reached 40 with 0 approved; 12h45m09s between merges; 4 PRs with approval history unmerged | **No.** Skill rules added twice; recurred |
 | 4 | The Executor's discovery path is not running (durable wake inbox not consumed; monitors lapse) | ~60 | 08-18 → 09-25 | aiur, archon, khala, arch-docs + private | cursor stuck 5 days, then frozen 11 days, then idle 13.5 days; 1,529 wakes never consumed; 13.6 h stall when monitors expired | **No.** Skill rule (#2412) and code fix (#2481) both followed by recurrences |
@@ -79,11 +79,12 @@ authority gates, **D** deployment and truth, **E** environment. Rank is the over
 
 ### Rank 1 — B1. Tickets strand silently in the daemon's state machine
 
-**Definition.** A ticket that should run does not run: it is undispatchable, mislabelled,
-held by a stale latch or a silent response-size cap, or parked in a state (`agent:ci-wait`,
-zero labels, contradictory labels, orphaned claim) that nothing polls, and no surface says so.
+**Definition.** Reports of delayed or incorrect dispatch across several distinct
+mechanisms: labels, ownership, response caps and CI transitions. CI-wait already
+has polling and a timer fallback, and status/resume expose some decline reasons.
+A label wait is not by itself proof that a ticket should immediately dispatch.
 
-- **Citations:** ~150 (dispatch failure ~66, label corruption ~57, dispatch latch 11,
+- **Reported citations, not independent incidents:** ~150 (dispatch failure ~66, label corruption ~57, dispatch latch 11,
   before-run latch 5, prewarm 5, response caps 2, ci-wait strands 4). **First seen**
   2026-08-02 (findings: latch exhaustion, prewarm base failure). **Last seen** 2026-09-26
   (khala: `agent:todo` non-dispatch ≥10 reproductions).
@@ -108,9 +109,21 @@ zero labels, contradictory labels, orphaned claim) that nothing polls, and no su
   - 09-03: architecture-docs dispatch frozen 9–12 h by a 1 MiB list cap (#2533/#2535).
   - 09-20 and 09-26: an issue-timeline cap made the daemon "defer dispatch silently every
     60 s forever — no alert" (#2749, then #2816).
-  - 09-25: 36 tickets waiting for dispatch with no decline reason while 8 of 12 slots were
-    free; #165 stranded in `agent:ci-wait` ≥64 min (`:no_agent_work_state`).
+  - 09-25: #165 remained in CI-wait for 64m28s before operator intervention.
+    The retained status warns it is 16 seconds stale and shows 35 dependency
+    decline reasons; resume explicitly returns `:no_agent_work_state`. The
+    claim that no surface gave reasons is contradicted by this bundle.
   - 09-26: ~15 logged dispatch nudges on ~40 tickets, plus 13 more in the retro only.
+- **Verification boundary:** Historical `7dd56fc` and the frozen source have
+  identical CI lifecycle code with polling and a tracker-transition fallback.
+  September 26 operator-ended CI-wait label intervals are #367 2h1m50s,
+  #350 3h33m8s, and #232 5h2m25s. Complete current-head CI evidence and timer
+  state were not recovered, so green CI throughout and a common root cause
+  remain unproved. The bundle's `telemetry-165.ndjson` contains zero exact
+  #165 records; the audit uses exact-ticket filtering of the full run instead.
+  The aggregate citation/fix chains below are historical reports, not a
+  deduplicated deployed-fix recurrence rate. See
+  [dispatch evidence](../synthesis/dispatch-state-evidence.json).
 - **Fixes claimed and recurrence:** #1453 → #1759/#1760 (latch); #2075 (dual-state) recurred
   the same day on #2066; #2172 startup reconciler → 7 tickets still contradictory 40 min after
   boot; #2420/#2437/#2426 → 3 tickets stranded unlabelled on 09-03; #2366 → #2767 (ci-wait)
@@ -693,10 +706,10 @@ deliberate choice.
 | 44 | 09-18 → 09-24 | 6 days | cursor stuck at 517; 262 pending | M2 | khala handoff.md |
 | 45 | 09-20 03:33 → 09-24 19:05 | 111.5 h | goal ended by the operator | M8 | khala handoff 09-20 |
 | 46 | 09-25 00:23 | ~45 min | fleet 0/12; rework not triggered | M6 | khala handoff.md |
-| 47 | 09-25 00:52 → 01:57 | ≥64 min | #165 stranded in ci-wait; 8 of 12 slots idle | M6 | khala evidence ci-wait-165 |
+| 47 | 09-25 00:52 → 01:57 | 64m28s | #165 CI-wait label interval ended by operator; stale status shows dependency reasons | M6 | khala evidence ci-wait-165 |
 | 48 | 09-25 08:28 → 22:02 | 13.6 h | monitors expired; 8 PRs in human-review; Codex limit | M2 | khala handoff.md |
 | 49 | 09-26 01:57 → 03:45; 07:06 → 08:57 | 1.8 h + 1.9 h | Claude limits (Executor and fleet) | M3 | khala handoff.md |
-| 50 | 09-26 | 2 h; 2.5 h | #367 in ci-wait with green CI; hung validate run | M6 | khala handoff.md |
+| 50 | 09-26 | 2 h; 2.5 h | #367 CI-wait interval confirmed; green CI is reported, not independently established; hung validate run | M6 | khala handoff.md |
 
 \* Row 38 is a record-keeping gap (the loop omitted the retro step), not a work stall.
 
@@ -853,8 +866,8 @@ These are places where a later document says an earlier claim was wrong.
   config mitigations marked "restore once fixed" (`daemon_core_limit_per_hour: 12000`,
   `agent_core_limit_per_hour: 3000`, `max_agent_duration_minutes: 150`, `prewarm.enabled: false`).
 - **Codebase lane:** `waiting_for_human` reminders re-fire every 15 min per paused worker with no
-  deduplication; `capacity_starved` is flagged `needs_attention`; `agent:ci-wait` has no route
-  back to dispatch (`:no_agent_work_state`); lease renewal masks a dead wake consumer; the
+  deduplication; `capacity_starved` is flagged `needs_attention`; CI-wait has poll and timer recovery paths
+  whose historical registration and transitions need diagnosis; lease renewal masks a dead wake consumer; the
   `reviewDecision` re-derivation that reverts `agent:human-review`; hard byte caps in fetch
   paths that fail silently; `scripts/aiurdev` rebuilding under `executor-wait` (#2656).
 - **Hygiene note:** some other lanes' scratch files under `../scratch/` contain private-repo

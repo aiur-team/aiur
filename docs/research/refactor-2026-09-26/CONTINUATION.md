@@ -1116,3 +1116,15 @@ Updated canonical attention-routing-audit.json with actual frozen Elixir matcher
 ### codebase-07 verified with bounded corrections
 
 Added both-lens verdict and corrected report summary, routing section and carve-order recommendation. Actual 14-topic matcher/projection probe confirms pause-resolution mismatch. Reject condition invisibility inferred from unbound topic; generic pause alert can route. Do not route only needs_attention=true: false resolution and successful control events matter. Full emit-site/alternate-path census and operational incidence explicitly unresolved. Remaining claim meta-07; reviews/features/synthesis/planning still incomplete.
+
+
+### meta-07 CI-wait evidence in progress
+
+Canonical dispatch-state-evidence.json records #165 bundle: resume returns explicit no_agent_work_state; status has 77 issue rows, 35 explicit dependency declines, no #165 row, and 16-second stale warning. status-full is command error, not full status. Timeline enters ci-wait 00:52:51Z; capture-directory timestamp implies 64m17s, not independent command timing. Inspected historical 7dd56fc CiLifecycle: poll targets and token-correlated fallback exist; fallback updates tracker to in-progress before reactivation. Thus no recovery route/no decline surface blanket claims fail, but actual historical recovery failure and later episode/fix counts still need investigation.
+
+#165 continuation: cached public label events prove ci-wait 00:52:51→01:57:19Z (64m28s), ended by operator human-review transition. Bundle telemetry-165.ndjson contains ZERO exact ticket165 rows (25 ticket166 resource rows among40). Full run telemetry exact-filter yields103 ticket165 records in00:45–02:00 (99resource,4lifecycle), lastresource00:53:12; ownershiprelease00:53:16, reviewpause01:58/01:59 after operator intervention. Evidence corrected in dispatch-state-evidence.json; do not use bundle filename as attribution. Later reports located in scratch/slice-S7.md, original rolling handoff no longer contains them.
+
+
+### meta-07 verification checkpoint; all60 claims have verdicts
+
+Added bounded final claim verdict and corrected report/timeline. Later operator-ended CI-wait intervals: #367 2h1m50s, #350 3h33m8s, #232 5h2m25s; green-current-head/timer/deployed-runtime causality remains unproved. Historical CI lifecycle equals frozen source and has recovery paths. Citation/fix totals remain reported, not independent recurrence counts. 60/60 verdict coverage is NOT research completion:25/32 review units, high-priority skeptic pass, duplication, feature challenges, report-wide reconciliation, synthesis and CE planning remain.

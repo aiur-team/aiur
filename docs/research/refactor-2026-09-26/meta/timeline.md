@@ -173,7 +173,7 @@ One private repo run is left out of this timeline by rule. It adds one abandoned
 | 09-24 23:12 | Daemon restarted onto aiur 7dd56fc ("both dispatch fixes"). | R7 | `khala/executor/evidence/ci-wait-165-*` |
 | 09-24 23:21 | The Executor's own 45 s PR monitor hits the GraphQL limit. | R10, R16 | `khala/executor/handoff.md` |
 | 09-25 00:23 | Fleet idle ~45 min at 0/12 because rework did not trigger; rework strands relabelled by hand on 6 tickets. | R5 | `khala/executor/handoff.md` |
-| 09-25 00:52 → 01:57 | #165 stranded in `agent:ci-wait` (`:no_agent_work_state`); 112 wakes pending; 8 of 12 slots idle; 36 tickets awaiting dispatch with no decline. | R1, R4 | `khala/executor/evidence/ci-wait-165-20260925T015708Z/` |
+| 09-25 00:52 → 01:57 | #165 CI-wait interval lasts 64m28s and ends by operator transition. Resume gives `:no_agent_work_state`; retained status is 16s stale, shows 112 pending wakes and 35 dependency decline reasons. | R1, R4 | `khala/executor/evidence/ci-wait-165-20260925T015708Z/` |
 | 09-25 07:08 | Codex limit auto-pauses the fleet in 7 min (#2742 works). | R6 | `khala/executor/handoff.md` |
 | 09-25 08:28 → 22:02 | 13.6 h stall: 8 PRs in human-review, monitors expired without re-arm, Codex limit from ~12:06; one ticket produced 93 attention wakes. | R4, R3, R9 | same |
 | 09-25 23:35 | Codex 401 puts 18 tickets in `agent:error`; a 10-minute self-poll cron is set up with five steps and no retro step. | R17, R10 | same; e09 retro |
