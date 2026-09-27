@@ -1298,3 +1298,7 @@ Read stale_after_ms, stream, string, subscribe_catalog, subscribe_selected, term
 ### Name duplication: token identity and measurement schemas
 
 Read timestamp_for, to_map, token, token_dimensions, token_key, totals, touch and ttl_ms: 31 literal entries across eight families. Timestamp fallback matches the shared protocol helper. Preserve serialization schemas, credential versus count domains, stable identity versus token hashes, aggregate provider-total dimensions, reducer populations and lease-versus-cache recency. Read timestamp/credential identity helpers and dimension constants; no credentials were read. Name triage now 597 families/6912 entries, leaving 1083 cross-module names. Raw findings and skeptic counts are unchanged; no complete attribution, ownership or cache-saving guarantee is added.
+
+### Name duplication: unavailable evidence and traversal
+
+Read unavailable_health, unavailable_source, unknown, url, usage_aggregate_generation, usage_limit_pause, verify_human_review_ready and walk: 35 literal entries across eight families. Preserve unavailable reasons/partial evidence, identity-bound URLs, provider reset metadata, review-verifier fallback and traversal domains. Read CommandsCLI source normalization and issue-URL identity helper, and checked aggregate alias. Name triage now 605 families/6947 entries, leaving 1075 cross-module names. Raw findings and skeptic counts are unchanged; no complete readiness, privacy or source-freshness guarantee is added.

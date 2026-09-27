@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "eae4e20c74d2384da8fc30df24bc371082d69e469df0696658f359d9ba53c9bb"
+    "name_triage": "62369218e510cc193c8b0b136268bb409a2b83e567b9f024cbce24acb4cc882f"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 597,
-    "remaining_cross_module_names": 1083,
-    "remaining_literal_entries": 3356
+    "reviewed_cross_module_names": 605,
+    "remaining_cross_module_names": 1075,
+    "remaining_literal_entries": 3321
   },
   "families": [
-    {
-      "name": "unavailable_health",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "unavailable_source",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 3
-    },
-    {
-      "name": "unknown",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 47
-    },
-    {
-      "name": "url",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "usage_aggregate_generation",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "usage_limit_pause",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 25
-    },
-    {
-      "name": "verify_human_review_ready",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 26
-    },
-    {
-      "name": "walk",
-      "clauses": 10,
-      "modules": 3,
-      "summed_source_span_lines": 50
-    },
     {
       "name": "warning",
       "clauses": 3,

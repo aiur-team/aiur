@@ -92353,10 +92353,556 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "unavailable_health",
+      "assessment": "Unavailable health retains domain-specific reasons and shapes.",
+      "constraints": [
+        "PackStatus constructs ProviderHealth with generation and pack-status failure.",
+        "DecisionQuery.StoreReader returns an unavailable/partial retained-store map and label.",
+        "UsageAggregate.Store retains an existing unavailable tuple reason, otherwise chooses recovery_unavailable.",
+        "Preserve existing causes and partial-data evidence; one generic unavailable sentinel would discard useful diagnosis."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 213,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "unavailable_health",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "defp",
+          "end_line": 215,
+          "body_sha256": "37695d8a6821b9712f83ebb37e650f9c27ca5e8a827a5cbac0987d6406ebb5a2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 64,
+          "module": "Aiur.DecisionQuery.StoreReader",
+          "name": "unavailable_health",
+          "path": "src/lib/aiur/decision_query/store_reader.ex",
+          "kind": "def",
+          "end_line": 66,
+          "body_sha256": "8fbcf7b3ee3bee2368c3c022afde01f05fbb24d81291d5041612c6324bf29f82",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 147,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "unavailable_health",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "defp",
+          "end_line": 147,
+          "body_sha256": "e0537f6063263c9b4a256f391a7906fc66882fe380c89db275ff6e7a0466099d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 148,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "unavailable_health",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "defp",
+          "end_line": 148,
+          "body_sha256": "db23801356c64ca723091559b2137971ae3917bf14f261131905401a25079002",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "unavailable_source",
+      "assessment": "Two unavailable-source constructors match; CommandsCLI normalizes reason collection.",
+      "constraints": [
+        "AnalyticsCLI and BuildOrdersCLI return identical unavailable maps with nil observation/age, unknown freshness, partial true and a singleton reasons list.",
+        "CommandsCLI delegates to source; that helper was read and wraps the reason then removes nil.",
+        "Consequently a nil reason remains [nil] in the first two but becomes an empty list in CommandsCLI; list-valued reasons also follow different wrapping semantics.",
+        "Share an envelope constructor only with an explicit reason-shape contract; unavailable does not mean known empty."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 174,
+          "module": "Aiur.AnalyticsCLI",
+          "name": "unavailable_source",
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "kind": "defp",
+          "end_line": 174,
+          "body_sha256": "a60802f395ae8d6ec3abafbfe1963265d6bd17138316c03d84d483e30b077023",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 250,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "unavailable_source",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 250,
+          "body_sha256": "a60802f395ae8d6ec3abafbfe1963265d6bd17138316c03d84d483e30b077023",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 158,
+          "module": "Aiur.CommandsCLI",
+          "name": "unavailable_source",
+          "path": "src/lib/aiur/commands_cli.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "8511c2bcc4ca271c73ccbcf2065dbdc09b226cececb4dd1a4fd67e4e993e981a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "unknown",
+      "assessment": "Unknown constructors retain different identity and observation evidence.",
+      "constraints": [
+        "BuildOrder.Dependency retains a validated URL when possible, adds identity/URL diagnostics and merges endpoint fields.",
+        "ProviderAccountGeneration.Snapshot sets generation nil and unknown freshness, distinguishing unavailable source from other unknown health.",
+        "ProviderMeterSnapshot initializes unavailable unknown-account-generation health with absent observation/attempt metadata and zero failures.",
+        "Preserve unknown identity versus unavailable observation and diagnostic provenance. Zero initial failures is not proof a read succeeded."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 99,
+          "module": "Aiur.BuildOrder.Dependency",
+          "name": "unknown",
+          "path": "src/lib/aiur/build_order/dependency.ex",
+          "kind": "defp",
+          "end_line": 118,
+          "body_sha256": "1632d1d75270381dab81eee3397cb192552df042b1fec19609e3667636c1ec5a",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 25,
+          "module": "Aiur.ProviderAccountGeneration.Snapshot",
+          "name": "unknown",
+          "path": "src/lib/aiur/provider_account_generation/snapshot.ex",
+          "kind": "def",
+          "end_line": 37,
+          "body_sha256": "2da3c4dc3bd33f54b8cc8a8fac17a895bb44a23f1eb349275afe39f24b248b3e",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 79,
+          "module": "Aiur.ProviderMeterSnapshot",
+          "name": "unknown",
+          "path": "src/lib/aiur/provider_meter_snapshot.ex",
+          "kind": "def",
+          "end_line": 92,
+          "body_sha256": "3d0e617f1379ae028071cfc61c3e5422768e4c34ffaf1fa7137cebf4d95a5ce4",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "url",
+      "assessment": "Graph URL selectors match and enforce identity when known; registry URL selection is unrelated.",
+      "constraints": [
+        "Member and RootSummary use the same safe_url path when identity is nil, otherwise Bounded.github_issue_url_for with invalid-url diagnostics.",
+        "That helper was read: it validates the URL/reference, requires issues kind, matching repository and exact identifier, otherwise error.",
+        "Upgrade.Registry selects a nonempty environment override or its default URL.",
+        "Keep identity-bound issue links distinct from configurable package-registry location. Nested URI parsing and environment URL trust policy were not fully audited here."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 150,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "url",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 150,
+          "body_sha256": "a03b41f62350984e4b2166c4cebce8d91e3ed3ceca4a3574f325fea89ec0a57e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 152,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "url",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "fd667e73e3f4226ec704f320a8ec76a185f8c5050340d372cd951349d5c8bea3",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 111,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "url",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "defp",
+          "end_line": 111,
+          "body_sha256": "a03b41f62350984e4b2166c4cebce8d91e3ed3ceca4a3574f325fea89ec0a57e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 113,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "url",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "defp",
+          "end_line": 118,
+          "body_sha256": "fd667e73e3f4226ec704f320a8ec76a185f8c5050340d372cd951349d5c8bea3",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 71,
+          "module": "Aiur.Upgrade.Registry",
+          "name": "url",
+          "path": "src/lib/aiur/upgrade/registry.ex",
+          "kind": "defp",
+          "end_line": 76,
+          "body_sha256": "96909272029e7f56d6bef327ed83eb1bfec815e3e0ccb6738908374985982d3f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "usage_aggregate_generation",
+      "assessment": "Two generation readers match while analytics has broader failure catching.",
+      "constraints": [
+        "UsageRuntime and DashboardLive read Aiur.UsageAggregate.snapshot().generation, rescuing exceptions and exits to unknown; the dashboard alias was checked.",
+        "AnalyticsLive uses an injected module and catches all kinds as unknown in addition to rescue.",
+        "Shared generation access must preserve injection and catch scope. A returned generation alone does not prove aggregate health or reconciliation."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 306,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "usage_aggregate_generation",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 312,
+          "body_sha256": "11066499588ac92a6e408358e3bb2eed792b9c6d8c955a22570f527865a0564a",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 673,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "usage_aggregate_generation",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 679,
+          "body_sha256": "32fa90261b2f0861ba0446302d832e0f47c41cbef518e0c50ee3de86b686e00b",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 1566,
+          "module": "AiurWeb.DashboardLive",
+          "name": "usage_aggregate_generation",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1572,
+          "body_sha256": "50c5a5a65c9b5fadb30f2e014bb4efaa1e89a6f607451aa90d947daa3d6af471",
+          "normalized_body_lines": 7,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "usage_limit_pause",
+      "assessment": "Provider pause payloads carry different reset evidence.",
+      "constraints": [
+        "Claude.NotificationPolicy derives reason, searches reset fields or reason text and parses through ResetTime.",
+        "Codex.NotificationPolicy derives hint and method-aware reason, parsing reset with options.",
+        "OpenAICompat.CodingAgent returns usage-limit kind/reason plus backend without reset metadata.",
+        "Preserve absent reset versus parsed reset and provider-specific attribution; the entry points do not verify actual quota exhaustion or safe resume timing."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 158,
+          "module": "Aiur.Claude.NotificationPolicy",
+          "name": "usage_limit_pause",
+          "path": "src/lib/aiur/claude/notification_policy.ex",
+          "kind": "def",
+          "end_line": 169,
+          "body_sha256": "756ff28c69da0b9708a2af8f3a28435b8bf4bb02370d958bf8100d016ad231a0",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 104,
+          "module": "Aiur.Codex.NotificationPolicy",
+          "name": "usage_limit_pause",
+          "path": "src/lib/aiur/codex/notification_policy.ex",
+          "kind": "def",
+          "end_line": 113,
+          "body_sha256": "a9099ab46dc1616945c829e5f83364ab566ea1aa89b160aaa4299bfadb4c03b9",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 162,
+          "module": "Aiur.OpenAICompat.CodingAgent",
+          "name": "usage_limit_pause",
+          "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+          "kind": "defp",
+          "end_line": 164,
+          "body_sha256": "46a95e1894ae663910b2a8322d9288b171a1d34adfa4cfc14feb75a81ffb284d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "verify_human_review_ready",
+      "assessment": "Review readiness is delegated through tracker and credential boundaries.",
+      "constraints": [
+        "Client delegates to HumanReviewGate, which requires a token, builds request context and invokes thread-clear verification.",
+        "Orchestrator.HumanReview uses an injected verifier or tracker path for binary issue IDs and returns ok for other issue inputs.",
+        "Preserve unsupported/missing-identity behavior explicitly. These wrappers do not establish all review threads are clear; the verification helper and caller population need separate evidence."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 366,
+          "module": "Aiur.GitHub.Client",
+          "name": "verify_human_review_ready",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 367,
+          "body_sha256": "ed48d125e840564d2f313ac41eedbbf616b5f2bffb503ee4eba151994559d2b7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 14,
+          "module": "Aiur.GitHub.HumanReviewGate",
+          "name": "verify_human_review_ready",
+          "path": "src/lib/aiur/github/human_review_gate.ex",
+          "kind": "def",
+          "end_line": 27,
+          "body_sha256": "f6a65f1a288077d504d1c879829ad6bc6eb35fbd0fa9811be1e918647c769914",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 65,
+          "module": "Aiur.Orchestrator.HumanReview",
+          "name": "verify_human_review_ready",
+          "path": "src/lib/aiur/orchestrator/human_review.ex",
+          "kind": "defp",
+          "end_line": 73,
+          "body_sha256": "238973da05fce5e12484941e5bcf3e46d86ea76c38dc4c971130375bb9132061",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 75,
+          "module": "Aiur.Orchestrator.HumanReview",
+          "name": "verify_human_review_ready",
+          "path": "src/lib/aiur/orchestrator/human_review.ex",
+          "kind": "defp",
+          "end_line": 75,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "walk",
+      "assessment": "Traversal differs in graph cycle tracking, bounded redaction and filesystem discovery.",
+      "constraints": [
+        "DependencyChain recursively visits graph neighbors with a seen set.",
+        "CacheInspector.Redactor bounds depth/items, stringifies map keys, drops secret-key values, annotates truncation, scrubs strings before slicing and delegates unusual terms to safe_inspect.",
+        "Prewarm.Detect bounds depth, collects manifests and descends nonexcluded directories, retaining accumulated results on listing failure.",
+        "Keep cycle handling, privacy transforms and partial filesystem results separate. This overlaps earlier redaction inspection; no new privacy completeness or traversal-safety guarantee is claimed."
+      ],
+      "clauses": 10,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 51,
+          "module": "Aiur.BuildOrder.DependencyChain",
+          "name": "walk",
+          "path": "src/lib/aiur/build_order/dependency_chain.ex",
+          "kind": "defp",
+          "end_line": 61,
+          "body_sha256": "b4b66965415c8ed9f99f87c790d88e8e51bdd30aef9bb54a5e234bace923390e",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 64,
+          "module": "Aiur.GitHub.CacheInspector.Redactor",
+          "name": "walk",
+          "path": "src/lib/aiur/github/cache_inspector/redactor.ex",
+          "kind": "defp",
+          "end_line": 64,
+          "body_sha256": "e1c9d6e756289d8bccb1e09cb43ba0f3d1f56f513c1436160dee9bc6dfac4e58",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 66,
+          "module": "Aiur.GitHub.CacheInspector.Redactor",
+          "name": "walk",
+          "path": "src/lib/aiur/github/cache_inspector/redactor.ex",
+          "kind": "defp",
+          "end_line": 73,
+          "body_sha256": "92124bd70adeeaf44020194bd6c83b3f8aa44071dbd64075c9b7577acb570832",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 75,
+          "module": "Aiur.GitHub.CacheInspector.Redactor",
+          "name": "walk",
+          "path": "src/lib/aiur/github/cache_inspector/redactor.ex",
+          "kind": "defp",
+          "end_line": 82,
+          "body_sha256": "e3cb09a2c70101467682c4a95411cf21da2cb6c8581cc85d213168bbf76c0067",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 87,
+          "module": "Aiur.GitHub.CacheInspector.Redactor",
+          "name": "walk",
+          "path": "src/lib/aiur/github/cache_inspector/redactor.ex",
+          "kind": "defp",
+          "end_line": 91,
+          "body_sha256": "d3573e9e70682a02d8ede8e25b396addc9a60c000c0e0c33fb9de1e76ca74683",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 93,
+          "module": "Aiur.GitHub.CacheInspector.Redactor",
+          "name": "walk",
+          "path": "src/lib/aiur/github/cache_inspector/redactor.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 94,
+          "module": "Aiur.GitHub.CacheInspector.Redactor",
+          "name": "walk",
+          "path": "src/lib/aiur/github/cache_inspector/redactor.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "18bb043aa72fed86f4bdd750fb97048d1dea4e901b26abc0756b622794d6593c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 95,
+          "module": "Aiur.GitHub.CacheInspector.Redactor",
+          "name": "walk",
+          "path": "src/lib/aiur/github/cache_inspector/redactor.ex",
+          "kind": "defp",
+          "end_line": 95,
+          "body_sha256": "342eec74b508484e31b8b62ebd0f94301dddf95bec9dbc1878f6d8b412bcaf0c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 84,
+          "module": "Aiur.Prewarm.Detect",
+          "name": "walk",
+          "path": "src/lib/aiur/prewarm/detect.ex",
+          "kind": "defp",
+          "end_line": 84,
+          "body_sha256": "729be935b1b480999a33bfec07ea88256b66592e737f23a25a6324f82e6ae21a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 86,
+          "module": "Aiur.Prewarm.Detect",
+          "name": "walk",
+          "path": "src/lib/aiur/prewarm/detect.ex",
+          "kind": "defp",
+          "end_line": 98,
+          "body_sha256": "1fb19412dc7bf85c960e99924038a553a0d66a897a626573df2fe2d1a201047f",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6912,
-  "limits": "597 selected families and 6912 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6947,
+  "limits": "605 selected families and 6947 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
