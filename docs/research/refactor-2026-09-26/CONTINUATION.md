@@ -950,3 +950,19 @@ Twelve restarts/backups, four repeated bugs, exact activation times and raw WIP
 loss mechanism remain explicit unsupported subclaims in the verdict. They are
 not measured findings or projected savings. Claim lens coverage is now 51/60;
 this does not resolve those questions or complete the research. No live changes.
+
+## Meta-10 merge and wake checkpoint
+
+Merge-review-evidence.json independently calculates 45,909 seconds (12h45m09s)
+between cached PR2677/2681 merges, consistent with frozen first-parent Git
+history. Four cited PRs have approval records and no merge in the extract, but
+that cache lacks review commit IDs/current heads/checks: approval history is not
+proof of continuing merge readiness. Replacement PRs2685/2701 are recorded as
+merged; semantic equivalence is still unverified.
+
+Frozen default Executor bindings already include ticket.*.branch.push, with
+ls-remote producer, ticket-ref mapping and listener inbox path. Blanket absence
+of push wakes is false; historical delivery/consumption remains unproved.
+Two PR2645 body copies repeat an integration account, so file/paragraph counts
+cannot stand in for a reintegration event census. Meta-10 remains open;
+51/60 claims, 25/32 review units. No operational mutations.

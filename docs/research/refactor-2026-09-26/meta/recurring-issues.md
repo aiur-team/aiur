@@ -197,8 +197,8 @@ moves. Approved PRs are abandoned when the session ends.
   - 09-11: 7 green PRs blocked on REVIEW_REQUIRED because the Executor's CI waiter filtered for
     a check named "ci", which does not exist; 15 more unreviewed an hour later.
   - 09-16/17: ~40 re-integrations of 12 PRs in 27 h (36 by the Executor, only 1 real
-    conflict); 12.75 h with no merge to main; 4 approved PRs never merged (#2643, #2669, #2673
-    still open on 09-26; #2644 closed), and 2 of those bugs were fixed a second time under new
+    conflict; event census still unverified); 12 h 45 m 09 s between cached merge timestamps; 4 PRs with recorded approvals remained unmerged in the cache (#2643, #2669, #2673
+    still open in the research extract; #2644 closed unmerged; current-head readiness unverified), and 2 of those bugs were reportedly fixed a second time under new
     numbers (#2684/#2685, #2697/#2701).
   - 09-18: rework on #68, #70, #72 missed because the rework watcher covered only earlier PRs;
     #117–#119 ready ~19 h.

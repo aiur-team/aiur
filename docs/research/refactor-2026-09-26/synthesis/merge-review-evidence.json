@@ -1,0 +1,145 @@
+{
+  "claim": "meta-10",
+  "status": "partial_verification",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "cache_sources": [
+    {
+      "path": "scratch/gaps/gh/aiur-team_aiur.pulls.jsonl",
+      "sha256": "52b4df54be24b47a309aa3e9ca0053be4ff7ce49d4bee30c2bae840fe4154c39"
+    },
+    {
+      "path": "scratch/gaps/gh/aiur-team_aiur.reviews.jsonl",
+      "sha256": "2c20247defd254ab971344e32451f34b9b72e07e221b290e9f6442be7947bf39"
+    }
+  ],
+  "merge_gap": {
+    "from_pr": 2677,
+    "from_merged_at": "2026-09-17T02:27:21Z",
+    "to_pr": 2681,
+    "to_merged_at": "2026-09-17T15:12:30Z",
+    "seconds": 45909.0,
+    "hours": 12.7525,
+    "other_cached_merges_strictly_between": [],
+    "frozen_first_parent_history": [
+      "dd3cb63823be31e72bbebd2a143d3f5cf9fd9cae 2026-09-17T11:55:55-04:00 Scope home-config workspaces and alerts; explain reusable setup (#2683)",
+      "4f76d4654aca19adb80b3febab358562c87579b8 2026-09-17T11:12:29-04:00 Run repositories from global Aiur defaults without local init (#2681)",
+      "33fa9920b036de3be38292317ed1b8293ba77eef 2026-09-16T22:27:21-04:00 Keep last-known Build Order progress visible and consistent (#2677)"
+    ],
+    "interpretation": "12h45m09s is supported by cached merged_at records and consistent with first-parent Git history. The gap does not measure reviewer idle time or identify the cause."
+  },
+  "unmerged_pr_records": [
+    {
+      "pr": 2643,
+      "closed_at": null,
+      "merged_at": null,
+      "updated_at": "2026-09-19T22:28:48Z",
+      "approval_timestamps": [
+        "2026-09-16T21:09:46Z",
+        "2026-09-16T21:23:46Z",
+        "2026-09-16T21:42:40Z",
+        "2026-09-16T22:05:26Z",
+        "2026-09-17T02:41:34Z"
+      ],
+      "limits": "Extract omits review commit_id, head SHA, checks and branch rules. Historical approvals do not establish current-head merge readiness."
+    },
+    {
+      "pr": 2644,
+      "closed_at": "2026-09-18T01:07:25Z",
+      "merged_at": null,
+      "updated_at": "2026-09-18T01:07:25Z",
+      "approval_timestamps": [
+        "2026-09-16T20:49:15Z",
+        "2026-09-16T21:27:03Z",
+        "2026-09-16T21:42:47Z",
+        "2026-09-16T22:05:31Z",
+        "2026-09-17T02:41:40Z"
+      ],
+      "limits": "Extract omits review commit_id, head SHA, checks and branch rules. Historical approvals do not establish current-head merge readiness."
+    },
+    {
+      "pr": 2669,
+      "closed_at": null,
+      "merged_at": null,
+      "updated_at": "2026-09-17T02:41:29Z",
+      "approval_timestamps": [
+        "2026-09-16T21:19:25Z",
+        "2026-09-16T21:23:41Z",
+        "2026-09-16T21:55:46Z",
+        "2026-09-16T22:05:19Z",
+        "2026-09-17T02:41:29Z"
+      ],
+      "limits": "Extract omits review commit_id, head SHA, checks and branch rules. Historical approvals do not establish current-head merge readiness."
+    },
+    {
+      "pr": 2673,
+      "closed_at": null,
+      "merged_at": null,
+      "updated_at": "2026-09-19T22:23:47Z",
+      "approval_timestamps": [
+        "2026-09-16T21:50:45Z",
+        "2026-09-16T22:05:37Z",
+        "2026-09-17T02:41:46Z"
+      ],
+      "limits": "Extract omits review commit_id, head SHA, checks and branch rules. Historical approvals do not establish current-head merge readiness."
+    }
+  ],
+  "later_merged_prs": [
+    {
+      "n": 2685,
+      "body_issue": "2684",
+      "title": "Fix provider probe cwd for portable home workflows",
+      "created_at": "2026-09-17T16:07:40Z",
+      "merged_at": "2026-09-18T01:00:27Z"
+    },
+    {
+      "n": 2701,
+      "body_issue": "2697",
+      "title": "Reinstall agent GitHub support when a workspace is rebuilt",
+      "created_at": "2026-09-18T01:47:44Z",
+      "merged_at": "2026-09-18T02:47:18Z"
+    }
+  ],
+  "wake_source_evidence": [
+    {
+      "path": "src/lib/aiur/executor_bindings.ex",
+      "lines": "7-36",
+      "sha256": "a37e5ed97b9f9efea4dd0e0cfbc55fe511bbb8718852b8d08c3557ad07771d98"
+    },
+    {
+      "path": "src/lib/aiur/events/ls_remote_ticker.ex",
+      "lines": "140-213",
+      "sha256": "7657a65f8f0506b7cf975b44728c846dee7ed772434c01580edad4be9311307c"
+    },
+    {
+      "path": "src/lib/aiur/events/github_keys.ex",
+      "lines": "14-37",
+      "sha256": "514cf4354cf5b9dd9bdf96ce9d45ad436cce5237953b6a013d19d04c7631c6dc"
+    },
+    {
+      "path": "src/lib/aiur/executor_listener.ex",
+      "lines": "145-190",
+      "sha256": "db0b17ba7d1eb4870728f2e813a13bc1d19f62752812a9525828f38501f07205"
+    },
+    {
+      "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+      "lines": "258-281",
+      "sha256": "71aeea56195c07345cb97e6d5a205fa0b1ae9beb1a6ad1d091369acca25eb54b"
+    },
+    {
+      "path": "src/lib/aiur/events/github_webhook.ex",
+      "lines": "1-33",
+      "sha256": "eef164fc82b4a5f7b6fd4e9d8bb9165ba1908e392d507e00b91d7b240a7a49b6"
+    }
+  ],
+  "wake_assessment": "Frozen default bindings include ticket.*.branch.push -> rework:auto. LsRemoteTicker publishes changed ticket-branch refs after bootstrap; GithubKeys maps recognized ticket refs to these topics; listener projects matched non-command events into ExecutorWakeInbox. Pull-request synchronize separately requests reconciliation. Thus 'a push is not a wake' is false as a blanket frozen-source statement. Ref recognition, bootstrap, detector health, publication, subscription, projection, enqueue and Executor consumption remain distinct conditions; no historical delivery is proved here.",
+  "reintegration_sample": "The two cited pr2645-independent-quality body versions repeat the same first integration account; the current-main version appends another base integration. Counting matching paragraphs or file copies would double-count. This sample does not reproduce 40 integrations, 36 Executor actions, 12 PRs or one conflict.",
+  "unresolved": [
+    "Re-integration event census and actor attribution",
+    "One-conflict claim versus actual conflict resolutions",
+    "Five-green-PR invalidation from PR2677",
+    "Semantic equivalence of earlier and replacement fixes",
+    "Historical rework-push delivery and consumption",
+    "Earlier backlog count samples and causal serialization claim"
+  ],
+  "limits": "Cached research records, not fresh GitHub state. No live API, daemon, test or launcher action. All copied fields refer to public Aiur PRs. No savings or causal idle-time estimate."
+}
