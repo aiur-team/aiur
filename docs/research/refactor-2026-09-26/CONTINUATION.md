@@ -1803,3 +1803,7 @@ Read collect, dashboard_writable?, deposit and dimensions: 30 literal entries ac
 ### Name duplication: table creation and timeout evidence
 
 Read ensure_table, expire, format_duration and format_error: 53 literal entries across four families. Identify repeated table-creation patterns and identical seconds-formatting while preserving owner/race/return contracts, expiry correlation, input units and unknown-delivery messages. Name triage now 234 families/4782 entries, leaving 1446 cross-module names. Raw findings and skeptic counts are unchanged; no concurrent failure, runtime delivery or saving is claimed.
+
+### Name duplication: freshness and interaction policies
+
+Read fresh?, handle_event, health_label and icon: 157 literal entries across four families. Identify identical navigation adapters, two health-label maps and bounded icon validators while preserving clock/generation freshness, writable control boundaries and unknown-state meanings. Name triage now 238 families/4939 entries, leaving 1442 cross-module names. The stale-to-Healthy mapping overlaps earlier review; raw findings and skeptic counts are unchanged. No complete authorization or runtime behavior claim is made.
