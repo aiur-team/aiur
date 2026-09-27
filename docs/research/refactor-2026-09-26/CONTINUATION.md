@@ -288,3 +288,29 @@ No new finding is promoted: fifteen provisional findings remain outside the
 was run. All 25 input hashes match the frozen Git blobs. Continue with art,
 logs/controller/surface tests and scripts. Overall coverage remains 23/32
 completed review units and 50/60 claims; production implementation is unchanged.
+
+## Art and packaging checkpoint
+
+Eighteen complete reads bring the partial unit to 170/178 files. All art
+source/tests and listed packaging/preview/USB scripts are now read. The eight
+remaining paths are demo, dial and logs source/tests, plus the controller and
+surface tests. No new finding is promoted; fifteen provisional findings remain.
+
+The complete painter tests change the freshness candidate's disposition: the
+provider test explicitly attributes omitted staleness wording to an operator
+directive. Keep the display policy as a planning question, not a newly proven
+renderer regression. This does not weaken finding 15's separate session/weekly
+wire mismatch. Existing tests also preserve no-data versus measured-zero and
+transcript row identity; package extraction must keep those distinctions.
+
+The archive includes the bundled runtime and render assets, and its smoke test
+executes main through absent-device startup. Thus main is not wholly untested
+in composition. That smoke does not render packaged assets or verify that the
+supplied commit metadata matches built dist. Preview scripts independently
+construct descriptors, so their images cannot prove live surface/controller
+behavior. The painter also imports a runtime classifier from channel.ts, a
+dependency to address before extracting a presentation package.
+
+This was source/test review, not execution of canvas, packaging, diagnostics or
+manual UX tests. All 18 hashes match frozen Git blobs. Overall completion stays
+23/32 review units and 50/60 claims; no production implementation changed.

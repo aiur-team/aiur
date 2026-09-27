@@ -3,9 +3,9 @@
   "status": "in-progress",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 178,
-  "files_reviewed": 152,
-  "lines_reviewed_estimate": 22356,
-  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed. Surface continuation adds 17 full reads: voice/settings/mode models and tests, typewriter/panel cache/strip renderer/key cache/write queue and tests, plus full physical surface. Surface tests only searched/targeted, not complete. Native rasterizer is replaced by a recording encoder in the probe; its transitive dependencies do not count as read coverage. Touch-strip continuation completes all remaining 18 touchStrip source/test paths. Targeted server projection reads cover public provider_meters paths, semantic slot classification and normalize_window; server tests read lines 1-80. art/segments.ts only searched/targeted, not read in full. The provider probe executes the actual client model and checks producer source keys; it does not execute Elixir or a live projection. Key-rendering continuation adds 25 complete reads: HID headers, key content/fill/image/renderer/writer/latency/quality/face/contracts, their tests and fixtures, keys layout/tests, and rasterizer/tests. Twenty-two reads were completed before the continuity checkpoint and three in the resumed pass. Targeted Elixir parity-test search confirms the same JSON vector path; that server test is not counted as a complete read. No native canvas suite or hardware was executed in this pass.",
+  "files_reviewed": 170,
+  "lines_reviewed_estimate": 26377,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed. Surface continuation adds 17 full reads: voice/settings/mode models and tests, typewriter/panel cache/strip renderer/key cache/write queue and tests, plus full physical surface. Surface tests only searched/targeted, not complete. Native rasterizer is replaced by a recording encoder in the probe; its transitive dependencies do not count as read coverage. Touch-strip continuation completes all remaining 18 touchStrip source/test paths. Targeted server projection reads cover public provider_meters paths, semantic slot classification and normalize_window; server tests read lines 1-80. art/segments.ts only searched/targeted, not read in full. The provider probe executes the actual client model and checks producer source keys; it does not execute Elixir or a live projection. Key-rendering continuation adds 25 complete reads: HID headers, key content/fill/image/renderer/writer/latency/quality/face/contracts, their tests and fixtures, keys layout/tests, and rasterizer/tests. Twenty-two reads were completed before the continuity checkpoint and three in the resumed pass. Targeted Elixir parity-test search confirms the same JSON vector path; that server test is not counted as a complete read. No native canvas suite or hardware was executed in this pass. Art/packaging continuation adds 18 full reads: all remaining art source/tests (including complete segments painter and tests), debug source/tests, ESLint configuration and all seven listed scripts/tests. Render, USB diagnostics and packaging programs were read, not launched. The native canvas suite was not run. Eight files remain: demo, dial and logs source/tests plus controller and surface tests.",
   "coverage": [
     {
       "path": "website/src/dashboard.ts",
@@ -766,31 +766,103 @@
       "path": "packages/streamdeck/test/rasterizer.test.ts",
       "status": "read_in_full",
       "sha256": "4db9f96ff54b298bd488589e44ddafa93de9a85123a2938858818bb8a541392e"
+    },
+    {
+      "path": "packages/streamdeck/eslint.config.mjs",
+      "status": "read_in_full",
+      "sha256": "8e89cf4e2662929513ea220cd3ea90650c15c398c9c3446996852a7fc78fae19"
+    },
+    {
+      "path": "packages/streamdeck/scripts/build-package.mjs",
+      "status": "read_in_full",
+      "sha256": "c9e4f260d5daded506cc1c67ff28827e247e1e55da0ea7f42fcff0ba7f88f78f"
+    },
+    {
+      "path": "packages/streamdeck/scripts/test/build-package.test.mjs",
+      "status": "read_in_full",
+      "sha256": "c5357e96b84b79a79e4456df9c10b3b446c2f2743629fe00bfb5a1f541c276cf"
+    },
+    {
+      "path": "packages/streamdeck/scripts/probe-input.mjs",
+      "status": "read_in_full",
+      "sha256": "4d9ce0909dd851c422559da50dc1b6b2d91cb7aed51066451aae3b8e080b17b0"
+    },
+    {
+      "path": "packages/streamdeck/scripts/reset-device.mjs",
+      "status": "read_in_full",
+      "sha256": "f6ae1861e5d1212fef7da4d847520058a5b373367282977acc9c8bb962798ce8"
+    },
+    {
+      "path": "packages/streamdeck/scripts/render-demo.mjs",
+      "status": "read_in_full",
+      "sha256": "4bfb3f8457b8df429db953d529d1dbac1af7cba94756bceae2cb71a68cf965a1"
+    },
+    {
+      "path": "packages/streamdeck/scripts/render-modes.mjs",
+      "status": "read_in_full",
+      "sha256": "b9d3c4ffd8d540c2f03b19558b897c5158b8f3570dbea2cf5bf91e0a15803c61"
+    },
+    {
+      "path": "packages/streamdeck/scripts/render-preview.mjs",
+      "status": "read_in_full",
+      "sha256": "ce05605e6bb53b1dd5ad1079bbfcf36b7d26df118773872b6750464d666c62d5"
+    },
+    {
+      "path": "packages/streamdeck/src/art/gradient.ts",
+      "status": "read_in_full",
+      "sha256": "923057c0e3855e690ead465044fad9789c095df00207fe02fd89b66bfb61a514"
+    },
+    {
+      "path": "packages/streamdeck/test/art/gradient.test.ts",
+      "status": "read_in_full",
+      "sha256": "62f8a91f64551e29684e933d75c1139878384a3fd2693b49c7fc8865eb6b01df"
+    },
+    {
+      "path": "packages/streamdeck/src/art/vendorMark.ts",
+      "status": "read_in_full",
+      "sha256": "45ccd11434b1bd5ab85f8048c4791ae10924c2ef33864d12c1b83184ecb0d291"
+    },
+    {
+      "path": "packages/streamdeck/test/art/vendorMark.test.ts",
+      "status": "read_in_full",
+      "sha256": "414509cd2814d444fcb8d4861d75e65b3071ef77756459f1d412ee389c3bb11b"
+    },
+    {
+      "path": "packages/streamdeck/src/art/icons.ts",
+      "status": "read_in_full",
+      "sha256": "2fa410ff4fdbd37a77a7935fece5e8f97868a9f3bb2585e2880033f6a9ca4c1d"
+    },
+    {
+      "path": "packages/streamdeck/test/art/icons.test.ts",
+      "status": "read_in_full",
+      "sha256": "8163a4cf1bb4927f353f9efb48151a5b080628c02f64352838a05108b6c7fa72"
+    },
+    {
+      "path": "packages/streamdeck/src/debug.ts",
+      "status": "read_in_full",
+      "sha256": "643f072a34021f26c1c1e2d679dfb32de8441af11188d39ab5f2118be8301dfb"
+    },
+    {
+      "path": "packages/streamdeck/test/debug.test.ts",
+      "status": "read_in_full",
+      "sha256": "52a20af610216adf5d1140b5ea499062e70df76d2fa7831e6ff5d518cfe9b5ee"
+    },
+    {
+      "path": "packages/streamdeck/src/art/segments.ts",
+      "status": "read_in_full",
+      "sha256": "8ef024cecb4e616e1d0c755cffb4f3fb2ca567ce5a95f6f72499f227926954e3"
+    },
+    {
+      "path": "packages/streamdeck/test/art/segments.test.ts",
+      "status": "read_in_full",
+      "sha256": "0bdfedf85036a93d3eeb492770d5d5fd1c2da93db08badf6b3eec15b6d396d71"
     }
   ],
   "remaining_files": [
-    "packages/streamdeck/eslint.config.mjs",
-    "packages/streamdeck/scripts/build-package.mjs",
-    "packages/streamdeck/scripts/probe-input.mjs",
-    "packages/streamdeck/scripts/render-demo.mjs",
-    "packages/streamdeck/scripts/render-modes.mjs",
-    "packages/streamdeck/scripts/render-preview.mjs",
-    "packages/streamdeck/scripts/reset-device.mjs",
-    "packages/streamdeck/scripts/test/build-package.test.mjs",
-    "packages/streamdeck/src/art/gradient.ts",
-    "packages/streamdeck/src/art/icons.ts",
-    "packages/streamdeck/src/art/segments.ts",
-    "packages/streamdeck/src/art/vendorMark.ts",
-    "packages/streamdeck/src/debug.ts",
     "packages/streamdeck/src/demo.ts",
     "packages/streamdeck/src/dial.ts",
     "packages/streamdeck/src/logs.ts",
-    "packages/streamdeck/test/art/gradient.test.ts",
-    "packages/streamdeck/test/art/icons.test.ts",
-    "packages/streamdeck/test/art/segments.test.ts",
-    "packages/streamdeck/test/art/vendorMark.test.ts",
     "packages/streamdeck/test/controller.test.ts",
-    "packages/streamdeck/test/debug.test.ts",
     "packages/streamdeck/test/demo.test.ts",
     "packages/streamdeck/test/dial.test.ts",
     "packages/streamdeck/test/logs.test.ts",
@@ -1263,7 +1335,7 @@
     },
     {
       "topic": "Entry-point test boundary",
-      "disposition": "main.ts and vitest.config.ts call the entry point branch-free wiring, but it now contains buffering, async device acquisition, voice rebuilds, channel retry state and rendering coordination. Coverage exclusion is real; absence of all integration protection is not established yet. Channel/controller/surface tests remain to read."
+      "disposition": "main.ts and vitest.config.ts describe the entry point as branch-free wiring despite its buffering, async device acquisition, voice rebuilds, retry state and rendering coordination. The package build test does execute the archive main with FORCE_ABSENT=1, waits for no-device readiness and terminates it. Therefore the claim that main has no integration protection is too broad. This covers absent-device startup, not channel/controller/hardware/rendering composition; remaining controller/surface tests still need complete review."
     },
     {
       "topic": "USB startPoll failure",
@@ -1315,7 +1387,7 @@
     },
     {
       "topic": "Provider freshness on rendered strip",
-      "disposition": "ProviderSegmentModel retains provider freshness but drops per-window freshness and age. Targeted painter search found no freshness/age references. Read the complete art renderer and exercise stale versus fresh drawing before promoting a displayed-staleness finding."
+      "disposition": "Complete segments painter/test review confirms no freshness-dependent provider drawing. The test at packages/streamdeck/test/art/segments.test.ts:561 explicitly says durable readings omit staleness wording by operator directive (#2185). This is evidence of intended policy in the frozen test, not independent recovery of that directive. Do not promote it as an accidental renderer regression. Retain an explicit planning question about presentation versus retained observation metadata; finding 15 remains the separate semantic-slot contract defect. No native drawing executed in this pass."
     },
     {
       "topic": "Latency benchmark interpretation",
@@ -1344,6 +1416,26 @@
     {
       "topic": "Hardware fill convention and key latency scope",
       "disposition": "keyFill explicitly leaves raw versus key-count-offset indexing as a hardware convention to verify. Byte fixture tests cannot settle it. keyLatency measures report construction only and its test clock is injected; quality defaults and payload arithmetic are not measured visual-quality or USB performance savings."
+    },
+    {
+      "topic": "Archive boundary and provenance limits",
+      "disposition": "build-package.mjs includes the Node executable, dist, assets, production node_modules, udev/systemd files and README; vendorMark resolves app/assets from app/dist/art consistently. The archive smoke checks its digest, supplied commit metadata, launcher and absent-device startup. It neither renders marks from the archive nor proves that dist corresponds to the supplied SHA. Build caller/CI trace remains needed before treating metadata as verified source provenance. Do not infer a broken release from the script alone."
+    },
+    {
+      "topic": "Preview scripts do not substitute for surface integration",
+      "disposition": "render-demo and render-preview construct projections separately from surface.ts, and render-modes builds literal command/event descriptors. They exercise rasterization but cannot verify live controller-to-surface behavior or command receipts. render-demo also does not carry progress_freshness through its grid mapping. Treat these as diagnostic fixtures, not proof of device parity; preserve this distinction in the package validation plan."
+    },
+    {
+      "topic": "Painter distinctions worth preserving",
+      "disposition": "Complete segments tests distinguish no build from zero completion, no provider data from zero usage, no session window from a weekly-only model, unknown progress from measured zero, and local audio meters from unavailable transcription. Transcript tests constrain one projected row to one painted row and retain speaker/diff cues. These are existing contract tests read as evidence of intended behavior, not freshly executed validation."
+    },
+    {
+      "topic": "Painter dependency direction",
+      "disposition": "art/segments.ts imports rowKindOfRole at runtime from channel.ts while consuming transcript types from that transport module. Package planning should separate wire normalization and presentation DTO ownership before extracting the painter; simply moving art preserves this transport-facing dependency. Icon and gradient helpers intentionally support only their bundled grammar, so they are not general SVG/CSS parsers."
+    },
+    {
+      "topic": "Debug sink documentation",
+      "disposition": "debug.ts describes console.debug as stderr; Node console.debug normally writes stdout. The test spies on the method and does not constrain the destination stream. No effect on Aiur protocol parsing was established, so retain this as a documentation/diagnostic contract observation rather than a production transport finding. Debug remains opt-in; no actual log payloads were published. A local Node console.debug call with a synthetic marker was captured separately: stdout contained the marker and stderr was empty."
     }
   ]
 }
