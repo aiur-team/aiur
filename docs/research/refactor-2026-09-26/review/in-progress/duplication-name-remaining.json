@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "1a83b3482d4f41b8e473254ff4f76b6a5b15d4d08833c9a95977644c76e71f78"
+    "name_triage": "a81bb8d570a51eb4323c86be4bf9eadbcebecf57a9206ac157f02dc86a7a65bc"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 877,
-    "remaining_cross_module_names": 803,
-    "remaining_literal_entries": 2483
+    "reviewed_cross_module_names": 885,
+    "remaining_cross_module_names": 795,
+    "remaining_literal_entries": 2460
   },
   "families": [
-    {
-      "name": "endpoint_label",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "enqueue_event_digest_item",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "ensure_entry",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 34
-    },
-    {
-      "name": "ensure_git_metadata_writable",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 66
-    },
-    {
-      "name": "ensure_preflight",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "ensure_pull_request_base",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 47
-    },
-    {
-      "name": "ensure_redispatch_started",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 36
-    },
-    {
-      "name": "ensure_remote_control_trust",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
     {
       "name": "ensure_tracker_preflight",
       "clauses": 2,

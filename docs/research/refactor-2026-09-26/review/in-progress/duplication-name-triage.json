@@ -107039,10 +107039,406 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "endpoint_label",
+      "assessment": "Ticket context and build-order presentation apply different fallback vocabularies.",
+      "constraints": [
+        "TicketContextAdapter prefers Node title, then binary tracker identifier as Ticket text, then edge text, then unavailable-endpoint prose.",
+        "BuildOrderPresenter prefers indexed Member title, otherwise a fully qualified owner/repository/identifier label or supplied fallback; read identity_label.",
+        "Neither title branch validates nonempty title here. Preserve audience and identity scope rather than sharing a label function that drops repository qualification."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 183,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "endpoint_label",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 183,
+          "body_sha256": "99be50d9d0b1b820f93a0502f3f188a3ab51d4938a0ea6718af3c5e03a1d48b3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 184,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "endpoint_label",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 184,
+          "body_sha256": "44630fa9a387bf865a3aac5a48077e08fbb454e268785854971bdbdf511eb0fa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 185,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "endpoint_label",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "5da2571a21316586f55df74b834f638adc91c3391d93046e647495b3cf65fdfc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 186,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "endpoint_label",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 186,
+          "body_sha256": "3212ba79dabc02789f5895895321a3fd56af5402c3d6dfe64a3a835bd0d0ff2e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 369,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "endpoint_label",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 374,
+          "body_sha256": "ec5c4ae9b67eb9dadf3d1c823aeaafac49fa1ab6cb22294920147296c4e842a5",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "enqueue_event_digest_item",
+      "assessment": "Orchestrator facade already delegates digest queue policy.",
+      "constraints": [
+        "OperatorMessages requires State, binary identifier and event list, filters already-queued events and returns unchanged state when none remain.",
+        "Nonempty survivors flow to do_enqueue_event_digest_item; summary_source is intentionally unused in this implementation.",
+        "Preserve deduplication ownership and no-op behavior. This family alone does not prove atomic deduplication, persistence or agent delivery."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 920,
+          "module": "Aiur.Orchestrator",
+          "name": "enqueue_event_digest_item",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 921,
+          "body_sha256": "d3ff93ea15112c07a76250b23c164dc16af4eb0d3f16ce3ac677643cc77865d5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 199,
+          "module": "Aiur.Orchestrator.OperatorMessages",
+          "name": "enqueue_event_digest_item",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "kind": "def",
+          "end_line": 208,
+          "body_sha256": "c180fb96ad9b86e55d97a7775ccf91589bc5705d1b8037fe9176787172ae27a1",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ensure_entry",
+      "assessment": "Ticket detail cache allocation and attachment registry initialization have different state effects.",
+      "constraints": [
+        "TicketDetailCoordinatorPolicy uses a cache key, preserves existing state or makes room before initializing unknown generation, nil detail/failure and timing/inflight fields; returns updates alongside state.",
+        "AttachPool initializes absent attachment records with an empty attached-slot set and nil visibility, otherwise preserves state.",
+        "Keep cache eviction and freshness metadata separate from attachment membership. Presence of an entry is not successful detail retrieval or attached-pane readiness."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 28,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Policy",
+          "name": "ensure_entry",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_policy.ex",
+          "kind": "def",
+          "end_line": 49,
+          "body_sha256": "355f0b449a71caebe50707b0ffaf7194babaf6aa561a774d7667c4094412b9cb",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 632,
+          "module": "Aiur.Opencode.AttachPool",
+          "name": "ensure_entry",
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "kind": "defp",
+          "end_line": 643,
+          "body_sha256": "dca182054af63bd451822d39df7bc0c1c6f3f94dfffdb7d894367cb80777e2aa",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ensure_git_metadata_writable",
+      "assessment": "Workspace facade delegates a side-effecting Git metadata probe.",
+      "constraints": [
+        "GitMetadata has local lock/index probes and a remote script checking physical metadata containment, creating/removing lock paths and exercising intent-to-add/reset of a temporary file.",
+        "Not-git outcomes return ok. Read local lock helper: it calls stale-lock removal before exclusive create and removal; the remote script removes designated lock paths before probing.",
+        "Preserve local/remote error envelopes and workspace containment. This is not a read-only predicate or proof of future concurrent writability; lock-owner validation and complete probe cleanup remain outside this family audit."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 218,
+          "module": "Aiur.Workspace",
+          "name": "ensure_git_metadata_writable",
+          "path": "src/lib/aiur/workspace.ex",
+          "kind": "def",
+          "end_line": 219,
+          "body_sha256": "f8bbfa3a28a400362280da082bd0f913e682cf881f12a76574bf17bb3a8ecde8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 52,
+          "module": "Aiur.Workspace.GitMetadata",
+          "name": "ensure_git_metadata_writable",
+          "path": "src/lib/aiur/workspace/git_metadata.ex",
+          "kind": "def",
+          "end_line": 52,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 54,
+          "module": "Aiur.Workspace.GitMetadata",
+          "name": "ensure_git_metadata_writable",
+          "path": "src/lib/aiur/workspace/git_metadata.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "4707a7f40818e15266d4a6c6189f09f3284871e88edd2e76ac3c51b9aad3df1c",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 64,
+          "module": "Aiur.Workspace.GitMetadata",
+          "name": "ensure_git_metadata_writable",
+          "path": "src/lib/aiur/workspace/git_metadata.ex",
+          "kind": "def",
+          "end_line": 117,
+          "body_sha256": "5bddcbe567678bb4448ac5b3fae41fe7e3f269e16d3bf60b098c281124d2e4f2",
+          "normalized_body_lines": 67,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ensure_preflight",
+      "assessment": "GitHub client already delegates credential preflight to its policy owner.",
+      "constraints": [
+        "AuthPreflight parses repository and requires a token before checking memoized identity; otherwise invokes proof.",
+        "Read identity helpers: memoization keys owner, repository and SHA256 of token, not a bare repository or exposed token.",
+        "Preserve credential-scoped memoization. A matching remembered identity is not independent proof of current remote authorization; expiry/revocation behavior is not certified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "Aiur.GitHub.AuthPreflight",
+          "name": "ensure_preflight",
+          "path": "src/lib/aiur/github/auth_preflight.ex",
+          "kind": "def",
+          "end_line": 92,
+          "body_sha256": "b0cb11d69140d9b63af4b80ce250aae5bd0fe739a177e2f7718a3a21b3604597",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 32,
+          "module": "Aiur.GitHub.Client",
+          "name": "ensure_preflight",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 32,
+          "body_sha256": "4e66d112b0b74277331d636ac5dd8d8258676b7e569a1b0ce0a345adf9a515f8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ensure_pull_request_base",
+      "assessment": "CI poller wraps client base repair with a recovery journal.",
+      "constraints": [
+        "Client delegates the base change to PullRequests.ensure_base_branch.",
+        "Poller installs a before-repair journal callback, recovers interrupted repair on unchanged, journals confirmed head on repaired and preserves repairing context when journaled operations fail.",
+        "Confirmed-head journal failure returns an explicit error with repair context. Keep the journal transaction boundary with CI recovery; client success alone cannot replace journal confirmation or prove uninterrupted remote atomicity."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 596,
+          "module": "Aiur.Events.GithubCIPoller",
+          "name": "ensure_pull_request_base",
+          "path": "src/lib/aiur/events/github_ci_poller.ex",
+          "kind": "defp",
+          "end_line": 640,
+          "body_sha256": "cf95440938d8e75ec8c7b90a234b3ebc16b677701c3a2ba8d80b022408705bd9",
+          "normalized_body_lines": 50,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 338,
+          "module": "Aiur.GitHub.Client",
+          "name": "ensure_pull_request_base",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 339,
+          "body_sha256": "7578dded4e1be79eb73752b0a6b59f618a85abb981d71311b52a328d807d68a7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ensure_redispatch_started",
+      "assessment": "Backend and remote-control fallback share retry mechanics with different host provenance.",
+      "constraints": [
+        "Both skip scheduling for a PID-shaped running entry or existing retry; otherwise derive next attempt and schedule continuation with tracker identity and workspace.",
+        "RateLimitFallback uses explicit worker_host and backend error text; RemoteControlMode reuses running_entry worker_host and distinct remote-control error text.",
+        "Read both live_running_entry? helpers: they only test is_pid, not process liveness. Preserve host selection and avoid claiming the predicate proves successful redispatch."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 506,
+          "module": "Aiur.Orchestrator.RateLimitFallback",
+          "name": "ensure_redispatch_started",
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "kind": "defp",
+          "end_line": 523,
+          "body_sha256": "02a3ec4730768294ad25e57d67627db37798a48c7f978a7154447bd6d5fdadf0",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 196,
+          "module": "Aiur.Orchestrator.RemoteControlMode",
+          "name": "ensure_redispatch_started",
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "kind": "defp",
+          "end_line": 213,
+          "body_sha256": "2bd21fc2abb38055ddbeb5936a77775861291818199b93971befc5b42189c59b",
+          "normalized_body_lines": 23,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ensure_remote_control_trust",
+      "assessment": "Orchestrator trust entry points already delegate to RemoteControlMode.",
+      "constraints": [
+        "Default and explicit server forms converge on a binary-workspace request with a ten-second timeout.",
+        "Read control_api_call: absent server and non-timeout exits become unavailable, timeout exits become timeout.",
+        "Keep trust mutation behind the control owner; request submission and wrapper return contract do not independently certify configured trust or provider activation."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 584,
+          "module": "Aiur.Orchestrator",
+          "name": "ensure_remote_control_trust",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 584,
+          "body_sha256": "87c1e5a015431537e8a23594e316c2bda73d76079dc6caec2d87c29358034d23",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 586,
+          "module": "Aiur.Orchestrator",
+          "name": "ensure_remote_control_trust",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 587,
+          "body_sha256": "a3c1cbb2e8848aaffbb667a58d5f78e568f870b0a594daf8e7d120b32519647a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 27,
+          "module": "Aiur.Orchestrator.RemoteControlMode",
+          "name": "ensure_remote_control_trust",
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "0164439b99ed8bc661c6b66b5e74c08f2a9157763a9f9af7f1f43592c2e1d757",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 32,
+          "module": "Aiur.Orchestrator.RemoteControlMode",
+          "name": "ensure_remote_control_trust",
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "kind": "def",
+          "end_line": 33,
+          "body_sha256": "9cf302bafde8db0b8486af654985087137ea7094e4d75c1db8af1e312c892a9d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7785,
-  "limits": "877 selected families and 7785 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7808,
+  "limits": "885 selected families and 7808 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
