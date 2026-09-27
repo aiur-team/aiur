@@ -918,3 +918,7 @@ Read all 40 resolve definitions/declarations in 23 modules. Preserve pure lookup
 ### Name duplication: reconciliation and retention predicates
 
 Read all 40 reconcile definitions/declarations in 22 modules and the availability/scope helpers for three presenters. Matching presenter bodies retain distinct validity and identity policies, overlapping inherited web-occ-17. Preserve handshake completion, boot-scoped claim retries, configuration uncertainty, compaction recovery and bounded transitions. Name triage now 35 families/1091 literal entries; the priority queue is not exhausted and is not a scope limit. Remaining sweep and transitive verification stay open.
+
+### Name duplication: configuration changesets
+
+Read all 28 changeset definitions across 28 modules. Existing Ecto reuse carries distinct zero/positive bounds, empty-value handling, obsolete-key rejection, raw-type checks, normalization order and cross-field validators. Preserve domain schemas and their composition boundary; cast-only bodies do not establish missing validation without field/helper/downstream review. Name triage now 36 families/1119 literal entries. Remaining sweeps and validation completeness stay open; no new defect or savings count.
