@@ -1262,3 +1262,7 @@ Read owner, page_size, page_title, pane_pid, parent_identity, parse_cursor, pars
 ### Name duplication: presentation and valuation evidence
 
 Read payload_value, plan, pop, pr_title, present_freshness, present_health, preview and price: 37 literal entries across eight families. Preserve key precedence/falsey semantics, queue/monitor cleanup, missing title policies, plural versus singular health reasons and excluded versus unknown valuation. Read health/freshness labels and price regex; stale-to-Healthy labels overlap the existing finding and are not counted again. Name triage now 525 families/6601 entries, leaving 1155 cross-module names. Raw findings and skeptic counts are unchanged; no complete pricing, parser or task-completion guarantee is added.
+
+### Name duplication: queue and process identity policies
+
+Read print_rows, priority_rank, process_identity, process_stopped, provider_turn_id, put_snapshot, queued? and queued_dispatch_demand?: 35 literal entries across eight families. Two provider-turn payload extractors match. Preserve urgency scales, resolved versus diagnostic process identity, account shutdown steps, snapshot retention/generation history and different queued/demand policies. Name triage now 533 families/6636 entries, leaving 1147 cross-module names. Raw findings and skeptic counts are unchanged; no complete retirement, dispatchability or durable-storage guarantee is added.

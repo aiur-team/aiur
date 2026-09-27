@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "5d34b3316ef0dddcc10e4dfc26a23766066a115bd1e4002fc5fbe20517c13915"
+    "name_triage": "034f4267f71c0313f4d14322bfb718d58d628ff3748f671aee31d6ab693b5207"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 525,
-    "remaining_cross_module_names": 1155,
-    "remaining_literal_entries": 3667
+    "reviewed_cross_module_names": 533,
+    "remaining_cross_module_names": 1147,
+    "remaining_literal_entries": 3632
   },
   "families": [
-    {
-      "name": "print_rows",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 36
-    },
-    {
-      "name": "priority_rank",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "process_identity",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 27
-    },
-    {
-      "name": "process_stopped",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 32
-    },
-    {
-      "name": "provider_turn_id",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "put_snapshot",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 59
-    },
-    {
-      "name": "queued?",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "queued_dispatch_demand?",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 24
-    },
     {
       "name": "rate_limit_remaining",
       "clauses": 5,

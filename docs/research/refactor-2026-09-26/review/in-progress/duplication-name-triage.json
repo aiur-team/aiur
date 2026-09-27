@@ -87483,10 +87483,556 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "print_rows",
+      "assessment": "CLI row printing shares format selection but retains domain-specific output.",
+      "constraints": [
+        "CommandsCLI emits an explicit empty-filter message and chooses an ANSI-enabled summary header/rows versus individual record rendering.",
+        "GitHubCostCLI computes cells and widths for a table or prints records; UnitsCLI delegates table rendering or prints records.",
+        "Possible shared output-format mechanics must retain empty behavior, column contracts and domain formatting. Output helpers and terminal safety were not certified by these entry points."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 174,
+          "module": "Aiur.CommandsCLI",
+          "name": "print_rows",
+          "path": "src/lib/aiur/commands_cli.ex",
+          "kind": "defp",
+          "end_line": 174,
+          "body_sha256": "00baa24c7c3776623d0ed92165c24b866b2840fa0b7d0bd6b70ac6ad7fa57124",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 176,
+          "module": "Aiur.CommandsCLI",
+          "name": "print_rows",
+          "path": "src/lib/aiur/commands_cli.ex",
+          "kind": "defp",
+          "end_line": 192,
+          "body_sha256": "c66b2739c7f91c7db99b287465d8840ca988c69619fbbea415b1e857c1353e6d",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 390,
+          "module": "Aiur.GitHubCostCLI",
+          "name": "print_rows",
+          "path": "src/lib/aiur/github_cost_cli.ex",
+          "kind": "defp",
+          "end_line": 401,
+          "body_sha256": "9dca92d4156c6d84059c617bcca3072b86db23edaf74c5a2dd648ac204aacd65",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 259,
+          "module": "Aiur.UnitsCLI",
+          "name": "print_rows",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 264,
+          "body_sha256": "6ef808e5571b34d229543f8c6cf609b972fb5eae6f926cec5fa4de2cec51ed71",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "priority_rank",
+      "assessment": "Queue urgency, dispatch priority and display priority use different scales.",
+      "constraints": [
+        "AgentQueueStore maps now/next/later to 0/1/2 and other values to 9.",
+        "DispatchPolicy retains only integer priorities 1 through 4, otherwise 5.",
+        "StreamDeckGrid accepts any positive integer from an entry, otherwise 5.",
+        "Do not unify rank without an explicit domain: accepting priorities above four changes ordering relative to the fallback. Caller populations remain unverified."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 416,
+          "module": "Aiur.AgentQueueStore",
+          "name": "priority_rank",
+          "path": "src/lib/aiur/agent_queue_store.ex",
+          "kind": "defp",
+          "end_line": 416,
+          "body_sha256": "07e37eaf0627b55ca9cf1b72e05de6590b3899ac34af6765529abbc2c5841d44",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 417,
+          "module": "Aiur.AgentQueueStore",
+          "name": "priority_rank",
+          "path": "src/lib/aiur/agent_queue_store.ex",
+          "kind": "defp",
+          "end_line": 417,
+          "body_sha256": "793cd2bfe8447ca48061e6e48ff7a7c016304393e3c5a25ec6ec1f3ea9f7b96b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 418,
+          "module": "Aiur.AgentQueueStore",
+          "name": "priority_rank",
+          "path": "src/lib/aiur/agent_queue_store.ex",
+          "kind": "defp",
+          "end_line": 418,
+          "body_sha256": "1459ab17463460ea06fbfeb78f9c6396c6b7b8d637a3fdf595a9410570d99c4b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 419,
+          "module": "Aiur.AgentQueueStore",
+          "name": "priority_rank",
+          "path": "src/lib/aiur/agent_queue_store.ex",
+          "kind": "defp",
+          "end_line": 419,
+          "body_sha256": "451fe9f863cd1f96ea1630035a7b46c4f980bc0c43b7aba307bcac84efea7b24",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 617,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "priority_rank",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 617,
+          "body_sha256": "5e3eeb86787648a51e956b15d0e4861936a2e3a0af36b71cb75b0cb70d4128ab",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 618,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "priority_rank",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 618,
+          "body_sha256": "301bed2ed7ec5f2a58f6b8c9f1da23973b636d0fbd67699ac41945bda45ef110",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 211,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "priority_rank",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 216,
+          "body_sha256": "2bb770bdf32eda7d7adcde435516d6bd564f797c4409e3f4e6830b5b0fb93814",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "process_identity",
+      "assessment": "Process resolution and daemon observation are separate identity contracts.",
+      "constraints": [
+        "Claude.RemoteControl delegates OS PID resolution to Aiur.ProcessIdentity.",
+        "Repl.Launcher invokes an injected/default resolver and maps ok to known, retains gone and collapses other results or rescued exceptions to unknown.",
+        "DaemonLifecycle constructs a run/PID/parent/hostname/time observation from lazy defaults or supplied options.",
+        "Preserve resolved process identity versus diagnostic snapshot, including gone versus unknown. An observation map alone is not a PID-reuse fence."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 304,
+          "module": "Aiur.Claude.RemoteControl",
+          "name": "process_identity",
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "kind": "def",
+          "end_line": 304,
+          "body_sha256": "0e2f4cca2c647b61c34434b4280f0b7cdb726e031d1235aebef18ce0f1eae87c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 194,
+          "module": "Aiur.Claude.Repl.Launcher",
+          "name": "process_identity",
+          "path": "src/lib/aiur/claude/repl/launcher.ex",
+          "kind": "defp",
+          "end_line": 207,
+          "body_sha256": "7dd6810b40dfbab3f8b1b26eaf0a653b93334c081a03c2092bcf0b18110ad78c",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 73,
+          "module": "Aiur.DaemonLifecycle",
+          "name": "process_identity",
+          "path": "src/lib/aiur/daemon_lifecycle.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "b407501e433e99cebc9d8123831eeeaf6b184b51687297d2198f385740abffe5",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "process_stopped",
+      "assessment": "Account shutdown paths share retirement intent but distinct recovery and cleanup.",
+      "constraints": [
+        "Claude retires continuity, clears context and returns ok, with a nonmap no-op clause.",
+        "Codex additionally clears ExhaustedReset before retirement/context cleanup and has a map guard.",
+        "OpenAICompat fetches account context, derives provider/source, recovers authority before attempted retirement, then clears provider-scoped context and returns ok.",
+        "Retain provider-specific reset/recovery steps and input contracts. Returned ok does not certify every retirement side effect succeeded."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 45,
+          "module": "Aiur.Claude.AccountGeneration",
+          "name": "process_stopped",
+          "path": "src/lib/aiur/claude/account_generation.ex",
+          "kind": "def",
+          "end_line": 49,
+          "body_sha256": "51f8394168654536005f1841dcf27ba2089b7a697820339ae1682f3fb52f73de",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 51,
+          "module": "Aiur.Claude.AccountGeneration",
+          "name": "process_stopped",
+          "path": "src/lib/aiur/claude/account_generation.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 104,
+          "module": "Aiur.Codex.AccountGeneration",
+          "name": "process_stopped",
+          "path": "src/lib/aiur/codex/account_generation.ex",
+          "kind": "def",
+          "end_line": 109,
+          "body_sha256": "073f384ba50341c0f731f206a7fa4076c3a9c4f3fafb15a183f09c0434fb862d",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 53,
+          "module": "Aiur.OpenAICompat.AccountGeneration",
+          "name": "process_stopped",
+          "path": "src/lib/aiur/open_ai_compat/account_generation.ex",
+          "kind": "def",
+          "end_line": 72,
+          "body_sha256": "4dea686da6e41cd58b463b352323e5c354ea4aa1f2e9eb6f5af52ca46f535d07",
+          "normalized_body_lines": 25,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "provider_turn_id",
+      "assessment": "Two payload extractors match while queue metadata uses another representation.",
+      "constraints": [
+        "ProviderTurnLedger and TurnState accept binary turn IDs from params.turn.id or turn.id string-key paths, otherwise nil.",
+        "AgentQueueStore instead reads top-level atom/string turn_id metadata with truthy fallback, then requires a binary.",
+        "Share the two protocol extractors without erasing normalized metadata boundaries. Binary acceptance includes empty strings and does not establish turn ownership."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 518,
+          "module": "Aiur.AgentQueueStore",
+          "name": "provider_turn_id",
+          "path": "src/lib/aiur/agent_queue_store.ex",
+          "kind": "defp",
+          "end_line": 523,
+          "body_sha256": "57c7187c3cf9c5f95b80b2e7829631d174be12eac3f3dbc6bd78779d56382924",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 209,
+          "module": "Aiur.AppServer.ProviderTurnLedger",
+          "name": "provider_turn_id",
+          "path": "src/lib/aiur/app_server/provider_turn_ledger.ex",
+          "kind": "defp",
+          "end_line": 209,
+          "body_sha256": "3bd503fff0c10ac473f7ffaeddea16d1a4691c2238445e9265fe8c0e9a774f36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 210,
+          "module": "Aiur.AppServer.ProviderTurnLedger",
+          "name": "provider_turn_id",
+          "path": "src/lib/aiur/app_server/provider_turn_ledger.ex",
+          "kind": "defp",
+          "end_line": 210,
+          "body_sha256": "3bd503fff0c10ac473f7ffaeddea16d1a4691c2238445e9265fe8c0e9a774f36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 211,
+          "module": "Aiur.AppServer.ProviderTurnLedger",
+          "name": "provider_turn_id",
+          "path": "src/lib/aiur/app_server/provider_turn_ledger.ex",
+          "kind": "defp",
+          "end_line": 211,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 196,
+          "module": "Aiur.AppServer.TurnState",
+          "name": "provider_turn_id",
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "kind": "defp",
+          "end_line": 196,
+          "body_sha256": "3bd503fff0c10ac473f7ffaeddea16d1a4691c2238445e9265fe8c0e9a774f36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 197,
+          "module": "Aiur.AppServer.TurnState",
+          "name": "provider_turn_id",
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "kind": "defp",
+          "end_line": 197,
+          "body_sha256": "3bd503fff0c10ac473f7ffaeddea16d1a4691c2238445e9265fe8c0e9a774f36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 198,
+          "module": "Aiur.AppServer.TurnState",
+          "name": "provider_turn_id",
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "kind": "defp",
+          "end_line": 198,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "put_snapshot",
+      "assessment": "Snapshot writes maintain different retention and generation invariants.",
+      "constraints": [
+        "DecisionMetrics.Writer updates sample/record maps and seen-event window, then bounds projections.",
+        "LiveConversation retains snapshots, rebuilds generation-handle lookup and drops subscriber indexes for removed snapshots.",
+        "Orchestrator.SnapshotStore writes persistent_term metadata and retains bounded publish-gap history only within the same producer generation, resetting it on generation change.",
+        "Preserve derived-index retention and generation-scoped freshness evidence. These functions are not interchangeable persistence primitives or proof of durable storage."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 152,
+          "module": "Aiur.DecisionMetrics.Writer",
+          "name": "put_snapshot",
+          "path": "src/lib/aiur/decision_metrics/writer.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "8cdacd1b499d836d686839a0e2581602e272ae46fab4643b2a8834afb6b99748",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 483,
+          "module": "Aiur.LiveConversation",
+          "name": "put_snapshot",
+          "path": "src/lib/aiur/live_conversation.ex",
+          "kind": "defp",
+          "end_line": 502,
+          "body_sha256": "002d600a30d4333d3a7171b8eb8a61eb9d71e2dd124bda91195ebd69aa8ab1a8",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 307,
+          "module": "Aiur.Orchestrator.SnapshotStore",
+          "name": "put_snapshot",
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "kind": "defp",
+          "end_line": 338,
+          "body_sha256": "97e37997ba91314442a5ba921e6b75b1b33c363cdf78d785680e2168be794ed0",
+          "normalized_body_lines": 30,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "queued?",
+      "assessment": "Queued predicates express UI/control classifications and pane bookkeeping.",
+      "constraints": [
+        "OpenQueue tests timer-map membership.",
+        "UnitsControlPolicy accepts runtime queued or lifecycle queued/waiting.",
+        "UnitsPolicy excludes finished rows and additionally considers retrying lifecycle/runtime, configured queue reasons and replacement boundaries.",
+        "Keep pane scheduling, control eligibility and display grouping separate. The literal predicates differ deliberately in breadth; helper correctness and production overlap were not established."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 17,
+          "module": "Aiur.PaneManager.OpenQueue",
+          "name": "queued?",
+          "path": "src/lib/aiur/pane_manager/open_queue.ex",
+          "kind": "def",
+          "end_line": 17,
+          "body_sha256": "5418afffa9a5d807965910df7ae44e993ad75db404b315ddfa1a18267163c816",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 301,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "queued?",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "defp",
+          "end_line": 303,
+          "body_sha256": "7d7173856e21a31f8f4d6f61643cab601a31f15409e08ee9ea8746194f8dbd14",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 117,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPolicy",
+          "name": "queued?",
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "kind": "defp",
+          "end_line": 123,
+          "body_sha256": "2566080ae71ac31db056e019b689e51181d40987d52476a66ffe13349b9e993a",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "queued_dispatch_demand?",
+      "assessment": "Shared candidate scanning is wrapped in distinct freshness and polling policies.",
+      "constraints": [
+        "DispatchPolicy scans issues through dispatch_candidate with active/terminal sets and blocked ticket IDs.",
+        "Slots explicitly returns false for a stale candidate snapshot, otherwise delegates last-polled issues.",
+        "TrackerHealth accepts a pending demand hint or the shared scan, and on ArgumentError logs and assumes demand so polling stays at base.",
+        "Retain freshness gating for slot demand and conservative polling behavior for tracker health. These wrappers do not prove candidates are fresh or actually dispatchable without the candidate predicate."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 895,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "queued_dispatch_demand?",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 903,
+          "body_sha256": "b4a465da27efc7ee2199e3face6af30a60760b5cc783ad57026b8cedfd4b061c",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 241,
+          "module": "Aiur.Orchestrator.Slots",
+          "name": "queued_dispatch_demand?",
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "kind": "defp",
+          "end_line": 241,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 243,
+          "module": "Aiur.Orchestrator.Slots",
+          "name": "queued_dispatch_demand?",
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "kind": "defp",
+          "end_line": 245,
+          "body_sha256": "2c2b179d9af95378fb4096676be3028f2032ea6c2b1cab6ba5bb67bac9b37c34",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 263,
+          "module": "Aiur.Orchestrator.TrackerHealth",
+          "name": "queued_dispatch_demand?",
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "kind": "defp",
+          "end_line": 273,
+          "body_sha256": "336cf4f8e152f4d5e15e09101dd3b330cecc882b6d5ba46f7f61883b16b055c5",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6601,
-  "limits": "525 selected families and 6601 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6636,
+  "limits": "533 selected families and 6636 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
