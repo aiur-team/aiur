@@ -1294,3 +1294,7 @@ Read send_message, session_id, set_global_pause, set_terminal_verification_pendi
 ### Name duplication: streaming and termination contracts
 
 Read stale_after_ms, stream, string, subscribe_catalog, subscribe_selected, terminal?, terminate_task and threshold: 29 literal entries across eight families. Preserve staleness zero/floor/ceiling policy, persisted-versus-live streaming, text coercion, no-op planning subscriptions, replacement-aware terminal classification and supervisor-versus-kill termination. Checked terminal lifecycle and planning interval constants. Name triage now 589 families/6881 entries, leaving 1091 cross-module names. Raw findings and skeptic counts are unchanged; no complete delivery, process exit or freshness guarantee is added.
+
+### Name duplication: token identity and measurement schemas
+
+Read timestamp_for, to_map, token, token_dimensions, token_key, totals, touch and ttl_ms: 31 literal entries across eight families. Timestamp fallback matches the shared protocol helper. Preserve serialization schemas, credential versus count domains, stable identity versus token hashes, aggregate provider-total dimensions, reducer populations and lease-versus-cache recency. Read timestamp/credential identity helpers and dimension constants; no credentials were read. Name triage now 597 families/6912 entries, leaving 1083 cross-module names. Raw findings and skeptic counts are unchanged; no complete attribution, ownership or cache-saving guarantee is added.
