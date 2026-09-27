@@ -107771,10 +107771,406 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "estimate",
+      "assessment": "GraphQL reservation estimates and progress extrapolation model different quantities.",
+      "constraints": [
+        "GraphQLCost strips literals and walks query nodes, rounds node count up at 100 nodes per point with minimum one and reports priceable?; nonbinary input yields one unpriceable point.",
+        "ProgressTracker returns unknown for no samples; after 300000 ms since latest sample it retains percent with unknown ETA, otherwise calls projection/ETA helpers.",
+        "Verified both constants. Query-derived points are predictions, not observed billed usage; fresh sample age alone does not validate a progress forecast."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 252,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "estimate",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "kind": "def",
+          "end_line": 256,
+          "body_sha256": "1f31d53b2719a46dc63795c7fe61370a486359f765dc4dae7d0530cfe378c77c",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 258,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "estimate",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "kind": "def",
+          "end_line": 258,
+          "body_sha256": "fc9f06902b67fbef2e493a81f82431620d9551d3fcd367942c8a692a3716cf89",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 59,
+          "module": "Aiur.ProgressTracker",
+          "name": "estimate",
+          "path": "src/lib/aiur/progress_tracker.ex",
+          "kind": "def",
+          "end_line": 59,
+          "body_sha256": "0923e42f28e53b351b6f64ffdf39e6e837a414f6e0975a624751da1308c285d5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 61,
+          "module": "Aiur.ProgressTracker",
+          "name": "estimate",
+          "path": "src/lib/aiur/progress_tracker.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "167e088045305cfe5288e97d2f5ec714b7c073934fa9d242dc639c7d0f02900f",
+          "normalized_body_lines": 19,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "eta_label",
+      "assessment": "ETA presentation and compact-strip visibility have distinct policy.",
+      "constraints": [
+        "RunSummaryPresenter formats available durations or Estimating, and gives settling/degraded/incomplete reasons for unhealthy weight facts.",
+        "RunSummaryStrip suppresses zero-eligible and unhealthy-weight labels even when ready; otherwise only a ready nonempty binary label survives.",
+        "Preserve reason-rich model versus deliberate strip suppression. Function presence alone does not prove all unavailable reasons are visibly rendered."
+      ],
+      "clauses": 7,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 635,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryStrip",
+          "name": "eta_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "kind": "defp",
+          "end_line": 635,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 636,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryStrip",
+          "name": "eta_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "kind": "defp",
+          "end_line": 636,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 637,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryStrip",
+          "name": "eta_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "kind": "defp",
+          "end_line": 637,
+          "body_sha256": "0694dcc95349a3a4748c1bf4d906795bab50fe4071948537b19cd8c04b6d3c64",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 638,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryStrip",
+          "name": "eta_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "kind": "defp",
+          "end_line": 638,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 284,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryPresenter",
+          "name": "eta_label",
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 289,
+          "body_sha256": "293f2033a9805b2a02bf0951bb529eb4443fe4998dbedc33e188d66db22f4901",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 291,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryPresenter",
+          "name": "eta_label",
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 297,
+          "body_sha256": "009c84a9c3d5b7b27bf5e44121dd22ba490d4aebc232596d9e7ffecfacaa0d9f",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 299,
+          "module": "AiurWeb.OperatorControlCenter.RunSummaryPresenter",
+          "name": "eta_label",
+          "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 299,
+          "body_sha256": "0c213830c3823973b51bfd712eebc6e708c89084e5b14c70bb79d95c9f48d46d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "event",
+      "assessment": "Canonical decision event construction and performance event emission are unrelated actions.",
+      "constraints": [
+        "DecisionMetrics constructs canonical stage/decision/token identity, topic and occurrence time, then merges extras over the base map.",
+        "Perf logs a formatted phase, broadcasts the performance event and returns ok.",
+        "Keep pure domain fact construction separate from observability side effects. Extra-map precedence and emitter return do not establish canonical immutability or durable processing."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 6,
+          "line": 122,
+          "module": "Aiur.DecisionMetrics.Canonical",
+          "name": "event",
+          "path": "src/lib/aiur/decision_metrics/canonical.ex",
+          "kind": "defp",
+          "end_line": 135,
+          "body_sha256": "ab23b9a0201948f7ae38ae97be3df4b480acfd5c1d35d582592bba9b4e1fc30c",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 48,
+          "module": "Aiur.Perf",
+          "name": "event",
+          "path": "src/lib/aiur/perf.ex",
+          "kind": "def",
+          "end_line": 52,
+          "body_sha256": "c700de1017fa49f295d89f4cc4d3b84a7ea375ee0cd442ee1b1c7a93d3370bdf",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "event_field",
+      "assessment": "Digest reads already delegate map tolerance; issue logging adds a default.",
+      "constraints": [
+        "Read Protocol.MapAccess.get: atom value or string value via truthy fallback; malformed outer input returns nil.",
+        "IssueLog uses atom/string/default truthy fallback directly and has no outer-map guard in this helper.",
+        "Preserve false/nil fallback semantics and input guards; replacing with presence-based lookup would change behavior."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 49,
+          "module": "Aiur.AgentRunner.EventsDigest",
+          "name": "event_field",
+          "path": "src/lib/aiur/agent_runner/events_digest.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "b3646d2c96e3f141b14bb2bfc248afc5ca0391e416feee0fc908659c250d1bb7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 954,
+          "module": "Aiur.IssueLog",
+          "name": "event_field",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 956,
+          "body_sha256": "bb164a46ff17ad249851e0545dbdcec63fe3496304de82025e09403d47c88bb2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "event_key",
+      "assessment": "Telemetry correlation digest and Stream Deck event key-face data are different concepts.",
+      "constraints": [
+        "Lifecycle hashes Erlang-serialized identity with SHA256, URL-base64 encodes and keeps the first 22 bytes.",
+        "StreamdeckLogs constructs event display fields, relative time and layout start with default zero.",
+        "Do not share based on name: one is compact identity and the other a presentation map. Collision properties and upstream identity completeness are not independently proven here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 247,
+          "module": "Aiur.RunTelemetry.Lifecycle",
+          "name": "event_key",
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "kind": "defp",
+          "end_line": 253,
+          "body_sha256": "6b81731681211b75bb9b6f15b886f2d95df2b3d700806bedacfc32d1d6e557a0",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 381,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "event_key",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 393,
+          "body_sha256": "0410dcc1a94195f442e0f544f681d8d3a0da9effe05b258c1f661e367e324a4f",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "event_payload",
+      "assessment": "Control lifecycle projection and push-event unwrapping have different schema guarantees.",
+      "constraints": [
+        "ControlLifecycle projects explicit protocol, identity, action, generation, version, actor, status and timestamps from required request fields.",
+        "PushRouting selects truthy atom payload, string payload or the event itself without schema projection.",
+        "Keep control correlation fields with the protocol owner. A nested payload being present does not prove validated or safe control-event content."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 452,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "event_payload",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "kind": "def",
+          "end_line": 471,
+          "body_sha256": "3e3d3e6d2bbb797e04a9c952e99c2fbfb1f9eb7df1ad13db2acebd039a4577b2",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1075,
+          "module": "Aiur.Orchestrator.PushRouting",
+          "name": "event_payload",
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "kind": "defp",
+          "end_line": 1075,
+          "body_sha256": "7906a095a1f17f17b4e4dc5a8b226003e04cf71f1ab04e3178b57607add2fe82",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "event_summary",
+      "assessment": "Transcript rendering and routing digest selection have different content fallback.",
+      "constraints": [
+        "AgentEventLog prefers binary last_message, then binary raw wrapped as code, then encoded record wrapped as code.",
+        "EventsDigest chooses truthy message, summary, branch-push ref or empty string. Read branch helper: topic must end in .branch.push and ref must be nonempty binary.",
+        "Preserve rendered raw evidence versus concise event meaning; a truthy message is not necessarily a validated text summary."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 69,
+          "module": "Aiur.AgentEventLog",
+          "name": "event_summary",
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "kind": "defp",
+          "end_line": 75,
+          "body_sha256": "f9cdc5e44f83f62a343b7d968fc1cab917602b358d659c84d1390f6e27526bd7",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 201,
+          "module": "Aiur.AgentRunner.EventsDigest",
+          "name": "event_summary",
+          "path": "src/lib/aiur/agent_runner/events_digest.ex",
+          "kind": "defp",
+          "end_line": 203,
+          "body_sha256": "a13a8e8a9241263c72097a5559a5194e25c8a3c7190d9088c40884d3715addcc",
+          "normalized_body_lines": 6,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "event_topic",
+      "assessment": "Topic extraction shares truthy atom/string mechanics with different outer input handling.",
+      "constraints": [
+        "ExecutorListener delegates to its local value helper; read helper confirms atom-or-string truthy lookup.",
+        "DigestCoalescer performs the same lookup under an is_map guard.",
+        "A shared map-access helper is plausible only with deliberate malformed-input behavior. Extraction does not validate topic grammar or subscription scope."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 273,
+          "module": "Aiur.ExecutorListener",
+          "name": "event_topic",
+          "path": "src/lib/aiur/executor_listener.ex",
+          "kind": "defp",
+          "end_line": 273,
+          "body_sha256": "393ededa9b9305b6201ce629503740230f8bd365964ac25264c1cf7fa0f28aa3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 88,
+          "module": "Aiur.Orchestrator.DigestCoalescer",
+          "name": "event_topic",
+          "path": "src/lib/aiur/orchestrator/digest_coalescer.ex",
+          "kind": "defp",
+          "end_line": 89,
+          "body_sha256": "90b6b88d0f7c4083745c23109ed552037b29d14d876866d2693041c081c24b7e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7826,
-  "limits": "893 selected families and 7826 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7849,
+  "limits": "901 selected families and 7849 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
