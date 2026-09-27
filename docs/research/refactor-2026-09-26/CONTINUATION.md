@@ -1731,3 +1731,7 @@ Read positive, relationship_definition, rows, same_identity?, selected, sort_key
 ### Name duplication: attribution, mutation and cleanup contracts
 
 Read tracker_identity, update, actor, add_label, apply, clamp, close and compact: 80 literal entries across eight families. Preserve attribution validation, actor privacy, unsupported tracker capabilities, generation fences and compaction failure health. Clamp arithmetic contains sharing candidates with explicit reversed-bound differences; close includes both resource teardown and request invalidation. Name triage now 140 families/3887 entries, leaving 1540 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
+
+### Name duplication: completion, delivery and readiness stages
+
+Read complete, deliver, enabled?, ensure, fetch_issue_states_by_ids, fetch_issues_by_states, ingest and initialize: 66 literal entries across eight families. Preserve stale-result fences, webhook delivery evidence, replay readiness, configuration default policy and provider filtering scope. Existing wrappers already expose several ownership boundaries; equivalent names do not imply equivalent completion guarantees. Name triage now 148 families/3953 entries, leaving 1532 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.

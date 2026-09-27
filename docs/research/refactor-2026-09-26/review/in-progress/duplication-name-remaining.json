@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "6e321694a87228b8998a00595131504e14611798e15c1732de70477c44da8f31"
+    "name_triage": "e4b7162dcea6bd02f74d3f81176990d182570b3f852a43b413314aaeb3542c50"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 140,
-    "remaining_cross_module_names": 1540,
-    "remaining_literal_entries": 6381
+    "reviewed_cross_module_names": 148,
+    "remaining_cross_module_names": 1532,
+    "remaining_literal_entries": 6315
   },
   "families": [
-    {
-      "name": "complete",
-      "clauses": 7,
-      "modules": 7,
-      "summed_source_span_lines": 73
-    },
-    {
-      "name": "deliver",
-      "clauses": 7,
-      "modules": 7,
-      "summed_source_span_lines": 81
-    },
-    {
-      "name": "enabled?",
-      "clauses": 7,
-      "modules": 7,
-      "summed_source_span_lines": 34
-    },
-    {
-      "name": "ensure",
-      "clauses": 7,
-      "modules": 7,
-      "summed_source_span_lines": 78
-    },
-    {
-      "name": "fetch_issue_states_by_ids",
-      "clauses": 7,
-      "modules": 7,
-      "summed_source_span_lines": 31
-    },
-    {
-      "name": "fetch_issues_by_states",
-      "clauses": 11,
-      "modules": 7,
-      "summed_source_span_lines": 49
-    },
-    {
-      "name": "ingest",
-      "clauses": 12,
-      "modules": 7,
-      "summed_source_span_lines": 60
-    },
-    {
-      "name": "initialize",
-      "clauses": 8,
-      "modules": 7,
-      "summed_source_span_lines": 62
-    },
     {
       "name": "invalidate",
       "clauses": 9,
