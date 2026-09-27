@@ -634,3 +634,19 @@ Reproduce with Elixir 1.19.5 / OTP 28: elixir tooling/constant_census.exs
 /path/to/snapshot, then python3 tooling/constant_census_summary.py census.json.
 Run python3 tooling/test_constant_census.py with that Elixir on PATH. No Mix,
 release rebuild, daemon interaction or production changes occurred.
+
+## Usage constant semantics checkpoint
+
+Four of 162 constant candidate groups assessed in constant-triage.json: the
+five token dimensions, three existing six-field derivations, and paired context/
+cache-duration vocabularies. This partially corroborates telemetry-usage-34;
+its map-access and exception-class claims remain outside the check.
+
+Preserve dimension order (all-zero alternative selection uses it), reported-total
+raw measurements separate from priced dimensions, nullable checkpoint partitions,
+and provider/component admission rules. CodingAgent carries an additional inline
+Claude duration list outside the attribute census. A shared Usage.Dimensions leaf
+is supported, but a global vocabulary must not automatically widen provider
+permissions. Source hashes match the frozen census. No production changes,
+pricing-rate audit, runtime tests or savings claim. Remaining 158 candidate groups
+and the inline constant sweep stay open.

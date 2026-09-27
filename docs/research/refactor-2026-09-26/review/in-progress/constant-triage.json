@@ -1,0 +1,249 @@
+{
+  "status": "in-progress",
+  "source": "constant-census-summary.json",
+  "assessed_groups": [
+    {
+      "expression_sha256": "9a6b7b3984f0ad7b4f1d96b60776be795c668b2f08e153d81c9afe6c446ceff2",
+      "modules": 4,
+      "site_count": 4,
+      "sites": [
+        {
+          "line": 17,
+          "module": "Aiur.Usage.PriceTable.Data",
+          "name": "dimensions",
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "expression": "[:input, :cached_input, :cache_creation_input, :output, :reasoning_output]",
+          "numeric_value": null,
+          "expression_sha256": "9a6b7b3984f0ad7b4f1d96b60776be795c668b2f08e153d81c9afe6c446ceff2"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "dimensions",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression": "[:input, :cached_input, :cache_creation_input, :output, :reasoning_output]",
+          "numeric_value": null,
+          "expression_sha256": "9a6b7b3984f0ad7b4f1d96b60776be795c668b2f08e153d81c9afe6c446ceff2"
+        },
+        {
+          "line": 4,
+          "module": "Aiur.Usage.Pricing.Components",
+          "name": "dimensions",
+          "path": "src/lib/aiur/usage/pricing/components.ex",
+          "expression": "[:input, :cached_input, :cache_creation_input, :output, :reasoning_output]",
+          "numeric_value": null,
+          "expression_sha256": "9a6b7b3984f0ad7b4f1d96b60776be795c668b2f08e153d81c9afe6c446ceff2"
+        },
+        {
+          "line": 13,
+          "module": "Aiur.UsageEnvelope.RelationshipRegistry",
+          "name": "dimensions",
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "expression": "[:input, :cached_input, :cache_creation_input, :output, :reasoning_output]",
+          "numeric_value": null,
+          "expression_sha256": "9a6b7b3984f0ad7b4f1d96b60776be795c668b2f08e153d81c9afe6c446ceff2"
+        }
+      ],
+      "disposition": "shared_ordered_vocabulary",
+      "assessment": "Four literal five-dimension lists define the same priced/reconciled vocabulary. UsageEnvelope.token_dimensions/0 derives the same list from a six-field raw envelope. Components.selected_alternative uses list order when all present alternatives are zero, and component output follows that order. Preserve order, not just set membership. A low-dependency Usage.Dimensions owner as recommended by telemetry-usage-34 is appropriate; avoid introducing a compile-time call from RelationshipRegistry back into the envelope struct it already consumes.",
+      "related_finding": "telemetry-usage-34"
+    },
+    {
+      "expression_sha256": "41a70014f0aa776d3dc4a046e786d5c755bf10f58db15cd8242761122dc14ec1",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 23,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "token_dimensions",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression": "UsageEnvelope.token_dimensions() ++ [:provider_reported_total]",
+          "numeric_value": null,
+          "expression_sha256": "41a70014f0aa776d3dc4a046e786d5c755bf10f58db15cd8242761122dc14ec1"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "token_fields",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "expression": "UsageEnvelope.token_dimensions() ++ [:provider_reported_total]",
+          "numeric_value": null,
+          "expression_sha256": "41a70014f0aa776d3dc4a046e786d5c755bf10f58db15cd8242761122dc14ec1"
+        },
+        {
+          "line": 12,
+          "module": "Aiur.UsageLedger.Record",
+          "name": "token_fields",
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "expression": "UsageEnvelope.token_dimensions() ++ [:provider_reported_total]",
+          "numeric_value": null,
+          "expression_sha256": "41a70014f0aa776d3dc4a046e786d5c755bf10f58db15cd8242761122dc14ec1"
+        }
+      ],
+      "disposition": "shared_derived_raw_field_contract",
+      "assessment": "All three sites already call the same UsageEnvelope function and append the reported-total field. Ledger CounterPolicy tracks it, Record persists/validates it, and Aggregate.Key retains a separate token measure. This is a six-field raw observation contract, not the five billable/reconciled dimensions. A separately named raw_fields API could own the derivation; do not price reported_total as another additive dimension or delete it.",
+      "related_finding": "telemetry-usage-34"
+    },
+    {
+      "expression_sha256": "097b961c199a6ef507f97fc32b250080b79a718ddac33ca468cf8e67fe2e47eb",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 9,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "context_tiers",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression": "[:short_context, :long_context, :not_applicable]",
+          "numeric_value": null,
+          "expression_sha256": "097b961c199a6ef507f97fc32b250080b79a718ddac33ca468cf8e67fe2e47eb"
+        },
+        {
+          "line": 21,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "context_tiers",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression": "[:short_context, :long_context, :not_applicable]",
+          "numeric_value": null,
+          "expression_sha256": "097b961c199a6ef507f97fc32b250080b79a718ddac33ca468cf8e67fe2e47eb"
+        }
+      ],
+      "disposition": "shared_vocabulary_distinct_validation",
+      "assessment": "Validator and Aggregate.Key share allowed partition vocabulary. The price validator accepts atom/string known values with detailed errors, then enforces provider/component constraints. The checkpoint Key decoder accepts string enum values and permits nil partitions. Centralize vocabulary without substituting one entire validation function for another.",
+      "related_finding": "telemetry-usage-34"
+    },
+    {
+      "expression_sha256": "e6098d7776bfbef0a538d10754c9a92500b89432f198d9289afd26220acef091",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 10,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "cache_write_durations",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression": "[:five_minutes, :one_hour, :not_applicable]",
+          "numeric_value": null,
+          "expression_sha256": "e6098d7776bfbef0a538d10754c9a92500b89432f198d9289afd26220acef091"
+        },
+        {
+          "line": 22,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "cache_write_durations",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression": "[:five_minutes, :one_hour, :not_applicable]",
+          "numeric_value": null,
+          "expression_sha256": "e6098d7776bfbef0a538d10754c9a92500b89432f198d9289afd26220acef091"
+        }
+      ],
+      "disposition": "shared_vocabulary_provider_policy_separate",
+      "assessment": "Validator and Aggregate.Key share duration vocabulary with different nil/input/error contracts. CodingAgent has an additional inline identical allowed list in the Claude pricing descriptor, outside the attribute census; it represents provider permission, not a mandate to accept future global vocabulary additions. ProviderDimensions narrows each component and UsageEnvelope validates supplied partitions against provider metadata. Retain those checks.",
+      "related_finding": "telemetry-usage-34"
+    }
+  ],
+  "assessed_group_count": 4,
+  "remaining_candidate_groups": 158,
+  "sources": [
+    {
+      "path": "src/lib/aiur/coding_agent.ex",
+      "sha256": "43434aceb191fadd17aaabcf91ce0379adfb483ae21c920e726b59f406532f41"
+    },
+    {
+      "path": "src/lib/aiur/usage/price_table/data.ex",
+      "sha256": "1cd4f200766f7c9d4bc59c59537be8ba9afdc86730a920b1d9df0db5d568e1a3"
+    },
+    {
+      "path": "src/lib/aiur/usage/price_table/provider_dimensions.ex",
+      "sha256": "36da0325632675bc9d8a12aa3355e8fcafedc994b3c0486766130e9d67fefdf8"
+    },
+    {
+      "path": "src/lib/aiur/usage/price_table/validator.ex",
+      "sha256": "ef91fb6e035adca8cf7f629cbdad853b3a4aa227bff5a3e0a2d5392c517d4051"
+    },
+    {
+      "path": "src/lib/aiur/usage/pricing/components.ex",
+      "sha256": "d7cbcddce26efe624f3e07bfa4aaa4ff5a14892b2349d1d9bd7b5ab811e62a53"
+    },
+    {
+      "path": "src/lib/aiur/usage_aggregate/key.ex",
+      "sha256": "ecde1e9a427e776d821a7121b5a7e26279a9a7f04bcacf21c9aaa2b5d075714a"
+    },
+    {
+      "path": "src/lib/aiur/usage_envelope.ex",
+      "sha256": "ad3bd69d1beb83f92d692fdfca065fc516bdb3860cd8f825e3b2012b2eb9560f"
+    },
+    {
+      "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+      "sha256": "d1a9a7ae5d2918700300db06284083fe65e50652cf066ab86214f5407b0e3789"
+    },
+    {
+      "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+      "sha256": "1520feea620f12ed9a148dec61cffd43cdb1b0df8b312e026319c9d86c56da7d"
+    },
+    {
+      "path": "src/lib/aiur/usage_ledger/record.ex",
+      "sha256": "106245b5e50c6493cd4dcf5f44582b48d300edb81cdb35f057b843c6ff061820"
+    }
+  ],
+  "additional_sites": [
+    {
+      "path": "src/lib/aiur/usage_envelope.ex",
+      "lines": "49,150-160",
+      "contract": "six raw fields and derived five dimensions"
+    },
+    {
+      "path": "src/lib/aiur/coding_agent.ex",
+      "lines": "202-211",
+      "contract": "inline Claude provider allowed dimensions and component restrictions"
+    }
+  ],
+  "consumer_evidence": [
+    {
+      "path": "src/lib/aiur/usage/pricing/components.ex",
+      "lines": "15-159",
+      "coverage": "full module read; ordered all-zero alternative selection at 71-78"
+    },
+    {
+      "path": "src/lib/aiur/usage/price_table/data.ex",
+      "lines": "149-162,242-270",
+      "coverage": "dimension expansion and price entry construction"
+    },
+    {
+      "path": "src/lib/aiur/usage/price_table/validator.ex",
+      "lines": "56-73,198-207",
+      "coverage": "global vocabulary admission and provider/component checks"
+    },
+    {
+      "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+      "lines": "13-15,145-153,295-410",
+      "coverage": "relationship vocabulary, categories, total separation and parent/cycle constraints"
+    },
+    {
+      "path": "src/lib/aiur/usage_aggregate/key.ex",
+      "lines": "85-97,157-170,238-248",
+      "coverage": "six-field aggregation and nullable string checkpoint partition decoding"
+    },
+    {
+      "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+      "lines": "93-104,243-254",
+      "coverage": "raw counter entry and delta construction"
+    },
+    {
+      "path": "src/lib/aiur/usage_ledger/record.ex",
+      "lines": "83-93,115-134",
+      "coverage": "six-field persistence and exact field-set validation"
+    },
+    {
+      "path": "src/lib/aiur/usage_envelope.ex",
+      "lines": "453-468",
+      "coverage": "nullable provider-specific partition admission"
+    },
+    {
+      "path": "src/lib/aiur/usage/price_table/provider_dimensions.ex",
+      "lines": "1-34",
+      "coverage": "full module; provider/component restriction"
+    }
+  ],
+  "limits": "Four of 162 attribute candidate groups semantically assessed. Relevant consumers read, not all files in full. Inline occurrence search adds one provider-policy site; not a complete inline constant census. No pricing-rate accuracy, live spend, runtime tests, savings or full telemetry-usage-34 verification claimed."
+}

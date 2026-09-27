@@ -147,7 +147,14 @@
       "disposition": "producer_prefix_assumption_confirmed_incidence_pending",
       "assessment": "Exact-helper probe and source tracing establish that State.issue_tag chooses the first literal agent: label, including markers; custom-prefix-only inputs lose tag through AgentEvents nil filtering. Fixing only Summaries terminal tags is insufficient. Canonical issue state should be distinct from label presentation. String work-state predicate/sort drift is reproduced but no runtime string producer is established; terminal candidate retention and production incidence remain unverified. Bare-state normalization, TurnPrompt trim differences and separate active-state collection contracts remain as previously assessed.",
       "evidence": "label-state-contracts.json"
+    },
+    {
+      "finding_id": "telemetry-usage-34",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_vocabulary_subset_preserve_contracts",
+      "assessment": "Four dimension lists and two partition enum pairs corroborated. The proposed Usage.Dimensions leaf is supported; retain ordered dimensions, distinguish five token dimensions from six raw fields, and preserve nullable checkpoint versus required price/provider validation. Three other consumers already derive the six-field vocabulary from UsageEnvelope. Map accessors, exception naming and other helpers in the inherited finding are outside this verification.",
+      "evidence": "constant-triage.json"
     }
   ],
-  "limits": "Eight selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
+  "limits": "Nine selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
 }
