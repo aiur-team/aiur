@@ -1887,3 +1887,7 @@ Read refresh_catalog, remote_install_script, repository, reset_suffix, resume, r
 ### Name duplication: marker and snapshot evidence
 
 Read safely_set_terminal_verification_pending, scalar, schedule_sweep, schema_version, seed, set_pane_title, snapshot_payload and snapshots: 40 literal entries across eight families. Verify shared marker invocation and pane-title wrappers, while preserving identity gates, exception scope, timer ownership, format versions and observation populations. Name triage now 361 families/5704 entries, leaving 1319 cross-module names. Raw findings and skeptic counts are unchanged; no durable marker, timer uniqueness, rendered title or snapshot freshness guarantee is claimed.
+
+### Name duplication: launch and source identity contracts
+
+Read source_event_id, source_health, start_port, start_task, start_turn, text, ticket_identifier and tracker_kind: 46 literal entries across eight families. Verify identical task-start fallback helpers and retained-decision identifier extraction; preserve source fingerprint material, health validation, containment callbacks, provider policies and rendering contracts. Name triage now 369 families/5750 entries, leaving 1311 cross-module names. Raw findings and skeptic counts are unchanged; no deduplication, remote containment, task completion or injection guarantee is claimed.
