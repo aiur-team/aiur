@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "63984e742977132cf73b7a88bfe6503c9a60a6832bd1066f336a6cd0da5ac707"
+    "name_triage": "849a652856a7c4c616a0c4b4fdfd9a2b850cc58166b1f289da498489210ae0fe"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 433,
-    "remaining_cross_module_names": 1247,
-    "remaining_literal_entries": 4166
+    "reviewed_cross_module_names": 441,
+    "remaining_cross_module_names": 1239,
+    "remaining_literal_entries": 4133
   },
   "families": [
-    {
-      "name": "default_request_fun",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 15
-    },
-    {
-      "name": "defer",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 35
-    },
-    {
-      "name": "delta",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 27
-    },
-    {
-      "name": "detach",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 34
-    },
-    {
-      "name": "diff_lines",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 19
-    },
-    {
-      "name": "dig",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "dim",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "do_broadcast",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 31
-    },
     {
       "name": "elapsed_seconds",
       "clauses": 7,

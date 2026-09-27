@@ -1214,3 +1214,7 @@ Read cost, coverage_reasons, create, currency, current_identity, debug_mode?, de
 ### Name duplication: decoding and provider defaults
 
 Read decisions, decode_datetime, decode_entry, decode_records, default, default_error, default_prompt_template and default_request: 34 literal entries across eight families. Identify identical stderr sinks, shared tracker template bodies and provider result adapters; preserve offset validation, partial decode policy, unavailable decision evidence and credential-specific requests. Name triage now 433 families/6102 entries, leaving 1247 cross-module names. Raw findings and skeptic counts are unchanged; no complete replay, effective prompt or live provider API guarantee is claimed.
+
+### Name duplication: deferral and transport effects
+
+Read default_request_fun, defer, delta, detach, diff_lines, dig, dim and do_broadcast: 33 literal entries across eight families. Preserve credential setup, staged messages versus decision deferral, accounting identity, conditional visibility reset, traversal input contracts and broadcast fanout. Name triage now 441 families/6135 entries, leaving 1239 cross-module names. Raw findings and skeptic counts are unchanged; no final credential precedence, timer cancellation, durable deferral or subscriber receipt is claimed.

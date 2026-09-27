@@ -80053,10 +80053,532 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "default_request_fun",
+      "assessment": "GitHub callers already delegate HTTP work to shared transport with distinct credential setup.",
+      "constraints": [
+        "Labels delegates directly to Transport.default_request_fun. Codeowners reconstructs a GET request and adds anonymous true when token is absent or empty.",
+        "Transport assigns credentials for any binary token before do_request; its fallback calls do_request directly.",
+        "Preserve explicit anonymous intent and credential selection rather than adding a parallel HTTP path. The literal wrappers do not establish final credential precedence or API attribution."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 647,
+          "module": "Aiur.Codeowners",
+          "name": "default_request_fun",
+          "path": "src/lib/aiur/codeowners.ex",
+          "kind": "defp",
+          "end_line": 656,
+          "body_sha256": "7c1a6ea2c6fda52fc635d67a7ac3a147db8a46f2620ec5bd5cc897e120e6a16c",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 196,
+          "module": "Aiur.GitHub.Labels",
+          "name": "default_request_fun",
+          "path": "src/lib/aiur/github/labels.ex",
+          "kind": "defp",
+          "end_line": 196,
+          "body_sha256": "b74552d1c602b30c868d45ec958e892dba8e049c214e6c5dfd331b166d97b7f2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 117,
+          "module": "Aiur.GitHub.Transport",
+          "name": "default_request_fun",
+          "path": "src/lib/aiur/github/transport.ex",
+          "kind": "def",
+          "end_line": 119,
+          "body_sha256": "d4c0d47fffdc667f5fd5339cdaf9ae92f9307b72e01f3807fe56837c5693a250",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 121,
+          "module": "Aiur.GitHub.Transport",
+          "name": "default_request_fun",
+          "path": "src/lib/aiur/github/transport.ex",
+          "kind": "def",
+          "end_line": 121,
+          "body_sha256": "0e1a4488e36854dc28c11c47176a801f8fffc168f4fdcb244133fc4e377b167e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "defer",
+      "assessment": "Deferral spans decision lifecycle and safe-checkpoint message staging.",
+      "constraints": [
+        "DecisionStore sends a guarded defer request to its server. DecisionCommands requires a selected open decision or reloads and reports an unloaded command.",
+        "OpenAICompat.Checkpoint invokes a safe-checkpoint callback, stages valid text with success callback/metadata and increments request ID; invalid text can invoke a failure callback.",
+        "The checkpoint function rescues exceptions, notifies through a helper and returns original state/deliveries. This is not a decision-deferral algorithm.",
+        "Preserve message staging versus durable lifecycle mutation and callback error policy; neither entry point proves later delivery."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 222,
+          "module": "Aiur.DecisionStore",
+          "name": "defer",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "def",
+          "end_line": 225,
+          "body_sha256": "2c02fc9b2df77f203b805ede02ac00f83a3a3a99ab446e4d26ad0b77de5b3cd6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 39,
+          "module": "Aiur.OpenAICompat.Checkpoint",
+          "name": "defer",
+          "path": "src/lib/aiur/open_ai_compat/checkpoint.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "b011bedc5a1f451e14658e2e14185682381c226e80c422518032c0f42cc45267",
+          "normalized_body_lines": 32,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 34,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "defer",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "def",
+          "end_line": 42,
+          "body_sha256": "a9d9dc422f87040b7b0b895f3f13f5e24aa5e0cd90ceff7f22f9e3d409163918",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "delta",
+      "assessment": "Delta names refer to quota subtraction, SSE content and accounting materialization.",
+      "constraints": [
+        "Quota subtracts integer attributed/spend values and otherwise returns nil. SSE emits an empty map for nil content or a content map otherwise.",
+        "CounterPolicy reconstructs token and cost deltas from keyed values, preserving source version, relationship revision and coverage reasons.",
+        "Unknown token/cost values remain nil in the accounting constructor. It does not compute a generic numeric difference from these literals.",
+        "Keep exact accounting keys and unknown values separate from transport chunk shape and reconciliation arithmetic."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 877,
+          "module": "Aiur.GitHub.Quota",
+          "name": "delta",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 877,
+          "body_sha256": "199d38dfbfbde54d10c6dd13e33908944be10971956c86187afa0d911f5cdf1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 878,
+          "module": "Aiur.GitHub.Quota",
+          "name": "delta",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 878,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 91,
+          "module": "Aiur.Opencode.ChatCompletions.Sse",
+          "name": "delta",
+          "path": "src/lib/aiur/opencode/chat_completions/sse.ex",
+          "kind": "defp",
+          "end_line": 91,
+          "body_sha256": "50ab143a3470d3cc763005869bf95865e005acfc9f4a0c98df4008c0a9f38335",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Aiur.Opencode.ChatCompletions.Sse",
+          "name": "delta",
+          "path": "src/lib/aiur/opencode/chat_completions/sse.ex",
+          "kind": "defp",
+          "end_line": 92,
+          "body_sha256": "aa9af0bb630cf34d052dd787c88a78a73e5596dc99bd9c70eccd90fc31204e3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 243,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "delta",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 265,
+          "body_sha256": "7f58439cd202ed4f2e76cceafec0bab814ed4c4db466dfb66f93b71e6580b0a8",
+          "normalized_body_lines": 58,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "detach",
+      "assessment": "Detachment separates subscription release, slot calls and visibility state.",
+      "constraints": [
+        "Conversations unsubscribes from an agent topic. Slot calls detach with a five-second timeout and maps exits to ok.",
+        "Slot.State removes an attached identifier; only detaching the visible identifier clears ready/visible/active/session/poll-reference fields, returning a boolean/state pair. Missing membership returns not_attached.",
+        "The visible reset repeats the fields in the previously reviewed clear_visible state helper and is a local consolidation candidate.",
+        "Preserve the attached-membership result and visibility condition. Clearing poll_ref does not itself prove timer cancellation, and call fallback ok does not prove detach occurred."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 45,
+          "module": "Aiur.Conversations",
+          "name": "detach",
+          "path": "src/lib/aiur/conversations.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "e72cf7b8cb0add32cf4ea52fd8a3e8c136294af0b09a660b672385f396d82f71",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 152,
+          "module": "Aiur.Opencode.Slot",
+          "name": "detach",
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "kind": "def",
+          "end_line": 156,
+          "body_sha256": "7f4b8aee6702e795ee0b436cc97178b455912355e690e232d2376eddceb80867",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 153,
+          "module": "Aiur.Opencode.Slot.State",
+          "name": "detach",
+          "path": "src/lib/aiur/opencode/slot/state.ex",
+          "kind": "def",
+          "end_line": 178,
+          "body_sha256": "025aab79594459044ef788e6d69667d5c52e86df7283cb482e7f33cf15ce29f5",
+          "normalized_body_lines": 29,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "diff_lines",
+      "assessment": "Diff processing spans parsing, transcript formatting and wire projection.",
+      "constraints": [
+        "AgentEventFeed splits raw output, drops header lines, parses signs/text, removes empty context lines and caps the retained list.",
+        "Claude.Transcript prefixes every line and adds a trailing newline, with an explicit empty-text exception.",
+        "StreamdeckLogs maps already structured lines to sign/text fields with defaults, returning empty for nonlists.",
+        "These operations have different input and loss policies. Share only primitives with explicit parsing, formatting and truncation roles."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 366,
+          "module": "Aiur.AgentEventFeed",
+          "name": "diff_lines",
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "kind": "defp",
+          "end_line": 373,
+          "body_sha256": "95d8f67a11bd5d0d8d6d6ca470ad55190bf4747b552a42c03cd083d3fd627e71",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 407,
+          "module": "Aiur.Claude.Transcript",
+          "name": "diff_lines",
+          "path": "src/lib/aiur/claude/transcript.ex",
+          "kind": "defp",
+          "end_line": 407,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 409,
+          "module": "Aiur.Claude.Transcript",
+          "name": "diff_lines",
+          "path": "src/lib/aiur/claude/transcript.ex",
+          "kind": "defp",
+          "end_line": 414,
+          "body_sha256": "b569c832590c7812764419a0835390b68f2cae989aa70de190490a55100eeb09",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 528,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "diff_lines",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 530,
+          "body_sha256": "db3d1d0117a265ad3f04862d9098f49b25e1e829b731ec4d1856023527c3abf5",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 532,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "diff_lines",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 532,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dig",
+      "assessment": "Nested-map walkers share traversal mechanics but differ on path shapes and empty paths.",
+      "constraints": [
+        "Protocol.MapAccess returns its input for an empty path, otherwise recursively follows exact map keys and returns nil on unsupported shapes.",
+        "Headless.Adapter supports a direct binary key and list traversal only when the initial input is a map.",
+        "Codex.Tokens uses the same reduce_while list traversal body as Adapter but without its initial map/list guards; an empty path returns the initial value.",
+        "Share traversal with explicit accepted path and initial-value contracts. None of these helpers normalizes string versus atom keys or validates the extracted value."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 16,
+          "module": "Aiur.Protocol.MapAccess",
+          "name": "dig",
+          "path": "src/lib/aiur/protocol/map_access.ex",
+          "kind": "def",
+          "end_line": 16,
+          "body_sha256": "6ba711ced0caa569fd0f4d640f5cc23cb26a3cea430fa7b45951961f43236116",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 18,
+          "module": "Aiur.Protocol.MapAccess",
+          "name": "dig",
+          "path": "src/lib/aiur/protocol/map_access.ex",
+          "kind": "def",
+          "end_line": 23,
+          "body_sha256": "e876b0fb7d2bf9822168f2557fcb5869b1a80de833edc3cba8e56a98ef04bc6b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 25,
+          "module": "Aiur.Protocol.MapAccess",
+          "name": "dig",
+          "path": "src/lib/aiur/protocol/map_access.ex",
+          "kind": "def",
+          "end_line": 25,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 284,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "dig",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 286,
+          "body_sha256": "a798362af24171124e115388b9766ea5e98f3687d522a1e5143cd7bfba9e70a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 288,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "dig",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 292,
+          "body_sha256": "2476b75d506d4f0c66f9ed8e46f1da9ee312e87be3ebdd5b1329e7d7e4491daf",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 294,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "dig",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 294,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 102,
+          "module": "Aiur.Usage.Headless.Codex.Tokens",
+          "name": "dig",
+          "path": "src/lib/aiur/usage/headless/codex/tokens.ex",
+          "kind": "defp",
+          "end_line": 106,
+          "body_sha256": "2476b75d506d4f0c66f9ed8e46f1da9ee312e87be3ebdd5b1329e7d7e4491daf",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dim",
+      "assessment": "Dim rendering names have incompatible output contracts.",
+      "constraints": [
+        "AgentList.Style returns an ANSI faint escape sequence. Init.Format converts text and returns IO.ANSI.format output.",
+        "Opencode.Style prefixes each line with a quote marker rather than producing ANSI styling.",
+        "Keep terminal iodata, escape fragments and transcript markup separate; a common name does not justify one renderer."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 13,
+          "module": "Aiur.AgentList.Renderer.Style",
+          "name": "dim",
+          "path": "src/lib/aiur/agent_list/renderer/style.ex",
+          "kind": "def",
+          "end_line": 13,
+          "body_sha256": "2b4d2b4eb43695dc33b930ab6113aa3abb2ace6ea8c0a8588f80b4a86b8dcdc3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "Aiur.Init.Format",
+          "name": "dim",
+          "path": "src/lib/aiur/init/format.ex",
+          "kind": "def",
+          "end_line": 24,
+          "body_sha256": "a2a8451d76f59f78cbb8a48fa1bd03905c4478cec5d01a2296c31f484024ab04",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 15,
+          "module": "Aiur.Opencode.Style",
+          "name": "dim",
+          "path": "src/lib/aiur/opencode/style.ex",
+          "kind": "def",
+          "end_line": 19,
+          "body_sha256": "99fd2b5748584274ebac27ca7c4a56d27eaea0e13e93c78d63cc83ab180c93b4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "do_broadcast",
+      "assessment": "Broadcast helpers share absent-registry no-op behavior but publish different evidence.",
+      "constraints": [
+        "AgentPubSub checks its registry, logs a message tag and broadcasts; HookEvents performs the same existence check without that log.",
+        "ProviderMeters.Events constructs a meter-change message and publishes both generation-specific and fanout notifications through helpers.",
+        "All return ok when their registry is absent. A precheck does not prove delivery or eliminate registry races.",
+        "Share optional-registry mechanics only with observability, origin exclusion and fanout semantics explicit; helper behavior and subscriber receipt remain unverified."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 157,
+          "module": "Aiur.AgentPubSub",
+          "name": "do_broadcast",
+          "path": "src/lib/aiur/agent_pubsub.ex",
+          "kind": "defp",
+          "end_line": 169,
+          "body_sha256": "f52e44e9aa8ae1391bac71b407c854ad10f872a70d5e30018ebd2b4137c0731e",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 117,
+          "module": "Aiur.Claude.HookEvents",
+          "name": "do_broadcast",
+          "path": "src/lib/aiur/claude/hook_events.ex",
+          "kind": "defp",
+          "end_line": 122,
+          "body_sha256": "735ced76b8bc24dd86b6d4e567aff861323d47278b7ab5d59a125a9ec1f53391",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 40,
+          "module": "Aiur.ProviderMeters.Events",
+          "name": "do_broadcast",
+          "path": "src/lib/aiur/provider_meters/events.ex",
+          "kind": "defp",
+          "end_line": 51,
+          "body_sha256": "8285dd4fbc98b75e2660600c9225ae48d2e7f7f323b5f2833c436541f0cf5df3",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6102,
-  "limits": "433 selected families and 6102 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6135,
+  "limits": "441 selected families and 6135 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
