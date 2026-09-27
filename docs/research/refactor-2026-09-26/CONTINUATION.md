@@ -1523,3 +1523,7 @@ Candidate46 resolved: no-remote fallback uses git add -A instead of task-owned s
 ### Skills/prompts: ambiguous tracker writes
 
 Candidate43 resolved: retry/fallback does not distinguish rejected creation from committed write with lost response, despite a stable finding fingerprint in ticket metadata. Residual filing does not itself authorize merge, so no separate severity acceptance finding. Findings53 (33P2/20P3);12 listed candidates unresolved. No external ticket creation or failure injection.
+
+### Skills/prompts: capability error classification
+
+Candidate44 narrowed to a P3: any list_simulators error is reported as XcodeBuildMCP not installed. No server/simulator invoked. Tool-version and SwiftUI-link assertions remain explicit unverified questions; URL fallback is not claimed as tap proof. Figma project-standard override prevents treating generic width preferences alone as a confirmed violation. Findings54 (33P2/21P3);11 listed candidates unresolved. No production changes.

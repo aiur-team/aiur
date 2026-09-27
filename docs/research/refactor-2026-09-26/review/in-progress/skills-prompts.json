@@ -3054,6 +3054,23 @@
       "recommendation": "Persist a filing intent and stable identity, distinguish rejected from unknown outcomes, and reconcile the original tracker before retrying or changing sinks; retain unresolved delivery state when it cannot be checked.",
       "refactor_hint": "Share an explicit external-write receipt and reconciliation contract across tracker, publication and feedback workflows.",
       "limits": "Frozen-source failure-contract analysis only; no ticket creation, retry, network failure injection or production mutation. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-54",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Xcode availability check mislabels every tool error as missing installation",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-test-xcode/SKILL.md",
+          "lines": "21-44"
+        }
+      ],
+      "description": "The prerequisite probe calls list_simulators and routes both missing-tool and any tool-error result to an XcodeBuildMCP not installed message with installation instructions. An installed server can fail a probe for reasons other than absence, so the generic error branch asserts a cause it has not established.",
+      "evidence": "Complete frozen Xcode skill reread. The error-to-installation mapping is explicit and does not inspect the reported cause. No Xcode server or simulator was available or invoked for this review; no specific runtime failure claimed.",
+      "recommendation": "Separate missing capability from a failed invocation, preserve the concrete error and diagnose that cause before suggesting installation.",
+      "refactor_hint": "Represent capability discovery and runtime health as distinct states rather than one unavailable label.",
+      "limits": "Source-level diagnostic mapping only. Tool-name compatibility and SwiftUI automation claims remain version-specific unverified facts, not falsified by this finding. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3479,7 +3496,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidate43 reconciled.12 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidate44 reconciled with explicit external-version uncertainty retained.11 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3743,6 +3760,13 @@
       "finding": "skills-prompts-cont-53",
       "reason": "Stable finding identity exists but failure handling never reconciles ambiguous writes before retry/fallback.",
       "subconcerns": "Autonomous residual filing is an explicit caller policy, not merge approval or proof a high-severity defect is accepted as safe. Aiur operating constraints and user authority still apply; no separate severity-policy defect promoted. Source-specific ce-work duplicate should be grouped during semantic dedup."
+    },
+    {
+      "id": "skills-prompts-candidate-44",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-54",
+      "reason": "Explicit any-error-to-not-installed mapping establishes the narrow diagnostic defect.",
+      "subconcerns": "No frozen XcodeBuildMCP/iOS version or simulator evidence establishes whether named tools and the blanket inline-link limitation are accurate; retain as explicit version-qualified verification questions, not confirmed defects. Opening a URL is not evidence of tap delivery, but the skill presents it as a fallback and asks for manual taps, so no false tap-verification claim proven. Figma prompt43/141 requires project standards; width/Tailwind preferences alone do not establish a project-specific violation."
     }
   ],
   "coverage_validation": {
@@ -3755,8 +3779,8 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 30,
-    "unresolved_candidates": 12,
+    "terminal_dispositions": 31,
+    "unresolved_candidates": 11,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
@@ -3768,8 +3792,7 @@
       "skills-prompts-candidate-38",
       "skills-prompts-candidate-39",
       "skills-prompts-candidate-40",
-      "skills-prompts-candidate-41",
-      "skills-prompts-candidate-44"
+      "skills-prompts-candidate-41"
     ],
     "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."
   }
