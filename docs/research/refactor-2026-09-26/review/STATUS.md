@@ -1018,3 +1018,7 @@ Read flush, identity_key, latest, lifecycle, map_value, observed_at, path_for an
 ### Name duplication: selection, identity and sweep policies
 
 Read positive, relationship_definition, rows, same_identity?, selected, sort_key, state and sweep: 83 literal entries across eight families. Preserve empty-selection identity semantics, accounting cache relationships, ordering priorities, unavailable/empty states and retention versus recovery effects. Positive option validation and non-nil identity comparison contain narrow sharing candidates; usage relationships already share a constructor. Name triage now 132 families/3807 entries, leaving 1548 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
+
+### Name duplication: attribution, mutation and cleanup contracts
+
+Read tracker_identity, update, actor, add_label, apply, clamp, close and compact: 80 literal entries across eight families. Preserve attribution validation, actor privacy, unsupported tracker capabilities, generation fences and compaction failure health. Clamp arithmetic contains sharing candidates with explicit reversed-bound differences; close includes both resource teardown and request invalidation. Name triage now 140 families/3887 entries, leaving 1540 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.

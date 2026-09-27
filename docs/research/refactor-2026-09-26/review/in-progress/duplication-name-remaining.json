@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "fb72ea9b2a414f302acace05b9738c88a1f07d55b6016f6d128dfb4db5f30903"
+    "name_triage": "6e321694a87228b8998a00595131504e14611798e15c1732de70477c44da8f31"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 132,
-    "remaining_cross_module_names": 1548,
-    "remaining_literal_entries": 6461
+    "reviewed_cross_module_names": 140,
+    "remaining_cross_module_names": 1540,
+    "remaining_literal_entries": 6381
   },
   "families": [
-    {
-      "name": "tracker_identity",
-      "clauses": 16,
-      "modules": 8,
-      "summed_source_span_lines": 68
-    },
-    {
-      "name": "update",
-      "clauses": 8,
-      "modules": 8,
-      "summed_source_span_lines": 86
-    },
-    {
-      "name": "actor",
-      "clauses": 10,
-      "modules": 7,
-      "summed_source_span_lines": 31
-    },
-    {
-      "name": "add_label",
-      "clauses": 7,
-      "modules": 7,
-      "summed_source_span_lines": 41
-    },
-    {
-      "name": "apply",
-      "clauses": 10,
-      "modules": 7,
-      "summed_source_span_lines": 117
-    },
-    {
-      "name": "clamp",
-      "clauses": 9,
-      "modules": 7,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "close",
-      "clauses": 13,
-      "modules": 7,
-      "summed_source_span_lines": 41
-    },
-    {
-      "name": "compact",
-      "clauses": 7,
-      "modules": 7,
-      "summed_source_span_lines": 90
-    },
     {
       "name": "complete",
       "clauses": 7,
