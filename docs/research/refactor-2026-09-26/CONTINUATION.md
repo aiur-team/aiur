@@ -613,3 +613,24 @@ paused predicates true but sorts after atom paused despite lower identifier.
 These synthetic inputs demonstrate helper behavior, not production incidence
 or manual TUI verification. Candidate retention and a string-producing runtime
 path remain open; idle producer states are atoms and running status is forwarded.
+
+## Constant census checkpoint
+
+Parse-only tooling/constant_census.exs found 2,112 non-documentation attribute
+assignments in all 1,032 frozen src/lib Elixir files; 835 have literal arithmetic
+values under the restricted evaluator. All source hashes match the existing
+function census. Two full runs were byte-identical. The synthetic fixture covers
+arithmetic, symbolic calls, division by zero, regexes, nested modules and quoted
+code exclusion without evaluating project code.
+
+review/in-progress/constant-census-summary.json preserves every site in 80
+cross-module numeric groups and 82 symbolic expression groups. These are
+candidates, not reviewed duplication findings. Equal numbers span units; equal
+__MODULE__ expressions resolve to distinct modules. Inline numbers/string keys/
+regexes outside attribute assignments remain outside this census. Semantic
+constant review and the final duplication unit are still unfinished.
+
+Reproduce with Elixir 1.19.5 / OTP 28: elixir tooling/constant_census.exs
+/path/to/snapshot, then python3 tooling/constant_census_summary.py census.json.
+Run python3 tooling/test_constant_census.py with that Elixir on PATH. No Mix,
+release rebuild, daemon interaction or production changes occurred.
