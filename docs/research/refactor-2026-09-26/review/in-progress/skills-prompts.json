@@ -151,6 +151,69 @@
       "lines": 125,
       "read": "full",
       "assessment": "Tracker facts outrank promoted drafts; runtime projection fills only known gaps; unknown progress is not zero and provider failure retains visible last-known-good state. Safe draft path, explicit promotion authority and frozen draft ownership preserved. Runtime member schema includes optional icon, whereas lane icon prose elsewhere is a separate concern. Final statement treats phases as authored metadata, conflicting with computed antichain rule in decomposition workflow. Minimal template does not replace stricter full worker contract checklist."
+    },
+    {
+      "path": ".claude/skills/aiur-debug/SKILL.md",
+      "sha256": "c8d71052853cbb9e4c8daecd8437411bd56416ad77e13310e7cf4b8580e53726",
+      "lines": 116,
+      "read": "full",
+      "assessment": "Context overlay deliberately composes with an available general debugging skill rather than assuming installation. Preserves evidence before mutation, repository/run/session/invocation joins, expected-state distinctions and narrow recovery authority. Distinct process children do not prove duplicate dispatch. All related relative links resolved successfully in frozen snapshot; suspected broken links rejected. Read as research source, no debugging workflow or runtime operation invoked."
+    },
+    {
+      "path": ".claude/skills/aiur-debug/diagnostic-recipes.md",
+      "sha256": "43c190ffb6843b24895acec6cd13f94bf9d47126022c3474e6fd45f2214cf6f6",
+      "lines": 383,
+      "read": "full",
+      "assessment": "All383 lines read. Ten bounded recipes separate tracker eligibility, routing, provider transport, lifecycle, resource and presentation evidence. Queue admission/delivery/acknowledgement distinct; same immutable retry identity required. Live owner is not stale lock; narrow process containment and before-state preservation precede recovery. Agent sandbox census is not fleet evidence. GitHub authority/policy and exact PR head/base preserved. Dashboard auth descriptions and health rules remain documented assertions pending runtime reconciliation; recipe reports source layers, not freshly measured system health."
+    },
+    {
+      "path": ".claude/skills/aiur-debug/evidence-and-correlation.md",
+      "sha256": "4a163992aae807415a125b9ae814cd3f5aec0212346558f4c8976d2b727dc4d5",
+      "lines": 196,
+      "read": "full",
+      "assessment": "All196 lines read. Identity hierarchy preserves canonical ticket, instance, generation, provider thread/turn/item, SHA and delivery boundaries. Release stamp explicitly does not prove current BEAM booted that assembly; dirty/unknown provenance stays uncertain. Telemetry availability and sampling limits prevent zero inference or command attribution. UTC conversion retains skew/flush/sequence uncertainty and causal identity outranks timestamp proximity. Initial origin/main example is narrower than configured-base policy and should be generalized when used. No fresh telemetry census performed."
+    },
+    {
+      "path": ".claude/skills/aiur-debug/examples-and-reporting.md",
+      "sha256": "632c83e43b14d444016331cfa794940d75df904302f1b4fea4f2b891101c7b42",
+      "lines": 169,
+      "read": "full",
+      "assessment": "All169 lines read. Worked examples are illustrative, not new measured incidents. Duplicate calls versus replay use invocation and generation evidence; expected paused state preserved. Report template separates counterevidence, confidence, blast radius and unresolved boundary. Sanitized public reports exclude raw transcripts/private paths/accounts while retaining necessary joins. Disposition narrows standalone P0/P1 to urgent reproducible systemic impact and defers bounded findings; preserve this scope discipline."
+    },
+    {
+      "path": ".claude/skills/aiur-handoff/SKILL.md",
+      "sha256": "a16c762749c9095d489154d9b24be61a7eaefdf3041e189364d594a59f1cb910",
+      "lines": 104,
+      "read": "full",
+      "assessment": "Archived handoff is immutable and latest copy discoverable. Requires explicit goal status, measurements, merged-versus-verified distinction, corrections, last-checked evidence and disproof commands. Historical example is guidance rather than fresh incident evidence. Capability-substitute advice offering DOM/text for unavailable visual inspection must retain verification limits; it cannot establish equivalent visual QA by itself. No archive or runtime state changed."
+    },
+    {
+      "path": ".claude/skills/aiur-intro/SKILL.md",
+      "sha256": "cbd54c92b79b50cc4f538be1a391850af21ad2d28081f062a4f8b1a135a217d6",
+      "lines": 182,
+      "read": "full",
+      "assessment": "Two operating modes first, worker versus Executor separation, global/local config precedence, origin-derived repository and launch/worker credential verification distinct. Dispatch trust, configured base and required labels handled before claiming worker activity. Workspace isolation explicitly not a security boundary. Node version/install/provider claims are frozen documentation, not independently current recommendations. No installation, initialization, issue labeling or launch performed."
+    },
+    {
+      "path": ".claude/skills/aiur-meta/SKILL.md",
+      "sha256": "ab5cbad424f382bcd028c2cf52feefca1ff7672b817af55d9ae1f45335daecc3",
+      "lines": 309,
+      "read": "full",
+      "assessment": "All309 lines read. Meta-check separates wake-driven operation from hourly backstop; system-of-record capability checks outrank guessed transport config. Requires actual screenshots plus CLI latency, host scope and PR review state, forbids routine fleet mutations without mandate. Historical counts, listener24-binding statement and fixed hydration delay are authored claims, not reverified current census or readiness proof. Every-finding-to-ticket rule needs reconciliation with finite-run deferral/creation-freeze policy in governing Executor reference. Surface em-dash/unavailable flagging should trigger investigation, not erase legitimate unknown states. No meta-check/browser run performed."
+    },
+    {
+      "path": ".claude/skills/aiur-monitor/SKILL.md",
+      "sha256": "e01c50c8c140b07cb39a970155a469b654c189360b9688da84807f52368e5760",
+      "lines": 152,
+      "read": "full",
+      "assessment": "Monitor is observation-only absent Executor authority and refuses treating daemon-down/warm-up as healthy terminal state. Server board plus central feed, bounded cadence, same-message-ID retry on unknown outcome, current-base review readiness and capacity limits preserved. Distinguishes deferred findings from finite feature counts and freezes creation when it outpaces completion. Host-local findings record API and digest authority explicit. Ticket:null means unfinished promotion claim needs reconciliation with allowed deferred findings; not yet promoted. No message/record API or monitor loop invoked."
+    },
+    {
+      "path": ".claude/skills/aiur-monitor/references/alerts-and-decisions.md",
+      "sha256": "8bb9aec34c394427c58a834910ece3ee75cdff00603bc0cecfab166845b98161",
+      "lines": 60,
+      "read": "full",
+      "assessment": "Optional local-workspace alert stream does not cover remote/workspace-less alerts immediately and does not replace periodic central-feed observation. In-memory cursor and startup replay distinguished from durable decision ledger; adapter trust and stdin JSON avoid credential strings. Ledger escalation classification is separate from actual durable DecisionStore authority. Latest-unresolved replay and resolution semantics are source claims to compare with watcher implementation, not freshly validated behavior."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -273,7 +336,16 @@
     "Explicit worker-validation fixture with generic projection and refresh-at-pickup notes; not a production plan. Demonstrates metadata/sections but lacks the concrete implementation pointers demanded for real ticket contracts.",
     "Explicit non-runnable hierarchy fixture; umbrella is not an executable ticket or runnable program.",
     "Second explicit non-runnable hierarchy/ownership fixture. Repeated example IDs across alternative fixtures are not by themselves a duplicate within a single validated pack.",
-    "Tracker facts outrank promoted drafts; runtime projection fills only known gaps; unknown progress is not zero and provider failure retains visible last-known-good state. Safe draft path, explicit promotion authority and frozen draft ownership preserved. Runtime member schema includes optional icon, whereas lane icon prose elsewhere is a separate concern. Final statement treats phases as authored metadata, conflicting with computed antichain rule in decomposition workflow. Minimal template does not replace stricter full worker contract checklist."
+    "Tracker facts outrank promoted drafts; runtime projection fills only known gaps; unknown progress is not zero and provider failure retains visible last-known-good state. Safe draft path, explicit promotion authority and frozen draft ownership preserved. Runtime member schema includes optional icon, whereas lane icon prose elsewhere is a separate concern. Final statement treats phases as authored metadata, conflicting with computed antichain rule in decomposition workflow. Minimal template does not replace stricter full worker contract checklist.",
+    "Context overlay deliberately composes with an available general debugging skill rather than assuming installation. Preserves evidence before mutation, repository/run/session/invocation joins, expected-state distinctions and narrow recovery authority. Distinct process children do not prove duplicate dispatch. All related relative links resolved successfully in frozen snapshot; suspected broken links rejected. Read as research source, no debugging workflow or runtime operation invoked.",
+    "All383 lines read. Ten bounded recipes separate tracker eligibility, routing, provider transport, lifecycle, resource and presentation evidence. Queue admission/delivery/acknowledgement distinct; same immutable retry identity required. Live owner is not stale lock; narrow process containment and before-state preservation precede recovery. Agent sandbox census is not fleet evidence. GitHub authority/policy and exact PR head/base preserved. Dashboard auth descriptions and health rules remain documented assertions pending runtime reconciliation; recipe reports source layers, not freshly measured system health.",
+    "All196 lines read. Identity hierarchy preserves canonical ticket, instance, generation, provider thread/turn/item, SHA and delivery boundaries. Release stamp explicitly does not prove current BEAM booted that assembly; dirty/unknown provenance stays uncertain. Telemetry availability and sampling limits prevent zero inference or command attribution. UTC conversion retains skew/flush/sequence uncertainty and causal identity outranks timestamp proximity. Initial origin/main example is narrower than configured-base policy and should be generalized when used. No fresh telemetry census performed.",
+    "All169 lines read. Worked examples are illustrative, not new measured incidents. Duplicate calls versus replay use invocation and generation evidence; expected paused state preserved. Report template separates counterevidence, confidence, blast radius and unresolved boundary. Sanitized public reports exclude raw transcripts/private paths/accounts while retaining necessary joins. Disposition narrows standalone P0/P1 to urgent reproducible systemic impact and defers bounded findings; preserve this scope discipline.",
+    "Archived handoff is immutable and latest copy discoverable. Requires explicit goal status, measurements, merged-versus-verified distinction, corrections, last-checked evidence and disproof commands. Historical example is guidance rather than fresh incident evidence. Capability-substitute advice offering DOM/text for unavailable visual inspection must retain verification limits; it cannot establish equivalent visual QA by itself. No archive or runtime state changed.",
+    "Two operating modes first, worker versus Executor separation, global/local config precedence, origin-derived repository and launch/worker credential verification distinct. Dispatch trust, configured base and required labels handled before claiming worker activity. Workspace isolation explicitly not a security boundary. Node version/install/provider claims are frozen documentation, not independently current recommendations. No installation, initialization, issue labeling or launch performed.",
+    "All309 lines read. Meta-check separates wake-driven operation from hourly backstop; system-of-record capability checks outrank guessed transport config. Requires actual screenshots plus CLI latency, host scope and PR review state, forbids routine fleet mutations without mandate. Historical counts, listener24-binding statement and fixed hydration delay are authored claims, not reverified current census or readiness proof. Every-finding-to-ticket rule needs reconciliation with finite-run deferral/creation-freeze policy in governing Executor reference. Surface em-dash/unavailable flagging should trigger investigation, not erase legitimate unknown states. No meta-check/browser run performed.",
+    "Monitor is observation-only absent Executor authority and refuses treating daemon-down/warm-up as healthy terminal state. Server board plus central feed, bounded cadence, same-message-ID retry on unknown outcome, current-base review readiness and capacity limits preserved. Distinguishes deferred findings from finite feature counts and freezes creation when it outpaces completion. Host-local findings record API and digest authority explicit. Ticket:null means unfinished promotion claim needs reconciliation with allowed deferred findings; not yet promoted. No message/record API or monitor loop invoked.",
+    "Optional local-workspace alert stream does not cover remote/workspace-less alerts immediately and does not replace periodic central-feed observation. In-memory cursor and startup replay distinguished from durable decision ledger; adapter trust and stdin JSON avoid credential strings. Ledger escalation classification is separate from actual durable DecisionStore authority. Latest-unresolved replay and resolution semantics are source claims to compare with watcher implementation, not freshly validated behavior."
   ],
   "follow_up_candidates": [
     {
@@ -291,7 +363,19 @@
     {
       "id": "skills-prompts-candidate-04",
       "question": "Reconcile unblocked-only shorthand with merge-readiness delivery and dismissed-decision resolution correlation against runtime."
+    },
+    {
+      "id": "skills-prompts-candidate-05",
+      "question": "Reconcile meta-check every-finding ticket requirement and monitor ticket:null unfinished-promotion statement with finite-run deferred ledger and mandatory creation freeze; read aiur-run Executor authority next before promoting."
     }
   ],
-  "next": "Read aiur-debug/SKILL.md and diagnostic references next;21/250 full files. Four P2 source contradictions provisional until cross-unit deduplication. Existing four follow-up questions remain."
+  "next": "Read aiur-run/SKILL.md and references/executor.md next;30/250 full files. Four P2 source contradictions provisional; five follow-up questions remain. Relative-link suspicion rejected by frozen-path check.",
+  "candidate_resolutions": [
+    {
+      "id": "skills-prompts-link-check-01",
+      "status": "not_promoted",
+      "reason": "All relative links from aiur-debug and aiur-intro resolve to existing frozen files; three parent traversals correctly reach repository root.",
+      "validation": "Path existence check only; linked target content not re-read or credited as coverage."
+    }
+  ]
 }
