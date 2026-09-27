@@ -73533,10 +73533,618 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "safely_set_terminal_verification_pending",
+      "assessment": "Marker invocation is duplicated, but identity gating and exception scope differ.",
+      "constraints": [
+        "IssueSync invokes an injected marker, accepting only ok and translating other results, exceptions, throws and exits to error.",
+        "CommentWake checks a joinable TrackerIdentity first and otherwise returns ok without invocation. Its invoke_terminal_verification_marker helper was also read and matches IssueSync invocation/result handling.",
+        "RetryEngine combines the same injected invocation with identity gating inside its rescue/catch scope. Reconciler uses equivalent gating but calls CurrentRunMembership directly.",
+        "CommentWake gating is outside the helper rescue, unlike RetryEngine/Reconciler. Preserve this scope explicitly or intentionally change it; skipped unsupported identity must not be treated as a persisted marker."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 539,
+          "module": "Aiur.Orchestrator.CommentWake",
+          "name": "safely_set_terminal_verification_pending",
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "kind": "defp",
+          "end_line": 553,
+          "body_sha256": "e1fbf59375a36609059deb6853e90602dae0e23169abf2ac107aa1fab29ab7f1",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 555,
+          "module": "Aiur.Orchestrator.CommentWake",
+          "name": "safely_set_terminal_verification_pending",
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "kind": "defp",
+          "end_line": 560,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 987,
+          "module": "Aiur.Orchestrator.IssueSync",
+          "name": "safely_set_terminal_verification_pending",
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "kind": "defp",
+          "end_line": 996,
+          "body_sha256": "73701ae1a024ea189442a01631900e4fc8f8658e4f168a368aeb256853bf0eea",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 663,
+          "module": "Aiur.Orchestrator.Reconciler",
+          "name": "safely_set_terminal_verification_pending",
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "kind": "defp",
+          "end_line": 676,
+          "body_sha256": "820a17ecdc2c6478c2e29e5880bfdc1544f4ee45749eaaaa333ea28735273ab8",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1431,
+          "module": "Aiur.Orchestrator.RetryEngine",
+          "name": "safely_set_terminal_verification_pending",
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "kind": "defp",
+          "end_line": 1444,
+          "body_sha256": "5f70640f1c9787681208ab90f170547364e13f7a5085b94229bdb11c87d885f7",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "scalar",
+      "assessment": "Scalar names combine database extraction, display coercion and bounded identifiers.",
+      "constraints": [
+        "BudgetLedger extracts exactly one SQL result cell and otherwise returns nil; this is not the same as a successful nullable scalar without additional evidence.",
+        "Headless.Adapter converts nil to an empty string, preserves strings, stringifies integers/atoms and inspects other values.",
+        "PriceTable.Validator and RelationshipRegistry share nonempty 1..256-byte valid UTF-8, already-trimmed string checks. The former accepts an injected error tag and the latter fixes invalid_relationship_scalar.",
+        "Share bounded scalar validation with an explicit error adapter; do not reuse display coercion for identity validation."
+      ],
+      "clauses": 10,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 133,
+          "module": "Aiur.GitHub.BudgetLedger",
+          "name": "scalar",
+          "path": "src/lib/aiur/github/budget_ledger.ex",
+          "kind": "defp",
+          "end_line": 138,
+          "body_sha256": "baa4252284ec5eb9e37ef29a4d174a1e453e46b6aa74398ef5e19b9c14926c3b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 222,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 222,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 223,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 223,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 224,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 224,
+          "body_sha256": "5766a186277adac3a007de2adf2ff7c07d5223666815319bace5da1aaa637fe1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 225,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 225,
+          "body_sha256": "f9418266f3faac9ec37bdb40b475414e776fd80c62fe32e972df46de691f6015",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 226,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "defp",
+          "end_line": 226,
+          "body_sha256": "49d1df5654bedc8413cfff2c170685e4f909f4c1aa388916ca0df844f98847c0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 192,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "kind": "defp",
+          "end_line": 194,
+          "body_sha256": "29bb74c8bf20ed4302b625f296ed3de7f0c7e446616c1a285f0b62f8b571e67a",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 196,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "kind": "defp",
+          "end_line": 196,
+          "body_sha256": "3985936fb1f81bf986d9602a9c27111307b01051498b0919ae9a3d474efb8446",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 437,
+          "module": "Aiur.UsageEnvelope.RelationshipRegistry",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "kind": "defp",
+          "end_line": 441,
+          "body_sha256": "17e5e44c8a2ca41a44a82d9038789345a7c49d767dbdd0c7536b5fc21230fcbf",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 443,
+          "module": "Aiur.UsageEnvelope.RelationshipRegistry",
+          "name": "scalar",
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "kind": "defp",
+          "end_line": 443,
+          "body_sha256": "f8302858d5feeaed9499848289660a4ee708e6e4690c98f0bd15704b4b22d683",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "schedule_sweep",
+      "assessment": "Sweep scheduling differs in cancellation, disabled intervals and returned state.",
+      "constraints": [
+        "DecisionExpiry schedules using a direct delay; DeliveryLog uses the state interval. Both return the timer reference.",
+        "ReadCache only schedules positive intervals and returns unchanged state rather than retaining a reference.",
+        "ModeRegistry cancels an existing reference then stores a new one in state; the literal body does not flush an already delivered sweep message.",
+        "Preserve timer ownership and cancellation policy; a shared send_after wrapper alone does not establish one active sweep or shutdown safety."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 185,
+          "module": "Aiur.DecisionExpiry",
+          "name": "schedule_sweep",
+          "path": "src/lib/aiur/decision_expiry.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "b09ef7b555cb9d4e368f5ac826b7aa78a43bb6a2e5cbce3cb0c3bb58b79477fd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 269,
+          "module": "Aiur.GitHub.ReadCache",
+          "name": "schedule_sweep",
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "kind": "defp",
+          "end_line": 272,
+          "body_sha256": "01ee300d0106d9ed402bd1a575cc42880b88fb55c0c33cb9a54c1683c22b8a24",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 350,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "schedule_sweep",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 350,
+          "body_sha256": "9947351311cba7f828bae706ea8007d107e5d6674431df1780178e6654ddf66b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 374,
+          "module": "Aiur.Webhooks.ModeRegistry",
+          "name": "schedule_sweep",
+          "path": "src/lib/aiur/webhooks/mode_registry.ex",
+          "kind": "defp",
+          "end_line": 377,
+          "body_sha256": "7b081e2cfad333657712ae9b098d62251f6a999d44cdbe09e321a1ebdd108d53",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "schema_version",
+      "assessment": "Schema getters expose independent durable formats, not one global version.",
+      "constraints": [
+        "Module attributes were checked: Decision and DecisionProvenance expose schema version 1, RunTelemetry exposes 2, and UsageEnvelope exposes version 1.",
+        "Identical getter bodies or equal numeric values do not make these formats interchangeable. Keep migration authority attached to each format.",
+        "No migration compatibility or reader/writer version negotiation was verified by inspecting these getters."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 200,
+          "module": "Aiur.Decision",
+          "name": "schema_version",
+          "path": "src/lib/aiur/decision.ex",
+          "kind": "def",
+          "end_line": 200,
+          "body_sha256": "cf49de174ba67c46fabcd381123805492394ba7377135d22a601f1a5000617c7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 44,
+          "module": "Aiur.DecisionProvenance",
+          "name": "schema_version",
+          "path": "src/lib/aiur/decision_provenance.ex",
+          "kind": "def",
+          "end_line": 44,
+          "body_sha256": "cf49de174ba67c46fabcd381123805492394ba7377135d22a601f1a5000617c7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 22,
+          "module": "Aiur.RunTelemetry",
+          "name": "schema_version",
+          "path": "src/lib/aiur/run_telemetry.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "cf49de174ba67c46fabcd381123805492394ba7377135d22a601f1a5000617c7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 157,
+          "module": "Aiur.UsageEnvelope",
+          "name": "schema_version",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "def",
+          "end_line": 157,
+          "body_sha256": "9a3fca98b2e0627ad896ec3432873c8caf6185dd9770c853543f297b7c64ecdd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "seed",
+      "assessment": "Seeding initializes different populations and concurrency boundaries.",
+      "constraints": [
+        "DecisionMetrics.Collector merges the provided attention index with current state taking precedence, folds events through record and bounds the result.",
+        "BalanceBaseline re-reads persisted state under a path-scoped global transaction before invoking seed_under_lock; persistence and lock failure behavior are not established by this wrapper.",
+        "AttachPool sends an asynchronous seed cast with identifiers and retain_ids. UsageAggregate.Projection builds cells/coverage/source position and generation, resetting projection generation to zero.",
+        "The aggregate seed guard constrains nonnegative source position and map shapes but not source_generation in the literal function. Caller validation remains unverified.",
+        "Do not collapse replay, pool provisioning and initial accounting state into a generic seed operation."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 32,
+          "module": "Aiur.DecisionMetrics.Collector",
+          "name": "seed",
+          "path": "src/lib/aiur/decision_metrics/collector.ex",
+          "kind": "def",
+          "end_line": 38,
+          "body_sha256": "a209eebb7676641e522b9913e179ef2aab6474ae032116c852c5769a4055dcdb",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 207,
+          "module": "Aiur.OpenAICompat.BalanceBaseline",
+          "name": "seed",
+          "path": "src/lib/aiur/open_ai_compat/balance_baseline.ex",
+          "kind": "defp",
+          "end_line": 216,
+          "body_sha256": "c92a1e291927f32146bdd9ff7f86bbfa0a371c8dea9aec14b255f29c86193863",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 87,
+          "module": "Aiur.Opencode.AttachPool",
+          "name": "seed",
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "b935e89bcb230a5ea63f0a9630695fb73a457030ea0fdb63dc26ba9343043c91",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 45,
+          "module": "Aiur.UsageAggregate.Projection",
+          "name": "seed",
+          "path": "src/lib/aiur/usage_aggregate/projection.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "f4cf5b619e8bcbb65f8b8c10fb0a5368145a99f5be4c615edbb4a6d8cf6b3524",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "set_pane_title",
+      "assessment": "Two pane-manager wrappers share exact mechanics and intentionally discard results.",
+      "constraints": [
+        "GenericOpen and SlotAttach call Tmux.set_pane_title with State.pane_title_text, discard the result and return ok. Aliases were checked: both resolve to Aiur.Tmux and Aiur.PaneManager.State.",
+        "Tmux makes a guarded GenServer call and converts noproc/timeout exits to tagged errors; Style runs select-pane through Exec and preserves its ok/error result.",
+        "The wrappers are a small consolidation candidate, while transport and command execution remain separate layers. Wrapper success is not proof that a title was displayed."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 133,
+          "module": "Aiur.PaneManager.GenericOpen",
+          "name": "set_pane_title",
+          "path": "src/lib/aiur/pane_manager/generic_open.ex",
+          "kind": "defp",
+          "end_line": 136,
+          "body_sha256": "a2d3fef525f815a6b8ffdfbd47ae03189bfab5be76f46b1a95f126a8f6a0d118",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 187,
+          "module": "Aiur.PaneManager.SlotAttach",
+          "name": "set_pane_title",
+          "path": "src/lib/aiur/pane_manager/slot_attach.ex",
+          "kind": "def",
+          "end_line": 190,
+          "body_sha256": "a2d3fef525f815a6b8ffdfbd47ae03189bfab5be76f46b1a95f126a8f6a0d118",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 194,
+          "module": "Aiur.Tmux",
+          "name": "set_pane_title",
+          "path": "src/lib/aiur/tmux.ex",
+          "kind": "def",
+          "end_line": 200,
+          "body_sha256": "d223c1b277684e7e6e5b226e25af6d3cf6a16eee32cc23ed3327056d6d2c0537",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 24,
+          "module": "Aiur.Tmux.Style",
+          "name": "set_pane_title",
+          "path": "src/lib/aiur/tmux/style.ex",
+          "kind": "def",
+          "end_line": 29,
+          "body_sha256": "ae6c50509375ae7cbcb543a6618d9d5a3618098e5500ee612401d326694e3d7d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "snapshot_payload",
+      "assessment": "Snapshot payloads expose different populations and freshness semantics.",
+      "constraints": [
+        "StatusReport collects running/retrying/idle entries with wall and monotonic clocks, capacity/holds/pause and polling state. It omits command-specific status rows; this literal builder does not prove downstream rendering.",
+        "UsageAggregate.Store includes projection/source generations, source position, cell count, health, freshness, coverage and recovery.",
+        "UsageCompaction.Coordinator exposes retained blocks, retired position, coverage and last cycle; its generation value is the block count, not a demonstrated monotonic revision.",
+        "Presenter transforms orchestrator rows, counts and capacity/hold/polling values and adds snapshot_freshness only when status is stale. Other freshness states are not represented by that conditional alone.",
+        "Keep authoritative observations, projections and transport presentation distinct; no universal snapshot shape, complete privacy projection or freshness correctness is established here."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 372,
+          "module": "Aiur.Orchestrator.StatusReport",
+          "name": "snapshot_payload",
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "kind": "def",
+          "end_line": 421,
+          "body_sha256": "45d88c4a398c2b98e8634ae8055e65f290f24a0b16272a68f81b833bf30b456f",
+          "normalized_body_lines": 52,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 283,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "snapshot_payload",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "defp",
+          "end_line": 294,
+          "body_sha256": "9159b9609ea929493ea6c5b42410e76ecf1bf66d6a28bb539960e46173411c62",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 286,
+          "module": "Aiur.UsageCompaction.Coordinator",
+          "name": "snapshot_payload",
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "kind": "defp",
+          "end_line": 298,
+          "body_sha256": "6253d6eb15944b7c477799f6552c903c2932544861b98cc7f810e4da1db38254",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 37,
+          "module": "AiurWeb.Presenter",
+          "name": "snapshot_payload",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "kind": "defp",
+          "end_line": 59,
+          "body_sha256": "145c707bd5406d63449f226e3f9a1b94cc6b562bfd382b782d9349ea19787262",
+          "normalized_body_lines": 32,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "snapshots",
+      "assessment": "Snapshot APIs already separate server calls from pure projection.",
+      "constraints": [
+        "TicketHistoryProvider provides default/explicit server wrappers, and DecisionMetrics calls its server directly.",
+        "TicketActivity accepts server, observation time and timeout options and sends them to the server. Projection sorts entries by identity key and maps each with state and time, returning generation, retention and diagnostics.",
+        "These wrappers do not justify merging independent stores. Preserve caller time, timeout and population semantics if sharing call mechanics.",
+        "No cross-store atomicity, common generation or complete observation is implied by the plural name."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 47,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider",
+          "name": "snapshots",
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "a7a0ec03e7319c91c383178e9713140bfa457546d1ea89b14fed1961906979e2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 50,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider",
+          "name": "snapshots",
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "kind": "def",
+          "end_line": 50,
+          "body_sha256": "b0f9b0f40a18b67fbb406b1c432836d9a946fe0104649bc9d0664543a7feda9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 48,
+          "module": "Aiur.DecisionMetrics",
+          "name": "snapshots",
+          "path": "src/lib/aiur/decision_metrics.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "b0f9b0f40a18b67fbb406b1c432836d9a946fe0104649bc9d0664543a7feda9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 34,
+          "module": "Aiur.TicketActivity",
+          "name": "snapshots",
+          "path": "src/lib/aiur/ticket_activity.ex",
+          "kind": "def",
+          "end_line": 36,
+          "body_sha256": "ec8a467b1c81ebfe08fa08e4417550dd12c5131e55ee6d35bf8d9f853f019509",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 187,
+          "module": "Aiur.TicketActivity.Projection",
+          "name": "snapshots",
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "kind": "def",
+          "end_line": 200,
+          "body_sha256": "1bee04b5925ae62ad742a01397e36e442edbf15ea5362f031f645cba951a5acf",
+          "normalized_body_lines": 19,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5664,
-  "limits": "353 selected families and 5664 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5704,
+  "limits": "361 selected families and 5704 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

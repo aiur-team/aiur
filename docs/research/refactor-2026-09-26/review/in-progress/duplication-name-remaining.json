@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "4baf6794bafc2ef834f0013e36d9369adc313c1be4b0546c6141c61e01ac558c"
+    "name_triage": "6ea8fff5d0cbe140d103909417834cd319e57739c3fd38ffedc79bc534dbc944"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 353,
-    "remaining_cross_module_names": 1327,
-    "remaining_literal_entries": 4604
+    "reviewed_cross_module_names": 361,
+    "remaining_cross_module_names": 1319,
+    "remaining_literal_entries": 4564
   },
   "families": [
-    {
-      "name": "safely_set_terminal_verification_pending",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 59
-    },
-    {
-      "name": "scalar",
-      "clauses": 10,
-      "modules": 4,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "schedule_sweep",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "schema_version",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "seed",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 25
-    },
-    {
-      "name": "set_pane_title",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 21
-    },
-    {
-      "name": "snapshot_payload",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 98
-    },
-    {
-      "name": "snapshots",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 20
-    },
     {
       "name": "source_event_id",
       "clauses": 4,

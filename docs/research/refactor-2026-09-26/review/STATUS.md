@@ -1174,3 +1174,7 @@ Read positive_number, project_identity, prune, read_file, reconciliation, record
 ### Name duplication: setup and revision boundaries
 
 Read refresh_catalog, remote_install_script, repository, reset_suffix, resume, revise, root_summary and runtime_options: 45 literal entries across eight families. Verify identical root-summary coercion and common runtime override precedence; preserve refresh attempt versus observation, remote setup policy, identity provenance, reset display and revision authority. Name triage now 353 families/5664 entries, leaving 1327 cross-module names. Raw findings and skeptic counts are unchanged; no remote safety proof, revision concurrency guarantee or saving is claimed.
+
+### Name duplication: marker and snapshot evidence
+
+Read safely_set_terminal_verification_pending, scalar, schedule_sweep, schema_version, seed, set_pane_title, snapshot_payload and snapshots: 40 literal entries across eight families. Verify shared marker invocation and pane-title wrappers, while preserving identity gates, exception scope, timer ownership, format versions and observation populations. Name triage now 361 families/5704 entries, leaving 1319 cross-module names. Raw findings and skeptic counts are unchanged; no durable marker, timer uniqueness, rendered title or snapshot freshness guarantee is claimed.
