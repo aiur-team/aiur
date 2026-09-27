@@ -98,7 +98,7 @@
       "modules": 27,
       "clauses": 44,
       "summed_source_span_lines": 121,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "fetch",
@@ -175,7 +175,7 @@
       "modules": 19,
       "clauses": 28,
       "summed_source_span_lines": 83,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "get",

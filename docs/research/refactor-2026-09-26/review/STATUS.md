@@ -870,3 +870,7 @@ Read all122start_link definitions across122modules (438summed source-span lines)
 ### Name duplication: cleanup and subscription ownership
 
 Read all42terminate clauses in36modules and45subscribe clauses in38modules. Preserve graceful persistence versus crash guarantees, owned-child cleanup order, restart-safe reaper policy, recipient identity, durable bindings, generation scope, authentication and explicit failure contracts. Thin PubSub wrappers already reuse their transport; no new defect or savings claim. Name triage now15families/443literal definitions; broader sweep remains open.
+
+### Name duplication: health and freshness semantics
+
+Read44health clauses in27modules and28freshness clauses in19modules. Separate source accessors, scalar normalization, aggregate health, reconciliation metadata and UI projections. Preserve strict versus inclusive threshold comparisons, nil-expiry versus missing-observation semantics and rich failure/age records. Existing web-occ-20 overlaps part of this evidence; no new defect count. Name triage now17families/515literal definitions; remaining families/callbacks still open.
