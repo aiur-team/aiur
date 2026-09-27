@@ -53938,10 +53938,580 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "enrich",
+      "assessment": "Enrichment combines controlled mutation, merge policy and optional telemetry acquisition.",
+      "constraints": [
+        "DecisionApi validates ID, payload version and trusted supervisor actor before writing through the selected DecisionStore; DecisionStore forwards to its owner and the controller delegates mutation. These are existing layers, not duplicated enrichment algorithms.",
+        "CurrentRunOutcomeSnapshot.Outcomes already delegates to RecentMerge.enrich. RecentMerge requires matching IDs, applies field-specific incoming/existing preference, ORs observation flags, recomputes content hash and distinguishes duplicate from accepted changes.",
+        "GitHubEnricher fetches and normalizes PR/comment evidence for a ticket set and returns warnings on invalid repository, authentication, fetch, exception or exit failures. Do not collapse this optional evidence acquisition into decision mutation or record merge semantics."
+      ],
+      "clauses": 10,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except source checks explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 124,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.Outcomes",
+          "name": "enrich",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/outcomes.ex",
+          "kind": "defp",
+          "end_line": 129,
+          "body_sha256": "c398f4df0a01b071ebb7fa424faf426ba3568e373779d84977d075deba42d0b2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 60,
+          "module": "Aiur.DecisionApi",
+          "name": "enrich",
+          "path": "src/lib/aiur/decision_api.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 62,
+          "module": "Aiur.DecisionApi",
+          "name": "enrich",
+          "path": "src/lib/aiur/decision_api.ex",
+          "kind": "def",
+          "end_line": 79,
+          "body_sha256": "cf5d45d2763a0cca8b6e4220715ed624c3c3eed8437a050e08d71c1067e7d4ec",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 81,
+          "module": "Aiur.DecisionApi",
+          "name": "enrich",
+          "path": "src/lib/aiur/decision_api.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "0ad2103115b7aa7a9575cc4867aa7937fe8c7710238812c775ef27709161f908",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 178,
+          "module": "Aiur.DecisionStore",
+          "name": "enrich",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "def",
+          "end_line": 181,
+          "body_sha256": "0f96e3886718bd185a0ccc536d4cfff67dc4e0c0e743c5873765374c5a5e3f8d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 202,
+          "module": "Aiur.RecentMerge",
+          "name": "enrich",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "kind": "def",
+          "end_line": 226,
+          "body_sha256": "12d4909c24c6ea3c9f75731c01e92b3d16986b545762e815c037752009696675",
+          "normalized_body_lines": 30,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 22,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "enrich",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 24,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "enrich",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "c7c48d3db5264febe292a14e2f0cd064bb727c7bd98513a72191890b701e7001",
+          "normalized_body_lines": 44,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 69,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "enrich",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "38f706167e07fb7ed72e77d032d259200e21feec768b683f4f2285ec266cb528",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 31,
+          "module": "AiurWeb.DecisionApiController",
+          "name": "enrich",
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "kind": "def",
+          "end_line": 33,
+          "body_sha256": "2a69a9d18483175d30ecf5a7910ac54ec1fb60f0a5ba9edf1dc41711dab1672e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_classified_issue_comments",
+      "assessment": "Issue-comment classification already routes through a tracker adapter and GitHub implementation.",
+      "constraints": [
+        "Tracker, GitHub.Tracker and Client delegate to Comments. Comments obtains repository ownership context and classifies fetched issue comments, propagating transport errors.",
+        "Linear and Memory return successful empty lists. These defaults are capability-policy evidence, not proof that an external tracker has no relevant comments.",
+        "PR review classification uses changed-path ownership instead of repository ownership. Shared mapping mechanics must not erase that distinction; no network savings are established by wrapper counts."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except source checks explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 371,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_classified_issue_comments",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 372,
+          "body_sha256": "8b121079ca2787c313c9a0b35de40d8332d2c7707c3ea50396bed55600b615eb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 126,
+          "module": "Aiur.GitHub.Comments",
+          "name": "fetch_classified_issue_comments",
+          "path": "src/lib/aiur/github/comments.ex",
+          "kind": "def",
+          "end_line": 141,
+          "body_sha256": "26fdadd4d04c0046dfd74717abd9054507377062e544c0d4bccae43141480cd4",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 145,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "fetch_classified_issue_comments",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 147,
+          "body_sha256": "6231f040b5ec03c764318a101926cc81848afc6aa025cff238d2d44c6fd9bafe",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 89,
+          "module": "Aiur.Linear.Tracker",
+          "name": "fetch_classified_issue_comments",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 89,
+          "body_sha256": "cb6b4f2c2496d6020f7cb327cf8c0160b26b1e7cfeab56124b8c8e8ccb13ed1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 70,
+          "module": "Aiur.Memory.Tracker",
+          "name": "fetch_classified_issue_comments",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "cb6b4f2c2496d6020f7cb327cf8c0160b26b1e7cfeab56124b8c8e8ccb13ed1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 118,
+          "module": "Aiur.Tracker",
+          "name": "fetch_classified_issue_comments",
+          "path": "src/lib/aiur/tracker.ex",
+          "kind": "def",
+          "end_line": 120,
+          "body_sha256": "a2c9e68f59e74d31ce20a40306375ffbf8a91aad55ac778d2226962d50f4193a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_classified_pr_review_comments",
+      "assessment": "PR review classification uses changed-path ownership rather than issue-wide ownership.",
+      "constraints": [
+        "PullRequests fetches changed paths, derives ownership context for those paths, fetches review comments and classifies them. Tracker, GitHub.Tracker and Client are forwarding layers.",
+        "Linear and Memory return successful empty lists. Any future capability interface should distinguish unsupported operations from observed emptiness where consumers require that distinction.",
+        "The classification map resembles issue-comment classification, but acquisition dependencies and ownership populations differ. Preserve failure propagation and context choice."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except source checks explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 343,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_classified_pr_review_comments",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 344,
+          "body_sha256": "0a54ebc9edad5a11db3c65f4278ec7b5a193972d085206be443f3993bc70fe53",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 882,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_classified_pr_review_comments",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 888,
+          "body_sha256": "540321b6a08570fd77c9498fe4239558b116312c0770c7f79bf00dee41626b3c",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 133,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "fetch_classified_pr_review_comments",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 135,
+          "body_sha256": "6f34ee3baddf65aacb99b75b882e8fc6dc93e3701ab913328eadf9fa574f207a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Aiur.Linear.Tracker",
+          "name": "fetch_classified_pr_review_comments",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 92,
+          "body_sha256": "cb6b4f2c2496d6020f7cb327cf8c0160b26b1e7cfeab56124b8c8e8ccb13ed1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 73,
+          "module": "Aiur.Memory.Tracker",
+          "name": "fetch_classified_pr_review_comments",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "cb6b4f2c2496d6020f7cb327cf8c0160b26b1e7cfeab56124b8c8e8ccb13ed1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 123,
+          "module": "Aiur.Tracker",
+          "name": "fetch_classified_pr_review_comments",
+          "path": "src/lib/aiur/tracker.ex",
+          "kind": "def",
+          "end_line": 125,
+          "body_sha256": "aa0f616ee63fedcd98756b92212a4e6ba4670434eb1dfc0c85f1eb28cf4a101c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_open_pull_request_for_branch",
+      "assessment": "Singular PR lookup has first-match semantics and a resource-cache boundary.",
+      "constraints": [
+        "Tracker and GitHub.Tracker delegate; Client wraps a stored lookup in CycleFetchCache. Read fetch_open_pull_request_for_branch_stored: it uses a repository-qualified ResourceStore key, ResourceFetch decision freshness and a conditional fetcher, then projects the result.",
+        "Read PullRequests.fetch_open_ticket_pull_request: pagination stops at the first matching PR and returns nil only after reaching the end. Plural lookup traverses all pages, so replacing one with the other changes work and later-page failure exposure.",
+        "Linear and Memory return {:ok, nil}. Cache keys, provider capability defaults and selection order must remain explicit; runtime cache savings and caller behavior are not verified here."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except source checks explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 172,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_open_pull_request_for_branch",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 176,
+          "body_sha256": "16897f2482a34380c0c30df36422bf873608a7eace1141575a08b40afaed5abe",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 144,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_open_pull_request_for_branch",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 157,
+          "body_sha256": "f9862e8db439ba1ad28358be9987089340b08dd0adf4db4a5fbe826c851c07c2",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 151,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "fetch_open_pull_request_for_branch",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 153,
+          "body_sha256": "069ecaa3a33f9b189206d0f7958878925a76ae54f6705fd24ab923fc5a421c62",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 98,
+          "module": "Aiur.Linear.Tracker",
+          "name": "fetch_open_pull_request_for_branch",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 79,
+          "module": "Aiur.Memory.Tracker",
+          "name": "fetch_open_pull_request_for_branch",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 79,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 135,
+          "module": "Aiur.Tracker",
+          "name": "fetch_open_pull_request_for_branch",
+          "path": "src/lib/aiur/tracker.ex",
+          "kind": "def",
+          "end_line": 137,
+          "body_sha256": "22ec7632c1e483bcd564e09318177e53661974b655e181c953f85c9127bee9c8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_open_pull_requests_for_branch",
+      "assessment": "Plural PR lookup collects all matching pages and differs from singular cache policy.",
+      "constraints": [
+        "Client has a separate cycle-cache key and delegates directly to PullRequests. Read fetch_open_ticket_pull_requests: each page filters matching PRs and appends them to the accumulated list until pagination ends, propagating fetch errors.",
+        "Tracker and GitHub.Tracker are adapters; Linear and Memory return successful empty lists. These layers do not represent repeated network requests by themselves.",
+        "Singular lookup shares request setup and matching mechanics but stops early and uses ResourceFetch through its Client path. A shared paginator needs explicit stop/collect behavior and must preserve ordering and error semantics."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except source checks explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 180,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_open_pull_requests_for_branch",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 184,
+          "body_sha256": "bf26a8a392b8ae00dc387ab0c282defc5761e1a6bab126628c676a2cc1ad2088",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 202,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_open_pull_requests_for_branch",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 216,
+          "body_sha256": "ee1a438b6fdb5a0a1edcb8106872dfa0a15334ad1effaee2a02bcc7ca11f4a70",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 157,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "fetch_open_pull_requests_for_branch",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 159,
+          "body_sha256": "141c239fc99142775def43d75f3203f0a7c36de92c256b4c961f3eae127f9906",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 101,
+          "module": "Aiur.Linear.Tracker",
+          "name": "fetch_open_pull_requests_for_branch",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "cb6b4f2c2496d6020f7cb327cf8c0160b26b1e7cfeab56124b8c8e8ccb13ed1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 82,
+          "module": "Aiur.Memory.Tracker",
+          "name": "fetch_open_pull_requests_for_branch",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "cb6b4f2c2496d6020f7cb327cf8c0160b26b1e7cfeab56124b8c8e8ccb13ed1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 141,
+          "module": "Aiur.Tracker",
+          "name": "fetch_open_pull_requests_for_branch",
+          "path": "src/lib/aiur/tracker.ex",
+          "kind": "def",
+          "end_line": 143,
+          "body_sha256": "5947650450ece855d11fc60a1376deba81292cf9d0d5e0469b2d04fb292c6bf6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_unaddressed_pr_review_thread_comments",
+      "assessment": "Review-thread lookup retains snapshot reuse and live fallback behind existing adapters.",
+      "constraints": [
+        "Tracker and GitHub.Tracker forward to Client, which applies cycle caching. ReviewThreads resolves repository and PR number, consults PollSnapshots, and only on miss calls the live fetch helper.",
+        "Linear and Memory return successful empty lists. The name does not establish support or completeness across tracker types.",
+        "Preserve repository qualification, snapshot-versus-live selection and unaddressed-thread classification. This entry-point read does not verify snapshot freshness, filtering internals or delivery consequences."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except source checks explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 348,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_unaddressed_pr_review_thread_comments",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 352,
+          "body_sha256": "f98e6f9d44a8279472751f85e2409c3aa572c591ace105775eee4de269cfccbb",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 74,
+          "module": "Aiur.GitHub.ReviewThreads",
+          "name": "fetch_unaddressed_pr_review_thread_comments",
+          "path": "src/lib/aiur/github/review_threads.ex",
+          "kind": "def",
+          "end_line": 87,
+          "body_sha256": "709ee9484cf8887de5037bde0c5d72be8ba138414a5d2059c9033ccaa7e9f664",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 139,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "fetch_unaddressed_pr_review_thread_comments",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 141,
+          "body_sha256": "2acddada3e54e9448a73e108dfeacfe462262bb66b0ff79ba44b8bf8992d264c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 95,
+          "module": "Aiur.Linear.Tracker",
+          "name": "fetch_unaddressed_pr_review_thread_comments",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 95,
+          "body_sha256": "cb6b4f2c2496d6020f7cb327cf8c0160b26b1e7cfeab56124b8c8e8ccb13ed1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 76,
+          "module": "Aiur.Memory.Tracker",
+          "name": "fetch_unaddressed_pr_review_thread_comments",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 76,
+          "body_sha256": "cb6b4f2c2496d6020f7cb327cf8c0160b26b1e7cfeab56124b8c8e8ccb13ed1d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 129,
+          "module": "Aiur.Tracker",
+          "name": "fetch_unaddressed_pr_review_thread_comments",
+          "path": "src/lib/aiur/tracker.ex",
+          "kind": "def",
+          "end_line": 131,
+          "body_sha256": "ed8cd78a0eb47171d26a72bcd95ebe22ee9335ea6e0e29957bdfac0d7272f679",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 4256,
-  "limits": "178 selected families and 4256 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 4296,
+  "limits": "184 selected families and 4296 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

@@ -1755,3 +1755,7 @@ Read activate, auth_mode, authorize, connect, count and create_comment: 51 liter
 ### Name duplication: route decisions and queue admission
 
 Read decide, decode_record, default_path, describe, empty and enqueue: 47 literal entries across six families. Full AnalyticsScope/UsageScope reads identify shared route-readiness mechanics while preserving different membership keys and rejection accounting. Keep decoder integrity policy, restart durability, unknown-state semantics and admission ambiguity explicit. Name triage now 178 families/4256 entries, leaving 1502 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
+
+### Name duplication: enrichment and tracker fetch boundaries
+
+Read enrich and five tracker fetch families: 40 literal entries across six families. Preserve field-specific merge policy, issue-versus-PR ownership classification, singular first-match versus plural all-page lookup, and snapshot/resource-cache boundaries. Empty Linear/Memory defaults are capability policy, not observed external emptiness. Name triage now 184 families/4296 entries, leaving 1496 cross-module names. Raw findings and skeptic counts are unchanged; wrapper counts establish no network saving.
