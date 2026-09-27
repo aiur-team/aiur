@@ -3029,6 +3029,31 @@
       "recommendation": "Retain the same task-owned staging policy in the local-only fallback, checking staged and unstaged ownership before commit.",
       "refactor_hint": "Separate publication availability from commit ownership so offline paths reuse the normal selective-commit contract.",
       "limits": "Frozen-source command scope review only; no LFG execution or observed accidental commit. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-53",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Tracker defer retries ambiguous creation failures without reconciliation",
+      "locations": [
+        {
+          "path": ".claude/skills/lfg/references/tracker-defer.md",
+          "lines": "19-26"
+        },
+        {
+          "path": ".claude/skills/lfg/references/tracker-defer.md",
+          "lines": "90-104"
+        },
+        {
+          "path": ".claude/skills/lfg/references/tracker-defer.md",
+          "lines": "108-137"
+        }
+      ],
+      "description": "The failure path groups API errors and rejected requests together, offering retry or automatic fallback to another tracker; GitHub also retries label-less on first failure. No step distinguishes a definitely rejected creation from a committed creation whose response was lost. The finding fingerprint is included as ticket metadata but is not used for read-after-error reconciliation or idempotency, allowing duplicate durable tickets across attempts or trackers.",
+      "evidence": "Complete tracker-defer reference reread: composition supplies a stable finding fingerprint, failure policy immediately retries/falls through, and no lookup/receipt check joins them. This is a missing ambiguous-outcome protocol; no actual tracker duplicate or API failure reproduced.",
+      "recommendation": "Persist a filing intent and stable identity, distinguish rejected from unknown outcomes, and reconcile the original tracker before retrying or changing sinks; retain unresolved delivery state when it cannot be checked.",
+      "refactor_hint": "Share an explicit external-write receipt and reconciliation contract across tracker, publication and feedback workflows.",
+      "limits": "Frozen-source failure-contract analysis only; no ticket creation, retry, network failure injection or production mutation. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3454,7 +3479,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidate46 reconciled.13 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidate43 reconciled.12 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3711,6 +3736,13 @@
       "finding": "skills-prompts-cont-52",
       "reason": "Local-only broad staging is a concrete scope gap.",
       "subconcerns": "CI-decided with durable residuals and no-remote local completion are explicit policy exceptions, not evidence that CI is falsely reported green. Changed-file gate may refer to already implemented branch changes; step27 expressly permits evidence-only idempotent retry, so no forced reimplementation proven. Step6 opening-PR reference is stale but checks actual PR existence; no independent wrong-PR behavior established. Preserve richer completion states as a rewrite requirement."
+    },
+    {
+      "id": "skills-prompts-candidate-43",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-53",
+      "reason": "Stable finding identity exists but failure handling never reconciles ambiguous writes before retry/fallback.",
+      "subconcerns": "Autonomous residual filing is an explicit caller policy, not merge approval or proof a high-severity defect is accepted as safe. Aiur operating constraints and user authority still apply; no separate severity-policy defect promoted. Source-specific ce-work duplicate should be grouped during semantic dedup."
     }
   ],
   "coverage_validation": {
@@ -3723,8 +3755,8 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 29,
-    "unresolved_candidates": 13,
+    "terminal_dispositions": 30,
+    "unresolved_candidates": 12,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
@@ -3737,7 +3769,6 @@
       "skills-prompts-candidate-39",
       "skills-prompts-candidate-40",
       "skills-prompts-candidate-41",
-      "skills-prompts-candidate-43",
       "skills-prompts-candidate-44"
     ],
     "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."

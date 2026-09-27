@@ -810,3 +810,7 @@ Candidate33 resolved: interview accepts error/latency preferences expressly unsu
 ### Skills/prompts: local-only shipping ownership
 
 Candidate46 resolved: no-remote fallback uses git add -A instead of task-owned staging. CI residual and local-only DONE paths are explicit exceptions, not false green claims; evidence-only idempotent retry is explicitly supported. Findings52 (32P2/20P3);13 listed candidates unresolved. No LFG execution or production mutation.
+
+### Skills/prompts: ambiguous tracker writes
+
+Candidate43 resolved: retry/fallback does not distinguish rejected creation from committed write with lost response, despite a stable finding fingerprint in ticket metadata. Residual filing does not itself authorize merge, so no separate severity acceptance finding. Findings53 (33P2/20P3);12 listed candidates unresolved. No external ticket creation or failure injection.
