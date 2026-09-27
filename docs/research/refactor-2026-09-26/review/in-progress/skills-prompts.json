@@ -1005,6 +1005,48 @@
       "lines": 247,
       "read": "full",
       "assessment": "Complete-content coverage through previously fully read code-review references/personas/learnings-researcher.md plus complete one-hunk diff: only invocation-contract paragraph differs. Ideation expands institutional evidence across bug, architecture, convention and workflow learnings without claiming current defects. No corpus search invoked."
+    },
+    {
+      "path": ".claude/skills/ce-optimize/SKILL.md",
+      "sha256": "a2f4a0c25ec21cda6e715b2520d9ae027388c03c35251405a2150e114d0241cd",
+      "lines": 667,
+      "read": "full",
+      "assessment": "Full667 lines read in four bounded ranges. Preserve immutable harness/data, clean in-scope tree, baseline approval, repeated measurements, declared shared resources, bounded dispatch, immediate write/read-back checkpoints and combined-change remeasurement. Local ignored logs do not travel with commits. Follow-ups25-27 cover persistence claims, runner-up commit and budget/direction rules; no optimization invoked. Schema/script searches are targeted supporting evidence, not full-file coverage."
+    },
+    {
+      "path": ".claude/skills/ce-optimize/references/experiment-prompt-template.md",
+      "sha256": "fc3db54f99d60cd4ff440974f606c6afc9d743131bfeb01d0e0d4589a1040654",
+      "lines": 89,
+      "read": "full",
+      "assessment": "Full89 lines read. Worker implements only within mutable scope, cannot edit evaluator, measure, commit or install unapproved dependencies. Orchestrator owns measurement and winner commit. Same template applies to both delegation backends; template alone does not establish worktree isolation for Codex backend. No worker dispatched."
+    },
+    {
+      "path": ".claude/skills/ce-optimize/references/judge-prompt-template.md",
+      "sha256": "423423690dbef08e75bc4c27d9255076e641f3b0ab13eb27c3f9281d58197801",
+      "lines": 110,
+      "read": "full",
+      "assessment": "Full110 lines read. Independent per-item rubric scoring, complete item coverage and ambiguity flags; singleton judgment uses cluster titles/themes only. Structured JSON request is not output validation or calibration evidence. Sampled content lacks explicit untrusted-data instruction here; retain for evaluator-boundary reconciliation, not proof of exploitable injection. No judge run or score claimed."
+    },
+    {
+      "path": ".claude/skills/ce-optimize/references/usage-guide.md",
+      "sha256": "87976654dfc241c51504c6e04639c6d067c7a01739b37b2678da6fa4565c96ee",
+      "lines": 127,
+      "read": "full",
+      "assessment": "Full127 lines read. Harness repeatability and guarding against degenerate proxy improvements are essential. Small first-run samples/caps validate method, not population performance. Example baseline memory, issue counts and budget values are illustrative, not Aiur observations. Per-experiment database isolation explicitly recommended."
+    },
+    {
+      "path": ".claude/skills/ce-optimize/references/agents/repo-research-analyst.md",
+      "sha256": "6c5e4301e814b20da95d6caea2257286ceca5016ad07f53f05504377361dda21",
+      "lines": 258,
+      "read": "full",
+      "assessment": "Full258 lines read in two ranges. Scoped research should target current owning code, with bounded manifest and monorepo scan only when applicable. Explicit rules and observed patterns remain distinct; path evidence and decision-changing findings required. Later shorthand API/data skip headings are narrower than initial structural-signal guard, but full earlier conditional gives intended exception. No repository-wide scan invoked."
+    },
+    {
+      "path": ".claude/skills/ce-optimize/references/agents/learnings-researcher.md",
+      "sha256": "48aad27f09f04c024483d469fa0a7ee99f00bfd1988781304abb221bd0c26b85",
+      "lines": 247,
+      "read": "full",
+      "assessment": "Complete content covered by previously reviewed ideation copy plus complete one-paragraph invocation diff. Optimization contract asks for benchmark methods, prior attempts, bottlenecks, regression traps and safe experiment constraints across the full learning corpus. Historical measurements are inputs, not current saving evidence."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1474,7 +1516,13 @@
     "Full121 lines read. Search orientation is not claim evidence; fetch primary sources, distinguish recency from authority and independent corroboration from repeated pages. Explicit untrusted content boundary and actual-used-source list retained. Hardcoded year is snapshot-time context, not live freshness verification. No web request executed.",
     "Full200 lines read. Bounded samples and 500-character bodies support tentative themes, not population prevalence or established root cause. Preserve actual returned counts and source mix. Candidate23 questions closed/open theme overlap as recurrence proof, closed-only as solved, and mandatory trend labels from capped samples. Remote resolution without explicit repo arguments extends existing target-provenance question; no GitHub operation executed.",
     "Full127 lines read. Opt-in parent dispatch, bounded thread reads, no DMs, read-only tools and untrusted message boundary retained. Silence/brief replies are interpretive signals, not authorization. Authenticated read access does not establish permission to publish private-channel material; this research neither accessed Slack nor copied private content.",
-    "Complete-content coverage through previously fully read code-review references/personas/learnings-researcher.md plus complete one-hunk diff: only invocation-contract paragraph differs. Ideation expands institutional evidence across bug, architecture, convention and workflow learnings without claiming current defects. No corpus search invoked."
+    "Complete-content coverage through previously fully read code-review references/personas/learnings-researcher.md plus complete one-hunk diff: only invocation-contract paragraph differs. Ideation expands institutional evidence across bug, architecture, convention and workflow learnings without claiming current defects. No corpus search invoked.",
+    "Full667 lines read in four bounded ranges. Preserve immutable harness/data, clean in-scope tree, baseline approval, repeated measurements, declared shared resources, bounded dispatch, immediate write/read-back checkpoints and combined-change remeasurement. Local ignored logs do not travel with commits. Follow-ups25-27 cover persistence claims, runner-up commit and budget/direction rules; no optimization invoked. Schema/script searches are targeted supporting evidence, not full-file coverage.",
+    "Full89 lines read. Worker implements only within mutable scope, cannot edit evaluator, measure, commit or install unapproved dependencies. Orchestrator owns measurement and winner commit. Same template applies to both delegation backends; template alone does not establish worktree isolation for Codex backend. No worker dispatched.",
+    "Full110 lines read. Independent per-item rubric scoring, complete item coverage and ambiguity flags; singleton judgment uses cluster titles/themes only. Structured JSON request is not output validation or calibration evidence. Sampled content lacks explicit untrusted-data instruction here; retain for evaluator-boundary reconciliation, not proof of exploitable injection. No judge run or score claimed.",
+    "Full127 lines read. Harness repeatability and guarding against degenerate proxy improvements are essential. Small first-run samples/caps validate method, not population performance. Example baseline memory, issue counts and budget values are illustrative, not Aiur observations. Per-experiment database isolation explicitly recommended.",
+    "Full258 lines read in two ranges. Scoped research should target current owning code, with bounded manifest and monorepo scan only when applicable. Explicit rules and observed patterns remain distinct; path evidence and decision-changing findings required. Later shorthand API/data skip headings are narrower than initial structural-signal guard, but full earlier conditional gives intended exception. No repository-wide scan invoked.",
+    "Complete content covered by previously reviewed ideation copy plus complete one-paragraph invocation diff. Optimization contract asks for benchmark methods, prior attempts, bottlenecks, regression traps and safe experiment constraints across the full learning corpus. Historical measurements are inputs, not current saving evidence."
   ],
   "follow_up_candidates": [
     {
@@ -1556,9 +1604,21 @@
     {
       "id": "skills-prompts-candidate-24",
       "question": "Reconcile strict requested-scope generation rule with post-ideation scope-overrun exception allowed by basis alone. Does explicit user scope remain binding during arbitration? No actual scope expansion executed."
+    },
+    {
+      "id": "skills-prompts-candidate-25",
+      "question": "Reconcile optimization persistence guarantees with append-only YAML plus in-place outcome/best updates, cleanup deleting strategy-digest despite resume reliance, and merge/cleanup occurring before aggregate finalization. Inspect crash recovery schema and helpers before finding promotion; read-back verification alone does not prove atomic crash safety."
+    },
+    {
+      "id": "skills-prompts-candidate-26",
+      "question": "Optimization workers must not commit, parent commits only the winning experiment explicitly, then cherry-picks runners-up. Verify runner-up commit prerequisite, Codex worktree binding and immutable-scope verification in helpers before promoting integration/isolation gaps."
+    },
+    {
+      "id": "skills-prompts-candidate-27",
+      "question": "Optimization checks max cost/iterations/hours after whole batch; inspect schema and helpers for pre-dispatch reservations or remaining-budget limits. Reconcile judge maximize-only comparison wording with allowed metric directions and combined-result noise/gate rules. No budget overshoot or wrong winner reproduced."
     }
   ],
-  "next": "Continue remaining manifest markdown after ce-ideate. Coverage 143/250 full files, 22330/36169 lines. Nine provisional P2 and four P3 findings; twenty follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-plan markdown; reconcile optimization candidates25-27 against helpers/schema during follow-up pass. Coverage 149/250 full files, 23828/36169 lines. Nine provisional P2 and four P3 findings; twenty-three follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",

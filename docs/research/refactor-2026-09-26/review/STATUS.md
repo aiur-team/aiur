@@ -698,3 +698,7 @@ Covered six more files: four full source reads and two renderer copies verified 
 ### Skills/prompts: ideation recommendation and research contracts
 
 Completed seven remaining ideation references: six direct full reads and one previously reviewed learning prompt plus its complete single-paragraph invocation diff. Coverage 143/250 files, 22,330/36,169 lines. Promoted cache-session eligibility mismatch to provisional P3; retention rules confirm no session or timestamp eligibility despite session-only reuse claim. No stale output or model execution claimed. Added sampling/recurrence and scope-arbitration questions. All 143 hashes and line counts verified; truncated universal-reference middle replaced with bounded read. No network research, Slack access, publication or production change. Raw units remain28/32.
+
+### Skills/prompts: optimization measurement and persistence
+
+Completed six optimization markdown files: five direct full reads and one verified single-paragraph diff against an already reviewed learning prompt. Coverage 149/250 files, 23,828/36,169 lines. Preserve immutable evaluators, repeated baselines, scoped worker authority, immediate durable result recording and combined-change remeasurement. Added persistence/recovery, runner-up integration and budget/direction questions for helper/schema reconciliation; no finding promoted and no optimization executed. Targeted helper/schema searches are not full coverage. All 149 source hashes/line counts verified. Raw units remain28/32; next ce-plan markdown.
