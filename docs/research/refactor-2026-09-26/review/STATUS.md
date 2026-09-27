@@ -846,3 +846,7 @@ Candidate20 narrowed to a P3 documentation finding: doc-review's no-material-exp
 ### Skills/prompts: capacity and listener instructions
 
 Candidate07 reconciled against frozen CLI override storage, lifecycle/slot precedence, dispatch load gate and listener registry/renderer. Explicit CLI cap wins;1.5 times16online schedulers is24; registry has26bindings versus prose24. No launch or live-capacity observation. Findings70 (45P2/25P3);40/42 candidates resolved,2 remain. Cross-claim dedup still required.
+
+### Skills/prompts: Decision and readiness reconciliation
+
+Final candidates01/04 resolved against frozen ToolExecutor, DecisionAttention, DecisionStore/projection and merged-blocker delivery. Three P2 instruction mismatches: legacy options discarded, merged readiness excluded by unblocked-only shorthand, and dismissed-request resolution lacks an answer action. No live failure asserted. Findings73 (48P2/25P3);42/42 candidates reconciled. The unit remains in progress pending semantic dedup, source/manifest consistency audit and raw closure.

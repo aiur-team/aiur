@@ -3443,6 +3443,97 @@
       "recommendation": "Use the current expected binding set rather than duplicating its count in prose.",
       "refactor_hint": "Generate operational facts from configuration and binding contracts instead of copying examples.",
       "limits": "Frozen-source verification only; no live launch, capacity measurement or missing-listener incident. Cross-claim semantic dedup remains pending."
+    },
+    {
+      "id": "skills-prompts-cont-71",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Legacy question recipes bypass structured Decision choices",
+      "locations": [
+        {
+          "path": "src/prompts/shared-agent-instructions.md",
+          "lines": "105-111"
+        },
+        {
+          "path": ".claude/skills/aiur-agent/attention-and-resolve.md",
+          "lines": "15-23"
+        },
+        {
+          "path": ".claude/skills/aiur-agent/SKILL.md",
+          "lines": "68-71"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "747-775"
+        },
+        {
+          "path": "src/lib/aiur/decision_attention.ex",
+          "lines": "285-305"
+        }
+      ],
+      "description": "The main skill requires decision.requested with clickable options before an operator-question pause. The shared prompt permits attention.operator-decision or an operator_decision pause instead; the attention reference supplies alternatives only in an attention payload. That route projects an option-less legacy Decision rather than the requested structured choice.",
+      "evidence": "ToolExecutor ignores the attention payload when opening the legacy attention; operator-decision pauses carry the question into the same path. DecisionAttention projects options:[] and blocking:false; DecisionValidation preserves an empty option list. No implicit default A/B option conversion repairs the mismatch.",
+      "recommendation": "Use decision.requested for bounded choices and reserve legacy attention recipes for informational/compatibility use; distinguish pause state from Decision blocking semantics.",
+      "refactor_hint": "Keep one typed contract for readiness evidence and Decision lifecycle; generate prompt guidance from it.",
+      "limits": "Source-level data-flow finding, not a live lost question. Legacy attention projection intentionally preserves visibility and does not itself gate dispatch; compatibility is useful and should remain explicit. Semantic dedup remains pending."
+    },
+    {
+      "id": "skills-prompts-cont-72",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Unblocked-only instructions exclude merged dependency readiness",
+      "locations": [
+        {
+          "path": "src/prompts/shared-agent-instructions.md",
+          "lines": "88-104"
+        },
+        {
+          "path": ".claude/skills/aiur-agent/SKILL.md",
+          "lines": "81-84"
+        },
+        {
+          "path": ".claude/skills/aiur-agent/stub-then-fetch.md",
+          "lines": "25-35"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_subscriptions.ex",
+          "lines": "350-369"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "430-452"
+        }
+      ],
+      "description": "The instructions say to resume only on explicit agent.unblocked. The runtime also treats a declared blocker's pr.merged as readiness, delivers it at checkpoints and resumes or retains readiness for a matching dependency-pause generation. An Executor merge need not be followed by an agent unblock.",
+      "evidence": "Read merge-critical delivery and the matching-pause auto-resume path. The merge event advances the base and is deliberately sufficient on the Executor-driven path; a raw branch push remains only an inspection cue.",
+      "recommendation": "Describe both validated-unblock and corroborated-merge readiness, including the correct base/ref to inspect for each.",
+      "refactor_hint": "Keep one typed contract for readiness evidence and Decision lifecycle; generate prompt guidance from it.",
+      "limits": "Frozen-source contract mismatch, not a newly reproduced stuck ticket. Runtime repair comments describe a prior incident but are not independent incident verification. Preserve the no-readiness-from-push rule. Semantic dedup remains pending."
+    },
+    {
+      "id": "skills-prompts-cont-73",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Dismissal recipe requests a resolution without a durable answer",
+      "locations": [
+        {
+          "path": ".claude/skills/aiur-agent/emit-and-subscribe.md",
+          "lines": "227-231"
+        },
+        {
+          "path": "src/lib/aiur/decision_store.ex",
+          "lines": "1740-1769"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "442-460"
+        }
+      ],
+      "description": "The skill instructs an agent told that a Decision was dismissed to perform work and emit decision.resolved with correlation when available. Store dismissal of open/deferred notices only records dismissed state; it supplies no answer action. Resolution requires an active answer and prior acknowledgment. Agent-filed blocking Decisions cannot be dismissed at all.",
+      "evidence": "Traced dismissal guard and persistence plus lifecycle projection requirements. A separate operator instruction may authorize work, but dismissal by itself cannot provide the answer/action needed by the instructed lifecycle call.",
+      "recommendation": "Separate dismissed-notice handling from delivered-answer acknowledgment/resolution; require an actual correlated answer for Decision lifecycle events.",
+      "refactor_hint": "Keep one typed contract for readiness evidence and Decision lifecycle; generate prompt guidance from it.",
+      "limits": "Source-level protocol mismatch. No live dismissal or rejected event executed; do not infer lack of operator authority from lack of Decision correlation. Semantic dedup remains pending."
     }
   ],
   "preserve": [
@@ -3868,7 +3959,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All 250 files read; 40/42 candidates resolved. Two remain: attention/pause contracts and readiness delivery. Semantic dedup and raw-unit closure still pending.",
+  "next": "All 250 files read and all 42 candidates reconciled. Complete semantic dedup, source/manifest consistency audit and raw-unit closure; then update inventory without treating provisional counts as final unique findings.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -4223,6 +4314,25 @@
       ],
       "reason": "Frozen runtime contradicts cap precedence, threshold example and binding count.",
       "subconcerns": "Static cap does not establish achieved concurrency;26bindings is not unhealthy because prose says24. Prior claim reconciliation may overlap these facts; final synthesis must count each defect once."
+    },
+    {
+      "id": "skills-prompts-candidate-01",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-71"
+      ],
+      "reason": "Traced legacy projection: payload alternatives do not become structured options.",
+      "subconcerns": "Legacy notices intentionally project nonblocking with no options; do not call that compatibility behavior a runtime bug or equate it with the separate pause gate."
+    },
+    {
+      "id": "skills-prompts-candidate-04",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-72",
+        "skills-prompts-cont-73"
+      ],
+      "reason": "Merged dependencies are readiness signals; dismissed notices lack answer correlation required by resolution.",
+      "subconcerns": "Do not weaken ref/SHA validation for unblocks or treat branch.push alone as readiness. Explicit operator prose can authorize work independently of a Decision answer."
     }
   ],
   "coverage_validation": {
@@ -4235,12 +4345,9 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 40,
-    "unresolved_candidates": 2,
-    "unresolved_ids": [
-      "skills-prompts-candidate-01",
-      "skills-prompts-candidate-04"
-    ],
+    "terminal_dispositions": 42,
+    "unresolved_candidates": 0,
+    "unresolved_ids": [],
     "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."
   }
 }
