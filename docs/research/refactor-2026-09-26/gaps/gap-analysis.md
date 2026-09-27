@@ -263,7 +263,7 @@ use the CSV duration-weighted column for a bounded fraction.
 |---|---|---|---:|---|---|
 | 1 | aiur | 08-25 23:04 → 09-01 06:26 | 151.3621 | model d; historical attendance 0.004 | The classifier extends an unresolved starvation record across an event-ID group and gives it precedence over waiting work. Continuous daemon uptime and operator absence are unproved. Label replay: 12 human-review issues, 5 rework, 1 paused, 3 ci-wait, 1 todo (#2394, already linked to open PR #2396). Positive dispatch eligibility and historical decision holds are not independently established. See the largest-gap attribution audit; neither d nor a replacement b allocation is a measured cause. |
 | 2 | private-multisig (private) | withheld | 144.4 | e | private — omitted (daemon up, nothing queued; ended by the host crash) |
-| 3 | aiur | 09-20 02:04 → 09-22 15:42 | 61.6 | b (50.9 h) + c (10.5 h) | Labels: human-review 9 (#2751 and #2749 fresh, #2668 at 71 h, others up to 17 days), paused 10, error 4. The rework tickets #1767, #2245 and #2413 were `Dispatch declined for 1767: :blocked_on_decision.` on decisions pending since 08-21/22 (`ticket.agent.attention.operator-decision` 08-22T02:17Z). Alert 09-21T02:01Z: *"PR #2752 … has been open 24 hours with no review — it is unseen, not blocked."* On 09-20 from 07:26Z to 22:27Z, the aiur Executor session was steering background agents on an unrelated side project (a browser game), so the result is c. After 22:27Z nobody was present. The host crashed at 09-22T15:41:37Z (§6). |
+| 3 | aiur | 09-20 02:04 → 09-22 15:42 | 61.6 | b (50.9 h) + c (10.5 h) | Labels: human-review 9 (#2751 and #2749 fresh, #2668 at 71 h, others up to 17 days), paused 10, error 4. The rework tickets #1767, #2245 and #2413 were `Dispatch declined for 1767: :blocked_on_decision.` on decisions pending since 08-21/22 (`ticket.agent.attention.operator-decision` 08-22T02:17Z). Alert 09-21T02:01Z: *"PR #2752 … has been open 24 hours with no review — it is unseen, not blocked."* On 09-20 from 07:26Z to 22:27Z, the aiur Executor session was steering background agents on an unrelated side project (a browser game), so the result is c. The selected Executor transcript coverage ends at 22:27Z; this does not establish operator absence. The host interruption is discussed in §6; the exact crash time is unproved. |
 | 4 | khala | 09-20 03:34 → 09-22 15:42 | 60.1 | model b/c; causal duration unverified | Six dependency declines are recorded at 01:08Z, when ticket 42 also starts. After 42 closes, the recorded graph and replayed closure state reduce to paused #41 as the open root outside tickets 43, 44, 45, 47, 48 and 49. The handoff requires provisioned live-proof inputs plus code/test changes and rebasing. Twenty-three credential attentions occur about 15 minutes apart. A later sample reports effective capacity 12 and occupied 0 but omits load fields. This supports a finite dependency bottleneck, not continuous whole-fleet causality or attribution of later host downtime. |
 | 5 | aiur | 09-18 11:40 → 09-19 17:59 | 30.3 | b | Labels: human-review 5 (#2668 at 33 h, #2633/#2610/#2394 at about 175 h, #2519 at 363 h), paused 12, error 4, 3 decision-blocked. Executor 8 active minutes in 30 h. Alert: *"PR #2736 (Provision deletion guards in workspaces) has been open 24 hours with no review — it is unseen, not blocked."* It ended with an Executor control command at 09-19T17:59Z. |
 | 6 | aiur | 08-20 05:57 → 08-21 02:38 | 20.7 | d | Model assigned d; a later point diagnosis supports a prewarm defect but not the whole interval. In event-ID group `1787205471` (not a verified boot): `system.fleet.capacity.starved` at 06:18Z was never resolved, and `system.dispatch.prewarm_blocked` has 71 blocked and 70 resolution records; 70 ordered pairs plus one unclosed block, with variable durations. This signal alone does not prove the absorbing-state defect caused the whole gap. No Executor session existed until 08-21T02:40Z (*"read recent handoff /aiur-handoff"*). A later successful tool result on 08-21T18:42Z reports: *"Ready tickets=31, live agents=0, effective cap=1, dispatch constraints=prewarm build (prewarm=checking)"*. |
@@ -355,7 +355,7 @@ Other sources for the same question:
 
 | Repo | Down from → to (UTC) | h | Cause |
 |---|---|---:|---|
-| khala, aiur; 1 additional repo (private) | 09-22 15:42 → khala 09-24 18:48 | **51.1** (khala) | **Host crash.** The host journal's boot −1 ended at `Tue 2026-09-22 08:41:37 PDT`, and `last -x` shows no clean shutdown. Both public daemons' telemetry stops at 15:42Z; one additional daemon (private) is counted in the same failure category. The next boot was 09-24T17:30Z (10:30 PDT). khala was restarted 78 min after boot. **aiur had not been restarted at the report cutoff.** |
+| khala; concurrent public Aiur telemetry interruption | 09-22 15:42 → khala 09-24 18:48 | **51.0999** | Last Khala telemetry to explicit next daemon start. Prior boot journal ends 15:41:37Z, while Aiur/Khala telemetry continues about 30 seconds later; an exact crash time is unproved. Missing clean shutdown is consistent with unclean termination. Next host journal begins 09-24T17:30:51Z; Khala daemon start is 18:48:04.293177Z, 77.2216 min later. The retained post-boot census identifies six Khala runs and three brief unidentified streams, with no identifiable Aiur restart before cutoff. |
 | aiur | 09-04 00:18 → 09-09 21:53 | 141.6 | Not run; the Executor was on architecture-docs/archon |
 | aiur | 09-11 05:54 → 09-16 15:34 | 129.7 | Not run |
 | aiur | 09-01 06:26 → 09-02 01:55 | 19.5 | Not run (end of gap 1) |
@@ -365,14 +365,23 @@ Other sources for the same question:
 
 **The reported "khala down 4.6 days"** is 09-20T03:34Z (last progress, PR #109 merged) to 09-24T18:59Z
 (next progress, PR #131 *"Add a public splash page at khala.aiur.team"* by the Executor), which is 111.4 h.
-It has three parts:
-* 60.1 h in-run: the daemon was up and healthy, with 12 slots and 0 occupied (`fleet_agents_effective 12, occupied 0` in the 09-22 heartbeat). It was blocked behind paused #41, which needed operator credentials (gap 4).
-* 51.1 h daemon down: 49.8 h of host downtime, then 78 min until the restart.
-* 11 min until the first progress.
+The retained observations divide that elapsed time into:
 
-Nobody noticed the stall or the crash: no Executor session was active from 09-20T22:27Z to
-09-24T17:38Z. When the operator came back, the first work was the khala production setup and splash
-page, not #41.
+* About 60.1 h before the telemetry interruption. The finite dependency graph
+  points to paused #41, but one effective-capacity sample does not establish
+  continuous health or the cause of every minute (gap 4).
+* 51.0999 h from the last Khala telemetry to its next explicit daemon start.
+  The old journal endpoint to the next boot's first entry is 49.8206 h; this
+  bounds an observation gap, not a measured exact host-off duration.
+* Roughly 11 min from the recorded restart to the selected next progress event.
+
+The selected Executor transcript coverage has a long gap, but does not prove
+that nobody noticed or that no other notification reached an operator.
+The frozen launcher already records unexpected BEAM exits and reaps agents;
+it does not restart the daemon or survive a host failure. Current named-unit
+inspection is not a historical configuration audit. See
+[supporting evidence](../synthesis/host-downtime-evidence.json) for the restart
+record, directory census and unresolved notification/supervision questions.
 
 ---
 
@@ -449,8 +458,11 @@ attended idle time is mostly (c) and (e): the human is there, working on another
    circular-wait alerts cover a narrower case; assess remaining summary gaps
    before adding another alert. The interval contains 40 operator-decision and
    39 usage-limit wakes, which supports investigating repetition and resolution.
-2. **Daemon liveness has no owner.** A host crash stopped three daemons for 51 h, and nothing restarted
-   them or told anyone. Two of them are still down.
+2. **Define recovery ownership across host failure.** The retained Khala interruption
+   spans 51.0999 h. Existing BEAM-death reporting and cleanup do not restart a
+   daemon after host failure. Establish intended reboot recovery and independent
+   notification behavior, while preserving deliberate stops; historical absence
+   of every supervisor or delivered notification has not been proved.
 3. **Measure recovery from Executor inactivity and limits.** The strict pooled
    associations are about 2.0× for silence and 6.8× for recorded limit windows,
    with shared-input and cross-repository confounding. They do not establish

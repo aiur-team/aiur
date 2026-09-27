@@ -1,0 +1,25 @@
+{
+  "verdicts": [
+    {
+      "id": "gaps-07",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "High for retained journal and telemetry timestamps, restart arithmetic, directory census and frozen watchdog contract; unresolved for exact crash cause, historical supervision and notification delivery.",
+      "corrected_claim": "Khala last telemetry to the explicit subsequent daemon start spans 51.0999 hours. The next boot first journal entry precedes that start by 77.2216 minutes, not an exact 78 minutes. The prior boot journal ends at 15:41:37Z, but public daemon telemetry continues until 15:42:04/07Z; therefore the journal endpoint is not an exact simultaneous crash timestamp. Missing clean shutdown is consistent with unclean host termination. Six post-boot retained runs through the original cutoff identify Khala; three brief telemetry-only streams lack a repository identity. No identifiable Aiur restart is found in that bounded census. Current unit inspection finds a supervised Stream Deck service and no named daemon service, while the frozen launcher already has a BEAM-death watchdog for crash evidence and cleanup, without restart behavior.",
+      "method": "Journal boot inventory and wtmp reboot/shutdown inspection; explicit daemon_restart record and final public daemon telemetry; post-boot directory identity census; scoped current service inventory; frozen launcher inspection.",
+      "note": "Reject the compound claim of exact crash time, exhaustive restart absence, nobody noticing and no liveness owner. Host-independent monitoring and opt-in reboot recovery remain design questions, with explicit ownership and intentional-stop semantics; do not describe existing BEAM crash reporting as missing. The 51.1-hour interruption is separate from the prior dependency-bound gap.",
+      "unresolved": [
+        "Historical service configuration and any external monitor or delivered notification",
+        "Whether operator/Executor absence can be established beyond selected transcript coverage",
+        "Incident root cause and exact host termination time",
+        "Identity of three brief telemetry-only streams and any deleted or unlogged run"
+      ],
+      "evidence_artifacts": [
+        "synthesis/host-downtime-evidence.json",
+        "synthesis/dependency-gap-evidence.json"
+      ],
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

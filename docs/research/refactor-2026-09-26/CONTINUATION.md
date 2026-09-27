@@ -1094,3 +1094,15 @@ Canonical synthesis/dependency-gap-evidence.json now records exact wake counts o
 ### gaps-06 verified with corrections
 
 Added both-lens verdict and corrected gap rows 4/10 and refactor implication. Exact September 25 graph replay finds 60 todo, eight review; all todo have open/unresolved dependencies. External frontier: seven review issues, paused 41, in-progress 201, parked 236, unresolved external 2786. Extracted timeline lacks external blocker edges and scope; do not claim complete root census. 59/60 was episode-level decline classification, not contemporaneous gating census. Exact interval 9.8374267 h and 40/39 attentions retained. Remaining claims codebase-07, gaps-07, meta-07.
+
+
+### gaps-07 host interruption evidence in progress
+
+Canonical synthesis/host-downtime-evidence.json captures journal/wtmp and unit inspections with private raw outputs under scratch/host-downtime (0600). Last old journal 15:41:37Z precedes public daemon final telemetry 15:42:04.538694/15:42:07.331273Z, so do not call it exact crash time. Current units include enabled Stream Deck with restart-on-failure, no named daemon unit; historical supervision remains unknown. Frozen launcher has a BEAM-death crash-recording/reaping watchdog but no restart action. Finish run identity/notification/absence scope and claim verdict; do not publish raw host journal or host identifiers.
+
+Restart timing uses explicit daemon_restart.attributes.daemon_started_at, not minimum event timestamp: the new run includes replayed September19 lifecycle timestamps. Verified daemon start September24 18:48:04.293177Z, 77.2216 minutes after first host journal and 51.0999 hours after last Khala telemetry.
+
+
+### gaps-07 verified with corrections
+
+Added both-lens verdict and corrected downtime report. Six identified Khala runs plus three brief telemetry-only streams after boot through original cutoff; no identifiable Aiur restart, not exhaustive nonexistence. 51.0999 h last telemetry to explicit restart; 77.2216 min first host journal to restart. Journal endpoint is not exact crash time. Existing launcher watchdog records/reaps without restarting. Historical configuration, external delivery and operator awareness remain unresolved. Remaining claims codebase-07 and meta-07.
