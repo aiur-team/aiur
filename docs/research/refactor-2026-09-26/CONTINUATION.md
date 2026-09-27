@@ -1719,3 +1719,7 @@ Read unsafe_control_chars?, unsubscribe, value_of, command and counts: 53 litera
 ### Name duplication: dispatch, alerts and candidate authority
 
 Read dispatch, emit_alert and fetch_candidate_issues: 53 literal entries across three families. Queue start-failure policies differ between coordination retry and decision-dispatch terminal notification. Preserve decision correlation, webhook admission and mutable candidate-label authority. Recent-merge and webhook delivery alert wrappers share narrow callback mechanics with distinct diagnostic labels. Name triage now 116 families/3617 entries, leaving 1564 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
+
+### Name duplication: flush, lifecycle and observation semantics
+
+Read flush, identity_key, latest, lifecycle, map_value, observed_at, path_for and percent: 107 literal entries across eight families. Distinguish persistence from message/UI flush, credential from tracker identity, timestamp tie policies, lifecycle precedence and observation authority. Four strict percentage validators are equivalent sharing candidates; clamping, ratio calculation and formatting remain separate. Name triage now 124 families/3724 entries, leaving 1556 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
