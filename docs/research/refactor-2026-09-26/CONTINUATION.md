@@ -1863,3 +1863,7 @@ Read filter, finalize, forget, freshness_status, from_json_safe and groups: 43 l
 ### Name duplication: notification and formatting policies
 
 Read handle_notification, handle_params, hostname, initial_state, integer and iso8601: 40 literal entries across six families. Identify equivalent hostname readers while preserving provider redaction/continuity, route scope effects, unknown initialization, numeric parsing and timestamp precision. Name triage now 319 families/5474 entries, leaving 1361 cross-module names. Raw findings and skeptic counts are unchanged; no complete redaction audit, runtime defect or saving is claimed.
+
+### Name duplication: live authority and merge policy
+
+Read kind, live?, mark_reconciled, max_concurrent_agents, member? and merge: 32 literal entries across six families. Preserve supplier failure scope, lease/process/UI liveness distinctions, reconciliation notification policy, live capacity authority, opposite unavailable-ETS membership defaults and domain merge ordering. Name triage now 325 families/5506 entries, leaving 1355 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect, complete reconciliation or saving is claimed.

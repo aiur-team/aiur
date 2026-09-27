@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "89f9d8914014cc051af4d5966e4b3b6dc5b9db8f38a16114ed77c0bb3bfac57f"
+    "name_triage": "663ea31c12f859a15722026082b62584ac2ecf508e505c45be0ae6496c127da1"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 319,
-    "remaining_cross_module_names": 1361,
-    "remaining_literal_entries": 4794
+    "reviewed_cross_module_names": 325,
+    "remaining_cross_module_names": 1355,
+    "remaining_literal_entries": 4762
   },
   "families": [
-    {
-      "name": "kind",
-      "clauses": 6,
-      "modules": 4,
-      "summed_source_span_lines": 28
-    },
-    {
-      "name": "live?",
-      "clauses": 6,
-      "modules": 4,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "mark_reconciled",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 23
-    },
-    {
-      "name": "max_concurrent_agents",
-      "clauses": 6,
-      "modules": 4,
-      "summed_source_span_lines": 19
-    },
-    {
-      "name": "member?",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "merge",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 53
-    },
     {
       "name": "new_state",
       "clauses": 4,

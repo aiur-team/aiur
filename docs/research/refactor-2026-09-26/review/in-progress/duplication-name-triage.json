@@ -70716,10 +70716,486 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "kind",
+      "assessment": "Kind helpers combine credential classification with different supplier fallback policies.",
+      "constraints": [
+        "CredentialRegistry maps app_installation and human explicitly, defaulting all other inputs to machine_user. The default alone does not prove the original cause or credential identity.",
+        "AnalyticsLive and StreamdeckLive both stringify atom/binary supplier values and otherwise fall back, but AnalyticsLive catches all kinds in addition to rescue while StreamdeckLive only rescues.",
+        "GithubCacheLive returns the supplier value without type normalization and falls back for exceptions/exits only. Shared supplier mechanics must retain accepted types and catch scope; the meaning of an unknown credential classification requires separate provenance review."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 166,
+          "module": "Aiur.GitHub.CredentialRegistry",
+          "name": "kind",
+          "path": "src/lib/aiur/github/credential_registry.ex",
+          "kind": "defp",
+          "end_line": 166,
+          "body_sha256": "584665e65067914bfccca13959df6a9e22122b7a5074b29c4f793300e47a7d4f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 167,
+          "module": "Aiur.GitHub.CredentialRegistry",
+          "name": "kind",
+          "path": "src/lib/aiur/github/credential_registry.ex",
+          "kind": "defp",
+          "end_line": 167,
+          "body_sha256": "483ab748e195dc76491eb42cc0d1bd95cff41935bfda6951c428ee36af26649b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 168,
+          "module": "Aiur.GitHub.CredentialRegistry",
+          "name": "kind",
+          "path": "src/lib/aiur/github/credential_registry.ex",
+          "kind": "defp",
+          "end_line": 168,
+          "body_sha256": "6719076834b789f1d824c547b762e94daeeff5c63c24df52bb331c00c888e0fe",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 704,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "kind",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 713,
+          "body_sha256": "f6e448140cec9730997ecb40d2829f3c80fc6f494489d997e0b22c405b605465",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1802,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "kind",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 1808,
+          "body_sha256": "2e235fc89c9bd546ad8f3854003339df98c01cb0b653c4b2875277418a18f532",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1791,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "kind",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "kind": "defp",
+          "end_line": 1798,
+          "body_sha256": "5153fc4bea94b3724e95e90c9f070c1d6237d2db411b12682895615651369e5a",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "live?",
+      "assessment": "Liveness names refer to leases, process checks, route type or active-unit policy.",
+      "constraints": [
+        "Executor.Claims parses a lease expiry and requires it strictly after now, otherwise false. HostLock delegates positive stored OS pid liveness to an injected function.",
+        "RouteRegistry checks whether a route map's type is live. UnitsPolicy requires a running runtime bucket and excludes replacement boundaries.",
+        "Do not replace these with a generic liveness predicate: valid lease, process existence and active UI eligibility are different evidence. Process identity strength and clock behavior remain outside the entry-body read."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 197,
+          "module": "Aiur.Executor.Claims",
+          "name": "live?",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "kind": "def",
+          "end_line": 202,
+          "body_sha256": "451d11e6100df01658e736e89e4f3a2d154ec874df67bc990d0a59244839df3b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 204,
+          "module": "Aiur.Executor.Claims",
+          "name": "live?",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "kind": "def",
+          "end_line": 204,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 225,
+          "module": "Aiur.Workspace.HostLock",
+          "name": "live?",
+          "path": "src/lib/aiur/workspace/host_lock.ex",
+          "kind": "defp",
+          "end_line": 225,
+          "body_sha256": "b13e86c9df827c226c5791d5c34e83f55a4701e376a4af1a5ea9c6a78df06b17",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 226,
+          "module": "Aiur.Workspace.HostLock",
+          "name": "live?",
+          "path": "src/lib/aiur/workspace/host_lock.ex",
+          "kind": "defp",
+          "end_line": 226,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 98,
+          "module": "AiurWeb.OperatorControlCenter.RouteRegistry",
+          "name": "live?",
+          "path": "src/lib/aiur_web/operator_control_center/route_registry.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "20e0bae73cc8463e366f008f6deffc39ecf781c9b0d2a14482f89282b8e2cbac",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 97,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPolicy",
+          "name": "live?",
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "kind": "defp",
+          "end_line": 97,
+          "body_sha256": "cc303dd3fc3b436c864573965a232ed47fad6f3892e5969dce4224c792e96d2b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "mark_reconciled",
+      "assessment": "Reconciliation marking is an existing owner/delegate chain with status-change notifications.",
+      "constraints": [
+        "CurrentRunMembership delegates to Store, whose public boundary only accepts fresh or unavailable and calls its owner.",
+        "Reconciler invokes an injected mark function, logging explicit errors and rescued/caught failures, while accepting other returns as no-op success.",
+        "Store.Runtime derives reconciliation status, records clock time on each call and notifies only when status changes.",
+        "Preserve status derivation and notification suppression separately from attempt time. This family does not prove upstream reconciliation completeness or that a logged mark failure reaches the operator."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 53,
+          "module": "Aiur.CurrentRunMembership",
+          "name": "mark_reconciled",
+          "path": "src/lib/aiur/current_run_membership.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "db1dd57fdc465a05dc56da66895f6268be2eb1f9fd80b64e6aa01aa94c3177f7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 124,
+          "module": "Aiur.CurrentRunMembership.Reconciler",
+          "name": "mark_reconciled",
+          "path": "src/lib/aiur/current_run_membership/reconciler.ex",
+          "kind": "defp",
+          "end_line": 134,
+          "body_sha256": "b30c352a386deb1e6581cc525e448c6e262224ed59e6ae3b2d6453de8dee722d",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 68,
+          "module": "Aiur.CurrentRunMembership.Store",
+          "name": "mark_reconciled",
+          "path": "src/lib/aiur/current_run_membership/store.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "7c5dc7ed22fae1f22485504c41c6c2d879bb31d7f5d2a29f4878f1edcc19615f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 40,
+          "module": "Aiur.CurrentRunMembership.Store.Runtime",
+          "name": "mark_reconciled",
+          "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "22d75448c8a5c5da0b4ccaeba753a537169cade2344a8899675fcd0c04f4b5c0",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "max_concurrent_agents",
+      "assessment": "Configured defaults and live capacity reads are separate authority sources.",
+      "constraints": [
+        "Config accepts positive configured integers or uses its default. Orchestrator delegates live capacity queries through Slots.",
+        "Slots calls a located owner with a five-second timeout and returns unavailable for missing owner or exits. SlotPolicy uses a direct one-second owner call without a local catch.",
+        "Preserve runtime authority, unavailable evidence and timeout policy. Replacing live queries with a configured default would lose session overrides and failure information."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 702,
+          "module": "Aiur.Config",
+          "name": "max_concurrent_agents",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 707,
+          "body_sha256": "bd6f86c275132d99992235ee86eeee2a243f59a44b6cfcf25134dffa4db2889d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 127,
+          "module": "Aiur.Opencode.SlotPolicy",
+          "name": "max_concurrent_agents",
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "kind": "def",
+          "end_line": 127,
+          "body_sha256": "5fc558c743305c210bd504ba71a5849cfe6fa29e3db1a8e5b2025dbd46730814",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 534,
+          "module": "Aiur.Orchestrator",
+          "name": "max_concurrent_agents",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 534,
+          "body_sha256": "360fbdf850fc5962130453d1d60e466d7af5d255cdae731ae56ec10d0308c32f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 536,
+          "module": "Aiur.Orchestrator",
+          "name": "max_concurrent_agents",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 536,
+          "body_sha256": "a13806fad49f8ff40884bf7c5a586b27b42d063ee254d39372a0656f0ec15ea7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 10,
+          "module": "Aiur.Orchestrator.Slots",
+          "name": "max_concurrent_agents",
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "kind": "def",
+          "end_line": 10,
+          "body_sha256": "0087f096c91ef970dce62e471cc0220b6063beafe39184b92eea26db24efd829",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 13,
+          "module": "Aiur.Orchestrator.Slots",
+          "name": "max_concurrent_agents",
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "a70e7acb7c0bdbf34c2cb7c661c7431a0388b8709113642c8965720fdd52cd37",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "member?",
+      "assessment": "Membership predicates differ particularly when storage is unavailable.",
+      "constraints": [
+        "DecisionMetrics.Window tests its event-id set. DispatchAuthorization trims/downcases login before allowed-user membership.",
+        "ReadCache.Metrics tests ETS membership and returns false on ArgumentError. TrackedSet returns false for nil but true when its table is missing or ETS raises, otherwise checking the stringified issue number.",
+        "Preserve these opposite unavailable-store policies and authorization normalization. Generic membership would erase whether absent storage broadens or narrows inclusion; caller consequences are not verified by this read."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 20,
+          "module": "Aiur.DecisionMetrics.Window",
+          "name": "member?",
+          "path": "src/lib/aiur/decision_metrics/window.ex",
+          "kind": "def",
+          "end_line": 20,
+          "body_sha256": "19392df5431fec4ac912ec942c6b1510421415e10f33a898019b20616092e476",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 592,
+          "module": "Aiur.GitHub.DispatchAuthorization",
+          "name": "member?",
+          "path": "src/lib/aiur/github/dispatch_authorization.ex",
+          "kind": "defp",
+          "end_line": 593,
+          "body_sha256": "f67d4062896f7a5a24f9b7cb2229b11e3c49b86126fe4b401a609b7ea9b14234",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 157,
+          "module": "Aiur.GitHub.ReadCache.Metrics",
+          "name": "member?",
+          "path": "src/lib/aiur/github/read_cache/metrics.ex",
+          "kind": "defp",
+          "end_line": 161,
+          "body_sha256": "b21f20b6f07bae42ad4a16288069f53ec6dc7f07484757293487d921b6dcadab",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 39,
+          "module": "Aiur.Orchestrator.TrackedSet",
+          "name": "member?",
+          "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+          "kind": "def",
+          "end_line": 39,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 41,
+          "module": "Aiur.Orchestrator.TrackedSet",
+          "name": "member?",
+          "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "7f175be8f6c6d4375e756f0b6d30b2965a1165e39d919c1b44dce05d0f3a292e",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "merge",
+      "assessment": "Merge operations preserve different ordering, deduplication and evidence contracts.",
+      "constraints": [
+        "ResourceStore invokes a caller merge function with the held body and, for the two-argument shape, current version/fetch time/etag metadata.",
+        "ControlLifecycle resolves duplicate request ids using transition ordering, preserves the larger history limit and earliest creation time, rebuilds/trims history and merges daemon events.",
+        "Dataset deduplicates flattened records by record id, sorts, rebuilds actors/tickets/findings and combines warnings/provenance. First occurrence wins before sorting; conflicting duplicate content is not compared in this body.",
+        "Compaction.Floor advances source position/generation by maxima and delegates cell/coverage merging. Keep domain conflict and coverage semantics explicit rather than replacing them with a generic map merge."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 837,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "merge",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 837,
+          "body_sha256": "2211df4ed4bdd6013bbeebe61d90b27893b9fdc0d1a972258bef89b80ed3e2fd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 839,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "merge",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 845,
+          "body_sha256": "99a0e0af11074288178fe5525301489988adf28da4351a57270effaee32de94e",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 419,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "merge",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "kind": "def",
+          "end_line": 436,
+          "body_sha256": "a92f87fb4a2793bf6e61ddeaa4fa301072d92593ec25cfe80649fdd97defd7a2",
+          "normalized_body_lines": 29,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 147,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "merge",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "kind": "def",
+          "end_line": 165,
+          "body_sha256": "55e7aa2085ca11b21201fc07bd67a3149116fc01575e81615a029394ba6203ad",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 95,
+          "module": "Aiur.UsageCompaction.Floor",
+          "name": "merge",
+          "path": "src/lib/aiur/usage_compaction/floor.ex",
+          "kind": "defp",
+          "end_line": 102,
+          "body_sha256": "c8a6f022d45aa7721249364d59918fe3eafb586d87f957c1715bf96507307250",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5474,
-  "limits": "319 selected families and 5474 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5506,
+  "limits": "325 selected families and 5506 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
