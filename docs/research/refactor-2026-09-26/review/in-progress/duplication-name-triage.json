@@ -101123,10 +101123,346 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "configured_interval_ms",
+      "assessment": "Periodic workers use different configuration sources, defaults and diagnostics.",
+      "constraints": [
+        "ViewStateSweep converts configured sweep seconds, logs rescued exceptions and falls back on failures to its verified 15-minute default.",
+        "ProviderMeterRefresh accepts positive integer usage_interval_seconds from settings, otherwise its verified 300000 millisecond default; exceptions/catches also fall back.",
+        "Preserve per-worker validation and diagnostic policy; equal units do not justify a shared cadence or prove live scheduling."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 348,
+          "module": "Aiur.GitHub.ViewStateSweep",
+          "name": "configured_interval_ms",
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "kind": "defp",
+          "end_line": 356,
+          "body_sha256": "bcb7555fee3ca7821e689332b8c8a9db4933acecb268d038969638d1aa3ce961",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 212,
+          "module": "Aiur.ProviderMeterRefresh",
+          "name": "configured_interval_ms",
+          "path": "src/lib/aiur/provider_meter_refresh.ex",
+          "kind": "defp",
+          "end_line": 224,
+          "body_sha256": "6a3a50fc130c6f764bcb7bdbb0a9076349d93bc67f5863da007a9200c80389ab",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "configured_repo",
+      "assessment": "Repository resolution and write-through adapter shaping differ.",
+      "constraints": [
+        "GitHub.Config resolves its explicit repository value with options; zero arity delegates to the opts form.",
+        "WriteThrough calls Transport.parse_repo, expands successful owner/repo tuple into a three-element result and collapses all other outcomes to error.",
+        "Preserve resolution versus result-adapter boundaries and diagnostic loss; underlying fallback/normalization semantics remain transitive."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 54,
+          "module": "Aiur.GitHub.Config",
+          "name": "configured_repo",
+          "path": "src/lib/aiur/github/config.ex",
+          "kind": "def",
+          "end_line": 54,
+          "body_sha256": "0cdc29b11947e5f21a8cb5cf7065b35fa8817d448371d77fa892f615fddbb437",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 67,
+          "module": "Aiur.GitHub.Config",
+          "name": "configured_repo",
+          "path": "src/lib/aiur/github/config.ex",
+          "kind": "def",
+          "end_line": 69,
+          "body_sha256": "5347dafa76a8851dc1b7e4ba329834e440c06af8ecf7ad1a5e1605b249603095",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 328,
+          "module": "Aiur.GitHub.WriteThrough",
+          "name": "configured_repo",
+          "path": "src/lib/aiur/github/write_through.ex",
+          "kind": "defp",
+          "end_line": 333,
+          "body_sha256": "4136549e52b207fc57e65e409b4d1fc84c5f43f713dacdcbbbde8372d8b69eda",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "configured_repository_snapshot",
+      "assessment": "TicketDetail already delegates repository configuration snapshot selection.",
+      "constraints": [
+        "Verified Repository alias resolves to TicketDetail.Repository.",
+        "Repository prefers a zero-arity configuration_snapshot callback, otherwise options/store selection.",
+        "Retain callback precedence and the existing facade; callback validation, store freshness and authority correctness require helper review."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 46,
+          "module": "Aiur.BuildOrder.TicketDetail",
+          "name": "configured_repository_snapshot",
+          "path": "src/lib/aiur/build_order/ticket_detail.ex",
+          "kind": "defdelegate",
+          "end_line": 46,
+          "body_sha256": "b15c878cdf1a0de7536702c2ce308147f942545a68a86faa91740ca7fb9c8837",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 18,
+          "module": "Aiur.BuildOrder.TicketDetail.Repository",
+          "name": "configured_repository_snapshot",
+          "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+          "kind": "def",
+          "end_line": 23,
+          "body_sha256": "bb92d0a7194394c769a99240fdbf46b834fab983cb2409e469f6c3196f62fde4",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "confirmation_required?",
+      "assessment": "Revision UI and command predicates have identical confirmation policy.",
+      "constraints": [
+        "Both require confirmation for reversibility irreversible or string kind destructive_op.",
+        "This is a concrete shared domain policy candidate across rendering and command handling.",
+        "Predicate equality does not prove the command path enforces confirmation or that all irreversible kinds are correctly represented."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 201,
+          "module": "AiurWeb.OperatorControlCenter.DecisionRevisionAction",
+          "name": "confirmation_required?",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_revision_action.ex",
+          "kind": "defp",
+          "end_line": 203,
+          "body_sha256": "d641e66702d0c7ff58d0fe1aba5ce9e5c054f029ec35bc5f5c66f89203c2235f",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 151,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "confirmation_required?",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "defp",
+          "end_line": 154,
+          "body_sha256": "d641e66702d0c7ff58d0fe1aba5ce9e5c054f029ec35bc5f5c66f89203c2235f",
+          "normalized_body_lines": 7,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "consume",
+      "assessment": "Transcript consumption and warmed attachment acquisition have different progress contracts.",
+      "constraints": [
+        "TranscriptTailer reads bytes from offset to size, splits complete lines, emits and advances by consumed bytes; read errors retain the supplied offset and report zero.",
+        "AttachPool makes a synchronous consume call for identifier/options, collapsing exits to miss.",
+        "Preserve byte-progress versus pool-allocation state. Zero/miss does not distinguish all underlying failures, and neither return proves durable delivery or attachment."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 135,
+          "module": "Aiur.Claude.TranscriptTailer",
+          "name": "consume",
+          "path": "src/lib/aiur/claude/transcript_tailer.ex",
+          "kind": "defp",
+          "end_line": 145,
+          "body_sha256": "d6caa7dcd13d1ce276e146d1fbd2f6566e494bcb391c4f41d4692fdadeddd650",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 106,
+          "module": "Aiur.Opencode.AttachPool",
+          "name": "consume",
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "kind": "def",
+          "end_line": 110,
+          "body_sha256": "a690cb2bb1a180a0715b56111d3726ab258b91d60fd3641dc8331df295917b55",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "consume_delivered_queue_items",
+      "assessment": "Orchestrator already delegates queue consumption to OperatorMessages.",
+      "constraints": [
+        "The facade forwards server and identifier; OperatorMessages requires a binary identifier and invokes queue_api_call.",
+        "The operation tag explicitly targets delivered queue items.",
+        "Preserve the queue owner boundary; this wrapper does not prove atomic removal, prior delivery or retry safety."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 632,
+          "module": "Aiur.Orchestrator",
+          "name": "consume_delivered_queue_items",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 633,
+          "body_sha256": "38a3827b4e77c331bfa6d7aa8b348b7ad6a1281c6629edb59c4fac16156bf702",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 184,
+          "module": "Aiur.Orchestrator.OperatorMessages",
+          "name": "consume_delivered_queue_items",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "kind": "def",
+          "end_line": 185,
+          "body_sha256": "4b571e9ba3ce6854432a76a76c47691b212d549c90ba1f5e7092bea0611ccfb8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "contains_any?",
+      "assessment": "File regex matching differs from in-memory substring matching.",
+      "constraints": [
+        "AffectedTests reads a file and tests regex patterns, returning false for read errors.",
+        "RunTelemetry.Lifecycle searches a text value for any supplied substring.",
+        "Keep I/O failure semantics and regex-versus-literal matching explicit; false from a failed file read is not evidence that no pattern exists."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 147,
+          "module": "Aiur.AffectedTests",
+          "name": "contains_any?",
+          "path": "src/lib/aiur/affected_tests.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "6eda5e344c6574d51627778ac7fb59d9ba4709b26dc76ccec471d3ce581f45a8",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 466,
+          "module": "Aiur.RunTelemetry.Lifecycle",
+          "name": "contains_any?",
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "kind": "defp",
+          "end_line": 466,
+          "body_sha256": "7357b31988cd3ac60dc78fb5cae71dc63f6d22c83b1200e91347597649b53af3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "context_from_session",
+      "assessment": "FinancialDataAccess already delegates session proof validation.",
+      "constraints": [
+        "Verified Proof alias. The facade supplies its session key and version.",
+        "Proof requires a version-matching session map, opaque generation/proof fields, current configuration-generation equality and a matching computed access proof before returning Context; all failed clauses and nonmaps return error.",
+        "Preserve cryptographic/generation validation before context construction. The comparison and proof helpers are not independently audited here; this is not a blanket authentication-correctness claim."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 119,
+          "module": "AiurWeb.FinancialDataAccess",
+          "name": "context_from_session",
+          "path": "src/lib/aiur_web/financial_data_access.ex",
+          "kind": "def",
+          "end_line": 119,
+          "body_sha256": "aa4d6d1a3b94fc055493af6fdeaee5c7ad24b11ef847dbed6d22d75cf98dc72a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 80,
+          "module": "AiurWeb.FinancialDataAccess.Proof",
+          "name": "context_from_session",
+          "path": "src/lib/aiur_web/financial_data_access/proof.ex",
+          "kind": "def",
+          "end_line": 103,
+          "body_sha256": "0774cdbf9a05e810417779ebfac56454a7a5d991299b66a2cb2940f4503c7157",
+          "normalized_body_lines": 33,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 105,
+          "module": "AiurWeb.FinancialDataAccess.Proof",
+          "name": "context_from_session",
+          "path": "src/lib/aiur_web/financial_data_access/proof.ex",
+          "kind": "def",
+          "end_line": 105,
+          "body_sha256": "703fe067863f696dcda9c9e4ca8e19715247f9f3c5f97bfd4931650886c31703",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7432,
-  "limits": "765 selected families and 7432 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7450,
+  "limits": "773 selected families and 7450 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

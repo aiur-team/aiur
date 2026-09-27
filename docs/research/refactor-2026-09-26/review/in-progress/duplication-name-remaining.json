@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "bfba8393ff18318183548757525816c73b43d45492371478f91d727a1794a598"
+    "name_triage": "4cb27193573e42bbfa4ff6218c769804f065d3a5792f6edb565b6f0a33d0b515"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 765,
-    "remaining_cross_module_names": 915,
-    "remaining_literal_entries": 2836
+    "reviewed_cross_module_names": 773,
+    "remaining_cross_module_names": 907,
+    "remaining_literal_entries": 2818
   },
   "families": [
-    {
-      "name": "configured_interval_ms",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "configured_repo",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "configured_repository_snapshot",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "confirmation_required?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "consume",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "consume_delivered_queue_items",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "contains_any?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "context_from_session",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 26
-    },
     {
       "name": "context_tier",
       "clauses": 4,
