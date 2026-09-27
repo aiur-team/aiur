@@ -710,3 +710,7 @@ Covered seven planning files: three full direct reads and four SHA256-identical 
 ### Skills/prompts: plan readiness and deepening
 
 Read four complete planning support references; coverage 160/250 files, 27,105/36,169 lines. Preserve launch-blocker readiness gate, stable section/unit IDs, accepted-only interactive changes and explicit unattended assumptions. Recorded provisional P3 command-contract contradiction: concrete verification commands required by section contract but exact test recipes globally prohibited. Added remaining format/domain routing question and expanded diagram reconciliation. All 160 hashes/line counts verified. No plan, subagent, test, tracker action or production change. Raw units remain28/32; next planning agent prompts.
+
+### Skills/prompts: planning specialist evidence
+
+Covered all16 planning agent prompts: five full direct reads and eleven complete bounded diffs against previously reviewed copies. Coverage 176/250 files, 28,875/36,169 lines. Preserve selective agent parity, human-only boundaries, grounded flow gaps, migration population/rollback evidence, exact-version research and measured-performance discipline. Extended existing one-ended diff and parent/specialist output-contract questions; no duplicate finding added. Generic architecture principles and historical commit patterns are not defect proof. All 176 hashes/line counts verified. No agent dispatch, external research, migration execution or production change. Raw units remain28/32; next remaining skills.

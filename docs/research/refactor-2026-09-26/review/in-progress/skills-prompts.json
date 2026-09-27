@@ -1124,6 +1124,118 @@
       "lines": 418,
       "read": "full",
       "assessment": "Full418 lines read in three bounded ranges. Preserve stated/inferred/excluded distinctions, settled-decision provenance, preauthorized confirmation skip, explicit assumptions in unattended planning, and user revisions as scope changes. Compression must preserve real uncertainty and never turn unvalidated bets into confirmed choices. Detailed and shorthand file/module callout rules differ; assess specific exceptions before promotion. No interactive gate applied to current research."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/agent-native-planning-strategist.md",
+      "sha256": "c1fa081b48f74b2f6ddee983e864de31f2008c3c6ae7ffd7b4baddd6333cfb68",
+      "lines": 62,
+      "read": "full",
+      "assessment": "Full62 lines read. Now/Later/human-only action classification, parity, rich tool results, shared durable objects and partial-completion lifecycle fit both Aiur operating modes. Primitive-tool preference is guidance, not evidence that atomic workflows should be deleted; preserve safety-critical sequence exception."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/architecture-strategist.md",
+      "sha256": "dd5dad43dd328d7507fcc18ebe4e728cff68a49cc6086d3fd80429c8c335986d",
+      "lines": 46,
+      "read": "full",
+      "assessment": "Full46 lines read. Component/import mapping and concrete boundary recommendations are useful. SOLID, no-new-cycle and consistency checks are hypotheses to ground in actual repo constraints; they do not by themselves prove every existing dependency is defective or justify package splits."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/best-practices-researcher.md",
+      "sha256": "e88dfc0c35f73fc62bcd191c30c31b5180ce357cd50d1cc5092ebf39a6d76160",
+      "lines": 114,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/best-practices-researcher.md plus complete 17-line unified diff. Planning-specific constraints/validation guidance replaces durable-learning enrichment; removed explicit missing-skill fallback paragraph, so availability must be governed by caller."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/data-integrity-guardian.md",
+      "sha256": "e524b44001f54043ca74fff19ffced4d1f8945fb181eb931fcae5609d9e6e1a8",
+      "lines": 68,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/data-integrity-guardian.md plus complete 9-line unified diff. Planning invocation emphasizes invariants, migration sequence, backfill/dual-write, privacy and verification; old generic review phrasing remains secondary to this contract."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/data-migration-reviewer.md",
+      "sha256": "93f0a3aff200978b6149857769edf511a4768072f8834ca604ea72cc031750c3",
+      "lines": 103,
+      "read": "full",
+      "assessment": "Full103 lines read. No concrete diff means no claimed drift check; planning guidance differs from review JSON. Preserve production-population validation, expand/contract and rollback limits. One-ended git diff against caller base still includes ambient worktree; extends candidate12. SQL/command examples conflict with parent no-code/no-shell output constraints unless translated; do not execute migration examples."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/deployment-verification-agent.md",
+      "sha256": "5396d0068f5aaa9c34ecd6dceaaf189c1bd2805907c6e1145f61a49af8aaa27d",
+      "lines": 157,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-code-review/references/personas/deployment-verification-agent.md plus complete 39-line unified diff. All changed hunks read: planned-change invocation and headings replace PR-only wording; no-diff checklist must avoid claiming observed diff evidence. Existing query/checklist body inherited."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/framework-docs-researcher.md",
+      "sha256": "472957f010aefc4ac77a01feddbc974a4e2b5c317df00f28b5a54af1d84b7cd8",
+      "lines": 93,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/framework-docs-researcher.md plus complete 9-line unified diff. Planning invocation asks for exact-version API/migration constraints that change sequence; prior authoritative-source and deprecation assessment inherited."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/git-history-analyzer.md",
+      "sha256": "fb7eb2695bee0123cbdc85bc6cdf1af5534ffed842f055d3eea7c77da87879c6",
+      "lines": 40,
+      "read": "full",
+      "assessment": "Full40 lines read. History/blame/pickaxe provide provenance, not proof of causality or expertise from commit count. Recent20 commits is a bounded sample. Preserve permanent plans/solutions rather than classifying generated artifacts as waste solely by origin."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/learnings-researcher.md",
+      "sha256": "a7fb39264e4b2e573978c82e44aa38d89d25add0120e4c7c0f31934fd84b4b2f",
+      "lines": 247,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-code-review/references/personas/learnings-researcher.md plus complete 9-line unified diff. Planning invocation covers sequencing, failed approaches, testing and institutional context across full corpus; historical lessons remain evidence inputs, not verified present defects."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/pattern-recognition-specialist.md",
+      "sha256": "c180a732746a064b4950bf9d44d3b8921432f6c032bdb4924c2158ae067be2b8",
+      "lines": 55,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/pattern-recognition-specialist.md plus complete 9-line unified diff. Planning invocation asks for patterns and concrete files before edits; generic duplication guidance does not prove semantic equivalence."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/performance-oracle.md",
+      "sha256": "3290155a1e41b7631988168602c195adaf46b20286c46dfe23c8fcb26d4d2525",
+      "lines": 108,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/performance-oracle.md plus complete 9-line unified diff. Planning invocation calls for data-volume assumptions and benchmark strategy. Inherited numeric targets/scaling suggestions are not measured Aiur savings or acceptance thresholds."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/repo-research-analyst.md",
+      "sha256": "e1dbed5e82d618d87e290f73f2c4c4de726ee5f248821709d2505163ac107e5f",
+      "lines": 258,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-optimize/references/agents/repo-research-analyst.md plus complete 9-line unified diff. Planning invocation names architecture/integration/test inputs and permits material out-of-scope findings; such discoveries remain subject to parent anti-expansion rule."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/security-sentinel.md",
+      "sha256": "dc4c05421f11c924beeafc426bfd8aa95f43ec9af684f571faa0da357c7cd17c",
+      "lines": 91,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/security-sentinel.md plus complete 9-line unified diff. Planning invocation converts threat and boundary analysis into controls/tests; no independent security execution or live probing authorized here."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/slack-researcher.md",
+      "sha256": "b5912adc0ab3cadf8db821577e495527518bae5982c77069451bba7d0a3724fa",
+      "lines": 127,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-brainstorm/references/agents/slack-researcher.md plus complete 9-line unified diff. Planning invocation focuses on decisions, ownership, rollout and gaps from earlier context; authenticated access is not permission to publish private material."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/spec-flow-analyzer.md",
+      "sha256": "d189fdb10b5698336502f0aedbe60dbdd8ec54cedf23e1dbd8d27b6ba4fa1807",
+      "lines": 80,
+      "read": "full",
+      "assessment": "Full80 lines read. Ground flows in real code, distinguish terminal success/error/cancel/timeout, and derive specific gaps rather than generic checklists. Existing middleware only resolves a concern if the relevant path uses it correctly. Categorical CLI accessibility/admin offline examples need context and are not blanket exclusions for Aiur."
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/agents/web-researcher.md",
+      "sha256": "4cd095f98c6704648e14cc875651d3e4344b45f0dafcb6e174b93b48158e18cb",
+      "lines": 121,
+      "read": "full",
+      "assessment": "Full-content coverage via previously reviewed .claude/skills/ce-ideate/references/agents/web-researcher.md plus complete 9-line unified diff. Planning invocation prioritizes authoritative implementation/version/sequence evidence; market signals secondary unless decision-changing. No external research run."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1635,7 +1747,23 @@
     "Full263 lines read. Checklist scores prioritize gaps, not calibrated confidence. Preserve bounded section-specific research, repo/origin evidence, accepted-only interactive integration, stable U-IDs and visible unresolved product questions. Auto mode cannot silently invert settled choices. Missing/malformed artifact handling is explicit. No research agents or planning workflow invoked.",
     "Full427 lines read. Implementation readiness requires complete product/planning/unit/verification/done contracts and no launch blocker; readiness is not progress. Preserve stable section IDs, size-aware navigation, behavioral test gates, cleanup completion and precise source anchors. Specific Verification Contract requires concrete repo commands despite global recipe prohibition (finding14). Other format/atomic-route differences remain candidate30; no plan authored.",
     "Full168 lines read. Classify task type rather than code vocabulary; local-code answers require source inspection, unstable recommendations require current research, and partial evidence must be disclosed. Non-code plans use native-domain structure and explicit destination/publication choice. Legacy software-only ce-work wording conflicts with newer knowledge-work carve-out, retained for routing reconciliation. No external requests or execution invoked.",
-    "Full418 lines read in three bounded ranges. Preserve stated/inferred/excluded distinctions, settled-decision provenance, preauthorized confirmation skip, explicit assumptions in unattended planning, and user revisions as scope changes. Compression must preserve real uncertainty and never turn unvalidated bets into confirmed choices. Detailed and shorthand file/module callout rules differ; assess specific exceptions before promotion. No interactive gate applied to current research."
+    "Full418 lines read in three bounded ranges. Preserve stated/inferred/excluded distinctions, settled-decision provenance, preauthorized confirmation skip, explicit assumptions in unattended planning, and user revisions as scope changes. Compression must preserve real uncertainty and never turn unvalidated bets into confirmed choices. Detailed and shorthand file/module callout rules differ; assess specific exceptions before promotion. No interactive gate applied to current research.",
+    "Full62 lines read. Now/Later/human-only action classification, parity, rich tool results, shared durable objects and partial-completion lifecycle fit both Aiur operating modes. Primitive-tool preference is guidance, not evidence that atomic workflows should be deleted; preserve safety-critical sequence exception.",
+    "Full46 lines read. Component/import mapping and concrete boundary recommendations are useful. SOLID, no-new-cycle and consistency checks are hypotheses to ground in actual repo constraints; they do not by themselves prove every existing dependency is defective or justify package splits.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/best-practices-researcher.md plus complete 17-line unified diff. Planning-specific constraints/validation guidance replaces durable-learning enrichment; removed explicit missing-skill fallback paragraph, so availability must be governed by caller.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/data-integrity-guardian.md plus complete 9-line unified diff. Planning invocation emphasizes invariants, migration sequence, backfill/dual-write, privacy and verification; old generic review phrasing remains secondary to this contract.",
+    "Full103 lines read. No concrete diff means no claimed drift check; planning guidance differs from review JSON. Preserve production-population validation, expand/contract and rollback limits. One-ended git diff against caller base still includes ambient worktree; extends candidate12. SQL/command examples conflict with parent no-code/no-shell output constraints unless translated; do not execute migration examples.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-code-review/references/personas/deployment-verification-agent.md plus complete 39-line unified diff. All changed hunks read: planned-change invocation and headings replace PR-only wording; no-diff checklist must avoid claiming observed diff evidence. Existing query/checklist body inherited.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/framework-docs-researcher.md plus complete 9-line unified diff. Planning invocation asks for exact-version API/migration constraints that change sequence; prior authoritative-source and deprecation assessment inherited.",
+    "Full40 lines read. History/blame/pickaxe provide provenance, not proof of causality or expertise from commit count. Recent20 commits is a bounded sample. Preserve permanent plans/solutions rather than classifying generated artifacts as waste solely by origin.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-code-review/references/personas/learnings-researcher.md plus complete 9-line unified diff. Planning invocation covers sequencing, failed approaches, testing and institutional context across full corpus; historical lessons remain evidence inputs, not verified present defects.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/pattern-recognition-specialist.md plus complete 9-line unified diff. Planning invocation asks for patterns and concrete files before edits; generic duplication guidance does not prove semantic equivalence.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/performance-oracle.md plus complete 9-line unified diff. Planning invocation calls for data-volume assumptions and benchmark strategy. Inherited numeric targets/scaling suggestions are not measured Aiur savings or acceptance thresholds.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-optimize/references/agents/repo-research-analyst.md plus complete 9-line unified diff. Planning invocation names architecture/integration/test inputs and permits material out-of-scope findings; such discoveries remain subject to parent anti-expansion rule.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-compound/references/agents/security-sentinel.md plus complete 9-line unified diff. Planning invocation converts threat and boundary analysis into controls/tests; no independent security execution or live probing authorized here.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-brainstorm/references/agents/slack-researcher.md plus complete 9-line unified diff. Planning invocation focuses on decisions, ownership, rollout and gaps from earlier context; authenticated access is not permission to publish private material.",
+    "Full80 lines read. Ground flows in real code, distinguish terminal success/error/cancel/timeout, and derive specific gaps rather than generic checklists. Existing middleware only resolves a concern if the relevant path uses it correctly. Categorical CLI accessibility/admin offline examples need context and are not blanket exclusions for Aiur.",
+    "Full-content coverage via previously reviewed .claude/skills/ce-ideate/references/agents/web-researcher.md plus complete 9-line unified diff. Planning invocation prioritizes authoritative implementation/version/sequence evidence; market signals secondary unless decision-changing. No external research run."
   ],
   "follow_up_candidates": [
     {
@@ -1680,7 +1808,7 @@
     },
     {
       "id": "skills-prompts-candidate-12",
-      "question": "Trace data-migration review-base transfer: dispatch names BASE marker while PR-remote has separate PR_BASE_REF, and persona git diff commands omit reviewed head. Determine explicit remote adaptation and duplicate scope finding boundaries before promotion."
+      "question": "Trace data-migration review-base transfer: dispatch names BASE marker while PR-remote has separate PR_BASE_REF, and persona git diff commands omit reviewed head. Determine explicit remote adaptation and duplicate scope finding boundaries before promotion. Planning data-migration prompt also uses one-ended git diff <review-base>, including ambient working-tree edits; caller supplies base but not explicit head/worktree cleanliness."
     },
     {
       "id": "skills-prompts-candidate-13",
@@ -1740,10 +1868,10 @@
     },
     {
       "id": "skills-prompts-candidate-30",
-      "question": "Reconcile remaining plan-contract drift: unit headings versus bullet-prefix rule, conventional-prefix title versus suffix-only metadata, atomic skip to implementation versus explicit always-plan/no-code request, and universal software-only ce-work claim versus knowledge-work carve-out. Inspect downstream ce-work routing and document precedence before promotion."
+      "question": "Reconcile remaining plan-contract drift: unit headings versus bullet-prefix rule, conventional-prefix title versus suffix-only metadata, atomic skip to implementation versus explicit always-plan/no-code request, and universal software-only ce-work claim versus knowledge-work carve-out. Inspect downstream ce-work routing and document precedence before promotion. Specialist migration/deployment outputs request concrete SQL/shell examples despite parent no-code/no-shell output rule; translate or clarify exception rather than execute samples."
     }
   ],
-  "next": "Continue ce-plan agent prompt assets. Coverage 160/250 full files, 27105/36169 lines. Nine provisional P2 and five P3 findings; twenty-six follow-up candidates. Raw unit remains open.",
+  "next": "Continue manifest markdown after ce-plan. Coverage 176/250 full files, 28875/36169 lines. Nine provisional P2 and five P3 findings; twenty-six follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
