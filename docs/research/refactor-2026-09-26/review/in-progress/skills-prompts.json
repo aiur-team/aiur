@@ -543,6 +543,41 @@
       "lines": 89,
       "read": "full",
       "assessment": "All89 lines read. Legacy single-finding template checks current defect, diff causality and surrounding protection but treats unreadable source as validated:false, unlike current parent degraded-blocker handling. Scoped search found active finish-review references batch template only; no incoming reference to this older template inside code-review bundle. Do not attribute this dormant guidance to current batch behavior. Staged-diff path and remote-ref handling are explicit. No standalone validator or model run."
+    },
+    {
+      "path": ".claude/skills/ce-commit-push-pr/SKILL.md",
+      "sha256": "b35882a91adac32bdb244d76a5cb412819c3b3ec69fc16f031c85a7847d58f28",
+      "lines": 154,
+      "read": "full",
+      "assessment": "All154 lines read, replacing the initially truncated read with bounded complete reads. Distinct description-only, explicit description-update and full publication modes; pipeline overrides preserve caller ownership. Unknown API failure is not absent PR, fork head owner matters, and pre-mutation rechecks reduce duplicates. Exact staging excludes secrets; active config gates teaching and opt-in branding, with existing content preserved. Babysitting applies only in authorized full workflow and was not invoked. Final edit example drops explicit target selected during composition: finding10. No PR created or edited."
+    },
+    {
+      "path": ".claude/skills/ce-commit-push-pr/references/branch-creation.md",
+      "sha256": "01022971d718765a627fec15a4f1b807c98334732bedab5860d05fd2569069e6",
+      "lines": 55,
+      "read": "full",
+      "assessment": "All55 lines read. Default-branch creation and feature-branch preservation are mode-specific; unpublished commits require carry-or-leave choice, with pipeline preserving current branch. Stash includes untracked files and conflicts retain recoverable stash rather than auto-resolving. Failed fetch leaves freshness explicitly unverified. No branch, stash or history operation executed from these instructions."
+    },
+    {
+      "path": ".claude/skills/ce-commit-push-pr/references/pr-description-writing.md",
+      "sha256": "38dba99fea70b2d32c37751770c3abbbebc57c23b1141f0a8f25ee4a29758cbd",
+      "lines": 221,
+      "read": "full",
+      "assessment": "All221 lines read. Explicit PR mode pins source head OID and actual base repository; inaccessible local refs fall back to PR evidence. Full commit range and final diff determine outcome coverage, not latest title or file extension. Evidence is chosen for material claims; tests do not substitute for screenshots or measurement. Existing sections and related-reference semantics are preserved without inventing closures. Explicit target metadata is lost in parent apply example, finding10. Tracker closing semantics and concept-novelty keyword heuristic were not independently verified."
+    },
+    {
+      "path": ".claude/skills/ce-commit/SKILL.md",
+      "sha256": "253079c9fcb417a919b105f134ff42080b503daa60ad60848d96e142d642c625",
+      "lines": 88,
+      "read": "full",
+      "assessment": "All88 lines read. Commit scope follows intended logical changes with explicit file staging and repository conventions; detached commit possibility is distinct from full shipping branch requirements. No hunk staging is assumed and no unrelated changes should be swept in. Reading this frozen instruction does not independently authorize shipping or branch publication."
+    },
+    {
+      "path": ".claude/skills/ce-compound-refresh/SKILL.md",
+      "sha256": "56c3590ffb040daf7cf437b986dbd45ff8b1294e871fe05eb4cace160cee3418",
+      "lines": 679,
+      "read": "full",
+      "assessment": "All679 lines read across bounded reads; truncated final segment was reread fully. Scoped no-match exits without widening, old age is not invalidity, and current code grounds learning maintenance without production fixes. Keep avoids churn; updates preserve valid guidance, consolidation retains unique retrieval value, replacement needs sufficient evidence, and uncertainty stays stale. Substantive inbound citations constrain unattended deletion/replacement; broader headless safe-action wording needs reconciliation with per-action references before a finding. Learning and derived-pattern ordering, vocabulary seeding and coherence, scope-limited concepts, and applied-versus-recommended reporting are explicit. Headless instruction-file discoverability remains recommendation-only; no maintenance, agent dispatch, PR or runtime action invoked. Supporting references and validators remain unread."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -767,6 +802,31 @@
       "recommendation": "Choose one policy and make both sources agree. Separate measurable current defects or explicit standards from architectural preferences; file size alone must not masquerade as impact evidence.",
       "refactor_hint": "Centralize severity and evidence gates; keep persona files focused on domain-specific failure modes rather than duplicating admission policy.",
       "limits": "Source consistency finding only. No reviewer run or historical false-positive rate measured. Does not prove any Aiur module should be split, or justify a deletion target."
+    },
+    {
+      "id": "skills-prompts-cont-10",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "PR description update drops the selected PR at application",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-commit-push-pr/SKILL.md",
+          "lines": "118-118"
+        },
+        {
+          "path": ".claude/skills/ce-commit-push-pr/SKILL.md",
+          "lines": "151-154"
+        },
+        {
+          "path": ".claude/skills/ce-commit-push-pr/references/pr-description-writing.md",
+          "lines": "20-34"
+        }
+      ],
+      "description": "Description-update composition supports an explicit PR ref and resolves its head, body and URL. The parent apply example instead calls gh pr edit without a PR argument. When the selected PR differs from the current branch PR, following that example can apply the selected PR description to the current branch PR, or fail if no branch PR exists.",
+      "evidence": "Read complete parent and description reference. Installed gh pr edit --help explicitly states that without an argument the PR belonging to the current branch is selected and documents an optional number, URL or branch argument. This is a documented target-selection mismatch, not a live mutation reproduction.",
+      "recommendation": "Carry the resolved host-qualified PR URL through composition, preview and explicit edit arguments; revalidate target identity before mutation.",
+      "refactor_hint": "Treat publication target as immutable typed context shared by preparation and application, rather than rediscovering it from ambient checkout state.",
+      "limits": "No PR edit, network call or historical wrong-target incident demonstrated. Exact CLI target-selection behavior verified using local help only; cross-unit dedup remains pending."
     }
   ],
   "preserve": [
@@ -846,7 +906,12 @@
     "All46 lines read. Behavior, lifecycle exits, sentinel truthfulness and executable source-of-truth checks matter more than test presence or aggregate coverage. Existing integration coverage can invalidate a file-name-based absence claim; order assertions only matter when order is contractual. New behavior with no test diff is a signal requiring coverage tracing, not proof of no coverage. No newly executed test suite.",
     "All172 lines read. Stable IDs, severity-grouped evidence, actionable subset and triage groups are separate from apply authority; applied items retain identity and leave remaining-work groups. JSON must preserve impact/evidence and human reports keep self-contained closure. Example is illustrative rather than fully conformant: pre-existing row reuses1, actionable table omits some fixable examples, and early-return preference contradicts shared evidence bar. Governing rules remain stronger than sample; no emitted report from actual invocation assessed. Requirements-completeness late insertion remains unresolved under existing candidate11.",
     "All36 lines read. One fresh batch independently evaluates each selected finding, includes every high-severity item despite normal eight-item cap, returns exactly one verdict per stable ID and forbids new findings or mutation. Remote source is pinned by provided context. Unknown infrastructure must be handled under parent degraded-validation rule rather than silently called false. No validator dispatched.",
-    "All89 lines read. Legacy single-finding template checks current defect, diff causality and surrounding protection but treats unreadable source as validated:false, unlike current parent degraded-blocker handling. Scoped search found active finish-review references batch template only; no incoming reference to this older template inside code-review bundle. Do not attribute this dormant guidance to current batch behavior. Staged-diff path and remote-ref handling are explicit. No standalone validator or model run."
+    "All89 lines read. Legacy single-finding template checks current defect, diff causality and surrounding protection but treats unreadable source as validated:false, unlike current parent degraded-blocker handling. Scoped search found active finish-review references batch template only; no incoming reference to this older template inside code-review bundle. Do not attribute this dormant guidance to current batch behavior. Staged-diff path and remote-ref handling are explicit. No standalone validator or model run.",
+    "All154 lines read, replacing the initially truncated read with bounded complete reads. Distinct description-only, explicit description-update and full publication modes; pipeline overrides preserve caller ownership. Unknown API failure is not absent PR, fork head owner matters, and pre-mutation rechecks reduce duplicates. Exact staging excludes secrets; active config gates teaching and opt-in branding, with existing content preserved. Babysitting applies only in authorized full workflow and was not invoked. Final edit example drops explicit target selected during composition: finding10. No PR created or edited.",
+    "All55 lines read. Default-branch creation and feature-branch preservation are mode-specific; unpublished commits require carry-or-leave choice, with pipeline preserving current branch. Stash includes untracked files and conflicts retain recoverable stash rather than auto-resolving. Failed fetch leaves freshness explicitly unverified. No branch, stash or history operation executed from these instructions.",
+    "All221 lines read. Explicit PR mode pins source head OID and actual base repository; inaccessible local refs fall back to PR evidence. Full commit range and final diff determine outcome coverage, not latest title or file extension. Evidence is chosen for material claims; tests do not substitute for screenshots or measurement. Existing sections and related-reference semantics are preserved without inventing closures. Explicit target metadata is lost in parent apply example, finding10. Tracker closing semantics and concept-novelty keyword heuristic were not independently verified.",
+    "All88 lines read. Commit scope follows intended logical changes with explicit file staging and repository conventions; detached commit possibility is distinct from full shipping branch requirements. No hunk staging is assumed and no unrelated changes should be swept in. Reading this frozen instruction does not independently authorize shipping or branch publication.",
+    "All679 lines read across bounded reads; truncated final segment was reread fully. Scoped no-match exits without widening, old age is not invalidity, and current code grounds learning maintenance without production fixes. Keep avoids churn; updates preserve valid guidance, consolidation retains unique retrieval value, replacement needs sufficient evidence, and uncertainty stays stale. Substantive inbound citations constrain unattended deletion/replacement; broader headless safe-action wording needs reconciliation with per-action references before a finding. Learning and derived-pattern ordering, vocabulary seeding and coherence, scope-limited concepts, and applied-versus-recommended reporting are explicit. Headless instruction-file discoverability remains recommendation-only; no maintenance, agent dispatch, PR or runtime action invoked. Supporting references and validators remain unread."
   ],
   "follow_up_candidates": [
     {
@@ -896,9 +961,13 @@
     {
       "id": "skills-prompts-candidate-13",
       "question": "Verify previous-comments retrieval pagination, host/repository identity and thread-resolution context against API contract and existing GitHub findings before treating its all-comments claim as complete."
+    },
+    {
+      "id": "skills-prompts-candidate-14",
+      "question": "Reconcile compound-refresh headless Replace/Consolidate/Delete rules with substantive-citation and problem-domain-gone exceptions in per-action references before treating different action scopes as contradictory."
     }
   ],
-  "next": "All manifest ce-code-review markdown files read; continue .claude/skills/ce-commit-push-pr/SKILL.md. Coverage 77/250 full files, 12459/36169 lines. Six provisional P2 and three P3 findings; twelve follow-up candidates. Code-review scripts/schema are not credited as full reads.",
+  "next": "Continue ce-compound-refresh supporting markdown references. Coverage 82/250 full files, 13656/36169 lines. Seven provisional P2 and three P3 findings; thirteen follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
