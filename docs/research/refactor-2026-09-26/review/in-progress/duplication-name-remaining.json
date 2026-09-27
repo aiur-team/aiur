@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "797c1a509b8648ce8df8519af0de80ec695eb019c79e03cb192b6ee4bdbcd304"
+    "name_triage": "bd8704edb67462dffc5a9e7547632b9120b399a520e47ecc6f01ca2ae0e6425f"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 172,
-    "remaining_cross_module_names": 1508,
-    "remaining_literal_entries": 6059
+    "reviewed_cross_module_names": 178,
+    "remaining_cross_module_names": 1502,
+    "remaining_literal_entries": 6012
   },
   "families": [
-    {
-      "name": "decide",
-      "clauses": 8,
-      "modules": 6,
-      "summed_source_span_lines": 78
-    },
-    {
-      "name": "decode_record",
-      "clauses": 11,
-      "modules": 6,
-      "summed_source_span_lines": 124
-    },
-    {
-      "name": "default_path",
-      "clauses": 6,
-      "modules": 6,
-      "summed_source_span_lines": 58
-    },
-    {
-      "name": "describe",
-      "clauses": 10,
-      "modules": 6,
-      "summed_source_span_lines": 58
-    },
-    {
-      "name": "empty",
-      "clauses": 6,
-      "modules": 6,
-      "summed_source_span_lines": 40
-    },
-    {
-      "name": "enqueue",
-      "clauses": 6,
-      "modules": 6,
-      "summed_source_span_lines": 113
-    },
     {
       "name": "enrich",
       "clauses": 10,

@@ -1042,3 +1042,7 @@ Read store, ticket, title, tools, validate! and version: 61 literal entries acro
 ### Name duplication: activation and provider authority
 
 Read activate, auth_mode, authorize, connect, count and create_comment: 51 literal entries across six families. Preserve generation checks, provider auth vocabularies, socket authorization and comment provenance/write-through effects. ProgressRenderer and RootSummary share an equivalent nonnegative-count validator with nil fallback; zero-defaulting helpers have a different contract. Name triage now 172 families/4209 entries, leaving 1508 cross-module names. Raw findings and skeptic counts are unchanged; no runtime completion or saving is claimed.
+
+### Name duplication: route decisions and queue admission
+
+Read decide, decode_record, default_path, describe, empty and enqueue: 47 literal entries across six families. Full AnalyticsScope/UsageScope reads identify shared route-readiness mechanics while preserving different membership keys and rejection accounting. Keep decoder integrity policy, restart durability, unknown-state semantics and admission ambiguity explicit. Name triage now 178 families/4256 entries, leaving 1502 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
