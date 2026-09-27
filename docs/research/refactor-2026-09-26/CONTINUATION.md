@@ -515,3 +515,27 @@ Remaining duplication work: repeated-name families, concept and constant
 sweeps, inherited-finding reconciliation, and final raw-unit findings. Broader
 research totals remain 24/32 review units and 50/60 verified claims. No
 production code changed.
+
+## Duplication reconciliation checkpoint
+
+`tooling/duplication_overlap.py` indexes closed source-line intersections
+between the 869 inherited raw findings and all 167 exact/renamed candidate
+groups. 131 groups overlap at least one listed finding location; 36 do not.
+These populations overlap each other and are not counts of distinct defects.
+Seven nonstandard location expressions remain explicit for manual review.
+Broad ranges can create unrelated overlaps; omitted locations can hide real
+matches. The index does not prove duplication or verify any inherited claim.
+
+Six findings have initial semantic reconciliation notes in
+`duplication-reconciliation.json`: build-order-20, web-rest-10, web-occ-17,
+agent-runtime-32, github-a-09 and build-order-05. Original IDs are preserved.
+The notes distinguish corroborated helper subsets from unverified broader
+claims and narrow generic-helper recommendations where a local owner already
+exists. The P1 metrics overflow claim still needs its independent skeptic
+check; repeated helper bodies do not establish that failure or its prevalence.
+
+Reproduce the index with `python3 tooling/duplication_overlap.py /path/to/research`.
+`python3 tooling/test_duplication_overlap.py` checks endpoint intersections,
+disjoint ranges, path isolation, unresolved expressions and duplicate IDs.
+The full index reproduced identically. No raw finding is removed or promoted;
+remaining name/concept/constant sweeps and final semantic deduplication are open.
