@@ -298,3 +298,30 @@ Concrete constraints for the package plan:
 All sites recorded in the triage were checked against the census source
 hashes. These are source-grounded ownership candidates, not measured savings,
 production fixes, or completed raw review units. No production code changed.
+
+## Duplication context checkpoint: 91 of 126 clusters
+
+Forty additional exact-body clusters have been assessed at all listed sites.
+The triage now contains 93 clusters, including two outside the final size
+threshold; 35 final-population clusters remain. No raw unit is promoted yet.
+
+Additional package constraints grounded in surrounding code:
+
+- Outcomes and run-summary reconciliation bodies match, but only the latter's
+  availability predicate requires `run.valid?`. Keep this distinction explicit.
+- Web and cost-report unknown-provider labels differ: the web splits underscore
+  names into words, while the report capitalizes the full name.
+- Ad-hoc source change detection compares members; open-ticket detection omits
+  body excerpts when comparing tickets. Preserve their notification policies.
+- Poll branch selection is a coherent shared subroutine across CI/comments;
+  ordered guesses, explicit overrides and the known-branch flag belong together.
+- Positive-number parsing recurs under different variable names. These sites
+  are evidence for the pending near-duplicate pass and must not be counted as
+  independent extraction opportunities merely because exact hashes differ.
+- Projection task startup falls back from a supervisor to `Task.start`; any
+  shared helper must expose that policy and preserve caller lifecycle ownership.
+
+Recorded source sites match the frozen census hashes. These assessments make
+no production-execution, runtime-prevalence, or cost-saving claims. Name,
+near-body, concept and constant sweeps, inherited-finding reconciliation, and
+the wider research completion checklist remain open.
