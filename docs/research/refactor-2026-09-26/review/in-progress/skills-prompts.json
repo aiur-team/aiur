@@ -2784,6 +2784,48 @@
       "recommendation": "Define separate fields for evidenced residual risk, verification limitations and resolved checks; make reviewer admission and report rendering use the same definitions.",
       "refactor_hint": "Carry evidence state in durable artifacts and distinguish uncertainty from resolution.",
       "limits": "Frozen-source contract review only; no document refresh, review workflow or external verification executed. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-44",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Issue-theme analysis overstates recurrence and resolution from sampled states",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-ideate/references/agents/issue-intelligence-analyst.md",
+          "lines": "38-77"
+        },
+        {
+          "path": ".claude/skills/ce-ideate/references/agents/issue-intelligence-analyst.md",
+          "lines": "88-92"
+        },
+        {
+          "path": ".claude/skills/ce-ideate/references/agents/issue-intelligence-analyst.md",
+          "lines": "122-137"
+        }
+      ],
+      "description": "The analyst defines open-plus-recently-closed theme membership as recurrence despite fixes and closed-only themes as solved. Its capped, priority-weighted sample and broad system-area clustering establish neither a post-fix recurrence nor exhaustive absence of open work. It also requires increasing/stable/decreasing trend from recent creation rates without an unknown state or comparable-window coverage requirement. Exact sample counts do not establish population or causal claims.",
+      "evidence": "Complete prompt reread. Logical counterexample: an open defect created before an independently closed defect in the same subsystem satisfies the recurrence rule without any regression. A capped sample can omit older open work, so zero sampled open items is not proof of resolution. These are counterexamples to inference rules, not observed tracker incidents or measured trend reversals.",
+      "recommendation": "Report sample coverage and uncertainty; verify same failure mechanism and post-fix occurrence before claiming recurrence, and require comparable population/time windows for trend claims.",
+      "refactor_hint": "Separate observed state, population coverage, causal inference and release availability in evidence contracts.",
+      "limits": "Frozen-source analysis and logical counterexamples only; no issue dataset fetched, trend measured, release checked or announcement published. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-45",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Promotion drafts can infer current availability from unshipped work",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-promote/SKILL.md",
+          "lines": "27-40"
+        }
+      ],
+      "description": "When no user description supplies release status, Phase1 accepts active PRs, branch diffs and Unreleased changelog entries as sources for what shipped, then asks for what users can now do. These sources establish proposed or implemented behavior but not current release/deployment availability. The confidence fallback asks a question without requiring a release-state check.",
+      "evidence": "Re-read exact source list and output wording. Draft-only review and the user-supplied-description override limit impact; no false public announcement or remote draft observed.",
+      "recommendation": "Separate feature description from availability evidence; qualify unreleased drafts or verify the release/deployment state before saying available now.",
+      "refactor_hint": "Separate observed state, population coverage, causal inference and release availability in evidence contracts.",
+      "limits": "Frozen-source analysis and logical counterexamples only; no issue dataset fetched, trend measured, release checked or announcement published. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3209,7 +3251,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidates17/19 reconciled.21 listed candidates remain unresolved. Continue reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidates23/35 reconciled.19 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3407,6 +3449,19 @@
       "status": "promoted",
       "finding": "skills-prompts-cont-43",
       "reason": "Re-read suppression, residual-section definition and prior-resolution exception together. No incorrect rendered report asserted. Physical R29/R30 placement remains unpromoted because those rules expressly apply during synthesis before mutation."
+    },
+    {
+      "id": "skills-prompts-candidate-23",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-44",
+      "reason": "Complete prompt reread. Logical counterexample: an open defect created before an independently closed defect in the same subsystem satisfies the recurrence rule without any regression. A capped sample can omit older open work, so zero sampled open items is not proof of resolution. These are counterexamples to inference rules, not observed tracker incidents or measured trend reversals."
+    },
+    {
+      "id": "skills-prompts-candidate-35",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-45",
+      "reason": "Re-read exact source list and output wording. Draft-only review and the user-supplied-description override limit impact; no false public announcement or remote draft observed.",
+      "subconcerns": "Spiral reference explicitly says drafts persist to the user account; persistence is not equivalent to public posting, and the skill expressly authorizes its optional draft path. Legacy auth prefix matching alone does not prove full-secret output; no auth command run or secret-exposure finding promoted."
     }
   ],
   "coverage_validation": {
@@ -3419,21 +3474,19 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 21,
-    "unresolved_candidates": 21,
+    "terminal_dispositions": 23,
+    "unresolved_candidates": 19,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
       "skills-prompts-candidate-07",
       "skills-prompts-candidate-20",
       "skills-prompts-candidate-21",
-      "skills-prompts-candidate-23",
       "skills-prompts-candidate-25",
       "skills-prompts-candidate-26",
       "skills-prompts-candidate-27",
       "skills-prompts-candidate-31",
       "skills-prompts-candidate-33",
-      "skills-prompts-candidate-35",
       "skills-prompts-candidate-36",
       "skills-prompts-candidate-38",
       "skills-prompts-candidate-39",

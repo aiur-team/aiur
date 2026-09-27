@@ -786,3 +786,7 @@ Candidate03 not promoted as runtime failure: stale ce-review/ce-prefixed suggest
 ### Skills/prompts: durable uncertainty and residual semantics
 
 Candidates17/19 promoted: offline merge-state grounding keeps landed claims with temporal qualification but report-only uncertainty; residual contract both suppresses and admits unverified concerns and also carries verified success notes. Scope excludes previously verified historical claims and alleged R29/R30 phase-order defects. Findings43 (25P2/18P3);21 listed candidates unresolved. All250 files read; raw unit remains open. Source review only, no external call or production mutation.
+
+### Skills/prompts: sample inference and release availability
+
+Candidates23/35 promoted: issue-state/theme overlap does not prove recurrence or resolution, capped samples do not establish trend coverage, and promotion drafts can turn active/unreleased evidence into available-now wording. Exact-count rules and draft-only review limit but do not remove these inference gaps. Remote draft persistence is explicit and not public posting; auth prefix alone does not prove secret exposure. Findings45 (26P2/19P3);19 listed candidates unresolved. No external calls or production changes.
