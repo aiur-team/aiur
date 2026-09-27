@@ -78,3 +78,21 @@ Preserve the existing server ownership of delivery, queueing and durable Command
 answers. The missing client contracts are acceptance receipts, retained pending
 intent and cursor-driven history navigation. A new package boundary alone would
 not repair them.
+
+## Audio completion continuation
+
+The partial web/Stream Deck unit now records 71/178 complete reads, with 107
+paths remaining and ten provisional P2 findings. Seventeen added full reads
+cover audio adapters/contracts and the voice-host/relay tests. A composed
+source probe demonstrates two boundary defects: release seals transcript
+delivery before the server's requested final can arrive; overlapping holds
+consume a delayed start reply without retaining its originating hold identity.
+Earlier settled text survives the first case. The second needs only ordered,
+delayed replies; server-side session guards can discard the mislabelled audio.
+
+Reproduce with `node tooling/streamdeck_audio_probe.mjs /path/to/frozen-snapshot`.
+Results and source hashes are in `review/in-progress/streamdeck-audio-probe.json`.
+The capture and channel are injected ports; no hardware, provider or daemon was
+run. No production files changed. Continue with audio tests, playback/cancellation
+candidates, rendering and the remaining controller tests. Raw review coverage
+remains 23/32, and claim coverage remains 50/60; this is still a partial unit.

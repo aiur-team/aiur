@@ -3,9 +3,9 @@
   "status": "in-progress",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 178,
-  "files_reviewed": 54,
-  "lines_reviewed_estimate": 9690,
-  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor.",
+  "files_reviewed": 71,
+  "lines_reviewed_estimate": 11483,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed.",
   "coverage": [
     {
       "path": "website/src/dashboard.ts",
@@ -276,6 +276,91 @@
       "path": "packages/streamdeck/test/support/deckReports.ts",
       "status": "read_in_full",
       "sha256": "87af8264613ba78a49fa30a46f3c4ca4a32a6ffc7b594cf1e3633d32a2c6f773"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/aggregate.ts",
+      "status": "read_in_full",
+      "sha256": "7fd93a2f04d044c7b6d281750a41472780f39c291f0c37a0394f6302ceb7f2d3"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/buffer.ts",
+      "status": "read_in_full",
+      "sha256": "5c88b803c5b5fcd3c8dd207b2eac010e5cd3dfc1083ff6e4244615abe0e12bc9"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/capture.ts",
+      "status": "read_in_full",
+      "sha256": "0b15a39506eb3d112fbd80aa1861130057ad240e280e2db8cf559380c8549edf"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/relay.ts",
+      "status": "read_in_full",
+      "sha256": "f438ea65f95e9373095386d7b56428260ccaf2dc73de62598d621286b4736379"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/stt.ts",
+      "status": "read_in_full",
+      "sha256": "9f096f8284f82acf9fdc1aa9173fa49e9924fba7cb7f3bb9c241c9bd6920abb3"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/system.ts",
+      "status": "read_in_full",
+      "sha256": "502b06a9d8f74c7900d2610ddeb4941670ab21235a64ad16c20a1fd79cca064e"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/node-system.ts",
+      "status": "read_in_full",
+      "sha256": "cd5374dbc12eb95d2530e5e0ea3a21b491ebf30b076c8960c167c944b088bf0b"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/node-fetch.ts",
+      "status": "read_in_full",
+      "sha256": "f8d5a91c3daa28b85c7bec472d002e608a6e4ad16d62b3aa28d257e18a842d2f"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/node-playback.ts",
+      "status": "read_in_full",
+      "sha256": "0e2daf46e19156cfb91a376a0da7a0b5b03fbb8cf4fc3313c3b3dd6ad83c4b0d"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/node-preferences.ts",
+      "status": "read_in_full",
+      "sha256": "1b6575188e4ad927be87e95b6359544c1258390df7c0df83f509686c2ef4320d"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/preferences.ts",
+      "status": "read_in_full",
+      "sha256": "8c2c0012a5d0c9920562441f5cd522203ae45461dd34a0ca409b5c7d7dbe872b"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/playback.ts",
+      "status": "read_in_full",
+      "sha256": "b46a99102b838811d039ac1b77b2df602eed62cefecff459cdf3dbbbdf31431c"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/tts.ts",
+      "status": "read_in_full",
+      "sha256": "8985a44ead3bf9d547c9dfce4a68d1406a1ca9cd6ca8583cd62c58172b449ada"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/elevenlabs-tts.ts",
+      "status": "read_in_full",
+      "sha256": "ca4ecdcb12dde47a16e15aeb31db5e9dcf7bf4c158fd0efed4f704180ce0910b"
+    },
+    {
+      "path": "packages/streamdeck/src/voiceHost.ts",
+      "status": "read_in_full",
+      "sha256": "556cb8f6a9bd18641f7bc5d1474aaa0f6f4bd4a2d015c26a457630f5a852ac9d"
+    },
+    {
+      "path": "packages/streamdeck/test/voiceHost.test.ts",
+      "status": "read_in_full",
+      "sha256": "aa2a7538f7434c4ae580d18e31f558905a997ba79e1276da5f6639df49a84f19"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/relay.test.ts",
+      "status": "read_in_full",
+      "sha256": "38cf802cc771d2142a9292baf6259e775d4b09394ddf2a394fd832798f9911a6"
     }
   ],
   "remaining_files": [
@@ -291,23 +376,9 @@
     "packages/streamdeck/src/art/icons.ts",
     "packages/streamdeck/src/art/segments.ts",
     "packages/streamdeck/src/art/vendorMark.ts",
-    "packages/streamdeck/src/audio/aggregate.ts",
-    "packages/streamdeck/src/audio/buffer.ts",
-    "packages/streamdeck/src/audio/capture.ts",
     "packages/streamdeck/src/audio/devices.ts",
-    "packages/streamdeck/src/audio/elevenlabs-tts.ts",
     "packages/streamdeck/src/audio/index.ts",
-    "packages/streamdeck/src/audio/node-fetch.ts",
-    "packages/streamdeck/src/audio/node-playback.ts",
-    "packages/streamdeck/src/audio/node-preferences.ts",
-    "packages/streamdeck/src/audio/node-system.ts",
     "packages/streamdeck/src/audio/pcm.ts",
-    "packages/streamdeck/src/audio/playback.ts",
-    "packages/streamdeck/src/audio/preferences.ts",
-    "packages/streamdeck/src/audio/relay.ts",
-    "packages/streamdeck/src/audio/stt.ts",
-    "packages/streamdeck/src/audio/system.ts",
-    "packages/streamdeck/src/audio/tts.ts",
     "packages/streamdeck/src/audio/waveform.ts",
     "packages/streamdeck/src/debug.ts",
     "packages/streamdeck/src/demo.ts",
@@ -342,7 +413,6 @@
     "packages/streamdeck/src/touchStrip/stripRenderer.ts",
     "packages/streamdeck/src/touchStrip/summarySegment.ts",
     "packages/streamdeck/src/touchStrip/typewriter.ts",
-    "packages/streamdeck/src/voiceHost.ts",
     "packages/streamdeck/src/voicePanel.ts",
     "packages/streamdeck/test/art/gradient.test.ts",
     "packages/streamdeck/test/art/icons.test.ts",
@@ -361,7 +431,6 @@
     "packages/streamdeck/test/audio/pcm.test.ts",
     "packages/streamdeck/test/audio/playback.test.ts",
     "packages/streamdeck/test/audio/preferences.test.ts",
-    "packages/streamdeck/test/audio/relay.test.ts",
     "packages/streamdeck/test/audio/session.test.ts",
     "packages/streamdeck/test/audio/stt.test.ts",
     "packages/streamdeck/test/audio/tts.test.ts",
@@ -401,7 +470,6 @@
     "packages/streamdeck/test/touchStrip/stripRenderer.test.ts",
     "packages/streamdeck/test/touchStrip/summarySegment.test.ts",
     "packages/streamdeck/test/touchStrip/typewriter.test.ts",
-    "packages/streamdeck/test/voiceHost.test.ts",
     "packages/streamdeck/test/voicePanel.test.ts"
   ],
   "findings": [
@@ -636,6 +704,66 @@
         "evidence_file": "streamdeck-channel-probe.json",
         "limits": "Encoded HID input and synthetic socket replies against frozen source; injected voice/channel ports and extracted agentLess predicate. No renderer, hardware or live daemon. No independent skeptic review yet."
       }
+    },
+    {
+      "id": "nonelixir-web-09",
+      "category": "data-loss",
+      "severity": "P2",
+      "title": "Key release discards the final transcript it asks the server to commit",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/audio/session.ts",
+          "lines": "107-118"
+        },
+        {
+          "path": "packages/streamdeck/src/audio/relay.ts",
+          "lines": "110-115"
+        },
+        {
+          "path": "packages/streamdeck/src/voiceHost.ts",
+          "lines": "106-115"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "lines": "221-225,305-309"
+        }
+      ],
+      "description": "Release flushes audio and calls relay close, which removes the transcript handler before port.stop. The host sends voice_stop then clears its session ID. The server commits asynchronously and forwards the settled final, but both client layers have already stopped accepting it. Text settled before release survives; the remaining partial is dropped even if its final arrives successfully. This concerns the tail not already settled by provider VAD, not every utterance.",
+      "evidence": "Composed source probe shows already settled last words before release and only already settled after a matching final. Direct relay delivery after release also fails, so retaining the host ID alone cannot repair the contract. Server realtime commit waits for settled text and notifies final before finishing. Relay tests explicitly require dropping every post-close final; session tests settle text before release.",
+      "recommendation": "Separate ending audio input from completing transcription. Retain generation-scoped handlers until final/closed or a bounded failure deadline; retain unsettled text with an explicit state. Test release followed by final through the composed host/relay/session.",
+      "refactor_hint": "Give the audio boundary a finishing state and a completion contract shared with the server; a synchronous close interface cannot represent asynchronous settlement.",
+      "effort": "M",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-audio-probe.json",
+        "limits": "Actual client link/relay/session, injected capture/channel and ordered synthetic replies. No provider, physical microphone or live daemon; no independent skeptic review."
+      }
+    },
+    {
+      "id": "nonelixir-web-10",
+      "category": "state-correlation",
+      "severity": "P2",
+      "title": "A delayed voice start reply consumes audio from the next hold",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/voiceHost.ts",
+          "lines": "85-99,119-147"
+        },
+        {
+          "path": "packages/streamdeck/src/channel.ts",
+          "lines": "409,450-456"
+        }
+      ],
+      "description": "If hold A is released before its start reply and hold B begins before that reply arrives, start resets the only queue and stop intent. The reply for A is accepted as the currently open hold, and queued B audio is labelled session A. The later B reply changes the ID again. Ordered replies are sufficient; no network reordering is required. The channel tracks refs but omits request identity from voiceStarted. The server replaces its active session on each start, so mislabelled frames may be discarded rather than transcribed.",
+      "evidence": "The probe drives hold A, buffered audio, release, hold B, buffered audio, then ordered A/B replies. A audio disappears, B audio is sent under A, and only B gets a stop. A synthetic A transcript is also accepted during this interval; that proves the client guard limitation, not that the server necessarily emits such a frame.",
+      "recommendation": "Carry a hold/request generation through voiceStart and its callback, and preserve or explicitly cancel each pending hold. Route audio, stop intent and completion to the matching generation; test overlapping holds with delayed ordered replies.",
+      "refactor_hint": "Session IDs minted by the server do not replace client request identity during the pre-reply interval.",
+      "effort": "M",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-audio-probe.json",
+        "limits": "Actual client link/relay/session, injected capture/channel and ordered synthetic replies. No provider, physical microphone or live daemon; no independent skeptic review."
+      }
     }
   ],
   "unpromoted_observations": [
@@ -674,6 +802,14 @@
     {
       "topic": "History identity and refresh anchoring",
       "disposition": "setCommands accepts page identity without matching focusedIdentifier; setLogs stores previousStarts after replacing eventStarts. Trace actual push ordering and sliding-window tests before promoting either candidate."
+    },
+    {
+      "topic": "Recorder tail on requested stop",
+      "disposition": "capture.stop marks stopped before node-system sends SIGINT; later stdout is ignored although the adapter comment says SIGINT flushes the recorder tail. Needs composed process-drain reproduction before promotion."
+    },
+    {
+      "topic": "Playback backpressure and fetch cancellation",
+      "disposition": "node-playback waits only for drain after write returns false; exit/error may not settle that wait. node-fetch releases reader lock without cancelling stream. Review full tests and production callers before claiming user-facing hangs or cancellation leaks."
     }
   ]
 }
