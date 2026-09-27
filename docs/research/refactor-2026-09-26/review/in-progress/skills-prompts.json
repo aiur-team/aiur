@@ -2659,6 +2659,56 @@
       "recommendation": "Generate requirements candidates before Stage5, or explicitly rerun mechanics and required validation after adding them.",
       "refactor_hint": "Carry target revision and finding lifecycle explicitly across review, fixing and reporting boundaries.",
       "limits": "Frozen-source contract analysis only; no real PR, commit, push, reply or thread-resolution action performed by the reviewed workflows. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-39",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Previous-feedback review promises all comments without REST pagination",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-code-review/references/personas/previous-comments-reviewer.md",
+          "lines": "9-21"
+        }
+      ],
+      "description": "The reviewer is instructed to fetch all prior review comments, but its inline-comment REST command has neither --paginate nor an explicit continuation loop. On a paginated response, later comments do not enter this evidence set. This can leave prior requested fixes unchecked while the workflow implies complete coverage.",
+      "evidence": "Frozen command inspected; installed gh2.96.0 api help explicitly describes --paginate as making additional requests until all pages are fetched. No live response, page-size assumption or count of actually missed comments claimed.",
+      "recommendation": "Paginate the explicitly targeted endpoint and surface any incomplete fetch as a coverage limitation.",
+      "refactor_hint": "Centralize tracker target identity and complete collection reads; make truncation explicit.",
+      "limits": "Frozen-source command contract and installed CLI-help evidence only. No external request, historical incident attribution or production mutation; semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-40",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Repository-qualified inputs lose their target in downstream command examples",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-code-review/references/personas/previous-comments-reviewer.md",
+          "lines": "7-18"
+        },
+        {
+          "path": ".claude/skills/ce-debug/SKILL.md",
+          "lines": "11-45"
+        },
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/references/full-mode.md",
+          "lines": "24-42"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/references/sources/github-issues.md",
+          "lines": "3-3"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/references/sources/github-issues.md",
+          "lines": "43-57"
+        }
+      ],
+      "description": "Prior-feedback review extracts a PR number from URL context before bare gh pr view; debug accepts org/repo#N but its numbered lookup omits the repository; feedback-resolution fallback drops the explicit repository used by its preferred helper; sweep examples use bare issue numbers despite a configured source repository. These commands can select the ambient checkout rather than the supplied target unless an executor adds an unstated repository binding. Sweep source identity and main helper targeting are explicit, so this is a command-template handoff gap, not absence of target intent.",
+      "evidence": "Targeted source rereads plus installed gh2.96.0 help: --repo selects another repository, API {owner}/{repo} placeholders resolve from current directory or GH_REPO. No API calls or wrong-repository writes executed; placeholder substitution by a careful executor can avoid the defect.",
+      "recommendation": "Carry host/repository/number as one target through primary and fallback paths, using full URLs or explicit repository/hostname arguments.",
+      "refactor_hint": "Centralize tracker target identity and complete collection reads; make truncation explicit.",
+      "limits": "Frozen-source command contract and installed CLI-help evidence only. No external request, historical incident attribution or production mutation; semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3084,7 +3134,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read. Candidate11 reconciled into findings36-38; continue remaining candidates and semantic dedup before raw-unit closure.",
+  "next": "All250 files read; candidate13 reconciled. Continue remaining unresolved candidates, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3248,6 +3298,16 @@
       ],
       "reason": "Resolved target identity, mutation scope and late finding lifecycle as distinct contracts.",
       "subconcerns": "Plan discovery names local disk, but Stage2c373 expressly requires remote-head inspection for current source/probes; do not claim an inevitable workspace plan read. Active local standards can legitimately govern review, so their checkout origin alone is not an independent defect. URL fallback targeting remains candidate13."
+    },
+    {
+      "id": "skills-prompts-candidate-13",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-39",
+        "skills-prompts-cont-40"
+      ],
+      "reason": "Verified unpaginated REST example and repository identity loss against installed CLI help, without external requests.",
+      "subconcerns": "Plan issue creation normally targets the current project by design; missing --repo alone does not establish a wrong target there, so no plan-specific finding. GHE fallback inherits a prose host-prefix requirement; do not claim inevitable wrong-host use. Actual pagination-loss population remains unmeasured."
     }
   ],
   "coverage_validation": {

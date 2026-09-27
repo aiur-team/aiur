@@ -1483,3 +1483,7 @@ Candidate12 resolved into two P2 findings: migration dispatch passes a logical b
 ### Skills/prompts: review identity and finding lifecycle
 
 Candidate11 reconciled into three findings: ambient checkout identity in remote-review metadata, absent PR-head binding before feedback mutation/push, and requirements findings introduced after numbering/validation. Explicit remote-source rule limits the plan-discovery claim; active standards need not be PR-authored, so no separate finding for those. URL fallback targeting remains candidate13. Findings38 (22P2/16P3); raw unit stays open. No real PR, reply or mutation performed by these reviewed workflows.
+
+### Skills/prompts: tracker target and comment completeness
+
+Candidate13 resolved: prior-comment REST fetch omits pagination; several qualified-target workflows show commands that fall back to ambient repository identity. Installed gh2.96.0 help confirms pagination and repository-placeholder behavior; no external requests or mutations. Plan issue creation intentionally uses the current project, so absent --repo alone was not promoted there. Findings40 (24P2/16P3); raw unit remains open.
