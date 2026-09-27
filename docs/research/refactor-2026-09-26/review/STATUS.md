@@ -1202,3 +1202,7 @@ Read base_url, bin_dir, boolean, bound, build_request, cache_write_duration, cha
 ### Name duplication: queue claims and recovery guidance
 
 Read claim_blocker_critical_events_digest, claim_next_checkpoint_queue_item, claim_next_queue_item, classify_stream_failure, clear_visible, clock, command_error and comment_author: 71 literal entries across eight families. Identify shared queue delegation/error adaptation and common web error messages; preserve selection policy, projection fencing, recovery guidance and author precedence. Name triage now 409 families/6003 entries, leaving 1271 cross-module names. Raw findings and skeptic counts are unchanged; no durable queue claim, timer cleanup, classification accuracy or caller refresh guarantee is claimed.
+
+### Name duplication: completion and control authority
+
+Read commit, complete?, completed?, complexity, configure, context, control and control_lifecycle: 35 literal entries across eight families. Preserve persistence versus adoption, canonical completion versus progress hints, complexity ranges, webhook proof and private access context versus public content. Confirm existing control-lifecycle delegation. Name triage now 417 families/6038 entries, leaving 1263 cross-module names. Raw findings and skeptic counts are unchanged; no complete-key coverage, durable commit, authorization or applied-control guarantee is claimed.

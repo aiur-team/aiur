@@ -78491,10 +78491,555 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "commit",
+      "assessment": "Commit names denote adoption, asynchronous stream commands and configuration publication.",
+      "constraints": [
+        "Projector adopts a candidate checkpoint, marks checkpoint health healthy and broadcasts changes; persistence preconditions are outside this literal body.",
+        "ElevenLabs.Realtime casts commit and maps exits to ok. WorkflowStore updates cache, broadcasts configuration and possibly announces base-branch change before returning ok.",
+        "Preserve durable persistence versus in-memory adoption and asynchronous request semantics. None of these names alone establishes a committed external effect."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 161,
+          "module": "Aiur.CurrentRunProjections.Projector",
+          "name": "commit",
+          "path": "src/lib/aiur/current_run_projections/projector.ex",
+          "kind": "def",
+          "end_line": 165,
+          "body_sha256": "0c1b0b310b1fe72da09c061892d3f1a7c093178a0328376efc2093750423f4f2",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 108,
+          "module": "Aiur.ElevenLabs.Realtime",
+          "name": "commit",
+          "path": "src/lib/aiur/eleven_labs/realtime.ex",
+          "kind": "def",
+          "end_line": 112,
+          "body_sha256": "295023749d042c13f9f038ffd3be8becba0fc21b09894f4e7c22ad51086b1e23",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 476,
+          "module": "Aiur.WorkflowStore",
+          "name": "commit",
+          "path": "src/lib/aiur/workflow_store.ex",
+          "kind": "defp",
+          "end_line": 476,
+          "body_sha256": "8da1aff86141e9105f2e0c8e00f1372657a11aa51e737e81984d3e397668b48c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 478,
+          "module": "Aiur.WorkflowStore",
+          "name": "commit",
+          "path": "src/lib/aiur/workflow_store.ex",
+          "kind": "defp",
+          "end_line": 483,
+          "body_sha256": "5840e239af6a8d34bef9d4a6156ba87760eecb0f26a965f0b8bce2b48c15858b",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "complete?",
+      "assessment": "Completion predicates answer different questions about status, collection and display.",
+      "constraints": [
+        "ProviderResult requires its typed status to be complete. SourceCollector compares result-map size with expected-key-list length.",
+        "Cardinality equality alone does not establish that every expected key is present; producer invariants and duplicate key possibilities remain unverified.",
+        "StreamDeckGrid accepts normalized complete progress, merged control or merged state. This is a display classification with broader evidence than typed provider completion.",
+        "Do not reuse a display or cardinality predicate as a universal completion authority."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 51,
+          "module": "Aiur.BuildOrder.ProviderResult",
+          "name": "complete?",
+          "path": "src/lib/aiur/build_order/provider_result.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 52,
+          "module": "Aiur.BuildOrder.ProviderResult",
+          "name": "complete?",
+          "path": "src/lib/aiur/build_order/provider_result.ex",
+          "kind": "def",
+          "end_line": 52,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 53,
+          "module": "Aiur.CurrentRunProjections.SourceCollector",
+          "name": "complete?",
+          "path": "src/lib/aiur/current_run_projections/source_collector.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "4973661697ce30a937f68846afa9d5701faffb1467c782fc1ad90c2dcf2c9336",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 270,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "complete?",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 275,
+          "body_sha256": "e92367c3c6059129614a9b4951e5e7c4c15c79b7d49d09fcf6189b8e0fb7a171",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "completed?",
+      "assessment": "Completed-work classification differs from lifecycle completion and progress hints.",
+      "constraints": [
+        "AgentList.Summaries checks work_state completed. Activation additionally accepts a leading 100-percent progress record for the summary identifier.",
+        "PlanningSource requires the exact CLOSED/COMPLETED lifecycle pair from identity-aware helpers.",
+        "Preserve canonical lifecycle, work state and progress-derived activation behavior separately. A progress hint is not independently verified terminal completion."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 128,
+          "module": "Aiur.AgentList.Activation",
+          "name": "completed?",
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "kind": "defp",
+          "end_line": 131,
+          "body_sha256": "44b0141a62ae26c1973baec618c02495cfb2f00bdb0dce24ea377dad52e27680",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 36,
+          "module": "Aiur.AgentList.Summaries",
+          "name": "completed?",
+          "path": "src/lib/aiur/agent_list/summaries.ex",
+          "kind": "def",
+          "end_line": 38,
+          "body_sha256": "77adf4f39107ca60343206d5207f209e591bed281910b77dc90acfb4c11201ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 427,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "completed?",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 432,
+          "body_sha256": "97b21edf96eade350caf1e3b7160c891e04550f2e3b7457c3ace4807bfb037fd",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "complexity",
+      "assessment": "Two surfaces share a bounded range while another accepts positive values and labels.",
+      "constraints": [
+        "BuildOrderGridModel extracts plan complexity only in 1..5. AgentRoutingPreview uses an integer guard and its checked complexities attribute is also 1..5.",
+        "UnitsRow.Fields accepts any positive integer complexity directly, otherwise tries a complexity label through parse_positive_integer.",
+        "Share bounded validation only after specifying whether row extraction preserves out-of-range evidence or rejects it. Label helper behavior and producer reachability were not inspected here."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 418,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderGridModel",
+          "name": "complexity",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_grid_model.ex",
+          "kind": "defp",
+          "end_line": 418,
+          "body_sha256": "0dc6058c47d556ed4e5ef55485d8b811c93ff91d35884dd60823f8e042bb9b3a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 419,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderGridModel",
+          "name": "complexity",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_grid_model.ex",
+          "kind": "defp",
+          "end_line": 419,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 221,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "complexity",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 221,
+          "body_sha256": "0dc6058c47d556ed4e5ef55485d8b811c93ff91d35884dd60823f8e042bb9b3a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 222,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "complexity",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 222,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 138,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Fields",
+          "name": "complexity",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "kind": "defp",
+          "end_line": 143,
+          "body_sha256": "4dd0adc8a27a1ecff2f2b65853c51d56e366fe0750d3e34ac7b3958b461f4ea8",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "configure",
+      "assessment": "Configuration functions control logging or webhook evidence, not a shared setup sequence.",
+      "constraints": [
+        "LogFile installs a file handler in debug mode, otherwise removes existing/default console handlers, then configures log level.",
+        "DeliveryMode leaves unchanged configuration untouched, enables as configured_unproven, and disables by clearing delivery timestamps/count and report state.",
+        "ModeRegistry delegates the repository/boolean configuration request through GenServer.call.",
+        "Preserve configuration intent versus proven delivery and reset behavior. No listener activation or logging success is inferred from these wrappers."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 115,
+          "module": "Aiur.LogFile",
+          "name": "configure",
+          "path": "src/lib/aiur/log_file.ex",
+          "kind": "def",
+          "end_line": 128,
+          "body_sha256": "0ec449c9363ca1d98aae3e568acd6c8e1072e464a7221a1a5accfcd429bbc8aa",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 124,
+          "module": "Aiur.Webhooks.DeliveryMode",
+          "name": "configure",
+          "path": "src/lib/aiur/webhooks/delivery_mode.ex",
+          "kind": "def",
+          "end_line": 124,
+          "body_sha256": "a07cb31b8cca96c52f4d4e3ed700aea06d9985be218a06f045a18ae656cc9852",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 126,
+          "module": "Aiur.Webhooks.DeliveryMode",
+          "name": "configure",
+          "path": "src/lib/aiur/webhooks/delivery_mode.ex",
+          "kind": "def",
+          "end_line": 128,
+          "body_sha256": "287784ce616cf978d6e95d2c98d48ae8527822e8d46aeac805c37eef9db0f7ae",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 130,
+          "module": "Aiur.Webhooks.DeliveryMode",
+          "name": "configure",
+          "path": "src/lib/aiur/webhooks/delivery_mode.ex",
+          "kind": "def",
+          "end_line": 142,
+          "body_sha256": "dab0d19d6bf563e9d8870f276c0981b46a3e06f5b3932276708f2ac97a7cc2a6",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 162,
+          "module": "Aiur.Webhooks.ModeRegistry",
+          "name": "configure",
+          "path": "src/lib/aiur/webhooks/mode_registry.ex",
+          "kind": "def",
+          "end_line": 164,
+          "body_sha256": "e02749d285ad8b054ee08aa801bfd6bb171b211e972bacad76e504abc6d83b79",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "context",
+      "assessment": "Context functions either project public content or retrieve a private access object.",
+      "constraints": [
+        "DecisionApi.PublicProjection emits short_summary and long_context_markdown fields using its value helper.",
+        "StreamdeckCommands renames atom-keyed summary/context to short/long, rejects nil fields and returns an empty map for unsupported inputs.",
+        "FinancialDataAccess retrieves the context from socket.private rather than projecting content.",
+        "These operations are not interchangeable. Field projection alone is not content redaction, and retrieving a private context alone is not an authorization decision."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 58,
+          "module": "Aiur.DecisionApi.PublicProjection",
+          "name": "context",
+          "path": "src/lib/aiur/decision_api/public_projection.ex",
+          "kind": "defp",
+          "end_line": 63,
+          "body_sha256": "5de1b6b3f68a5e5efe06ede70a7f274ab0a9fe29432a2b12a7a3dc24147c6e20",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 115,
+          "module": "AiurWeb.FinancialDataAccess",
+          "name": "context",
+          "path": "src/lib/aiur_web/financial_data_access.ex",
+          "kind": "def",
+          "end_line": 115,
+          "body_sha256": "250ebd69622e6637abd17c0043927457ca2e20f646e3d441ab371fca1944ea30",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 88,
+          "module": "AiurWeb.StreamdeckCommands",
+          "name": "context",
+          "path": "src/lib/aiur_web/streamdeck_commands.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "e8ea7d7773065e41b4e9243a2841691df30ee7c6e9b6eb2c7a4385084977565d",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 96,
+          "module": "AiurWeb.StreamdeckCommands",
+          "name": "context",
+          "path": "src/lib/aiur_web/streamdeck_commands.ex",
+          "kind": "defp",
+          "end_line": 96,
+          "body_sha256": "50ab143a3470d3cc763005869bf95865e005acfc9f4a0c98df4008c0a9f38335",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "control",
+      "assessment": "Control functions distinguish execution, availability presentation and lifecycle serialization.",
+      "constraints": [
+        "AgentControlCLI guards pause/resume commands, obtains a status snapshot, applies control_status and generates an exit marker.",
+        "UnitsPresentation formats enabled, pending or disabled policy results, preserving disabled reason and action distinctions.",
+        "StreamdeckProjection serializes action/status and requested/accepted/applied/rejected/expiry timestamps, drops nil fields and converts to external values.",
+        "Keep command execution separate from UI eligibility and observed lifecycle facts. The literal presenters do not prove a requested action was applied."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 1376,
+          "module": "Aiur.AgentControlCLI",
+          "name": "control",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 1382,
+          "body_sha256": "a8558509236f2fb12cf00678383509bba9163f758096ad015114458bf6889c08",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 173,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "control",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "defp",
+          "end_line": 173,
+          "body_sha256": "ddd242080ef602dbb2e26af362f8884fb90b6e7e2d7f10f3ef34d30eb821bfc1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 174,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "control",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "defp",
+          "end_line": 174,
+          "body_sha256": "ca29eff89e17d5b1ae81737cbd93b7caa5e7fc1a9022fa7e6bd000770125eb9d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 176,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "control",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "defp",
+          "end_line": 177,
+          "body_sha256": "6c997d413cdc3081072cc17ad1cdc7ac65eb815286ccfcf408a0d28048e201db",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 181,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "control",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "def",
+          "end_line": 198,
+          "body_sha256": "773ea35f2fc7d0799d730c990eb90253d55116f6aaee5d1f0fa0e7eb19c0c539",
+          "normalized_body_lines": 21,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "control_lifecycle",
+      "assessment": "Control lifecycle access already funnels through one shared API.",
+      "constraints": [
+        "AgentChat delegates to Orchestrator; Orchestrator delegates default/explicit server forms to PauseResume.",
+        "PauseResume supplies the default server and invokes control_api_call with the lifecycle request.",
+        "These are API layers, not duplicated lifecycle state machines. Preserve public entry points only where needed; simplifying wrappers must not change server injection or error behavior.",
+        "Current lifecycle authority and durable acknowledgement remain outside this literal accessor review."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 144,
+          "module": "Aiur.AgentChat",
+          "name": "control_lifecycle",
+          "path": "src/lib/aiur/agent_chat.ex",
+          "kind": "def",
+          "end_line": 146,
+          "body_sha256": "6390829026f5cd104a2de3794c7fa22e31524103395f4fe78252696b363f0b8d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 517,
+          "module": "Aiur.Orchestrator",
+          "name": "control_lifecycle",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 517,
+          "body_sha256": "754409149f547dd8346c0987915d9edaf5f9437a7fac2d8a9b31d7abb08518a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 519,
+          "module": "Aiur.Orchestrator",
+          "name": "control_lifecycle",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 519,
+          "body_sha256": "55246cd5050921a011efd9beeace8650ae34a5a93449b61034dc0f0eecf4ad11",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 287,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "control_lifecycle",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "def",
+          "end_line": 287,
+          "body_sha256": "e599dced7225c36ac21dd61f99825f167f7155736fe583eefb7ceab9dbc7f7ed",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 290,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "control_lifecycle",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "def",
+          "end_line": 291,
+          "body_sha256": "15b94ce2433e48dc360a1bc5c3c794afb925a2eff9acb282ae92b9f038d75f45",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6003,
-  "limits": "409 selected families and 6003 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6038,
+  "limits": "417 selected families and 6038 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
