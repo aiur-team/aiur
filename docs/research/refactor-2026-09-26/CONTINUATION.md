@@ -1699,3 +1699,7 @@ Read open, path, prepare, present? and select: 62 literal entries across five fa
 ### Name duplication: versions, availability and checksums
 
 Read source_version, all, available?, boot, catalog and checksum: 59 literal entries across six families. Four durable-record checksum implementations are identical, while tuple canonicalization, JSON normalization and tmux layout checksums require separate contracts. Preserve enumeration completeness, partial-health policy, recovery return shapes and catalog provenance. Name triage now 96 families/3330 entries, leaving 1584 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
+
+### Name duplication: classification, current state and enum domains
+
+Read classify, current, emit and enum: 69 literal entries across four families. Preserve classifier unknown/fatal distinctions, configuration-path authority, synchronization effects, callback failure policy and allowlist result domains. Enum conversion contains narrow sharing candidates; UsageEnvelope and ExactMoney normalization helpers were also inspected. Name triage now 100 families/3399 entries, leaving 1580 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
