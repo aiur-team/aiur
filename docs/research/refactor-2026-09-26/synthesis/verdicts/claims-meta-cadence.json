@@ -1,0 +1,15 @@
+{
+  "verdicts": [
+    {
+      "id": "meta-09",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for Git sizes and existing helper; bounded for absent artifacts and retrospective causality",
+      "corrected_claim": "The aiur-run skill grew from 5,304 bytes at 2abd1f221 to 71,315 bytes at frozen 3339b887, across 51 follow-history commits. The cited 73,431-byte size belongs to the uncommitted live checkout. The asserted absence since September 17 02:19Z is false: the khala per-run retrospective contains hourly entries through September 17 12:33:01Z. A filename-prefix scan misses these records. E09 reports an omitted recurring-prompt step, compaction dropping the section, and action-log substitution; these are self-reported mechanisms, not independently established causal effects. An August 12 public finding remains open without a ticket. The frozen system already supplies coded arm/due/record cadence tracking and an unfiled-findings check. The demonstrated gap is failure to invoke/check those obligations; choosing daemon enforcement over a shorter skill or Executor-owned scheduling requires a separate design decision.",
+      "method": "Read the public khala E09 retrospective lines 39-52; enumerated all expected public retrospective files and read level-two timestamp headings inside per-run files, finding counterevidence to the claimed start of the absence window; inspected the August 12 public findings record by status/ticket fields. Independently measured git show 2abd1f221 and 3339b887 skill bytes and git log --follow commit count, and measured the live checkout separately. Read frozen executor-retrospective.sh arm/due/record implementations and aiur-run hourly-cadence instructions. This did not execute the helper or modify its state.",
+      "note": "The E09 nine-day absence statement is retrospective self-report, not ground truth; existing hourly entries contradict its precise start. The older file collection cannot prove that no off-path record or unwritten review occurred. The self-report identifies plausible failure mechanisms but does not establish that file length or compaction was necessary or sufficient, or that all prose-rule fixes fail. Existing coded support refutes a simple prose-versus-code contrast. Automatic scheduling, overdue escalation, explicit obligation ownership, smaller prompts and recovery after compaction remain options to evaluate against both human and coding-agent Executor modes. A completion timestamp can enforce cadence evidence but cannot alone assess retrospective quality.",
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

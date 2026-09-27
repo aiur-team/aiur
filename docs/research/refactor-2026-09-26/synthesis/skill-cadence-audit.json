@@ -1,0 +1,72 @@
+{
+  "scope": "Public source and expected public retrospective directories; no private content. Current local working-tree size is not the frozen Git blob size.",
+  "skill_versions": [
+    {
+      "revision": "2abd1f221",
+      "bytes": 5304,
+      "sha256": "a149350d5a01b653120c9fe1d9484a78324bac53970a32644e5c5982a456419e"
+    },
+    {
+      "revision": "3339b887",
+      "bytes": 71315,
+      "sha256": "cb4f8656ba216c1aeb2a3c4fb9bc22a0ff4849145b5366609a28aec96616a8f6"
+    }
+  ],
+  "follow_history_commits": 51,
+  "historical_reported_omission": "E09 reports missing hourly retros and self-authored prompt omission. Its blanket September 17 start is contradicted by existing hourly record headers in a per-run file; compaction causality remains self-report.",
+  "existing_coded_support": {
+    "path": ".claude/skills/aiur-run/scripts/executor-retrospective.sh",
+    "arm_line": 317,
+    "due_line": 335,
+    "record_line": 459,
+    "role": "Durable cadence state and due/completion operations; invocation remains an Executor responsibility in the skill."
+  },
+  "august_12_public_finding": {
+    "status": "open",
+    "ticket": null
+  },
+  "limitations": "No raw-context reconstruction proves compaction caused the omission; absence in expected file paths is not proof of no retrospective activity anywhere.",
+  "live_uncommitted_checkout_bytes": 73431,
+  "public_retro_directory_census": [
+    {
+      "repo": "aiur",
+      "total_files": 8,
+      "undated_names": 7,
+      "dated_names_in_interval": 0
+    },
+    {
+      "repo": "khala",
+      "total_files": 7,
+      "undated_names": 3,
+      "dated_names_in_interval": 0
+    },
+    {
+      "repo": "archon",
+      "total_files": 2,
+      "undated_names": 2,
+      "dated_names_in_interval": 0
+    },
+    {
+      "repo": "architecture-docs",
+      "total_files": 1,
+      "undated_names": 1,
+      "dated_names_in_interval": 0
+    }
+  ],
+  "counterevidence_in_per_run_files": [
+    {
+      "repo": "aiur",
+      "file": "resume-20260916T175148Z.md",
+      "hourly_record_headers": 1,
+      "first": "2026-09-17T02:19:11Z",
+      "last": "2026-09-17T02:19:11Z"
+    },
+    {
+      "repo": "khala",
+      "file": "khala-first-collaboration-20260916.md",
+      "hourly_record_headers": 11,
+      "first": "2026-09-17T02:21:20Z",
+      "last": "2026-09-17T12:33:01Z"
+    }
+  ]
+}

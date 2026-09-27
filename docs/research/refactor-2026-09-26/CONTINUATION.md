@@ -100,6 +100,15 @@ violations. The fixes report withdraws the universal held-versus-clause rule,
 corrects the retained install growth budget and capability-probe exception, and
 separates selected case evidence from comparative effectiveness.
 
+## Retrospective-cadence checkpoint
+
+Claim meta-09 is checked, bringing both-lens coverage to 50/60. The frozen skill
+is 71,315 bytes; 73,431 is the uncommitted live checkout. A content check found khala hourly
+records through September 17 12:33Z, contradicting the reported absence since
+02:19Z. E09 supports a later reported omission; compaction remains self-report. The coded arm/due/record helper already exists;
+choose obligation ownership and enforcement placement explicitly in planning.
+No helper or operational state was executed or changed.
+
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.

@@ -419,16 +419,25 @@ filters on the wrong name, a watcher covers only some PRs, and retros and findin
     10–19 min discovery lag.
   - 09-11: the CI waiter filtered for a check named "ci" and never fired.
   - 09-24: a 45-second monitor burned the GraphQL budget.
-  - 09-17 02:19Z → 09-26 15:00Z: no hourly retros for 9 days. Causes, per the Executor: the
+  - E09 claims no hourly retros since 09-17, but the khala per-run file contains
+    hourly entries through 09-17 12:33:01Z. Its precise absence window is wrong.
+    Its self-reported causes for the later omission are: the
     10-minute self-poll prompt had five steps and no retro; compaction truncated the
     `aiur-run` skill before the "Hourly monitoring retrospective — required" section; the
     action log was mistaken for a retrospective; `findings --unfiled` was never run.
 - **Fixes claimed and recurrence:** the hourly retro rule (skill, 07-13); #2412 (08-23);
   #2264 (standing items need evidence, 08-22); #2594/#2596 (retrospective capture, 09-0x);
-  the e09 corrective actions (09-26). The skill grew from 5 KB (06-23) to 73 KB (09-26), and
-  the size is the reason given for the compaction cut. An aiur finding on 08-12 already said:
+  the e09 corrective actions (09-26). The committed skill grew from 5,304 to 71,315 bytes across 51 follow-history
+  commits; 73,431 bytes is the uncommitted checkout, not frozen 3339b887.
+  The Executor attributes the compaction cut to size; causality is not independently verified. An aiur finding on 08-12 already said:
   "the step is buried mid-skill and the skill is too large to scan." It has no ticket and is
   still `open` in `aiur/meta/findings.ndjson`.
+- **Verification correction:** the cadence helper already implements durable
+  `arm`, `due` and `record` operations. The skill requires invoking it and checking
+  unfiled findings. E09 reports those steps were omitted, so this is not evidence
+  that code support is absent or that daemon enforcement is the only remedy.
+  The compaction cause is self-report; no raw-context reconstruction is claimed.
+  See [the cadence verdict](../synthesis/verdicts/claims-meta-cadence.json).
 - **Quotes:**
   - "The recurring prompt I wrote had no retro step. … Every tick re-anchored me to that
     checklist, so the omission repeated about every 10 minutes for the whole run."
@@ -743,7 +752,7 @@ consuming events, or nobody is running.
 | Discovery depends on the session | Tail and Monitor die with the session or after 30 min; the durable cursor is not consumed; noise buries the backlog | 11 rows; 8 inbox episodes | a daemon-owned loop that wakes the Executor and escalates an unconsumed backlog |
 | One serial reviewer with a one-pass habit | Rework pushes are not a wake; re-integration of every PR on every merge | 5 rows; queue peaks of 19–40 PRs (08-08, 08-09, 08-22) | re-review wakes from rework pushes; parallel scoped re-review; merge queue |
 | Executor absence is invisible | Quota, crash, host, rotation, pause | 8 rows | a heartbeat on the Executor with a successor or an alert |
-| Self-authored loops drift from the skill | Self-poll prompt omits the retro; waiter filters "ci"; watcher scoped to old PRs; compaction truncates a 73 KB skill | e09 retro; rows 33, 38, 40 | the loop steps in code (a checklist the daemon enforces), not in prose |
+| Self-authored loops omit obligations | E09 reports a missing retro step and a compaction cut; other records describe narrow waiters/watchers | e09 retro; rows 33, 38, 40 | Assign cadence ownership and check invocation of the existing coded arm/due/record helper; choose enforcement placement explicitly |
 | Attention capture by deep work | Spikes, diagnosing Aiur defects, doing agent work, peer mail | 6 rows | move toil to the daemon; a work-in-progress limit for the Executor |
 | Surfaces report health while stuck | Stalls invisible until a human looks | 11 rows | alerts on "no progress for N minutes" per ticket and per fleet |
 | Gates without escalation | "do not re-prompt"; reminders every 15 min | 5 rows | one escalation per gate with an age, not per-worker reminders |
@@ -762,7 +771,9 @@ Executor, or no human for a gate), not when an attentive Executor drifts.*
 
 The corpus has a clear pattern: an incident leads to a prose rule in the `aiur-run` skill or a
 narrow code fix, and the class recurs in a slightly different form. The `aiur-run` skill grew
-from 5.3 KB (2026-06-23) to 73.4 KB (2026-09-26) over 50 commits, much of it incident lessons.
+from 5,304 bytes (2026-06-23) to 71,315 committed bytes (3339b887) over 51
+follow-history commits. The 73,431-byte live checkout includes uncommitted changes.
+Growth and recurrent omissions do not prove prose guidance cannot work.
 
 | Class | Fix chain (issue → PR) | Recurred after the last shipped fix? |
 |---|---|---|
@@ -781,7 +792,7 @@ from 5.3 KB (2026-06-23) to 73.4 KB (2026-09-26) over 50 commits, much of it inc
 | CLI status timeouts (Rank 9) | #1614 → #1720 → #1816 → #1837 | Yes, four causes |
 | CI flakes (Rank 8) | #1591 … #2247/#2285 → #2343/#2348 → #2373/#2383 → #2397/#2405 → #2555 → #2474/#2688 → #2691 → #2740 | Yes, each family replaced |
 | Destructive git (Rank 15) | #2049 → #2094; #2362 → #2377 | Yes, 08-23 |
-| Hourly retros (Rank 10) | skill 07-13 → timer rule 08-09 → #2412 → #2594/#2596 → e09 actions 09-26 | Yes, 9 days (09-17 → 09-26) |
+| Hourly retros (Rank 10) | skill 07-13 → timer rule 08-09 → #2412 → #2594/#2596 → e09 actions 09-26 | Later omission reported by E09; exact nine-day absence contradicted by hourly entries through 09-17 12:33Z |
 
 ## Corrections recorded in the corpus (highest-value lines)
 
