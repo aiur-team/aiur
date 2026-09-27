@@ -230,9 +230,51 @@
       "sha256": "40f9ea353baa1057faa32edcdc26da5117ab125806308e44a30a598961ef2d4d",
       "lines": 216,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/shutdown_test.exs",
+      "sha256": "65576ef992a69b754f8f58645408dd4106a8a9c19310a47a842626f220637206",
+      "lines": 148,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/provider_meter_refresh_test.exs",
+      "sha256": "c49b0d1a0e282c6f9b6cc1fb8f557d538b72e8e7afa6b7afece4b2b1ce30aeaa",
+      "lines": 280,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/workflow_store_test.exs",
+      "sha256": "cc816c7d2c5f88fe70038a791abe432825dcd3152e43651f2238f2b0c860e9b8",
+      "lines": 334,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_revision_dispatch_test.exs",
+      "sha256": "248d2ecbf3faf087edd7ad8d1ff178ac78118095d69b78e994882bae18896474",
+      "lines": 257,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/coordination_tasks_test.exs",
+      "sha256": "fe8f80022d8b1ddd4ac35d9e8daaadea71b45cabfcc297e52ae2f2bcd507ca2e",
+      "lines": 510,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/issue_disposition_hook_test.exs",
+      "sha256": "b336746f589c2846f9182a2a59be4026db2e6111a9eb6581e5a88234f65dffcb",
+      "lines": 172,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/durable_runtime_state_test.exs",
+      "sha256": "31580a556adfb09d2148299fc9fb5b5363ee84ac37efca3f31d4ae5ff275c722",
+      "lines": 285,
+      "read": "full"
     }
   ],
-  "scope_note": "38 complete file reads, 4202 lines; remaining paths unreviewed. Targeted excerpts recorded separately. Isolated source-oracle and policy-test probes ran; no application suite or live runtime launched.",
+  "scope_note": "45 complete file reads, 6188 lines; remaining paths unreviewed. Targeted excerpts recorded separately. Isolated assertion/policy probes and 16 provider-refresh tests ran; no full application suite or live runtime launched.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -292,6 +334,23 @@
       "recommendation": "Decide and document whether the policy guards the staged proposal or the current source. For ordinary local test semantics, enumerate tracked paths but read working-tree contents, and distinguish read failures from clean scans.",
       "refactor_hint": "Repository policy checks should state their source-of-truth boundary; keep index validation explicit if it is intentionally a pre-commit check.",
       "limits": "This is an unstaged local-edit blind spot. Clean-checkout CI sees matching index/worktree contents and catches the demonstrated violation. No production failure or network operation is alleged."
+    },
+    {
+      "id": "tests-1b-cont-04",
+      "severity": "P3",
+      "category": "testing",
+      "title": "Multiple-watcher test leaves its unlinked helper alive",
+      "locations": [
+        {
+          "file": "src/test/aiur/provider_meter_refresh_test.exs",
+          "lines": "222-250"
+        }
+      ],
+      "description": "The other watcher is spawned without a link or teardown callback. After handling :leave it sleeps forever. Successful assertions do not stop it.",
+      "evidence": "The unchanged frozen refresh test module passed all16 tests in an isolated VM with the real cadence module and TaskSupervisor. Spawn tracing attributed one surviving unlinked waiting process to ProviderMeterRefreshTest; its current function was Process.sleep/1. The probe then killed that helper.",
+      "recommendation": "Register helper cleanup immediately after spawning and monitor its termination, or make the watcher exit after sending its departure acknowledgement.",
+      "refactor_hint": "Own test helper lifetimes explicitly when splitting package test suites so passing tests leave no hidden process population.",
+      "limits": "One inert helper survives this module; no measured suite slowdown, production leak, or scheduler leak is claimed. Config, Orchestrator and ProviderMeterProbe are absent in the isolated VM; callbacks are injected, and the default-config case uses the production fallback. This is not a full application test run."
     }
   ],
   "preserve": [
@@ -314,7 +373,14 @@
     "Yaml tests suspend the real controller and bound task completion to guard the configuration read deadlock.",
     "TrackerIdentity and TicketObservation retain qualified identity, explicit unjoinable/unattributed states, separate occurrence/observation timestamps, retry provenance and redaction of untrusted text.",
     "DecisionMetrics restart tests use a replay barrier to exercise subscribe-before-replay, deduplicate persisted events, separate cross-run decision metrics from run-local operator wait, and backfill from the canonical store.",
-    "HTTP collision tests explicitly distinguish existing characterization from nested bind-error regression, assert sibling survival and dashboard-independent alerting, and exercise linked-child exit cleanup."
+    "HTTP collision tests explicitly distinguish existing characterization from nested bind-error regression, assert sibling survival and dashboard-independent alerting, and exercise linked-child exit cleanup.",
+    "Shutdown tests require derive:false to reuse the parked workspace root or skip handoff when absent, avoiding configuration parsing after WorkflowStore stops.",
+    "Provider refresh tests retain watcher gating, grace, dead-watcher removal, explicit refresh, observer failure containment and coalesced overlapping probes.",
+    "WorkflowStore tests force content/stamp interleaving, transient auxiliary-file failure, suspended-store reads, path fencing, publication identity and death-versus-timeout distinctions.",
+    "Decision revision dispatch revalidates trusted target identity, retains retryable tracker failures and correlated corrective-message semantics without claiming prior effects were rolled back.",
+    "CoordinationTasks tests cover keyed ordering and fairness, overload recovery, task-start retry/coalescing, expired admission, worker/coordinator death and bounded redacted failure details.",
+    "Issue-disposition tests invoke the actual hook with safely passed JSON and cover shell wrappers, substitutions, API creation refusal and read-only commands.",
+    "DurableRuntimeState tests separate launch logs from persistent state, prove monotonic IDs across crash/clock rollback, retain subscription cursors and reject stale legacy session adoption."
   ],
   "next": [
     "Continue remaining tests-1b paths; audit test support and shared-state restoration.",
@@ -339,6 +405,15 @@
       ],
       "scope": "excerpt",
       "finding": "Direct subscription to ticket.<id>.agent.attention.resolved tests a different shape; it does not exercise keyed attention.<slug>.resolved through default listener patterns."
+    },
+    {
+      "path": "src/lib/aiur/provider_meter_refresh.ex",
+      "lines": [
+        1,
+        236
+      ],
+      "scope": "full",
+      "finding": "Production scheduler used in isolated lifecycle probe; external observer callbacks injected."
     }
   ],
   "follow_up_candidates": [
@@ -367,6 +442,15 @@
         33
       ],
       "question": "Regex inventories literal get_env/fetch_env and attribute strings but may omit fetch_env! or dynamic names; verify actual omissions before calling this a coverage defect.",
+      "status": "unverified hypothesis"
+    },
+    {
+      "path": "src/test/aiur/coordination_tasks_test.exs",
+      "lines": [
+        323,
+        338
+      ],
+      "question": "The infinite-timeout case releases the first worker without explicitly crossing the configured20ms deadline. Check a controlled timeout mutation before promoting a coverage defect.",
       "status": "unverified hypothesis"
     }
   ]
