@@ -1619,3 +1619,7 @@ Read all 24 request and 28 source definitions/declarations. Preserve control-int
 ### Name duplication: record construction versus persistence
 
 Read all 31 record definitions/declarations in 19 modules. Distinguish map construction, bounded in-memory updates, enqueue acceptance and persisted state. Preserve deduplication, identity, retention and failure policies. SaturationSentinel does not match its append result; writer acceptance and this static candidate require caller/failure review before defect classification. Name triage now 33 families/1011 literal entries; remaining sweep and transitive verification stay open.
+
+### Name duplication: resolution policy and side effects
+
+Read all 40 resolve definitions/declarations in 23 modules. Preserve pure lookup versus stateful resolution, identity and containment checks, explicit/default port policy, retained-data availability, historic pricing revisions and unavailable-versus-session analytics scope. Name triage now 34 families/1051 literal entries; remaining sweep and transitive verification stay open. No new defect or savings count.
