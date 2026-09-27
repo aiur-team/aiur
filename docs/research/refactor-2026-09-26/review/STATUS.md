@@ -758,3 +758,7 @@ Reconciled five candidates after targeted governing-source rereads: ideation sco
 ### Skills/prompts: planning and artifact ownership reconciliation
 
 Reconciled four candidates using caller/child contracts: brainstorm pipeline-mode inconsistency, historian write prohibition versus artifact requirement, and diagram framing versus validation promoted as P3. Selective-refresh candidate not promoted as unauthorized mutation: headless invocation forbidden and interactive action-confirmation stage applies. Preserved limits: no actual automated stall, lost artifact or generated-plan failure claimed. Findings28 (16P2/12P3); raw unit remains open. No child workflow or production changes.
+
+### Skills/prompts: operational recovery and monitoring reconciliation
+
+Reconciled candidates02/06/08: unchecked index-lock deletion, global-resume recovery versus binding existing pauses, and mandatory observe versus exactly-one recording rule. Both retrospective functions independently append monitoring outcomes; no live log was changed. Per-ticket handler returns globally_paused explicitly, but complete CLI exit behavior remains unverified and is not claimed. Findings31 (18P2/13P3); raw unit remains open. All250-file coverage unchanged. No lock removal, runtime resume or production change.

@@ -2413,6 +2413,77 @@
       "recommendation": "Distinguish settled architecture constraints from illustrative pseudo-code/wireframes, and make authoring and review checks apply the same framing rule to each kind.",
       "refactor_hint": "Define caller mode and artifact ownership once, then derive specialized prompts and validation from that contract.",
       "limits": "Frozen-source instruction contradiction only; no child workflow, generated plan, artifact loss or blocked run observed. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-29",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Index-lock recovery deletes the lock before establishing ownership",
+      "locations": [
+        {
+          "path": ".claude/skills/aiur-agent/dev-loop.md",
+          "lines": "32-43"
+        },
+        {
+          "path": ".claude/skills/aiur-debug/diagnostic-recipes.md",
+          "lines": "314-322"
+        }
+      ],
+      "description": "The mandatory first recovery action removes index.lock for several metadata-write failures without checking whether a Git operation still owns it. The separate diagnostic recipe requires inspecting lock ownership, but the ticket recovery paragraph supplies no such prerequisite.",
+      "evidence": "Read both governing recovery passages. The triggering messages include metadata failures that do not establish a stale index lock. No lock was removed and no repository corruption was observed.",
+      "recommendation": "Establish that the lock is stale and that no owning operation remains before deletion; preserve distinct permission and metadata-path failures.",
+      "refactor_hint": "Make recovery authority and monitoring-event ownership explicit, with one consistent contract across operating instructions.",
+      "limits": "Frozen-source review only; no production mutation or historical causal claim. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-30",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Quiet-fleet recovery overrides the instruction to preserve existing pauses",
+      "locations": [
+        {
+          "path": ".claude/skills/aiur-run/SKILL.md",
+          "lines": "8"
+        },
+        {
+          "path": ".claude/skills/aiur-run/SKILL.md",
+          "lines": "743-745"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "293-305"
+        }
+      ],
+      "description": "The opening operating contract keeps existing pauses binding, but the quiet-fleet ladder unconditionally begins its numbered recovery actions with global resume. It does not first distinguish an intentional operator pause from a stale hold. Its supporting claim that per-ticket resume exits silently is also not supported by the underlying handler, which returns an explicit globally_paused error; CLI exit behavior was not traced.",
+      "evidence": "Re-read both instruction clauses and the bounded per-ticket handler. This establishes a conflicting recovery contract, not an observed unauthorized resume or a claim about the complete CLI error path.",
+      "recommendation": "Inspect the global hold and preserve its operator intent; resume only when the run authority actually permits clearing it.",
+      "refactor_hint": "Make recovery authority and monitoring-event ownership explicit, with one consistent contract across operating instructions.",
+      "limits": "Frozen-source review only; no production mutation or historical causal claim. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-31",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Monitoring instructions require both mutually exclusive and mandatory observation paths",
+      "locations": [
+        {
+          "path": ".claude/skills/aiur-run/SKILL.md",
+          "lines": "592-607"
+        },
+        {
+          "path": ".claude/skills/aiur-run/SKILL.md",
+          "lines": "677-683"
+        },
+        {
+          "path": ".claude/skills/aiur-run/scripts/executor-retrospective.sh",
+          "lines": "384-455"
+        }
+      ],
+      "description": "One section requires exactly one of plan-wait or observe per wake, while another requires observe on every event-driven or quiet audit. For a wake recorded with plan-wait, following the latter adds a second monitoring outcome. Both shell functions append an event independently.",
+      "evidence": "Read complete observe and plan_wait event-writing portions: observe appends at402 and plan_wait at451, with no shared wake identity check in either path. No live retrospective was modified and no historical denominator inflation is claimed.",
+      "recommendation": "State one authoritative recording rule and let both command forms satisfy it; consider an explicit wake identity if duplicate recording must be rejected.",
+      "refactor_hint": "Make recovery authority and monitoring-event ownership explicit, with one consistent contract across operating instructions.",
+      "limits": "Frozen-source review only; no production mutation or historical causal claim. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -2838,7 +2909,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files covered. Reconciled candidates09/16/29 into findings26-28 and15 not promoted as unauthorized mutation. Findings28 total (16P2/12P3). Continue remaining candidates and semantic dedup before closing raw unit.",
+  "next": "All250 planned files remain read. Candidates02/06/08 reconciled into findings29-31. Continue unresolved candidate reconciliation and semantic dedup before raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -2951,6 +3022,24 @@
       "status": "not_promoted",
       "reason": "Selective refresh is explicitly prohibited in headless compound. Interactive invocation delegates to refresh's Phase3 confirmation before Phase4 chosen actions; invoking it is not itself proof of unauthorized cross-doc edits. The only-prompt/end-summary wording is stale relative to selective interactive routing, but no additional independent mutation defect is established.",
       "validation": "Re-read compound Phase2.5/end-summary and refresh Phase3 confirmation plus Phase4 dependency. No refresh executed."
+    },
+    {
+      "id": "skills-prompts-candidate-02",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-29",
+      "reason": "Read both governing recovery passages. The triggering messages include metadata failures that do not establish a stale index lock. No lock was removed and no repository corruption was observed."
+    },
+    {
+      "id": "skills-prompts-candidate-06",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-30",
+      "reason": "Re-read both instruction clauses and the bounded per-ticket handler. This establishes a conflicting recovery contract, not an observed unauthorized resume or a claim about the complete CLI error path."
+    },
+    {
+      "id": "skills-prompts-candidate-08",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-31",
+      "reason": "Read complete observe and plan_wait event-writing portions: observe appends at402 and plan_wait at451, with no shared wake identity check in either path. No live retrospective was modified and no historical denominator inflation is claimed."
     }
   ],
   "coverage_validation": {
