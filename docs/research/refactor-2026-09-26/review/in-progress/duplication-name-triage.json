@@ -100751,10 +100751,382 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "condition_state",
+      "assessment": "Ledger-backed condition lookup and injected-state selection are different layers.",
+      "constraints": [
+        "AlertFeed fetches the requested topic from its batch result.",
+        "DecisionAttentionSignals prefers an explicitly supplied states map, defaulting absent topics to unknown, otherwise invokes an injected/default single-topic callback.",
+        "Preserve supplied snapshot precedence and unknown fallback; actual alert-condition freshness and helper completeness remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 88,
+          "module": "Aiur.AlertFeed",
+          "name": "condition_state",
+          "path": "src/lib/aiur/alert_feed.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "60cd7bf13033c11b7166786d1c48b47dfa912ed18aff87757f71c5b19ed9b943",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 134,
+          "module": "Aiur.DecisionAttentionSignals",
+          "name": "condition_state",
+          "path": "src/lib/aiur/decision_attention_signals.ex",
+          "kind": "defp",
+          "end_line": 139,
+          "body_sha256": "fc67e4b2a2bc852238eb98f06dffaf3829d1822f9ae489d3d663ec958d3427a1",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "condition_states",
+      "assessment": "Alert reconstruction and callback dispatch have different responsibilities.",
+      "constraints": [
+        "AlertFeed filters/deduplicates binary topics, initializes unknown states, reads ledger paths, sorts by timestamp with missing timestamps last and folds condition updates.",
+        "DecisionAttentionSignals prefers a batch callback, then a per-topic callback, otherwise AlertFeed; the literal cases cover function-or-nil options.",
+        "Keep reconstruction separate from injection. Timestamp sorting is not independently proof of causal ordering, and malformed callback option handling is not generalized here."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 94,
+          "module": "Aiur.AlertFeed",
+          "name": "condition_states",
+          "path": "src/lib/aiur/alert_feed.ex",
+          "kind": "def",
+          "end_line": 94,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 96,
+          "module": "Aiur.AlertFeed",
+          "name": "condition_states",
+          "path": "src/lib/aiur/alert_feed.ex",
+          "kind": "def",
+          "end_line": 96,
+          "body_sha256": "50ab143a3470d3cc763005869bf95865e005acfc9f4a0c98df4008c0a9f38335",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 98,
+          "module": "Aiur.AlertFeed",
+          "name": "condition_states",
+          "path": "src/lib/aiur/alert_feed.ex",
+          "kind": "def",
+          "end_line": 108,
+          "body_sha256": "226181af7da98298a375130d0310cce922cd6f0e6623531161fb044874815134",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 141,
+          "module": "Aiur.DecisionAttentionSignals",
+          "name": "condition_states",
+          "path": "src/lib/aiur/decision_attention_signals.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "db2b4da34f1b6fae98821f5f8f47610034b37b63ca3be915e6b4d676f1991ac2",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "conditions",
+      "assessment": "CLI condition validation differs from exposing the complete policy vocabulary.",
+      "constraints": [
+        "UnitsCLI normalizes inputs, errors if any normalize to nil and otherwise deduplicates.",
+        "Read UnitsPolicy constants: conditions includes active/alert/paused/stuck/queued/finished; visible_conditions removes stuck.",
+        "Preserve internal versus exposed vocabulary; this overlaps earlier normalize_condition review and is not a new independent defect finding."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 91,
+          "module": "Aiur.UnitsCLI",
+          "name": "conditions",
+          "path": "src/lib/aiur/units_cli.ex",
+          "kind": "defp",
+          "end_line": 101,
+          "body_sha256": "36e04655fbf4885f0fce19f433916065254ab70f6469b890d65f56aa8c84dc9b",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 22,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPolicy",
+          "name": "conditions",
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "c625b10cd345d59ace2cc4a882da7542a3c11c7bf031edc941d17a89e0a63ded",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "config_value",
+      "assessment": "Two orchestrator config readers share exact defensive callback behavior.",
+      "constraints": [
+        "PRHealthScanner and ReworkRequeue invoke the callback and return its result unchanged.",
+        "Both rescue exceptions and catch all kinds/reasons, returning the supplied fallback.",
+        "A shared helper is possible while leaving fallback policy at the caller; fallback success must not be mistaken for a verified configured value."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 96,
+          "module": "Aiur.Orchestrator.PRHealthScanner",
+          "name": "config_value",
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "kind": "defp",
+          "end_line": 102,
+          "body_sha256": "098193486ff4f17d21507be7a3a4bf34f888d4696496c06470143fcdaacb8aa3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 128,
+          "module": "Aiur.Orchestrator.ReworkRequeue",
+          "name": "config_value",
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "kind": "defp",
+          "end_line": 134,
+          "body_sha256": "098193486ff4f17d21507be7a3a4bf34f888d4696496c06470143fcdaacb8aa3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "configuration_failed",
+      "assessment": "Graph and ticket-detail failure transitions own different task/index structures.",
+      "constraints": [
+        "GraphProjection fails catalog/selected entries, cancels tasks/timers, clears pending/forced sets and returns changed health events.",
+        "TicketDetailCoordinator.TaskLifecycle folds fail_entry_for_configuration over entries, clears inflight_by_ref and projects changed updates.",
+        "Preserve owner-specific invalidation and event ordering; called cleanup helpers and late-result rejection are not certified by these entry points alone."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 509,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "configuration_failed",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "defp",
+          "end_line": 530,
+          "body_sha256": "ea5d45eb604852ba1b81b8541d5b18f348f62c4bd833729c1be3ada33087ba40",
+          "normalized_body_lines": 39,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 103,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.TaskLifecycle",
+          "name": "configuration_failed",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+          "kind": "def",
+          "end_line": 112,
+          "body_sha256": "d6bab7e299a63d7be4652c39b4ca3272bd0ce4abf2bda0fa6cd1fcece6dcb1e5",
+          "normalized_body_lines": 22,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "configured",
+      "assessment": "Single-value configuration validation and credential-list assembly are unrelated.",
+      "constraints": [
+        "ElevenLabs.TTS trims a reader's binary value, returns unconfigured for blank/nonbinary/errors/exits/throws and tagged success otherwise.",
+        "CredentialRegistry accepts an explicit list override, otherwise combines legacy and schema-derived entries.",
+        "Keep value validation separate from credential population assembly. No secrets were read and list presence does not prove usable credentials."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 112,
+          "module": "Aiur.ElevenLabs.TTS",
+          "name": "configured",
+          "path": "src/lib/aiur/eleven_labs/tts.ex",
+          "kind": "defp",
+          "end_line": 127,
+          "body_sha256": "39401ca8590c2f288f126fbe9e35c92910fe3ae0ba690c214ca3845d8a0d6a15",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 52,
+          "module": "Aiur.GitHub.CredentialRegistry",
+          "name": "configured",
+          "path": "src/lib/aiur/github/credential_registry.ex",
+          "kind": "def",
+          "end_line": 57,
+          "body_sha256": "d913acce936c6d10f54b25884110c7e30e545cee560bf5710a1ee0d8760ab368",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "configured?",
+      "assessment": "Provider-presence checks use different evidence and failure policies.",
+      "constraints": [
+        "ElevenLabs.Realtime tests for a nonblank binary key and maps callback failures to false.",
+        "GitHub.AppCredentials requires binary app and installation IDs plus private_key_configured?.",
+        "Do not turn structural configuration presence into authenticated readiness; App ID/key helper validation and actual credential usability remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 137,
+          "module": "Aiur.ElevenLabs.Realtime",
+          "name": "configured?",
+          "path": "src/lib/aiur/eleven_labs/realtime.ex",
+          "kind": "defp",
+          "end_line": 146,
+          "body_sha256": "a2b258f03406f6f92bc0333fe2a3f8556f98068a9d24dfac7be67ce0695a0def",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 68,
+          "module": "Aiur.GitHub.AppCredentials",
+          "name": "configured?",
+          "path": "src/lib/aiur/github/app_credentials.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "20de0dcadc033360e407bb55e80e029e078a7b58fcb840c9bc69e7ed3b8dfb3a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "configured_generation",
+      "assessment": "Generation-source selection differs from generation evaluation.",
+      "constraints": [
+        "Coordinator.Configuration prefers a positive notified generation, otherwise retains a zero-arity configured callback, then a positive active generation, then the configured field.",
+        "TicketDetailRepository reads an option defaulting to 1, invokes a callback when supplied and normalizes the result; exceptions/exits/throws become unknown.",
+        "Read normalization: only positive integers survive, otherwise unknown. Preserve callback lifetime and source precedence before sharing; these functions alone do not prove current authority."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 52,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Configuration",
+          "name": "configured_generation",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_configuration.ex",
+          "kind": "defp",
+          "end_line": 53,
+          "body_sha256": "6299a9ed8ea3df05ee9efda8a090c7d438331f7f8719030728751a8dbdfb2a6b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 55,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Configuration",
+          "name": "configured_generation",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_configuration.ex",
+          "kind": "defp",
+          "end_line": 57,
+          "body_sha256": "6299a9ed8ea3df05ee9efda8a090c7d438331f7f8719030728751a8dbdfb2a6b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 59,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Configuration",
+          "name": "configured_generation",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_configuration.ex",
+          "kind": "defp",
+          "end_line": 61,
+          "body_sha256": "6299a9ed8ea3df05ee9efda8a090c7d438331f7f8719030728751a8dbdfb2a6b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 63,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Configuration",
+          "name": "configured_generation",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_configuration.ex",
+          "kind": "defp",
+          "end_line": 63,
+          "body_sha256": "055d7e60cf2bd99aecb889a380167c61f002ce4eecc551b3c5ac5def7d695260",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 160,
+          "module": "Aiur.BuildOrder.TicketDetail.Repository",
+          "name": "configured_generation",
+          "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+          "kind": "defp",
+          "end_line": 169,
+          "body_sha256": "669890391656226b82232255e531d8f5789557fb80157df0f613fa6704cd80cd",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7411,
-  "limits": "757 selected families and 7411 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7432,
+  "limits": "765 selected families and 7432 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

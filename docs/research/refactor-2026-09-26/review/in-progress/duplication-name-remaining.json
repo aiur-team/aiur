@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "bfa5b587f2d8275cfb6a6ed438cacbc76dbb1b38cdbe92b01db9f904ee6203ae"
+    "name_triage": "bfba8393ff18318183548757525816c73b43d45492371478f91d727a1794a598"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 757,
-    "remaining_cross_module_names": 923,
-    "remaining_literal_entries": 2857
+    "reviewed_cross_module_names": 765,
+    "remaining_cross_module_names": 915,
+    "remaining_literal_entries": 2836
   },
   "families": [
-    {
-      "name": "condition_state",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "condition_states",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 25
-    },
-    {
-      "name": "conditions",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "config_value",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "configuration_failed",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 32
-    },
-    {
-      "name": "configured",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "configured?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "configured_generation",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 19
-    },
     {
       "name": "configured_interval_ms",
       "clauses": 2,
