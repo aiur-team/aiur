@@ -686,3 +686,20 @@ preserve atom/string output boundaries. Identifier hashing, rejection, redaction
 length limits, topic identity and nil policies remain distinct. Terminal scrubbing
 replaces the same controls other validators reject; diff display preserves leading
 spaces that generic single-line display can discard. No production code changed.
+
+## Storage bounds and framework constants checkpoint
+
+Nine of 162 attribute groups assessed (153 remain). Confirmed six u64 bound
+literals, including the inline aggregate checkpoint site absent from attribute
+census. Existing Record.bounded_integer? reuse narrows the extraction proposal;
+positive positions, nonnegative generations/counters and error envelopes differ.
+This partially corroborates telemetry-usage-22, not its whole persistence proposal.
+RetiredFloor.write permits nonnegative integers without its loader ceiling;
+caller reachability/runtime effects remain unverified, so no incident is claimed.
+
+All 28 false-valued attributes are local embedded-schema primary-key declarations.
+All 15 Aiur.PubSub attributes reference a shared transport; separate event topics,
+payloads and failure semantics should not be collapsed because names repeat.
+Declaration/reference contexts and frozen hashes were checked. No production
+changes, runtime tests or savings claims. Regex candidate review remains complete
+within its bounded syntax census; broader constant and concept sweeps remain open.

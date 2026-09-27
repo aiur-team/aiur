@@ -154,7 +154,14 @@
       "disposition": "corroborated_vocabulary_subset_preserve_contracts",
       "assessment": "Four dimension lists and two partition enum pairs corroborated. The proposed Usage.Dimensions leaf is supported; retain ordered dimensions, distinguish five token dimensions from six raw fields, and preserve nullable checkpoint versus required price/provider validation. Three other consumers already derive the six-field vocabulary from UsageEnvelope. Map accessors, exception naming and other helpers in the inherited finding are outside this verification.",
       "evidence": "constant-triage.json"
+    },
+    {
+      "finding_id": "telemetry-usage-22",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_six_integer_bounds_existing_reuse",
+      "assessment": "Verified six unsigned-64 literal sites: five attributes plus inline aggregate checkpoint bound. Record.bounded_integer? already serves Ledger.Checkpoint and CounterPolicy. A common storage bound is supported, but retain positive/nonnegative domains and contextual error atoms. RetiredFloor writer/load bound asymmetry needs caller review. Checksum, quarantine, atomic-write, degraded-marker and complete cell-codec recommendations are not all reverified by this constant pass.",
+      "evidence": "constant-triage.json"
     }
   ],
-  "limits": "Nine selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
+  "limits": "Ten selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
 }

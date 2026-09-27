@@ -248,10 +248,477 @@
       ],
       "disposition": "shared_predicate_different_error_contracts",
       "assessment": "PriceTable.Validator and ExactMoney use the same pattern and explicit String.valid? check, but return invalid_price_currency versus invalid_currency. Inline census adds Aggregate.Key.currency/1 with the same pattern, no explicit String.valid? precheck, and bare :error. Sharing a named currency-shape predicate is possible; preserve caller validation/error contracts. No ISO currency-code membership or strict whole-input validity proved by pattern identity."
+    },
+    {
+      "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+      "modules": 28,
+      "site_count": 28,
+      "sites": [
+        {
+          "line": 36,
+          "module": "Aiur.Config.Schema",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.Config.Schema.Codex",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/agent.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 72,
+          "module": "Aiur.Config.Schema.Claude",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/agent.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 92,
+          "module": "Aiur.Config.Schema.Rtk",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/agent.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 117,
+          "module": "Aiur.Config.Schema.Agent",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/agent.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.Config.Schema.Alerts",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/alerts.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.Config.Schema.BuildOrder",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/build_order.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 11,
+          "module": "Aiur.Config.Schema.Decisions",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/decisions.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.Config.Schema.ElevenLabs",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/eleven_labs.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Events",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/events.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 30,
+          "module": "Aiur.Config.Schema.GithubApp",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/github_app.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 27,
+          "module": "Aiur.Config.Schema.GithubCredential",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/github_credential.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Hooks",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/hooks.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Observability",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/observability.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Opencode",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/opencode.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 15,
+          "module": "Aiur.Config.Schema.Polling",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/polling.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.PrHealth",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/pr_health.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.PrWatch",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/pr_watch.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Prewarm",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/prewarm.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 62,
+          "module": "Aiur.Config.Schema.PricingPolicy",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/pricing_policy.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Server",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/server.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 23,
+          "module": "Aiur.Config.Schema.Github",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/tracker.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 188,
+          "module": "Aiur.Config.Schema.Linear",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/tracker.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 209,
+          "module": "Aiur.Config.Schema.Tracker",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/tracker.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Upgrade",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/upgrade.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Webhooks",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/webhooks.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Worker",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/worker.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.Config.Schema.Workspace",
+          "name": "primary_key",
+          "path": "src/lib/aiur/config/schema/workspace.ex",
+          "expression": "false",
+          "numeric_value": null,
+          "expression_sha256": "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa"
+        }
+      ],
+      "disposition": "framework_schema_declaration_keep_local",
+      "assessment": "All 28 sites are @primary_key false on configuration embedded schemas; declaration contexts inspected. These are local Ecto schema declarations, not 28 independently invented product policies. Keep explicit declarations unless a broader schema construction abstraction earns its complexity. A global false constant provides no useful owner."
+    },
+    {
+      "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3",
+      "modules": 15,
+      "site_count": 15,
+      "sites": [
+        {
+          "line": 16,
+          "module": "Aiur.AgentPubSub",
+          "name": "pubsub",
+          "path": "src/lib/aiur/agent_pubsub.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 29,
+          "module": "Aiur.Claude.HookEvents",
+          "name": "pubsub",
+          "path": "src/lib/aiur/claude/hook_events.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 13,
+          "module": "Aiur.CurrentRunMembership",
+          "name": "pubsub",
+          "path": "src/lib/aiur/current_run_membership.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 10,
+          "module": "Aiur.DecisionPubSub",
+          "name": "pubsub",
+          "path": "src/lib/aiur/decision_pubsub.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 43,
+          "module": "Aiur.GitHub.CacheHistory",
+          "name": "pubsub",
+          "path": "src/lib/aiur/github/cache_history.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 38,
+          "module": "Aiur.GitHub.QuotaHistory",
+          "name": "pubsub",
+          "path": "src/lib/aiur/github/quota_history.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 73,
+          "module": "Aiur.GitHub.ResourceEvents",
+          "name": "pubsub",
+          "path": "src/lib/aiur/github/resource_events.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 12,
+          "module": "Aiur.ProviderAccountGeneration",
+          "name": "pubsub",
+          "path": "src/lib/aiur/provider_account_generation.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 4,
+          "module": "Aiur.ProviderAccountGeneration.Events",
+          "name": "pubsub",
+          "path": "src/lib/aiur/provider_account_generation/events.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 4,
+          "module": "Aiur.ProviderMeters.Events",
+          "name": "pubsub",
+          "path": "src/lib/aiur/provider_meters/events.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 16,
+          "module": "Aiur.TicketActivity",
+          "name": "pubsub",
+          "path": "src/lib/aiur/ticket_activity.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.UsageAggregate",
+          "name": "pubsub",
+          "path": "src/lib/aiur/usage_aggregate.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 15,
+          "module": "Aiur.Webhooks.DeliveryModeEvents",
+          "name": "pubsub",
+          "path": "src/lib/aiur/webhooks/delivery_mode_events.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 13,
+          "module": "AiurWeb.FinancialData",
+          "name": "pubsub",
+          "path": "src/lib/aiur_web/financial_data.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        },
+        {
+          "line": 6,
+          "module": "AiurWeb.ObservabilityPubSub",
+          "name": "pubsub",
+          "path": "src/lib/aiur_web/observability_pubsub.ex",
+          "expression": "Aiur.PubSub",
+          "numeric_value": null,
+          "expression_sha256": "2ba3a07e7f065b54f054cecb37aa63309690af75b5c6b27b2fb3d6c7cb22e8f3"
+        }
+      ],
+      "disposition": "shared_transport_identity_distinct_event_contracts",
+      "assessment": "All 15 declarations and attribute references inspected. They refer to the same named Phoenix PubSub transport, while topics, payloads, subscribe/broadcast behavior, missing-process handling and broadcast_from usage differ. The identity is already shared; do not count each spelling as duplicated bus implementation. Event boundaries should own topics and payloads; any transport injection belongs at composition boundaries, not a universal merged event API."
+    },
+    {
+      "numeric_value": 18446744073709551615,
+      "modules": 5,
+      "site_count": 5,
+      "sites": [
+        {
+          "line": 25,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "max_integer",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression": "18_446_744_073_709_551_615",
+          "numeric_value": 18446744073709551615,
+          "expression_sha256": "96a2185a6347eced960d45799621a25e2dae0e89b2f60f5552a6dbf294b03042"
+        },
+        {
+          "line": 26,
+          "module": "Aiur.UsageCompaction.Block",
+          "name": "max_integer",
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "expression": "18_446_744_073_709_551_615",
+          "numeric_value": 18446744073709551615,
+          "expression_sha256": "96a2185a6347eced960d45799621a25e2dae0e89b2f60f5552a6dbf294b03042"
+        },
+        {
+          "line": 34,
+          "module": "Aiur.UsageCompaction.Manifest",
+          "name": "max_integer",
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "expression": "18_446_744_073_709_551_615",
+          "numeric_value": 18446744073709551615,
+          "expression_sha256": "96a2185a6347eced960d45799621a25e2dae0e89b2f60f5552a6dbf294b03042"
+        },
+        {
+          "line": 11,
+          "module": "Aiur.UsageLedger.Record",
+          "name": "max_integer",
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "expression": "18_446_744_073_709_551_615",
+          "numeric_value": 18446744073709551615,
+          "expression_sha256": "96a2185a6347eced960d45799621a25e2dae0e89b2f60f5552a6dbf294b03042"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.UsageLedger.RetiredFloor",
+          "name": "max_integer",
+          "path": "src/lib/aiur/usage_ledger/retired_floor.ex",
+          "expression": "18_446_744_073_709_551_615",
+          "numeric_value": 18446744073709551615,
+          "expression_sha256": "96a2185a6347eced960d45799621a25e2dae0e89b2f60f5552a6dbf294b03042"
+        }
+      ],
+      "disposition": "shared_unsigned_storage_bound",
+      "assessment": "Five attribute sites and a sixth inline UsageAggregate.Checkpoint bounded/1 use the same unsigned-64 ceiling. These are storage-domain bounds, not operational timeouts. Keep positive positions separate from nonnegative counters/generations and preserve error envelopes. Record.bounded_integer?/1 is already reused by CounterPolicy and Ledger.Checkpoint; a storage leaf could centralize the primitive without coupling aggregate decoding to the full ledger record implementation.",
+      "related_finding": "telemetry-usage-22",
+      "extra_sites": [
+        {
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "line": 167
+        }
+      ],
+      "caveat": "RetiredFloor.write/3 checks nonnegative integers but does not apply the ceiling in its visible guard/body, while its loader does. Equality of decoder constants does not prove every writer is symmetrically bounded. Caller reachability and runtime effect of an oversized floor were not investigated; do not present a reproduced incident."
     }
   ],
-  "assessed_group_count": 6,
-  "remaining_candidate_groups": 156,
+  "assessed_group_count": 9,
+  "remaining_candidate_groups": 153,
   "sources": [
     {
       "path": "src/lib/aiur/coding_agent.ex",
@@ -328,6 +795,178 @@
     {
       "path": "src/lib/aiur/usage_envelope/exact_money.ex",
       "sha256": "3e4834fd315bc784de42844bc3b1779aaf8614f54981bd7d34a5b5a83ad13293"
+    },
+    {
+      "path": "src/lib/aiur/agent_pubsub.ex",
+      "sha256": "8508a1896b41b57d3cddd2c0181b6d1ceac08c8bde6e379bedab15e175060579"
+    },
+    {
+      "path": "src/lib/aiur/claude/hook_events.ex",
+      "sha256": "6c44e492a97343e73ef883bb1dc813fe11b111473a91338b6bcf00fea33403d8"
+    },
+    {
+      "path": "src/lib/aiur/config/schema.ex",
+      "sha256": "f0b3120f8ebe31ad3cda5697512253298bb2780e1f7c100f3bd993706d5c1719"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/agent.ex",
+      "sha256": "ea0c87542e6fb114c865f291dcd97be5e7cf91aac9d0d7bc4b0106bd9b795beb"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/alerts.ex",
+      "sha256": "4d3663fdc8fa0f7c021c18be6a6e7ae04bed3b498e17a9337869ab1f5c8fd0e4"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/build_order.ex",
+      "sha256": "25d67b9abfb24c771f688ca5b0b38f012cdb2a6e81031865189be069b559087b"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/decisions.ex",
+      "sha256": "987ae14a3e3a6388e0eb5196b9140ccf33b0047bcf048eb0512fa4c1c8c24f30"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/eleven_labs.ex",
+      "sha256": "07483070ad6b14e229b65adb730799fa8a124475ca0791f873ac5d02f14c0fc3"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/events.ex",
+      "sha256": "bcf7b95b9c0d6885caecc4f8306c317b37b53570795d2f3ab64bf665854fd3e8"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/github_app.ex",
+      "sha256": "43a31883d98c669b9869140109300915e039cbc8920860ef4ef2a12d15e2d21e"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/github_credential.ex",
+      "sha256": "a0a1afb3ea7179fe7e4fada0b2f577906fadedc6daf801259d3a8dcc768c08b4"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/hooks.ex",
+      "sha256": "11359061a15305a44c8d8eac7955cf9be38ff567a46b8b7361de1fe47b24c788"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/observability.ex",
+      "sha256": "1f0b83c8abf6dff9d651fd1f451eff2d1d7aea15d5fd2050260fcfda67c3630d"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/opencode.ex",
+      "sha256": "437588d08465b0dc19891cea4d28248e6ef23773b148e406652cbc407673acef"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/polling.ex",
+      "sha256": "5872ca95d8c9a8bda591a07d728a8639706ef8dca65bb4669ce735eca80a7faa"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/pr_health.ex",
+      "sha256": "0115bb41a215f040e8f9d36b19c9bcd2d08c5e0c167fd0d9709720bbfb996211"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/pr_watch.ex",
+      "sha256": "f74e9d8adc981f8f6b0f5771712a56e67fcef750d97a9428524f5a6ab6808a90"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/prewarm.ex",
+      "sha256": "c3a42a3c28b3a287d26edc34190d6893bc5ac8d60be692169f3a9701ece2bd63"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/pricing_policy.ex",
+      "sha256": "ecd68f5cf7989cba9bf8692777471fd84038e34129264ed6252847aaa0946015"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/server.ex",
+      "sha256": "6a099303d9e857976c8de6af2edb7d44d33aae3c28221dff02e97eddb83e9a25"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/tracker.ex",
+      "sha256": "491db3ce61569d9e304656777b6b6534d3d8bc4a0130e47b78f6c81b545604d8"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/upgrade.ex",
+      "sha256": "5eeba3f8062900efeb9d73eedef6ab480686b3efc6834c60b917253eca82a116"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/webhooks.ex",
+      "sha256": "e1973822c4ce4a071a3067794ba5d612e1c22942c01bd883f41576bb8774fe46"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/worker.ex",
+      "sha256": "9ae93197058728d5a3042d9b4a0299fb1be46539db3196c0eab25db20a651532"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/workspace.ex",
+      "sha256": "0221f378a6147a746487f5cd2214478992d26f27a894620c63ba6929ed40e950"
+    },
+    {
+      "path": "src/lib/aiur/current_run_membership.ex",
+      "sha256": "5fdd3e48bc161df330394500ba9e80157d22ba4eaaf2a3f330d131b7f92157db"
+    },
+    {
+      "path": "src/lib/aiur/decision_pubsub.ex",
+      "sha256": "98a9d9d1696d3df488cf6a4c2a00d80584c363cd62542efbc6011501a10e30de"
+    },
+    {
+      "path": "src/lib/aiur/github/cache_history.ex",
+      "sha256": "dc56c5e8eb4de4b31565319f36399d22d248ecd19c83a0dbe171bec64889aae0"
+    },
+    {
+      "path": "src/lib/aiur/github/quota_history.ex",
+      "sha256": "d47ec76b5adf586ea4fda0a3485f0dff7156a9654fbc96192bea0f90f6187010"
+    },
+    {
+      "path": "src/lib/aiur/github/resource_events.ex",
+      "sha256": "9c23f3663302bec9e8a2f4ba2c18058e0a66c1819f82246ce7b04aede8304adc"
+    },
+    {
+      "path": "src/lib/aiur/provider_account_generation.ex",
+      "sha256": "a7b56cc752d934a1bcdea1d512817b0f217a86da66f5d498bd44fc17b4d13ea6"
+    },
+    {
+      "path": "src/lib/aiur/provider_account_generation/events.ex",
+      "sha256": "79c61338aa063ca6985231543a05286662c5378d42f8d0e427636e0913e9046d"
+    },
+    {
+      "path": "src/lib/aiur/provider_meters/events.ex",
+      "sha256": "ee2b7f97fc1e4ac88f41a9b7bb9d92437b4c511ef058f0f5df7f449054330a71"
+    },
+    {
+      "path": "src/lib/aiur/ticket_activity.ex",
+      "sha256": "42a0996954fbc7c51f358bcad761f10ff4198aca9c7f0020f191c7548641934b"
+    },
+    {
+      "path": "src/lib/aiur/usage_aggregate.ex",
+      "sha256": "9cd991a032ade3de36294cc587518a51a03bd234f7f23d655d6427a10d65c88e"
+    },
+    {
+      "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+      "sha256": "92bb02cf46fbf97d53e1cbd6ec5d4a2579b6639e0644b2cfdf56fddbd2740a04"
+    },
+    {
+      "path": "src/lib/aiur/usage_compaction/block.ex",
+      "sha256": "91042720080c1fca34af15db75d8be08839350c4da946cc960f846e0f5c69b0c"
+    },
+    {
+      "path": "src/lib/aiur/usage_compaction/manifest.ex",
+      "sha256": "2543ed1347e9901e54a101fc744a545d0f7723ab63335199f4f03579ba90f155"
+    },
+    {
+      "path": "src/lib/aiur/usage_ledger/checkpoint.ex",
+      "sha256": "85b3a8b499c09a4ab4ff6ed66b4fda79ab05516e448e5361d8838ceec871291b"
+    },
+    {
+      "path": "src/lib/aiur/usage_ledger/retired_floor.ex",
+      "sha256": "3bfd7b5bc154b0b74f8c4ea6729403884a13b4e3bd68b0e584c462be87f22c15"
+    },
+    {
+      "path": "src/lib/aiur/webhooks/delivery_mode_events.ex",
+      "sha256": "0222bc757fe7b6fb335631a7a3a58e7fcb4702128d7f9444318c01b90f7ed949"
+    },
+    {
+      "path": "src/lib/aiur_web/financial_data.ex",
+      "sha256": "0ddd1488d07b2c1633697ce3332248e2e50f0f323ede20281826bbcec2fedb8d"
+    },
+    {
+      "path": "src/lib/aiur_web/observability_pubsub.ex",
+      "sha256": "89a5751f185710fb3c40bc216ba5346f190c91e5e6fa9f7127d7001b1cdae459"
     }
   ],
   "additional_sites": [
@@ -389,7 +1028,7 @@
       "coverage": "full module; provider/component restriction"
     }
   ],
-  "limits": "Six of 162 attribute groups assessed; two regex groups assessed separately with overlap. Relevant consumers read, not all source files in full. Shared syntax is not semantic equivalence. No runtime correctness, live financial data, current pricing accuracy or savings claimed.",
+  "limits": "Nine of 162 attribute groups assessed. All 28 regex candidate groups are assessed separately in regex-triage.json; two older overlapping notes remain here. Relevant declarations/consumers read, not all source files in full. No runtime correctness, current financial data, savings or whole storage refactor verification claimed.",
   "regex_assessments": [
     {
       "modules": 3,
