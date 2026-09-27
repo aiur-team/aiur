@@ -2901,6 +2901,72 @@
       "recommendation": "Materialize and verify a mutable-scope commit for every experiment selected for integration, including runners-up, before cherry-pick; retain the measured revision identity through combined evaluation.",
       "refactor_hint": "Use a shared measured-artifact-to-integration contract for optimization and parallel implementation workflows.",
       "limits": "Source-level missing prerequisite only. Related worker-transfer finding19 has a different workflow site; final semantic dedup must decide whether to group them. No worker, measurement, worktree or production mutation executed."
+    },
+    {
+      "id": "skills-prompts-cont-49",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Optimization recovery does not reconcile integration before log finalization",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-optimize/SKILL.md",
+          "lines": "104-110"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/SKILL.md",
+          "lines": "526-544"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/SKILL.md",
+          "lines": "548-572"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/references/experiment-log-schema.yaml",
+          "lines": "140-156"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/references/experiment-log-schema.yaml",
+          "lines": "203-205"
+        }
+      ],
+      "description": "The workflow merges the winner and removes experiment worktrees before CP4 finalizes kept/reverted outcomes and best metrics. A crash between these operations leaves a log entry still measured while the optimization branch has advanced and its experiment marker has been removed. Resume only rereads the log and recovers markers absent from it; it does not reconcile a logged measured entry with an already-integrated commit. The schema records commit identity only for final kept outcomes.",
+      "evidence": "Source ordering establishes the crash window; no process-kill experiment performed. Raw measurement persistence prevents loss of metrics but does not prove consistent integration state. No actual lost experiment or duplicate integration claimed.",
+      "recommendation": "Persist integration intent and experiment commit identity before merge; reconcile branch state against that record on resume and defer cleanup until finalization is durable.",
+      "refactor_hint": "Use explicit durable experiment transitions and admission accounting around irreversible work.",
+      "limits": "Frozen-source ordering and arithmetic only; no optimizer, paid judge, worker or crash probe executed. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-50",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Optimization batch admission ignores remaining stop allowances",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-optimize/SKILL.md",
+          "lines": "424-440"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/SKILL.md",
+          "lines": "497-510"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/SKILL.md",
+          "lines": "570-585"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/references/optimize-spec-schema.yaml",
+          "lines": "173-176"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/references/optimize-spec-schema.yaml",
+          "lines": "351-358"
+        }
+      ],
+      "description": "Parallel batch size is min(backlog,max_concurrent), without the remaining iteration allowance. Iteration, wall-time and judge-spend checks occur after all batch measurements and aggregate updates. Thus the advertised maximum experiment count can be exceeded, and additional judge work can continue after a configured cap has been reached within the batch.",
+      "evidence": "Deterministic rule counterexample: completed3, max_iterations4, runnable backlog4 and max_concurrent4 selects4 experiments, yielding7 before the stopping check. This is arithmetic from the stated algorithm, not a measured run or cost-saving claim. Schema explicitly says stop judge evaluation when cumulative spend reaches the cap.",
+      "recommendation": "Bound admission by remaining iterations and recheck time/spend before each new dispatch or judge batch; distinguish unavoidable in-flight overshoot from additional work admitted after the limit.",
+      "refactor_hint": "Use explicit durable experiment transitions and admission accounting around irreversible work.",
+      "limits": "Frozen-source ordering and arithmetic only; no optimizer, paid judge, worker or crash probe executed. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3326,7 +3392,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; candidate26 reconciled.17 listed candidates remain unresolved; optimization persistence/budget candidates25/27 need further reconciliation.",
+  "next": "All250 files read; optimization candidates25/27 reconciled.15 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3555,6 +3621,20 @@
       "finding": "skills-prompts-cont-48",
       "reason": "Runner-up path omits commit prerequisite that winner path explicitly supplies.",
       "subconcerns": "Codex command lacks an inline directory flag, but its caller can select shell working directory; absence of that flag alone does not prove wrong checkout. Worker mutable/immutable scope is explicit cooperative instruction; absence of a hard sandbox alone is not a separate demonstrated defect. Preserve explicit execution-root and measured-scope verification as rewrite requirements."
+    },
+    {
+      "id": "skills-prompts-candidate-25",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-49",
+      "reason": "Source ordering establishes the crash window; no process-kill experiment performed. Raw measurement persistence prevents loss of metrics but does not prove consistent integration state. No actual lost experiment or duplicate integration claimed.",
+      "subconcerns": "Append-only wording has explicit best/outcome update rules; do not infer actual file corruption from prose alone. Strategy digest cleanup removes compressed context but full experiment log is retained, so regeneration remains possible; not a separate data-loss finding. Crash consistency is the distinct promoted gap."
+    },
+    {
+      "id": "skills-prompts-candidate-27",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-50",
+      "reason": "Deterministic rule counterexample: completed3, max_iterations4, runnable backlog4 and max_concurrent4 selects4 experiments, yielding7 before the stopping check. This is arithmetic from the stated algorithm, not a measured run or cost-saving claim. Schema explicitly says stop judge evaluation when cumulative spend reaches the cap.",
+      "subconcerns": "Judge wording exceed minimum_improvement can refer to improvement magnitude rather than raw score; generic metric direction still exists, so no wrong-minimize winner proven. Full combined measurement may include gate evaluation; absent repetition of gate/noise rules alone not promoted."
     }
   ],
   "coverage_validation": {
@@ -3567,16 +3647,14 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 25,
-    "unresolved_candidates": 17,
+    "terminal_dispositions": 27,
+    "unresolved_candidates": 15,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
       "skills-prompts-candidate-07",
       "skills-prompts-candidate-20",
       "skills-prompts-candidate-21",
-      "skills-prompts-candidate-25",
-      "skills-prompts-candidate-27",
       "skills-prompts-candidate-31",
       "skills-prompts-candidate-33",
       "skills-prompts-candidate-36",

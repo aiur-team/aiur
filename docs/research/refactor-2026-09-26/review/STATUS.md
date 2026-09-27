@@ -798,3 +798,7 @@ Completed partial candidate45 with repository-split and premature npm-success fi
 ### Skills/prompts: optimization runner-up integration
 
 Candidate26 promoted: workers leave edits uncommitted, parent commits winner only, then cherry-picks runner-up without an experiment commit. Helper creation/cleanup does not fill the gap. Codex directory selection and cooperative scope enforcement alone do not prove independent defects. Findings48 (29P2/19P3);17 listed candidates unresolved. No worker, measurement or production mutation. Related parallel-work transfer finding19 retained pending semantic grouping.
+
+### Skills/prompts: optimization recovery and admission
+
+Candidates25/27 resolved: integration/cleanup precedes final outcome logging without resume reconciliation; batch admission ignores remaining iteration allowance and stop checks follow the batch. Counterexample3 completed/limit4/batch4 yields7; this is algorithm arithmetic, not measured execution. Append/update wording, regenerable digest and ambiguous judge-direction wording not independently promoted. Findings50 (31P2/19P3);15 listed candidates unresolved. No optimization execution, paid judge or production change.
