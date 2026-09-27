@@ -110879,10 +110879,442 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "finished?",
+      "assessment": "Fleet tracker-state filtering and Units terminal evidence are different contracts.",
+      "constraints": [
+        "FleetFilters stringifies/lowercases row state and accepts done, closed, cancelled or canceled; verified state list.",
+        "UnitsPolicy requires terminal? exactly true and excludes replacement_boundary? exactly true; read boundary helper.",
+        "Preserve lifecycle authority and replacement semantics. Sharing by name could turn a presentation filter into false terminal evidence."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "AiurWeb.OperatorControlCenter.FleetFilters",
+          "name": "finished?",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+          "kind": "defp",
+          "end_line": 84,
+          "body_sha256": "9808cc54b69b0079059a3b05b60cf7de2de92f31ab1e364c81664dff37ce24f2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 125,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPolicy",
+          "name": "finished?",
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "kind": "defp",
+          "end_line": 125,
+          "body_sha256": "f4dfb2c8e266c427fd3784aaf9210f11900913768c76c258c0c81dee4561c946",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "flatten",
+      "assessment": "Page concatenation and transcript layout flattening do different work.",
+      "constraints": [
+        "OpenTicketSource reverses collected pages then concatenates one level.",
+        "StreamdeckLogs builds event headers and flattened row entries, records each event index offset and returns flattened rows plus starts.",
+        "Keep page order separate from display coordinate accounting; neither operation independently guarantees source completeness."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 334,
+          "module": "Aiur.OpenTicketSource",
+          "name": "flatten",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 334,
+          "body_sha256": "70653b87c9a45cf7183becf268915b7b3d0d1de209c87b048a8ee91eaf563a19",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 355,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "flatten",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 363,
+          "body_sha256": "d2c5308e1988b956dafa18b0473170ed278985a0971630a308837e4c6dd45b95",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "flush_port",
+      "assessment": "Budget and model catalog port-mailbox drains match modulo variable names.",
+      "constraints": [
+        "Both consume two-tuples whose first element matches the specified port recursively, returning ok after an immediate zero-timeout receive.",
+        "A shared drain helper is concrete with the same mailbox pattern.",
+        "This does not close the port, consume arbitrary exit tuples or guarantee no future messages arrive. Preserve lifecycle cleanup outside the drain."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 624,
+          "module": "Aiur.GitHub.Budget",
+          "name": "flush_port",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "defp",
+          "end_line": 630,
+          "body_sha256": "c57936515a4bb693f773d9570de86e947e25e2f00216f90e91fdd4cbdd7005a5",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 177,
+          "module": "Aiur.ModelCatalog",
+          "name": "flush_port",
+          "path": "src/lib/aiur/model_catalog.ex",
+          "kind": "defp",
+          "end_line": 183,
+          "body_sha256": "bcc419f2b5ea21e612080536a1c64994ce7f0301f16a115f1b161516fa5aec30",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fmt_elapsed",
+      "assessment": "Analytics and GitHub-cache elapsed formatters match exactly.",
+      "constraints": [
+        "Nonpositive values render zero minutes; other inputs round milliseconds to seconds before minute/hour division and format compact text.",
+        "This matches the rounded formatter pattern, not every other elapsed helper already reviewed.",
+        "No invalid-input or unknown-time fallback exists in these clauses. Share formatting with explicit caller input contracts rather than silently treating unknown as zero."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 634,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "fmt_elapsed",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 634,
+          "body_sha256": "ea364b420b3013719101ec8b99e54cbff66b7e912334b793d0fe99e36cedd893",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 636,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "fmt_elapsed",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "defp",
+          "end_line": 646,
+          "body_sha256": "070c15b8b9fc70c0996f43fbf422a283a71b2a70c9a429cc0c157e97292ad5fc",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 350,
+          "module": "AiurWeb.OperatorControlCenter.GithubCache.Charts",
+          "name": "fmt_elapsed",
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "kind": "defp",
+          "end_line": 350,
+          "body_sha256": "ea364b420b3013719101ec8b99e54cbff66b7e912334b793d0fe99e36cedd893",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 352,
+          "module": "AiurWeb.OperatorControlCenter.GithubCache.Charts",
+          "name": "fmt_elapsed",
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "kind": "defp",
+          "end_line": 362,
+          "body_sha256": "070c15b8b9fc70c0996f43fbf422a283a71b2a70c9a429cc0c157e97292ad5fc",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "for",
+      "assessment": "Issue context lookup and row identity token generation are unrelated interfaces.",
+      "constraints": [
+        "IssueContext looks up a binary identifier and builds context from Issue or an empty context when not found.",
+        "RowToken accepts TrackerIdentity or a row identity, hashes github_key into URL-base64 SHA256, and returns nil for missing key/other shapes.",
+        "Keep lookup evidence separate from stable presentation identity. Hashing a key is not authorization or a complete privacy guarantee."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 32,
+          "module": "Aiur.IssueContext",
+          "name": "for",
+          "path": "src/lib/aiur/issue_context.ex",
+          "kind": "def",
+          "end_line": 37,
+          "body_sha256": "ee0e9ff6a8e3ebb59afc597529b9cc3aa9ff2ebeb30d9952a783214544fdadd2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 14,
+          "module": "AiurWeb.OperatorControlCenter.RowToken",
+          "name": "for",
+          "path": "src/lib/aiur_web/operator_control_center/row_token.ex",
+          "kind": "def",
+          "end_line": 19,
+          "body_sha256": "d98562a9806417f3e2275bac1abfec13057565a23d6940d2daa9b5f40b6b1fac",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 21,
+          "module": "AiurWeb.OperatorControlCenter.RowToken",
+          "name": "for",
+          "path": "src/lib/aiur_web/operator_control_center/row_token.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "02672b4c1083aadeb4b207fd81bae1a164fc29882df9448414b93b7b24a5d8db",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 22,
+          "module": "AiurWeb.OperatorControlCenter.RowToken",
+          "name": "for",
+          "path": "src/lib/aiur_web/operator_control_center/row_token.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "for_idle",
+      "assessment": "Low-level status reason and operator waiting classification use distinct precedence.",
+      "constraints": [
+        "StatusReason gives lifetime latch precedence when counts are integers, then prewarm_blocked or awaiting_dispatch.",
+        "WaitingReason prioritizes open human decisions, then open dependency, then idle_classification. Read classifier: lifetime, operator pause, transient pause, workspace recovery, preflight, capacity and tracker-state policy are ordered.",
+        "Preserve each layer and named cause; a generic idle helper could erase human/dependency precedence or mislabel recovery waits."
+      ],
+      "clauses": 7,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 17,
+          "module": "Aiur.Orchestrator.StatusReason",
+          "name": "for_idle",
+          "path": "src/lib/aiur/orchestrator/status_reason.ex",
+          "kind": "def",
+          "end_line": 18,
+          "body_sha256": "769b748ab371492df07b8e4f6d476c462609b0b65fa7abc385489ce33c7f7cab",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 20,
+          "module": "Aiur.Orchestrator.StatusReason",
+          "name": "for_idle",
+          "path": "src/lib/aiur/orchestrator/status_reason.ex",
+          "kind": "def",
+          "end_line": 20,
+          "body_sha256": "f1fb2d57408717593c08f008c10e05fc449bfb2e388b88db8d241df8be5c5cd2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 22,
+          "module": "Aiur.Orchestrator.StatusReason",
+          "name": "for_idle",
+          "path": "src/lib/aiur/orchestrator/status_reason.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "3854621127fdcd73c92fc30f202ee1afab13596faa5d6cc17e4071ffbdc4aa95",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 148,
+          "module": "Aiur.Orchestrator.WaitingReason",
+          "name": "for_idle",
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "kind": "def",
+          "end_line": 148,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 4,
+          "line": 150,
+          "module": "Aiur.Orchestrator.WaitingReason",
+          "name": "for_idle",
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "kind": "def",
+          "end_line": 151,
+          "body_sha256": "94c128c6f53f889dffc2a5236b163e0479fd75d9692932d3cf9dd64d25eaeec5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 153,
+          "module": "Aiur.Orchestrator.WaitingReason",
+          "name": "for_idle",
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "kind": "def",
+          "end_line": 153,
+          "body_sha256": "3b09dd44f9dbb6384878e40f78678d83556c7b8ac704f7c8dddc3bf225b5c757",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 154,
+          "module": "Aiur.Orchestrator.WaitingReason",
+          "name": "for_idle",
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "kind": "def",
+          "end_line": 154,
+          "body_sha256": "0ace84f19843171ddc49c813b1904cd74f2bd13a9a6e079e17180ad5027111b6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "for_retry",
+      "assessment": "Retry status detail and waiting-category projection have different result shapes.",
+      "constraints": [
+        "StatusReason carries transient error and due_in_ms in a tuple.",
+        "WaitingReason returns the coarse backing_off category without arguments.",
+        "Keep diagnostic/timing evidence alongside coarse classification; sharing must not discard error provenance or retry due time."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 25,
+          "module": "Aiur.Orchestrator.StatusReason",
+          "name": "for_retry",
+          "path": "src/lib/aiur/orchestrator/status_reason.ex",
+          "kind": "def",
+          "end_line": 25,
+          "body_sha256": "a040cf6744f98c2aab625716fc74fbf0672d1c9c17cac8d2408f977856efb946",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 84,
+          "module": "Aiur.Orchestrator.WaitingReason",
+          "name": "for_retry",
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "2b614ab81b5d0bd4694e5e3c057206a436cf9d39298c729f6dd520bb3903830a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "format_auth_preflight_error",
+      "assessment": "Client already delegates diagnostic formatting to AuthPreflight.",
+      "constraints": [
+        "Preflight failures with map diagnostics prefer truthy atom message, then string message, then inspect of the map; all other reasons are inspected.",
+        "This helper performs presentation fallback, not explicit redaction or message type validation.",
+        "Preserve safe diagnostic construction upstream. The formatter name does not itself guarantee that arbitrary input is secret-free."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 239,
+          "module": "Aiur.GitHub.AuthPreflight",
+          "name": "format_auth_preflight_error",
+          "path": "src/lib/aiur/github/auth_preflight.ex",
+          "kind": "def",
+          "end_line": 242,
+          "body_sha256": "87d560670e10e39d59060cedf1f18d6020a1be08eac3313013eda4d516b932ea",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 244,
+          "module": "Aiur.GitHub.AuthPreflight",
+          "name": "format_auth_preflight_error",
+          "path": "src/lib/aiur/github/auth_preflight.ex",
+          "kind": "def",
+          "end_line": 244,
+          "body_sha256": "8947332a4aebf7f13bffd536e98343a4a0d2aa90e1757b503767f74accab2efe",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 38,
+          "module": "Aiur.GitHub.Client",
+          "name": "format_auth_preflight_error",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 38,
+          "body_sha256": "989b572696a627302b61713fe39ed89372b0fe022f501fc4e9a7d1f16463a9ae",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 8005,
-  "limits": "957 selected families and 8005 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 8031,
+  "limits": "965 selected families and 8031 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

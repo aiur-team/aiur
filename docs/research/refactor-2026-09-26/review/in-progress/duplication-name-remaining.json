@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "c1365c3bbcef9d912d7e7bf9b6087e9e827b9d7dac9181ba7b9ffc16ffb896ea"
+    "name_triage": "d8603400e48e0e9f24a2fe1a69766f03976dd3877224bc31f3c0141997366fee"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 957,
-    "remaining_cross_module_names": 723,
-    "remaining_literal_entries": 2263
+    "reviewed_cross_module_names": 965,
+    "remaining_cross_module_names": 715,
+    "remaining_literal_entries": 2237
   },
   "families": [
-    {
-      "name": "finished?",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "flatten",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "flush_port",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "fmt_elapsed",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "for",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "for_idle",
-      "clauses": 7,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "for_retry",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "format_auth_preflight_error",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
     {
       "name": "format_invalid",
       "clauses": 3,
