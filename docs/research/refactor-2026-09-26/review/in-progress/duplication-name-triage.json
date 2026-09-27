@@ -102395,10 +102395,346 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "current_scope?",
+      "assessment": "Model internal generation consistency and selection-state correlation are different checks.",
+      "constraints": [
+        "TicketContextAdapter requires a positive root generation matching planning generation and a joinable root identity.",
+        "TicketContextSelection obtains a model scope and compares root key/generation to its stored selection state, otherwise false.",
+        "Preserve internal model validity versus current selection correlation; neither predicate alone establishes all snapshot freshness or capability constraints."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 255,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "current_scope?",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 260,
+          "body_sha256": "483cc4e44e7860df7748d0b25947179515f4d75642f682e0540a18a59925735f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 262,
+          "module": "AiurWeb.BuildOrder.TicketContextAdapter",
+          "name": "current_scope?",
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "kind": "defp",
+          "end_line": 262,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 284,
+          "module": "AiurWeb.BuildOrder.TicketContextSelection",
+          "name": "current_scope?",
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "kind": "defp",
+          "end_line": 289,
+          "body_sha256": "2bb686e747786526697bf817ed9de0c8daa098daaf3e540a0f1cc16c950c2926",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "current_size",
+      "assessment": "Claude display and transcript tailers have identical file-size lookup behavior.",
+      "constraints": [
+        "Both stat a path, return its size on success and return zero for other results.",
+        "This is a concrete shared I/O primitive candidate.",
+        "Preserve or explicitly reconsider error-versus-empty collapse; zero here is not independent evidence of an empty file, and no transcript was read through these helpers."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 362,
+          "module": "Aiur.Claude.DisplayTailer",
+          "name": "current_size",
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "kind": "defp",
+          "end_line": 367,
+          "body_sha256": "86570f29f67d6c2b5828d56c4b77a17e1755b6b29ef425c85be0f1b4fa62d367",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 254,
+          "module": "Aiur.Claude.TranscriptTailer",
+          "name": "current_size",
+          "path": "src/lib/aiur/claude/transcript_tailer.ex",
+          "kind": "defp",
+          "end_line": 259,
+          "body_sha256": "bcbfc8cad8bcbe4b70b7b7e1cc3002cfdacd6868deda8d8ab33b050e69e6ea2c",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "current_with_cache_identity",
+      "assessment": "Workflow facade and store implement layered cache-identity retrieval.",
+      "constraints": [
+        "Workflow delegates when the store process is registered, otherwise loads with unknown generation/publication.",
+        "WorkflowStore returns cache hits with generation/publication, reloads stale-path entries with unknown identity and on misses either calls its process or reloads.",
+        "Preserve path-sensitive cache identity and explicit unknown fallbacks; process registration is not atomic liveness proof and the helpers do not certify freshness independently."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 178,
+          "module": "Aiur.Workflow",
+          "name": "current_with_cache_identity",
+          "path": "src/lib/aiur/workflow.ex",
+          "kind": "def",
+          "end_line": 186,
+          "body_sha256": "e15f77142f845ba5643bd4f91b602858cf5ea5b26c62007716e899aed6242011",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 103,
+          "module": "Aiur.WorkflowStore",
+          "name": "current_with_cache_identity",
+          "path": "src/lib/aiur/workflow_store.ex",
+          "kind": "def",
+          "end_line": 120,
+          "body_sha256": "1b8afbde4601d3e02bb5b99146b3f040053fa3145c2e396ff8f054fba59c95f1",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "current_with_generation",
+      "assessment": "Generation-only workflow retrieval mirrors the cache-identity boundary.",
+      "constraints": [
+        "Workflow delegates to the registered store or loads with unknown generation.",
+        "WorkflowStore returns a cache-hit generation, reloads stale entries with unknown generation and resolves misses through the process or a fallback load.",
+        "Potential sharing with cache-identity retrieval must preserve return shape and unknown evidence; overlap with that family is non-additive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 165,
+          "module": "Aiur.Workflow",
+          "name": "current_with_generation",
+          "path": "src/lib/aiur/workflow.ex",
+          "kind": "def",
+          "end_line": 173,
+          "body_sha256": "3eda7900afcec557b15cca86d1bab1114bd410b14bfe0a28e1fa3bd426bfd8b5",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 84,
+          "module": "Aiur.WorkflowStore",
+          "name": "current_with_generation",
+          "path": "src/lib/aiur/workflow_store.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "c09d8fcc0e65f93d5a7092c084f0d729451a34b6b69281aad396aa1a9c0aba35",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cursor_path",
+      "assessment": "Executor wake inbox already delegates cursor location to StatePaths.",
+      "constraints": [
+        "StatePaths resolves its cursor key through path_for.",
+        "ExecutorWakeInbox forwards to StatePaths.cursor_path.",
+        "Keep a single state-path owner; path derivation, privacy and cursor durability are not established by this accessor read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 79,
+          "module": "Aiur.Executor.StatePaths",
+          "name": "cursor_path",
+          "path": "src/lib/aiur/executor/state_paths.ex",
+          "kind": "def",
+          "end_line": 79,
+          "body_sha256": "2ad26fe4d4dfdb75dabd1b38f481ef970ed359461a1cfa448cf893f3d3d352e9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 617,
+          "module": "Aiur.ExecutorWakeInbox",
+          "name": "cursor_path",
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "kind": "defp",
+          "end_line": 617,
+          "body_sha256": "6320608dd350005de985da28d41a180fb04c13917e03870e868dd0c4d34e5d44",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cyclic_nodes",
+      "assessment": "Graph traversal and SCC-result classification are different algorithm stages.",
+      "constraints": [
+        "Graph bounds its input edges, builds forward/reverse adjacency, computes finish order and collects cyclic component members; nonlists return an empty set.",
+        "GraphAnalysis classifies supplied components: multi-node components are cyclic, singleton components require a self-edge.",
+        "Preserve bounded-input scope versus supplied-component assumptions; an empty or truncated result does not prove the full graph is acyclic."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 7,
+          "module": "Aiur.BuildOrder.Graph",
+          "name": "cyclic_nodes",
+          "path": "src/lib/aiur/build_order/graph.ex",
+          "kind": "def",
+          "end_line": 16,
+          "body_sha256": "517bed4614290f9f145f43614f566b4cc02e089a2ab396ff4ae433cc5d244d6d",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 18,
+          "module": "Aiur.BuildOrder.Graph",
+          "name": "cyclic_nodes",
+          "path": "src/lib/aiur/build_order/graph.ex",
+          "kind": "def",
+          "end_line": 18,
+          "body_sha256": "a72444658ddfa0443393cf2adc95bd06ab9ef5062905139e99751604de065772",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 174,
+          "module": "Aiur.BuildOrder.GraphAnalysis",
+          "name": "cyclic_nodes",
+          "path": "src/lib/aiur/build_order/graph_analysis.ex",
+          "kind": "defp",
+          "end_line": 182,
+          "body_sha256": "c4a7bef22429a78f1238d5ce10949f999d51c36ccb9b97201a14197d4b8b667d",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "daemon_account",
+      "assessment": "Configured daemon identity selection and authenticated-viewer fallback are layered.",
+      "constraints": [
+        "GitHub.Config prefers app_account then bot_account.",
+        "BotIdentity lazily selects an option/config account, normalizes it and falls back to authenticated viewer login when absent.",
+        "Preserve App/bot precedence and network fallback ownership; no credential or viewer request was made and account presence does not prove its role."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 44,
+          "module": "Aiur.GitHub.BotIdentity",
+          "name": "daemon_account",
+          "path": "src/lib/aiur/github/bot_identity.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "e4c1289400c5c3b597c96619b31cef3d1b90650130cb1c01b3d5500c42049fa6",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 411,
+          "module": "Aiur.GitHub.Config",
+          "name": "daemon_account",
+          "path": "src/lib/aiur/github/config.ex",
+          "kind": "def",
+          "end_line": 411,
+          "body_sha256": "0f12cb52103042e7658e9a54495fead5e2ddb1789515b2dcfb0c2d7fcc97f279",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "daemon_events",
+      "assessment": "Durable lifecycle loading and struct access have different failure semantics.",
+      "constraints": [
+        "DaemonLifecycle loads ControlLifecycleStore then extracts daemon events, rescuing exceptions to an empty list.",
+        "ControlLifecycle returns the daemon_events field from its struct.",
+        "Keep I/O/error policy separate from access; empty fallback does not prove no daemon events, and complete journal recovery remains unverified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 57,
+          "module": "Aiur.DaemonLifecycle",
+          "name": "daemon_events",
+          "path": "src/lib/aiur/daemon_lifecycle.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "dddb49e497da0015a48156be618ca9e586d9eb79106cb1660eabc35028153fff",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 403,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "daemon_events",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "kind": "def",
+          "end_line": 403,
+          "body_sha256": "6be3f9d9893a8b27c3e7e08ffa720df0a1e2c1b214a807b8315c24d67b6984b3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7508,
-  "limits": "789 selected families and 7508 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7526,
+  "limits": "797 selected families and 7526 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

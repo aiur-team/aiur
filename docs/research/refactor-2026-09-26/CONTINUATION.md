@@ -2099,3 +2099,7 @@ Read context_tier, continuation_key, control_action, control_capabilities, contr
 ### Name duplication: coverage and credential evidence
 
 Read coverage_status, coverage_text, create_session, credentials, credit_window, css, current_branch and current_configuration_generation: 24 literal entries across eight families. Preserve grouped count versus sticky ledger coverage, unknown coverage prose, session setup versus request building, credential override precedence, status-only versus amount-based credits and explicit workspace targeting. Read the complete literal analytics CSS; the other CSS attribute and rendered behavior remain outside this read. Name triage now 789 families/7508 entries, leaving 891 cross-module names. Raw findings and skeptic counts are unchanged; no complete authentication, session usability or measured-credit guarantee is added.
+
+### Name duplication: current scope and unknown cache identity
+
+Read current_scope?, current_size, current_with_cache_identity, current_with_generation, cursor_path, cyclic_nodes, daemon_account and daemon_events: 18 literal entries across eight families. Tailer file-size lookups match. Preserve model-versus-selection correlation, error/empty distinctions, path-sensitive workflow cache identity, unknown generations, graph traversal scope and configured account precedence. Name triage now 797 families/7526 entries, leaving 883 cross-module names. Raw findings and skeptic counts are unchanged; no complete source freshness, graph acyclicity or lifecycle-journal completeness guarantee is added.
