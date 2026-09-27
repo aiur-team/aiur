@@ -4,47 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "8377fd3ede33d9a61be4cda361cb828af9b1a8347868d42238ef1ca0a3e83453"
+    "name_triage": "1a958957d7d874612df29315617f66e78e1ddef17e125e490836b4ba3d8357d4"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 85,
-    "remaining_cross_module_names": 1595,
-    "remaining_literal_entries": 7059
+    "reviewed_cross_module_names": 90,
+    "remaining_cross_module_names": 1590,
+    "remaining_literal_entries": 6997
   },
   "families": [
-    {
-      "name": "open",
-      "clauses": 15,
-      "modules": 10,
-      "summed_source_span_lines": 108
-    },
-    {
-      "name": "path",
-      "clauses": 11,
-      "modules": 10,
-      "summed_source_span_lines": 40
-    },
-    {
-      "name": "prepare",
-      "clauses": 13,
-      "modules": 10,
-      "summed_source_span_lines": 121
-    },
-    {
-      "name": "present?",
-      "clauses": 11,
-      "modules": 10,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "select",
-      "clauses": 12,
-      "modules": 10,
-      "summed_source_span_lines": 77
-    },
     {
       "name": "source_version",
       "clauses": 11,

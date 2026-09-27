@@ -1691,3 +1691,7 @@ Read extract, failure, schedule_tick, truncate, send_operator_message, specs, st
 ### Name duplication: clocks, payloads and startup ordering
 
 Read payload, child_spec, entries, handle_continue, maybe_put, now and now_ms: 147 literal entries across seven families. Preserve checksum version rules, error causes, restart identity/policy, replay/subscription ordering and wall versus monotonic clock domains. Optional map/keyword insertion contains narrow sharing candidates with different nil/empty/predicate semantics. Name triage now 85 families/3209 entries, leaving 1595 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or saving is claimed.
+
+### Name duplication: acquisition, preparation and presence
+
+Read open, path, prepare, present? and select: 62 literal entries across five families. Separate resource acquisition from filtered reads, preserve filesystem sync and compaction phase policies, and distinguish nonblank-string checks from broader presence predicates. Six modules implement equivalent trimmed-binary presence checks, a narrow sharing candidate; existing DecisionLog reuse already owns creation mechanics. Name triage now 90 families/3271 entries, leaving 1590 cross-module names. Raw findings and skeptic counts are unchanged; transitive containment and runtime correctness are not certified.
