@@ -1035,3 +1035,20 @@ Corrected report definitions and headline; completed claims-gaps-headline.json.
 Coverage is 53/60. Remaining claims: codebase-07, gaps-03/04/05/06/07, meta-07.
 Lifecycle reconstruction and complete source coverage remain explicit open
 questions, not silently declared accomplished. Broader goal remains active.
+
+## Prewarm versus starvation checkpoint
+
+Added prewarm-starvation-history.json with source/diff hashes and cached merge
+timestamps. August 21 PR2242 disabled prewarm alongside identity/sandbox changes;
+the #2237 code repair PR2274 merged August 23 20:06:53Z. PR2434 debounced alerts,
+and PR2449 addressed load-ramp/decision-blocked false alarms. These are distinct
+mechanisms; no deployed-version or non-recurrence proof is inferred.
+
+The cited ID group contains 71 blocked records and 70 resolutions, forming
+70 ordered pairs plus one open block (median 10.11 min, range 5.15 s–40.22 min).
+It is not a verified single boot. The claimed healthy interval has three
+retained gaps totaling 1.9503 h, all before the code-repair merge; it begins at
+the disable-prewarm mitigation. Report wording corrected accordingly.
+
+Gaps-03/05 remain open: primary diagnosis, causal population and later exposure
+still need evaluation. Claim coverage stays 53/60. No operational changes.

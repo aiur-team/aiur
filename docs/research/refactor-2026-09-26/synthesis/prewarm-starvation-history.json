@@ -1,0 +1,104 @@
+{
+  "claims": [
+    "gaps-03",
+    "gaps-05"
+  ],
+  "status": "partial_verification",
+  "wake_source": {
+    "path": "aiur/executor/aiur.executor.wakes.ndjson",
+    "sha256": "fdcf4aecaeb56b47bf7a2a9f84427a7173828d24233ec5174254351280cd3261"
+  },
+  "selected_event_id_quotient": 1787205471,
+  "identity_limit": "This quotient is the original analyzer's grouping, not an independently verified daemon boot; see gap-uptime-contract.json.",
+  "topic_counts": {
+    "system.dispatch.prewarm_blocked": {
+      "records": 71,
+      "coalesced_count_sum": 71,
+      "first_seen_at": "2026-08-20T05:58:09.810375Z",
+      "last_record_first_seen_at": "2026-08-21T03:06:27.382302Z"
+    },
+    "system.dispatch.prewarm_blocked.resolved": {
+      "records": 70,
+      "coalesced_count_sum": 70,
+      "first_seen_at": "2026-08-20T06:38:22.820777Z",
+      "last_record_first_seen_at": "2026-08-21T03:06:15.188089Z"
+    },
+    "system.fleet.capacity.starved": {
+      "records": 1,
+      "coalesced_count_sum": 1,
+      "first_seen_at": "2026-08-20T06:18:15.961109Z",
+      "last_record_first_seen_at": "2026-08-20T06:18:15.961109Z"
+    }
+  },
+  "ordered_pair_check": {
+    "completed_pairs": 70,
+    "orphan_resolutions": 0,
+    "repeated_blocks_before_resolution": 0,
+    "unclosed_block_at_group_end": true,
+    "minimum_pair_seconds": 5.153894901275635,
+    "median_pair_seconds": 606.6973253488541,
+    "maximum_pair_seconds": 2413.0104019641876
+  },
+  "pull_cache_sha256": "d000e9bad2cede61cb7bb2b9e71a1ca7284b95afbc749bd5cf8057605742b7d5",
+  "changes": [
+    {
+      "commit": "0344bb9d0296380e0ff4d822ad52c93e98573d15",
+      "pr": 2242,
+      "paths": [
+        ".aiur/config"
+      ],
+      "diff_sha256": "96652bea0d523c7cdff8ed678d60c252c47e13467f6d4bf29215b1b050b25095",
+      "cached_merged_at": "2026-08-21T22:32:10Z",
+      "assessment": "Disables prewarm in dogfood config; also changes identity and sandbox configuration. This is a mitigation with confounding simultaneous changes, not the #2237 code repair."
+    },
+    {
+      "commit": "374b8f492bac31e3eaea978ab646bf4612a24e73",
+      "pr": 2274,
+      "paths": [
+        "src/lib/aiur/repo_base.ex",
+        "src/lib/aiur/orchestrator/dispatcher.ex"
+      ],
+      "diff_sha256": "ad71d7235b3ec423a411e9d49e7bdc632e32158d2dea1c900aacab3fd7280907",
+      "cached_merged_at": "2026-08-23T20:06:53Z",
+      "assessment": "Repairs checking-state probe recreation, checks worker liveness and adds a bounded idle-hold watchdog. A live worker rearms it; this is not a universal wall-clock cap on all prewarm work. Error fallback releases the gate for cold clones."
+    },
+    {
+      "commit": "663ca77acadc914b1382101125e6a0fce605d91c",
+      "pr": 2434,
+      "paths": [
+        "src/lib/aiur/orchestrator/dispatcher.ex"
+      ],
+      "diff_sha256": "7889a2de817d690b900237653c3c8b22b8dfef6a45b0a2eadbb061ae5c3f5b20",
+      "cached_merged_at": "2026-08-24T02:44:15Z",
+      "assessment": "Debounces prewarm alerts for fifteen seconds, separating routine freshness checks from persistent holds."
+    },
+    {
+      "commit": "47395dcfd9969e0642d7e303d4f26ca6206270aa",
+      "pr": 2449,
+      "paths": [
+        "src/lib/aiur/orchestrator/dispatcher.ex",
+        "src/lib/aiur/orchestrator/issue_sync.ex"
+      ],
+      "diff_sha256": "13ca5c449cb3f092658ac87ae01f957aebbac980f227e6d23048343fa62264cf",
+      "cached_merged_at": "2026-08-24T18:55:52Z",
+      "assessment": "Changes capacity-starved detection to avoid below-target ramp false alarms and decision-blocked demand. Earlier detection used free slots or low load with backlog; the topic does not identify prewarm as the unique cause."
+    }
+  ],
+  "interpretation": "Repeated blocked/resolved signals do not by themselves prove the absorbing checking-state defect caused the entire classified interval. Capacity starvation, prewarm phase holds, load-ramp false alarms and dependency/decision blockage have distinct contracts. Merged source is not deployment evidence.",
+  "unresolved": [
+    "Exact historical loaded revisions and effective prewarm configuration across the claimed healthy interval",
+    "Duration and population behind 257 hours, 86 percent and the 1.9-hour healthy-stretch claim",
+    "Primary transcript diagnosis and whether it explains the older grouped intervals",
+    "Later starvation-event causes and exposure to the original defect after code repair",
+    "Corrected lifecycle grouping independent of event-ID quotient"
+  ],
+  "reported_healthy_window": {
+    "start": "2026-08-21T22:32:00Z",
+    "end": "2026-08-24T02:51:00Z",
+    "retained_gap_source_sha256": "2de9a3d9218e268b6b9ad0a3c44e3ae25fbc2e522877edc944519f40229dae4d",
+    "overlapping_30_min_gap_count": 3,
+    "clipped_gap_hours": 1.950288905236456,
+    "all_three_gaps_precede_code_fix_merge": true,
+    "assessment": "The interval begins at the disable-prewarm/config-change merge, almost two days before the code repair. Its low modeled gap total cannot be attributed uniquely to the later repair or prove non-recurrence."
+  }
+}

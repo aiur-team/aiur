@@ -64,8 +64,10 @@ causation and current-era source completeness remain under review.
 **The three largest historical attribution buckets (causal checks incomplete):**
 
 1. **Daemon dispatch starvation (d), 257 h, all in the pre-log aiur era.** The daemon raised
-   `system.fleet.capacity.starved` and never resolved it inside the same daemon boot. At the same time
-   `system.dispatch.prewarm_blocked` flapped every 10 minutes (71 blocked/resolved pairs in one boot on 08-20).
+   a `system.fleet.capacity.starved` record with no resolution in the selected ID group. At the same time
+   `system.dispatch.prewarm_blocked` has 71 blocked and 70 resolved records in the cited event-ID group, forming
+   70 ordered pairs and one unclosed block. Pair durations range from 5.15 seconds to
+   40.22 minutes; the median is 10.11 minutes. The group is not proven to be one boot.
    The Executor found the root cause on 08-21T18:42Z: *"Ready tickets=31, live agents=0, effective cap=1,
    dispatch constraints=prewarm build (prewarm=checking)"*. It filed #2237, *"Prewarm :checking is an
    absorbing state: a lost ls-remote probe gates fleet dispatch forever"*. The largest single item is a
@@ -229,9 +231,13 @@ and chronology are withheld; their counts and numerical measurements remain.
 | archon | wakeboot-2026-09-10T22:31Z | pre-log | 2026-09-10T22:31Z | 2026-09-10T23:57Z | 1.43 | 1 / 0.57 | 1 / 0.57 | 0 / 0.0 |
 | archon | wakeboot-2026-09-10T23:58Z | pre-log | 2026-09-10T23:58Z | 2026-09-11T16:56Z | 16.96 | 10 / 12.69 | 5 / 11.05 | 3 / 9.69 |
 
-The healthy stretch from 08-21T22:32Z to 08-24T02:51Z (about 23 aiur daemon boots, with frequent
-restarts) has only 3 gaps of 30 min or more, 1.9 h in total. That is the period right after the prewarm fix in #2237 (§3, gaps 6, 16, 17).
-It shows that the fleet can run without gaps when dispatch works and the Executor is present.
+The retained interval from 08-21T22:32Z to 08-24T02:51Z has three >=30-minute
+gaps totaling 1.9503 h. It begins at PR #2242, which disabled prewarm and also
+changed identity/sandbox configuration. The #2237 code repair, PR #2274, merged
+on 08-23T20:06:53Z; all three gaps precede that merge. This is not a clean
+post-repair experiment, and event-ID groups do not prove a count of daemon boots.
+See [prewarm history](../synthesis/prewarm-starvation-history.json).
+It records a period with fewer selected-event gaps; the causal explanation remains unresolved.
 
 ---
 
@@ -248,7 +254,7 @@ use the CSV duration-weighted column for a bounded fraction.
 | 3 | aiur | 09-20 02:04 → 09-22 15:42 | 61.6 | b (50.9 h) + c (10.5 h) | Labels: human-review 9 (#2751 and #2749 fresh, #2668 at 71 h, others up to 17 days), paused 10, error 4. The rework tickets #1767, #2245 and #2413 were `Dispatch declined for 1767: :blocked_on_decision.` on decisions pending since 08-21/22 (`ticket.agent.attention.operator-decision` 08-22T02:17Z). Alert 09-21T02:01Z: *"PR #2752 … has been open 24 hours with no review — it is unseen, not blocked."* On 09-20 from 07:26Z to 22:27Z, the aiur Executor session was steering background agents on an unrelated side project (a browser game), so the result is c. After 22:27Z nobody was present. The host crashed at 09-22T15:41:37Z (§6). |
 | 4 | khala | 09-20 03:34 → 09-22 15:42 | 60.1 | b (50.6 h) + c (9.3 h) | The whole queue was blocked behind one human item. On 09-19T19:18Z the Executor commented on #41: *"Executor note on dec_553565e8bca39788 (live two-human proof credentials): this is an operator provis[ioning]…"*. At 19:33Z it labeled #41 `agent:paused`. The 6 remaining todo tickets were `Dispatch declined for 43: :dependency.` (also 44, 45, 47, 48, 49) at 09-20T01:08Z. `live-proof-credentials` attention wakes repeated every 15 min from 09-19T19:17Z to 09-20T00:47Z. At the moment of the crash, the Stream Deck journal line read `channel.grid agents=10 total=10 buckets={"paused":1,"queued":9}`. Together with §6 this is the reported "4.6 days". |
 | 5 | aiur | 09-18 11:40 → 09-19 17:59 | 30.3 | b | Labels: human-review 5 (#2668 at 33 h, #2633/#2610/#2394 at about 175 h, #2519 at 363 h), paused 12, error 4, 3 decision-blocked. Executor 8 active minutes in 30 h. Alert: *"PR #2736 (Provision deletion guards in workspaces) has been open 24 hours with no review — it is unseen, not blocked."* It ended with an Executor control command at 09-19T17:59Z. |
-| 6 | aiur | 08-20 05:57 → 08-21 02:38 | 20.7 | d | Dispatch defect #2237. In boot `1787205471`: `system.fleet.capacity.starved` at 06:18Z was never resolved, and `system.dispatch.prewarm_blocked` fired 71 times, always followed by `.resolved`, every 10 min. No Executor session existed until 08-21T02:40Z (*"read recent handoff /aiur-handoff"*). The Executor diagnosed it on 08-21T18:42Z: *"Ready tickets=31, live agents=0, effective cap=1, dispatch constraints=prewarm build (prewarm=checking)"*. |
+| 6 | aiur | 08-20 05:57 → 08-21 02:38 | 20.7 | d | Dispatch defect #2237. In event-ID group `1787205471` (not a verified boot): `system.fleet.capacity.starved` at 06:18Z was never resolved, and `system.dispatch.prewarm_blocked` has 71 blocked and 70 resolution records; 70 ordered pairs plus one unclosed block, with variable durations. This signal alone does not prove the absorbing-state defect caused the whole gap. No Executor session existed until 08-21T02:40Z (*"read recent handoff /aiur-handoff"*). The Executor diagnosed it on 08-21T18:42Z: *"Ready tickets=31, live agents=0, effective cap=1, dispatch constraints=prewarm build (prewarm=checking)"*. |
 | 7 | khala | 09-18 22:46 → 09-19 17:55 | 19.1 | b | 3 PRs entered human-review at the start of the gap (#36, #115, #101). 14 todo tickets were dependency- or decision-held behind them. Executor active 0 minutes in the gap (overnight). The first action was an Executor control command at 09-19T17:55Z. |
 | 8 | aiur | 08-25 00:40 → 08-25 14:03 | 13.4 | d (unattended) | Same boot and starvation signal as #1. Labels: human-review 11, rework 6. It ended when the human wrote *"status?"* at 14:03Z. |
 | 9 | aiur | 09-17 03:36 → 09-17 13:57 | 10.4 | c (att 1.00) | #2678: at 03:36:25Z the agent itself moved the ticket from human-review to rework (`labeled agent:rework` by its-applekid). It was never redispatched. The next event on it was a close by the Executor at 09-18T01:13Z. Stranded rework, and an Executor was active on khala the whole time. |
@@ -438,8 +444,10 @@ attended idle time is mostly (c) and (e): the human is there, working on another
    observation, acknowledgement and action completion separately.
 4. **Signal hygiene.** 906 unacknowledged `capacity.starved` wakes, 42 % human-review label churn, and a
    starvation alert with known false alarms (#2447) all make real stalls harder to see.
-5. **The August dispatch defect (#2237) is fixed.** Run-log-era infrastructure time is 1.6 %, so the
-   refactor should not optimize for it.
+5. **Separate prewarm repair from recurrence evidence.** PR #2274 adds probe recovery
+   and a watchdog for holds whose worker is no longer alive. Earlier mitigation
+   disabled prewarm; later changes repair alert false alarms. A 1.6% model bucket
+   does not prove the defect never recurred or justify treating dispatch as solved.
 
 ---
 
