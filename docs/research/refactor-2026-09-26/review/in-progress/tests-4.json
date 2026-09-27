@@ -178,6 +178,62 @@
       "lines": 419,
       "read": "full",
       "assessment": "Notification/disk conversion preserves roles, provider/fallback turn IDs, tool output/diff/title, skips progress/control and empty records, passes pre-extracted event unchanged. DeltaRenderer path actually generates expected diff fences and markers, but no terminal rendering. Multi-block disk fixture asserts ordered roles assistant then command; stable record/block identity distinguishes equal bodies and replays same IDs. Queued prompt attachment becomes user row while slash/control records skipped. Lower-level ordered extraction does not constrain DisplayTailer callback forwarding order."
+    },
+    {
+      "path": "src/test/aiur/claude/telemetry/usage_adapter_test.exs",
+      "sha256": "6d40e7e5ba529e9439f891633ad9b285c43710d19fbae924d50d9214b6da2109",
+      "lines": 262,
+      "read": "full",
+      "assessment": "Exact Decimal cost and additive token dimensions are reconciled against an independent sum in 50 generated cases. Request retry identity ignores source sequence changes but changes with trusted attempt/worker/producer or run; missing request uses session sequence. Missing cost/cache/time stays nil with ordered coverage reasons. Unsupported source/relationship/identity/backend fail bounded, per-request model/effort survive, prompt/capability do not. Pure adapter inputs assume trusted correlation; authentication is tested in Telemetry separately."
+    },
+    {
+      "path": "src/test/aiur/claude/usage_api_test.exs",
+      "sha256": "4d4c15f66ae39bac4bbf1da1af03f3ac0d522ba1e1981eacbc1f82f8102fa0cc",
+      "lines": 358,
+      "read": "full",
+      "assessment": "Serial persistent-term cache reset plus private credential fixtures and injected request callbacks. Worst usable allowed window, above-100 clamp, invalid/negative rejection, weekly-first ordering, absent supported weekly nil versus omitted optional window. Distinct missing/malformed/empty/expired credentials; valid token delivery to callback; HTTP 429/auth/other/transport/raising callback outcomes. Counters prove cache hit, TTL expiry, uncached other errors and reset; 429 retains prior reading during backoff without request. No actual remote HTTP and no measured production quota saving. Expired-token test calls token reader, whereas missing-credential fetch explicitly spies no request; retained reading test does not assert stale age/health presentation."
+    },
+    {
+      "path": "src/test/aiur/claude/telemetry_test.exs",
+      "sha256": "2b6edf5be25ea912088b5468fd97de9e31b0a70971936c3128b8303debcf62f1",
+      "lines": 821,
+      "read": "full",
+      "assessment": "Named supervised receiver with real listener; most submit calls invoke Receiver.call via Plug.Test, while partial-body test makes a real loopback TCP request and observes408. Pinned fixture exact Decimal/tokens, trusted correlation, bounded subagent categorization, nil optional coverage, headless/replay/stale-session/cross-ticket exclusion, version/field grammar and content allowlists, auth-before-malformed-body with log redaction, bounds and recovery all asserted. Held authorization demonstrates concurrent gate; full rate capacity rejects malformed body before decode. Replacement/revoke and late release cannot revive old capability. One acceptor-supervisor child is structural evidence, not direct maximum-socket concurrency proof. Model test suppresses unchanged model but does not supply a changed model. Deterministic capability collision refuses new launch but does not then exercise original token. Status redaction assertion searches full Bearer value, not separately bare token. No provider-generated traffic or UI."
+    },
+    {
+      "path": "src/test/aiur/codex/account_generation_test.exs",
+      "sha256": "03a01dc7da5eced69dc9b39501e417aa229044b45fe669730e89087912aab0ec",
+      "lines": 760,
+      "read": "full",
+      "assessment": "Real private owners/stores, fixed mint/clock, direct adapter calls. Unlike Claude observe same-mode continuity, Codex same-mode account update rotates absent explicit proof; token refresh/quota do not rotate. Distinct absent/logout/unsupported/untrusted/teardown reasons, canonical last-good health and recovery, keyed multi-limit protection and compatibility observer exclusion after malformed/lost continuity preserved. Separate compatibility file cannot overwrite canonical store. Copied session cannot rebind after teardown; actual owner stop/recreate retains topic and fresh generation, outage-created binding needs original authority. Finite sequence enumeration checks refresh equality and repeated-auth generation change, but generic nil-or-binary assertion alone does not constrain logout/unsupported/teardown after every prefix; individual examples cover those cases. First startup privacy test declares raw identity without supplying it; notification privacy fixture does supply it. No live account/provider or daemon restart."
+    },
+    {
+      "path": "src/test/aiur/codex/approvals_test.exs",
+      "sha256": "ac4bcae0c4fecb7775155019db8ddee079c2d89bf6492d5b3741ab18389e9601",
+      "lines": 585,
+      "read": "full",
+      "assessment": "Real cat ports inspect protocol frames, injected executors and real ToolCallLedger. Modern/legacy approval decision strings, approval-required refusal, stable callId, paused command decline/tool nonexecution/idless notification pass-through. Closed-port replay returns stored result with exactly one execution; different thread same call executes separately; conflicting payload fails with execution count unchanged. These are sequential in-process replay checks, not durable restart or concurrent execution proof. User-input approval checks exact answer; noninteractive fallback checks only map plus event, not answer content. Port cleanup uses after."
+    },
+    {
+      "path": "src/test/aiur/codex/app_server_port_test.exs",
+      "sha256": "ca48eb983ed5031cf90d8706c8f91106eb00f858ad95680c147159bfba035cf9",
+      "lines": 124,
+      "read": "full",
+      "assessment": "Actual private directories/symlinks test canonical workspace containment and root/outside/escape distinctions; remote empty/control strings rejected. Command model/effort quoting exact string; metadata cat-port presence and remote-host omission. Conditional setsid path starts real adapter process and requires group/root identity, cleans in after; absent setsid takes assert true rather than proving containment. Already-closed port stop safe. No SSH execution."
+    },
+    {
+      "path": "src/test/aiur/codex/config_test.exs",
+      "sha256": "bfff74b900249e29dcd593244cf7f62e6a9057c1384b3030536ab86133f45f49",
+      "lines": 44,
+      "read": "full",
+      "assessment": "Schema default is constrained to a valid string enum and legacy map rejected; explicit variants including never accepted, trimming and invalid-message hints checked. Comment says default must be non-never, but allowed set includes never and no exclusion assertion exists. Record as local oracle mismatch pending intended-policy/source and overlapping tests, not a proven current policy defect."
+    },
+    {
+      "path": "src/test/aiur/codex/coding_agent_test.exs",
+      "sha256": "55abd778e24bdf899ec1532dcbf97dc087760f2c68e258b81eeec6ce35ac6719",
+      "lines": 280,
+      "read": "full",
+      "assessment": "Real shell parent/child teardown with pgrep readiness and owner-outage port cleanup; not an actual Codex database-lock scenario. Pure start/resume frame policies, dynamic-tools omitted on resume, matching thread genuine versus substituted fresh, invalid response and error fallback preserved. Delayed shell response exercises startup floor past steady timeout. Real shell fixture sends pre-turn quota notification and current callback gets redacted notification; closed-port handshake yields error. Fresh-frame dynamicTools assertion only is_list, supplemented elsewhere by exact tool tests. No live Codex service or UI."
     }
   ],
   "scope_note": "Source review with an isolated extracted-assertion order probe; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
@@ -225,7 +281,15 @@
     "Wrapper integration over mocked tmux, private transcripts and HookEvents. Resume requires file existence and omitted handle stays clean; RC/resume flags and attach text are simulated, not live CLI acceptance. Dead/live/unrelated owner sweep controls supplement Reaper tests. Sequential turns preserve thread and change turn IDs without new-window. Cold-start materialization, missing echo/retype, timeout/gone pane, deliver-now versus checkpoint queue signals, exact control-byte sanitization and single Enter are covered. Transcript pause requires terminal evidence; failed interrupt and no terminal remain errors. Hook path emits control completion but not assistant/tool display events, and never clears/retypes. Many drains use no overall local deadline; some minimal send/interrupt/empty fixtures create transcripts without individual cleanup. Older readiness-failure helper supplies PID5050 without the newer Launcher test's explicit host cleanup stubs: inspect production containment identity before executing this test. No UI verification.",
     "Explicit midnight/noon next-day rollover, reset-date DST gap/overlap, timestamp normalization, invalid/zoneless unknown, and repeatedly expired explicit deadlines stay nil. These are deterministic time-policy contracts, not actual provider wake execution.",
     "Real private file and supervised tailer with manual polls: partial trailing line deferred, skip nonconversation, incremental non-reemit, attach cutoff including initially partial record stays backfill, shorter-file replacement restarts reading. Distinct terminal assistant/API/system/result error callbacks, retryable api_retry and tool_use do not terminate. Explicit from:end prehistory then append test constrains historical exclusion. Replacement fixture only shrinks same path; does not establish same/larger-size inode rotation. Cloud-authored test is identical synthetic local file shape, not phone transport. Selective event then turn_end receives do not prove callback order.",
-    "Notification/disk conversion preserves roles, provider/fallback turn IDs, tool output/diff/title, skips progress/control and empty records, passes pre-extracted event unchanged. DeltaRenderer path actually generates expected diff fences and markers, but no terminal rendering. Multi-block disk fixture asserts ordered roles assistant then command; stable record/block identity distinguishes equal bodies and replays same IDs. Queued prompt attachment becomes user row while slash/control records skipped. Lower-level ordered extraction does not constrain DisplayTailer callback forwarding order."
+    "Notification/disk conversion preserves roles, provider/fallback turn IDs, tool output/diff/title, skips progress/control and empty records, passes pre-extracted event unchanged. DeltaRenderer path actually generates expected diff fences and markers, but no terminal rendering. Multi-block disk fixture asserts ordered roles assistant then command; stable record/block identity distinguishes equal bodies and replays same IDs. Queued prompt attachment becomes user row while slash/control records skipped. Lower-level ordered extraction does not constrain DisplayTailer callback forwarding order.",
+    "Exact Decimal cost and additive token dimensions are reconciled against an independent sum in 50 generated cases. Request retry identity ignores source sequence changes but changes with trusted attempt/worker/producer or run; missing request uses session sequence. Missing cost/cache/time stays nil with ordered coverage reasons. Unsupported source/relationship/identity/backend fail bounded, per-request model/effort survive, prompt/capability do not. Pure adapter inputs assume trusted correlation; authentication is tested in Telemetry separately.",
+    "Serial persistent-term cache reset plus private credential fixtures and injected request callbacks. Worst usable allowed window, above-100 clamp, invalid/negative rejection, weekly-first ordering, absent supported weekly nil versus omitted optional window. Distinct missing/malformed/empty/expired credentials; valid token delivery to callback; HTTP 429/auth/other/transport/raising callback outcomes. Counters prove cache hit, TTL expiry, uncached other errors and reset; 429 retains prior reading during backoff without request. No actual remote HTTP and no measured production quota saving. Expired-token test calls token reader, whereas missing-credential fetch explicitly spies no request; retained reading test does not assert stale age/health presentation.",
+    "Named supervised receiver with real listener; most submit calls invoke Receiver.call via Plug.Test, while partial-body test makes a real loopback TCP request and observes408. Pinned fixture exact Decimal/tokens, trusted correlation, bounded subagent categorization, nil optional coverage, headless/replay/stale-session/cross-ticket exclusion, version/field grammar and content allowlists, auth-before-malformed-body with log redaction, bounds and recovery all asserted. Held authorization demonstrates concurrent gate; full rate capacity rejects malformed body before decode. Replacement/revoke and late release cannot revive old capability. One acceptor-supervisor child is structural evidence, not direct maximum-socket concurrency proof. Model test suppresses unchanged model but does not supply a changed model. Deterministic capability collision refuses new launch but does not then exercise original token. Status redaction assertion searches full Bearer value, not separately bare token. No provider-generated traffic or UI.",
+    "Real private owners/stores, fixed mint/clock, direct adapter calls. Unlike Claude observe same-mode continuity, Codex same-mode account update rotates absent explicit proof; token refresh/quota do not rotate. Distinct absent/logout/unsupported/untrusted/teardown reasons, canonical last-good health and recovery, keyed multi-limit protection and compatibility observer exclusion after malformed/lost continuity preserved. Separate compatibility file cannot overwrite canonical store. Copied session cannot rebind after teardown; actual owner stop/recreate retains topic and fresh generation, outage-created binding needs original authority. Finite sequence enumeration checks refresh equality and repeated-auth generation change, but generic nil-or-binary assertion alone does not constrain logout/unsupported/teardown after every prefix; individual examples cover those cases. First startup privacy test declares raw identity without supplying it; notification privacy fixture does supply it. No live account/provider or daemon restart.",
+    "Real cat ports inspect protocol frames, injected executors and real ToolCallLedger. Modern/legacy approval decision strings, approval-required refusal, stable callId, paused command decline/tool nonexecution/idless notification pass-through. Closed-port replay returns stored result with exactly one execution; different thread same call executes separately; conflicting payload fails with execution count unchanged. These are sequential in-process replay checks, not durable restart or concurrent execution proof. User-input approval checks exact answer; noninteractive fallback checks only map plus event, not answer content. Port cleanup uses after.",
+    "Actual private directories/symlinks test canonical workspace containment and root/outside/escape distinctions; remote empty/control strings rejected. Command model/effort quoting exact string; metadata cat-port presence and remote-host omission. Conditional setsid path starts real adapter process and requires group/root identity, cleans in after; absent setsid takes assert true rather than proving containment. Already-closed port stop safe. No SSH execution.",
+    "Schema default is constrained to a valid string enum and legacy map rejected; explicit variants including never accepted, trimming and invalid-message hints checked. Comment says default must be non-never, but allowed set includes never and no exclusion assertion exists. Record as local oracle mismatch pending intended-policy/source and overlapping tests, not a proven current policy defect.",
+    "Real shell parent/child teardown with pgrep readiness and owner-outage port cleanup; not an actual Codex database-lock scenario. Pure start/resume frame policies, dynamic-tools omitted on resume, matching thread genuine versus substituted fresh, invalid response and error fallback preserved. Delayed shell response exercises startup floor past steady timeout. Real shell fixture sends pre-turn quota notification and current callback gets redacted notification; closed-port handshake yields error. Fresh-frame dynamicTools assertion only is_list, supplemented elsewhere by exact tool tests. No live Codex service or UI."
   ],
   "cross_references": [
     {
@@ -240,7 +304,14 @@
       "lines": "563-608",
       "hypothesis": "The real-proc test has fallback kill only for outside sleeper; a failed inside reap can leave the fixture until its 300-second lifetime ends. Readiness helper returns ok on exhaustion.",
       "next": "Check enclosing cleanup and demonstrate only with isolated owned children before promoting; do not run live workspace sweeps."
+    },
+    {
+      "id": "tests-4-candidate-03",
+      "path": "src/test/aiur/codex/config_test.exs",
+      "lines": "7-19",
+      "hypothesis": "Non-never default promised by comment is not constrained by default membership assertion because never belongs to allowed set.",
+      "next": "Check intended schema policy and other default guards before deciding whether to promote, correct comment, or deduplicate."
     }
   ],
-  "next": "25/100 full files, 6529/40603 lines. Continue Claude telemetry/usage_adapter_test.exs, telemetry_test.exs and usage_api_test.exs, then Codex manifest. One P2 finding remains in this partial ledger, not yet counted as raw-unit completion; 75 files remain."
+  "next": "33/100 full files, 9763/40603 lines. Claude test files complete within this manifest; continue Codex dynamic_tool files and remaining protocol/usage tests. One confirmed P2 and two unverified candidates in partial ledger; raw-unit completion still pending."
 }
