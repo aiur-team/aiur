@@ -1600,10 +1600,595 @@
       "disposition": "executor_command_topics_shared_security_boundary",
       "assessment": "ExecutorEvents scrubs untrusted fields only for the two command topics; ExecutorListener calls that scrubber before optional command alerting and uses the same topic set. Centralize command-topic classification in the event contract so additions cannot update alerting without sanitization. Preserve alerting opt-in, typed payload handling and non-command routing.",
       "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "239a7b407f92134ace046281584ad04306c5d4c81d642e902124f8dcd1a6e680",
+      "modules": 4,
+      "site_count": 4,
+      "sites": [
+        {
+          "line": 22,
+          "module": "Aiur.Init",
+          "name": "env_file_name",
+          "path": "src/lib/aiur/init.ex",
+          "expression": "\".env\"",
+          "numeric_value": null,
+          "expression_sha256": "239a7b407f92134ace046281584ad04306c5d4c81d642e902124f8dcd1a6e680"
+        },
+        {
+          "line": 9,
+          "module": "Aiur.Init.Dotenv",
+          "name": "env_file_name",
+          "path": "src/lib/aiur/init/dotenv.ex",
+          "expression": "\".env\"",
+          "numeric_value": null,
+          "expression_sha256": "239a7b407f92134ace046281584ad04306c5d4c81d642e902124f8dcd1a6e680"
+        },
+        {
+          "line": 17,
+          "module": "Aiur.Init.GitHub",
+          "name": "env_file_name",
+          "path": "src/lib/aiur/init/github.ex",
+          "expression": "\".env\"",
+          "numeric_value": null,
+          "expression_sha256": "239a7b407f92134ace046281584ad04306c5d4c81d642e902124f8dcd1a6e680"
+        },
+        {
+          "line": 17,
+          "module": "Aiur.Init.Scaffold",
+          "name": "env_file_name",
+          "path": "src/lib/aiur/init/scaffold.ex",
+          "expression": "\".env\"",
+          "numeric_value": null,
+          "expression_sha256": "239a7b407f92134ace046281584ad04306c5d4c81d642e902124f8dcd1a6e680"
+        }
+      ],
+      "disposition": "shared_init_filename_distinct_io_policy",
+      "assessment": "Four init sites share the local .env filename: Dotenv reads from cwd, Scaffold inspects that path, and Init/GitHub print guidance. Filename and guidance should agree. Preserve environment precedence and separate loading/writing policies; no credential files were read.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "d3820795e91d32631cf550f1733266d9e0a15c8234ccca0ba37c06bd396e22ea",
+      "modules": 4,
+      "site_count": 4,
+      "sites": [
+        {
+          "line": 32,
+          "module": "Aiur.Codeowners",
+          "name": "base_url",
+          "path": "src/lib/aiur/codeowners.ex",
+          "expression": "\"https://api.github.com\"",
+          "numeric_value": null,
+          "expression_sha256": "d3820795e91d32631cf550f1733266d9e0a15c8234ccca0ba37c06bd396e22ea"
+        },
+        {
+          "line": 21,
+          "module": "Aiur.GitHub.Labels",
+          "name": "base_url",
+          "path": "src/lib/aiur/github/labels.ex",
+          "expression": "\"https://api.github.com\"",
+          "numeric_value": null,
+          "expression_sha256": "d3820795e91d32631cf550f1733266d9e0a15c8234ccca0ba37c06bd396e22ea"
+        },
+        {
+          "line": 49,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "base_url",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "expression": "\"https://api.github.com\"",
+          "numeric_value": null,
+          "expression_sha256": "d3820795e91d32631cf550f1733266d9e0a15c8234ccca0ba37c06bd396e22ea"
+        },
+        {
+          "line": 42,
+          "module": "Aiur.GitHub.Transport",
+          "name": "base_url",
+          "path": "src/lib/aiur/github/transport.ex",
+          "expression": "\"https://api.github.com\"",
+          "numeric_value": null,
+          "expression_sha256": "d3820795e91d32631cf550f1733266d9e0a15c8234ccca0ba37c06bd396e22ea"
+        }
+      ],
+      "disposition": "shared_endpoint_vocabulary_existing_owner",
+      "assessment": "Codeowners and Labels construct REST endpoints; ReadCache.Identity classifies GraphQL with starts_with, while Transport already exposes base_url/0 and graphql_url/0. Share endpoint vocabulary through an appropriate dependency owner, checking cache/transport layering before adding calls. Do not replace classification with construction or claim exact-path validation. Enterprise endpoint support is not established by this repetition.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 11,
+          "module": "Mix.Tasks.Aiur.CostReport",
+          "name": "requirements",
+          "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+          "expression": "[]",
+          "numeric_value": null,
+          "expression_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        {
+          "line": 22,
+          "module": "Mix.Tasks.Aiur.PricingWindow",
+          "name": "requirements",
+          "path": "src/lib/mix/tasks/aiur.pricing_window.ex",
+          "expression": "[]",
+          "numeric_value": null,
+          "expression_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        {
+          "line": 7,
+          "module": "Mix.Tasks.Aiur.Telemetry.Dashboard",
+          "name": "requirements",
+          "path": "src/lib/mix/tasks/aiur.telemetry.dashboard.ex",
+          "expression": "[]",
+          "numeric_value": null,
+          "expression_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      ],
+      "disposition": "framework_declarations_keep_local",
+      "assessment": "Three Mix tasks declare empty @requirements. These are local framework declarations, not repeated product policy requiring a shared constant.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "78059a2e813557e0f639e017f0c767bfbb6e343cf5bd59b9d5cce53852ae5d63",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 12,
+          "module": "Aiur.Init.Prewarm",
+          "name": "prewarm_file_name",
+          "path": "src/lib/aiur/init/prewarm.ex",
+          "expression": "\"prewarm\"",
+          "numeric_value": null,
+          "expression_sha256": "78059a2e813557e0f639e017f0c767bfbb6e343cf5bd59b9d5cce53852ae5d63"
+        },
+        {
+          "line": 16,
+          "module": "Aiur.Init.Scaffold",
+          "name": "prewarm_file_name",
+          "path": "src/lib/aiur/init/scaffold.ex",
+          "expression": "\"prewarm\"",
+          "numeric_value": null,
+          "expression_sha256": "78059a2e813557e0f639e017f0c767bfbb6e343cf5bd59b9d5cce53852ae5d63"
+        },
+        {
+          "line": 34,
+          "module": "Aiur.Init.Templates",
+          "name": "prewarm_file_name",
+          "path": "src/lib/aiur/init/templates.ex",
+          "expression": "\"prewarm\"",
+          "numeric_value": null,
+          "expression_sha256": "78059a2e813557e0f639e017f0c767bfbb6e343cf5bd59b9d5cce53852ae5d63"
+        }
+      ],
+      "disposition": "shared_generated_artifact_filename",
+      "assessment": "Prewarm and Templates emit base_build_file: prewarm, while Scaffold writes prewarm beside the target config. These three names must stay synchronized through an init layout owner. Preserve resolution relative to the config.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "a197fa119025ae8df929d36e0b537a7aef9eb17e83babc137416c6520f674483",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 13,
+          "module": "Aiur.Opencode.Config",
+          "name": "default_model_prefix",
+          "path": "src/lib/aiur/opencode/config.ex",
+          "expression": "\"aiur\"",
+          "numeric_value": null,
+          "expression_sha256": "a197fa119025ae8df929d36e0b537a7aef9eb17e83babc137416c6520f674483"
+        },
+        {
+          "line": 26,
+          "module": "Aiur.OpencodeTheme",
+          "name": "theme_name",
+          "path": "src/lib/aiur/opencode_theme.ex",
+          "expression": "\"aiur\"",
+          "numeric_value": null,
+          "expression_sha256": "a197fa119025ae8df929d36e0b537a7aef9eb17e83babc137416c6520f674483"
+        },
+        {
+          "line": 23,
+          "module": "Aiur.Tmux",
+          "name": "default_session_fallback",
+          "path": "src/lib/aiur/tmux.ex",
+          "expression": "\"aiur\"",
+          "numeric_value": null,
+          "expression_sha256": "a197fa119025ae8df929d36e0b537a7aef9eb17e83babc137416c6520f674483"
+        }
+      ],
+      "disposition": "distinct_namespaces_keep_separate",
+      "assessment": "The product spelling aiur is a model prefix fallback, theme identity, and tmux session fallback. These are independently configurable or interpreted namespaces, not one global naming policy.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "e48634e5b96770f5069ae45cb1aecf9b456564d3d74ca732c6826cdc18745a14",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 13,
+          "module": "Aiur.BuildOrder.GraphProjection.Failure",
+          "name": "enforce_keys",
+          "path": "src/lib/aiur/build_order/graph_projection_contract.ex",
+          "expression": "[:kind]",
+          "numeric_value": null,
+          "expression_sha256": "e48634e5b96770f5069ae45cb1aecf9b456564d3d74ca732c6826cdc18745a14"
+        },
+        {
+          "line": 7,
+          "module": "Aiur.BuildOrder.TicketHistory.Failure",
+          "name": "enforce_keys",
+          "path": "src/lib/aiur/build_order/ticket_history_contract.ex",
+          "expression": "[:kind]",
+          "numeric_value": null,
+          "expression_sha256": "e48634e5b96770f5069ae45cb1aecf9b456564d3d74ca732c6826cdc18745a14"
+        },
+        {
+          "line": 28,
+          "module": "Aiur.Usage.GroupedScopes.Scope",
+          "name": "enforce_keys",
+          "path": "src/lib/aiur/usage/grouped_scopes/scope.ex",
+          "expression": "[:kind]",
+          "numeric_value": null,
+          "expression_sha256": "e48634e5b96770f5069ae45cb1aecf9b456564d3d74ca732c6826cdc18745a14"
+        }
+      ],
+      "disposition": "struct_invariants_not_shared_domain",
+      "assessment": "Two Build Order Failure structs require kind; GroupedScopes.Scope also requires kind but carries run and ticket-set data. A matching enforce_keys declaration is not evidence of an interchangeable type. Any merger of the two Failure contracts needs separate consumer analysis.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "fb7ba5f64b011e833c2476f1216006ce232a4909d241708e1e107cf06776d3ac",
+      "modules": 3,
+      "site_count": 3,
+      "sites": [
+        {
+          "line": 16,
+          "module": "Aiur.Init.GitHub",
+          "name": "config_file_name",
+          "path": "src/lib/aiur/init/github.ex",
+          "expression": "\".aiur/config\"",
+          "numeric_value": null,
+          "expression_sha256": "fb7ba5f64b011e833c2476f1216006ce232a4909d241708e1e107cf06776d3ac"
+        },
+        {
+          "line": 14,
+          "module": "Aiur.Init.Labels",
+          "name": "config_file_name",
+          "path": "src/lib/aiur/init/labels.ex",
+          "expression": "\".aiur/config\"",
+          "numeric_value": null,
+          "expression_sha256": "fb7ba5f64b011e833c2476f1216006ce232a4909d241708e1e107cf06776d3ac"
+        },
+        {
+          "line": 12,
+          "module": "Aiur.Init.Scaffold",
+          "name": "config_file_name",
+          "path": "src/lib/aiur/init/scaffold.ex",
+          "expression": "\".aiur/config\"",
+          "numeric_value": null,
+          "expression_sha256": "fb7ba5f64b011e833c2476f1216006ce232a4909d241708e1e107cf06776d3ac"
+        }
+      ],
+      "disposition": "shared_config_location_vocabulary",
+      "assessment": "Scaffold constructs local/global .aiur/config targets; GitHub and Labels use the same path in guidance. Keep path spelling and guidance synchronized while retaining global versus cwd placement. Workflow also constructs canonical paths from directory/basename components, outside this exact literal group.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "27cfca21f13c7a5f432f472b0ec8af4d5a9f25c52543c9f2c22994acfba8e986",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 23,
+          "module": "Aiur.Init",
+          "name": "token_url",
+          "path": "src/lib/aiur/init.ex",
+          "expression": "\"https://github.com/settings/tokens\"",
+          "numeric_value": null,
+          "expression_sha256": "27cfca21f13c7a5f432f472b0ec8af4d5a9f25c52543c9f2c22994acfba8e986"
+        },
+        {
+          "line": 18,
+          "module": "Aiur.Init.GitHub",
+          "name": "token_url",
+          "path": "src/lib/aiur/init/github.ex",
+          "expression": "\"https://github.com/settings/tokens\"",
+          "numeric_value": null,
+          "expression_sha256": "27cfca21f13c7a5f432f472b0ec8af4d5a9f25c52543c9f2c22994acfba8e986"
+        }
+      ],
+      "disposition": "shared_init_guidance_link",
+      "assessment": "Init and Init.GitHub print the same token-settings link. A small init guidance owner can avoid drift; a new core utility is unnecessary for this pair alone. This assesses frozen source reuse, not current external URL validity.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "5e1dc54fcf6c78be39446f660aa339ffef9793956e5cd51c714457ada14d3b76",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 11,
+          "module": "Aiur.Init.Alerts",
+          "name": "alerts_file_name",
+          "path": "src/lib/aiur/init/alerts.ex",
+          "expression": "\"alerts\"",
+          "numeric_value": null,
+          "expression_sha256": "5e1dc54fcf6c78be39446f660aa339ffef9793956e5cd51c714457ada14d3b76"
+        },
+        {
+          "line": 14,
+          "module": "Aiur.Init.Scaffold",
+          "name": "alerts_file_name",
+          "path": "src/lib/aiur/init/scaffold.ex",
+          "expression": "\"alerts\"",
+          "numeric_value": null,
+          "expression_sha256": "5e1dc54fcf6c78be39446f660aa339ffef9793956e5cd51c714457ada14d3b76"
+        }
+      ],
+      "disposition": "shared_filename_distinct_roots",
+      "assessment": "Init.Alerts writes alerts beside a target config; Scaffold exposes the global alerts path. The basename is shared, but the local/config-relative and global roots must remain distinct.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "7649b444a37e5ea51af536af65bdde29d549803a064bdd0707db6a00c9285673",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 12,
+          "module": "Aiur.GitHub.Config",
+          "name": "default_label_prefix",
+          "path": "src/lib/aiur/github/config.ex",
+          "expression": "\"agent\"",
+          "numeric_value": null,
+          "expression_sha256": "7649b444a37e5ea51af536af65bdde29d549803a064bdd0707db6a00c9285673"
+        },
+        {
+          "line": 13,
+          "module": "Aiur.Init.Labels",
+          "name": "default_label_prefix",
+          "path": "src/lib/aiur/init/labels.ex",
+          "expression": "\"agent\"",
+          "numeric_value": null,
+          "expression_sha256": "7649b444a37e5ea51af536af65bdde29d549803a064bdd0707db6a00c9285673"
+        }
+      ],
+      "disposition": "shared_default_distinct_input_handling",
+      "assessment": "GitHub.Config trims a configured prefix and falls back for blank or nonbinary values. Init.Labels uses Map.get with a missing-key default, without those normalizations. Share the agent default without substituting whole input handlers. The schema also has an inline default, beyond this attribute group.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "8f01a40798ca961cd345efe70e608a861a5cf9de5c26b8d8b2adb06a39c48347",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 28,
+          "module": "Aiur.Config.Schema.GithubApp",
+          "name": "bot_suffix",
+          "path": "src/lib/aiur/config/schema/github_app.ex",
+          "expression": "\"[bot]\"",
+          "numeric_value": null,
+          "expression_sha256": "8f01a40798ca961cd345efe70e608a861a5cf9de5c26b8d8b2adb06a39c48347"
+        },
+        {
+          "line": 30,
+          "module": "Aiur.Init.BotAccount",
+          "name": "bot_suffix",
+          "path": "src/lib/aiur/init/bot_account.ex",
+          "expression": "\"[bot]\"",
+          "numeric_value": null,
+          "expression_sha256": "8f01a40798ca961cd345efe70e608a861a5cf9de5c26b8d8b2adb06a39c48347"
+        }
+      ],
+      "disposition": "shared_provider_suffix_distinct_validation",
+      "assessment": "GithubApp schema permits blank account or a downcased trimmed value ending in [bot]. Init.BotAccount removes the suffix for length checking and applies a login regex with optional suffix. These validate different account contracts; do not replace either validator with the other because the suffix matches.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "a41467778efdc12f1e8509e6019912cb3d689239d053c94ee45e19e47862dec4",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 65,
+          "module": "Aiur.Orchestrator.OrphanedWorkers",
+          "name": "registry",
+          "path": "src/lib/aiur/orchestrator/orphaned_workers.ex",
+          "expression": "Aiur.Workspace.Ownership.Registry",
+          "numeric_value": null,
+          "expression_sha256": "a41467778efdc12f1e8509e6019912cb3d689239d053c94ee45e19e47862dec4"
+        },
+        {
+          "line": 11,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "registry",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "expression": "Aiur.Workspace.Ownership.Registry",
+          "numeric_value": null,
+          "expression_sha256": "a41467778efdc12f1e8509e6019912cb3d689239d053c94ee45e19e47862dec4"
+        }
+      ],
+      "disposition": "existing_shared_registry_identity",
+      "assessment": "OrphanedWorkers and Workspace.Ownership reference the same ownership Registry, with injected registry options/default parameters. This is already a shared identity. Preserve injection and separate reaping decisions from ownership lifecycle operations.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "b1aff54f294c7c1f478a8839717458514b46a2a7fcf8c5a748268d957064e71c",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 17,
+          "module": "Aiur.Claude.Repl.Launcher",
+          "name": "ready_prompt",
+          "path": "src/lib/aiur/claude/repl/launcher.ex",
+          "expression": "\"❯\"",
+          "numeric_value": null,
+          "expression_sha256": "b1aff54f294c7c1f478a8839717458514b46a2a7fcf8c5a748268d957064e71c"
+        },
+        {
+          "line": 31,
+          "module": "Aiur.Init.Prompt",
+          "name": "cursor",
+          "path": "src/lib/aiur/init/prompt.ex",
+          "expression": "\"❯\"",
+          "numeric_value": null,
+          "expression_sha256": "b1aff54f294c7c1f478a8839717458514b46a2a7fcf8c5a748268d957064e71c"
+        }
+      ],
+      "disposition": "external_detection_vs_local_presentation",
+      "assessment": "Claude.Repl.Launcher recognizes the glyph in captured output as readiness evidence; Init.Prompt renders it as a local selection cursor. Keep these independently owned so styling changes cannot alter external readiness detection.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "d3b2efcd7e9ede28b16790aa087efe3236ece89a77320d03ebd7f093e6f08411",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 13,
+          "module": "Aiur.Init.Scaffold",
+          "name": "legacy_config_file_name",
+          "path": "src/lib/aiur/init/scaffold.ex",
+          "expression": "\".aiurconfig\"",
+          "numeric_value": null,
+          "expression_sha256": "d3b2efcd7e9ede28b16790aa087efe3236ece89a77320d03ebd7f093e6f08411"
+        },
+        {
+          "line": 15,
+          "module": "Aiur.Workflow",
+          "name": "legacy_config_file_name",
+          "path": "src/lib/aiur/workflow.ex",
+          "expression": "\".aiurconfig\"",
+          "numeric_value": null,
+          "expression_sha256": "d3b2efcd7e9ede28b16790aa087efe3236ece89a77320d03ebd7f093e6f08411"
+        }
+      ],
+      "disposition": "shared_legacy_path_contract",
+      "assessment": "Scaffold constructs legacy config targets and Workflow includes legacy paths alongside canonical local/global candidates. Synchronize the legacy basename within config layout vocabulary, retaining its legacy status rather than treating it as the current canonical path.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "d8fda65736328cd23a9fc07d5f3ac196be2038f4ad8dd0f614e2e6df49053b50",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 38,
+          "module": "Aiur.BuildOrder.TicketHistory.Entry",
+          "name": "enforce_keys",
+          "path": "src/lib/aiur/build_order/ticket_history_contract.ex",
+          "expression": "[:kind, :label, :source, :observed_at]",
+          "numeric_value": null,
+          "expression_sha256": "d8fda65736328cd23a9fc07d5f3ac196be2038f4ad8dd0f614e2e6df49053b50"
+        },
+        {
+          "line": 34,
+          "module": "AiurWeb.BuildOrder.TicketContextPresenter.LogEntry",
+          "name": "enforce_keys",
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "expression": "[:kind, :label, :source, :observed_at]",
+          "numeric_value": null,
+          "expression_sha256": "d8fda65736328cd23a9fc07d5f3ac196be2038f4ad8dd0f614e2e6df49053b50"
+        }
+      ],
+      "disposition": "projection_types_not_identical",
+      "assessment": "TicketHistory.Entry and TicketContextPresenter.LogEntry enforce the same four keys but have different structures: the domain entry includes provenance and the presenter entry does not. Identical required fields do not justify merging domain data with its UI projection.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "f610bd728442ee391382f327450e15436baa12f069a0fffe97a416b4d37bded3",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 17,
+          "module": "Aiur.Opencode.SessionWriterRegistry",
+          "name": "registry",
+          "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+          "expression": "__MODULE__.Registry",
+          "numeric_value": null,
+          "expression_sha256": "f610bd728442ee391382f327450e15436baa12f069a0fffe97a416b4d37bded3"
+        },
+        {
+          "line": 16,
+          "module": "Aiur.Opencode.SlotRegistry",
+          "name": "registry",
+          "path": "src/lib/aiur/opencode/slot_registry.ex",
+          "expression": "__MODULE__.Registry",
+          "numeric_value": null,
+          "expression_sha256": "f610bd728442ee391382f327450e15436baa12f069a0fffe97a416b4d37bded3"
+        }
+      ],
+      "disposition": "module_relative_names_are_distinct",
+      "assessment": "SessionWriterRegistry and SlotRegistry expand __MODULE__.Registry to different registered names. Their keys/lookup semantics differ: session identifiers with base-URL filtering versus numeric slot indices and pane metadata. Do not centralize into one registry identity.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "f6e33f806c3935adec6f8995bf95a28f5fbebf36a962aa153db4056bf2cb02e5",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 22,
+          "module": "Aiur.Orchestrator.SnapshotPublisher",
+          "name": "table_opts",
+          "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+          "expression": "[:named_table, :public, :set, read_concurrency: true, write_concurrency: true]",
+          "numeric_value": null,
+          "expression_sha256": "f6e33f806c3935adec6f8995bf95a28f5fbebf36a962aa153db4056bf2cb02e5"
+        },
+        {
+          "line": 15,
+          "module": "Aiur.Orchestrator.TrackedSet",
+          "name": "table_opts",
+          "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+          "expression": "[:named_table, :public, :set, read_concurrency: true, write_concurrency: true]",
+          "numeric_value": null,
+          "expression_sha256": "f6e33f806c3935adec6f8995bf95a28f5fbebf36a962aa153db4056bf2cb02e5"
+        }
+      ],
+      "disposition": "shared_ets_options_distinct_tables",
+      "assessment": "SnapshotPublisher and TrackedSet use the same named/public/set concurrency options but create tables named by their respective modules. Matching flags alone do not justify extraction or merging tables; preserve table identity and ownership.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
+    },
+    {
+      "expression_sha256": "f89d3cbf1c457851528b32d355a0022363c4aef9ac2c4c7704e681487e5c9048",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 47,
+          "module": "Aiur.Events.Exchange",
+          "name": "table_registry_key",
+          "path": "src/lib/aiur/events/exchange.ex",
+          "expression": "{__MODULE__, :table}",
+          "numeric_value": null,
+          "expression_sha256": "f89d3cbf1c457851528b32d355a0022363c4aef9ac2c4c7704e681487e5c9048"
+        },
+        {
+          "line": 4,
+          "module": "Aiur.GitHub.CycleFetchCache",
+          "name": "process_key",
+          "path": "src/lib/aiur/github/cycle_fetch_cache.ex",
+          "expression": "{__MODULE__, :table}",
+          "numeric_value": null,
+          "expression_sha256": "f89d3cbf1c457851528b32d355a0022363c4aef9ac2c4c7704e681487e5c9048"
+        }
+      ],
+      "disposition": "module_relative_keys_distinct_scope",
+      "assessment": "Events.Exchange nests its module-specific table key with a server identity. CycleFetchCache uses its own module-specific key in the process dictionary for a private ETS table. Equal source expressions resolve to different keys and storage scopes; do not unify them.",
+      "coverage": "All listed declarations and same-named attribute-use contexts inspected in frozen source. Contract-level source assessment; transitive runtime behavior and production incidence not verified."
     }
   ],
-  "assessed_group_count": 39,
-  "remaining_candidate_groups": 123,
+  "assessed_group_count": 57,
+  "remaining_candidate_groups": 105,
   "sources": [
     {
       "path": "src/lib/aiur/coding_agent.ex",
@@ -2024,6 +2609,134 @@
     {
       "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
       "sha256": "f7bcc756ca7f531ee8fd9f705bbc748b4015fa13c919aeffa12447bc26237450"
+    },
+    {
+      "path": "src/lib/aiur/build_order/graph_projection_contract.ex",
+      "sha256": "1f6b90e5e078d0a17485ccdc55a01b524a278ce960357be1443fd504877416e8"
+    },
+    {
+      "path": "src/lib/aiur/build_order/ticket_history_contract.ex",
+      "sha256": "be169240c21cca2afac08a05da0f2337cedc74ac8a7fd240b222a377df358053"
+    },
+    {
+      "path": "src/lib/aiur/claude/repl/launcher.ex",
+      "sha256": "acc31e2c41e6dcd4031aa744688d6be120cffb64862e395c948bf86ba180f636"
+    },
+    {
+      "path": "src/lib/aiur/codeowners.ex",
+      "sha256": "77d70dab6a5745635d0342884b9354a8690cce207766bf20ff6e5943166bc232"
+    },
+    {
+      "path": "src/lib/aiur/events/exchange.ex",
+      "sha256": "20ad89c0fdae293d8e9b0ac4c397e4d1b2f8c1865c7ef74bddb411a54053b7df"
+    },
+    {
+      "path": "src/lib/aiur/github/config.ex",
+      "sha256": "1d3d2c59f4ca83181a29544634cc2cc181370f570dd6e335615ce322c12a2352"
+    },
+    {
+      "path": "src/lib/aiur/github/cycle_fetch_cache.ex",
+      "sha256": "aba3a85bc114e037fdde287a7a3c0abec8cd50e2f47bcd4486ff2da3869da9c8"
+    },
+    {
+      "path": "src/lib/aiur/github/read_cache/identity.ex",
+      "sha256": "c0622c33c4955df49f48974992ab00a3d78439beb7caefc14788164eaf5d2a6f"
+    },
+    {
+      "path": "src/lib/aiur/github/transport.ex",
+      "sha256": "de377b8d6a9a25ca049c961b3c80c31bf61d711c3a1d620dfb00be3109d612cc"
+    },
+    {
+      "path": "src/lib/aiur/init.ex",
+      "sha256": "41d23228ad28ca0fba25e86d54ebe21a48eeae73719d42b64b303c2cb1a51367"
+    },
+    {
+      "path": "src/lib/aiur/init/alerts.ex",
+      "sha256": "258fa0c598ad56a7ec1b8f018d1b46dc9300089375096d00d3c8ac3bdffd05b0"
+    },
+    {
+      "path": "src/lib/aiur/init/bot_account.ex",
+      "sha256": "3d99f7deaeefe785986bc470082df4e3dad0ef9f19b35b643bfbfb23f936d41f"
+    },
+    {
+      "path": "src/lib/aiur/init/dotenv.ex",
+      "sha256": "0c6a084b90cb7ca971c2814529af4e17051656c8c01c80f6a5d2c13b392f7697"
+    },
+    {
+      "path": "src/lib/aiur/init/github.ex",
+      "sha256": "f0fb5b4f51842bddb2d980f3e8b6aa8a177bee9af4fa2a269e57dc8db30fdae7"
+    },
+    {
+      "path": "src/lib/aiur/init/labels.ex",
+      "sha256": "87b016ca2c259b8c2712d53e87126af253a0d3f48a0aa0e33ec13af7b1832347"
+    },
+    {
+      "path": "src/lib/aiur/init/prewarm.ex",
+      "sha256": "62f383d1e70c779c660589247b1821b2fb9a18ced31140b777a065e855741383"
+    },
+    {
+      "path": "src/lib/aiur/init/prompt.ex",
+      "sha256": "b6524a83125f03e82d9b43e00cba8618c7b4567959c65d3a5f57886359d1f819"
+    },
+    {
+      "path": "src/lib/aiur/init/scaffold.ex",
+      "sha256": "42ac3a86e8c9cf5d7b4de698c61b4df22ddd106a95ba641bd82f9d08ee195eb1"
+    },
+    {
+      "path": "src/lib/aiur/init/templates.ex",
+      "sha256": "0e97e2248833ee05096059b148acd1e1c89264545e4cc6d5603d0de16dc4ba4d"
+    },
+    {
+      "path": "src/lib/aiur/opencode/config.ex",
+      "sha256": "7e8974544f5d6259ac6a189d6d0128d2e691391ffe988fdcd2e7226f06241320"
+    },
+    {
+      "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+      "sha256": "a67b6e53b565822856ce0a378fca01db9504cf6b58995c4f9d50bddfbf72e3eb"
+    },
+    {
+      "path": "src/lib/aiur/opencode/slot_registry.ex",
+      "sha256": "c2bbf7c2cb5f9a53fade3aa46d04c4bc66da1f1d4693ba27821d72a22a78267d"
+    },
+    {
+      "path": "src/lib/aiur/opencode_theme.ex",
+      "sha256": "5bf840631a3951b8b2af6289b599c8e13d8169005c1fe43fdb22de033be921b5"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/orphaned_workers.ex",
+      "sha256": "e6b7a4c4793512052ff43a80d03ccb235f73c24b4835bd1ba4d61faed34ab950"
+    },
+    {
+      "path": "src/lib/aiur/tmux.ex",
+      "sha256": "95e76c3cc9690f817f58dfc8b21de5dcda88a1cd0d165b040b1b0515714d6dc1"
+    },
+    {
+      "path": "src/lib/aiur/usage/grouped_scopes/scope.ex",
+      "sha256": "3303c0482907ee0ab6464fc9f67241a9099fe593c2266ee33064beadf7a496de"
+    },
+    {
+      "path": "src/lib/aiur/workflow.ex",
+      "sha256": "493a3ea46c30d67841af4e2707830aaf4b8c2b25052772bef6b38c6b01f81568"
+    },
+    {
+      "path": "src/lib/aiur/workspace/ownership.ex",
+      "sha256": "a91cd195657323439078a1948f57578f8bf7fcd068724f95054322918b08131a"
+    },
+    {
+      "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+      "sha256": "7d62c4168051c50b903c8861ac126aefdeff0f290c156b19768cbd78f8047113"
+    },
+    {
+      "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+      "sha256": "e9f4f3d87de85a9c4314f48e836ad84a6ed71245864f5886216561bf200e5d05"
+    },
+    {
+      "path": "src/lib/mix/tasks/aiur.pricing_window.ex",
+      "sha256": "e8a576ab221611e19b09ea29df185b7c9e7fc9e21c55bbeecd20d0461cb74b9f"
+    },
+    {
+      "path": "src/lib/mix/tasks/aiur.telemetry.dashboard.ex",
+      "sha256": "93392a27937de4a771687bd79e26a14deab0e061caaffab60896c284b9001b62"
     }
   ],
   "additional_sites": [

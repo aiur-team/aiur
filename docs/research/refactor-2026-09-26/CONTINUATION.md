@@ -735,3 +735,19 @@ matching suffix text does not make their functions interchangeable. Executor
 command topic classification is shared between sanitization and optional alerting
 and needs coordinated ownership. Source references/hashes checked; no production
 changes or runtime incident claims. Remaining constant/concept work stays open.
+
+## Config layout and process identity constants checkpoint
+
+57 of 162 attribute groups assessed (105 remain). Eighteen additional groups
+cover init filenames and guidance, endpoint vocabulary, label defaults, bot
+suffixes, framework declarations, struct requirements and process identities.
+
+Generated prewarm references and the written basename are one contract. Config,
+alerts and legacy paths share vocabulary while preserving local/global roots.
+Transport already exposes GitHub endpoint accessors; any reuse must respect cache
+layering. Equal registry/key expressions expand to different module identities.
+Readiness detection and a local prompt cursor must not share styling policy.
+Schema and wizard bot validation, and configured versus missing-only label
+defaults, are not interchangeable. All listed source hashes matched the census.
+No production edits, credential reads, external URL verification, runtime tests
+or savings claims. Broader constant and concept sweeps remain open.
