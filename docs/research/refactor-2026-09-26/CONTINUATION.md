@@ -1787,3 +1787,7 @@ Read tick, to_json_safe, unavailable_state and update_issue_state: 28 literal en
 ### Name duplication: acceptance and attribution semantics
 
 Read window, accept, active? and actor_label: 41 literal entries across four families. Two consumer-label helpers are identical; preserve namespace/default semantics elsewhere. Window and active predicates span different populations, while acceptance preserves generation, version, deduplication and durable-ID prerequisites. Name triage now 218 families/4624 entries, leaving 1462 cross-module names. Raw findings and skeptic counts are unchanged; no runtime completion or saving is claimed.
+
+### Name duplication: attachment and presentation contracts
+
+Read announcement, attach, backend_label and bounded_integer: 47 literal entries across four families. Preserve unavailable/empty/locked announcements, caller ownership, best-effort attachment, routing versus protocol labels and numeric error envelopes. Pagination bounds share mechanics but expose different errors. Name triage now 222 families/4671 entries, leaving 1458 cross-module names. Raw findings and skeptic counts are unchanged; subscription completion and runtime accessibility are not claimed.
