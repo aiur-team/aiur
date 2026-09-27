@@ -234,6 +234,146 @@
       "lines": 280,
       "read": "full",
       "assessment": "Real shell parent/child teardown with pgrep readiness and owner-outage port cleanup; not an actual Codex database-lock scenario. Pure start/resume frame policies, dynamic-tools omitted on resume, matching thread genuine versus substituted fresh, invalid response and error fallback preserved. Delayed shell response exercises startup floor past steady timeout. Real shell fixture sends pre-turn quota notification and current callback gets redacted notification; closed-port handshake yields error. Fresh-frame dynamicTools assertion only is_list, supplemented elsewhere by exact tool tests. No live Codex service or UI."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/args_test.exs",
+      "sha256": "b9738609ade14e02f5ade6f1f604c9538bb476d49b0f1eeea039ba2c82cda1bb",
+      "lines": 106,
+      "read": "full",
+      "assessment": "String trim/missing/blank/type errors, atom/string lookup and exact true/false acceptance constrain argument helpers. Presence separate from truthiness; conflicting atom/string keys and explicit nil precedence not covered here."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/blockers_test.exs",
+      "sha256": "00e0f71634d1fc26aa9cb6907a21262c188cac1d8ee5a6a4d99da7e6284f65d7",
+      "lines": 119,
+      "read": "full",
+      "assessment": "Injected declare/unblock callbacks and decoded responses constrain positive integer parsing, atom-result formatting, unavailable and cycle errors. Strict 7x rejection differs from permissive integer parsers elsewhere. No real graph/cycle computation or tracker update."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/emit_alert_test.exs",
+      "sha256": "51e2a2f1bbe61711264598887c41273cde4a3badb3b02c97ce792c82e8f9db4b",
+      "lines": 155,
+      "read": "full",
+      "assessment": "Injected five-arity and legacy two-arity emitters; reason fallback, absent false, attention-dependent severity defaults and explicit severity, invalid boolean and unavailable error. Callback argument contract only: no durable alert, reserved-topic enforcement, listener routing or delivery proof."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/emit_event_test.exs",
+      "sha256": "55abba723a1b9bf284707701f8a3291dde925fd7dda1a97312bd7068e7e22c85",
+      "lines": 259,
+      "read": "full",
+      "assessment": "Injected publisher tests accepted vocabulary including exact decision lifecycle names/correlation payloads; rejected names/required fields and missing publisher. Per-turn cap/reset tested by returns; wrapper dynamic_tool_test supplies stronger callback-count checks. Missing-payload assertion uses %{} pattern which matches any map, so it alone does not prove empty map. No Exchange, DecisionStore or publication durability."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/errors_test.exs",
+      "sha256": "984b709bf9502f42a79742c356c0be3b198871c151286076f2745eadc8e01234",
+      "lines": 93,
+      "read": "full",
+      "assessment": "Error rendering keeps ownership lookup unavailable distinct from denied, exposes bounded named status/reason examples and catch-all inspected reasons. String assertions prove these fixture messages only; catch-all tuple test does not constrain detail redaction."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/handler_test.exs",
+      "sha256": "8f8c5680a01522627c475415bf84bfda431ac70b43b4bb215ba58786f647f2ad",
+      "lines": 64,
+      "read": "full",
+      "assessment": "Six named handler families aggregate to exact nine expected names, with spec count/key/membership checks. Local list excludes TicketState; its separate registration test covers dispatch. Per-handler count plus membership does not independently prohibit duplicate specs replacing a missing tool, though aggregate tools equality constrains names returned by tools/0."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/linear_graphql_test.exs",
+      "sha256": "861947b058e6aebd0f0dce863aab6d3c35c37aa2df1b7a8e72ba359da07250f8",
+      "lines": 113,
+      "read": "full",
+      "assessment": "Injected client, raw-query trimming and default variables, object variables pass-through; atom/string nonempty errors mark failure. Invalid query/arguments/variables use flunk callbacks proving no invocation. No real Linear transport or authorization."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/response_test.exs",
+      "sha256": "af2c32ed9cef6b5629546e5f31890817fcd0380ce1508375140433612d29740b",
+      "lines": 90,
+      "read": "full",
+      "assessment": "Exact success/failure envelopes, JSON round-trip maps/lists, inspected non-JSON fallback, recursive tuple/map/list normalization preserving booleans/nil. Strong normalized-type guard complements earlier transcript boolean gap; serialization compatibility distinct from redaction."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/review_threads_test.exs",
+      "sha256": "f575449c3491d1fb45c6f20443f02eab3094344bd441f7476f96905f7a1fc9b7",
+      "lines": 148,
+      "read": "full",
+      "assessment": "Injected replier/resolver verify normalized arguments/terminal reply option and return envelopes; injected not-verified and denied errors render explicit failure, with ownership-unavailable covered separately by ErrorsTest. Here malformed inputs return errors but success callbacks do not spy noninvocation. No actual GitHub ownership lookup, mutation or post-write verification."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/subscriptions_test.exs",
+      "sha256": "f25127377558ec4a362ecc1aaab4eec72cdb1b6bfe1e57dadb7840bbc722876e",
+      "lines": 169,
+      "read": "full",
+      "assessment": "Literal ticket subscription boundary explicitly rejects global/executor/wildcard ticket patterns and spies no callback. Legacy unsafe unsubscribe allowed for cleanup. Valid patterns and malformed-dot/missing patterns covered; specs advertise restricted examples. No actual subscription persistence or delivered events."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/ticket_state_test.exs",
+      "sha256": "6ae828cdfdb1293283eb106ab73a620872fd1808c6e2e922317a6430b7b8efe1",
+      "lines": 107,
+      "read": "full",
+      "assessment": "Desired state only, prefix/case/whitespace normalization, forbidden Executor states and malformed values rejected with flunk writer, stale tracker failure exposed, missing writer unavailable. Actual DynamicTool registration/schema and callback dispatch checked. Injected writer does not prove atomic label replacement or remote tracker race handling."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool_test.exs",
+      "sha256": "eca73ee558759d1b480541e8be227b0e39ca52b2e5b912994fa5156bb95e2834",
+      "lines": 134,
+      "read": "full",
+      "assessment": "Real capture Agent with injected publisher gives exact publication counts: third bare progress rejected without callback, explicit reset allows four across simulated turns, milestones/custom independent. Stronger than return-only unit checks; explicit reset simulates turn boundary and does not prove runner invokes it. No live Exchange delivery."
+    },
+    {
+      "path": "src/test/aiur/codex/event_normalizer_test.exs",
+      "sha256": "c5f9ab6c4074ce156e316cdc14abd93cc27966b2dc8922d348ac16ee96e9516b",
+      "lines": 114,
+      "read": "full",
+      "assessment": "Nested/alternate usage and rate-limit shapes, missing nil and combined extraction covered. Most token cases inspect input only (one output), so do not infer complete counter totals/precedence/dedup coverage from these examples."
+    },
+    {
+      "path": "src/test/aiur/codex/frames_test.exs",
+      "sha256": "4977ca0b2872370526497645821d1e4705de4c2221a2892a97e3e64feb210bfa",
+      "lines": 74,
+      "read": "full",
+      "assessment": "Exact account rate-limit frame, start/resume policy and cwd/id fields, dynamicTools omitted on resume, turn/operator prompt and sandbox/approval propagation. Fresh tools only list-typed here. Pure frame shape, not provider acceptance."
+    },
+    {
+      "path": "src/test/aiur/codex/handshake_test.exs",
+      "sha256": "3cc43fd62c62a5935555012cd50f25f021b39f7783b9ebe5b693dcc696c9a349",
+      "lines": 375,
+      "read": "full",
+      "assessment": "Real scripted ports exercise rate-limit/account reads, malformed response errors, valid and malformed late sensitive responses quarantined across subsequent different request, no callback and no secret log. Account response reduced to auth mode; startup notifications dispatched while thread/turn response waits. Closed ports degrade to errors; changed resumed thread marked fresh; Codex initialization enables probe flag. Sleeps1.1s induce timeout against real clock, not explicit release barriers. No live provider; enabling flag does not itself prove later probe execution."
+    },
+    {
+      "path": "src/test/aiur/codex/interrupts_test.exs",
+      "sha256": "174210437957bffcf32217fa7166ae31a60e2feffb152de2b556e2e05559fa73",
+      "lines": 135,
+      "read": "full",
+      "assessment": "Direct handler state and real private ProviderTurnLedger preserve pause across no-active-turn before/after idle, fail pending operator callback, operator-message terminal boundary, anonymous completion guard protects next turn. Unrelated same-code failures and active-ID mismatch hard-fail without retargeting. No protocol send or controller delivery."
+    },
+    {
+      "path": "src/test/aiur/codex/operator_delivery_test.exs",
+      "sha256": "4c9e900b56d41828ad651695513da405ded91b464fea20448f2f0422d71680e9",
+      "lines": 83,
+      "read": "full",
+      "assessment": "Real cat-port frame uses positive request ID and exact session policies/thread/cwd/text; closed and invalid sessions return errors. One positive ID does not establish uniqueness across calls. Frame write success is not provider acceptance or queue settlement."
+    },
+    {
+      "path": "src/test/aiur/codex/rpc_test.exs",
+      "sha256": "7c752102af4ccdc5f4e8054a7df7a6ec074d673c178b4cf61ddd367e8f34da4c",
+      "lines": 51,
+      "read": "full",
+      "assessment": "Scripted port ignores unrelated JSON while awaiting matching result; startup floor values and real JSON line round-trip. Low-level send explicitly raises on closed port, unlike higher adapter error-tuple boundaries; preserve distinction or migrate callers deliberately."
+    },
+    {
+      "path": "src/test/aiur/codex/session_recovery_test.exs",
+      "sha256": "a65464dc15c93644294574fb6b7624c2aa1432748d00ce5495c75ed14d79e7a6",
+      "lines": 53,
+      "read": "full",
+      "assessment": "Pure classifier supports wrapped transport losses and exact unequal active-turn mismatch; same ID, trailing punctuation, no-active-turn, provider rejection, timeout and unwrapped error remain nonrecoverable. Classification only, not restart/recovery execution."
+    },
+    {
+      "path": "src/test/aiur/codex/turn_events_test.exs",
+      "sha256": "4b45d6de9359b147a9305548ca83dd86e1d5182e7af5a19dc976771e32a748dc",
+      "lines": 71,
+      "read": "full",
+      "assessment": "Real cat ports plus metadata helper: string/atom map usage retained, invalid/absent usage omitted. Non-map payload only asserts map; claims unchanged port metadata are not compared against baseline. Broader port metadata tests constrain individual fields."
     }
   ],
   "scope_note": "Source review with an isolated extracted-assertion order probe; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
@@ -289,7 +429,27 @@
     "Real cat ports inspect protocol frames, injected executors and real ToolCallLedger. Modern/legacy approval decision strings, approval-required refusal, stable callId, paused command decline/tool nonexecution/idless notification pass-through. Closed-port replay returns stored result with exactly one execution; different thread same call executes separately; conflicting payload fails with execution count unchanged. These are sequential in-process replay checks, not durable restart or concurrent execution proof. User-input approval checks exact answer; noninteractive fallback checks only map plus event, not answer content. Port cleanup uses after.",
     "Actual private directories/symlinks test canonical workspace containment and root/outside/escape distinctions; remote empty/control strings rejected. Command model/effort quoting exact string; metadata cat-port presence and remote-host omission. Conditional setsid path starts real adapter process and requires group/root identity, cleans in after; absent setsid takes assert true rather than proving containment. Already-closed port stop safe. No SSH execution.",
     "Schema default is constrained to a valid string enum and legacy map rejected; explicit variants including never accepted, trimming and invalid-message hints checked. Comment says default must be non-never, but allowed set includes never and no exclusion assertion exists. Record as local oracle mismatch pending intended-policy/source and overlapping tests, not a proven current policy defect.",
-    "Real shell parent/child teardown with pgrep readiness and owner-outage port cleanup; not an actual Codex database-lock scenario. Pure start/resume frame policies, dynamic-tools omitted on resume, matching thread genuine versus substituted fresh, invalid response and error fallback preserved. Delayed shell response exercises startup floor past steady timeout. Real shell fixture sends pre-turn quota notification and current callback gets redacted notification; closed-port handshake yields error. Fresh-frame dynamicTools assertion only is_list, supplemented elsewhere by exact tool tests. No live Codex service or UI."
+    "Real shell parent/child teardown with pgrep readiness and owner-outage port cleanup; not an actual Codex database-lock scenario. Pure start/resume frame policies, dynamic-tools omitted on resume, matching thread genuine versus substituted fresh, invalid response and error fallback preserved. Delayed shell response exercises startup floor past steady timeout. Real shell fixture sends pre-turn quota notification and current callback gets redacted notification; closed-port handshake yields error. Fresh-frame dynamicTools assertion only is_list, supplemented elsewhere by exact tool tests. No live Codex service or UI.",
+    "String trim/missing/blank/type errors, atom/string lookup and exact true/false acceptance constrain argument helpers. Presence separate from truthiness; conflicting atom/string keys and explicit nil precedence not covered here.",
+    "Injected declare/unblock callbacks and decoded responses constrain positive integer parsing, atom-result formatting, unavailable and cycle errors. Strict 7x rejection differs from permissive integer parsers elsewhere. No real graph/cycle computation or tracker update.",
+    "Injected five-arity and legacy two-arity emitters; reason fallback, absent false, attention-dependent severity defaults and explicit severity, invalid boolean and unavailable error. Callback argument contract only: no durable alert, reserved-topic enforcement, listener routing or delivery proof.",
+    "Injected publisher tests accepted vocabulary including exact decision lifecycle names/correlation payloads; rejected names/required fields and missing publisher. Per-turn cap/reset tested by returns; wrapper dynamic_tool_test supplies stronger callback-count checks. Missing-payload assertion uses %{} pattern which matches any map, so it alone does not prove empty map. No Exchange, DecisionStore or publication durability.",
+    "Error rendering keeps ownership lookup unavailable distinct from denied, exposes bounded named status/reason examples and catch-all inspected reasons. String assertions prove these fixture messages only; catch-all tuple test does not constrain detail redaction.",
+    "Six named handler families aggregate to exact nine expected names, with spec count/key/membership checks. Local list excludes TicketState; its separate registration test covers dispatch. Per-handler count plus membership does not independently prohibit duplicate specs replacing a missing tool, though aggregate tools equality constrains names returned by tools/0.",
+    "Injected client, raw-query trimming and default variables, object variables pass-through; atom/string nonempty errors mark failure. Invalid query/arguments/variables use flunk callbacks proving no invocation. No real Linear transport or authorization.",
+    "Exact success/failure envelopes, JSON round-trip maps/lists, inspected non-JSON fallback, recursive tuple/map/list normalization preserving booleans/nil. Strong normalized-type guard complements earlier transcript boolean gap; serialization compatibility distinct from redaction.",
+    "Injected replier/resolver verify normalized arguments/terminal reply option and return envelopes; injected not-verified and denied errors render explicit failure, with ownership-unavailable covered separately by ErrorsTest. Here malformed inputs return errors but success callbacks do not spy noninvocation. No actual GitHub ownership lookup, mutation or post-write verification.",
+    "Literal ticket subscription boundary explicitly rejects global/executor/wildcard ticket patterns and spies no callback. Legacy unsafe unsubscribe allowed for cleanup. Valid patterns and malformed-dot/missing patterns covered; specs advertise restricted examples. No actual subscription persistence or delivered events.",
+    "Desired state only, prefix/case/whitespace normalization, forbidden Executor states and malformed values rejected with flunk writer, stale tracker failure exposed, missing writer unavailable. Actual DynamicTool registration/schema and callback dispatch checked. Injected writer does not prove atomic label replacement or remote tracker race handling.",
+    "Real capture Agent with injected publisher gives exact publication counts: third bare progress rejected without callback, explicit reset allows four across simulated turns, milestones/custom independent. Stronger than return-only unit checks; explicit reset simulates turn boundary and does not prove runner invokes it. No live Exchange delivery.",
+    "Nested/alternate usage and rate-limit shapes, missing nil and combined extraction covered. Most token cases inspect input only (one output), so do not infer complete counter totals/precedence/dedup coverage from these examples.",
+    "Exact account rate-limit frame, start/resume policy and cwd/id fields, dynamicTools omitted on resume, turn/operator prompt and sandbox/approval propagation. Fresh tools only list-typed here. Pure frame shape, not provider acceptance.",
+    "Real scripted ports exercise rate-limit/account reads, malformed response errors, valid and malformed late sensitive responses quarantined across subsequent different request, no callback and no secret log. Account response reduced to auth mode; startup notifications dispatched while thread/turn response waits. Closed ports degrade to errors; changed resumed thread marked fresh; Codex initialization enables probe flag. Sleeps1.1s induce timeout against real clock, not explicit release barriers. No live provider; enabling flag does not itself prove later probe execution.",
+    "Direct handler state and real private ProviderTurnLedger preserve pause across no-active-turn before/after idle, fail pending operator callback, operator-message terminal boundary, anonymous completion guard protects next turn. Unrelated same-code failures and active-ID mismatch hard-fail without retargeting. No protocol send or controller delivery.",
+    "Real cat-port frame uses positive request ID and exact session policies/thread/cwd/text; closed and invalid sessions return errors. One positive ID does not establish uniqueness across calls. Frame write success is not provider acceptance or queue settlement.",
+    "Scripted port ignores unrelated JSON while awaiting matching result; startup floor values and real JSON line round-trip. Low-level send explicitly raises on closed port, unlike higher adapter error-tuple boundaries; preserve distinction or migrate callers deliberately.",
+    "Pure classifier supports wrapped transport losses and exact unequal active-turn mismatch; same ID, trailing punctuation, no-active-turn, provider rejection, timeout and unwrapped error remain nonrecoverable. Classification only, not restart/recovery execution.",
+    "Real cat ports plus metadata helper: string/atom map usage retained, invalid/absent usage omitted. Non-map payload only asserts map; claims unchanged port metadata are not compared against baseline. Broader port metadata tests constrain individual fields."
   ],
   "cross_references": [
     {
@@ -313,5 +473,5 @@
       "next": "Check intended schema policy and other default guards before deciding whether to promote, correct comment, or deduplicate."
     }
   ],
-  "next": "33/100 full files, 9763/40603 lines. Claude test files complete within this manifest; continue Codex dynamic_tool files and remaining protocol/usage tests. One confirmed P2 and two unverified candidates in partial ledger; raw-unit completion still pending."
+  "next": "53/100 full files, 12276/40603 lines. Continue Codex notification_policy, rate_limit_adapter, reset_time, transcript, turn_loop, usage_limit_backoff, usage_limit and user_input_answers; then remaining executor/usage/web/launcher manifest. One confirmed P2 and two unverified candidates; raw unit incomplete."
 }
