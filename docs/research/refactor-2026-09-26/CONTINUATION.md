@@ -1631,3 +1631,7 @@ Read all 40 reconcile definitions/declarations in 22 modules and the availabilit
 ### Name duplication: configuration changesets
 
 Read all 28 changeset definitions across 28 modules. Existing Ecto reuse carries distinct zero/positive bounds, empty-value handling, obsolete-key rejection, raw-type checks, normalization order and cross-field validators. Preserve domain schemas and their composition boundary; cast-only bodies do not establish missing validation without field/helper/downstream review. Name triage now 36 families/1119 literal entries. Remaining sweeps and validation completeness stay open; no new defect or savings count.
+
+### Name duplication: constructors and initialization policy
+
+Read all 46 new definitions/declarations in 35 modules. Separate empty structs, validated records, runtime wiring and checkpoint restoration; preserve unknown/unavailable startup state, authority epochs, recovery bounds, diagnostic distinctions and observation age. Name triage now 37 families/1165 literal entries. Struct defaults and transitive validation are not certified by this pass; remaining sweeps stay open, with no new defect or savings count.
