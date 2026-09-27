@@ -7,6 +7,10 @@
   },
   "retained_run_count": 112,
   "retained_active_run_hours": 963.0757906295194,
+  "denominator_note": "retained_active_run_hours is the historical sum of run spans, including same-repository overlap; gap construction uses the union within each repository.",
+  "per_repo_union_hours": 961.9396710217661,
+  "overlap_hours_in_run_sum": 1.136119607753244,
+  "union_denominator_30_min_gap_share_percent": 75.65270297779779,
   "exact_30_min_gap_share_percent": 75.5634571260498,
   "thresholds": [
     {

@@ -1022,3 +1022,16 @@ Source-rule arithmetic demonstrates a restart preserving the quotient; no
 runtime reproduction or corrected denominator claimed. Progress counts matched
 Bash calls without success checks. Gaps-01 remains open for final verdict and
 report correction; coverage still 52/60. This is a major synthesis caveat.
+
+## Gaps-01 bounded verdict checkpoint
+
+Both lenses reject the compound headline uptime claim. Also found a denominator
+mismatch: original run-span sum 963.0758 h includes 1.1361 h overlap, whereas
+gap construction uses per-repo unions totaling 961.9397 h. The compatible model
+ratio is 75.6527%; neither ratio proves continuous uptime or wasted time.
+The original audit fields remain provenance; new fields name the union ratio.
+
+Corrected report definitions and headline; completed claims-gaps-headline.json.
+Coverage is 53/60. Remaining claims: codebase-07, gaps-03/04/05/06/07, meta-07.
+Lifecycle reconstruction and complete source coverage remain explicit open
+questions, not silently declared accomplished. Broader goal remains active.

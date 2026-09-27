@@ -38,7 +38,7 @@ The five >=24-hour gaps total 447.8645 exact hours. Retained active-run spans
 sum to 963.0758 h, yielding a 75.5635% >=30-minute gap share. These reproduce
 arithmetic within the captured progress/uptime model. They do not establish
 complete source coverage, uninterrupted uptime or absence of useful work.
-Claim gaps-01 remains open for those checks.
+The completed bounded gaps-01 verdict rejects the compound uptime claim; source-completeness and corrected-lifetime reconstruction remain unresolved.
 
 ## Attribution is not causal allocation
 
@@ -176,3 +176,18 @@ belong to khala and already appear in the retained analysis model. They are a
 table-completeness issue, not three proven missing denominator intervals.
 Matching Bash invocations also count without verified command success, so
 the progress definition should not promise uniformly durable outputs.
+
+## Headline denominator correction and verdict
+
+The original gap builder unions spans within each repository, but the headline
+and initial independent audit divided by the sum of run spans. The retained
+per-repo unions total 961.9397 h; the raw sum is 963.0758 h, including 1.1361 h
+overlap. The compatible model ratio is 75.6527%, versus the historical 75.5635%.
+Neither is a measured wasted-time fraction. The audit JSON preserves the old
+fields as provenance and adds explicit union-denominator fields.
+
+Both gaps-01 lenses reject the claim as written. Exact interval arithmetic,
+the 638.6 h cross-repo union at stored minute precision, and the five long gaps'
+61.54% share are reproducible; continuous pre-log uptime is not proved by the
+event-ID contract. See verdicts/claims-gaps-headline.json. No replacement
+lifecycle census or complete progress-source coverage is claimed.

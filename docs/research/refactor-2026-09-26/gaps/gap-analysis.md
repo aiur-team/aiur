@@ -23,7 +23,7 @@ otherwise; in particular, a missing progress event does not prove no useful work
 
 **Uptime caveat:** the historical event-ID generator preserves reservations
 across restarts, so the analyzer's event-ID quotient is not a guaranteed daemon
-boot identity. The pre-log spans and 75.6% headline are retained-model results,
+boot identity. The pre-log spans and gap percentages are retained-model results,
 not verified continuous uptime or measured wasted time. See
 [the uptime contract audit](../synthesis/gap-uptime-contract.json).
 
@@ -32,10 +32,10 @@ not verified continuous uptime or measured wasted time. See
 
 | Measure | Value |
 |---|---|
-| Active-run time (sum over repo daemons) | **963.1 h** (638.6 h wall-clock) |
-| &nbsp;&nbsp;run-log era, 09-15 to 09-26 (telemetry-verified) | 490.7 h: aiur 143.9, khala 185.3, private-multisig (private) 161.6 |
-| &nbsp;&nbsp;pre-log era, 08-18 to 09-11 (inferred from the wake stream) | 472.4 h: aiur 395.2, archon (formerly architecture-docs) 77.2 |
-| Gap time, gaps ≥ 30 min | **727.7334 h = 75.6 % of retained active-run time** (108 gaps); category bins sum to 727.8 h |
+| Retained active-span union within each repo, summed across repos | **961.9397 h** (638.6 h cross-repo union at stored minute precision); historical run-span sum 963.0758 h includes 1.1361 h overlap |
+| &nbsp;&nbsp;historical raw run-log spans, 09-15 to 09-26 (first/last telemetry model) | 490.7 h: aiur 143.9, khala 185.3, private-multisig (private) 161.6 |
+| &nbsp;&nbsp;historical raw pre-log spans, 08-18 to 09-11 (unverified wake-ID inference) | 472.4 h: aiur 395.2, archon (formerly architecture-docs) 77.2 |
+| Gap time, gaps ≥ 30 min | **727.7334 h = 75.6527 % of retained per-repo active-span unions** (108 gaps); category bins sum to 727.8 h |
 | Gap time, gaps ≥ 15 min | 760.3 h (202 gaps) |
 | Daemon-down time between runs (reported separately, not in the totals above) | 51.1 h khala after a host crash, plus deliberate idle periods (§6) |
 
@@ -89,7 +89,9 @@ crash on 09-22 then went unnoticed for 51 h (§6).
 
 ## 1. Definitions (applied the same way everywhere)
 
-**Progress event**: a durable output by an agent, the daemon acting on a ticket, or the Executor.
+**Progress event in the retained model**: a selected GitHub event, wake, lifecycle
+record or matching Executor control invocation. The invocation classifier does
+not verify command success, so this is not uniformly durable output.
 Sources:
 
 | Source | What counts |
@@ -109,12 +111,14 @@ CI results (`ticket.ci.passed/failed`) are not progress; they are used as an inf
 * *Executor activity*: assistant or tool records in the Executor transcripts (per repo, by session home directory, or when a command names the repo), plus the Executor's background subagents. "Present" = within ±5 min of such a record, or within 30 min after a human-typed message (`origin.kind = human`) in any session.
 * *Attended* minute: any Executor activity within ±60 min.
 
-**Active run**: a time when the daemon for that repo was up.
+**Retained active span**: the analyzer's interval model, not independently
+verified continuous daemon uptime. Overlapping spans are merged within each repo
+before gap construction; the historical headline instead summed raw run spans.
 * *Run-log era (09-15 to 09-26)*: `[daemon_started_at, last telemetry record]` for each `~/.aiur/logs/<run>/` directory. Telemetry is kept only in trailing segments (`segment_boundary`), but sequence numbers are continuous, and the retained segments show no daemon resource-sample gap longer than 2 min. 5 blip directories (< 2 min, CLI processes) are excluded.
-* *Pre-log era (08-18 to 09-11)*: no run-log directories survive. The wake `event_id` prefix is the daemon boot epoch (for example `1787090602…` = 2026-08-18T22:03:22Z). The same prefix means the same daemon process, so `[boot, last wake of that boot]` is a verified lower bound on uptime. The host journal shows no suspend in that period.
+* *Pre-log era (08-18 to 09-11)*: the analyzer groups wake IDs by integer division by one million and treats the quotient as a start timestamp. This is an inference, not a verified uptime lower bound: the historical generator preserves ID reservations across restarts, and cold recovery can seed above wall time. The reported lack of host suspension does not independently establish a daemon lifetime. The loader's two-hour observed-up docstring is not implemented.
 * `architecture-docs` was renamed `archon` (same GitHub repo, created 2026-09-02). This report merges the two.
 
-**Gap**: a maximal interval inside an active run with no progress event, where length ≥ threshold. It is bounded by run start or end. Time between runs is *daemon down* (§6), not a gap. The thresholds reported are 15, 30, 60, 120 and 240 min. Attribution uses gaps of 30 min or more.
+**Gap**: a maximal interval inside the retained active-span union with no selected progress event, where length ≥ threshold. It is bounded by run start or end. Time between retained spans is excluded from gaps; calling it daemon downtime requires separate lifecycle evidence (§6). The thresholds reported are 15, 30, 60, 120 and 240 min. Attribution uses gaps of 30 min or more.
 
 **Queue state** is rebuilt by replaying every `agent:*` label event on open issues. Each issue gets one effective state, with this priority: parked > paused > error > human-review > merging > in-progress > rework > todo > ci-wait. `agent:paused` together with `agent:todo` counts as paused. A `todo`/`rework` ticket is *not dispatchable* in these cases:
 * the daemon logged `Dispatch declined for N: :dependency` or `:blocked_on_decision` during the same label-state episode. The decline applies to the whole episode, so a ticket first declined on 09-17 and still in the same state since 08-18 counts as blocked since 08-18;

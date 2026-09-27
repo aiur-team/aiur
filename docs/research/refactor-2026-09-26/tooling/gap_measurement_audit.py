@@ -107,6 +107,10 @@ def audit(root, csv_input=None, csv_output=None):
         'input_sha256': {name: hashlib.sha256(p.read_bytes()).hexdigest() for name, p in paths.items()},
         'retained_run_count': len(meta['runs']),
         'retained_active_run_hours': run_hours,
+        'denominator_note': 'retained_active_run_hours is the historical sum of run spans, including same-repository overlap; gap construction uses the union within each repository.',
+        'per_repo_union_hours': sum(h for intervals in meta['active'].values() for _, _, h in intervals),
+        'overlap_hours_in_run_sum': run_hours - sum(h for intervals in meta['active'].values() for _, _, h in intervals),
+        'union_denominator_30_min_gap_share_percent': thresholds[1]['exact_gap_hours'] / sum(h for intervals in meta['active'].values() for _, _, h in intervals) * 100,
         'exact_30_min_gap_share_percent': thresholds[1]['exact_gap_hours'] / run_hours * 100,
         'thresholds': thresholds,
         'current_public_repos_model': {

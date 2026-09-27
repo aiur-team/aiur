@@ -1,0 +1,27 @@
+{
+  "verdicts": [
+    {
+      "id": "gaps-01",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for retained arithmetic and historical source-contract counterexamples; unresolved for continuous uptime and complete progress coverage",
+      "corrected_claim": "The retained model contains 108 gaps >=30 minutes totaling 727.7334 exact hours and 202 gaps >=15 minutes totaling 760.2576 hours. Five gaps >=24 hours total 447.8645 hours (61.54% of >=30-minute gap hours). The historical 963.0758-hour denominator sums run spans including overlap; the gap builder uses per-repository unions totaling 961.9397 hours, yielding 75.6527% within that model. The union of minute-rounded active spans across repositories is 638.6 wall-clock hours. These figures do not measure continuous uptime, absence of productive work or avoidable delay. Event-ID quotients are not guaranteed boot identities, and matching control invocations need not succeed.",
+      "method": "Independent retained-interval arithmetic and union-denominator comparison; source inspection of original loader and historical IdGenerator reservation recovery; zero-effect sensitivity audit of separately fetched architecture-docs progress events; read-only identification of three flagged log directories.",
+      "note": "The three omitted table rows are khala runs already in the retained model. Adding 3,537 qualifying architecture-docs GitHub records introduces no timestamps strictly inside the retained >=30-minute gaps. This is a bounded negative result, not complete coverage proof. Preserve the original CSV as historical model output and require explicit daemon lifetime identity, host availability evidence, successful progress receipts and sensitivity analysis before presenting a new measured uptime or wasted-time percentage.",
+      "unresolved": [
+        "Historical loaded revisions and independent process-lifetime/host-availability reconstruction for pre-log spans",
+        "Complete progress-source coverage, including successful versus merely invoked controls",
+        "Full telemetry sequence and retention coverage rather than only first/last timestamps",
+        "Corrected causal attribution and replacement measurement after stronger uptime evidence"
+      ],
+      "evidence_artifacts": [
+        "synthesis/gap-measurement-audit.json",
+        "synthesis/gap-progress-coverage.json",
+        "synthesis/gap-uptime-contract.json",
+        "synthesis/gap-measurement-verification.md"
+      ],
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher; historical measurement limitations explicitly retained"
+    }
+  ]
+}
