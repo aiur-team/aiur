@@ -490,3 +490,28 @@ Reproduce with `elixir tooling/function_census.exs /path/to/frozen-snapshot
 `python3 tooling/renamed_census_summary.py /path/to/renamed-census.json`.
 Use Elixir 1.19.5 / OTP 28.5 on PATH. The existing research fixture command
 also exercises the new mode. No production files changed.
+
+## Renamed-body assessment checkpoint: 41 of 41 groups
+
+All 41 renamed-variable candidate groups (138 overlapping sites) now have
+source-span assessments; 38 groups were added in this pass. Candidate IDs and
+site lists exactly match the census, and source hashes were rechecked. This
+completes this heuristic's assessment pass, not the wider duplication units.
+
+New planning evidence includes an existing AgentList.RenderState.safe_call
+owner; shared dashboard/Streamdeck chat transport adapters; dependency-edge
+cache merging that preserves absent versus complete lists; and repeated keyed
+queue/task-start mechanics. These are ownership candidates, not automatically
+independent packages or measured savings.
+
+The token input family currently accepts numeric prefixes, unlike strict
+identifier parsing. Task/monitor helpers retain caller-owned lifecycle duties;
+same-shaped cleanup and publication callbacks must not be given a common
+success meaning. Timestamp and field-reader families occur across multiple
+hash groups because heads, unused variables and error clauses vary: reconcile
+those families rather than adding candidate counts into a deletion estimate.
+
+Remaining duplication work: repeated-name families, concept and constant
+sweeps, inherited-finding reconciliation, and final raw-unit findings. Broader
+research totals remain 24/32 review units and 50/60 verified claims. No
+production code changed.
