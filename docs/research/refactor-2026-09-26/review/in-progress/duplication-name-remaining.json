@@ -4,70 +4,22 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "6ed616d6e4f0bbd2962387405d847d35422cfb904e64a290cad09eff693ebfb9"
+    "name_triage": "65142ad9695a985eb562c6c84c51084eb35fe37da9d933c0dd1756d4301ea48b"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 54,
-    "remaining_cross_module_names": 1626,
-    "remaining_literal_entries": 7612
+    "reviewed_cross_module_names": 62,
+    "remaining_cross_module_names": 1618,
+    "remaining_literal_entries": 7459
   },
   "families": [
-    {
-      "name": "list",
-      "clauses": 23,
-      "modules": 14,
-      "summed_source_span_lines": 126
-    },
-    {
-      "name": "publish",
-      "clauses": 18,
-      "modules": 13,
-      "summed_source_span_lines": 160
-    },
-    {
-      "name": "put",
-      "clauses": 17,
-      "modules": 13,
-      "summed_source_span_lines": 82
-    },
-    {
-      "name": "reset",
-      "clauses": 14,
-      "modules": 13,
-      "summed_source_span_lines": 112
-    },
-    {
-      "name": "schedule",
-      "clauses": 31,
-      "modules": 13,
-      "summed_source_span_lines": 58
-    },
-    {
-      "name": "append",
-      "clauses": 14,
-      "modules": 12,
-      "summed_source_span_lines": 94
-    },
-    {
-      "name": "coverage",
-      "clauses": 20,
-      "modules": 12,
-      "summed_source_span_lines": 85
-    },
     {
       "name": "execute",
       "clauses": 23,
       "modules": 12,
       "summed_source_span_lines": 221
-    },
-    {
-      "name": "key",
-      "clauses": 16,
-      "modules": 12,
-      "summed_source_span_lines": 54
     },
     {
       "name": "same_repository?",

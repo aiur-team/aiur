@@ -966,3 +966,7 @@ The complete literal census contains 13,748 distinct names, including 1,680 used
 ### Name duplication: codecs and value domains
 
 Read encode (14 clauses/14 modules), decode (23/13), read (21/14), value (24/14) and datetime (30/13). Preserve public/durable schema distinctions, unsupported-version versus corruption handling, read failure envelopes, presence versus truthiness and accepted timestamp domains. Narrow sharing candidates include presence-based map access and DateTime-only helpers; existing timestamp/get work overlaps. Name triage now 54 families/2656 literal entries, leaving 1626 cross-module names in the regenerated residual index. No additional raw defect or savings claim is counted; helpers, incidence and remaining sweeps stay open.
+
+### Name duplication: collections, publication and scheduling
+
+Read all list, publish, put, reset, schedule, append, coverage and key definitions: 153 literal entries across eight families. Separate transient delivery from durable publication, persistence from best-effort diagnostics, keyed state transitions from map updates, and coalesced policy scheduling from bare timers. Three sample-timer helpers are a narrow sharing candidate; tracker-key wrappers already use a canonical implementation. Name triage now 62 families/2809 entries, with 1618 residual cross-module names. Raw findings and skeptic counts are unchanged; no new defect or savings claim is made.
