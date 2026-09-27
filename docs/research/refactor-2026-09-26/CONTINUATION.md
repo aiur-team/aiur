@@ -1723,3 +1723,7 @@ Read dispatch, emit_alert and fetch_candidate_issues: 53 literal entries across 
 ### Name duplication: flush, lifecycle and observation semantics
 
 Read flush, identity_key, latest, lifecycle, map_value, observed_at, path_for and percent: 107 literal entries across eight families. Distinguish persistence from message/UI flush, credential from tracker identity, timestamp tie policies, lifecycle precedence and observation authority. Four strict percentage validators are equivalent sharing candidates; clamping, ratio calculation and formatting remain separate. Name triage now 124 families/3724 entries, leaving 1556 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
+
+### Name duplication: selection, identity and sweep policies
+
+Read positive, relationship_definition, rows, same_identity?, selected, sort_key, state and sweep: 83 literal entries across eight families. Preserve empty-selection identity semantics, accounting cache relationships, ordering priorities, unavailable/empty states and retention versus recovery effects. Positive option validation and non-nil identity comparison contain narrow sharing candidates; usage relationships already share a constructor. Name triage now 132 families/3807 entries, leaving 1548 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.

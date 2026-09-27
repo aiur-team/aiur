@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "d7f3f4d0e1d24d28f8be52d8472762d848274abe2efddb2f0ed2647e35d5e1ac"
+    "name_triage": "fb72ea9b2a414f302acace05b9738c88a1f07d55b6016f6d128dfb4db5f30903"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 124,
-    "remaining_cross_module_names": 1556,
-    "remaining_literal_entries": 6544
+    "reviewed_cross_module_names": 132,
+    "remaining_cross_module_names": 1548,
+    "remaining_literal_entries": 6461
   },
   "families": [
-    {
-      "name": "positive",
-      "clauses": 12,
-      "modules": 8,
-      "summed_source_span_lines": 32
-    },
-    {
-      "name": "relationship_definition",
-      "clauses": 8,
-      "modules": 8,
-      "summed_source_span_lines": 23
-    },
-    {
-      "name": "rows",
-      "clauses": 8,
-      "modules": 8,
-      "summed_source_span_lines": 84
-    },
-    {
-      "name": "same_identity?",
-      "clauses": 15,
-      "modules": 8,
-      "summed_source_span_lines": 48
-    },
-    {
-      "name": "selected",
-      "clauses": 8,
-      "modules": 8,
-      "summed_source_span_lines": 48
-    },
-    {
-      "name": "sort_key",
-      "clauses": 8,
-      "modules": 8,
-      "summed_source_span_lines": 34
-    },
-    {
-      "name": "state",
-      "clauses": 14,
-      "modules": 8,
-      "summed_source_span_lines": 60
-    },
-    {
-      "name": "sweep",
-      "clauses": 10,
-      "modules": 8,
-      "summed_source_span_lines": 158
-    },
     {
       "name": "tracker_identity",
       "clauses": 16,
