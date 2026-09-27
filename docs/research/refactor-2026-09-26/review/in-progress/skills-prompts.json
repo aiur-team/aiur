@@ -249,6 +249,104 @@
       "lines": 325,
       "read": "full",
       "assessment": "All325 lines read as research data; this is not execution of the brainstorm workflow. Requirements-only unified artifact precedes implementation-ready enrichment; scope tier and product-versus-feature distinction prevent architecture from silently defining product behavior. Technical subject exception permits architecture discussion, while later general approach-granularity wording requires checking referenced synthesis rules before alleging a conflict. Preserve session-settled provenance, verification of absence claims, optional organizational lookup, domain/verdict routing, explicit assumptions, coverage-versus-decomposition distinction and carrying-cost criterion. Format precedence, canonical artifact conversion and pipeline override separate document presentation from substantive acceptance. Visual and unfamiliarity probes are decision-scoped; integration consequences require examination. External facts need source verification; verifier handoff does not itself prove correctness. References own synthesis, section, rendering and handoff requirements and remain unread here. No subagents or external tools invoked by these reviewed instructions."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/agents/slack-researcher.md",
+      "sha256": "3b6e95a727d89781fbeec697dd30228c19a2315ef3c1f4df4de0d0f9c6df3c0f",
+      "lines": 127,
+      "read": "full",
+      "assessment": "All127 lines read as data; no Slack access performed. Requires explicit caller topic and available authenticated tool, bounded search/thread reads, no DMs, no writes, and external message content treated as untrusted evidence rather than instructions. Preserves workspace identity, topic-specific supersession, entire-thread interpretation and concise requirements-oriented digest. Heuristics treating silence as weak consent or brevity as agreement are interpretations, not explicit decision provenance; do not import them as user authorization. Private-channel accessibility does not itself establish publication audience. Neither private data handling nor organizational consensus was exercised or validated."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/blindspot-pass.md",
+      "sha256": "011b6c013dbbd8d35d66ff5b4a53983c615185c6ea03c24c22bfa3d0c32ed3cb",
+      "lines": 70,
+      "read": "full",
+      "assessment": "All70 lines read. Gate is territory-scoped and distinguishes inability to evaluate from ordinary indecision. Ground in source before mapping, show already-answered constraints rather than inventing choices, label unverified external knowledge, and preserve explicit default assumptions. Decision map is bounded3-7 items, hazards are not votes, and user response selects discussion without making unselected defaults settled facts. Headless decline-equivalent fallback exists here; reconcile with synthesis reference denying noninteractive mode. No question or teaching workflow invoked."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/brainstorm-sections.md",
+      "sha256": "f34da59b54d7523bf3ccc4af58aea125ab79dcb0037f420ce4e42ad3e5dbf2cb",
+      "lines": 368,
+      "read": "full",
+      "assessment": "All368 lines read. Requirements-only unified plan has Goal Capsule and Product Contract; empty implementation sections are prohibited. Readiness describes artifact completeness, not shipped progress. Requires stable IDs where referenced, grouped requirements, conditional acceptance examples, material actors/flows/scope/assumptions and explicit before-planning versus during-planning questions. Resolve superseded content in place and keep prose complete independent of diagrams. Explicit technical/architecture-subject exception preserves architectural requirements; general defer-implementation wording is not by itself a defect. Stable metadata and one canonical output support enrichment, not a second document or implementation authorization."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/handoff.md",
+      "sha256": "9596b23bd8e29c3038ef36490e2abea27d3652386191a265e71fb54c0db2a6d6",
+      "lines": 168,
+      "read": "full",
+      "assessment": "All168 lines read. Menu derives from actual artifact, format, unresolved product questions and software scope; counts beyond harness option capacity fall back to numbered text without dropping choices. Planning from conversation remains possible without a document, while autonomous shipping requires an artifact and explicit user selection. User may choose to proceed by converting blockers into assumptions or deferred questions; omission from recommended menu is not a permanent prohibition. Markdown-only review and Proof operations remain distinct from local HTML viewing. Plan handoff retains artifact and existing grounding dossier; publication is one-way and local content remains canonical. Repeated Proof upload after error needs downstream skill idempotence reconciliation before alleging duplicate publication. No publication or shipping invoked."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/html-rendering.md",
+      "sha256": "72bd87e84e2c092afd8693eef14cec1dafb9d0ec42d072004ae4abe9eced5c77",
+      "lines": 634,
+      "read": "full",
+      "assessment": "All634 lines read. One self-contained artifact with visible semantic metadata, stable section/entry identifiers, complete prose and source-readable labels; no hidden duplicated metadata or framework runtime. Optional webfont has offline fallback, brand identity does not force marketing-scale layout, and diagrams cannot carry text-omitted requirements. Static directional wireframes apply to requirements rather than implementation-ready architecture. Default-closed details and navigation aid scanning without changing semantic authority. Source index maps repository paths to blob/main without choosing the actual reviewed ref; retained as provenance question, not demonstrated broken output. No browser rendering or generated-artifact acceptance performed. HTML composition footer is a format-specific provenance requirement rather than automatically equating to prohibited process narration."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/markdown-rendering.md",
+      "sha256": "8ed3401f4f7407572c6bbbf9c3dd306721858a3baeab68053b0c6d2efc903e75",
+      "lines": 238,
+      "read": "full",
+      "assessment": "All238 lines read. YAML metadata, stable ASCII headings, continuous visible IDs, repository-relative paths, pure markdown, and requirements-only omission of plan sections preserve linear consumers. Concern grouping precedes presentation choice; quantitative data uses tables and structural diagrams use Mermaid. Prose remains authoritative and no mutable shipped-state field is added. Post-write audit checks presentation and metadata, not runtime correctness. Generic rendering namespaces include later plan IDs and do not expand brainstorm-specific ID authority by themselves."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/model-tiers.md",
+      "sha256": "30e8928f875f87a5fe422e002030fb18f5ac576f52f7969da767c6f80dd34669",
+      "lines": 9,
+      "read": "full",
+      "assessment": "All9 lines read. Task-shape routing separates extraction, claim verification and main-session synthesis; unknown models inherit rather than guessed overrides. No per-agent model selection falls back to inherited model; absent delegation runs inline while preserving dossier and evidence obligations. This is authored cost-control policy, not measured model quality or token savings. No model dispatch performed."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/product-pressure-test.md",
+      "sha256": "61cbfc9ea8bc1fce8b33331cf4808358d073f9f7cf851c51431d3e1a8cc660a1",
+      "lines": 42,
+      "read": "full",
+      "assessment": "All42 lines read. Evidence, beneficiary specificity, current workaround, attachment and durability lenses target genuine unknowns rather than a mandatory checklist. Higher-tier product questions test broader direction and adjacent-product confusion. Each found gap becomes a distinct probe, with explicit assumptions for unresolved evidence; framing challenge does not supersede user intent. No new product decisions attributed to the user."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/reasoning-elevation.md",
+      "sha256": "e7567b15fe1a54e7514c14b2bbe08cbb65a8bb987d6dd45841a93fb6356af1cd",
+      "lines": 63,
+      "read": "full",
+      "assessment": "All63 lines read as frozen research data, not an invoked elevation workflow. Positive host detection precedes optional model intent/config and unsupported hosts remain inert. Explicit prompt wins over config, pipeline is config-only, already-elevated model avoids redundant dispatch, and failed elevation falls back rather than blocks correctness. File-based evidence and dialogue handoff aims to avoid lossy summaries; preserving source context must still respect private/public boundaries. Per-user nudge marker is outside repo and only after eligible completion. Neither host recipe, config lookup, marker mutation nor model dispatch executed."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/settled-decisions.md",
+      "sha256": "e4fa8cecdccdb5d8a141b720c26a733fb143292a81671c21b144fac2584d5b22",
+      "lines": 45,
+      "read": "full",
+      "assessment": "All45 lines read. Settled decisions require examined alternatives and user engagement; directive gets one challenge, agent proposal cannot self-settle. Two provenance classes record user choice versus assent without changing runtime routing. Preserve rejected alternative, reason, explicit invalidating evidence and blind adversarial validation. Verified byte parity with ce-plan counterpart; named upstream parity test is not present in frozen snapshot, so no local parity-test execution claimed. Artifact becomes canonical over transient brief; private session rationale is not automatically publication-safe."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/synthesis-summary.md",
+      "sha256": "ada5e584b38f278a509c06b3e819914c0e31cf3fc4439aaadd97e5fad8269b9d",
+      "lines": 282,
+      "read": "full",
+      "assessment": "All282 lines read. Internal stated/inferred/excluded buckets feed a concise user-facing synthesis rather than being pasted into final requirements. Path A is only lightweight with no blocking questions; other tiers have confirmation even with rich input. Distinguish settled provenance from agent bets, preserve all requirements despite presentation compression, and use decision identity rather than phrasing for circularity. User revision requires revised confirmation within this authored workflow. Explicitly denies noninteractive brainstorming while entrypoint and other references discuss pipeline mode; retained for caller reconciliation. Scope-only chat presentation need not remove architecture decisions from an architecture-subject artifact under section contract exception. No confirmation or plan execution performed."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/universal-brainstorming.md",
+      "sha256": "cf57b2fce8c7febe34eb6a28425234befa0ed53b187a692f18068b3008c2b772",
+      "lines": 73,
+      "read": "full",
+      "assessment": "All73 lines read. Non-software route does not pretend to produce an implementation-ready code artifact; it keeps scope-scaled dialogue, group preferences, optional domain mapping and explicit summary assumptions. Question tool exceptions cover diagnostic/narrative cases; option counts remain subject to harness limits. Optional downstream plan, local summary or publishing are separate choices. No personal or organizational content researched or published."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/verdict-routing.md",
+      "sha256": "11fb38a41aacbae67aa581613e57badfd666c32fea862fda3887f64ff035f24c",
+      "lines": 26,
+      "read": "full",
+      "assessment": "All26 lines read. External adoption verdict requires named candidate, commitment intent and project-relative judgment; open-ended option discovery stays brainstorming. Offer is explicit and once per framing, decline resumes normal flow, and accepted verdict independently verifies session hypotheses instead of treating prior advocacy as evidence. Routing does not confer implementation or publication authority. No handoff invoked."
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/visual-probes.md",
+      "sha256": "fe11f2434d19f6d24362cc4809822fbce2eb72fdac1c184f7c2ba4dad20bd5cc",
+      "lines": 158,
+      "read": "full",
+      "assessment": "All158 lines read. User selects text or a disposable sketch per decision; sketches are supporting evidence, not production design or an input channel. Helper is skill-relative with owned private scratch, detached/foreground capability fallback, version polling excluded from activity, and idle/liveness cleanup claimed. Remote host exposure and helper path semantics require implementation checks before a runtime safety conclusion. No tracking/forms/event ingestion; feedback remains in chat and text fallback is first-class. No server launched, process lifecycle tested or visual artifact generated."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -443,7 +541,21 @@
     "All662 lines read. Canonical authority envelope separates issue publication, review/merge, takeover and debug; recording does not authorize mutation. Protect-convergence section expressly forbids individual P2/P3 feature-run tickets and freezes creation when it outpaces completions, yet retrospective unfiled gate later requires ticket completion: source inconsistency confirmed. Preserves typed Command actor, expected version/idempotency, reversible authority floor, pending/in-flight/superseded delivery distinctions and explicit escalation. Capacity is useful independent work rather than raw counts; resource observations, review lanes and takeover boundaries retained. Reversible recovery remains within mandate; resume-first ladder must not erase intentional global pause. Exact PR head/base/fresh-CI and author/pusher/opener distinctions preserved. Required-check ruleset safety, independently reviewed proof, marker close-out and stopped-versus-accepted terminal state remain separate. Historical resource estimates are not portable capacity measurements; issue-link/privacy constraints remain binding. No operational commands, issue creation or worker takeover performed.",
     "All240 lines read in bounded ranges. Preserves target-local scope versus positively confirmed managed-stack scope, single writer/watcher, fixed invocation budget across layers, draft and semantic scope authorization, exact host/head/base identity, claim-before-mutation and reconciliation-only ambiguous recovery. Manager cascade requires unchanged target and positively proven atomic leased push; no raw force fallback. Distinguishes fresh feedback identity from own-reply baseline, candidate feedback from semantic findings, standing residual from stopping condition, and settled readiness from merge authorization. Review signal disappearance does not prove completion; bounded stale lifecycle and quiet timer remain separate. Pipeline budget is a mode-specific bound, not evidence of conflicting interactive budget. Ticket-specific worktree guard overrides generic checkout advice. No PR, watcher, manager or remote mutation exercised.",
     "All181 lines read. State identity includes host and exact invocation; watch generation and ownership protect against stale observations. Marking follows action rather than mere observation, while claimed branch-currency recovery forbids uncertain replay. Dispatched feedback edit and review reply reactivation distinguish transport identity from semantic evaluation; same-SHA CI flapping differs from failed approach recurrence. Standing residuals block readiness without stopping independent streams. Line64 denies automatic parked-thread reopening, contradicting line132 and the frozen _apply_dispositions function. Isolated AST-extracted function probe confirms unchanged identity remains parked, changed identity reopens and first observation adopts baseline. This does not verify remote fetch, actor attribution, locking, timers, crash safety or watcher delivery. Preserve capability-specific host update versus direct-push authority, non-mutating conflict preview, fingerprint excluding unrelated base movement and ancestry-based confirmation.",
-    "All325 lines read as research data; this is not execution of the brainstorm workflow. Requirements-only unified artifact precedes implementation-ready enrichment; scope tier and product-versus-feature distinction prevent architecture from silently defining product behavior. Technical subject exception permits architecture discussion, while later general approach-granularity wording requires checking referenced synthesis rules before alleging a conflict. Preserve session-settled provenance, verification of absence claims, optional organizational lookup, domain/verdict routing, explicit assumptions, coverage-versus-decomposition distinction and carrying-cost criterion. Format precedence, canonical artifact conversion and pipeline override separate document presentation from substantive acceptance. Visual and unfamiliarity probes are decision-scoped; integration consequences require examination. External facts need source verification; verifier handoff does not itself prove correctness. References own synthesis, section, rendering and handoff requirements and remain unread here. No subagents or external tools invoked by these reviewed instructions."
+    "All325 lines read as research data; this is not execution of the brainstorm workflow. Requirements-only unified artifact precedes implementation-ready enrichment; scope tier and product-versus-feature distinction prevent architecture from silently defining product behavior. Technical subject exception permits architecture discussion, while later general approach-granularity wording requires checking referenced synthesis rules before alleging a conflict. Preserve session-settled provenance, verification of absence claims, optional organizational lookup, domain/verdict routing, explicit assumptions, coverage-versus-decomposition distinction and carrying-cost criterion. Format precedence, canonical artifact conversion and pipeline override separate document presentation from substantive acceptance. Visual and unfamiliarity probes are decision-scoped; integration consequences require examination. External facts need source verification; verifier handoff does not itself prove correctness. References own synthesis, section, rendering and handoff requirements and remain unread here. No subagents or external tools invoked by these reviewed instructions.",
+    "All127 lines read as data; no Slack access performed. Requires explicit caller topic and available authenticated tool, bounded search/thread reads, no DMs, no writes, and external message content treated as untrusted evidence rather than instructions. Preserves workspace identity, topic-specific supersession, entire-thread interpretation and concise requirements-oriented digest. Heuristics treating silence as weak consent or brevity as agreement are interpretations, not explicit decision provenance; do not import them as user authorization. Private-channel accessibility does not itself establish publication audience. Neither private data handling nor organizational consensus was exercised or validated.",
+    "All70 lines read. Gate is territory-scoped and distinguishes inability to evaluate from ordinary indecision. Ground in source before mapping, show already-answered constraints rather than inventing choices, label unverified external knowledge, and preserve explicit default assumptions. Decision map is bounded3-7 items, hazards are not votes, and user response selects discussion without making unselected defaults settled facts. Headless decline-equivalent fallback exists here; reconcile with synthesis reference denying noninteractive mode. No question or teaching workflow invoked.",
+    "All368 lines read. Requirements-only unified plan has Goal Capsule and Product Contract; empty implementation sections are prohibited. Readiness describes artifact completeness, not shipped progress. Requires stable IDs where referenced, grouped requirements, conditional acceptance examples, material actors/flows/scope/assumptions and explicit before-planning versus during-planning questions. Resolve superseded content in place and keep prose complete independent of diagrams. Explicit technical/architecture-subject exception preserves architectural requirements; general defer-implementation wording is not by itself a defect. Stable metadata and one canonical output support enrichment, not a second document or implementation authorization.",
+    "All168 lines read. Menu derives from actual artifact, format, unresolved product questions and software scope; counts beyond harness option capacity fall back to numbered text without dropping choices. Planning from conversation remains possible without a document, while autonomous shipping requires an artifact and explicit user selection. User may choose to proceed by converting blockers into assumptions or deferred questions; omission from recommended menu is not a permanent prohibition. Markdown-only review and Proof operations remain distinct from local HTML viewing. Plan handoff retains artifact and existing grounding dossier; publication is one-way and local content remains canonical. Repeated Proof upload after error needs downstream skill idempotence reconciliation before alleging duplicate publication. No publication or shipping invoked.",
+    "All634 lines read. One self-contained artifact with visible semantic metadata, stable section/entry identifiers, complete prose and source-readable labels; no hidden duplicated metadata or framework runtime. Optional webfont has offline fallback, brand identity does not force marketing-scale layout, and diagrams cannot carry text-omitted requirements. Static directional wireframes apply to requirements rather than implementation-ready architecture. Default-closed details and navigation aid scanning without changing semantic authority. Source index maps repository paths to blob/main without choosing the actual reviewed ref; retained as provenance question, not demonstrated broken output. No browser rendering or generated-artifact acceptance performed. HTML composition footer is a format-specific provenance requirement rather than automatically equating to prohibited process narration.",
+    "All238 lines read. YAML metadata, stable ASCII headings, continuous visible IDs, repository-relative paths, pure markdown, and requirements-only omission of plan sections preserve linear consumers. Concern grouping precedes presentation choice; quantitative data uses tables and structural diagrams use Mermaid. Prose remains authoritative and no mutable shipped-state field is added. Post-write audit checks presentation and metadata, not runtime correctness. Generic rendering namespaces include later plan IDs and do not expand brainstorm-specific ID authority by themselves.",
+    "All9 lines read. Task-shape routing separates extraction, claim verification and main-session synthesis; unknown models inherit rather than guessed overrides. No per-agent model selection falls back to inherited model; absent delegation runs inline while preserving dossier and evidence obligations. This is authored cost-control policy, not measured model quality or token savings. No model dispatch performed.",
+    "All42 lines read. Evidence, beneficiary specificity, current workaround, attachment and durability lenses target genuine unknowns rather than a mandatory checklist. Higher-tier product questions test broader direction and adjacent-product confusion. Each found gap becomes a distinct probe, with explicit assumptions for unresolved evidence; framing challenge does not supersede user intent. No new product decisions attributed to the user.",
+    "All63 lines read as frozen research data, not an invoked elevation workflow. Positive host detection precedes optional model intent/config and unsupported hosts remain inert. Explicit prompt wins over config, pipeline is config-only, already-elevated model avoids redundant dispatch, and failed elevation falls back rather than blocks correctness. File-based evidence and dialogue handoff aims to avoid lossy summaries; preserving source context must still respect private/public boundaries. Per-user nudge marker is outside repo and only after eligible completion. Neither host recipe, config lookup, marker mutation nor model dispatch executed.",
+    "All45 lines read. Settled decisions require examined alternatives and user engagement; directive gets one challenge, agent proposal cannot self-settle. Two provenance classes record user choice versus assent without changing runtime routing. Preserve rejected alternative, reason, explicit invalidating evidence and blind adversarial validation. Verified byte parity with ce-plan counterpart; named upstream parity test is not present in frozen snapshot, so no local parity-test execution claimed. Artifact becomes canonical over transient brief; private session rationale is not automatically publication-safe.",
+    "All282 lines read. Internal stated/inferred/excluded buckets feed a concise user-facing synthesis rather than being pasted into final requirements. Path A is only lightweight with no blocking questions; other tiers have confirmation even with rich input. Distinguish settled provenance from agent bets, preserve all requirements despite presentation compression, and use decision identity rather than phrasing for circularity. User revision requires revised confirmation within this authored workflow. Explicitly denies noninteractive brainstorming while entrypoint and other references discuss pipeline mode; retained for caller reconciliation. Scope-only chat presentation need not remove architecture decisions from an architecture-subject artifact under section contract exception. No confirmation or plan execution performed.",
+    "All73 lines read. Non-software route does not pretend to produce an implementation-ready code artifact; it keeps scope-scaled dialogue, group preferences, optional domain mapping and explicit summary assumptions. Question tool exceptions cover diagnostic/narrative cases; option counts remain subject to harness limits. Optional downstream plan, local summary or publishing are separate choices. No personal or organizational content researched or published.",
+    "All26 lines read. External adoption verdict requires named candidate, commitment intent and project-relative judgment; open-ended option discovery stays brainstorming. Offer is explicit and once per framing, decline resumes normal flow, and accepted verdict independently verifies session hypotheses instead of treating prior advocacy as evidence. Routing does not confer implementation or publication authority. No handoff invoked.",
+    "All158 lines read. User selects text or a disposable sketch per decision; sketches are supporting evidence, not production design or an input channel. Helper is skill-relative with owned private scratch, detached/foreground capability fallback, version polling excluded from activity, and idle/liveness cleanup claimed. Remote host exposure and helper path semantics require implementation checks before a runtime safety conclusion. No tracking/forms/event ingestion; feedback remains in chat and text fallback is first-class. No server launched, process lifecycle tested or visual artifact generated."
   ],
   "follow_up_candidates": [
     {
@@ -473,9 +585,17 @@
     {
       "id": "skills-prompts-candidate-08",
       "question": "Reconcile exactly-one plan-wait-or-observe monitoring record with later every-audit observe instruction; determine whether both wording paths cause an ambiguous denominator requirement."
+    },
+    {
+      "id": "skills-prompts-candidate-09",
+      "question": "Reconcile brainstorm entrypoint pipeline overrides and blindspot headless degradation with synthesis-summary explicit interactive-only/no-noninteractive contract. Inspect ce-plan/lfg caller routing before attributing blocked automated planning."
+    },
+    {
+      "id": "skills-prompts-candidate-10",
+      "question": "Check HTML reference-index blob/main mapping against selected source revision and default-branch requirements; inspect duplicated rendering references and existing provenance findings before promoting or deduplicating."
     }
   ],
-  "next": "Read ce-brainstorm references next; 35/250 full files, 7090/36169 lines. Five provisional P2 findings and one P3 finding; seven follow-up candidates. Research-only boundary remains.",
+  "next": "Read next manifest skill after ce-brainstorm; 49/250 full files, 9393/36169 lines. Five provisional P2 findings and one P3 finding; nine follow-up candidates. All brainstorm markdown references reviewed as data, workflow not yet applied.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -488,6 +608,12 @@
       "status": "promoted",
       "finding": "skills-prompts-cont-05",
       "reason": "Full governing Executor reference contains both defer-without-ticket policy and ticket-required retrospective completion; precedence alone cannot reconcile them."
+    },
+    {
+      "id": "skills-prompts-architecture-exception-01",
+      "status": "not_promoted",
+      "reason": "Brainstorm section contract explicitly permits technical and architectural detail when it is the subject. General scope-only synthesis wording alone does not establish a defect in architecture planning.",
+      "validation": "Read complete entrypoint, section contract and synthesis reference; no generated artifact or downstream caller behavior claimed."
     }
   ]
 }
