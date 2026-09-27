@@ -1575,3 +1575,7 @@ Read21age_label,25freshness_label and18count_label clauses across six modules pe
 ### Name duplication: startup wrappers
 
 Read all122start_link definitions across122modules (438summed source-span lines). Registration defaults, option forwarding, facade ownership, state construction, validation, release waiting and supervisor type remain distinct; do not infer a generic startup abstraction from common OTP syntax. Name triage now13families/356literal definitions. Saved a35name priority queue from the full census to guide remaining work without treating the queue as a reduced sweep scope.
+
+### Name duplication: cleanup and subscription ownership
+
+Read all42terminate clauses in36modules and45subscribe clauses in38modules. Preserve graceful persistence versus crash guarantees, owned-child cleanup order, restart-safe reaper policy, recipient identity, durable bindings, generation scope, authentication and explicit failure contracts. Thin PubSub wrappers already reuse their transport; no new defect or savings claim. Name triage now15families/443literal definitions; broader sweep remains open.

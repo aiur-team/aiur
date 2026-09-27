@@ -56,14 +56,14 @@
       "modules": 38,
       "clauses": 45,
       "summed_source_span_lines": 198,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "terminate",
       "modules": 36,
       "clauses": 42,
       "summed_source_span_lines": 268,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "new",
