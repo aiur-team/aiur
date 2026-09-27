@@ -2246,6 +2246,94 @@
       "recommendation": "Build through the supported release entry point and verify that produced artifact, or explicitly verify the escript just built when testing the fallback path.",
       "refactor_hint": "Use the same release preparation and receipt contract for agent instructions and CI.",
       "limits": "Frozen source and synthetic local evidence only; no real build, tag, release or npm request. No matching locations found in current raw reports; final semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-22",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Ideation arbitration permits scope overruns forbidden during generation",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-ideate/references/divergent-ideation.md",
+          "lines": "77"
+        },
+        {
+          "path": ".claude/skills/ce-ideate/references/post-ideation-workflow.md",
+          "lines": "31"
+        }
+      ],
+      "description": "Generation treats expanding beyond the user-named slice as a scope mismatch. Final selection permits the same expansion when its basis justifies it, without distinguishing an optional out-of-scope suggestion from an accepted in-scope idea. Evidence for usefulness does not change user scope.",
+      "evidence": "Re-read both governing clauses: divergent generation explicitly requires ambition within the bounded surface; arbitration explicitly allows scope overrun on basis alone. Later user selection does not make the earlier scope contract consistent.",
+      "recommendation": "Keep the requested scope binding during selection; present justified extensions separately as optional proposals requiring a new scope decision.",
+      "refactor_hint": "Use explicit scope and evidence contracts shared by generation, arbitration and reporting.",
+      "limits": "Frozen instruction-level defect only; no generated verdict, score report, scope expansion or blocked run observed. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-23",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Grounding scout overstates bounded search as verified absence",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-pov/references/agents/project-grounding-scout.md",
+          "lines": "10-24"
+        },
+        {
+          "path": ".claude/skills/ce-pov/references/method.md",
+          "lines": "25"
+        }
+      ],
+      "description": "The net-new adoption floor accepts a thin or empty search as verified absence of an incumbent. Recording search terms makes the search auditable, but does not establish that a differently named dependency, indirect integration or existing behavior is absent.",
+      "evidence": "Full scout reread confirms approximately15-read budget, empty-search proof wording and no semantic-coverage requirement; method accepts verified absence as a passable project floor. No actual adoption verdict was executed.",
+      "recommendation": "Report searched-and-not-found with explicit boundaries, then trace likely integration paths and manifests before claiming absence; retain unknown when coverage is insufficient.",
+      "refactor_hint": "Use explicit scope and evidence contracts shared by generation, arbitration and reporting.",
+      "limits": "Frozen instruction-level defect only; no generated verdict, score report, scope expansion or blocked run observed. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-24",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Feedback escalation references contradict the no-blocking entry point",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/SKILL.md",
+          "lines": "12-14"
+        },
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/references/full-mode.md",
+          "lines": "258-262"
+        },
+        {
+          "path": ".claude/skills/ce-resolve-pr-feedback/references/targeted-mode.md",
+          "lines": "36"
+        }
+      ],
+      "description": "Entry point says escalations never block and the skill never pauses to ask. Full and targeted mode references require a blocking question and waiting for the response. Pipeline has an explicit override, so the unresolved contradiction primarily concerns default interactive behavior.",
+      "evidence": "Re-read exact entrypoint and both needs-human references. Pipeline no-question override is explicit and limits the finding; no assertion that the pipeline necessarily blocks.",
+      "recommendation": "Specify interactive versus pipeline escalation behavior once, and make both mode references defer to it.",
+      "refactor_hint": "Use explicit scope and evidence contracts shared by generation, arbitration and reporting.",
+      "limits": "Frozen instruction-level defect only; no generated verdict, score report, scope expansion or blocked run observed. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-25",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Pulse scoring recalibrates from the observed score distribution",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-product-pulse/SKILL.md",
+          "lines": "132-138"
+        },
+        {
+          "path": ".claude/skills/ce-product-pulse/references/interview.md",
+          "lines": "104"
+        }
+      ],
+      "description": "The rubric reserves1-3 for clear failures but declares an all3 sample too strict and an all5 sample too loose. A sample can legitimately contain only failed or excellent sessions; distribution alone cannot justify changing the quality bar, and doing so weakens comparisons between runs.",
+      "evidence": "Re-read optional quality scoring and captured scoring discipline. Report is explicitly a sample of up to10, so no separate population-estimate defect is asserted. The inconsistency is distribution-driven calibration despite possible homogeneous samples.",
+      "recommendation": "Apply a stable anchored rubric to each session independently; preserve legitimate homogeneous results and disclose sampling method/size without forcing score spread.",
+      "refactor_hint": "Use explicit scope and evidence contracts shared by generation, arbitration and reporting.",
+      "limits": "Frozen instruction-level defect only; no generated verdict, score report, scope expansion or blocked run observed. Cross-unit semantic dedup pending."
     }
   ],
   "preserve": [
@@ -2671,7 +2759,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files covered. Candidate45 partly resolved into findings20/21 using frozen CI and isolated version-gate probe; release receipt/target questions remain. Continue other candidate reconciliation and cross-unit dedup; raw unit stays open. Provisional findings21 (16P2/5P3).",
+  "next": "All250 files covered. Five candidates reconciled this checkpoint (24/32/34/37 promoted to22-25;42 not promoted on historical evidence limits). Findings25 total (16P2/9P3); continue remaining candidate reconciliation, cross-unit dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -2730,6 +2818,36 @@
       ],
       "reason": "Frozen CI and Mix output definitions establish two concrete defects. Actual workflow version gate reproduced with failing mix-only bump and passing controls.",
       "remaining": "Publication-success wording still lacks waiting for registry-verification receipt; fork origin versus canonical-release target and remote-tag existence remain to reconcile. No external API claims verified."
+    },
+    {
+      "id": "skills-prompts-candidate-24",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-22",
+      "reason": "Re-read both governing clauses: divergent generation explicitly requires ambition within the bounded surface; arbitration explicitly allows scope overrun on basis alone. Later user selection does not make the earlier scope contract consistent."
+    },
+    {
+      "id": "skills-prompts-candidate-32",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-23",
+      "reason": "Full scout reread confirms approximately15-read budget, empty-search proof wording and no semantic-coverage requirement; method accepts verified absence as a passable project floor. No actual adoption verdict was executed."
+    },
+    {
+      "id": "skills-prompts-candidate-37",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-24",
+      "reason": "Re-read exact entrypoint and both needs-human references. Pipeline no-question override is explicit and limits the finding; no assertion that the pipeline necessarily blocks."
+    },
+    {
+      "id": "skills-prompts-candidate-34",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-25",
+      "reason": "Re-read optional quality scoring and captured scoring discipline. Report is explicitly a sample of up to10, so no separate population-estimate defect is asserted. The inconsistency is distribution-driven calibration despite possible homogeneous samples."
+    },
+    {
+      "id": "skills-prompts-candidate-42",
+      "status": "not_promoted",
+      "reason": "Current session proves shared filesystem and explicit-request goal authority, but does not establish the historical frozen harness had the same capabilities. Governing host instructions override the skill and its engine reference already requires capability probing. Preserve runtime capability discovery as a rewrite requirement; do not label historical worker isolation false solely from current tooling. Concrete worker commit/transfer contradiction is separately finding19.",
+      "validation": "Compared frozen ce-work/execution-engines with explicit active tool contracts. No worker or goal created."
     }
   ],
   "coverage_validation": {

@@ -1459,3 +1459,7 @@ Finished final six markdown files, including complete tracker-defer diff against
 ### Skills/prompts: release candidate verification
 
 Candidate45 partly promoted: release procedure omits npm manifest synchronization required by CI and verifies a different executable than escript.build produces. Extracted actual version gate tested with copied frozen resolver/manifests: matching baseline passes, mix-only bump fails, synchronized control passes. Repro stored in tooling/release_version_gate_probe.py. Publication-receipt and repository-target questions remain open. Source-specific raw finding search returned no matching locations; semantic dedup remains. All250 read coverage unchanged;21 provisional findings (16P2/5P3). No production build, tag, registry call or release.
+
+### Skills/prompts: scope and evidence candidate reconciliation
+
+Reconciled five candidates after targeted governing-source rereads: ideation scope override, bounded-search absence claim, feedback blocking contradiction and distribution-driven quality calibration promoted as four P3 instruction findings. Current-harness capability mismatch not promoted as historical defect; retained as capability-discovery requirement, with worker commit inconsistency already finding19. No population-quality or actual stalled-run claim. Findings25 (16P2/9P3); raw unit remains open. No tools invoked for ideation, publishing, reviews, scoring or worker execution.
