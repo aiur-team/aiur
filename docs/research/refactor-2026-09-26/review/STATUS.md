@@ -718,3 +718,7 @@ Covered all16 planning agent prompts: five full direct reads and eleven complete
 ### Skills/prompts: development-server evidence
 
 Read all12 polish markdown files; coverage 188/250 files, 29,700/36,169 lines. Preserve explicit launch configuration and bounded readiness checks without equating HTTP availability with correct checkout identity. Synthetic actual-helper probe returned unrelated test-script port9123 instead of dev5174; reordering unchanged entries returned5174. Added candidate31 for helper/recipe reconciliation and cross-unit dedup, not a new finding yet. No server, browser, live config, dotenv or external request used; temporary fixtures removed. All 188 hashes/line counts verified. Raw units remain28/32; next ce-pov.
+
+### Skills/prompts: POV evidence and peer independence
+
+Read all11 POV markdown files; coverage 199/250 files, 30,485/36,169 lines. Preserve verified-fact floors, conversation disconfirmation, named recipient authority, receipt-supported model independence, dirty/untracked identity checks, common evidence reconciliation and scoped cleanup. Added bounded-search versus verified-absence question; extended existing peer boundary question with explicit cooperative-scope limits. No new finding promoted. All 199 hashes/line counts verified. No peer, external query, publication or production change. Raw units remain28/32; next product-pulse markdown.

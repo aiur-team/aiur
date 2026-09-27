@@ -1320,6 +1320,83 @@
       "lines": 48,
       "read": "full",
       "assessment": "Full48 lines read. HMR and dev HTTP endpoint differ; printed port must match actual binding. Recipe assumes undefined kill-by-port step and environment semantics; no process reclaimed or network endpoint tested."
+    },
+    {
+      "path": ".claude/skills/ce-pov/SKILL.md",
+      "sha256": "b1c0d668ce3de6e4b3bbbb0829bca9f191ec4239194a082774af6056c1ac87aa",
+      "lines": 133,
+      "read": "full",
+      "assessment": "Full133 lines read. Project-grounded decision and verified external support differ from conversation momentum. Scope/authority gate separates read-only POV from preauthorized continuation. Tiered effort is not proof of reversibility; dependency installation can affect larger contracts. No skill invoked, scout spawned or peer consulted."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/boundaries.md",
+      "sha256": "551fe7113457d8900b1e46b73744fed47792f32ca4239c99236d031c25920a8b",
+      "lines": 35,
+      "read": "full",
+      "assessment": "Full35 lines read. Supplied-subject judgment differs from inventing options, requirements discovery and findings review. Bounded candidate set and real project material are required; Hold is valid rather than manufactured certainty."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/intake.md",
+      "sha256": "3d0a88ab569f7e90bcc920a6dc480239a6d1831168332794dc0f497abe40144b",
+      "lines": 44,
+      "read": "full",
+      "assessment": "Full44 lines read. Cheap orientation precedes substantive grounding, with one focused clarification for materially ambiguous intent; shorthand resolves from actual context. Orientation is not verification."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/invocation.md",
+      "sha256": "7d570f344e5565b81942967549271260e6393a04819e63c8a79ab62f3a055f66",
+      "lines": 45,
+      "read": "full",
+      "assessment": "Full45 lines read. Warm conversation supplies claims to verify, not evidence. Explicit disconfirmation and provenance buckets counter agreement bias; guest output avoids takeover. Named peer authority applies only to actual invocation, not source review."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/method.md",
+      "sha256": "5816bc4bdac7a06c44618ef15a20da08b5e6f577194c550be247b1ee0572ed07",
+      "lines": 77,
+      "read": "full",
+      "assessment": "Full77 lines read. Independent project/external floors, supported facts versus unconfirmed hypotheses, meaningful reversal triggers and honest either-viable outcome. One verified touchpoint is a minimum floor, not exhaustive architecture or migration proof. Source entailment is essential."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/report.md",
+      "sha256": "6a1c969396f409e19b5e03f37ea5971097a639cd2152544f32d4024bce6b904b",
+      "lines": 28,
+      "read": "full",
+      "assessment": "Full28 lines read. Expanded artifact opt-in and evidence citation avoids full dossier copying. Format adaptation for Markdown-only publishing is explicit. Publication requires current user authority and audience/privacy review; no report published."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/cross-model-panel.md",
+      "sha256": "1e51db3e5b99ace0ca765f6af35b0c500e39965b9014bb1217b8d047618eb799",
+      "lines": 307,
+      "read": "full",
+      "assessment": "Full307 lines read in three bounded ranges. Preserve exact target/route/model separation, receipt-supported independence, fixed recipients, cooperative-scope honesty, revision plus dirty/untracked digest, stateless initial independence and bounded common-evidence reconciliation. Reap and schema validation are separate from terminal success; no majority vote or reuse of dropped stale voices. Cleanup limited to current private run. No adapter execution or containment claim from prose alone."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/agents/external-evidence-researcher.md",
+      "sha256": "0766dee4c79f67add69afc7d9dfb9ceb0d0b3dfcccac4dee61c4cf49e1a04371",
+      "lines": 26,
+      "read": "full",
+      "assessment": "Full26 lines read. Source must entail load-bearing claim; independent corroboration distinct from repeated pages. Availability prose says neither search nor fetch while dependency names both, unlike broader researcher contract; source fetching remains evidence floor. No external facts gathered."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/agents/pov-peer.md",
+      "sha256": "682ed0a35e5018426b6e038bad7dbc5753df3eb3f20a9e09c8e730a063278d16",
+      "lines": 37,
+      "read": "full",
+      "assessment": "Full37 lines read. Initial independence excludes other conclusions, not the subject. Prompt scope and public-only query terms constrain behavior but are not sandbox proof. Explicit unverified external check and per-claim source anchors retained."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/agents/precedent-activity-scout.md",
+      "sha256": "497b0ff7fa4ba1e26be4af3062152c727b59aa8afbb882ad3b31425809280002",
+      "lines": 21,
+      "read": "full",
+      "assessment": "Full21 lines read. Always local precedent, optionally tracker; missing tracker does not erase local evidence. Issue existence is observed, reported performance is not a measurement. Budgeted15 reads and no prior stance found describe search scope, not universal absence."
+    },
+    {
+      "path": ".claude/skills/ce-pov/references/agents/project-grounding-scout.md",
+      "sha256": "6510c127d33b4f96da721b1e5becad235ac246a5518f548b80e326df76ebd57e",
+      "lines": 32,
+      "read": "full",
+      "assessment": "Full32 lines read. Named incumbent plus touchpoint is useful, and absence requires recorded searches and integration point. Candidate32: equating thin/empty search with verified capability absence can overlook aliases/delegated implementation; a bounded keyword scan is insufficient for broad no-incumbent claim. Call-site counts similarly need semantic scope."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1859,7 +1936,18 @@
     "Full50 lines read. Project bin/dev command and dependencies precede generic recipes; HTTP-only probe limitation explicitly documented. Local port precedence wording differs from shared cascade; helper is authoritative evidence, not recipe inference.",
     "Full58 lines read. Classic versus Vite detection affects endpoint selection. Watcher-versus-server and version/default-port statements require actual installed-project verification; no browser success claimed.",
     "Full58 lines read. Specific framework identity ahead of generic Vite and explicit app cwd matter; adapter/default behavior remains unverified recipe assertion.",
-    "Full48 lines read. HMR and dev HTTP endpoint differ; printed port must match actual binding. Recipe assumes undefined kill-by-port step and environment semantics; no process reclaimed or network endpoint tested."
+    "Full48 lines read. HMR and dev HTTP endpoint differ; printed port must match actual binding. Recipe assumes undefined kill-by-port step and environment semantics; no process reclaimed or network endpoint tested.",
+    "Full133 lines read. Project-grounded decision and verified external support differ from conversation momentum. Scope/authority gate separates read-only POV from preauthorized continuation. Tiered effort is not proof of reversibility; dependency installation can affect larger contracts. No skill invoked, scout spawned or peer consulted.",
+    "Full35 lines read. Supplied-subject judgment differs from inventing options, requirements discovery and findings review. Bounded candidate set and real project material are required; Hold is valid rather than manufactured certainty.",
+    "Full44 lines read. Cheap orientation precedes substantive grounding, with one focused clarification for materially ambiguous intent; shorthand resolves from actual context. Orientation is not verification.",
+    "Full45 lines read. Warm conversation supplies claims to verify, not evidence. Explicit disconfirmation and provenance buckets counter agreement bias; guest output avoids takeover. Named peer authority applies only to actual invocation, not source review.",
+    "Full77 lines read. Independent project/external floors, supported facts versus unconfirmed hypotheses, meaningful reversal triggers and honest either-viable outcome. One verified touchpoint is a minimum floor, not exhaustive architecture or migration proof. Source entailment is essential.",
+    "Full28 lines read. Expanded artifact opt-in and evidence citation avoids full dossier copying. Format adaptation for Markdown-only publishing is explicit. Publication requires current user authority and audience/privacy review; no report published.",
+    "Full307 lines read in three bounded ranges. Preserve exact target/route/model separation, receipt-supported independence, fixed recipients, cooperative-scope honesty, revision plus dirty/untracked digest, stateless initial independence and bounded common-evidence reconciliation. Reap and schema validation are separate from terminal success; no majority vote or reuse of dropped stale voices. Cleanup limited to current private run. No adapter execution or containment claim from prose alone.",
+    "Full26 lines read. Source must entail load-bearing claim; independent corroboration distinct from repeated pages. Availability prose says neither search nor fetch while dependency names both, unlike broader researcher contract; source fetching remains evidence floor. No external facts gathered.",
+    "Full37 lines read. Initial independence excludes other conclusions, not the subject. Prompt scope and public-only query terms constrain behavior but are not sandbox proof. Explicit unverified external check and per-claim source anchors retained.",
+    "Full21 lines read. Always local precedent, optionally tracker; missing tracker does not erase local evidence. Issue existence is observed, reported performance is not a measurement. Budgeted15 reads and no prior stance found describe search scope, not universal absence.",
+    "Full32 lines read. Named incumbent plus touchpoint is useful, and absence requires recorded searches and integration point. Candidate32: equating thin/empty search with verified capability absence can overlook aliases/delegated implementation; a bounded keyword scan is insufficient for broad no-incumbent claim. Call-site counts similarly need semantic scope."
   ],
   "follow_up_candidates": [
     {
@@ -1928,7 +2016,7 @@
     },
     {
       "id": "skills-prompts-candidate-20",
-      "question": "Inspect peer adapter read/egress scope and existing security findings before accepting cross-model reference claim that outside-scratch reads add no material exposure merely because host could read them; distinguish accepted operational risk from authorization and verified containment."
+      "question": "Inspect peer adapter read/egress scope and existing security findings before accepting cross-model reference claim that outside-scratch reads add no material exposure merely because host could read them; distinguish accepted operational risk from authorization and verified containment. POV panel expressly distinguishes cooperative patterns from confidentiality controls and forbids private repo fragments in external queries; inspect concrete adapter enforcement before treating these instructions as effective isolation."
     },
     {
       "id": "skills-prompts-candidate-21",
@@ -1970,9 +2058,13 @@
       "id": "skills-prompts-candidate-31",
       "question": "Reconcile polish startup recipes/helper behavior and dedup against scripts raw review: undefined kill-by-port references, bare Procfile detection versus Procfile.dev command, probe port versus actual child binding. Actual frozen resolve-port.sh package-json path reproduced wrong port from unrelated test script; full helper audit pending.",
       "evidence": "Synthetic temporary package.json, scripts ordered test: test-tool --port 9123 then dev: vite --port 5174; bash resolve-port.sh <temp> --type vite exited0 and returned9123. Reordering same two entries dev-first returned5174, exit0. Actual helper lines259-263 grep whole file. Temporary fixtures removed automatically; no server, real config, dotenv or network used."
+    },
+    {
+      "id": "skills-prompts-candidate-32",
+      "question": "POV project-grounding scout calls thin/empty bounded search verified absence of an incumbent. Determine if caller gate forces semantic capability/path coverage before claiming net-new; otherwise report searched-and-not-found rather than universal absence. Same issue affects content-search call-site counts. No false adoption verdict executed."
     }
   ],
-  "next": "Continue ce-pov markdown. Coverage 188/250 full files, 29700/36169 lines. Nine provisional P2 and five P3 findings; twenty-seven follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-product-pulse markdown. Coverage 199/250 full files, 30485/36169 lines. Nine provisional P2 and five P3 findings; twenty-eight follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
