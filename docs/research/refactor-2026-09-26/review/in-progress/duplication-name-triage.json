@@ -79520,10 +79520,543 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "decisions",
+      "assessment": "Decision readers expose different injection, validation and fallback policies.",
+      "constraints": [
+        "DecisionExpiry invokes an optional zero-arity decisions_fun or fetches decisions when the option is nil; other option shapes have no matching case in the literal body.",
+        "PayloadLoader validates map params and delegates to DecisionProvider with configured store/metrics, otherwise returning invalid_query.",
+        "StreamdeckProjection uses a safe-call fallback of count zero before external conversion. That fallback alone does not establish an observed empty decision population.",
+        "Preserve expiry input, query validation and unavailable display evidence separately. These wrappers do not prove successful store access."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 99,
+          "module": "Aiur.DecisionExpiry",
+          "name": "decisions",
+          "path": "src/lib/aiur/decision_expiry.ex",
+          "kind": "defp",
+          "end_line": 104,
+          "body_sha256": "bbe8f1b967f97d6f936d36240c4e62f81d4ccf3b872145b4953186751c8275d0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 47,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "decisions",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "kind": "def",
+          "end_line": 54,
+          "body_sha256": "7f0a3282bd5c6f476a8ac626810c3fa705c04c1f14f1dd5d5edc0e677dfc38e6",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 56,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "decisions",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "kind": "def",
+          "end_line": 56,
+          "body_sha256": "b11f69450d6f5774e714b242db6a76fa1e344b2c6210849188e062edc8b262c8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 149,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "decisions",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "def",
+          "end_line": 149,
+          "body_sha256": "843f9d0590ab75344ba5b4a6d1e71ecd2b94554968224f971ad35c9cfc2f86da",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "decode_datetime",
+      "assessment": "Timestamp decoders differ in invalid-value handling and offset acceptance.",
+      "constraints": [
+        "TakeoverAlert.Store returns nil for absent, invalid or unsupported values, losing the distinction between missing and malformed.",
+        "GlobalPauseStore returns tagged nil for absent values, parses valid ISO timestamps with any returned offset and reports invalid_paused_at otherwise.",
+        "ProgressRetention also uses tagged results but accepts only parser results with zero offset, rejecting other offsets as invalid_datetime.",
+        "Share parsing mechanics only with explicit offset and missing/corrupt contracts. Replacing these with a permissive universal decoder would change persisted-state validation."
+      ],
+      "clauses": 9,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 269,
+          "module": "Aiur.Executor.TakeoverAlert.Store",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "kind": "defp",
+          "end_line": 269,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 271,
+          "module": "Aiur.Executor.TakeoverAlert.Store",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "kind": "defp",
+          "end_line": 276,
+          "body_sha256": "458246286c6b559cdf24acde8473303c39e46e75496f18c705b3c7fb8e4a2780",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 278,
+          "module": "Aiur.Executor.TakeoverAlert.Store",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "kind": "defp",
+          "end_line": 278,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 136,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 136,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 138,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 143,
+          "body_sha256": "d3ca44048d3c1c9b5bd5718d5ad6211ba50107607f8d9579b6e8ac05fa97b434",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 145,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 145,
+          "body_sha256": "a219ae24d145c4e981a02b5bd1f5db29ff218cec7190f1e523bfa43027617f5e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 475,
+          "module": "Aiur.ProgressRetention",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 475,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 477,
+          "module": "Aiur.ProgressRetention",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 482,
+          "body_sha256": "63cf18c0e52493c5ab81fa393f3acb79a02f99c5467bbdee9136ed93cdeb436f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 484,
+          "module": "Aiur.ProgressRetention",
+          "name": "decode_datetime",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 484,
+          "body_sha256": "33fd545792cea8d70d121412857c0901ba8312fe3ab6f284ecb27c21adbce60f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "decode_entry",
+      "assessment": "Entry decoders preserve different evidence and rejection shapes.",
+      "constraints": [
+        "ResourceStore coercively decodes cache metadata/body fields, defaults recorded_at_ms to zero and returns nil for nonmaps.",
+        "PrReadyLedgerStore requires nonempty ticket and positive PR number, then recognizes draft, never_draft, announced/head and history_failed/retry state shapes, otherwise nil.",
+        "ProgressRetention validates identity/progress and requires a GitHub key, returning tagged success or invalid_entry.",
+        "Do not merge tolerant cache loading, readiness history and strict progress identity validation by name alone. Recovery loss and malformed-state incidence remain unverified."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 2120,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "decode_entry",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 2133,
+          "body_sha256": "3c57faa47f0a77fe588cb5854a86ce130f75519b22702b3ad2831c67731a88fd",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 2135,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "decode_entry",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 2135,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 106,
+          "module": "Aiur.PrReadyLedgerStore",
+          "name": "decode_entry",
+          "path": "src/lib/aiur/pr_ready_ledger_store.ex",
+          "kind": "defp",
+          "end_line": 115,
+          "body_sha256": "f955b715890b6f20a3d60a68c644026828c7efa91c332bf934a097d29167dfc2",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 117,
+          "module": "Aiur.PrReadyLedgerStore",
+          "name": "decode_entry",
+          "path": "src/lib/aiur/pr_ready_ledger_store.ex",
+          "kind": "defp",
+          "end_line": 117,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 397,
+          "module": "Aiur.ProgressRetention",
+          "name": "decode_entry",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 405,
+          "body_sha256": "84aa31f0122bd4c5256420135bff5513067fdcc5a59a12fef50302ab23da883b",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 407,
+          "module": "Aiur.ProgressRetention",
+          "name": "decode_entry",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 407,
+          "body_sha256": "a757fc282dc23cafd222eadd0323a2ac6f513c7dbe99e162c40b91350723dcf2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "decode_records",
+      "assessment": "Bulk decode policies differ between empty fallback, partial success and total rejection.",
+      "constraints": [
+        "TakeoverAlert.Store expects a JSON map, maps each record through decode_record and returns an empty map with a warning on top-level decode failure.",
+        "Findings decodes numbered lines and returns ordered successful records plus ordered errors in one tagged result.",
+        "RunTelemetry.Summaries maps list records but rescues decoding exceptions to invalid_records.",
+        "Preserve corrupt-versus-empty evidence and partial-record policy. None of these entry points alone proves a complete successful replay."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 229,
+          "module": "Aiur.Executor.TakeoverAlert.Store",
+          "name": "decode_records",
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "kind": "defp",
+          "end_line": 238,
+          "body_sha256": "87ebf9119d08db6a29367dcbd5238853097a64fef57d63fd2b9083eb1f28b6d5",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 185,
+          "module": "Aiur.Findings",
+          "name": "decode_records",
+          "path": "src/lib/aiur/findings.ex",
+          "kind": "defp",
+          "end_line": 196,
+          "body_sha256": "026b1d9d7acdc848b4b6dd8c8f2573a7808c85a3cf15266df6d348e17ec1f959",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 289,
+          "module": "Aiur.RunTelemetry.Summaries",
+          "name": "decode_records",
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "kind": "defp",
+          "end_line": 293,
+          "body_sha256": "0198f9a3883df124ca16a12d6529a0fc9bb385d91ffe9afc78b6e5ae603e599e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default",
+      "assessment": "Defaults belong to independent domains rather than a reusable constructor.",
+      "constraints": [
+        "Upgrade.State returns an unchecked update state with no last-check time or notice. PriceTable constructs from catalog revision and entries.",
+        "FleetFilters creates a set from default filter definitions.",
+        "Equal function names do not justify combining defaults. Validation, revisions and operator-visible filter policy remain with their owning domain."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 83,
+          "module": "Aiur.Upgrade.State",
+          "name": "default",
+          "path": "src/lib/aiur/upgrade/state.ex",
+          "kind": "def",
+          "end_line": 85,
+          "body_sha256": "3e0818521ccdbade79ff305679bb5bbc4f6f11cf57b75cd16f5658fd063ffc9d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 33,
+          "module": "Aiur.Usage.PriceTable",
+          "name": "default",
+          "path": "src/lib/aiur/usage/price_table.ex",
+          "kind": "def",
+          "end_line": 33,
+          "body_sha256": "e5b43743d3154c0c4644beba62dc069e17659ed2fac0e31122d4be0609d65ca1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 11,
+          "module": "AiurWeb.OperatorControlCenter.FleetFilters",
+          "name": "default",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+          "kind": "def",
+          "end_line": 11,
+          "body_sha256": "e6896dc5418d624e9dca820242ad993cf63aec779f7a3c1b856824e11997513f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_error",
+      "assessment": "Three CLI error sinks are exactly equivalent.",
+      "constraints": [
+        "BuildOrdersCLI, ExecutorCommandCLI and GitHubCostCLI each call IO.puts on stderr with the supplied message.",
+        "This is a direct shared-sink candidate if a CLI support module is introduced.",
+        "Message classification, exit status and redaction remain caller responsibilities; sharing the sink does not establish those policies."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 36,
+          "module": "Aiur.BuildOrdersCLI",
+          "name": "default_error",
+          "path": "src/lib/aiur/build_orders_cli.ex",
+          "kind": "defp",
+          "end_line": 36,
+          "body_sha256": "e10eee0f31907a3bc45c7cc685f2862679d884a773456acf6a731a994605cf36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 380,
+          "module": "Aiur.ExecutorCommandCLI",
+          "name": "default_error",
+          "path": "src/lib/aiur/executor_command_cli.ex",
+          "kind": "defp",
+          "end_line": 380,
+          "body_sha256": "e10eee0f31907a3bc45c7cc685f2862679d884a773456acf6a731a994605cf36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 70,
+          "module": "Aiur.GitHubCostCLI",
+          "name": "default_error",
+          "path": "src/lib/aiur/github_cost_cli.ex",
+          "kind": "defp",
+          "end_line": 70,
+          "body_sha256": "e10eee0f31907a3bc45c7cc685f2862679d884a773456acf6a731a994605cf36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_prompt_template",
+      "assessment": "Tracker prompt templates share a body with only the opening tracker description differing.",
+      "constraints": [
+        "GitHub, Linear and Memory templates all include identifier/title and a conditional issue-description body with the same missing-description fallback.",
+        "Only the introductory tracker sentence differs across the literal templates.",
+        "A shared template generator could accept a fixed tracker description while preserving exact whitespace and interpolation semantics. These defaults do not establish the effective prompt used by configured runs."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 16,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "default_prompt_template",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 30,
+          "body_sha256": "3ae2a7c4db0003481807fa2dbb52c4828e7cef0d720ac9cf3dd45e07863afda1",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 48,
+          "module": "Aiur.Linear.Tracker",
+          "name": "default_prompt_template",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "322cfaa86eefaceca336025e186cbb406c8b80e8f9c45d0ba81f5c1bf6638fe0",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 14,
+          "module": "Aiur.Memory.Tracker",
+          "name": "default_prompt_template",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "b094db3c90a22e01e2876170390ee6c4343fee3b6cd57b363c88ee1536afc88d",
+          "normalized_body_lines": 6,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "default_request",
+      "assessment": "Provider request defaults share HTTP mechanics but differ in credentials and result preservation.",
+      "constraints": [
+        "Claude.UsageApi constructs bearer/accept/beta headers, disables retry and returns Req.get directly with its configured timeout constant.",
+        "ElevenLabs.Quota uses its API-key header and configured timeout, then preserves status/body or collapses transport errors.",
+        "OpenAICompat.ProviderMeterProbe accepts URL/header input, uses a 30-second timeout, disables retry and applies the same status/body versus transport result adapter as ElevenLabs.",
+        "Share the result adapter or HTTP primitive only while preserving provider credentials, timeout and error evidence. No request was made and no current external API behavior was verified."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 188,
+          "module": "Aiur.Claude.UsageApi",
+          "name": "default_request",
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "kind": "defp",
+          "end_line": 198,
+          "body_sha256": "7b0467fa1b8f4bb67f2cb27644b7d7040ddb50c613440577bf89799d5c5c35f5",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 176,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "default_request",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 181,
+          "body_sha256": "e88cbbccdc9cb831f2c22d111208ee23d59c2f2f5a5e6505da5d76fa8008f760",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 102,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "default_request",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 107,
+          "body_sha256": "a8f6d7bef9d2b02484d1a821edc4936acc66bfa660d99d1d2bdb067bbfeb7e42",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6068,
-  "limits": "425 selected families and 6068 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6102,
+  "limits": "433 selected families and 6102 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

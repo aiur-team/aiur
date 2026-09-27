@@ -1919,3 +1919,7 @@ Read commit, complete?, completed?, complexity, configure, context, control and 
 ### Name duplication: money evidence and shared selectors
 
 Read cost, coverage_reasons, create, currency, current_identity, debug_mode?, decision_identity and decision_store: 30 literal entries across eight families. Verify shared route extractors, debug predicates, decision signatures and store selectors, including aliases and currency regex attributes. Preserve exact-money evidence, ordered coverage validation, admission semantics and subscription authority. Name triage now 425 families/6068 entries, leaving 1255 cross-module names. Raw findings and skeptic counts are unchanged; no cost measurement, currency-registry validation or authorization guarantee is claimed.
+
+### Name duplication: decoding and provider defaults
+
+Read decisions, decode_datetime, decode_entry, decode_records, default, default_error, default_prompt_template and default_request: 34 literal entries across eight families. Identify identical stderr sinks, shared tracker template bodies and provider result adapters; preserve offset validation, partial decode policy, unavailable decision evidence and credential-specific requests. Name triage now 433 families/6102 entries, leaving 1247 cross-module names. Raw findings and skeptic counts are unchanged; no complete replay, effective prompt or live provider API guarantee is claimed.
