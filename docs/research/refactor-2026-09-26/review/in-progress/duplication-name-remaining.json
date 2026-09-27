@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "2e389c78ce482cdaa869483384fa859e945030fbf8111c222cfeb50ecf456439"
+    "name_triage": "c1365c3bbcef9d912d7e7bf9b6087e9e827b9d7dac9181ba7b9ffc16ffb896ea"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 949,
-    "remaining_cross_module_names": 731,
-    "remaining_literal_entries": 2286
+    "reviewed_cross_module_names": 957,
+    "remaining_cross_module_names": 723,
+    "remaining_literal_entries": 2263
   },
   "families": [
-    {
-      "name": "fetchable_identity",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "file_digest",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "file_path",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "finalize_applied_resume",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 36
-    },
-    {
-      "name": "find_ticket_number",
-      "clauses": 6,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "finish_checkpoint",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "finish_or_continue",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 23
-    },
-    {
-      "name": "finish_reload",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
     {
       "name": "finished?",
       "clauses": 2,

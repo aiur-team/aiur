@@ -110483,10 +110483,406 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "fetchable_identity",
+      "assessment": "TicketDetail already delegates repository-scoped identity validation.",
+      "constraints": [
+        "Repository requires bounded GitHub identifier, joinable identity, github kind, valid components and a match to configured repository before returning identity plus repository.",
+        "Other shapes and failed checks become nonfetchable_repository, preserving a preexisting Failure when returned by helpers.",
+        "Keep this gate before detail fetches; literal control flow does not independently validate every helper or prove remote ticket existence."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 50,
+          "module": "Aiur.BuildOrder.TicketDetail",
+          "name": "fetchable_identity",
+          "path": "src/lib/aiur/build_order/ticket_detail.ex",
+          "kind": "def",
+          "end_line": 50,
+          "body_sha256": "422e7caceef631b5032f28422b2a13cc864a6ea17665ab419464307b443eedd9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 27,
+          "module": "Aiur.BuildOrder.TicketDetail.Repository",
+          "name": "fetchable_identity",
+          "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+          "kind": "def",
+          "end_line": 41,
+          "body_sha256": "acbc2943e713d0c96687e5a2033ef05fdc852cf70153d6a5d9c25a4df0597cdc",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 43,
+          "module": "Aiur.BuildOrder.TicketDetail.Repository",
+          "name": "fetchable_identity",
+          "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+          "kind": "def",
+          "end_line": 43,
+          "body_sha256": "030135719b50bf395c917d49c4975019646fceab94bc1207ff0f9c0163ef062d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "file_digest",
+      "assessment": "Ledger and aggregate file digest mechanics are equivalent.",
+      "constraints": [
+        "Both open binary read streams, fold SHA256 over chunks and emit lowercase hex within File.open result semantics.",
+        "Verified both chunk sizes are 64 times 1024 bytes; reducer notation differs but hash update argument order agrees.",
+        "A shared streaming hash helper is concrete. Digest equality is not proof of atomic file snapshot, trusted provenance or crash-safe migration."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 107,
+          "module": "Aiur.UsageAggregate.Paths",
+          "name": "file_digest",
+          "path": "src/lib/aiur/usage_aggregate/paths.ex",
+          "kind": "defp",
+          "end_line": 115,
+          "body_sha256": "32aaf66ee5a46d83145461a1f38f7b50c78f6b47bfc79ca89b659f0d259e6b2e",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 85,
+          "module": "Aiur.UsageLedger.Paths",
+          "name": "file_digest",
+          "path": "src/lib/aiur/usage_ledger/paths.ex",
+          "kind": "defp",
+          "end_line": 95,
+          "body_sha256": "147f9e93c479ecc59bd03456221fe50744affb07c3527d367bb1e82f3e0b8167",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "file_path",
+      "assessment": "CODEOWNERS discovery and saturation-log location resolve different resources.",
+      "constraints": [
+        "Codeowners chooses an explicit repo_root or discovered root from cwd and returns the first regular candidate path.",
+        "SaturationSentinel chooses configured nonempty log_file or default, then places saturation.log beside it.",
+        "Preserve precedence, absence and lifetime. A selected path is not proof of readability, safe symlink handling or successful log creation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 50,
+          "module": "Aiur.Codeowners",
+          "name": "file_path",
+          "path": "src/lib/aiur/codeowners.ex",
+          "kind": "def",
+          "end_line": 57,
+          "body_sha256": "8aee863802a399416aab5ba54562a5daf92adad935e6c5865d2bcf62da989479",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 63,
+          "module": "Aiur.SaturationSentinel",
+          "name": "file_path",
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "kind": "def",
+          "end_line": 71,
+          "body_sha256": "fda049e3be6dfada981165bacc2bc6536eb85c322279a641fca7d4fa76dcdc44",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "finalize_applied_resume",
+      "assessment": "PauseResume composes broader operator policy around PushRouting cleanup.",
+      "constraints": [
+        "PauseResume acts only on resume requests, invokes PushRouting finalization, resets Codex timing and conditionally duration/thrash budget for operator requests.",
+        "PushRouting distinguishes cleared dependency, correlated blocker resume with acknowledgement, generic pause-hint cleanup and absent entry.",
+        "Keep applied-resume evidence and operator-specific reset semantics separate from generic flag removal. Timer cancellation and acknowledgement durability are transitive, not proven by deleted fields."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1224,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "finalize_applied_resume",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "defp",
+          "end_line": 1233,
+          "body_sha256": "b2d9086cd02b49b719b86a36901015b1edd7c37ed2bc3e5aed6feb7a00320e60",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1235,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "finalize_applied_resume",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "defp",
+          "end_line": 1235,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 639,
+          "module": "Aiur.Orchestrator.PushRouting",
+          "name": "finalize_applied_resume",
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "kind": "def",
+          "end_line": 663,
+          "body_sha256": "6069ed1ccba2e21a652379e233b1b19f6d60e02e1f4e22a222deff298066bcbe",
+          "normalized_body_lines": 28,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "find_ticket_number",
+      "assessment": "Quota and request-log recursive ticket extraction match including numeric validation.",
+      "constraints": [
+        "Both prefer number, issue_number and pull_number direct fields with string/atom truthy fallback, then recurse into map values or list elements.",
+        "Read both valid_ticket_number helpers: positive integer or fully parsed positive integer string, otherwise nil.",
+        "Sharing is concrete. Recursive first match is a heuristic, not authenticated tracker identity or proof that nested numbers refer to the request target."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1275,
+          "module": "Aiur.GitHub.Quota",
+          "name": "find_ticket_number",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 1278,
+          "body_sha256": "86df5c458f6065e581015256178caff2f03fe7ce777e2debe7ecec2a86324e64",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1280,
+          "module": "Aiur.GitHub.Quota",
+          "name": "find_ticket_number",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 1280,
+          "body_sha256": "92d082d658888ed2ccccb640993c94c3642fefcad64c057918f1ed790a1203e1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1281,
+          "module": "Aiur.GitHub.Quota",
+          "name": "find_ticket_number",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 1281,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 301,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "find_ticket_number",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 308,
+          "body_sha256": "86df5c458f6065e581015256178caff2f03fe7ce777e2debe7ecec2a86324e64",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 310,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "find_ticket_number",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 310,
+          "body_sha256": "92d082d658888ed2ccccb640993c94c3642fefcad64c057918f1ed790a1203e1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 311,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "find_ticket_number",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 311,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "finish_checkpoint",
+      "assessment": "Membership journal cleanup and projection task completion have distinct acceptance semantics.",
+      "constraints": [
+        "Membership resets count and notifies after successful clear; on clear error it marks degraded/nonwritable, still notifies and returns accepted generation.",
+        "Projection Refresh delegates ref/generation/result to CheckpointPersistence.finish, ignores stale completion and otherwise completes it.",
+        "Preserve accepted state versus cleanup health and generation fencing. These functions alone do not establish total checkpoint durability or successful journal compaction."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 190,
+          "module": "Aiur.CurrentRunMembership.Store.Runtime",
+          "name": "finish_checkpoint",
+          "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+          "kind": "defp",
+          "end_line": 207,
+          "body_sha256": "96c402ec17df6974ed0a346f32be4970002cd440e7a130da56b1ee9e7793e340",
+          "normalized_body_lines": 25,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 55,
+          "module": "Aiur.CurrentRunProjections.Refresh",
+          "name": "finish_checkpoint",
+          "path": "src/lib/aiur/current_run_projections/refresh.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "bfad9d8cbdf11efe83b0232d0a42e250c2885b734afec6c325862194bf812ba8",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "finish_or_continue",
+      "assessment": "App-server turn settlement and compatible-provider checkpoint delivery have different completion gates.",
+      "constraints": [
+        "TurnState continues while outstanding turns remain; otherwise completes, failing pending operator requests when present.",
+        "OpenAICompat delivers a response/completed checkpoint: delivered restarts the run loop with incremented rounds, noop emits turn_completed and returns state/completion.",
+        "Keep protocol completion, queued operator work and continuation delivery separate. A similarly named finish helper does not define one universal end-of-turn condition."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 173,
+          "module": "Aiur.AppServer.TurnState",
+          "name": "finish_or_continue",
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "cc1e9df17495326791b56c0a8787c54369de9437f2ac377ef8276bb25a0824f9",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 166,
+          "module": "Aiur.OpenAICompat.CodingAgent",
+          "name": "finish_or_continue",
+          "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+          "kind": "defp",
+          "end_line": 175,
+          "body_sha256": "ffffa608aac7c830743f4c917539f8bed96b958b13a720bf575f31eddd354832",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "finish_reload",
+      "assessment": "Context selection and source refresh drain queued work differently.",
+      "constraints": [
+        "ContextRuntime clears the queued flag, scheduling another load only when queued and the selection no longer matches the finished token.",
+        "Read current_token?: only open TicketContextSelection with identical request token matches.",
+        "SourceRuntime schedules whenever queued and otherwise preserves socket. Keep selection correlation versus unconditional deferred refresh; sharing could drop or duplicate reload work."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 166,
+          "module": "AiurWeb.BuildOrder.ContextRuntime",
+          "name": "finish_reload",
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "kind": "defp",
+          "end_line": 173,
+          "body_sha256": "f4f86ff810de179c4f8bcd002b5602f22d36a45ba1b435da10b1f7e84a55e44e",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 282,
+          "module": "AiurWeb.BuildOrder.SourceRuntime",
+          "name": "finish_reload",
+          "path": "src/lib/aiur_web/build_order/source_runtime.ex",
+          "kind": "defp",
+          "end_line": 284,
+          "body_sha256": "c8b41eed0396361dcfd970bc090c5d7b468b423bcd6cc0b1a70134a1db18e999",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 286,
+          "module": "AiurWeb.BuildOrder.SourceRuntime",
+          "name": "finish_reload",
+          "path": "src/lib/aiur_web/build_order/source_runtime.ex",
+          "kind": "defp",
+          "end_line": 286,
+          "body_sha256": "276f964b448523b2127571c0da9a709d14922f5a27305e8433a4b2d69ab2e19e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7982,
-  "limits": "949 selected families and 7982 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 8005,
+  "limits": "957 selected families and 8005 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
