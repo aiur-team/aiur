@@ -830,3 +830,7 @@ Candidate31 resolved into actual port-helper order-dependence and Procfile versu
 ### Skills/prompts: browser evidence identity
 
 Candidate21 resolved into three source-level findings: PR base replaced by trunk, resumed completed scenarios not reconciled against revision changes, and listener readiness without served-target identity. No browser failure or competing-process incident claimed. Findings60 (39P2/21P3);35/42 candidates resolved,7 remain. Historical row SHAs and selective retesting remain useful; freshness needs an explicit check.
+
+### Skills/prompts: shared sweep ownership and completion
+
+Candidate40 resolved with tooling/sweep_shared_lease_probe.py against the actual frozen engine and two temporary Git clones. A remote takeover does not invalidate ownership in a stale checkout (OK versus LEASE-LOST control); wrap-up publication precedes completion and release, leaving those local changes unpublished. No external source write occurred. Findings62 (41P2/21P3);36/42 candidates resolved,6 remain. Initial probe had an incorrect assertion that empty default last_run must be serialized; removed that unrelated assumption and reran successfully.

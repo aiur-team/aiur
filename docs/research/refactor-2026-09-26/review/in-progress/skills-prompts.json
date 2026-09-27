@@ -3205,6 +3205,52 @@
       "recommendation": "Bind browser evidence to a verified target checkout/build and server instance; check startup failure and endpoint identity before accepting readiness.",
       "refactor_hint": "Represent validation scope, revision and server identity explicitly in durable evidence rather than inferring them from branch names or ports.",
       "limits": "Source-level workflow finding; no end-to-end failure or production effect claimed. Semantic dedup with existing review and script findings remains pending."
+    },
+    {
+      "id": "skills-prompts-cont-61",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Shared-branch lease refresh and ownership remain checkout-local",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-sweep/references/state-schema.md",
+          "lines": "128-152"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/SKILL.md",
+          "lines": "76-85"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/scripts/sweep-state.py",
+          "lines": "412-425"
+        }
+      ],
+      "description": "The shared-branch protocol claims a repo-wide mutex, but engine refresh and ownership checks read only the local state file. A published acquisition can expire remotely while its original writer refreshes locally; a second checkout can publish a takeover without the first checkout returning LEASE-LOST.",
+      "evidence": "tooling/sweep_shared_lease_probe.py runs the actual frozen engine in two clones of a temporary bare repository. A publishes acquisition at00:00 and refreshes locally at00:50; B reclaims the published state at01:01 and pushes successfully. At01:02 A still gets OK for a local upsert, while the same writer against B's current state gets LEASE-LOST.",
+      "recommendation": "Define the shared-state authority and renewal protocol explicitly; require source-side operations to validate an ownership generation, or limit the guarantee to per-checkout serialization.",
+      "refactor_hint": "Separate durable shared ownership and completion receipts from checkout-local bookkeeping.",
+      "limits": "This proves divergent ownership checks and unpublished renewal, not duplicate external actions. Reading before any source-side write as requiring a new push/fetch each time reduces stale-state exposure but does not make verification and the later source write atomic; no actual source write was attempted. Semantic dedup with script/state reviews pending."
+    },
+    {
+      "id": "skills-prompts-cont-62",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Sweep publishes before recording completion and releasing its lease",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-sweep/SKILL.md",
+          "lines": "157-162"
+        },
+        {
+          "path": ".claude/skills/ce-sweep/scripts/sweep-state.py",
+          "lines": "528-557"
+        }
+      ],
+      "description": "Wrap-up commits and optionally pushes state before run-record and lease-release mutate that state. A successful run therefore leaves the published snapshot holding its lease and omitting its final outcome, with the final local changes uncommitted.",
+      "evidence": "The same local two-checkout probe publishes B's final item update, then records completion and releases. Local state has no lease while origin/main retains B's lease and lacks the completed outcome; state.yml is dirty.",
+      "recommendation": "Record the completed outcome and release before the final publication, with explicit recovery semantics for a failed publication; verify the published terminal state.",
+      "refactor_hint": "Separate durable shared ownership and completion receipts from checkout-local bookkeeping.",
+      "limits": "Local Git reproduction only. A later commit may eventually carry these changes; it does not repair the current run's promised final publication or immediate shared-state visibility. Semantic dedup with script/state reviews pending."
     }
   ],
   "preserve": [
@@ -3630,7 +3676,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All 250 files read; 35/42 candidates resolved. Seven remain: attention/pause contracts, readiness delivery, capacity precedence, peer access scope and three sweep reconciliation candidates. Semantic dedup and raw-unit closure still pending.",
+  "next": "All 250 files read; 36/42 candidates resolved. Six remain: attention/pause contracts, readiness delivery, capacity precedence, peer access scope, sweep fetch/cursor completeness and sweep closure. Semantic dedup and raw-unit closure still pending.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3935,6 +3981,16 @@
       ],
       "reason": "PR scope, resumed evidence freshness and listener identity have explicit incomplete contracts.",
       "subconcerns": "Free-port scan is observation, not reservation. Framework-specific PORT handling is unverified and excluded. Historical row SHAs are useful provenance and should be preserved; not every change requires every scenario to rerun."
+    },
+    {
+      "id": "skills-prompts-candidate-40",
+      "status": "promoted",
+      "findings": [
+        "skills-prompts-cont-61",
+        "skills-prompts-cont-62"
+      ],
+      "reason": "Actual two-checkout engine probe reproduces divergent ownership and terminal-state publication gap.",
+      "subconcerns": "Advisory file locks remain useful within a checkout. No repo-wide source-write incident claimed; per-write publication interpretation and missing atomic fencing are stated explicitly."
     }
   ],
   "coverage_validation": {
@@ -3947,15 +4003,14 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 35,
-    "unresolved_candidates": 7,
+    "terminal_dispositions": 36,
+    "unresolved_candidates": 6,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
       "skills-prompts-candidate-07",
       "skills-prompts-candidate-20",
       "skills-prompts-candidate-39",
-      "skills-prompts-candidate-40",
       "skills-prompts-candidate-41"
     ],
     "note": "Partially promoted/narrowed candidates remain unresolved; finding count is not completed-unit count."
