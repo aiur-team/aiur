@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "2e1f294e159e94845b9e0656094eefa1ff64339b35dfef61f3120028e74f4430"
+    "name_triage": "ce597462fb58ccee57b30e02535a57f7c3da1bcf42a00afd36cb7524667580a6"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 981,
-    "remaining_cross_module_names": 699,
-    "remaining_literal_entries": 2180
+    "reviewed_cross_module_names": 989,
+    "remaining_cross_module_names": 691,
+    "remaining_literal_entries": 2125
   },
   "families": [
-    {
-      "name": "handle_in",
-      "clauses": 27,
-      "modules": 2,
-      "summed_source_span_lines": 164
-    },
-    {
-      "name": "handle_response",
-      "clauses": 10,
-      "modules": 2,
-      "summed_source_span_lines": 49
-    },
-    {
-      "name": "has_next?",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 3
-    },
-    {
-      "name": "header",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 26
-    },
-    {
-      "name": "headroom",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 44
-    },
-    {
-      "name": "healthy_provider",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "history_row",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 101
-    },
-    {
-      "name": "hit_rate",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
     {
       "name": "holder",
       "clauses": 4,

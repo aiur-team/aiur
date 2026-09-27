@@ -112235,10 +112235,790 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "handle_in",
+      "assessment": "Stream Deck and voice channels implement distinct inbound protocols.",
+      "constraints": [
+        "Read all 27 clauses: Streamdeck focus/unfocus stops dictation and changes relay; controls, command history/answers, authenticated messages and session-correlated voice frames each have specific guards/results.",
+        "Streamdeck voice frames cap at 65536 bytes; VoiceChannel decodes audio and accumulates a session bound, commits STT and gates one conversation TTS reply on empty STT/lease/TTS state.",
+        "Preserve correlation, explicit authorization clauses, per-frame versus session limits and commit-versus-stop behavior. Join-level authorization, validation helpers and complete rendered interaction are not certified by this callback-family read."
+      ],
+      "clauses": 27,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 45,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 56,
+          "body_sha256": "a2d6045758db2f1b4f4acb7bb2447878fda397a59dc8bbb1b14f579f909e192f",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 58,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 58,
+          "body_sha256": "b545732a5a631475d2fd340eb9b6747256bc1d38ecedfe8952c1fc62bd26eeb8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 60,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "b56e8d30568c601403f53441c7f74d0729311b90c8bd0f1c83031062b855fe58",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 78,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "6e35aa9d7f01ae9bb8d1b4ed51bcf910d01a0c8e6cca91a22ac5232490c4e739",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 107,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 113,
+          "body_sha256": "f6ffe65817752e45f0f951f7f98ee964f6f570eb6bd0ae949170198afc89e7f9",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 115,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 116,
+          "body_sha256": "1c18851a57f00a6633077b5d10851835904984e74b5bf5ff24f7661a64d147ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 121,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 122,
+          "body_sha256": "b536247847242c905ba2f0cdddfe54b9a526776f25c4d53a834c13072e07516b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 124,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 124,
+          "body_sha256": "1c18851a57f00a6633077b5d10851835904984e74b5bf5ff24f7661a64d147ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 129,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 135,
+          "body_sha256": "bbf143dcc6cc2071901013192f931e4bf2993291b49a2f01d0913fdbee4d1473",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 137,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 138,
+          "body_sha256": "44d79da8f2073adfdc741eb9f2659b21a3a2b1566d8753ef0631e451bd16a040",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 151,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 165,
+          "body_sha256": "44c86615ae363ef1e7b49350407c14ca7c419811cdb44bff240ed4b213655499",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 167,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 168,
+          "body_sha256": "f3d3fc938c0fb47fd739b4f285b14c15538b949cb3bef0b946e050eefd5b7abf",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 176,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 182,
+          "body_sha256": "c291b87dd1b5013127bf570176862ce5f4dad1deedd64942bf08800a4520f448",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 184,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 185,
+          "body_sha256": "582600b15be67bef002e8e20e0964b9755901f46b507561f18a853015acbb4c0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 187,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 187,
+          "body_sha256": "b536247847242c905ba2f0cdddfe54b9a526776f25c4d53a834c13072e07516b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 193,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 203,
+          "body_sha256": "1bad407ead9e4c2ec76d4fdad56463f94038e5aac11dc003ee9a7ff430c9e3d6",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 205,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 205,
+          "body_sha256": "c276e68ca95632fa37b5f7ff1b2ff55f24f5509837638c21a56ef90cc310cd79",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 210,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 214,
+          "body_sha256": "886df4472b13bef9d294cccbdb79b3bacad1f5684b0ab7eec33169ca0323f23e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 219,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 219,
+          "body_sha256": "815bc5eda0a42a3a110aeabf6b0945025528e0d4e9d0d97acb85259f53a0ab41",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 221,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 226,
+          "body_sha256": "4231704c16dae7bbc7500ceca7da8756204fcdb35cc846babf79404e4f5c6f95",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 230,
+          "module": "AiurWeb.StreamdeckChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "kind": "def",
+          "end_line": 230,
+          "body_sha256": "40d7e4362f2907e6efc1b3b8db02b5a0de6c9dc22396ba09911518004031f6c0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 84,
+          "module": "AiurWeb.VoiceChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/voice_channel.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "b557f96a39bda90d458300759f9e0f2f6eae1beaa422d4e2b0c0280e34079f8f",
+          "normalized_body_lines": 25,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 103,
+          "module": "AiurWeb.VoiceChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/voice_channel.ex",
+          "kind": "def",
+          "end_line": 106,
+          "body_sha256": "18821a02eb4e2f36c2ff4c5261a1df474637fddcbcff3add687378edb698b8c4",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 109,
+          "module": "AiurWeb.VoiceChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/voice_channel.ex",
+          "kind": "def",
+          "end_line": 116,
+          "body_sha256": "5c9523ffc8a8f3d98c8ff1ffa8ab671777a282ab5d1cf2a02442899c133bf561",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 118,
+          "module": "AiurWeb.VoiceChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/voice_channel.ex",
+          "kind": "def",
+          "end_line": 144,
+          "body_sha256": "7599a122fc089732551a93e4bc636a6c80384fa85a3fa80c03d3a9fdb48713b1",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 146,
+          "module": "AiurWeb.VoiceChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/voice_channel.ex",
+          "kind": "def",
+          "end_line": 149,
+          "body_sha256": "6b5c4cdc2102436a4713cf6c8a084ad9b268ed1296365eb5291f66835bcf3f09",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 151,
+          "module": "AiurWeb.VoiceChannel",
+          "name": "handle_in",
+          "path": "src/lib/aiur_web/voice_channel.ex",
+          "kind": "def",
+          "end_line": 151,
+          "body_sha256": "815bc5eda0a42a3a110aeabf6b0945025528e0d4e9d0d97acb85259f53a0ab41",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "handle_response",
+      "assessment": "App-server JSON RPC and Mint websocket upgrade responses have different framing contracts.",
+      "constraints": [
+        "RPC wrappers select notification callback and sensitive-response mode; matching ID error/result controls completion, other maps route notifications and malformed JSON resumes reading with conditional diagnostic logging.",
+        "Mint tracks matching transport ref through status/headers/done, buffers pre-upgrade data, drains pending frames after WebSocket creation and halts on transport failure.",
+        "Keep request IDs versus transport refs, diagnostic sensitivity and framing state separate. RPC decoded nonmap JSON has no matching shown branch; reachability and full deadline/framing correctness remain unverified."
+      ],
+      "clauses": 10,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 71,
+          "module": "Aiur.AppServer.Rpc",
+          "name": "handle_response",
+          "path": "src/lib/aiur/app_server/rpc.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "9cd064117102abc4512b364e92affb0089ac7178ddbb242fcff57f9c5b1555b9",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 77,
+          "module": "Aiur.AppServer.Rpc",
+          "name": "handle_response",
+          "path": "src/lib/aiur/app_server/rpc.ex",
+          "kind": "def",
+          "end_line": 79,
+          "body_sha256": "e0e41d8609c844ab3b0328fba386051d18b70c3ac742d4314979ac658dc4fa5a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 7,
+          "line": 91,
+          "module": "Aiur.AppServer.Rpc",
+          "name": "handle_response",
+          "path": "src/lib/aiur/app_server/rpc.ex",
+          "kind": "def",
+          "end_line": 114,
+          "body_sha256": "f85394cb44f116f089f3585f9b0be682761eec7308d9daeb211f8af4dbd8b732",
+          "normalized_body_lines": 51,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 102,
+          "module": "Aiur.ElevenLabs.Realtime.MintSocket",
+          "name": "handle_response",
+          "path": "src/lib/aiur/eleven_labs/realtime/mint_socket.ex",
+          "kind": "defp",
+          "end_line": 103,
+          "body_sha256": "86e62f87f8de3c0c70c6962b2bf5625e7251a846a40dfbfac65b2dd6f3bbae95",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 105,
+          "module": "Aiur.ElevenLabs.Realtime.MintSocket",
+          "name": "handle_response",
+          "path": "src/lib/aiur/eleven_labs/realtime/mint_socket.ex",
+          "kind": "defp",
+          "end_line": 106,
+          "body_sha256": "92ba60e29f6752fc8ec22d94f3bd98287a71cfe9c9b55f0ec1d382b4eca79d55",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 110,
+          "module": "Aiur.ElevenLabs.Realtime.MintSocket",
+          "name": "handle_response",
+          "path": "src/lib/aiur/eleven_labs/realtime/mint_socket.ex",
+          "kind": "defp",
+          "end_line": 119,
+          "body_sha256": "de15688cb701da66d914162d53614920b2865ebc43a50549cd6308b00e721c07",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 130,
+          "module": "Aiur.ElevenLabs.Realtime.MintSocket",
+          "name": "handle_response",
+          "path": "src/lib/aiur/eleven_labs/realtime/mint_socket.ex",
+          "kind": "defp",
+          "end_line": 131,
+          "body_sha256": "5477ebbc7e833e71036d9aed4d75be036c94b9ecda671222cab6f75b01045dbd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 133,
+          "module": "Aiur.ElevenLabs.Realtime.MintSocket",
+          "name": "handle_response",
+          "path": "src/lib/aiur/eleven_labs/realtime/mint_socket.ex",
+          "kind": "defp",
+          "end_line": 133,
+          "body_sha256": "561aae76a934477d0b55eb3b834a758d78933acf5790f2bff93a33cc82dc8898",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 135,
+          "module": "Aiur.ElevenLabs.Realtime.MintSocket",
+          "name": "handle_response",
+          "path": "src/lib/aiur/eleven_labs/realtime/mint_socket.ex",
+          "kind": "defp",
+          "end_line": 135,
+          "body_sha256": "51533813d3299a4b707c602787c2ba3c18da33ba81532cba38a8797f758366c8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 136,
+          "module": "Aiur.ElevenLabs.Realtime.MintSocket",
+          "name": "handle_response",
+          "path": "src/lib/aiur/eleven_labs/realtime/mint_socket.ex",
+          "kind": "defp",
+          "end_line": 136,
+          "body_sha256": "4218b28d2329c17379ea41710c2f0cf707268fed04dd920b28e228f8328e78b7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "has_next?",
+      "assessment": "Legacy lookahead and capped cursor scans express different continuation evidence.",
+      "constraints": [
+        "Legacy returns page_size greater than limit; Query first treats capped? true as continuation, otherwise uses the same lookahead condition.",
+        "For a capped scan, continuation does not prove a further matching decision was found.",
+        "Preserve capped scanning and last-scanned cursor semantics documented in prior families; merging to lookahead alone would lose continuation."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 80,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.LegacyPage",
+          "name": "has_next?",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/legacy_page.ex",
+          "kind": "defp",
+          "end_line": 80,
+          "body_sha256": "0085696c74b69a179c950f479b26debc7161799ebf278b4a78800d2e4643de37",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 94,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.Query",
+          "name": "has_next?",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 95,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.Query",
+          "name": "has_next?",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query.ex",
+          "kind": "defp",
+          "end_line": 95,
+          "body_sha256": "0085696c74b69a179c950f479b26debc7161799ebf278b4a78800d2e4643de37",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "header",
+      "assessment": "HTTP header lookup and transcript event-header projection are unrelated.",
+      "constraints": [
+        "Transport handles list/map headers case-insensitively, takes first wrapped value and returns nil for other input shapes.",
+        "StreamdeckLogs emits kind, badge, body, label and timestamp from an event.",
+        "Keep protocol extraction separate from display record construction; header lookup itself does not validate value type or trustworthy origin."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 798,
+          "module": "Aiur.GitHub.Transport",
+          "name": "header",
+          "path": "src/lib/aiur/github/transport.ex",
+          "kind": "def",
+          "end_line": 810,
+          "body_sha256": "b58d0743fe2b706c3049111c52c5b021332518f1c2c055cb2bfe10710cb2e8d2",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 812,
+          "module": "Aiur.GitHub.Transport",
+          "name": "header",
+          "path": "src/lib/aiur/github/transport.ex",
+          "kind": "def",
+          "end_line": 820,
+          "body_sha256": "3b59c612654dead7b73036dfdd4f9d92eb26caa666c3927e014f77386ed5dc73",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 822,
+          "module": "Aiur.GitHub.Transport",
+          "name": "header",
+          "path": "src/lib/aiur/github/transport.ex",
+          "kind": "def",
+          "end_line": 822,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 377,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "header",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 379,
+          "body_sha256": "a6d73919a9310613c32cbdf5e0992b2a694a88cbb98268a9ef8b7cc80051b19a",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "headroom",
+      "assessment": "Credential availability snapshots and CPU delta measurement are different resource models.",
+      "constraints": [
+        "CredentialSelector enumerates configured credentials, reports token presence, identity key, observed windows and last observation.",
+        "SystemCPU requires increasing total and nondecreasing idle, validates nice delta and combined idle/nice bound, then returns idle/nice/reclaimable percentages and runnable count; other cases unavailable.",
+        "Preserve credential presence versus measured remaining quota and CPU delta evidence. No credentials were read, and these outputs do not prove dispatch capacity."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 182,
+          "module": "Aiur.GitHub.CredentialSelector",
+          "name": "headroom",
+          "path": "src/lib/aiur/github/credential_selector.ex",
+          "kind": "def",
+          "end_line": 204,
+          "body_sha256": "654cf9550c6f40e7badd863dfc3063b128b51610daa34cc415f1d3873ae239d0",
+          "normalized_body_lines": 28,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 34,
+          "module": "Aiur.SystemCpu",
+          "name": "headroom",
+          "path": "src/lib/aiur/system_cpu.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "811cf64f92233ab9ebf625cda8b4fb6748c6a620c0b842c579b009f9bb17e9c1",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 55,
+          "module": "Aiur.SystemCpu",
+          "name": "headroom",
+          "path": "src/lib/aiur/system_cpu.ex",
+          "kind": "def",
+          "end_line": 55,
+          "body_sha256": "586b98f048e679a7158398a2db393f35d783902b99a8dc19edd4229efba40f14",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "healthy_provider",
+      "assessment": "Both helpers construct the same initial provider health.",
+      "constraints": [
+        "CatalogStore and GitHubGraph.Result call ProviderHealth.new with generation 1, healthy and authoritative true.",
+        "Verified both aliases resolve to Aiur.BuildOrder.ProviderHealth.",
+        "A shared constructor is concrete; constant initial health is not independently proof of fresh remote data or correct population."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 295,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "healthy_provider",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 295,
+          "body_sha256": "b692e3b1b7f3108c79bde886ebf248cc71dd3c45568309849895d770ead5a7a7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 89,
+          "module": "Aiur.BuildOrder.GitHubGraph.Result",
+          "name": "healthy_provider",
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "kind": "defp",
+          "end_line": 89,
+          "body_sha256": "b692e3b1b7f3108c79bde886ebf248cc71dd3c45568309849895d770ead5a7a7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "history_row",
+      "assessment": "Decision history rendering and history-data projection are different layers.",
+      "constraints": [
+        "Read full HEEx row: IDs/toggle, expanded accessibility state, decision choice/status/actor/time and conditional detail row with focus/delegated detail.",
+        "ControlCenterPresenter projects revision/action/provenance/delivery fields and follow-up flags with nested-map precedence.",
+        "Preserve interaction/accessibility responsibilities versus data evidence. Static template reading is not a browser test, and projection field names alone do not prove safe public values."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 107,
+          "module": "AiurWeb.OperatorControlCenter.History",
+          "name": "history_row",
+          "path": "src/lib/aiur_web/components/operator_control_center/history.ex",
+          "kind": "defp",
+          "end_line": 178,
+          "body_sha256": "66207e27a5aff73558226690b2c8dc7c25b5d1e790d1a82af4af641f8e981616",
+          "normalized_body_lines": 76,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 107,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "history_row",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "kind": "defp",
+          "end_line": 135,
+          "body_sha256": "0aa5b05b44fc97d4a4072ca379769b1fa98b609f444906bd45a71ad94486d4c5",
+          "normalized_body_lines": 36,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "hit_rate",
+      "assessment": "BudgetMap and ReadCache.Metrics share rounded hit-ratio arithmetic.",
+      "constraints": [
+        "Positive hit-plus-miss returns hit divided by total rounded to four decimals; otherwise nil.",
+        "Inputs differ: two arguments versus a counts map, with generic fallback for unmatched metrics input.",
+        "Sharing is plausible with input adaptation. Neither helper validates nonnegative counts or proves measured saving; no-traffic nil must not become zero hit rate."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 497,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "hit_rate",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "defp",
+          "end_line": 497,
+          "body_sha256": "bba9ba1650823c93a542d52c011980a82ca916652ea91804aa7eff4ae075182d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 498,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "hit_rate",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "defp",
+          "end_line": 498,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 237,
+          "module": "Aiur.GitHub.ReadCache.Metrics",
+          "name": "hit_rate",
+          "path": "src/lib/aiur/github/read_cache/metrics.ex",
+          "kind": "def",
+          "end_line": 237,
+          "body_sha256": "8f02d346b784d1a4aa3dcdd872f0dc1502045e78ab454a206234e14043543640",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 238,
+          "module": "Aiur.GitHub.ReadCache.Metrics",
+          "name": "hit_rate",
+          "path": "src/lib/aiur/github/read_cache/metrics.ex",
+          "kind": "def",
+          "end_line": 238,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 8088,
-  "limits": "981 selected families and 8088 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 8143,
+  "limits": "989 selected families and 8143 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
