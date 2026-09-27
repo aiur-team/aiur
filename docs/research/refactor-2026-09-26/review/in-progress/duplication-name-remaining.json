@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "84f55563a8766d5d25702724d50f3111318cc045566bf05d6c25d9d9942e7b19"
+    "name_triage": "ac1248d5a1ca5e23aeedc6e23bd71e198d7278360cb487a4c094cf9d2817586d"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 417,
-    "remaining_cross_module_names": 1263,
-    "remaining_literal_entries": 4230
+    "reviewed_cross_module_names": 425,
+    "remaining_cross_module_names": 1255,
+    "remaining_literal_entries": 4200
   },
   "families": [
-    {
-      "name": "cost",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 49
-    },
-    {
-      "name": "coverage_reasons",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 20
-    },
-    {
-      "name": "create",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 31
-    },
-    {
-      "name": "currency",
-      "clauses": 6,
-      "modules": 3,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "current_identity",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "debug_mode?",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "decision_identity",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "decision_store",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 3
-    },
     {
       "name": "decisions",
       "clauses": 4,

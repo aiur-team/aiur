@@ -79036,10 +79036,494 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "cost",
+      "assessment": "Cost functions separate source money construction, exact extraction and chart presentation.",
+      "constraints": [
+        "Claude.Telemetry.UsageAdapter wraps nonnil amounts with USD, major units, request delta semantics and full coverage metadata.",
+        "Headless.Claude.RequestUsage uses Adapter.exact_cost with raw/decoded inputs, producing money only on exact success and omitting absent or imprecise amounts.",
+        "Analytics.Charts filters selected actors, sorts by a chosen metric and draws bars with a minimum visual width plus cost labels.",
+        "Do not merge lossy input acceptance, exact-money provenance and display scaling. Full coverage metadata and a visible bar are not independent proof of measured cost."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 136,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter",
+          "name": "cost",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "kind": "defp",
+          "end_line": 136,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 138,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter",
+          "name": "cost",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "kind": "defp",
+          "end_line": 150,
+          "body_sha256": "3234b5b034964d9f347fac64917f25862c8720321b07f2a7b654540405fa1ac9",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 155,
+          "module": "Aiur.Usage.Headless.Claude.RequestUsage",
+          "name": "cost",
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "kind": "defp",
+          "end_line": 165,
+          "body_sha256": "1e8636c2a43691f5149895c2b04043bf178f034282a31a50a8edbf34279ab2b0",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 295,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Charts",
+          "name": "cost",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "kind": "def",
+          "end_line": 318,
+          "body_sha256": "7fae4779288d36a742ed6ca67a1e95c585d8f2ade7bb587a75aef94124aee86b",
+          "normalized_body_lines": 34,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "coverage_reasons",
+      "assessment": "Coverage reason construction and persisted validation have distinct responsibilities.",
+      "constraints": [
+        "Claude RequestUsage adds partial_update when its partial flag is set.",
+        "UsageEnvelope validates explicit reasons, adds missing trusted occurrence time and unknown account generation, then deduplicates.",
+        "UsageLedger.Record requires the stored string-reason list to equal the envelope list in order, otherwise returns invalid_ledger_delta.",
+        "Preserve implicit evidence and exact persisted representation. Replacing equality with set comparison would change this contract; producer/replay correctness remains unverified."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 186,
+          "module": "Aiur.Usage.Headless.Claude.RequestUsage",
+          "name": "coverage_reasons",
+          "path": "src/lib/aiur/usage/headless/claude/request_usage.ex",
+          "kind": "defp",
+          "end_line": 188,
+          "body_sha256": "8744d4759c5479bd17685aa83e80e36870300a7940193c4878468e2d10953221",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 560,
+          "module": "Aiur.UsageEnvelope",
+          "name": "coverage_reasons",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 569,
+          "body_sha256": "5d4a70c54d0567dcbf87784ef5739c741ded84ff33f38fe9515779a28fa2fe2a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 571,
+          "module": "Aiur.UsageEnvelope",
+          "name": "coverage_reasons",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 571,
+          "body_sha256": "acbcd72d4418d58f84a4260cb6cef91123321305d5419900cddad867c555b0b5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 145,
+          "module": "Aiur.UsageLedger.Record",
+          "name": "coverage_reasons",
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "kind": "defp",
+          "end_line": 149,
+          "body_sha256": "0c28d5f7d2c0d8ac79d68a4348fc1f14d18cad70e7808ec8aebfd12fd18fbe1e",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 151,
+          "module": "Aiur.UsageLedger.Record",
+          "name": "coverage_reasons",
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "kind": "defp",
+          "end_line": 151,
+          "body_sha256": "e7f3ec6fb9f56aaca5c1100b08a4655cf5b9436cb7bee86e96f109287ba1fe64",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "create",
+      "assessment": "Create names span durable asks, webhook admission and session token issuance.",
+      "constraints": [
+        "Asks builds an open executor-created record, validates it and appends under a store lock before returning the ask.",
+        "GithubWebhookController dispatches, records admission in connection-private state and sends the accepted 202 body; that status is not proof downstream processing finished.",
+        "StreamdeckSessionController returns an issued token and expiry on success or 401 when authentication is required.",
+        "These operations do not share a creation algorithm. Keep durable record acknowledgement, asynchronous admission and authentication distinct."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 19,
+          "module": "Aiur.Asks",
+          "name": "create",
+          "path": "src/lib/aiur/asks.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "cf6602fab22eec06828d2937a49a4460da7fb7ab8eabfc495eb28c519e232497",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 60,
+          "module": "AiurWeb.GithubWebhookController",
+          "name": "create",
+          "path": "src/lib/aiur_web/controllers/github_webhook_controller.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "1c1043f4363e3f370d94280ae3621f4f0349938c122dfb604e3fb99910541517",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 9,
+          "module": "AiurWeb.StreamdeckSessionController",
+          "name": "create",
+          "path": "src/lib/aiur_web/controllers/streamdeck_session_controller.ex",
+          "kind": "def",
+          "end_line": 14,
+          "body_sha256": "65b79e7ecc6965443ab5f50606bf3ef945b0ed10c8047877c28080a38e6defe9",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "currency",
+      "assessment": "Currency validators share a regex but retain different error and encoding checks.",
+      "constraints": [
+        "PriceTable.Validator and ExactMoney use the same checked uppercase-three-letter regex and String.valid? guard, with distinct invalid_price_currency versus invalid_currency errors.",
+        "UsageAggregate.Key embeds that same regex but does not explicitly check String.valid? and returns bare error rather than tagged reason.",
+        "The regex is a shape check, not membership in a currency registry. Its dollar anchor should not be described as a separately proven strict end-of-input validator.",
+        "Share shape validation only with deliberate encoding and error contracts. No monetary compatibility or malformed-input incidence is certified here."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 169,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "currency",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "kind": "defp",
+          "end_line": 173,
+          "body_sha256": "3375e6807f2b8ec63bf2266df5403ffa11de55357d1d43aa2c651ae471239796",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 175,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "name": "currency",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "kind": "defp",
+          "end_line": 175,
+          "body_sha256": "3387a14165897506e8726d96eb061d3f8aa873f1b7af03e021f2e56498ed7196",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 268,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "currency",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 270,
+          "body_sha256": "5b8321a2cc71810a1764fd008bea0e13880c06d04cea152d87da07c170297e73",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 272,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "currency",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 272,
+          "body_sha256": "703fe067863f696dcda9c9e4ca8e19715247f9f3c5f97bfd4931650886c31703",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 211,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "currency",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "kind": "defp",
+          "end_line": 215,
+          "body_sha256": "d5dd4faff784f903d6561d5cd4f2cea67795a31f9179bebf59d6dcf423955e16",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 217,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "currency",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "kind": "defp",
+          "end_line": 217,
+          "body_sha256": "0b9d8c603ece32a929b1fc996688b85d593edff400e107b4e7f1e03582eafc23",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "current_identity",
+      "assessment": "Two route-identity extractors are equivalent; subscription identity adds live authority.",
+      "constraints": [
+        "AnalyticsRuntime and UsageRuntime both select a TrackerIdentity from RouteState and return its github_key or nil. Their aliases were checked and resolve to the same modules.",
+        "SubscriptionAuthority instead requires the context identity to equal an expected identity and the subscriber PID to remain alive, otherwise returning remove.",
+        "Share the route extractor if useful, but do not replace subscription authorization/liveness checks with route selection. Route identity is not an access grant."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 202,
+          "module": "AiurWeb.BuildOrder.AnalyticsRuntime",
+          "name": "current_identity",
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "kind": "defp",
+          "end_line": 207,
+          "body_sha256": "5cd571eeb3b0fcbfd481aff864662fd63bee12af0c12bda8c14e3ca0e0510cf9",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 367,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "current_identity",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 372,
+          "body_sha256": "5cd571eeb3b0fcbfd481aff864662fd63bee12af0c12bda8c14e3ca0e0510cf9",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 101,
+          "module": "AiurWeb.FinancialData.SubscriptionAuthority",
+          "name": "current_identity",
+          "path": "src/lib/aiur_web/financial_data/subscription_authority.ex",
+          "kind": "defp",
+          "end_line": 106,
+          "body_sha256": "b2e82723a46c8e662fd3f3f89747c77e63b310450e0acd4f7b4247b5d4322a2b",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "debug_mode?",
+      "assessment": "Three debug-mode predicates are equivalent environment readers.",
+      "constraints": [
+        "AttachPane, PaneManager and Layout read AIUR_DEBUG, trim and lowercase binary input and accept 1/true/yes; all other inputs return false.",
+        "Only variable names and formatting differ. A shared predicate can preserve this behavior without changing textual-boolean policy.",
+        "No environment value was read during research. Call timing and any dynamic reconfiguration expectations remain outside this comparison."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 165,
+          "module": "Aiur.Opencode.Slot.AttachPane",
+          "name": "debug_mode?",
+          "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+          "kind": "def",
+          "end_line": 170,
+          "body_sha256": "d27254ec61bbe59243d7cc23cd432c29ca04da3d8b49451e74e4e1e94d2ad234",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 436,
+          "module": "Aiur.PaneManager",
+          "name": "debug_mode?",
+          "path": "src/lib/aiur/pane_manager.ex",
+          "kind": "defp",
+          "end_line": 444,
+          "body_sha256": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 240,
+          "module": "Aiur.PaneManager.Layout",
+          "name": "debug_mode?",
+          "path": "src/lib/aiur/pane_manager/layout.ex",
+          "kind": "defp",
+          "end_line": 248,
+          "body_sha256": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "decision_identity",
+      "assessment": "Three UI decision signatures are identical small helpers.",
+      "constraints": [
+        "DashboardLive, DecisionCommands and RevisionCommands return the tuple of version and active_action_id using Map.get.",
+        "This is a direct consolidation candidate, preserving nil values for missing keys.",
+        "The tuple is a local change signature, not a globally unique decision identifier or proof of durable version authority. Caller refresh and stale-form behavior remain unverified."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1061,
+          "module": "AiurWeb.DashboardLive",
+          "name": "decision_identity",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1063,
+          "body_sha256": "8b0bb33bc7b57cfb294543f526cc8b78f98e164666e1f62a8fd042be1d7040af",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 319,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "decision_identity",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "defp",
+          "end_line": 321,
+          "body_sha256": "8b0bb33bc7b57cfb294543f526cc8b78f98e164666e1f62a8fd042be1d7040af",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 238,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "decision_identity",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "defp",
+          "end_line": 240,
+          "body_sha256": "8b0bb33bc7b57cfb294543f526cc8b78f98e164666e1f62a8fd042be1d7040af",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "decision_store",
+      "assessment": "Three store selectors resolve the same endpoint override and default.",
+      "constraints": [
+        "AwaitingCommands, DecisionCommands and RevisionCommands select Endpoint.config(:decision_store) or Aiur.DecisionStore.",
+        "Endpoint and DecisionStore aliases were checked and resolve to the same modules across all three implementations.",
+        "Share the accessor while preserving its injected-store override and fallback semantics. Selecting a store does not establish its availability, writability or authorization."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 88,
+          "module": "AiurWeb.OperatorControlCenter.AwaitingCommands",
+          "name": "decision_store",
+          "path": "src/lib/aiur_web/operator_control_center/awaiting_commands.ex",
+          "kind": "defp",
+          "end_line": 88,
+          "body_sha256": "9920ee260ac66c6e0d1404e708a219abb0beb08375435fc0466a08f8ae07faef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 384,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "decision_store",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "defp",
+          "end_line": 384,
+          "body_sha256": "cad737bcac6095713d591819453e597ef434b9055e5a02b3d58660e9eed300e2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 283,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "decision_store",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "defp",
+          "end_line": 283,
+          "body_sha256": "cad737bcac6095713d591819453e597ef434b9055e5a02b3d58660e9eed300e2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6038,
-  "limits": "417 selected families and 6038 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6068,
+  "limits": "425 selected families and 6068 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

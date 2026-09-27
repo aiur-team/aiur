@@ -1206,3 +1206,7 @@ Read claim_blocker_critical_events_digest, claim_next_checkpoint_queue_item, cla
 ### Name duplication: completion and control authority
 
 Read commit, complete?, completed?, complexity, configure, context, control and control_lifecycle: 35 literal entries across eight families. Preserve persistence versus adoption, canonical completion versus progress hints, complexity ranges, webhook proof and private access context versus public content. Confirm existing control-lifecycle delegation. Name triage now 417 families/6038 entries, leaving 1263 cross-module names. Raw findings and skeptic counts are unchanged; no complete-key coverage, durable commit, authorization or applied-control guarantee is claimed.
+
+### Name duplication: money evidence and shared selectors
+
+Read cost, coverage_reasons, create, currency, current_identity, debug_mode?, decision_identity and decision_store: 30 literal entries across eight families. Verify shared route extractors, debug predicates, decision signatures and store selectors, including aliases and currency regex attributes. Preserve exact-money evidence, ordered coverage validation, admission semantics and subscription authority. Name triage now 425 families/6068 entries, leaving 1255 cross-module names. Raw findings and skeptic counts are unchanged; no cost measurement, currency-registry validation or authorization guarantee is claimed.
