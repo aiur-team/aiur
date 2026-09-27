@@ -141,5 +141,23 @@
     "Historical rework-push delivery and consumption",
     "Earlier backlog count samples and causal serialization claim"
   ],
-  "limits": "Cached research records, not fresh GitHub state. No live API, daemon, test or launcher action. All copied fields refer to public Aiur PRs. No savings or causal idle-time estimate."
+  "limits": "Cached research records, not fresh GitHub state. No live API, daemon, test or launcher action. All copied fields refer to public Aiur PRs. No savings or causal idle-time estimate.",
+  "reintegration_git_audit": {
+    "artifact": "integration-records.json",
+    "receipt_integrations": 21,
+    "receipt_prs": [
+      2643,
+      2644,
+      2645,
+      2666,
+      2669,
+      2671,
+      2673
+    ],
+    "ancestry_distinct_merge_commits": 38,
+    "assessment": "21 receipts independently resolve to two-parent merges with accepted-main second parents. Their seven terminal PR receipts reach 38 distinct main integrations committed between 2026-09-16T19:52:57Z and 2026-09-17T02:43:39Z. This supports repeated base integration, but is not the claimed complete 12-PR/27-hour census or proof of 36 Executor actions, one conflict, or avoidable effort.",
+    "receipt_discrepancy": "PR2644 main3eb receipt prior_head c1fdadb differs from actual first parent 29646bb. The reported prior remains an ancestor; do not silently relabel it as the immediate pre-merge head.",
+    "footprint_check": "All reported unchanged booleans agree with Git comparison. Only the reported PR2643 CLI documentation footprint changes during the 33fa wave. Supplied footprint completeness is not independently proved.",
+    "test_limits": "Historical test counts remain receipt reports. PR bodies explicitly preserve original mutation witness scopes and in several integrations disclaim rerunning them; integrations cannot be counted as fresh mutation-proof executions."
+  }
 }

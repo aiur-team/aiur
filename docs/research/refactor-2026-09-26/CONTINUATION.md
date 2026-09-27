@@ -966,3 +966,23 @@ of push wakes is false; historical delivery/consumption remains unproved.
 Two PR2645 body copies repeat an integration account, so file/paragraph counts
 cannot stand in for a reintegration event census. Meta-10 remains open;
 51/60 claims, 25/32 review units. No operational mutations.
+
+## Meta-10 Git integration census checkpoint
+
+Added tooling/integration_records.py and synthesis/integration-records.json.
+Twenty-one structured receipts across seven PRs resolve to distinct two-parent
+merges with second parents on frozen main. Their first-parent ancestry contains
+38 distinct accepted-main integrations in the explicit September 16–18 search
+window (actual commit timestamps September 16 19:52:57Z–September 17 02:43:39Z).
+This is a bounded sample, not the original 12-PR/27-hour census or actor proof.
+
+One receipt's reported prior differs from its merge first parent (PR2644,
+c1fdadb versus 29646bb); ancestry is valid and the mismatch remains explicit.
+Reported unchanged booleans agree with Git; the CLI page is the one changed
+reported footprint in the 33fa wave. Footprint completeness remains unproved.
+Historical test reports are not reruns or fresh mutation evidence. Repeated
+execution of the census produced identical JSON. No runtime operations.
+
+Next: finish actor/conflict/green-check evidence and earlier backlog samples,
+compare replacement-fix semantics, then close both meta-10 lenses with bounded
+claims. Coverage remains 51/60 and 25/32; all broader goal work remains active.

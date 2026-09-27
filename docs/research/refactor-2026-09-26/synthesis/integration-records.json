@@ -1,0 +1,839 @@
+{
+  "ancestry_sample": {
+    "selection_start_inclusive": "2026-09-16T00:00:00+00:00",
+    "selection_end_exclusive": "2026-09-18T00:00:00+00:00",
+    "terminal_receipt_heads": {
+      "2643": "6962e081957867a6fd5402a5deff1416531c48a6",
+      "2644": "f94102909b9dc747e846b6eb375a166720a7d646",
+      "2645": "8f6bcd4c8170c42c6bc538a4d5074a9bcf4f1c0a",
+      "2666": "83cfeaa813ad5cb4f269a15116b3a55afe8f3290",
+      "2669": "71e2bdbce844c077aa0fce77c7bd5a623e247ba9",
+      "2671": "97785deb59536fb1547286e7a185101b1ef2a6e2",
+      "2673": "ddf291429e65652d1c686de00aca9310dbd68417"
+    },
+    "unique_merge_commits": 38,
+    "earliest_committed_at": "2026-09-16T19:52:57+00:00",
+    "latest_committed_at": "2026-09-17T02:43:39+00:00",
+    "method": "First-parent two-parent merges in selected receipt ancestry whose second parent is on frozen mainline; distinct commit IDs.",
+    "limits": "Not all open PRs or later integrations. Reachability from a PR receipt is not independent proof of the PR associated with every historical commit; commit times are not measured work time.",
+    "events": [
+      {
+        "head": "047ec3a1eec194c2959607e754ccc2671c7ce3a8",
+        "git_parents": [
+          "262a8f0cca41b7f3a96fa80a3ae734f69b753078",
+          "5c701a82e909f767bd52bfeef4b3547aaab1b192"
+        ],
+        "committed_at": "2026-09-16T19:52:57+00:00",
+        "reachable_from_pr_receipts": [
+          2666
+        ]
+      },
+      {
+        "head": "1521b2a8c26d75253409ad185c9379f78aa692a1",
+        "git_parents": [
+          "2a1071ba2e690417640c8202c32f69144325e3d6",
+          "5c701a82e909f767bd52bfeef4b3547aaab1b192"
+        ],
+        "committed_at": "2026-09-16T20:21:48+00:00",
+        "reachable_from_pr_receipts": [
+          2645
+        ]
+      },
+      {
+        "head": "2919ac032df249e33a73f7f37cf97b905bba7e4b",
+        "git_parents": [
+          "4792e0defdfed85322ef78e573c119b21aa87834",
+          "5c701a82e909f767bd52bfeef4b3547aaab1b192"
+        ],
+        "committed_at": "2026-09-16T20:27:13+00:00",
+        "reachable_from_pr_receipts": [
+          2644
+        ]
+      },
+      {
+        "head": "dbb749cbad789f58f4eb8954833f78cc6d8d870c",
+        "git_parents": [
+          "3d183fc670e7dcdf6f506ca6a00d08a0379ad5fc",
+          "5c701a82e909f767bd52bfeef4b3547aaab1b192"
+        ],
+        "committed_at": "2026-09-16T20:27:13+00:00",
+        "reachable_from_pr_receipts": [
+          2643
+        ]
+      },
+      {
+        "head": "900d4c00b522098213c7e0fa7d59518f0596be96",
+        "git_parents": [
+          "9f6a2670e18ff7f6aaf25058c5d6ea788af3f48f",
+          "60b68418e9aba72b22a4ba419847359981c7e8d8"
+        ],
+        "committed_at": "2026-09-16T20:35:46+00:00",
+        "reachable_from_pr_receipts": [
+          2669
+        ]
+      },
+      {
+        "head": "4c4a16a0895984821d8f18d24424c9547bbfef53",
+        "git_parents": [
+          "1521b2a8c26d75253409ad185c9379f78aa692a1",
+          "60b68418e9aba72b22a4ba419847359981c7e8d8"
+        ],
+        "committed_at": "2026-09-16T20:39:39+00:00",
+        "reachable_from_pr_receipts": [
+          2645
+        ]
+      },
+      {
+        "head": "845f1564b118c7f51bd264de1f64b95b46e2ae64",
+        "git_parents": [
+          "842b02d426e03ddfe48507b6b09d7a5b24e8af0e",
+          "60b68418e9aba72b22a4ba419847359981c7e8d8"
+        ],
+        "committed_at": "2026-09-16T20:41:03+00:00",
+        "reachable_from_pr_receipts": [
+          2643
+        ]
+      },
+      {
+        "head": "5a873259caaea65ad96cb44959267ef928ed2c68",
+        "git_parents": [
+          "494e8af7de15c9390af7a85c3f4622150aa340c3",
+          "60b68418e9aba72b22a4ba419847359981c7e8d8"
+        ],
+        "committed_at": "2026-09-16T20:43:09+00:00",
+        "reachable_from_pr_receipts": [
+          2666
+        ]
+      },
+      {
+        "head": "dcff1c51e4be3b874c503b9b85d17a53ac7f1e23",
+        "git_parents": [
+          "e7d128d88fb88495ad9a2c6135760a72e8bfb34f",
+          "60b68418e9aba72b22a4ba419847359981c7e8d8"
+        ],
+        "committed_at": "2026-09-16T20:47:54+00:00",
+        "reachable_from_pr_receipts": [
+          2644
+        ]
+      },
+      {
+        "head": "7a72607678759bb0629217b023771598b382e809",
+        "git_parents": [
+          "20c5ea2c3bab71106322748dcccf0e5b1f777bb3",
+          "77e4408bfef626d0484394f88ed9725c7b3a70fb"
+        ],
+        "committed_at": "2026-09-16T20:57:52+00:00",
+        "reachable_from_pr_receipts": [
+          2669
+        ]
+      },
+      {
+        "head": "0eee7836280628bf9c1c5221bb660adf380f9898",
+        "git_parents": [
+          "1f9486dbdac9f40fcd382eca87e8458e24d9b4b3",
+          "77e4408bfef626d0484394f88ed9725c7b3a70fb"
+        ],
+        "committed_at": "2026-09-16T21:02:00+00:00",
+        "reachable_from_pr_receipts": [
+          2643
+        ]
+      },
+      {
+        "head": "c1fdadb3ff1f5de47553ae544472a9f1866bbdc2",
+        "git_parents": [
+          "dcff1c51e4be3b874c503b9b85d17a53ac7f1e23",
+          "77e4408bfef626d0484394f88ed9725c7b3a70fb"
+        ],
+        "committed_at": "2026-09-16T21:02:23+00:00",
+        "reachable_from_pr_receipts": [
+          2644
+        ]
+      },
+      {
+        "head": "52beb7746d6a1471c06520055242ae7b0221a002",
+        "git_parents": [
+          "4c4a16a0895984821d8f18d24424c9547bbfef53",
+          "77e4408bfef626d0484394f88ed9725c7b3a70fb"
+        ],
+        "committed_at": "2026-09-16T21:02:30+00:00",
+        "reachable_from_pr_receipts": [
+          2645
+        ]
+      },
+      {
+        "head": "ff693f22d97f93957585156398d283c584bb8a77",
+        "git_parents": [
+          "2e2acd963dd34664a600be92dd8d3c2c784cd4ec",
+          "77e4408bfef626d0484394f88ed9725c7b3a70fb"
+        ],
+        "committed_at": "2026-09-16T21:02:37+00:00",
+        "reachable_from_pr_receipts": [
+          2671
+        ]
+      },
+      {
+        "head": "bc3df98b1a9febf33ca92dcf5932b53dbd7e4f8c",
+        "git_parents": [
+          "3d9fa08be0f1e664d915e466d9a4a050d142a524",
+          "77e4408bfef626d0484394f88ed9725c7b3a70fb"
+        ],
+        "committed_at": "2026-09-16T21:05:23+00:00",
+        "reachable_from_pr_receipts": [
+          2666
+        ]
+      },
+      {
+        "head": "cb6c234a73be9adc100221889fa7dc5296b4488d",
+        "git_parents": [
+          "ff693f22d97f93957585156398d283c584bb8a77",
+          "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+        ],
+        "committed_at": "2026-09-16T21:22:01+00:00",
+        "reachable_from_pr_receipts": [
+          2671
+        ]
+      },
+      {
+        "head": "08bca45ae8fd643e83e26be196515a126b857b41",
+        "git_parents": [
+          "9c8bd75ebf2d59cd87e1263535aaad321373b9f2",
+          "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+        ],
+        "committed_at": "2026-09-16T21:22:10+00:00",
+        "reachable_from_pr_receipts": [
+          2666
+        ]
+      },
+      {
+        "head": "05bf7fb8cfa35b4602d9a9f31f1576616a369c0b",
+        "git_parents": [
+          "55429dba832aef851471894470d1167140f623a8",
+          "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+        ],
+        "committed_at": "2026-09-16T21:22:15+00:00",
+        "reachable_from_pr_receipts": [
+          2669
+        ]
+      },
+      {
+        "head": "33d686454d9b114226e428807e9257df9565dac5",
+        "git_parents": [
+          "9957686d637bf7970adfabc962e20be445ed5d74",
+          "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+        ],
+        "committed_at": "2026-09-16T21:22:19+00:00",
+        "reachable_from_pr_receipts": [
+          2643
+        ]
+      },
+      {
+        "head": "8f6bcd4c8170c42c6bc538a4d5074a9bcf4f1c0a",
+        "git_parents": [
+          "52beb7746d6a1471c06520055242ae7b0221a002",
+          "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+        ],
+        "committed_at": "2026-09-16T21:22:23+00:00",
+        "reachable_from_pr_receipts": [
+          2645
+        ]
+      },
+      {
+        "head": "20501b805a3d499b2025e81fd9f521bf151c92ed",
+        "git_parents": [
+          "29646bb563811b74956e99f9f0fb7d3bd1da6c9a",
+          "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+        ],
+        "committed_at": "2026-09-16T21:23:54+00:00",
+        "reachable_from_pr_receipts": [
+          2644
+        ]
+      },
+      {
+        "head": "a74f3a410fc3d0c932853daff221526d227927d1",
+        "git_parents": [
+          "e10c9a9ed644c44cb509a278a8d80419f30f0f08",
+          "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+        ],
+        "committed_at": "2026-09-16T21:26:03+00:00",
+        "reachable_from_pr_receipts": [
+          2673
+        ]
+      },
+      {
+        "head": "97785deb59536fb1547286e7a185101b1ef2a6e2",
+        "git_parents": [
+          "cb6c234a73be9adc100221889fa7dc5296b4488d",
+          "116198677642831defb1377ef81a19a1cdcc2725"
+        ],
+        "committed_at": "2026-09-16T21:39:53+00:00",
+        "reachable_from_pr_receipts": [
+          2671
+        ]
+      },
+      {
+        "head": "25376c56d84dcbb9014bb81f7828b207fb6ab35b",
+        "git_parents": [
+          "08bca45ae8fd643e83e26be196515a126b857b41",
+          "116198677642831defb1377ef81a19a1cdcc2725"
+        ],
+        "committed_at": "2026-09-16T21:40:50+00:00",
+        "reachable_from_pr_receipts": [
+          2666
+        ]
+      },
+      {
+        "head": "e8647901c8c1e9d8cf61e7e5c0cb2bbccc0c585a",
+        "git_parents": [
+          "05bf7fb8cfa35b4602d9a9f31f1576616a369c0b",
+          "116198677642831defb1377ef81a19a1cdcc2725"
+        ],
+        "committed_at": "2026-09-16T21:41:05+00:00",
+        "reachable_from_pr_receipts": [
+          2669
+        ]
+      },
+      {
+        "head": "604acf0cb5a89c827b66632934c2643da4a25e52",
+        "git_parents": [
+          "33d686454d9b114226e428807e9257df9565dac5",
+          "116198677642831defb1377ef81a19a1cdcc2725"
+        ],
+        "committed_at": "2026-09-16T21:41:20+00:00",
+        "reachable_from_pr_receipts": [
+          2643
+        ]
+      },
+      {
+        "head": "a9978e49529f088a96e2c2d6574c5aa02cdbfba2",
+        "git_parents": [
+          "20501b805a3d499b2025e81fd9f521bf151c92ed",
+          "116198677642831defb1377ef81a19a1cdcc2725"
+        ],
+        "committed_at": "2026-09-16T21:41:35+00:00",
+        "reachable_from_pr_receipts": [
+          2644
+        ]
+      },
+      {
+        "head": "39546960033c4314080148bf22e438ad7bbdff19",
+        "git_parents": [
+          "fba395d4a0998c63f0e19d9aa320e0b9e60d97b8",
+          "116198677642831defb1377ef81a19a1cdcc2725"
+        ],
+        "committed_at": "2026-09-16T21:45:50+00:00",
+        "reachable_from_pr_receipts": [
+          2673
+        ]
+      },
+      {
+        "head": "3d71c0ef74399f8c622cbaa8f466c705eb995ad8",
+        "git_parents": [
+          "25376c56d84dcbb9014bb81f7828b207fb6ab35b",
+          "a36dfdadf22869bd2bdee430651ac9f9821905af"
+        ],
+        "committed_at": "2026-09-16T22:02:27+00:00",
+        "reachable_from_pr_receipts": [
+          2666
+        ]
+      },
+      {
+        "head": "4440452276d60ed9af611113e3d162845e2c2987",
+        "git_parents": [
+          "e308806fc7e1011ffe46809f76835d3264571b6a",
+          "a36dfdadf22869bd2bdee430651ac9f9821905af"
+        ],
+        "committed_at": "2026-09-16T22:02:34+00:00",
+        "reachable_from_pr_receipts": [
+          2669
+        ]
+      },
+      {
+        "head": "e62d3edd16db535f53a83d3875245c30df3d0b65",
+        "git_parents": [
+          "604acf0cb5a89c827b66632934c2643da4a25e52",
+          "a36dfdadf22869bd2bdee430651ac9f9821905af"
+        ],
+        "committed_at": "2026-09-16T22:03:16+00:00",
+        "reachable_from_pr_receipts": [
+          2643
+        ]
+      },
+      {
+        "head": "120b4a6401a0f2cc1d800412252ac3c12cbf642b",
+        "git_parents": [
+          "a9978e49529f088a96e2c2d6574c5aa02cdbfba2",
+          "a36dfdadf22869bd2bdee430651ac9f9821905af"
+        ],
+        "committed_at": "2026-09-16T22:03:23+00:00",
+        "reachable_from_pr_receipts": [
+          2644
+        ]
+      },
+      {
+        "head": "59211fa19b3ae662351145b1b527856cbaee1d66",
+        "git_parents": [
+          "12436122651688fde97e3ecc3f2c7684a8c0f31f",
+          "a36dfdadf22869bd2bdee430651ac9f9821905af"
+        ],
+        "committed_at": "2026-09-16T22:03:30+00:00",
+        "reachable_from_pr_receipts": [
+          2673
+        ]
+      },
+      {
+        "head": "71e2bdbce844c077aa0fce77c7bd5a623e247ba9",
+        "git_parents": [
+          "4440452276d60ed9af611113e3d162845e2c2987",
+          "33fa9920b036de3be38292317ed1b8293ba77eef"
+        ],
+        "committed_at": "2026-09-17T02:33:15+00:00",
+        "reachable_from_pr_receipts": [
+          2669
+        ]
+      },
+      {
+        "head": "6962e081957867a6fd5402a5deff1416531c48a6",
+        "git_parents": [
+          "e62d3edd16db535f53a83d3875245c30df3d0b65",
+          "33fa9920b036de3be38292317ed1b8293ba77eef"
+        ],
+        "committed_at": "2026-09-17T02:33:17+00:00",
+        "reachable_from_pr_receipts": [
+          2643
+        ]
+      },
+      {
+        "head": "f94102909b9dc747e846b6eb375a166720a7d646",
+        "git_parents": [
+          "120b4a6401a0f2cc1d800412252ac3c12cbf642b",
+          "33fa9920b036de3be38292317ed1b8293ba77eef"
+        ],
+        "committed_at": "2026-09-17T02:33:19+00:00",
+        "reachable_from_pr_receipts": [
+          2644
+        ]
+      },
+      {
+        "head": "ddf291429e65652d1c686de00aca9310dbd68417",
+        "git_parents": [
+          "59211fa19b3ae662351145b1b527856cbaee1d66",
+          "33fa9920b036de3be38292317ed1b8293ba77eef"
+        ],
+        "committed_at": "2026-09-17T02:33:21+00:00",
+        "reachable_from_pr_receipts": [
+          2673
+        ]
+      },
+      {
+        "head": "83cfeaa813ad5cb4f269a15116b3a55afe8f3290",
+        "git_parents": [
+          "3d71c0ef74399f8c622cbaa8f466c705eb995ad8",
+          "33fa9920b036de3be38292317ed1b8293ba77eef"
+        ],
+        "committed_at": "2026-09-17T02:43:39+00:00",
+        "reachable_from_pr_receipts": [
+          2666
+        ]
+      }
+    ]
+  },
+  "claim": "meta-10",
+  "status": "bounded_verified_sample",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "method": "Explicit receipt sets, deduplicated by PR and resulting commit; Git parent, prior ancestry and frozen-mainline membership checks.",
+  "record_count": 21,
+  "unique_prs": [
+    2643,
+    2644,
+    2645,
+    2666,
+    2669,
+    2671,
+    2673
+  ],
+  "by_base": {
+    "116198677642831defb1377ef81a19a1cdcc2725": 5,
+    "33fa9920b036de3be38292317ed1b8293ba77eef": 5,
+    "3eb882c58bfcbc945a8bc4e67ebab197981eceb9": 6,
+    "a36dfdadf22869bd2bdee430651ac9f9821905af": 5
+  },
+  "prior_parent_mismatches": 1,
+  "records": [
+    {
+      "pr": 2643,
+      "head": "33d686454d9b114226e428807e9257df9565dac5",
+      "reported_prior_head": "9957686d637bf7970adfabc962e20be445ed5d74",
+      "git_parents": [
+        "9957686d637bf7970adfabc962e20be445ed5d74",
+        "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:22:19-07:00",
+      "source": "main3eb-integrations/2643-result.json",
+      "source_sha256": "80f8e9ea369d40d259b29424e37984dd28114b1d85aae3ea0961b477f7dae408",
+      "reported_footprint_files": 19,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": 123,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2644,
+      "head": "20501b805a3d499b2025e81fd9f521bf151c92ed",
+      "reported_prior_head": "c1fdadb3ff1f5de47553ae544472a9f1866bbdc2",
+      "git_parents": [
+        "29646bb563811b74956e99f9f0fb7d3bd1da6c9a",
+        "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+      ],
+      "prior_equals_first_parent": false,
+      "committed_at": "2026-09-16T14:23:54-07:00",
+      "source": "main3eb-integrations/2644-result.json",
+      "source_sha256": "c87529378cab0cc674c0179af91ac230eafe55f2e0a2c226b5de97fdba99ab62",
+      "reported_footprint_files": 0,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": null,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2645,
+      "head": "8f6bcd4c8170c42c6bc538a4d5074a9bcf4f1c0a",
+      "reported_prior_head": "52beb7746d6a1471c06520055242ae7b0221a002",
+      "git_parents": [
+        "52beb7746d6a1471c06520055242ae7b0221a002",
+        "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:22:23-07:00",
+      "source": "main3eb-integrations/2645-result.json",
+      "source_sha256": "d693714a750c05d77ec5fbb7c8a8297693323f2cfdbc63f6247a31a5731132c5",
+      "reported_footprint_files": 0,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": 118,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2666,
+      "head": "08bca45ae8fd643e83e26be196515a126b857b41",
+      "reported_prior_head": "9c8bd75ebf2d59cd87e1263535aaad321373b9f2",
+      "git_parents": [
+        "9c8bd75ebf2d59cd87e1263535aaad321373b9f2",
+        "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:22:10-07:00",
+      "source": "main3eb-integrations/2666-result.json",
+      "source_sha256": "ccc03a51045e3c6dcd440eeec96facf0b5d436df586809f0040d5eb826ebb019",
+      "reported_footprint_files": 9,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": 118,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2669,
+      "head": "05bf7fb8cfa35b4602d9a9f31f1576616a369c0b",
+      "reported_prior_head": "55429dba832aef851471894470d1167140f623a8",
+      "git_parents": [
+        "55429dba832aef851471894470d1167140f623a8",
+        "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:22:15-07:00",
+      "source": "main3eb-integrations/2669-result.json",
+      "source_sha256": "39621769d5849a7db8fc320e8de1be69e185e863a6fd0993fc12aac14c4179d5",
+      "reported_footprint_files": 5,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": 118,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2671,
+      "head": "cb6c234a73be9adc100221889fa7dc5296b4488d",
+      "reported_prior_head": "ff693f22d97f93957585156398d283c584bb8a77",
+      "git_parents": [
+        "ff693f22d97f93957585156398d283c584bb8a77",
+        "3eb882c58bfcbc945a8bc4e67ebab197981eceb9"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:22:01-07:00",
+      "source": "main3eb-integrations/2671-result.json",
+      "source_sha256": "ae08acf992ff80058f6d337376ab719e384b3aaef594c4b9c22e93ddeca16e9d",
+      "reported_footprint_files": 0,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": null,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2643,
+      "head": "604acf0cb5a89c827b66632934c2643da4a25e52",
+      "reported_prior_head": "33d686454d9b114226e428807e9257df9565dac5",
+      "git_parents": [
+        "33d686454d9b114226e428807e9257df9565dac5",
+        "116198677642831defb1377ef81a19a1cdcc2725"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:41:20-07:00",
+      "source": "main116-integrations/2643-result.json",
+      "source_sha256": "e03efadf76d8446fe7bfc5971f42832ca8babb011144583f8da7b2bc31b306ad",
+      "reported_footprint_files": 19,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": 240,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2644,
+      "head": "a9978e49529f088a96e2c2d6574c5aa02cdbfba2",
+      "reported_prior_head": "20501b805a3d499b2025e81fd9f521bf151c92ed",
+      "git_parents": [
+        "20501b805a3d499b2025e81fd9f521bf151c92ed",
+        "116198677642831defb1377ef81a19a1cdcc2725"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:41:35-07:00",
+      "source": "main116-integrations/2644-result.json",
+      "source_sha256": "97ef3d9b7c7c88144a1235e55c2ccac8e2e91e0ed71c0f0c99453edb436ca527",
+      "reported_footprint_files": 4,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": 240,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2666,
+      "head": "25376c56d84dcbb9014bb81f7828b207fb6ab35b",
+      "reported_prior_head": "08bca45ae8fd643e83e26be196515a126b857b41",
+      "git_parents": [
+        "08bca45ae8fd643e83e26be196515a126b857b41",
+        "116198677642831defb1377ef81a19a1cdcc2725"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:40:50-07:00",
+      "source": "main116-integrations/2666-result.json",
+      "source_sha256": "ff815f06102715da564cb67c519700260810a653720a173077d3bf89b09c7852",
+      "reported_footprint_files": 9,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": 240,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2669,
+      "head": "e8647901c8c1e9d8cf61e7e5c0cb2bbccc0c585a",
+      "reported_prior_head": "05bf7fb8cfa35b4602d9a9f31f1576616a369c0b",
+      "git_parents": [
+        "05bf7fb8cfa35b4602d9a9f31f1576616a369c0b",
+        "116198677642831defb1377ef81a19a1cdcc2725"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:41:05-07:00",
+      "source": "main116-integrations/2669-result.json",
+      "source_sha256": "fa69b31145dc56a68b638687799bab2d3d63fdfbaf48925dcd54bcfc83543bc5",
+      "reported_footprint_files": 5,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": 240,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2671,
+      "head": "97785deb59536fb1547286e7a185101b1ef2a6e2",
+      "reported_prior_head": "cb6c234a73be9adc100221889fa7dc5296b4488d",
+      "git_parents": [
+        "cb6c234a73be9adc100221889fa7dc5296b4488d",
+        "116198677642831defb1377ef81a19a1cdcc2725"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T14:39:53-07:00",
+      "source": "main116-integrations/2671-result.json",
+      "source_sha256": "f6109cd868113538f78a1ec2f255c66c2e60e08e916ed7d00330c88f1544972f",
+      "reported_footprint_files": 0,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": null,
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2666,
+      "head": "3d71c0ef74399f8c622cbaa8f466c705eb995ad8",
+      "reported_prior_head": "25376c56d84dcbb9014bb81f7828b207fb6ab35b",
+      "git_parents": [
+        "25376c56d84dcbb9014bb81f7828b207fb6ab35b",
+        "a36dfdadf22869bd2bdee430651ac9f9821905af"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T15:02:27-07:00",
+      "source": "20260916-main-a36-integrations/results.json",
+      "source_sha256": "74afb5f0373456fccba7ca3518ea42629b31476838f753b15b723097f28d3c51",
+      "reported_footprint_files": 9,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": "PASS",
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2669,
+      "head": "4440452276d60ed9af611113e3d162845e2c2987",
+      "reported_prior_head": "e308806fc7e1011ffe46809f76835d3264571b6a",
+      "git_parents": [
+        "e308806fc7e1011ffe46809f76835d3264571b6a",
+        "a36dfdadf22869bd2bdee430651ac9f9821905af"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T15:02:34-07:00",
+      "source": "20260916-main-a36-integrations/results.json",
+      "source_sha256": "74afb5f0373456fccba7ca3518ea42629b31476838f753b15b723097f28d3c51",
+      "reported_footprint_files": 5,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": "PASS",
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2643,
+      "head": "e62d3edd16db535f53a83d3875245c30df3d0b65",
+      "reported_prior_head": "604acf0cb5a89c827b66632934c2643da4a25e52",
+      "git_parents": [
+        "604acf0cb5a89c827b66632934c2643da4a25e52",
+        "a36dfdadf22869bd2bdee430651ac9f9821905af"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T15:03:16-07:00",
+      "source": "20260916-main-a36-integrations/results.json",
+      "source_sha256": "74afb5f0373456fccba7ca3518ea42629b31476838f753b15b723097f28d3c51",
+      "reported_footprint_files": 19,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": "PASS",
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2644,
+      "head": "120b4a6401a0f2cc1d800412252ac3c12cbf642b",
+      "reported_prior_head": "a9978e49529f088a96e2c2d6574c5aa02cdbfba2",
+      "git_parents": [
+        "a9978e49529f088a96e2c2d6574c5aa02cdbfba2",
+        "a36dfdadf22869bd2bdee430651ac9f9821905af"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T15:03:23-07:00",
+      "source": "20260916-main-a36-integrations/results.json",
+      "source_sha256": "74afb5f0373456fccba7ca3518ea42629b31476838f753b15b723097f28d3c51",
+      "reported_footprint_files": 4,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": "PASS",
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2673,
+      "head": "59211fa19b3ae662351145b1b527856cbaee1d66",
+      "reported_prior_head": "12436122651688fde97e3ecc3f2c7684a8c0f31f",
+      "git_parents": [
+        "12436122651688fde97e3ecc3f2c7684a8c0f31f",
+        "a36dfdadf22869bd2bdee430651ac9f9821905af"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T15:03:30-07:00",
+      "source": "20260916-main-a36-integrations/results.json",
+      "source_sha256": "74afb5f0373456fccba7ca3518ea42629b31476838f753b15b723097f28d3c51",
+      "reported_footprint_files": 11,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": "PASS",
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2669,
+      "head": "71e2bdbce844c077aa0fce77c7bd5a623e247ba9",
+      "reported_prior_head": "4440452276d60ed9af611113e3d162845e2c2987",
+      "git_parents": [
+        "4440452276d60ed9af611113e3d162845e2c2987",
+        "33fa9920b036de3be38292317ed1b8293ba77eef"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T19:33:15-07:00",
+      "source": "20260917-main-33fa-integrations/results.json",
+      "source_sha256": "57a9d48add807cc109a8eb86a15b2361324214a26322fd5e44c4eb7d629186ae",
+      "reported_footprint_files": 5,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": [
+        "278 tests, 0 failures"
+      ],
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2643,
+      "head": "6962e081957867a6fd5402a5deff1416531c48a6",
+      "reported_prior_head": "e62d3edd16db535f53a83d3875245c30df3d0b65",
+      "git_parents": [
+        "e62d3edd16db535f53a83d3875245c30df3d0b65",
+        "33fa9920b036de3be38292317ed1b8293ba77eef"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T19:33:17-07:00",
+      "source": "20260917-main-33fa-integrations/results.json",
+      "source_sha256": "57a9d48add807cc109a8eb86a15b2361324214a26322fd5e44c4eb7d629186ae",
+      "reported_footprint_files": 19,
+      "changed_within_reported_footprint": [
+        "website/docs-app/reference/cli.md"
+      ],
+      "reported_test_result": [
+        "340 tests, 0 failures"
+      ],
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2644,
+      "head": "f94102909b9dc747e846b6eb375a166720a7d646",
+      "reported_prior_head": "120b4a6401a0f2cc1d800412252ac3c12cbf642b",
+      "git_parents": [
+        "120b4a6401a0f2cc1d800412252ac3c12cbf642b",
+        "33fa9920b036de3be38292317ed1b8293ba77eef"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T19:33:19-07:00",
+      "source": "20260917-main-33fa-integrations/results.json",
+      "source_sha256": "57a9d48add807cc109a8eb86a15b2361324214a26322fd5e44c4eb7d629186ae",
+      "reported_footprint_files": 4,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": [
+        "252 tests, 0 failures"
+      ],
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2673,
+      "head": "ddf291429e65652d1c686de00aca9310dbd68417",
+      "reported_prior_head": "59211fa19b3ae662351145b1b527856cbaee1d66",
+      "git_parents": [
+        "59211fa19b3ae662351145b1b527856cbaee1d66",
+        "33fa9920b036de3be38292317ed1b8293ba77eef"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T19:33:21-07:00",
+      "source": "20260917-main-33fa-integrations/results.json",
+      "source_sha256": "57a9d48add807cc109a8eb86a15b2361324214a26322fd5e44c4eb7d629186ae",
+      "reported_footprint_files": 11,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": [
+        "343 tests, 0 failures"
+      ],
+      "reported_unchanged_disagreements": []
+    },
+    {
+      "pr": 2666,
+      "head": "83cfeaa813ad5cb4f269a15116b3a55afe8f3290",
+      "reported_prior_head": "3d71c0ef74399f8c622cbaa8f466c705eb995ad8",
+      "git_parents": [
+        "3d71c0ef74399f8c622cbaa8f466c705eb995ad8",
+        "33fa9920b036de3be38292317ed1b8293ba77eef"
+      ],
+      "prior_equals_first_parent": true,
+      "committed_at": "2026-09-16T19:43:39-07:00",
+      "source": "20260917-2666-main-33fa/results.json",
+      "source_sha256": "0e251293ea80d4d1fff77e3628fc3b4cbd774cdc5bd4995728967c968cd1ff4d",
+      "reported_footprint_files": 9,
+      "changed_within_reported_footprint": [],
+      "reported_test_result": [
+        "284 tests, 0 failures"
+      ],
+      "reported_unchanged_disagreements": []
+    }
+  ],
+  "limits": [
+    "Selected receipt sets are not a complete census of the claimed 27-hour window.",
+    "Git confirms merge structure, not operator identity, conflict incidence, necessity of each integration, elapsed effort or causality of the merge gap.",
+    "Test results are historical receipt claims, not rerun or independently verified by this tool; test counts are not fresh mutation-proof counts.",
+    "Footprint lists are receipt-supplied; checking them does not establish completeness of each PR footprint or behavioral equivalence.",
+    "No inference from missing receipts to missing events; no claimed savings."
+  ]
+}
