@@ -15,15 +15,13 @@ defmodule Aiur.CodingAgent do
 
   alias Aiur.CodingAgent.ModelLabel
   alias Aiur.CodingAgent.Models
+  alias Aiur.CodingAgent.Registry
   alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
   alias Aiur.ModelAvailability
-  alias Aiur.ModelCatalog
   alias Aiur.ModelDiscovery
-  alias Aiur.ProviderMeterProbe
-  alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Usage.PriceTable.Data
   alias Aiur.Usage.PriceTable.Window
 
@@ -69,8 +67,8 @@ defmodule Aiur.CodingAgent do
   Registry of supported coding-agent backends. Each entry carries the
   modules, delivery-policy defaults, the model variants worth seeding as
   `model:<backend>-<variant>` override labels, and the backend's valid
-  reasoning-`efforts` (used by per-complexity routing). Adding a backend
-  means adding one entry here.
+  reasoning-`efforts` (used by per-complexity routing). Definitions live in
+  provider-owned modules assembled by `Aiur.CodingAgent.Registry`.
 
   Effort sets are backend-native and verified against the installed CLIs:
   codex maps to `model_reasoning_effort`; the interactive Claude REPL maps
@@ -79,242 +77,7 @@ defmodule Aiur.CodingAgent do
   option, so it intentionally has no effort vocabulary.
   """
   @spec backends() :: %{backend() => Aiur.CodingAgent.Backend.capabilities()}
-  def backends do
-    %{
-      "codex" => %{
-        adapter: Aiur.Codex.CodingAgent,
-        transcript: Aiur.Codex.Transcript,
-        family: "codex",
-        default: true,
-        rate_limit_fallback: "claude",
-        rate_limit_fallback_target: false,
-        skill_install: %{path: ".codex/skills", link_to: ".claude/skills"},
-        configurable: true,
-        init_order: 1,
-        default_command: "codex app-server",
-        model_catalog: &ModelCatalog.extract_codex/1,
-        can_interrupt: true,
-        safe_checkpoints: [:notification, :tool_result],
-        control_application_confirmation: :confirmed,
-        remote_control: false,
-        # The codex app-server can rejoin a prior thread across an aiur restart
-        # via `thread/resume` against its on-disk rollout, so a respawned
-        # session continues rather than cold-starting (issue #378).
-        resumable: true,
-        models: [
-          "gpt-5.6-sol",
-          "gpt-5.6-terra",
-          "gpt-5.6-luna",
-          "gpt-5.5",
-          "gpt-5.4",
-          "gpt-5.5-mini",
-          "gpt-5.4-mini"
-        ],
-        # codex has no generic model alias of its own, so aiur derives one per
-        # family from the ids above and resolves it to the newest member (see
-        # `resolve_model/2`). `codex:sol` therefore keeps following the latest
-        # `*-sol` release instead of naming a version that will be retired.
-        model_aliases: :derived,
-        efforts: ["none", "low", "medium", "high", "xhigh", "max"],
-        # Provider-level presentation descriptor, keyed by family, used by every
-        # dashboard/strip surface so a new backend renders from its registry
-        # entry rather than a per-provider `case`. `order` fixes card ordering.
-        presentation: %{
-          order: 0,
-          label: "Codex",
-          logo: "/provider-assets/codex-color.svg",
-          token_icon: "/provider-assets/claude-token.svg",
-          css_class: "is-codex",
-          command_color: "#8fbcff",
-          command_border: "rgba(143, 188, 255, 0.4)",
-          unit_color: "#8fbcff",
-          unit_border: "rgba(143, 188, 255, 0.4)",
-          unit_background: "rgba(143, 188, 255, 0.12)"
-        },
-        pricing: %{
-          dimensions: %{
-            context_tier: %{allowed: [:short_context, :long_context], default: nil, required: true},
-            cache_write_duration: %{allowed: [:not_applicable], default: :not_applicable, required: false}
-          },
-          component_dimensions: %{
-            default: %{context_tier: [:short_context, :long_context], cache_write_duration: [:not_applicable]}
-          }
-        },
-        usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
-        meter_probe: &ProviderMeterProbe.probe_session/3,
-        run_telemetry: &Lifecycle.decode_codex_operation/1,
-        account_generation: %{
-          backends: [:app_server],
-          trusted_sources: [:codex_app_server],
-          auth_modes: ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
-        }
-      },
-      "claude" => %{
-        adapter: Aiur.Claude.CodingAgent,
-        transcript: Aiur.Claude.Transcript,
-        family: "claude",
-        config_default: true,
-        rate_limit_fallback_target: true,
-        skill_install: %{path: ".claude/skills"},
-        configurable: true,
-        init_order: 0,
-        default_command: "aiur-claude",
-        model_catalog: &ModelCatalog.extract_claude/1,
-        install_hint: "install it with: npm install -g aiur-claude",
-        can_interrupt: true,
-        safe_checkpoints: [:notification],
-        control_application_confirmation: :confirmed,
-        remote_control: true,
-        # Remote control physically runs on the persistent-REPL transport,
-        # so an RC-promoted claude issue dispatches claude-repl (carrying
-        # the resolved model). Declared here so dispatch code never
-        # hard-codes the swap.
-        remote_transport: "claude-repl",
-        # The headless `bash -c` wrapper does not exec; report its os pid so
-        # brutal-kill teardown can tree-reap the reparented claude/node children.
-        runtime_report: :headless_wrapper,
-        # Headless claude runs through the external `aiur-claude` app-server,
-        # whose thread map is in-memory only (lost on restart) and whose
-        # `thread/start` exposes no way to seed a prior session id. aiur can't
-        # inject a disk `--resume` without an app-server protocol change, so the
-        # headless backend stays a clean start. Resume on the REPL transport
-        # (`claude-repl`), which drives the `claude` CLI directly, instead.
-        resumable: false,
-        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
-        # `claude --model` resolves `opus`/`sonnet`/`haiku` to the newest
-        # version in that family itself, so the generic tags above are passed
-        # through untouched rather than pinned to a version aiur happens to
-        # know about.
-        model_aliases: :native,
-        efforts: [],
-        presentation: %{
-          order: 1,
-          label: "Claude",
-          logo: "/provider-assets/claude-symbol.svg",
-          token_icon: "/provider-assets/codex-token.svg",
-          css_class: "is-claude",
-          command_color: "#f2a76b",
-          command_border: "rgba(242, 167, 107, 0.4)",
-          unit_color: "#f0a878",
-          unit_border: "rgba(240, 168, 120, 0.4)",
-          unit_background: "rgba(240, 168, 120, 0.12)"
-        },
-        pricing: %{
-          dimensions: %{
-            context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
-            cache_write_duration: %{allowed: [:five_minutes, :one_hour, :not_applicable], default: nil, required: true}
-          },
-          component_dimensions: %{
-            default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]},
-            cache_creation_input: %{context_tier: [:not_applicable], cache_write_duration: [:five_minutes, :one_hour]}
-          }
-        },
-        usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
-        meter_probe: &ProviderMeterProbe.probe_usage_api/3,
-        run_telemetry: &Lifecycle.decode_claude_operation/1,
-        account_generation: %{
-          backends: [:app_server],
-          trusted_sources: [:claude_app_server],
-          auth_modes: ~w(subscription api_key)
-        }
-      },
-      "claude-repl" => %{
-        adapter: Aiur.Claude.ReplAgent,
-        transcript: Aiur.Claude.Transcript,
-        family: "claude",
-        # A persistent REPL carries the primary session handle. It must never
-        # be selected as a usage-limit replacement for a different session.
-        rate_limit_fallback_target: false,
-        # The REPL is launched by its adapter rather than the init wizard, but
-        # rate-limit fallback still needs a registry-owned readiness command.
-        default_command: "claude",
-        model_catalog: &ModelCatalog.extract_claude/1,
-        model_catalog_backend: "claude",
-        # Executor messages are typed straight into the live pane and the
-        # agent's native input queue folds them in, so there is no
-        # checkpoint to hold at — `safe_checkpoints` stays empty and
-        # delivery is immediate. Interrupt is the explicit out-of-band
-        # action: `ReplAgent.interrupt/1` sends Ctrl+C to the pane, cutting
-        # the active turn so a queued message drains right away.
-        can_interrupt: true,
-        safe_checkpoints: [],
-        immediate_delivery: true,
-        control_application_confirmation: :confirmed,
-        remote_control: true,
-        # A tmux/RC start failure must never strand an issue: a failed
-        # claude-repl spawn falls back once to the headless claude
-        # backend. Declared here so the fallback never lives in a
-        # dispatch `case`.
-        fallback_backend: "claude",
-        run_telemetry: &Lifecycle.decode_claude_operation/1,
-        # Only the hook-driven RC REPL needs the pane display tailer; every
-        # other backend streams its own rich transcript.
-        rc_display_tail: true,
-        # The persistent pane + REPL os pid are what an abort path must reap.
-        runtime_report: :repl_pane,
-        # The REPL spawns the `claude` CLI directly, so a respawn after an aiur
-        # restart can `--resume <session-id>` against the on-disk transcript
-        # jsonl (the session id is the transcript filename). The runner injects
-        # the persisted handle's id and `ReplAgent` degrades to a clean start
-        # when that transcript is gone (issue #613, follow-up to #378).
-        resumable: true,
-        models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
-        model_aliases: :native,
-        efforts: ["low", "medium", "high", "xhigh", "max"]
-      }
-    }
-    |> Map.merge(Aiur.OpenAICompat.Registry.entries())
-    |> maybe_add_test_backend()
-  end
-
-  # Acceptance fixture for registry consumers. It intentionally lives only in
-  # the test build and is added exactly like a production provider: no caller
-  # receives a fake-specific branch or fixture hook.
-  if Mix.env() == :test do
-    defp maybe_add_test_backend(backends) do
-      Map.put(backends, "fake", %{
-        adapter: Aiur.Codex.CodingAgent,
-        transcript: Aiur.Codex.Transcript,
-        family: "fake",
-        skill_install: %{path: ".fake/skills"},
-        rate_limit_fallback_target: true,
-        configurable: true,
-        init_order: 99,
-        default_command: "fake-agent --serve",
-        models: ["fake-1"],
-        model_aliases: :native,
-        efforts: [],
-        can_interrupt: false,
-        safe_checkpoints: [],
-        control_application_confirmation: :confirmed,
-        remote_control: false,
-        resumable: false,
-        presentation: %{
-          order: 99,
-          label: "Fake",
-          logo: "/provider-assets/codex-color.svg",
-          token_icon: "/provider-assets/codex-token.svg",
-          css_class: "is-fake",
-          command_color: "#8fbcff",
-          command_border: "rgba(143, 188, 255, 0.4)",
-          unit_color: "#8fbcff",
-          unit_border: "rgba(143, 188, 255, 0.4)",
-          unit_background: "rgba(143, 188, 255, 0.12)"
-        },
-        pricing: %{
-          dimensions: %{
-            context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
-            cache_write_duration: %{allowed: [:not_applicable], default: :not_applicable, required: false}
-          },
-          component_dimensions: %{default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}}
-        },
-        usage: %{adapters: [Aiur.Usage.Headless.Fake.RequestUsage]},
-        account_generation: %{backends: [:app_server], trusted_sources: [:fake_app_server], auth_modes: ["fake"]}
-      })
-    end
-  else
-    defp maybe_add_test_backend(backends), do: backends
-  end
+  def backends, do: Registry.entries()
 
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
