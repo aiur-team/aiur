@@ -1102,3 +1102,7 @@ Read fresh?, handle_event, health_label and icon: 157 literal entries across fou
 ### Name duplication: identity and label evidence
 
 Read identifier, identity_label, install, label, label_names and labels: 50 literal entries across six families. Identify repeated ticket display, source extraction and string-list validation while preserving installation error policy, normalization, missing labels and connection completeness. PlanningSource live/pack helpers expose a fallback whose output alone does not establish live label authority. Name triage now 244 families/4989 entries, leaving 1436 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
+
+### Name duplication: loading and member populations
+
+Read load_regular, mark, matches?, member and members: 31 literal entries across five families. A common JSON loading pipeline is a sharing candidate with explicit decoder/error policies. Preserve marker ownership, matching populations, identity precedence, malformed-member evidence and dependency scope. Name triage now 249 families/5020 entries, leaving 1431 cross-module names. Raw findings and skeptic counts are unchanged; concurrency failures, omitted-dependency defects and savings remain unclaimed.
