@@ -1831,3 +1831,7 @@ Read safe, safely, sample, save and section_value: 31 literal entries across fiv
 ### Name duplication: stale state and conversion policies
 
 Read settings, stale?, stop, stringify_keys and summary: 38 literal entries across five families. Preserve publication-aware configuration, unknown-age semantics, shutdown acknowledgment, key/value conversion depth and summary population authority. A false stale predicate need not mean observed freshness; a stop request need not prove termination. Name triage now 271 families/5181 entries, leaving 1409 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
+
+### Name duplication: admission and shared delegation
+
+Read toggle, transport, valid?, acquire, adjust_max_concurrent_agents and admit: 35 literal entries across six families. Identify equivalent set toggles and existing transport/capacity delegation while preserving validation scope, resource ownership and admission failure policies. Name triage now 277 families/5216 entries, leaving 1403 cross-module names. Raw findings and skeptic counts are unchanged; no runtime control completion, exclusivity or saving is claimed.

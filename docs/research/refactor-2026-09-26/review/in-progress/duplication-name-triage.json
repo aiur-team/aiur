@@ -66456,10 +66456,522 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "toggle",
+      "assessment": "Two set toggles are equivalent while UI toggles carry distinct navigation behavior.",
+      "constraints": [
+        "Init.Prompt and AnalyticsLive both remove an existing MapSet value or insert an absent one, differing only in argument names.",
+        "FleetFilters normalizes filter input, distinguishes all from individual filters and preserves the input set for unknown filters. History toggles patch routes and restore focus when collapsing.",
+        "NavState toggles a socket assign through its collapsed predicate. Generic set mechanics may be shared without absorbing filter vocabulary, routing or accessibility focus contracts."
+      ],
+      "clauses": 6,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 285,
+          "module": "Aiur.Init.Prompt",
+          "name": "toggle",
+          "path": "src/lib/aiur/init/prompt.ex",
+          "kind": "defp",
+          "end_line": 287,
+          "body_sha256": "4d854269211dcba5e57a29aa125db3b7e85f34e66b983106554f1fba7d0d6055",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 17,
+          "module": "AiurWeb.OperatorControlCenter.FleetFilters",
+          "name": "toggle",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+          "kind": "def",
+          "end_line": 23,
+          "body_sha256": "a1289fa83a4576150192fb6b4fc5f98d0942c58a7a78f9cf1994cfda85bb2d54",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 184,
+          "module": "AiurWeb.OperatorControlCenter.History",
+          "name": "toggle",
+          "path": "src/lib/aiur_web/components/operator_control_center/history.ex",
+          "kind": "defp",
+          "end_line": 186,
+          "body_sha256": "152619fc94664fdb416d1d8d79a9333b29971a98f5f090bbaa98d57ee2f42623",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 188,
+          "module": "AiurWeb.OperatorControlCenter.History",
+          "name": "toggle",
+          "path": "src/lib/aiur_web/components/operator_control_center/history.ex",
+          "kind": "defp",
+          "end_line": 190,
+          "body_sha256": "2d8a341ab02a5765d6691593331c81bc53d9c522f75b79998ea13a5569beacc1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 690,
+          "module": "AiurWeb.AnalyticsLive",
+          "name": "toggle",
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "kind": "defp",
+          "end_line": 692,
+          "body_sha256": "1cffd60d4465b35a02acb6362de5cbec75f70d14ec38879cea11921f108499e7",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "AiurWeb.OperatorControlCenter.NavState",
+          "name": "toggle",
+          "path": "src/lib/aiur_web/operator_control_center/nav_state.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "37d4a4b660f6a333f2e1c373ddb04ed73887cf266041470fc23080c6a8befbc1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "transport",
+      "assessment": "Webhook transport selection already converges on one state mapping.",
+      "constraints": [
+        "DeliveryMode maps webhook_backed to webhook and every other DeliveryMode struct to polling. Webhooks and ModeRegistry obtain modes through their own access paths and delegate this mapping.",
+        "ModeTable reads normalized repository entries from ETS and falls back to polling for absent entries/table access. ReadCache.Policy derives repository identity and also defaults missing identity to polling.",
+        "Preserve the conservative fallback and distinctions between owner, cached and request-derived mode access. These wrappers show existing centralization rather than five independent transport policies; freshness and mode transitions require separate review."
+      ],
+      "clauses": 6,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 532,
+          "module": "Aiur.GitHub.ReadCache.Policy",
+          "name": "transport",
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "kind": "defp",
+          "end_line": 537,
+          "body_sha256": "0cdac8cc9b0734a95c74286ff090210512083009fd11f35faac14b08edb4ba22",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 66,
+          "module": "Aiur.Webhooks",
+          "name": "transport",
+          "path": "src/lib/aiur/webhooks.ex",
+          "kind": "def",
+          "end_line": 68,
+          "body_sha256": "300f211bdcb27b4e8f1808e31cb0f736bb365188670a87366aeb775da8b62775",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 247,
+          "module": "Aiur.Webhooks.DeliveryMode",
+          "name": "transport",
+          "path": "src/lib/aiur/webhooks/delivery_mode.ex",
+          "kind": "def",
+          "end_line": 247,
+          "body_sha256": "a1916fd3fa099841feb3c89513f07f19fe8921f8206c6e66f4b4c816a1d5bea8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 248,
+          "module": "Aiur.Webhooks.DeliveryMode",
+          "name": "transport",
+          "path": "src/lib/aiur/webhooks/delivery_mode.ex",
+          "kind": "def",
+          "end_line": 248,
+          "body_sha256": "27b4f7f43317940e878726ac0bbb327dbe2f14396e86014955da9f26e4b0181d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 145,
+          "module": "Aiur.Webhooks.ModeRegistry",
+          "name": "transport",
+          "path": "src/lib/aiur/webhooks/mode_registry.ex",
+          "kind": "def",
+          "end_line": 147,
+          "body_sha256": "19a7b2e7aba615d3a7f41abd79a3298f9cc58eeee55d3557b6750fb394f4a241",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 68,
+          "module": "Aiur.Webhooks.ModeTable",
+          "name": "transport",
+          "path": "src/lib/aiur/webhooks/mode_table.ex",
+          "kind": "def",
+          "end_line": 75,
+          "body_sha256": "310431d4d643a7feee9a390a0594bd7455e033303d2ea6901dd6144da8168faa",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "valid?",
+      "assessment": "Validity predicates establish different kinds of evidence.",
+      "constraints": [
+        "Lifecycle accepts only defined open/closed state-reason combinations. RootSummary considers an empty diagnostics list valid.",
+        "CurrentRunMembership.Event rebuilds through its constructor and compares checksum, rejecting non-events. Opencode.TokenRegistry checks membership in its ETS table after ensuring the table.",
+        "SupervisorToken checks minimum bytes, surrounding whitespace and a bearer regex. Structural consistency, registry membership and credential syntax are distinct contracts; no common valid predicate proves authorization or freshness across these domains."
+      ],
+      "clauses": 9,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 79,
+          "module": "Aiur.BuildOrder.Lifecycle",
+          "name": "valid?",
+          "path": "src/lib/aiur/build_order/lifecycle.ex",
+          "kind": "def",
+          "end_line": 80,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 82,
+          "module": "Aiur.BuildOrder.Lifecycle",
+          "name": "valid?",
+          "path": "src/lib/aiur/build_order/lifecycle.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 86,
+          "module": "Aiur.BuildOrder.Lifecycle",
+          "name": "valid?",
+          "path": "src/lib/aiur/build_order/lifecycle.ex",
+          "kind": "def",
+          "end_line": 86,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 98,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "valid?",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 99,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "valid?",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "def",
+          "end_line": 99,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "Aiur.CurrentRunMembership.Event",
+          "name": "valid?",
+          "path": "src/lib/aiur/current_run_membership/event.ex",
+          "kind": "def",
+          "end_line": 89,
+          "body_sha256": "d94bbd2300b4b71ff39a36f7ec7dd88d40e1c8834149d6859c5ce83c6c8e32d4",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 91,
+          "module": "Aiur.CurrentRunMembership.Event",
+          "name": "valid?",
+          "path": "src/lib/aiur/current_run_membership/event.ex",
+          "kind": "def",
+          "end_line": 91,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 100,
+          "module": "Aiur.Opencode.TokenRegistry",
+          "name": "valid?",
+          "path": "src/lib/aiur/opencode/token_registry.ex",
+          "kind": "def",
+          "end_line": 103,
+          "body_sha256": "930a5238202690f65431d9a3b64944106c392672343e0819f56f3746ea1ca120",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 30,
+          "module": "Aiur.SupervisorToken",
+          "name": "valid?",
+          "path": "src/lib/aiur/supervisor_token.ex",
+          "kind": "defp",
+          "end_line": 33,
+          "body_sha256": "5a7a5aca19de8e7ceea727b20fcef717e2cefa95b3dbf8651a28c7108614bcf6",
+          "normalized_body_lines": 7,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "acquire",
+      "assessment": "Acquisition methods separate credential exchange, budget admission, workspace exclusion and voice ownership.",
+      "constraints": [
+        "AppToken parses credentials and delegates exchange/validation with injected request and validation functions. Budget requires enabled state and a token key, bypasses when disabled or Python is missing, and otherwise delegates acquisition with identity and deadline.",
+        "Budget returns broker_unavailable when prerequisites other than explicit bypass cases fail. Preserve this policy distinction rather than treating all acquisition failures as equivalent.",
+        "HostLock builds a holder and lock path, creates the parent directory and attempts acquisition with a process-liveness function, reporting directory failure. VoiceSessionLimiter calls its owner with authority and pid.",
+        "Resource lifetime, exclusivity, identity and fail-open policy must remain explicit; entry-body similarity does not establish shared resource semantics or complete liveness checks."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 163,
+          "module": "Aiur.GitHub.AppToken",
+          "name": "acquire",
+          "path": "src/lib/aiur/github/app_token.ex",
+          "kind": "def",
+          "end_line": 173,
+          "body_sha256": "1deaae1822c127945e07c5b12cc0f86567f1db965001cce0b6714e5a363e0d02",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 160,
+          "module": "Aiur.GitHub.Budget",
+          "name": "acquire",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "def",
+          "end_line": 179,
+          "body_sha256": "e7cb846c3adf5e3314d173b7f75e2c8afd3e0331d9261d787a0441819bff9ae5",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 90,
+          "module": "Aiur.Workspace.HostLock",
+          "name": "acquire",
+          "path": "src/lib/aiur/workspace/host_lock.ex",
+          "kind": "def",
+          "end_line": 99,
+          "body_sha256": "2f6f99da1ba4760d70a5862c75196fb109276fce455f8659b4b51aab7b943bc7",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 23,
+          "module": "AiurWeb.VoiceSessionLimiter",
+          "name": "acquire",
+          "path": "src/lib/aiur_web/voice_session_limiter.ex",
+          "kind": "def",
+          "end_line": 25,
+          "body_sha256": "80a168efa2a3375f5d6932ba30280d8dbaf401f8c3dbb09f43c7ef3877e46ca6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "adjust_max_concurrent_agents",
+      "assessment": "Capacity adjustment is an existing delegation chain with asynchronous UI admission.",
+      "constraints": [
+        "AgentList.App casts an integer delta to its owner. AgentList.Controls logs intent/result, calls Orchestrator and handles the result.",
+        "Orchestrator delegates both arities to Slots. Slots supplies the default owner and uses control_api_call for integer deltas.",
+        "These are adapter layers around one control operation rather than repeated adjustment algorithms. Preserve the asynchronous UI boundary and result handling; this family does not prove downstream clamping or that a cast has changed capacity."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 73,
+          "module": "Aiur.AgentList.App",
+          "name": "adjust_max_concurrent_agents",
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "kind": "def",
+          "end_line": 74,
+          "body_sha256": "4666c96f9405b0673a2aa4e88a54b22eef5de344efeaac8bde64e3bfb6ffd038",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 30,
+          "module": "Aiur.AgentList.Controls",
+          "name": "adjust_max_concurrent_agents",
+          "path": "src/lib/aiur/agent_list/controls.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "9a7aa5ce622053bdb416b6c66aaf0c5d1b829cb59cc3516913e9171b65672f52",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 538,
+          "module": "Aiur.Orchestrator",
+          "name": "adjust_max_concurrent_agents",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 538,
+          "body_sha256": "cb1b392dedb650a2ea7947eb91e4b3b4e14ddf12de3bd6a3e7603f15213bc186",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 542,
+          "module": "Aiur.Orchestrator",
+          "name": "adjust_max_concurrent_agents",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 543,
+          "body_sha256": "c0ea73fd5b10509557c7a0e342c3b57d1584eac808014b5b817cfd60d49be58f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "Aiur.Orchestrator.Slots",
+          "name": "adjust_max_concurrent_agents",
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "kind": "def",
+          "end_line": 25,
+          "body_sha256": "40a49876b08d3696969c7787101c54c953ba2319d938503606ea02288b31c8b5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 29,
+          "module": "Aiur.Orchestrator.Slots",
+          "name": "adjust_max_concurrent_agents",
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "kind": "def",
+          "end_line": 30,
+          "body_sha256": "d198ddc7486d923e3aa723f676ecaf52863700d14dc3f491f68eda5182dd757b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "admit",
+      "assessment": "Admission covers queueing, tool compatibility, record safety and webhook fallback.",
+      "constraints": [
+        "ToolExecutor translates pending enqueue status to ok/pending and propagates enqueue errors. UsageLedger.Record checks encoded envelope numeric bounds before safe-value acceptance.",
+        "Rtk requires a discovered executable, acceptable version and excluded GitHub rewriting; it distinguishes explicit refusal from missing/probe-failed availability.",
+        "GithubWebhookController runs Ingest.accept in a task, yields then brutally shuts down on timeout, and falls back to process metadata without semantic key or label state on timeout/exit.",
+        "Preserve queue acknowledgment, financial validation, governed-command compatibility and webhook fail-open semantics. Task timeout alone does not establish whether admission-side effects already occurred; transitive ingestion guarantees remain unverified here."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 240,
+          "module": "Aiur.AgentRunner.ToolExecutor",
+          "name": "admit",
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "kind": "defp",
+          "end_line": 245,
+          "body_sha256": "c177f04ecf678b5f062027c5f5107701a4d6898e0d0ccadf704140768cf982e1",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 99,
+          "module": "Aiur.Rtk",
+          "name": "admit",
+          "path": "src/lib/aiur/rtk.ex",
+          "kind": "defp",
+          "end_line": 123,
+          "body_sha256": "d5e54912a4b4160fbcf732989fd3be9ea87f8f078b1d23c6d7b0d87f8f55dec8",
+          "normalized_body_lines": 27,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 69,
+          "module": "Aiur.UsageLedger.Record",
+          "name": "admit",
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "kind": "def",
+          "end_line": 77,
+          "body_sha256": "7ac9c081dbe187f7fd662bc5d895833ef3358ec94428a12875cb901374597373",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 95,
+          "module": "AiurWeb.GithubWebhookController",
+          "name": "admit",
+          "path": "src/lib/aiur_web/controllers/github_webhook_controller.ex",
+          "kind": "defp",
+          "end_line": 107,
+          "body_sha256": "64cf70ca93eefacbe1197ec9cdf77fea0b799b1cab78261896365335fc5f4416",
+          "normalized_body_lines": 22,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5181,
-  "limits": "271 selected families and 5181 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5216,
+  "limits": "277 selected families and 5216 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
