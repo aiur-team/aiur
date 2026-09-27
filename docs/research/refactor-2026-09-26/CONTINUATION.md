@@ -1763,3 +1763,7 @@ Read enrich and five tracker fetch families: 40 literal entries across six famil
 ### Name duplication: graph traversal and presentation helpers
 
 Read finish, fold, humanize, issue, message and model: 69 literal entries across six families. Equivalent DFS finishing-order traversal and three identical UI humanizers are narrow sharing candidates. Preserve completion generation fences, event ordering, ownership issuance and unknown/admission messaging. Name triage now 190 families/4365 entries, leaving 1490 cross-module names. Raw findings and skeptic counts are unchanged; no runtime correctness or savings are claimed.
+
+### Name duplication: initialization and evidence defaults
+
+Read model_label, mount, new_binding, non_negative, parse_timestamp and paused?: 60 literal entries across six families. Identify equivalent integer validators and nil-returning timestamp parsers while preserving offset acceptance, fallback policy, process-owned binding context and connected-only initialization. Pause predicates cover different containment, display and control populations. Name triage now 196 families/4425 entries, leaving 1484 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
